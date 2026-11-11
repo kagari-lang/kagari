@@ -29,13 +29,6 @@ impl JitPolicy {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum PanicPolicy {
-    Propagate,
-    #[default]
-    ConvertToError,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ExecutionContext {
     pub cancellation: CancellationToken,
@@ -43,7 +36,6 @@ pub struct ExecutionContext {
     pub jit_policy: JitPolicy,
     pub tracing_enabled: bool,
     pub inputs: DeterministicInputs,
-    pub panic_policy: PanicPolicy,
 }
 
 impl ExecutionContext {

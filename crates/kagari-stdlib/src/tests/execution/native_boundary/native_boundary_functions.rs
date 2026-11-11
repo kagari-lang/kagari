@@ -22,30 +22,42 @@ use super::{compile_program, compile_without_foundation};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
+    frame::types::arguments::TypeArgument,
     gc::GcHeapConfig,
     module::InstalledProgram,
     native::{
-        binding::NativeResult, builder::ModuleBuilder, catalog::DeclarationCatalog,
-        conversion::KagariType, declarations::FunctionDecl, function_handle::Function,
-        module::NativeModule, objects::Object, typed::NativeContext, types::Type,
+        binding::NativeResult,
+        builder::ModuleBuilder,
+        catalog::DeclarationCatalog,
+        conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
+        declarations::FunctionDecl,
+        function_handle::Function,
+        module::NativeModule,
+        objects::Object,
+        typed::NativeContext,
+        types::Type,
     },
     resource::RuntimeLimits,
+    value::Value,
 };
 
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::cancellation::CancellationToken;
 use kagari_common::identity::metadata::DefinitionMetadata;
 
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    cell::Cell,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 type ScalarCallback = Function<(i32,), i32>;
 
 #[test]
 fn empty_provider_and_custom_native_calls_need_no_standard_installation() {
-    let (vm, owner) = fixture_without_foundation("pub fn main() {}", None);
+    let (mut vm, owner) = fixture_without_foundation("pub fn main() {}", None);
     let main = vm.bind_function::<(), ()>(&owner.root(), "main").unwrap();
     vm.call(&main, ()).unwrap();
 
@@ -64,7 +76,7 @@ fn empty_provider_and_custom_native_calls_need_no_standard_installation() {
         )
         .unwrap();
     let module = module.finish().unwrap();
-    let (vm, owner) = fixture_without_foundation(
+    let (mut vm, owner) = fixture_without_foundation(
         include_str!("../../../../../kagari-runtime/tests/fixtures/core_only_calls.kgr"),
         Some(&module),
     );
@@ -130,7 +142,7 @@ fn bound_entries_check_visibility_signature_and_return_retained_objects() {
             .map(|()| registered_function)
     }
     .unwrap();
-    let (vm, owner) = fixture(
+    let (mut vm, owner) = fixture(
         r#"
         use example::functions::tick;
         pub struct Player { pub var hp: i32 }
@@ -164,7 +176,7 @@ fn bound_entries_check_visibility_signature_and_return_retained_objects() {
     vm.collect_garbage().unwrap();
     assert_eq!(vm.call(&read, (player.clone(),)).unwrap(), 42);
     assert_eq!(calls.load(Ordering::Relaxed), 1);
-    let (foreign, _) = fixture("pub fn main() {}", None);
+    let (mut foreign, _) = fixture("pub fn main() {}", None);
 
     assert!(foreign.call(&make, ()).is_err());
     assert_eq!(calls.load(Ordering::Relaxed), 1);
@@ -223,7 +235,7 @@ fn typed_closures_reenter_native_and_retain_captures_until_last_handle() {
             .map(|()| registered_function)
     }
     .unwrap();
-    let (vm, owner) = fixture(
+    let (mut vm, owner) = fixture(
         r#"
         use example::functions::{apply, increment};
         pub fn main() -> i32 { val offset = [40]; apply(|x| increment(x + offset[0]), 1) }
@@ -271,7 +283,7 @@ fn returned_closures_retain_bodies_while_bound_functions_select_current() {
         .unwrap();
     assert_eq!(
         answer
-            .prepare_call(&vm)
+            .prepare_call(&mut vm)
             .unwrap()
             .owner()
             .bytecode
@@ -299,7 +311,7 @@ fn returned_closures_retain_bodies_while_bound_functions_select_current() {
         .bind_function::<(), Function<(), i32>>(&_old_program.root(), "make")
         .unwrap();
     let closure = vm.call(&make, ()).unwrap();
-    let prepared = answer.prepare_call(&vm).unwrap();
+    let prepared = answer.prepare_call(&mut vm).unwrap();
     reload_bytecode(
         &mut vm,
         &_old_program,
@@ -313,13 +325,12 @@ fn returned_closures_retain_bodies_while_bound_functions_select_current() {
         .bind_function::<(), i32>(&_new_program.root(), "answer")
         .unwrap();
     {
-        let mut cx = vm.context(&new).unwrap();
-        let _session = vm.begin_execution(&new, vm.execution_options()).unwrap();
+        let mut session = vm.begin_execution(&new, vm.execution_options()).unwrap();
+        let options = session.runtime().execution_options();
+        let mut cx = session.runtime_mut().context(&new).unwrap();
         assert_eq!(answer.call(&mut cx, ()).unwrap(), 42);
         assert_eq!(
-            prepared
-                .call_with_options::<_, i32>(&mut cx, (), vm.execution_options())
-                .unwrap(),
+            prepared.call_with_options(&mut cx, (), options).unwrap(),
             41
         );
         assert_eq!(closure.call(&mut cx, ()).unwrap(), 41);
@@ -350,7 +361,7 @@ fn returned_closures_retain_bodies_while_bound_functions_select_current() {
 
 #[test]
 fn public_script_function_handles_can_be_passed_back_as_callable_values() {
-    let (vm, owner) = fixture(
+    let (mut vm, owner) = fixture(
         "pub fn double(x: i32) -> i32 { x * 2 } pub fn use_callback(callback: fn(i32) -> i32) -> i32 { callback(21) }",
         None,
     );
@@ -394,7 +405,7 @@ fn typed_reentry_traps_cancellation_and_depth_exhaustion_release_execution_state
             .map(|()| registered_function)
     }
     .unwrap();
-    let (vm, owner) = fixture(
+    let (mut vm, owner) = fixture(
         r#"
         use example::functions::apply;
         pub fn divide(x: i32) -> i32 { 10 / x }
@@ -426,10 +437,10 @@ fn typed_reentry_traps_cancellation_and_depth_exhaustion_release_execution_state
     let mut options = vm.execution_options();
     options.cancellation = token.clone();
     {
-        let _session = vm.begin_execution(&owner, options).unwrap();
+        let mut _session = vm.begin_execution(&owner, options).unwrap();
         token.cancel();
         assert!(
-            matches!(vm.call(&healthy, ()), Err(error) if error.kind() == RuntimeErrorKind::Cancelled)
+            matches!(_session.runtime_mut().call(&healthy, ()), Err(error) if error.kind() == RuntimeErrorKind::Cancelled)
         );
     }
     assert_eq!(vm.call(&healthy, ()).unwrap(), 42);
@@ -439,7 +450,7 @@ fn typed_reentry_traps_cancellation_and_depth_exhaustion_release_execution_state
 #[test]
 fn retained_entry_cannot_escape_candidate_initialization_isolation() {
     let source = "pub fn answer() -> i32 { 42 }";
-    let (vm, old) = fixture(source, None);
+    let (mut vm, old) = fixture(source, None);
     let _old_program = old;
     let old = vm.select_program(&_old_program).unwrap();
     let old_function = vm
@@ -455,19 +466,58 @@ fn retained_entry_cannot_escape_candidate_initialization_isolation() {
     let new_function = vm
         .bind_function::<(), i32>(&_old_program.root(), "answer")
         .unwrap();
-    let prepared = new_function.prepare_call(&vm).unwrap();
+    let prepared = new_function.prepare_call(&mut vm).unwrap();
     assert_eq!(prepared.owner().key(), old.key());
     assert_ne!(prepared.owner().key(), candidate.module().key());
     {
-        let _session = vm.begin_candidate_initialization(&candidate).unwrap();
+        let mut _session = vm.begin_candidate_initialization(&candidate).unwrap();
         assert!(
-            matches!(vm.call(&old_function, ()), Err(error) if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation)
+            matches!(_session.runtime_mut().call(&old_function, ()), Err(error) if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation)
         );
         assert!(
-            matches!(vm.call(&new_function, ()), Err(error) if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation)
+            matches!(_session.runtime_mut().call(&new_function, ()), Err(error) if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation)
         );
     }
     assert_eq!(vm.call(&old_function, ()).unwrap(), 42);
+}
+
+thread_local! {
+    static SCALAR_EFFECTS: Cell<(usize, usize, usize)> = const { Cell::new((0, 0, 0)) };
+}
+
+#[derive(Debug, PartialEq)]
+struct MappedScalar(i32);
+
+impl KagariType for MappedScalar {
+    fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
+        let (mapping, encode, decode) = SCALAR_EFFECTS.get();
+        SCALAR_EFFECTS.set((mapping + 1, encode, decode));
+        i32::kagari_type(catalog)
+    }
+}
+
+impl IntoKagari for MappedScalar {
+    fn into_kagari(
+        self,
+        cx: &mut ConversionContext<'_>,
+        expected: &TypeArgument,
+    ) -> NativeResult<Value> {
+        let (mapping, encode, decode) = SCALAR_EFFECTS.get();
+        SCALAR_EFFECTS.set((mapping, encode + 1, decode));
+        self.0.into_kagari(cx, expected)
+    }
+}
+
+impl FromKagari for MappedScalar {
+    fn from_kagari(
+        cx: &mut ConversionContext<'_>,
+        expected: &TypeArgument,
+        value: &Value,
+    ) -> NativeResult<Self> {
+        let (mapping, encode, decode) = SCALAR_EFFECTS.get();
+        SCALAR_EFFECTS.set((mapping, encode, decode + 1));
+        i32::from_kagari(cx, expected, value).map(Self)
+    }
 }
 
 #[test]
@@ -496,16 +546,41 @@ fn native_declaration_handles_bind_checked_installed_entries_directly() {
             .map(|()| registered_function)
     }
     .unwrap();
-    let (vm, owner) = fixture(
+    let (mut vm, owner) = fixture(
         "use example::functions::add; pub fn main() -> i32 { add(20, 22) }",
         Some(&module.finish().unwrap()),
     );
     let _owner_program = owner;
+    SCALAR_EFFECTS.set((0, 0, 0));
+    let declaration = add.definitions().resolve(add.id()).unwrap().to_path();
     let function = vm
-        .bind_function_declaration::<(i32, i32), i32>(
+        .bind_function_declaration::<(MappedScalar, MappedScalar), MappedScalar>(
             &_owner_program.root(),
-            &add.definitions().resolve(add.id()).unwrap().to_path(),
+            &declaration,
         )
         .unwrap();
-    assert_eq!(vm.call(&function, (20, 22)).unwrap(), 42);
+    assert_eq!(SCALAR_EFFECTS.get(), (3, 0, 0));
+    let duplicate = vm
+        .bind_function_declaration::<(MappedScalar, MappedScalar), MappedScalar>(
+            &_owner_program.root(),
+            &declaration,
+        )
+        .unwrap();
+    for function in [&function, &duplicate] {
+        assert_eq!(
+            vm.call(function, (MappedScalar(20), MappedScalar(22)))
+                .unwrap(),
+            MappedScalar(42)
+        );
+    }
+    let prepared = function.prepare_call(&mut vm).unwrap().clone();
+    let options = vm.execution_options();
+    let mut cx = vm.context(prepared.owner()).unwrap();
+    assert_eq!(
+        prepared
+            .call_with_options(&mut cx, (MappedScalar(19), MappedScalar(23)), options)
+            .unwrap(),
+        MappedScalar(42)
+    );
+    assert_eq!(SCALAR_EFFECTS.get(), (3, 6, 3));
 }

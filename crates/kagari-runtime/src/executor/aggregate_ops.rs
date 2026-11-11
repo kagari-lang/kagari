@@ -1,13 +1,13 @@
 use crate::{
     error::{RuntimeError, trap::TrapReason},
-    executor::Executor,
+    executor::Interpreter,
     value::{EnumTag, Value},
 };
 
 use kagari_bytecode::instruction::Slot;
 use kagari_types::ty::Ty;
 
-impl Executor<'_> {
+impl Interpreter<'_> {
     pub(crate) fn test_enum_variant(&self, value: Slot) -> Result<Value, RuntimeError> {
         let Value::Enum(handle) = self.current_frame()?.read_slot(self.runtime, value)? else {
             return Err(RuntimeError::from(TrapReason::Provider(

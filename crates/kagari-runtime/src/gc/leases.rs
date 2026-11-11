@@ -30,23 +30,6 @@ pub(crate) struct LeaseTable {
     entries: RefCell<HashMap<HeapObjectId, Entry>>,
 }
 
-pub(crate) struct BorrowedLease<'table> {
-    table: &'table LeaseTable,
-    id: HeapObjectId,
-}
-
-impl Drop for BorrowedLease<'_> {
-    fn drop(&mut self) {
-        let mut entries = self.table.entries.borrow_mut();
-        let entry = entries.get_mut(&self.id).expect("registered storage lease");
-        entry.borrowed -= 1;
-        entry.prune();
-        if entry.borrowed == 0 && entry.owned.is_empty() {
-            entries.remove(&self.id);
-        }
-    }
-}
-
 impl LeaseTable {
     pub(crate) fn is_active(&self, id: HeapObjectId) -> bool {
         self.entries.borrow().get(&id).is_some_and(Entry::is_active)
@@ -69,7 +52,7 @@ impl LeaseTable {
     }
 
     /// No per-call allocation after the keyed table is warm.
-    pub(crate) fn borrow(&self, id: HeapObjectId) -> Result<BorrowedLease<'_>, RuntimeError> {
+    pub(crate) fn borrow(&self, id: HeapObjectId) -> Result<(), RuntimeError> {
         let mut entries = self.entries.borrow_mut();
         entries
             .try_reserve(1)
@@ -79,7 +62,17 @@ impl LeaseTable {
             .borrowed
             .checked_add(1)
             .ok_or_else(|| RuntimeError::resource_limit("storage lease depth"))?;
-        Ok(BorrowedLease { table: self, id })
+        Ok(())
+    }
+
+    pub(crate) fn release_borrow(&self, id: HeapObjectId) {
+        let mut entries = self.entries.borrow_mut();
+        let entry = entries.get_mut(&id).expect("registered storage lease");
+        entry.borrowed -= 1;
+        entry.prune();
+        if entry.borrowed == 0 && entry.owned.is_empty() {
+            entries.remove(&id);
+        }
     }
 
     pub(crate) fn prune(&self) {

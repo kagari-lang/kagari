@@ -82,12 +82,12 @@ impl<T: NativePayload> NativeType<T> {
     /// Construct from the registered payload representation. Handwritten
     /// NativePayload implementations remain the low-level tracing boundary.
     pub fn create(&self, cx: &mut NativeContext<'_>, payload: T) -> NativeResult<Opaque<T>> {
-        let runtime = cx.runtime();
+        let runtime = cx.runtime_mut();
         runtime.gc().ensure_no_native_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
         runtime.validate_executable_module(self.owner())?;
         self.type_argument().validate(runtime)?;
-        cx.poll()?;
+        runtime.resources().poll_execution()?;
         let mut object = self.record.storage.prepare_payload(
             runtime.gc(),
             self.type_argument().ty(),
@@ -152,6 +152,13 @@ impl<T: NativeData> Opaque<T> {
     ///     object.edit(cx, |value| Ok(value)).unwrap()
     /// }
     /// ```
+    /// Executing/collecting services cannot be borrowed while the payload is lent:
+    /// ```compile_fail,E0500
+    /// use kagari_runtime::native::{payload::Opaque, typed::NativeContext};
+    /// fn reenter(object: &Opaque<i32>, cx: &mut NativeContext<'_>) {
+    ///     object.edit(cx, |_| { cx.collect_garbage()?; Ok(()) }).unwrap();
+    /// }
+    /// ```
     pub fn edit<R>(
         &self,
         cx: &NativeContext<'_>,
@@ -184,13 +191,13 @@ impl NativeContext<'_> {
     }
 
     /// Prepare the callback's declared native result for a managed field builder.
-    pub fn result_native_type<T: NativePayload>(&self) -> NativeResult<NativeType<T>> {
+    pub fn result_native_type<T: NativePayload>(&mut self) -> NativeResult<NativeType<T>> {
         let function = self.function.ok_or_else(|| {
             RuntimeError::module_validation("native construction requires a declared result")
         })?;
         let argument = function.type_signature()?.result.clone();
-        self.runtime()
-            .prepare_native_type::<T>(self.conversion.owner(), argument)
+        let owner = self.conversion.owner();
+        self.runtime_mut().prepare_native_type::<T>(owner, argument)
     }
 }
 

@@ -39,7 +39,7 @@ impl<'runtime> ConversionContext<'runtime> {
             .runtime()
             .prepare_struct_layout(self.owner(), expected)?;
         self.check_elements(layout.layout().fields.len())?;
-        let object_type = self.runtime().retain_object_type(layout)?;
+        let object_type = self.runtime_mut().retain_object_type(layout)?;
         let builder = object_type.builder()?;
         Ok(StructEncoder {
             cx: self,
@@ -70,7 +70,7 @@ impl<'runtime> ConversionContext<'runtime> {
             .struct_layout(*id)
             .ok_or_else(|| RuntimeError::module_validation("struct conversion input"))?;
         self.check_elements(layout.layout().fields.len())?;
-        let object_type = self.runtime().retain_object_type(layout.clone())?;
+        let object_type = self.runtime_mut().retain_object_type(layout.clone())?;
         let mut fields = Vec::new();
         fields
             .try_reserve_exact(layout.layout().fields.len())
@@ -121,7 +121,10 @@ impl StructEncoder<'_, '_> {
     /// Encode one named public field. Duplicate/missing fields reject; writing
     /// does not mutate an existing script object or the original Rust input.
     pub fn field<T: IntoKagari + 'static>(&mut self, name: &str, value: T) -> NativeResult<()> {
-        let field = self.cx.runtime().bind_field::<T>(&self.object_type, name)?;
+        let field = self
+            .cx
+            .runtime_mut()
+            .bind_field::<T>(&self.object_type, name)?;
         self.builder
             .set_in(self.cx, &field, value)
             .map(|_| ())
@@ -162,7 +165,10 @@ impl StructDecoder<'_, '_> {
     /// Decode a field from the original snapshot. A child converter may collect
     /// or edit the input's aliases without changing later snapshot fields.
     pub fn field<T: FromKagari + 'static>(&mut self, name: &str) -> NativeResult<T> {
-        let field = self.cx.runtime().bind_field::<T>(&self.object_type, name)?;
+        let field = self
+            .cx
+            .runtime_mut()
+            .bind_field::<T>(&self.object_type, name)?;
         field
             .read_snapshot(self.cx, &self.object_type, &self.values)
             .map_err(|error| error.at(ErrorLocation::Field(name.to_owned())))

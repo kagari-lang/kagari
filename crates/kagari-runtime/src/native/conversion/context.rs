@@ -9,15 +9,18 @@ use crate::{
     module::{ExecutableModule, ModuleEpochRetention, retention::ProgramLease},
     native::{
         binding::NativeResult,
-        context::CallContext,
+        context::NativeCall,
         conversion::{FromKagari, IntoKagari, KagariType},
         types::Type,
     },
+    publication::ActivationMark,
     value::Value,
 };
 use std::{
     collections::HashSet,
+    marker::PhantomData,
     ops::{Deref, DerefMut},
+    rc::Rc,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -40,7 +43,9 @@ impl Default for ConversionLimits {
 /// Borrow the owning runtime only for synchronous conversion. Values returned by
 /// `encode` have independent root leases; scratch roots expire on every exit.
 pub struct ConversionContext<'runtime> {
-    runtime: &'runtime Runtime,
+    activation: Option<ActivationMark>,
+    _thread: PhantomData<Rc<()>>,
+    runtime: &'runtime mut Runtime,
     owner: &'runtime ExecutableModule,
     _program: Option<ProgramLease>,
     limits: ConversionLimits,
@@ -49,6 +54,11 @@ pub struct ConversionContext<'runtime> {
     string_bytes: usize,
     active: HashSet<HeapObjectId>,
     roots: Vec<RootedValue>,
+}
+
+enum Admission {
+    Host,
+    Mapping,
 }
 
 struct Frame<'scope, 'runtime> {
@@ -82,24 +92,52 @@ impl Drop for Frame<'_, '_> {
 
 impl<'runtime> ConversionContext<'runtime> {
     pub fn new(
-        runtime: &'runtime Runtime,
+        runtime: &'runtime mut Runtime,
         owner: &'runtime ExecutableModule,
     ) -> NativeResult<Self> {
         Self::with_limits(runtime, owner, ConversionLimits::default())
     }
 
     pub fn with_limits(
-        runtime: &'runtime Runtime,
+        runtime: &'runtime mut Runtime,
         owner: &'runtime ExecutableModule,
         limits: ConversionLimits,
     ) -> NativeResult<Self> {
+        Self::prepare(runtime, owner, limits, Admission::Host)
+    }
+
+    pub(crate) fn for_mapping(
+        runtime: &'runtime mut Runtime,
+        owner: &'runtime ExecutableModule,
+    ) -> NativeResult<Self> {
+        Self::prepare(
+            runtime,
+            owner,
+            ConversionLimits::default(),
+            Admission::Mapping,
+        )
+    }
+
+    fn prepare(
+        runtime: &'runtime mut Runtime,
+        owner: &'runtime ExecutableModule,
+        limits: ConversionLimits,
+        admission: Admission,
+    ) -> NativeResult<Self> {
+        let admission = match admission {
+            Admission::Host => Some(runtime.resources().begin_synchronous_activation()?),
+            Admission::Mapping => None,
+        };
         runtime.gc().ensure_no_native_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
         runtime.validate_executable_module(owner)?;
         let program = runtime
             .retain_program(owner, ModuleEpochRetention::ActiveCall)
             .ok_or_else(|| RuntimeError::module_validation("conversion program retention"))?;
+        let activation = admission.map(|admission| admission.detach());
         Ok(Self {
+            activation,
+            _thread: Default::default(),
             runtime,
             owner,
             _program: Some(program),
@@ -114,11 +152,13 @@ impl<'runtime> ConversionContext<'runtime> {
 
     /// The synchronous call already retains its exact program through the
     /// execution frame or selected-call lease. Only escaping handles add leases.
-    pub(crate) fn in_native_call(call: &'runtime CallContext<'_>) -> NativeResult<Self> {
+    pub(crate) fn in_native_call(call: &'runtime mut NativeCall<'_>) -> NativeResult<Self> {
         call.heap().ensure_no_native_borrow()?;
         call.runtime.resources().ensure_execution_allowed()?;
         call.runtime.validate_executable_module(call.owner)?;
         Ok(Self {
+            activation: None,
+            _thread: Default::default(),
             runtime: call.runtime,
             owner: call.owner,
             _program: None,
@@ -131,7 +171,11 @@ impl<'runtime> ConversionContext<'runtime> {
         })
     }
 
-    pub fn runtime(&self) -> &'runtime Runtime {
+    pub fn runtime(&self) -> &Runtime {
+        self.runtime
+    }
+
+    pub fn runtime_mut(&mut self) -> &mut Runtime {
         self.runtime
     }
 
@@ -359,6 +403,17 @@ impl<'runtime> ConversionContext<'runtime> {
             .root_value(*value)
             .map(Some)
             .ok_or_else(|| RuntimeError::module_validation("conversion temporary root"))
+    }
+}
+
+impl Drop for ConversionContext<'_> {
+    fn drop(&mut self) {
+        let _activation = self
+            .activation
+            .take()
+            .map(|mark| mark.attach(self.runtime.resources()));
+        self.roots.clear();
+        self._program.take();
     }
 }
 

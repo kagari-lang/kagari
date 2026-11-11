@@ -334,38 +334,23 @@ fn disabled_automatic_gc_still_invalidates_candidates_until_explicit_collection(
     assert!(!runtime.modules.abandonment_pending());
 }
 
-#[rstest]
-#[case::automatic(true)]
-#[case::explicit(false)]
-fn safepoints_reject_borrowed_module_storage_without_panicking(#[case] automatic: bool) {
-    let mut config = RuntimeConfig::default();
-    config.gc.collection_threshold = automatic.then_some(1024);
-    let mut runtime = Runtime::new(config);
+#[test]
+fn collection_rejects_borrowed_module_storage_before_detaching_candidates() {
+    let mut runtime = Runtime::default();
     let baseline = load_bytecode(&mut runtime, "candidate", program()).unwrap();
-    let view = runtime.modules.inner.borrow_mut();
-    // Public safepoints retain borrow validation without pending work too.
-    assert_eq!(runtime.gc_safepoint().is_err(), automatic);
-    drop(view);
     let candidate = stage(&mut runtime, &baseline);
+    let selected = runtime.select_program(&baseline).unwrap();
     let view = runtime.modules.inner.borrow_mut();
     drop(candidate);
-    let result = runtime.gc_safepoint();
-    if automatic {
-        assert_eq!(
-            result.unwrap_err().kind(),
-            RuntimeErrorKind::ModuleValidation
-        );
-    } else {
-        result.unwrap();
-    }
-    let executable = runtime
-        .modules
-        .capture_current(&baseline.installation)
-        .unwrap();
     assert_eq!(
-        view.records[&executable.key()].module.epoch,
-        executable.epoch
+        runtime
+            .gc
+            .collect(&runtime.modules, &[])
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::ModuleValidation
     );
+    assert_eq!(view.records[&selected.key()].module.epoch, selected.epoch);
     assert!(!runtime.is_quarantined());
     drop(view);
     assert_eq!(
@@ -504,6 +489,7 @@ fn rejected_close_preserves_liveness_but_drop_always_retires_installations() {
 
     let context = Context::from_waker(Waker::noop());
     let turn = runtime.begin_scheduler_turn(&context, None).unwrap();
+    mem::forget(turn);
     assert_eq!(
         runtime.close().unwrap_err().kind(),
         RuntimeErrorKind::ModuleValidation
@@ -513,7 +499,6 @@ fn rejected_close_preserves_liveness_but_drop_always_retires_installations() {
 
     // A forgotten driver guard keeps close's precondition failing during Drop.
     // Destruction must still revoke the Runtime-owned current records.
-    mem::forget(turn);
     drop(runtime);
     assert!(code.upgrade().is_none());
 }

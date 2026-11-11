@@ -1,11 +1,17 @@
 //! Source/artifact preparation for runtime update and current-call contracts.
 use crate::{
-    module::{ExecutableModule, VerifiedProgram},
+    Runtime,
+    module::{ExecutableModule, InstalledProgram, VerifiedProgram},
     reload::{
         ReloadValidationError, validate_reload_artifact_candidate, validate_reload_candidate,
     },
+    test_support::{bytecode::load_bytecode, native::program::ProgramFixture},
 };
-use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
+use kagari_bytecode::{
+    artifact::KbcArtifact,
+    module::BytecodeModule,
+    program::{BytecodeProgram, ModuleRef},
+};
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_compiler::{
     bytecode::lower_program_to_bytecode,
@@ -99,4 +105,22 @@ pub(crate) fn source_free_program_results(
         &decoded_context,
     );
     [raw.map(|_| ()), artifact.map(|_| ())]
+}
+
+pub(crate) fn load_empty(runtime: &mut Runtime, name: &str) -> InstalledProgram {
+    let context = DefinitionContext::new().unwrap();
+    load_bytecode(
+        runtime,
+        name,
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule {
+                ..Default::default()
+            }],
+        }
+        .metadata(context.snapshot(), &Default::default())
+        .unwrap(),
+    )
+    .unwrap()
 }

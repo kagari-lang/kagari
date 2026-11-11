@@ -4,7 +4,7 @@ use crate::{
     frame::types::arguments::TypeArgument,
     native::{
         binding::NativeResult,
-        context::{CallContext, LinkedCallable},
+        context::{LinkedCallable, NativeCall},
     },
     value::Value,
 };
@@ -24,7 +24,7 @@ impl LinkedCallable {
     }
 }
 
-impl<'call> CallContext<'call> {
+impl<'call> NativeCall<'call> {
     /// Read an existing argument root with its prepared closed type. This does
     /// not create an owning Rust handle or convert the value through host storage.
     pub fn checked_argument(&self, index: usize) -> NativeResult<Value> {

@@ -41,7 +41,7 @@ pub fn update() { STATE = 5; }
     let old = runtime
         .load_program(first.program(), Default::default())
         .unwrap();
-    let call = |module, entry| {
+    let mut call = |module, entry| {
         runtime
             .execute(module, entry, &[], &Default::default())
             .unwrap()

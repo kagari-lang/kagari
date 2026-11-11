@@ -15,7 +15,7 @@ use kagari_runtime::{
         catalog::DeclarationCatalog,
         conversion::{
             FromKagari, IntoKagari, KagariType,
-            arguments::{FromKagariArguments, IntoKagariArguments},
+            arguments::{FromKagariArguments, IntoKagariArguments, PreparedArguments},
             context::{ConversionContext, ConversionLimits},
         },
         module::NativeModule,
@@ -59,20 +59,20 @@ fn fixture_with(extra: Option<NativeModule>, source: &str) -> (Runtime, Executab
 fn nested_owned_values_round_trip_under_collection_and_release_temporary_roots() {
     type Entry = Option<Result<(String, (i32, i32)), String>>;
     type NestedValues = (Entry, Entry, Entry);
-    let (runtime, owner) = fixture();
+    let (mut runtime, owner) = fixture();
     let input = (
         Some(Ok(("火🔥".to_owned(), (20, 22)))),
         None,
         Some(Err("business error".to_owned())),
     );
     let root = {
-        let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+        let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
         let root = cx.encode(input.clone()).unwrap();
-        assert_eq!(runtime.gc().active_roots(), 1);
-        runtime.collect_garbage().unwrap();
+        assert_eq!(cx.runtime().gc().active_roots(), 1);
+        cx.runtime_mut().collect_garbage().unwrap();
         let decoded: NestedValues = cx.decode(&root).unwrap();
         assert_eq!(decoded, input);
-        assert_eq!(runtime.gc().active_roots(), 1);
+        assert_eq!(cx.runtime().gc().active_roots(), 1);
         root
     };
     assert!(runtime.gc().stats().collections > 0);
@@ -82,8 +82,8 @@ fn nested_owned_values_round_trip_under_collection_and_release_temporary_roots()
 
 #[test]
 fn scalar_widths_tuple_arity_and_foreign_roots_are_checked() {
-    let (runtime, owner) = fixture();
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let (mut runtime, owner) = fixture();
+    let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
     let values = (
         i8::MIN,
         i16::MAX,
@@ -111,20 +111,21 @@ fn scalar_widths_tuple_arity_and_foreign_roots_are_checked() {
     let root = cx.encode(signed).unwrap();
     assert_eq!(cx.decode::<(i64, i64)>(&root).unwrap(), signed);
     let unit = cx.encode(()).unwrap();
-    assert_eq!(unit.value(runtime.gc()), Some(Value::Unit));
+    assert_eq!(unit.value(cx.runtime().gc()), Some(Value::Unit));
     let tuple = cx.encode((true,)).unwrap();
     assert_eq!(cx.decode::<(bool,)>(&tuple).unwrap(), (true,));
-    let invalid = runtime.root_value(Value::I32(256)).unwrap();
+    let invalid = cx.runtime().root_value(Value::I32(256)).unwrap();
     assert!(cx.decode::<u8>(&invalid).is_err());
     for values in [vec![], vec![Value::I32(42)]] {
-        let array = runtime
+        let array = cx
+            .runtime()
             .alloc_array(
                 &owner,
                 Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
                 values,
             )
             .unwrap();
-        let root = runtime.root_value(Value::Array(array)).unwrap();
+        let root = cx.runtime().root_value(Value::Array(array)).unwrap();
         assert!(cx.decode::<(i32, i32)>(&root).is_err());
     }
     let foreign = Runtime::default().root_value(Value::I32(1)).unwrap();
@@ -133,8 +134,8 @@ fn scalar_widths_tuple_arity_and_foreign_roots_are_checked() {
 
 #[test]
 fn supported_tuple_arities_each_round_trip_as_one_value() {
-    let (runtime, owner) = fixture();
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let (mut runtime, owner) = fixture();
+    let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
     macro_rules! round_trip {
         ($($ty:ty => $value:expr),*) => {
             let value = ($($value,)*);
@@ -165,18 +166,27 @@ where
     let expected = (0..count)
         .map(|index| cx.parameter(&tuple, index).unwrap())
         .collect::<Vec<_>>();
-    let arguments = value.clone().into_arguments(cx, &expected).unwrap();
+    let arguments = PreparedArguments::<A>::new(cx, &expected)
+        .unwrap()
+        .encode(cx, value.clone())
+        .unwrap();
     let slots = (0..count)
         .map(|index| arguments.get(cx.runtime().gc(), index).unwrap())
         .collect::<Vec<_>>();
     assert!(arguments.get(cx.runtime().gc(), count).is_none());
-    assert_eq!(A::from_arguments(cx, &expected, &slots).unwrap(), value);
+    assert_eq!(
+        PreparedArguments::<A>::new(cx, &expected)
+            .unwrap()
+            .decode(cx, &slots)
+            .unwrap(),
+        value
+    );
 }
 
 #[test]
 fn outer_argument_tuples_cover_zero_through_twelve_and_preserve_nested_tuple_values() {
-    let (runtime, owner) = fixture();
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let (mut runtime, owner) = fixture();
+    let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
     round_trip_arguments(&mut cx, (), 0);
     round_trip_arguments(&mut cx, (1,), 1);
     round_trip_arguments(&mut cx, (1, 2), 2);
@@ -196,18 +206,21 @@ fn outer_argument_tuples_cover_zero_through_twelve_and_preserve_nested_tuple_val
         3,
     );
     let tuple = cx.type_for::<(i32, i32)>().unwrap();
-    let arguments = ((1, 2),).into_arguments(&mut cx, &[tuple]).unwrap();
-    let Some(Value::Tuple(id)) = arguments.get(runtime.gc(), 0) else {
+    let arguments = PreparedArguments::new(&cx, &[tuple])
+        .unwrap()
+        .encode(&mut cx, ((1, 2),))
+        .unwrap();
+    let Some(Value::Tuple(id)) = arguments.get(cx.runtime().gc(), 0) else {
         panic!("tuple argument")
     };
     assert_eq!(
-        &*runtime.gc().tuple(id).unwrap(),
+        &*cx.runtime().gc().tuple(id).unwrap(),
         &[Value::I32(1), Value::I32(2)]
     );
-    assert_eq!(arguments.get(runtime.gc(), 1), None);
+    assert_eq!(arguments.get(cx.runtime().gc(), 1), None);
     drop(arguments);
-    assert_eq!(runtime.gc().active_roots(), 0);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(cx.runtime().gc().active_roots(), 0);
+    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
 }
 
 struct Observed<'a>(&'a Cell<usize>);
@@ -247,42 +260,61 @@ impl IntoKagari for Observed<'_> {
 
 #[test]
 fn argument_signature_errors_precede_any_user_conversion_effects() {
-    let (runtime, owner) = fixture();
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let (mut runtime, owner) = fixture();
+    let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
     let effects = Cell::new(0);
     let integer = cx.type_for::<i32>().unwrap();
     let boolean = cx.type_for::<bool>().unwrap();
     assert!(
-        (Observed(&effects), false)
-            .into_arguments(&mut cx, &[integer.clone(), integer.clone()])
+        PreparedArguments::new(&cx, &[integer.clone(), integer.clone()])
+            .and_then(|prepared| prepared.encode(&mut cx, (Observed(&effects), false)))
             .is_err()
     );
     assert!(
-        (Observed(&effects), false)
-            .into_arguments(&mut cx, &[])
+        PreparedArguments::new(&cx, &[])
+            .and_then(|prepared| prepared.encode(&mut cx, (Observed(&effects), false)))
             .is_err()
     );
     assert_eq!(effects.get(), 0);
-    let arguments = (Observed(&effects), false)
-        .into_arguments(&mut cx, &[integer.clone(), boolean.clone()])
+    let arguments = PreparedArguments::new(&cx, &[integer.clone(), boolean.clone()])
+        .unwrap()
+        .encode(&mut cx, (Observed(&effects), false))
         .unwrap();
     assert_eq!(effects.get(), 1);
-    assert_eq!(arguments.get(runtime.gc(), 0), Some(Value::I32(7)));
+    assert_eq!(arguments.get(cx.runtime().gc(), 0), Some(Value::I32(7)));
     DECODE_EFFECTS.set(0);
     let signature = [integer, boolean];
-    assert!(
-        <(Decoded, bool)>::from_arguments(
-            &mut cx,
-            &signature,
-            &[
-                Value::I32(7),
-                runtime.gc().alloc_string("wrong".into()).unwrap()
-            ]
-        )
-        .is_err()
-    );
+    let prepared = PreparedArguments::<(Decoded, bool)>::new(&cx, &signature).unwrap();
+    let invalid = cx.runtime().gc().alloc_string("wrong".into()).unwrap();
+    assert!(prepared.decode(&mut cx, &[Value::I32(7), invalid]).is_err());
     assert_eq!(DECODE_EFFECTS.get(), 0);
-    <(Decoded, bool)>::from_arguments(&mut cx, &signature, &[Value::I32(7), Value::Bool(false)])
+    let (mut foreign, foreign_owner) = fixture();
+    let mut foreign_cx = ConversionContext::new(&mut foreign, &foreign_owner).unwrap();
+    let error = prepared
+        .decode(&mut foreign_cx, &[Value::I32(7), Value::Bool(false)])
+        .err()
+        .unwrap();
+    assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+    assert_eq!(DECODE_EFFECTS.get(), 0);
+    let encoded = PreparedArguments::new(&cx, &signature).unwrap();
+    let error = encoded
+        .encode(&mut foreign_cx, (Observed(&effects), false))
+        .unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+    assert_eq!(effects.get(), 1);
+    let sibling = owner
+        .members()
+        .find(|member| member.key() != owner.key())
+        .unwrap();
+    let mut sibling_cx = ConversionContext::new(cx.runtime_mut(), &sibling).unwrap();
+    let error = encoded
+        .encode(&mut sibling_cx, (Observed(&effects), false))
+        .unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+    assert_eq!(effects.get(), 1);
+    drop(sibling_cx);
+    prepared
+        .decode(&mut cx, &[Value::I32(7), Value::Bool(false)])
         .unwrap();
     assert_eq!(DECODE_EFFECTS.get(), 1);
 }
@@ -291,7 +323,7 @@ fn argument_signature_errors_precede_any_user_conversion_effects() {
 fn missing_nominal_providers_and_bounded_conversion_fail_without_retention() {
     assert!(Option::<i32>::kagari_type(&DeclarationCatalog::default()).is_err());
     assert!(Result::<i32, String>::kagari_type(&DeclarationCatalog::default()).is_err());
-    let (runtime, owner) = fixture();
+    let (mut runtime, owner) = fixture();
     for (limits, run) in [
         (
             ConversionLimits {
@@ -315,34 +347,34 @@ fn missing_nominal_providers_and_bounded_conversion_fail_without_retention() {
             2,
         ),
     ] {
-        let mut cx = ConversionContext::with_limits(&runtime, &owner, limits).unwrap();
+        let mut cx = ConversionContext::with_limits(&mut runtime, &owner, limits).unwrap();
         let error = match run {
             0 => cx.encode(((1,),)).unwrap_err(),
             1 => cx.encode((1, 2)).unwrap_err(),
             _ => cx.encode("火".to_owned()).unwrap_err(),
         };
         assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
-        assert_eq!(runtime.gc().active_roots(), 0);
-        assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+        assert_eq!(cx.runtime().gc().active_roots(), 0);
+        assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
     }
 }
 
 #[test]
 fn conversion_observes_root_cancellation_without_publishing_partial_values() {
-    let (runtime, owner) = fixture();
+    let (mut runtime, owner) = fixture();
     let options = runtime.execution_options();
     let cancellation = options.cancellation.clone();
-    let session = runtime.begin_execution(&owner, options).unwrap();
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let mut session = runtime.begin_execution(&owner, options).unwrap();
+    let mut cx = ConversionContext::new(session.runtime_mut(), &owner).unwrap();
     cancellation.cancel();
     assert_eq!(
         cx.encode(((1, 2),)).unwrap_err().kind(),
         RuntimeErrorKind::Cancelled
     );
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(cx.runtime().gc().active_roots(), 0);
     drop(cx);
     drop(session);
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
     let root = cx.encode((1, 2)).unwrap();
     assert_eq!(cx.decode::<(i32, i32)>(&root).unwrap(), (1, 2));
 }
@@ -364,7 +396,7 @@ impl IntoKagari for Failing {
         expected: &TypeArgument,
     ) -> NativeResult<Value> {
         let value = cx.encode_value(expected, ("retained until failure".to_owned(),))?;
-        cx.runtime().collect_garbage()?;
+        cx.runtime_mut().collect_garbage()?;
         assert!(cx.runtime().gc().validate_value(&value));
         assert!(!self.panic, "conversion unwind fixture");
         Err(RuntimeError::module_validation("conversion rejected"))
@@ -373,13 +405,13 @@ impl IntoKagari for Failing {
 
 #[test]
 fn conversion_errors_and_panics_release_scratch_roots_and_restore_scope_depth() {
-    let (runtime, owner) = fixture();
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let (mut runtime, owner) = fixture();
+    let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
     assert!(cx.encode(Failing { panic: false }).is_err());
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(cx.runtime().gc().active_roots(), 0);
     assert!(catch_unwind(AssertUnwindSafe(|| cx.encode(Failing { panic: true }))).is_err());
-    assert_eq!(runtime.gc().active_roots(), 0);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(cx.runtime().gc().active_roots(), 0);
+    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
     let root = cx.encode(("still usable".to_owned(),)).unwrap();
     assert_eq!(
         cx.decode::<(String,)>(&root).unwrap(),
@@ -543,27 +575,27 @@ fn owned_conversion_rejects_a_cycle_but_accepts_shared_noncyclic_children() {
     let children = Type::array(node.self_type().unwrap()).unwrap();
     node.variant("Children", [children]).unwrap();
     node.finish().unwrap();
-    let (runtime, owner) = fixture_with(
+    let (mut runtime, owner) = fixture_with(
         Some(builder.finish().unwrap()),
         "fn signature(value: fixture::conversion::Node) {}",
     );
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
     let root = cx
         .encode(Node(vec![Node(vec![]), Node(vec![]), Node(vec![])]))
         .unwrap();
-    let Value::Enum(node) = root.value(runtime.gc()).unwrap() else {
+    let Value::Enum(node) = root.value(cx.runtime().gc()).unwrap() else {
         panic!("Node");
     };
-    let Value::Array(children) = runtime.gc().enum_snapshot(node).unwrap().fields[0] else {
+    let Value::Array(children) = cx.runtime().gc().enum_snapshot(node).unwrap().fields[0] else {
         panic!("children");
     };
-    let child = runtime.gc().array_get(children, 0).unwrap();
-    runtime.gc().array_set(children, 1, child).unwrap();
+    let child = cx.runtime().gc().array_get(children, 0).unwrap();
+    cx.runtime().gc().array_set(children, 1, child).unwrap();
     assert_eq!(
         cx.decode::<Node>(&root).unwrap(),
         Node(vec![Node(vec![]), Node(vec![]), Node(vec![])])
     );
-    runtime
+    cx.runtime()
         .gc()
         .array_set(children, 2, Value::Enum(node))
         .unwrap();
@@ -574,19 +606,22 @@ fn owned_conversion_rejects_a_cycle_but_accepts_shared_noncyclic_children() {
             .to_string()
             .contains("cycle in owned value conversion")
     );
-    assert_eq!(runtime.gc().active_roots(), 1);
+    assert_eq!(cx.runtime().gc().active_roots(), 1);
     let view = cx.decode::<NodeView>(&root).unwrap();
-    assert_eq!(view.0[2].0.value(runtime.gc()), Some(Value::Enum(node)));
+    assert_eq!(
+        view.0[2].0.value(cx.runtime().gc()),
+        Some(Value::Enum(node))
+    );
     drop(view);
-    runtime.gc().array_set(children, 2, child).unwrap();
+    cx.runtime().gc().array_set(children, 2, child).unwrap();
     assert_eq!(
         cx.decode::<Node>(&root).unwrap(),
         Node(vec![Node(vec![]), Node(vec![]), Node(vec![])])
     );
-    runtime
+    cx.runtime()
         .gc()
         .array_set(children, 2, Value::Enum(node))
         .unwrap();
     drop(root);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
 }

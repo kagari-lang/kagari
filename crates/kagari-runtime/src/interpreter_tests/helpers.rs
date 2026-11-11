@@ -90,7 +90,7 @@ fn player_module() -> NativeModule {
         )
         .unwrap();
     module
-        .bind(entry, |cx: &HostCallContext<'_>, _: &[Value]| {
+        .bind(entry, |cx: &mut HostCallContext<'_>, _: &[Value]| {
             let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
             Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
         })

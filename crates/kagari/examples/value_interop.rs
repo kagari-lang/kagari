@@ -86,7 +86,7 @@ fn main() {
         .unwrap();
     let config = descriptor
         .create(
-            &mut NativeContext::new(&runtime, &selected).unwrap(),
+            &mut NativeContext::new(&mut runtime, &selected).unwrap(),
             Config { multiplier: 2 },
         )
         .unwrap();

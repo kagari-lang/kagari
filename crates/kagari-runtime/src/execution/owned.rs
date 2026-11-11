@@ -21,7 +21,7 @@ pub enum DriveResult {
 
 impl Runtime {
     pub fn start<'a>(
-        &self,
+        &mut self,
         module: &ExecutableModule,
         entry: impl Into<ProgramEntry<'a>>,
         arguments: &[Value],
@@ -38,7 +38,7 @@ impl Runtime {
 
     /// Queue a cold Future as a root; drive exactly one layer without flattening.
     pub fn start_future(
-        &self,
+        &mut self,
         future: &Value,
         options: ExecutionOptions,
     ) -> Result<OwnedExecution, RuntimeError> {
@@ -47,7 +47,7 @@ impl Runtime {
 
     /// Returns only at a safe interpreter boundary. Native calls are cooperative.
     pub fn drive(
-        &self,
+        &mut self,
         owner: &OwnedExecution,
         slice: NonZeroUsize,
     ) -> Result<DriveResult, RuntimeError> {
@@ -59,11 +59,11 @@ impl Runtime {
 
     /// Convert under the original active session, then retire before returning a
     /// terminal outcome. The scheduler publishes only after this method returns.
-    pub(super) fn drive_with_completion(
-        &self,
+    pub(crate) fn drive_with_completion(
+        &mut self,
         owner: &OwnedExecution,
         slice: NonZeroUsize,
-        complete: impl FnOnce(&Runtime, &RootedValue) -> NativeResult<()>,
+        complete: impl FnOnce(&mut Runtime, &RootedValue) -> NativeResult<()>,
     ) -> Result<DriveResult, RuntimeError> {
         let executor = Executor::resume(self, owner)?;
         let mut output = None;

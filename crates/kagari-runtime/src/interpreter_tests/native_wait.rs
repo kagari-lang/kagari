@@ -12,7 +12,7 @@ use crate::{
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
         completion::{Completion, CompletionStatus},
-        context::CallContext,
+        context::NativeCall,
         conversion::{KagariType, context::ConversionContext},
         declarations::FunctionDecl,
         future::NativeStart,
@@ -204,11 +204,11 @@ impl Fixture {
             builder
                 .bind(
                     registered_function.clone(),
-                    |cx: &mut CallContext<'_>,
+                    |cx: &mut NativeCall<'_>,
                      values: ValueHandle<'_>,
                      index: i32|
                      -> NativeResult<i32> {
-                        let Value::Array(values) = values.value() else {
+                        let Value::Array(values) = values.value(cx)? else {
                             unreachable!("checked array argument")
                         };
                         cx.heap()
@@ -359,8 +359,8 @@ impl Fixture {
         }
     }
 
-    fn cold(&self, input: i32) -> RootedValue {
-        let array = ConversionContext::new(&self.vm, &self.module)
+    fn cold(&mut self, input: i32) -> RootedValue {
+        let array = ConversionContext::new(&mut self.vm, &self.module)
             .unwrap()
             .encode((input,))
             .unwrap();
@@ -386,7 +386,7 @@ fn slice() -> NonZeroUsize {
 
 #[test]
 fn async_wait_live_storage_contract() {
-    let f = Fixture::with_functions(|functions| {
+    let mut f = Fixture::with_functions(|functions| {
         let array = Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)));
         let mut function = functions[1].clone();
         function.id = FunctionRef::new(2);
@@ -546,7 +546,7 @@ fn async_wait_live_storage_contract() {
 
 #[test]
 fn async_native_completion_contract() {
-    let f = Fixture::new();
+    let mut f = Fixture::new();
     let future = f.cold(41);
     assert_eq!(f.starts.load(Ordering::Relaxed), 0);
     f.vm.collect_garbage().unwrap();
@@ -646,14 +646,14 @@ fn async_native_completion_contract() {
 
 #[test]
 fn async_native_completion_contract_retirement_and_admission() {
-    let f = Fixture::new();
+    let mut f = Fixture::new();
     drop(f.cold(10));
     f.vm.collect_garbage().unwrap();
     assert_eq!(f.starts.load(Ordering::Relaxed), 0);
     assert_eq!(f.cancels.load(Ordering::Relaxed), 0);
     let cold = f.cold(11);
     let value = cold.value(f.vm.gc()).unwrap();
-    assert!(Executor::new(&f.vm, &f.module, FunctionRef::new(1), from_ref(&value)).is_err());
+    assert!(Executor::new(&mut f.vm, &f.module, FunctionRef::new(1), from_ref(&value)).is_err());
     assert_eq!(
         f.starts.load(Ordering::Relaxed),
         0,
@@ -769,7 +769,7 @@ fn async_native_completion_contract_retirement_and_admission() {
 
 #[test]
 fn async_native_completion_contract_cleanup_quarantine() {
-    let f = Fixture::new();
+    let mut f = Fixture::new();
     let future = f.cold(-4);
     let execution =
         f.vm.start_fixture(

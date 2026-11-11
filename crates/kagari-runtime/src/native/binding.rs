@@ -8,7 +8,8 @@ use crate::{
     },
     module::ExecutableModule,
     native::{
-        context::{CallContext, LinkedCallable, LinkedOperation},
+        context::{LinkedCallable, LinkedOperation, NativeCall},
+        conversion::context::ConversionContext,
         declarations::SelectedCall,
         primitive::NativePrimitive,
         result::LinkedResultAdapter,
@@ -33,8 +34,12 @@ use std::{
 
 pub type NativeResult<T> = Result<T, RuntimeError>;
 
-pub type NativeEntry =
-    dyn for<'call> Fn(&mut CallContext<'call>) -> NativeResult<Value> + Send + Sync;
+pub(crate) type NativeStatus = Result<(), Box<RuntimeError>>;
+
+type ErasedNativeEntry = dyn for<'call> Fn(&mut NativeCall<'call>) -> NativeStatus + Send + Sync;
+
+pub(crate) type MappingPreparation =
+    dyn Fn(&ConversionContext<'_>, &ScopedSignature) -> NativeResult<()> + Send + Sync;
 
 /// Exact conversions retain scoped semantic types; generic views inherit their declared slot.
 #[derive(Debug, Clone)]
@@ -99,6 +104,7 @@ impl Codec {
 /// ```
 #[derive(Clone)]
 pub struct NativeBinding {
+    pub(crate) prepare_mapping: Option<Arc<MappingPreparation>>,
     pub(crate) host_policy: Option<HostCallPolicy>,
     pub(crate) arguments: Box<[Codec]>,
     pub(crate) result: Codec,
@@ -111,7 +117,7 @@ pub struct NativeBinding {
 /// Primitive authority owns the implementation; a callback cannot claim its effects.
 #[derive(Clone)]
 pub(crate) enum BindingEntry {
-    Callback(Arc<NativeEntry>),
+    Callback(Arc<ErasedNativeEntry>),
     Primitive(NativePrimitive),
 }
 
@@ -130,16 +136,28 @@ impl NativeBinding {
     pub fn new(
         arguments: impl Into<Box<[Codec]>>,
         result: Codec,
-        entry: impl for<'call> Fn(&mut CallContext<'call>) -> NativeResult<Value>
-        + Send
-        + Sync
-        + 'static,
+        entry: impl for<'call> Fn(&mut NativeCall<'call>) -> NativeResult<Value> + Send + Sync + 'static,
+    ) -> Self {
+        Self::scoped(arguments, result, move |call| {
+            let value = entry(call)?;
+            call.set_result(value)
+        })
+    }
+
+    /// Bind an entry which stages its result in the protected call context.
+    /// All authoring forms enter this one erased protocol; script Result::Err
+    /// remains an ordinary staged value rather than an invocation error.
+    pub fn scoped(
+        arguments: impl Into<Box<[Codec]>>,
+        result: Codec,
+        entry: impl for<'call> Fn(&mut NativeCall<'call>) -> NativeResult<()> + Send + Sync + 'static,
     ) -> Self {
         Self {
+            prepare_mapping: None,
             host_policy: None,
             arguments: arguments.into(),
             result,
-            entry: BindingEntry::Callback(Arc::new(entry)),
+            entry: BindingEntry::Callback(Arc::new(move |call| entry(call).map_err(Box::new))),
             converted_result: false,
             requirement_owner: None,
             receiver_access: None,
@@ -206,7 +224,7 @@ impl LinkedNativeFunction {
     /// creates neither an executable retention lease nor a program ownership cycle.
     pub(crate) fn prepare_signature(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         owner: &ExecutableModule,
     ) -> NativeResult<()> {
         let params = runtime.type_arguments(owner, None, &self.signature.params)?;
@@ -214,8 +232,10 @@ impl LinkedNativeFunction {
             .type_arguments(owner, None, slice::from_ref(&self.signature.result))?
             .pop()
             .ok_or_else(|| RuntimeError::module_validation("native result type scope"))?;
+        let signature = ScopedSignature { params, result };
+        self.prepare_mapping(runtime, owner, &signature)?;
         self.prepared_signature
-            .set(ScopedSignature { params, result })
+            .set(signature)
             .map_err(|_| RuntimeError::module_validation("duplicate native signature preparation"))
     }
 
@@ -223,6 +243,18 @@ impl LinkedNativeFunction {
         self.prepared_signature
             .get()
             .ok_or_else(|| RuntimeError::module_validation("native signature is not prepared"))
+    }
+
+    fn prepare_mapping(
+        &self,
+        runtime: &mut Runtime,
+        owner: &ExecutableModule,
+        signature: &ScopedSignature,
+    ) -> NativeResult<()> {
+        if let Some(prepare) = &self.binding.prepare_mapping {
+            prepare(&ConversionContext::for_mapping(runtime, owner)?, signature)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn check_requirement(
@@ -244,7 +276,7 @@ impl LinkedNativeFunction {
 
     pub(crate) fn apply(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         owner: &ExecutableModule,
         environment: TypeEnvironment,
         operations: &OperationBindings,
@@ -262,18 +294,21 @@ impl LinkedNativeFunction {
             )?
             .pop()
             .ok_or_else(|| RuntimeError::module_validation("native return type"))?;
+        let scoped = ScopedSignature { params, result };
+        self.prepare_mapping(runtime, owner, &scoped)?;
         let signature = Signature {
-            params: params
+            params: scoped
+                .params
                 .iter()
                 .map(|argument| argument.ty().clone())
                 .collect(),
-            result: result.ty().clone(),
+            result: scoped.result.ty().clone(),
         };
         Ok(Self {
             declaration: self.declaration,
             binding: self.binding.clone(),
             signature,
-            prepared_signature: OnceLock::from(ScopedSignature { params, result }),
+            prepared_signature: OnceLock::from(scoped),
             result_adapter: self
                 .result_adapter
                 .as_ref()
@@ -323,7 +358,7 @@ impl LinkedNativeFunction {
         })
     }
 
-    pub(crate) fn invoke(&self, context: &mut CallContext<'_>) -> NativeResult<Value> {
+    pub(crate) fn invoke(&self, context: &mut NativeCall<'_>) -> NativeResult<Value> {
         if context.arguments.len() != self.signature.params.len() {
             return Err(RuntimeError::module_validation(
                 "native invocation argument count",
@@ -332,23 +367,25 @@ impl LinkedNativeFunction {
         context.poll()?;
         let result = context
             .narrow_arguments()
-            .and_then(|mut narrowed| self.invoke_narrowed(&mut narrowed));
+            .and_then(|()| self.invoke_narrowed(context));
         result.map_err(|error| context.runtime.resources().admit_execution_error(error))
     }
 
-    fn invoke_narrowed(&self, context: &mut CallContext<'_>) -> NativeResult<Value> {
+    fn invoke_narrowed(&self, context: &mut NativeCall<'_>) -> NativeResult<Value> {
         let signature = self.type_signature()?;
         let result = match &self.binding.entry {
-            BindingEntry::Callback(entry) => entry(context),
+            BindingEntry::Callback(entry) => entry(context).map_err(|error| *error),
             BindingEntry::Primitive(primitive) => primitive
                 .execute(context.runtime, context.owner, signature, |index| {
                     context.argument(index)
                 })
-                .map_err(|error| *error),
+                .map_err(|error| *error)
+                .and_then(|value| context.set_result(value)),
         }
         .map_err(|error| context.runtime.resources().admit_execution_error(error));
         context.poll()?;
-        let value = result?;
+        result?;
+        let value = context.result()?;
         if (!self.binding.converted_result || self.result_adapter.is_some())
             && !signature
                 .result

@@ -15,7 +15,7 @@ impl Runtime {
     /// Open/idle is Pending, never shutdown. Runnable work requests another turn;
     /// external waits do not spin. Temporary drivers preserve the external route.
     pub fn poll_scheduler(
-        &self,
+        &mut self,
         cx: &mut Context<'_>,
         budget: TurnBudget,
         driver: Option<&DriverRegistration>,
@@ -39,12 +39,12 @@ impl Runtime {
     }
 
     fn run_scheduler_turn(
-        &self,
+        &mut self,
         cx: &Context<'_>,
         budget: TurnBudget,
         driver: Option<&DriverRegistration>,
     ) -> Result<(), RuntimeError> {
-        let turn = self.begin_scheduler_turn(cx, driver)?;
+        let mut turn = self.begin_scheduler_turn(cx, driver)?;
         let mut remaining = budget.instructions.get();
         for _ in 0..budget.activations.get() {
             let Some(grant) = NonZeroUsize::new(remaining.min(budget.quantum.get())) else {
@@ -54,40 +54,33 @@ impl Runtime {
             let Some(work) = turn.next_work()? else { break };
             match work {
                 ScheduledWork::Control => {}
-                ScheduledWork::Branch(active) => {
-                    match self.drive_with_completion(active.execution(), grant, |_, _| Ok(())) {
-                        Ok(DriveResult::Runnable | DriveResult::Waiting) => active.park()?,
-                        Ok(DriveResult::Complete(result)) => active.complete(result)?,
-                        Err(error) => active.fail(error)?,
-                    }
-                }
-                ScheduledWork::Invocation(active) => {
-                    let result =
-                        self.drive_with_completion(active.execution(), grant, |runtime, value| {
-                            active.prepare(runtime, value)
-                        });
+                ScheduledWork::Branch(mut active) => match active.drive(grant) {
+                    Ok(DriveResult::Runnable | DriveResult::Waiting) => active.park()?,
+                    Ok(DriveResult::Complete(result)) => active.complete(result)?,
+                    Err(error) => active.fail(error)?,
+                },
+                ScheduledWork::Invocation(mut active) => {
+                    let result = active.drive(grant);
                     match result {
                         Ok(DriveResult::Runnable | DriveResult::Waiting) => active.park(),
                         Ok(DriveResult::Complete(result)) => active.complete(result.map(|_| ()))?,
                         Err(error) => active.fail(error)?,
                     }
                 }
-                ScheduledWork::Task(active) => {
-                    match self.drive_with_completion(active.execution(), grant, |_, _| Ok(())) {
-                        Ok(DriveResult::Runnable) => {
-                            active.park(true)?;
-                        }
-                        Ok(DriveResult::Waiting) => {
-                            active.park(false)?;
-                        }
-                        Ok(DriveResult::Complete(result)) => {
-                            active.complete(result)?;
-                        }
-                        Err(error) => {
-                            active.fail(error)?;
-                        }
+                ScheduledWork::Task(mut active) => match active.drive(grant) {
+                    Ok(DriveResult::Runnable) => {
+                        active.park(true)?;
                     }
-                }
+                    Ok(DriveResult::Waiting) => {
+                        active.park(false)?;
+                    }
+                    Ok(DriveResult::Complete(result)) => {
+                        active.complete(result)?;
+                    }
+                    Err(error) => {
+                        active.fail(error)?;
+                    }
+                },
             }
         }
         drop(turn);

@@ -16,7 +16,7 @@ pub async fn left() -> i32 { work(10).await }
 pub async fn right() -> i32 { work(20).await }
 "#;
 
-fn drive(f: &Fixture, execution: &OwnedExecution) -> DriveResult {
+fn drive(f: &mut Fixture, execution: &OwnedExecution) -> DriveResult {
     for _ in 0..1000 {
         let result = f
             .runtime
@@ -47,7 +47,7 @@ fn async_debugger_drive_contract() {
     let right = f.start_future(&right_future);
     assert_ne!(left.execution_id(), right.execution_id());
     drop((left_future, right_future));
-    assert!(matches!(drive(&f, &left), DriveResult::Waiting));
+    assert!(matches!(drive(&mut f, &left), DriveResult::Waiting));
     let depth = {
         let debug = f.runtime.execution_observer::<DebugSession>().unwrap();
         let pause = debug.pauses().last().unwrap();
@@ -72,7 +72,7 @@ fn async_debugger_drive_contract() {
         .unwrap()
         .step_over(depth)
         .unwrap();
-    assert!(matches!(drive(&f, &right), DriveResult::Waiting));
+    assert!(matches!(drive(&mut f, &right), DriveResult::Waiting));
     {
         let debug = f.runtime.execution_observer::<DebugSession>().unwrap();
         assert!(
@@ -109,7 +109,7 @@ fn async_debugger_drive_contract() {
         2,
         "wake never drives debugged code"
     );
-    let DriveResult::Complete(result) = drive(&f, &left) else {
+    let DriveResult::Complete(result) = drive(&mut f, &left) else {
         panic!("left completes")
     };
     assert_eq!(f.value(&result.unwrap()), Value::I32(5));
@@ -125,7 +125,7 @@ fn async_debugger_drive_contract() {
     // Detaching between activations must not leave a sticky observer-attached flag.
     f.runtime.clear_execution_observer().unwrap();
     f.sent.lock().unwrap().pop().unwrap().complete(Ok(7));
-    let DriveResult::Complete(result) = drive(&f, &right) else {
+    let DriveResult::Complete(result) = drive(&mut f, &right) else {
         panic!("right completes after detach")
     };
     assert_eq!(f.value(&result.unwrap()), Value::I32(8));
@@ -134,7 +134,7 @@ fn async_debugger_drive_contract() {
     let future = f.invoke("left", &[]);
     let resumed = f.start_future(&future);
     drop(future);
-    assert!(matches!(drive(&f, &resumed), DriveResult::Waiting));
+    assert!(matches!(drive(&mut f, &resumed), DriveResult::Waiting));
     // Attaching to an already parked root resolves its pinned code before resumption.
     let mut replacement = DebugSession::new(&f.runtime).unwrap();
     let after = replacement
@@ -145,7 +145,7 @@ fn async_debugger_drive_contract() {
         .unwrap();
     f.runtime.set_execution_observer(replacement).unwrap();
     f.sent.lock().unwrap().pop().unwrap().complete(Ok(8));
-    let DriveResult::Complete(result) = drive(&f, &resumed) else {
+    let DriveResult::Complete(result) = drive(&mut f, &resumed) else {
         panic!("reattached root completes")
     };
     assert_eq!(f.value(&result.unwrap()), Value::I32(9));
@@ -164,14 +164,14 @@ fn async_debugger_drive_contract() {
     let future = f.invoke("right", &[]);
     let cancelled = f.start_future(&future);
     drop(future);
-    assert!(matches!(drive(&f, &cancelled), DriveResult::Waiting));
+    assert!(matches!(drive(&mut f, &cancelled), DriveResult::Waiting));
     let late = f.sent.lock().unwrap().pop().unwrap();
     f.runtime
         .set_execution_observer(DebugSession::new(&f.runtime).unwrap())
         .unwrap();
     cancelled.cancel();
     assert!(matches!(
-        drive(&f, &cancelled),
+        drive(&mut f, &cancelled),
         DriveResult::Complete(Err(error)) if matches!(error.clone(), ref error if error.kind() == RuntimeErrorKind::Cancelled)
     ));
     assert_eq!(f.cancels.load(Ordering::SeqCst), 1);

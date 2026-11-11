@@ -68,7 +68,7 @@ fn id(f: &Fixture, handle: &RootedValue) -> TaskId {
     f.runtime.task_id(&f.value(handle)).unwrap()
 }
 
-fn drive(f: &Fixture, scope: &TaskScopeOwner, id: TaskId) -> TaskDriveResult {
+fn drive(f: &mut Fixture, scope: &TaskScopeOwner, id: TaskId) -> TaskDriveResult {
     for _ in 0..1000 {
         f.runtime.collect_garbage().unwrap();
         let result = f
@@ -85,8 +85,8 @@ fn drive(f: &Fixture, scope: &TaskScopeOwner, id: TaskId) -> TaskDriveResult {
 #[test]
 fn async_failure_provenance_contract() {
     for stripped in [false, true] {
-        let f = fixture(stripped);
-        let runtime = &f.runtime;
+        let mut f = fixture(stripped);
+
         let scope = f
             .runtime
             .create_dispatched_task_scope(
@@ -98,15 +98,20 @@ fn async_failure_provenance_contract() {
         let capability = f.value(scope.capability());
         let producer = f.invoke("submit", slice::from_ref(&capability));
         let producer_id = id(&f, &producer);
-        assert_eq!(drive(&f, &scope, producer_id), TaskDriveResult::Waiting);
+        assert_eq!(drive(&mut f, &scope, producer_id), TaskDriveResult::Waiting);
         let left = f.invoke("observe", &[capability, f.value(&producer)]);
         let right = f.invoke("other", &[capability, f.value(&producer)]);
         for waiter in [&left, &right] {
-            assert_eq!(drive(&f, &scope, id(&f, waiter)), TaskDriveResult::Waiting);
+            let waiter = id(&f, waiter);
+            assert_eq!(drive(&mut f, &scope, waiter), TaskDriveResult::Waiting);
         }
         f.sent.lock().unwrap().pop().unwrap().complete(Ok(4));
-        assert_eq!(drive(&f, &scope, producer_id), TaskDriveResult::Complete);
-        let report = runtime
+        assert_eq!(
+            drive(&mut f, &scope, producer_id),
+            TaskDriveResult::Complete
+        );
+        let report = f
+            .runtime
             .take_task_report(&scope, producer_id)
             .unwrap()
             .unwrap();
@@ -134,8 +139,9 @@ fn async_failure_provenance_contract() {
         let mut wait_sites = Vec::new();
         for (waiter, name) in [(&left, "observe"), (&right, "other")] {
             let waiter_id = id(&f, waiter);
-            assert_eq!(drive(&f, &scope, waiter_id), TaskDriveResult::Complete);
-            let failure = runtime
+            assert_eq!(drive(&mut f, &scope, waiter_id), TaskDriveResult::Complete);
+            let failure = f
+                .runtime
                 .take_task_report(&scope, waiter_id)
                 .unwrap()
                 .unwrap()
@@ -202,9 +208,10 @@ fn async_failure_provenance_contract() {
         // Cancellation before first drive has a spawn origin even without a body stack.
         let queued = f.invoke("submit", slice::from_ref(&capability));
         let queued_id = id(&f, &queued);
-        runtime.cancel_task(&f.value(&queued)).unwrap();
-        runtime.drain_cancelled_tasks().unwrap();
-        let cancelled = runtime
+        f.runtime.cancel_task(&f.value(&queued)).unwrap();
+        f.runtime.drain_cancelled_tasks().unwrap();
+        let cancelled = f
+            .runtime
             .take_task_report(&scope, queued_id)
             .unwrap()
             .unwrap()
@@ -214,8 +221,12 @@ fn async_failure_provenance_contract() {
         assert!(cancelled.error.trace().unwrap().frames.is_empty());
         let dependent = f.invoke("observe", &[capability, f.value(&queued)]);
         let dependent_id = id(&f, &dependent);
-        assert_eq!(drive(&f, &scope, dependent_id), TaskDriveResult::Complete);
-        let cancellation = runtime
+        assert_eq!(
+            drive(&mut f, &scope, dependent_id),
+            TaskDriveResult::Complete
+        );
+        let cancellation = f
+            .runtime
             .take_task_report(&scope, dependent_id)
             .unwrap()
             .unwrap()
@@ -234,9 +245,9 @@ fn async_failure_provenance_contract() {
         for _ in 0..MAX_ASYNC_BOUNDARIES {
             let next = f.invoke("observe", &[capability, f.value(&tail)]);
             let next_id = id(&f, &next);
-            assert_eq!(drive(&f, &scope, next_id), TaskDriveResult::Complete);
+            assert_eq!(drive(&mut f, &scope, next_id), TaskDriveResult::Complete);
             bounded = Some(
-                runtime
+                f.runtime
                     .take_task_report(&scope, next_id)
                     .unwrap()
                     .unwrap()
@@ -256,13 +267,15 @@ fn async_failure_provenance_contract() {
         assert_eq!(bounded.source_task, producer_id);
         // Host admission has no script spawn site, but always retains factory identity.
         let factory = f.invoke("factory", &[]);
-        let hosted = runtime
+        let hosted = f
+            .runtime
             .spawn_task(&capability, &f.value(&factory))
             .unwrap()
             .unwrap();
         let hosted_id = id(&f, &hosted);
-        assert_eq!(drive(&f, &scope, hosted_id), TaskDriveResult::Complete);
-        let host_report = runtime
+        assert_eq!(drive(&mut f, &scope, hosted_id), TaskDriveResult::Complete);
+        let host_report = f
+            .runtime
             .take_task_report(&scope, hosted_id)
             .unwrap()
             .unwrap();
@@ -277,21 +290,21 @@ fn async_failure_provenance_contract() {
         assert_eq!(f.value(&host_report.outcome.unwrap()), Value::I32(7));
         drop((factory, hosted, tail, left, right, queued, dependent));
         scope.close();
-        runtime.drain_cancelled_tasks().unwrap();
+        f.runtime.drain_cancelled_tasks().unwrap();
         drop(scope);
-        runtime.collect_garbage().unwrap();
+        f.runtime.collect_garbage().unwrap();
         assert_eq!(
-            runtime.gc().active_roots(),
+            f.runtime.gc().active_roots(),
             0,
             "retained diagnostics own no GC roots"
         );
         assert_eq!(
-            runtime.gc().allocated_objects(),
+            f.runtime.gc().allocated_objects(),
             0,
             "diagnostic sites own no script objects"
         );
         assert_eq!(
-            runtime
+            f.runtime
                 .modules()
                 .retention_counts(f.runtime.select_program(&f.module).unwrap().key())
                 .runtime_values,

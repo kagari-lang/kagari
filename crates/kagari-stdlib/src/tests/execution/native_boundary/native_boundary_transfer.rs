@@ -14,7 +14,7 @@ use kagari_runtime::{
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
-        context::CallContext,
+        context::NativeCall,
         declarations::FunctionDecl,
         function_handle::Function,
         module::NativeModule,
@@ -163,20 +163,23 @@ fn module(held: &Arc<Mutex<Option<Callback>>>, drops: Sender<ThreadId>) -> Nativ
     builder
         .bind(
             guarded,
-            |_cx: &mut CallContext<'_>, value: ValueHandle<'_>| -> NativeResult<i32> {
-                let first = value.try_enter_operation()?.expect("first entry");
-                assert!(value.try_enter_operation()?.is_none());
-                drop(first);
+            |cx: &mut NativeCall<'_>, value: ValueHandle<'_>| -> NativeResult<i32> {
+                value
+                    .with_operation(cx, |cx| {
+                        cx.collect_garbage()?;
+                        assert!(value.with_operation(cx, |_| Ok(())).unwrap().is_none());
+                        Ok(())
+                    })?
+                    .expect("first entry");
                 let panic = catch_unwind(AssertUnwindSafe(|| {
-                    let _guard = value
-                        .try_enter_operation()
-                        .unwrap()
-                        .expect("entry before panic");
-                    panic!("operation unwind fixture");
+                    let _ = value.with_operation(cx, |_| -> NativeResult<()> {
+                        panic!("operation unwind fixture");
+                    });
                 }));
                 assert!(panic.is_err());
-                let _after_unwind = value.try_enter_operation()?.expect("released on unwind");
-                Ok(42)
+                value.with_operation(cx, |_| Ok(42))?.ok_or_else(|| {
+                    RuntimeError::module_validation("operation not released on unwind")
+                })
             },
         )
         .unwrap();
@@ -198,7 +201,7 @@ fn module(held: &Arc<Mutex<Option<Callback>>>, drops: Sender<ThreadId>) -> Nativ
 fn native_operation_guards_release_on_unwind() {
     let (drops, dropped) = mpsc::channel();
     let native = module(&Arc::new(Mutex::new(None)), drops);
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         "use fixture::transfer::{new, guarded}; fn main() -> i32 { val counter = new(); guarded(counter) + guarded(counter) }",
         Some(&native),
     );
@@ -262,20 +265,31 @@ fn live_runtime_moves_with_send_only_payloads_observer_and_pinned_closure() {
     drop(native);
     let first = thread::spawn(move || {
         assert_ne!(thread::current().id(), origin);
-        let session = vm
+        let mut session = vm
             .begin_execution(&replacement, Default::default())
             .unwrap();
-        assert!(vm.attach_execution_observer().unwrap());
+        let session_options = session.runtime().execution_options();
+        assert!(session.runtime().attach_execution_observer().unwrap());
         assert_eq!(
-            vm.execute_module(&replacement, "run", vm.execution_options())
+            session
+                .runtime_mut()
+                .execute_module(&replacement, "run", session_options.clone())
                 .unwrap()
                 .return_value
-                .value(vm.gc())
+                .value(session.runtime().gc())
                 .expect("retained execution result"),
             Value::I32(43)
         );
-        assert!(vm.modules().loaded(old_key).is_some());
-        assert!(vm.execution_observer::<Observer>().unwrap().count.get() > 0);
+        assert!(session.runtime().modules().loaded(old_key).is_some());
+        assert!(
+            session
+                .runtime()
+                .execution_observer::<Observer>()
+                .unwrap()
+                .count
+                .get()
+                > 0
+        );
         drop(session);
         assert_eq!(vm.resources().counters().current_call_depth, 0);
         (vm, replacement, thread::current().id())
@@ -283,7 +297,7 @@ fn live_runtime_moves_with_send_only_payloads_observer_and_pinned_closure() {
     .join()
     .unwrap();
     let final_thread = thread::spawn(move || {
-        let (vm, replacement, previous_thread) = first;
+        let (mut vm, replacement, previous_thread) = first;
         let receiving = thread::current().id();
         assert_ne!(receiving, previous_thread);
         assert_eq!(

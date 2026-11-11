@@ -53,7 +53,7 @@ impl Runtime {
         let site = self.capture_async_site();
         let lease = if outcome.is_none() {
             let dependencies = {
-                let tasks = self.tasks.borrow();
+                let tasks = &self.tasks;
                 if tasks.tasks.get(task.0).is_none() {
                     return Err(RuntimeError::module_validation("missing unfinished Task"));
                 }

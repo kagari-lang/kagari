@@ -108,7 +108,7 @@ fn serde_schema_roundtrips_renames_skips_composites_and_all_variant_shapes() {
     NativeModule::install_all(&modules, &mut runtime).unwrap();
     let owner_program = load_bytecode(&mut runtime, "serde", program).unwrap();
     let owner = runtime.select_program(&owner_program).unwrap();
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
     for (maybe, result, nested) in [
         (
             Some("target".into()),
@@ -144,7 +144,7 @@ fn serde_schema_roundtrips_renames_skips_composites_and_all_variant_shapes() {
                 label: "label".into(),
             }))
             .unwrap();
-        runtime.gc_safepoint().unwrap();
+        cx.runtime_mut().gc_safepoint().unwrap();
         let Serde(decoded): Serde<Input> = cx.decode(&root).unwrap();
         assert_eq!(decoded.target_id, 8);
         assert_eq!(decoded.damage, 20);
@@ -184,8 +184,8 @@ fn serde_schema_roundtrips_renames_skips_composites_and_all_variant_shapes() {
 
 #[test]
 fn serde_char_roundtrips_scalars_and_containers_without_integer_coercion() {
-    let (runtime, owner) = super::conversion_fixture();
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let (mut runtime, owner) = super::conversion_fixture();
+    let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
     for ch in ['\0', '\'', 'é', '🙂', char::MAX] {
         let root = cx.encode(Serde(ch)).unwrap();
         assert_eq!(cx.decode::<Serde<char>>(&root).unwrap().0, ch);
@@ -196,7 +196,7 @@ fn serde_char_roundtrips_scalars_and_containers_without_integer_coercion() {
     }
     let expected = (('\0', 'é', '🙂'), Some('a'));
     let root = cx.encode(Serde(expected)).unwrap();
-    runtime.collect_garbage().unwrap();
+    cx.runtime_mut().collect_garbage().unwrap();
     assert_eq!(
         cx.decode::<Serde<((char, char, char), Option<char>)>>(&root)
             .unwrap()
@@ -219,7 +219,7 @@ fn serde_uses_conversion_limits_and_reports_nested_error_paths() {
     let owner_program = load_bytecode(&mut runtime, "serde", program).unwrap();
     let owner = runtime.select_program(&owner_program).unwrap();
     let mut cx = ConversionContext::with_limits(
-        &runtime,
+        &mut runtime,
         &owner,
         ConversionLimits {
             max_string_bytes: 2,
@@ -247,8 +247,8 @@ fn serde_uses_conversion_limits_and_reports_nested_error_paths() {
     assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
     assert!(error.to_string().contains("field nested"));
     assert!(error.to_string().contains("element 0"));
-    runtime.gc_safepoint().unwrap();
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    cx.runtime_mut().gc_safepoint().unwrap();
+    let mut cx = ConversionContext::new(cx.runtime_mut(), &owner).unwrap();
     let root = cx.encode(Serde(Transformed { value: 2 })).unwrap();
     assert_eq!(cx.decode::<Serde<Transformed>>(&root).unwrap().0.value, 4);
 }

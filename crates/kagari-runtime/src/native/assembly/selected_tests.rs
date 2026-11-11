@@ -206,7 +206,7 @@ fn assembly(provenance: Provenance, counts: Counts) -> NativeResult<ModuleAssemb
 // Use the runtime's ordinary frame driver for native-only synchronous reentry.
 // The selected operation is an installed native override, not a simulated result.
 fn invoke_selected(
-    runtime: &Runtime,
+    runtime: &mut Runtime,
     _: &ExecutableModule,
     target: ScriptCall<'_>,
     arguments: &[Value],
@@ -214,64 +214,74 @@ fn invoke_selected(
     let ScriptCall::Pinned(function) = target else {
         panic!("test only selects a pinned native operation")
     };
-    let stack = runtime.enter_pinned_execution_stack(function)?;
-    stack.push_pinned_call(runtime, function, arguments)?;
-    stack.start_native_entry(runtime, invoke_selected)?;
-    let ReturnAction::Complete(result) = stack.finish_native_return(runtime)? else {
-        panic!("selected return")
-    };
-    Ok(result)
+    let mut stack_activation = runtime.enter_pinned_execution_stack(function)?;
+    stack_activation.with(|runtime, stack| {
+        stack.push_pinned_call(runtime, function, arguments)?;
+        stack.start_native_entry(runtime, invoke_selected)?;
+        let ReturnAction::Complete(result) = stack.finish_native_return(runtime)? else {
+            panic!("selected return")
+        };
+        Ok(result)
+    })
 }
 
 // Enter through the compiled caller so shared defaults receive their checked
 // generic environment and selected operations from the actual call site.
-fn execute_main(runtime: &Runtime, loaded: &ExecutableModule) -> Value {
+fn execute_main(runtime: &mut Runtime, loaded: &ExecutableModule) -> Value {
     let (owner, entry) = loaded.entry_function().expect("script main");
-    let stack = runtime.enter_execution_stack(&owner).unwrap();
-    stack
-        .push_callable(
-            runtime,
-            owner.clone(),
-            CallableTarget::Script(entry),
-            &[],
-            None,
-        )
-        .unwrap();
-    for _ in 0..32 {
-        runtime.resources().poll_execution().unwrap();
-        let returned = match stack.next_action(runtime).unwrap() {
-            ExecutionAction::Script => {
-                stack.current_mut().unwrap().prepare_instruction();
-                runtime.gc_safepoint().unwrap();
-                runtime
-                    .observe_execution(ExecutionEvent::BeforeInstruction)
-                    .unwrap();
-                match stack
-                    .execute_region(runtime, &mut None, invoke_selected)
-                    .unwrap()
-                {
-                    RegionExit::Return(value) => stack.finish_return(runtime, value).unwrap(),
-                    RegionExit::Call(_) | RegionExit::Safepoint => continue,
-                    RegionExit::Boundary => panic!("unexpected script boundary"),
-                    RegionExit::Slice => panic!("unsliced execution cannot exhaust a slice"),
+    let mut stack_activation = runtime.enter_execution_stack(&owner).unwrap();
+    stack_activation
+        .with(|runtime, stack| {
+            stack
+                .push_callable(
+                    runtime,
+                    owner.clone(),
+                    CallableTarget::Script(entry),
+                    &[],
+                    None,
+                )
+                .unwrap();
+            for _ in 0..32 {
+                runtime.resources().poll_execution().unwrap();
+                let returned = match stack.next_action(runtime).unwrap() {
+                    ExecutionAction::Script => {
+                        stack.current_mut(runtime).unwrap().prepare_instruction();
+                        runtime.gc_safepoint().unwrap();
+                        runtime
+                            .observe_execution(ExecutionEvent::BeforeInstruction)
+                            .unwrap();
+                        match stack
+                            .execute_region(runtime, &mut None, invoke_selected)
+                            .unwrap()
+                        {
+                            RegionExit::Return(value) => {
+                                stack.finish_return(runtime, value).unwrap()
+                            }
+                            RegionExit::Call(_) | RegionExit::Safepoint => continue,
+                            RegionExit::Boundary => panic!("unexpected script boundary"),
+                            RegionExit::Slice => {
+                                panic!("unsliced execution cannot exhaust a slice")
+                            }
+                        }
+                    }
+                    ExecutionAction::NativeEntry => {
+                        runtime.gc_safepoint().unwrap();
+                        runtime
+                            .observe_execution(ExecutionEvent::BeforeInstruction)
+                            .unwrap();
+                        stack.start_native_entry(runtime, invoke_selected).unwrap();
+                        continue;
+                    }
+                    ExecutionAction::NativeReturn => stack.finish_native_return(runtime).unwrap(),
+                    ExecutionAction::Await => panic!("synchronous default cannot await"),
+                };
+                if let ReturnAction::Complete(value) = returned {
+                    return Ok(value);
                 }
             }
-            ExecutionAction::NativeEntry => {
-                runtime.gc_safepoint().unwrap();
-                runtime
-                    .observe_execution(ExecutionEvent::BeforeInstruction)
-                    .unwrap();
-                stack.start_native_entry(runtime, invoke_selected).unwrap();
-                continue;
-            }
-            ExecutionAction::NativeReturn => stack.finish_native_return(runtime).unwrap(),
-            ExecutionAction::Await => panic!("synchronous default cannot await"),
-        };
-        if let ReturnAction::Complete(value) = returned {
-            return value;
-        }
-    }
-    panic!("default call did not complete within the test transition bound")
+            panic!("default call did not complete within the test transition bound")
+        })
+        .unwrap()
 }
 
 #[test]
@@ -341,7 +351,7 @@ fn authored_and_sealed_tokens_execute_the_actual_selected_default_call() {
                     .map(|slot| (owner, slot))
             })
             .expect("compiler-selected default import");
-        let result = execute_main(&runtime, &loaded);
+        let result = execute_main(&mut runtime, &loaded);
         assert_eq!(result, Value::I32(42), "{provenance:?}");
         counts.assert(1, 1, 1, 1);
         assert_eq!(runtime.gc().active_roots(), 0);

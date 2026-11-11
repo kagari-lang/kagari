@@ -107,11 +107,11 @@ fn one_registered_pair_method_serves_opaque_and_external_receivers() {
         .unwrap();
     let opaque = treasury_type
         .create(
-            &mut NativeContext::new(&vm, &owner).unwrap(),
+            &mut NativeContext::new(&mut vm, &owner).unwrap(),
             Treasury { hp: 40 },
         )
         .unwrap();
-    let raw = ConversionContext::new(&vm, &owner)
+    let raw = ConversionContext::new(&mut vm, &owner)
         .unwrap()
         .encode_value(treasury_type.type_argument(), opaque.clone())
         .unwrap();
@@ -147,7 +147,7 @@ fn one_registered_pair_method_serves_opaque_and_external_receivers() {
     assert_eq!(inventory.gold, 15);
     assert_eq!(
         opaque
-            .read(&NativeContext::new(&vm, &owner).unwrap(), |value| Ok(
+            .read(&NativeContext::new(&mut vm, &owner).unwrap(), |value| Ok(
                 value.hp
             ))
             .unwrap(),
@@ -320,7 +320,7 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
             )?,
             Value::I32(6)
         );
-        stats.read(scope, |stats| {
+        stats.read(scope, |_scope, stats| {
             assert_eq!(stats.hp, 6);
             Ok(())
         })?;

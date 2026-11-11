@@ -4,7 +4,7 @@ use kagari_runtime::{
     error::RuntimeError,
     native::{
         binding::{Codec, NativeBinding, NativeResult},
-        context::CallContext,
+        context::NativeCall,
         scalar::NativeScalar,
     },
     value::Value,
@@ -31,15 +31,15 @@ pub(crate) fn terminal_binding(terminal: Terminal, symbols: EnumSymbols) -> Nati
     })
 }
 
-pub(crate) fn identity(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn identity(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     cx.argument(0)
 }
 
-pub(crate) fn destination(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn destination(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     cx.call_values(cx.selected_at(0)?, &[cx.argument(0)?])
 }
 
-pub(crate) fn fold(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn fold(symbols: &EnumSymbols, cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     let callback = cx.callable(2)?.store();
     let mut accumulator = cx.argument(1)?;
     let root = cx.heap().root_value(accumulator).ok_or_else(invalid)?;
@@ -59,7 +59,7 @@ pub(crate) fn fold(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeRes
 
 fn consume(
     symbols: &EnumSymbols,
-    cx: &mut CallContext<'_>,
+    cx: &mut NativeCall<'_>,
     terminal: Terminal,
 ) -> NativeResult<Value> {
     let callback = if matches!(terminal, Terminal::Count) {

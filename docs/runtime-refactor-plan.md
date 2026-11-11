@@ -1,8 +1,8 @@
 # Runtime, Host and GC Execution Plan
 
-Status: RR00 and RR01 completed locally on 2026-11-12; RR02 is next.
-RR03-RR06 are pending.
-Production call/storage/collector migration has not started.
+Status: RR00-RR02 completed locally on 2026-11-12; RR03-RR06 are pending.
+Production Native protocol and exclusive entry/control migration is complete. The
+production managed graph and collector still use the existing heap until RR03.
 
 This is the single execution plan for the coordinated Runtime/Host/GC refactor.
 The [Runtime design](runtime-refactor-design.md) owns the selected records and
@@ -676,19 +676,158 @@ no production graph bridge. RR03 must promote/replace the proof records and reru
 these same assertions through actual single-heap Runtime transitions; it cannot
 retain this separate graph as an implementation fallback. RR02 has not started.
 
-**Next task (RR02):**
+### RR02 exclusive services and prepared calls (completed locally, 2026-11-12)
+
+One mutable entry model now covers Runtime execute/call/drive/collect, binding
+preparation, NativeCall, ConversionContext, ScriptInvoker, Host scopes and
+scheduler/task/branch activations. ExecutionSession owns the exclusive Runtime;
+ExecutionStack owns its plain FrameStack suffix/admission records and alone
+retires them. Resume installs cleanup ownership before fallible link refresh.
+Initialization failure retires its stack/session before its owned execution.
+Immutable descriptor pins may span callbacks; no Runtime field extraction,
+shared-to-mutable pointer cast or generic forwarding service layer was added.
+Native ABI bits/identifiers are unchanged; opaque helper pointers originate from
+exclusive native invocation, with no live frame/bank/payload view across it.
+
+NativeBinding has one private erased Fn(&mut NativeCall) -> Result<(),
+Box<RuntimeError>> entry. Returned-value authoring adapts to this same staging
+protocol. PendingReturn is private Unset/Unit/Scalar/Managed; duplicate staging
+rejects, and post-call error/cancellation wins before destination commit. The
+existing staged-result test collects before callback completion, verifies the
+first result survives and the lease disappears after commit. Managed staging
+still uses an old-heap Host lease until RR03; it is not a zero-root claim.
+PanicPolicy and its SDK export are removed. NativeTake remains until RR03.
+
+LinkedNativeFunction/closed NativeApplication own monomorphized mapping
+preparation. Function<A, R> returns a sealed PreparedHostCall<A, R> retaining one
+exact PreparedFunction selection, rather than erasing the Rust proof and checking
+it on every invocation. Ordinary handles still select current code; explicitly
+prepared calls/queued factories retain exact bodies. Weak binding caches retain
+neither dead handles nor old code. Fixed Rust mappings prepare on a cache miss;
+live signature/identity transport remains part of actual selection, without a
+last-body cache. Actual value/owner/phase/loan checks and custom conversion effects
+remain dynamic. Typed interface/enum calls consume the same checked argument
+credential; dynamic variant conversion prepares at its real boundary.
+PreparedArguments rejects foreign Runtime/lexical owners before converter effects.
+The Native declaration test independently observes three mapping effects at
+binding, no additional mapping across duplicate binding/two ordinary calls/a
+cloned exact call, and six encode/three decode effects. A compile-fail example
+rejects substitution of a prepared call's result mapping.
+
+ArgumentView/ValueHandle carry checked locations, not persistent heap references.
+NativeOperationGuard lends the same mutable call through reentry and retires its
+mark on return/error/unwind. Host path/field converters clone immutable metadata
+before lending Runtime. HostCallGuard borrows loan tables only briefly;
+HostResourceScope owns plain marks and roots. Ref/RefMut read/edit callbacks
+explicitly receive the same mutable HostScope before their checked Rust reference,
+allowing nested shared script reads while rejecting conflicts. HRTBs prevent
+reference escape. HostViewLoan retains only its scope reservation/frame mark over
+the callback. Actual pointer-loan admission checks thread before projection.
+
+Runtime TaskStore/GroupStore and scheduler queues/failure/state are ordinary
+exclusive fields, including cancellation/retirement/close mutation. Selected
+records detach before callbacks; focused turn/execution cleanup guards retain
+admission without holding resource-field borrows. Native module installation now
+uses the initial-publication gate before staging: the existing real Host callback
+test rejects even an empty install batch before registry changes. Registration
+remains append-only and rejects duplicate entry/storage/type owners.
+
+Remaining cells are bounded and owned: the observer slot permits a mutable
+observer plus read-only Runtime callback, with recursive use checked;
+StagedReload holds a shared candidate diagnostic; thread/quarantine/publication
+cells own admission state. Legacy heap, ResourceState frame values/accounting and
+SessionStore/SessionState participate in old root/loan access and move together in
+RR03. Thread-safe completion/wake/cancellation controls do not own script storage.
+No old/new production graph crossing or collector adapter exists.
+
+Ownership reference: Rust 1.99.1's [Sync contract](https://doc.rust-lang.org/std/marker/trait.Sync.html)
+allows &mut T: Send for T: Send, so mutable entry alone does not enforce active
+thread affinity. [JDK 26 JNI interface ownership](https://docs.oracle.com/en/java/javase/26/docs/specs/jni/design.html#jni-interface-functions-and-pointers)
+provides the applicable attached-thread pointer rule; Kagari does not adopt Java's
+concurrent VM or AttachCurrentThread model. Idle Runtime remains Send/not Sync;
+active service guards have zero-sized Rc affinity markers, and admission records
+its thread. A real scoped-thread Runtime reborrow rejects execution/allocation/GC
+before effects, and actual Host pointer projection rejects before its callback.
+Mapping reference: the [Rust monomorphization guide](https://rustc-dev-guide.rust-lang.org/backend/monomorph.html),
+accessed 2026-11-12 with local Rust 1.99.1, collects concrete generic instances
+before execution. Kagari keeps that concrete Rust mapping attached to its checked
+binding while retaining dynamic reload selection and value/authority validation.
+
+Consumer coverage preserves semantics through the mutable model: SDK/CLI/web,
+stdlib/derive, examples, benchmarks, codegen/ABI and source-free artifact routes
+build. Invalid non-LIFO retirement is tested directly on private records; public
+guards statically exclude it. Observer collection uses threshold-one ordinary
+safepoints; Opaque/managed loan reentry exclusion has compile-fail witnesses.
+Serde's alias snapshot test uses the same ConversionContext/StructDecoder for
+child mutation plus actual GC, and retains visitor unwind/root cleanup. SDK async
+fixtures lend Runtime explicitly; the manual outer-Host harness also passes it
+into case closures. That harness dispatch-shape change must not be attributed to
+Runtime in later paired timing analysis.
+
+Local verification passes:
+
+- `cargo check --workspace --all-targets` and all four implementation acceptance
+  commands (structure: 1864 Rust files, zero violations, six exact existing
+  exceptions; fmt; workspace all-target Clippy -D warnings; diff check).
+- Runtime filters `native::tests::offline_host` (8), actual native reentry (1),
+  `frame::values::tests` (9, one pre-existing ignored manual probe),
+  `interpreter_tests::native_wait::async_native_completion_contract` (3),
+  `interpreter_tests::owned_drive` (1), `interpreter_tests::execution::frames` (16),
+  `frame::owned::tests` (4), `scheduler::` (3), Host scopes (11), session scopes
+  (11), real callback publication denial (1), and rustdoc (34).
+- All four RR00-selected SDK filters pass again after sealed Host preparation,
+  plus scheduler IO/cached-result/retirement and retained-value Host-call coverage.
+- Stdlib selected Native declaration mapping effects, prepared-body/current-inner
+  reload/admission, conversion-order/foreign-credential, positive external shared
+  read/reentry, managed initializer GC/cancellation and Serde snapshot/unwind pass.
+- Strict-provenance Miri on nightly-2026-10-22 passes the actual external-pointer
+  loan cleanup/thread-rejection case and generated sibling-field loan case.
+  Miri ignores opt-level and reports the existing Runtime Send recursion-depth
+  future warning (Rust issue 159228); stable Clippy remains clean.
+
+Reproduction uses `cargo test -p <package> --lib <filter>` (Serde additionally
+`--test native_schema`), `cargo test -p kagari-runtime --doc`, and the existing
+strict-provenance Miri commands recorded with RR01. Full workspace tests and
+exhaustive feature/backend/platform CI remain unrun; local phase exit is not a
+CI result. Temporary E0308/E0596/E0499 consumer integration failures were repaired,
+and no implementation build failure is carried.
+
+Current diagnostic characterization uses Apple M1 Max/32 GiB, Rust 1.99.1,
+workspace release/default parallelism with execution-diagnostics, prepared/warmed
+workloads, one process, 3 warmups + 11 batches of 10000 internal calls. Command:
+`cargo test -p kagari-runtime --release --features execution-diagnostics --test core_calls internal_script_and_native_calls -- --ignored --nocapture --test-threads=1`.
+All callback/result oracles pass. Every route records zero fixed type/conversion
+mapping rebuilds, including outer Host entry. Raw empty/scalar uses 40 allocation
+requests/2056 bytes at 0/1/10000 callbacks; typed empty/scalar still register 20002
+roots per batch (borrowed 30007, owned 30002). Their 10000-call allocations are
+20685/50685 requests respectively: old pack/root storage still awaits RR03.
+Active typed-empty storage reports Runtime4032/ResourceState416/SessionState992/
+Frame392/Value16 bytes; two frames, four live eight-byte scalar entries, two
+windows (208 bytes each), four root-directory entries and one metadata root.
+Retained capacities are frame4/window4/scalar10/scalar-init8/session4/root4;
+these are actual buffers in addition to record sizes. Diagnostic timings are
+discarded; paired latency acceptance remains RR05 against unchanged RR00 frozen
+binaries/gates. No speedup or zero typed-call allocation/root claim is made.
+
+Inherited NC/library limits remain separate: the recursive iterator filter and
+extra SDK `scoped_task_contract`/`sdk_owned_future_factory_contract` attempts stop
+in source analysis before Runtime creation, with unknown Vec/Vec::from and
+inference diagnostics. Source/provider selection is unchanged. They supply no
+Runtime acceptance evidence; recovery belongs to existing native-collections
+reconstruction, without restoring privileged providers. R13 remains deferred.
+
+**Next task (RR03):**
 
 ```text
-Task: Establish exclusive Runtime services and one prepared Native call protocol.
-Context: RR02 Runtime execution/Host owners; existing collector remains production.
-Expected behavior: Mutable public entry/prepare/drive/collect; fixed binding or
-closed-application mappings prepared once; callbacks consume protected locations
-and stage results, retaining post-call precedence and exactly-once commit.
-Scope: Replace raw/typed invocation protocols and actual consumers; remove unused
-PanicPolicy; retain NativeTake/old-heap roots only until RR03 cutover. Preserve
-existing scalar dispatch, final current targets, borrowing, reentry and unwind.
-Validation: Selected source-free/Host/SDK and actual-native contracts plus ordinary
-vs instrumented RR00 workloads, structure/fmt/workspace all-target Clippy/diff.
-Known intermediate errors: None. New nightly auto-trait recursion warning requires
-ownership review; exhaustive CI and inherited NC gaps remain separately owned.
+Task: Cut the complete Runtime managed graph and execution roots over to kagari-gc.
+Context: RR03; RR01 carrier/source proofs and RR02 exclusive services are established.
+Expected behavior: One authoritative RootDriver<ExecutionRoots>, protected slots
+and scoped/stored/Host-root carriers; complete object/code/static/Native graph;
+common return/cleanup ordering and no cloned frame/argument root packs.
+Scope: Follow RR03's ordered cutover; include all providers and ABI/task consumers,
+remove the old collector and NativeTake machinery. Keep NC/R13 deferrals.
+Validation: RR01 proofs through actual Runtime; selected ownership/GC/reentry/
+parked/reload/native contracts, call/root counts, structure/fmt/workspace Clippy/diff.
+Known intermediate errors: None at RR02 exit. Any coordinated cutover build error
+must name its repair step here and be resolved within RR03 before its phase exit.
 ```

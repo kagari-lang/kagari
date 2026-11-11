@@ -87,12 +87,12 @@ fn wrapped_sources_commit_edits_then_fail_before_the_next_read() {
     .unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let error = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .unwrap_err();
     assert!(format!("{error:?}").contains("invalid or structurally modified iterator"));
-    let snapshot = inspect_retained(&vm, &loaded, &probe);
+    let snapshot = inspect_retained(&mut vm, &loaded, &probe);
     let Value::Array(array) = snapshot.value(vm.gc()).unwrap() else {
         panic!("snapshot")
     };
@@ -131,7 +131,7 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
     .unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let iterator = vm
         .execute_module(&loaded, "make", vm.execution_options())
         .unwrap()
@@ -185,7 +185,7 @@ fn map_invokes_the_selected_custom_source_and_releases_its_roots() {
     let loaded = load_bytecode(&mut runtime, "map", program(r#"struct Source { var done: bool } impl Iterator for Source { type Item=i32; fn next(self)->Option<i32> { if self.done { None } else { self.done=true; Some(42) } } } pub fn make()->Iterator<Item=i32> { Source { done:false }.map(|item|item) }"#, &[&library])).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let iterator = vm
         .execute_module(&loaded, "make", vm.execution_options())
         .unwrap()
@@ -239,7 +239,7 @@ fn recursive_next_is_rejected_and_unreachable_capture_cycles_are_collected() {
     let loaded = load_bytecode(&mut runtime, "map", program(source, &[&library])).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let error = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .unwrap_err();

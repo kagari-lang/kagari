@@ -59,7 +59,7 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
             logging_module(move |context, _| {
                 let root = context.runtime().execution_root().unwrap();
                 assert!(reenter(context, &root, nested, &[Value::I32(2)]).is_err());
-                context.runtime().collect_garbage().unwrap();
+                context.runtime_mut().collect_garbage().unwrap();
                 Ok(Value::Unit)
             })
             .install(&mut runtime)

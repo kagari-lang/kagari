@@ -74,7 +74,7 @@ impl ObjectType {
 
 impl Runtime {
     pub fn bind_field<T: KagariType + 'static>(
-        &self,
+        &mut self,
         object_type: &ObjectType,
         name: &str,
     ) -> NativeResult<Field<T>> {
@@ -82,16 +82,14 @@ impl Runtime {
     }
 
     pub fn bind_field_declaration<T: KagariType + 'static>(
-        &self,
+        &mut self,
         member: &ObjectField,
     ) -> NativeResult<Field<T>> {
         let argument = member.argument(self)?;
         let cx = ConversionContext::new(self, member.object_type.owner())?;
         cx.check_type::<T>(&argument)?;
-        let mut cache = self
-            .object_bindings
-            .try_borrow_mut()
-            .map_err(|_| RuntimeError::module_validation("field binding cache is borrowed"))?;
+        drop(cx);
+        let cache = &mut self.object_bindings;
         cache.fields.retain(|record| record.strong_count() != 0);
         if let Some(record) = cache
             .fields

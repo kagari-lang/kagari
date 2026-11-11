@@ -34,6 +34,7 @@ impl NativeBinding {
             ),
         };
         Self {
+            prepare_mapping: None,
             host_policy: None,
             arguments: arguments.into_boxed_slice(),
             result,

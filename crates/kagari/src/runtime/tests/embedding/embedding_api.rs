@@ -33,7 +33,7 @@ fn compile_artifact(
 }
 
 fn logging_module(
-    entry: impl for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+    entry: impl for<'call> Fn(&mut HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
     + Send
     + Sync
     + 'static,
@@ -305,20 +305,21 @@ fn installed_host_and_reflection_helpers_are_available() {
             .expect("retained execution result"),
         Value::Unit
     );
+    let result = runtime
+        .execute(
+            &type_of_module,
+            ProgramEntry::Main,
+            &[],
+            &ExecutionContext::default(),
+        )
+        .unwrap()
+        .return_value;
     assert!(
         script_equal(
             runtime.gc(),
-            &(runtime
-                .execute(
-                    &type_of_module,
-                    ProgramEntry::Main,
-                    &[],
-                    &ExecutionContext::default()
-                )
-                .unwrap()
-                .return_value
+            &result
                 .value(runtime.gc())
-                .expect("retained execution result")),
+                .expect("retained execution result"),
             &(runtime.gc().alloc_string("i32".into()).unwrap())
         )
         .unwrap()

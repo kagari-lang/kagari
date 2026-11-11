@@ -8,7 +8,11 @@ use crate::{
     module::{ExecutableModule, InstalledProgram, entry::ProgramEntry},
     native::{
         binding::NativeResult,
-        conversion::{FromKagari, arguments::IntoKagariArguments, context::ConversionContext},
+        conversion::{
+            FromKagari,
+            arguments::{IntoKagariArguments, PreparedArguments},
+            context::ConversionContext,
+        },
         typed::NativeContext,
     },
     session::ExecutionOptions,
@@ -21,7 +25,7 @@ impl Runtime {
     /// Execute a closed public entry using a branded external host scope. This
     /// uses the interpreter's ordinary checked entry, session and trap cleanup.
     pub fn execute_scoped<'entry>(
-        scope: &HostScope<'_, '_>,
+        scope: &mut HostScope<'_, '_>,
         program: &InstalledProgram,
         entry: impl Into<ProgramEntry<'entry>>,
         arguments: &[Value],
@@ -54,7 +58,9 @@ impl Runtime {
             for (expected, value) in parameters.iter().zip(arguments) {
                 conversion.check_value(expected, value)?;
             }
-            let _session = runtime.begin_execution(&owner, context.runtime_options())?;
+            drop(conversion);
+            let mut session = runtime.begin_execution(&owner, context.runtime_options())?;
+            let runtime = session.runtime_mut();
             runtime.attach_execution_observer()?;
             Executor::new(runtime, &owner, function, arguments)
                 .and_then(|mut executor| executor.run())
@@ -63,7 +69,7 @@ impl Runtime {
 
     /// Access and call typed handles with the interpreter's synchronous service.
     pub fn context<'a>(
-        &'a self,
+        &'a mut self,
         owner: &'a ExecutableModule,
     ) -> Result<NativeContext<'a>, RuntimeError> {
         NativeContext::with_invoker(self, owner, invoke_script)
@@ -72,7 +78,7 @@ impl Runtime {
     /// Execute a public path or explicit root entry with an owned typed result.
     /// Conversion uses the verified target's semantic signature and supplying module.
     pub fn execute_typed<'a, A: IntoKagariArguments, R: FromKagari>(
-        &self,
+        &mut self,
         program: &InstalledProgram,
         entry: impl Into<ProgramEntry<'a>>,
         arguments: A,
@@ -86,7 +92,7 @@ impl Runtime {
 
     #[cfg(test)]
     pub(crate) fn execute_module_typed<'a, A: IntoKagariArguments, R: FromKagari>(
-        &self,
+        &mut self,
         module: &ExecutableModule,
         entry: impl Into<ProgramEntry<'a>>,
         arguments: A,
@@ -95,7 +101,7 @@ impl Runtime {
     }
 
     fn execute_typed_in_module<'a, A: IntoKagariArguments, R: FromKagari>(
-        &self,
+        &mut self,
         module: &ExecutableModule,
         entry: impl Into<ProgramEntry<'a>>,
         arguments: A,
@@ -132,16 +138,24 @@ impl Runtime {
             .resolve_type_arguments(module, slice::from_ref(result))?
             .pop()
             .ok_or_else(invalid)?;
-        let mut conversion = ConversionContext::new(self, module)?;
+        let mut session = self.begin_interpreter_execution(module, options)?;
+        let runtime = session.runtime_mut();
+        let mut conversion = ConversionContext::new(runtime, module)?;
         conversion.check_type::<R>(&result)?;
-        let _session = self.begin_interpreter_execution(module, options)?;
-        let roots = arguments.into_arguments(&mut conversion, &params)?;
+        let roots = PreparedArguments::<A>::new(&conversion, &params)?
+            .encode(&mut conversion, arguments)?;
         let arguments = (0..params.len())
-            .map(|slot| roots.get(self.gc(), slot).ok_or_else(invalid))
+            .map(|slot| {
+                roots
+                    .get(conversion.runtime().gc(), slot)
+                    .ok_or_else(invalid)
+            })
             .collect::<Result<Vec<_>, _>>()?;
-        let value = Executor::new(self, module, function, &arguments)?.run()?;
-        let rooted = self.root_value(value).ok_or_else(invalid)?;
-        let value = rooted.value(self.gc()).ok_or_else(invalid)?;
+        let value = Executor::new(conversion.runtime_mut(), module, function, &arguments)?.run()?;
+        let rooted = conversion.runtime().root_value(value).ok_or_else(invalid)?;
+        let value = rooted
+            .value(conversion.runtime().gc())
+            .ok_or_else(invalid)?;
         conversion.decode_value(&result, &value)
     }
 }

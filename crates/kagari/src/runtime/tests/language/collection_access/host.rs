@@ -32,7 +32,7 @@ fn host_results_preserve_builtin_array_shape_through_artifacts_and_binding_check
             ))
             .unwrap();
         builder
-            .bind(values, |context: &HostCallContext<'_>, _: &[Value]| {
+            .bind(values, |context: &mut HostCallContext<'_>, _: &[Value]| {
                 Ok(Value::Array(
                     context
                         .runtime()

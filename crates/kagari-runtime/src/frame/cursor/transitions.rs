@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::fault::EngineFault,
     frame::{
-        ExecutionStack,
+        FrameStack,
         cursor::kernel::{PreparedTransition, RegionError, RegionExit},
     },
     module::execution::indices::IndexAccess,
@@ -11,13 +11,13 @@ use crate::{
     value::Value,
 };
 
-impl ExecutionStack<'_> {
+impl FrameStack {
     // Preserve the semantic boundary in generated code: ordinary region admission
     // must not inherit the stack and code footprint of layout/allocation handling.
     #[inline(never)]
     pub(super) fn complete_transition(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         transition: PreparedTransition,
         invoke_script: ScriptInvoker,
     ) -> Result<RegionExit, RegionError> {
@@ -40,7 +40,7 @@ impl ExecutionStack<'_> {
                 // ordinary region exit. Nothing can mutate that frame between
                 // cursor exit and this private transition.
                 let (base, tuple, value) = {
-                    let frame = self.current()?;
+                    let frame = self.current(runtime)?;
                     let invalid = || {
                         runtime
                             .resources()
@@ -79,7 +79,7 @@ impl ExecutionStack<'_> {
                     .ok_or(RegionError::InvalidIndex(index))?;
                 *slot = value;
                 let tuple = runtime.gc().alloc_tuple(elements)?;
-                let mut frame = self.current_mut()?;
+                let mut frame = self.current_mut(runtime)?;
                 if !runtime.gc().validate_value(&tuple) {
                     return Err(runtime
                         .resources()
@@ -109,7 +109,7 @@ impl ExecutionStack<'_> {
                 // runtime-owned frame still roots the supplying program. This is
                 // the cold allocation transition, not a second logical instruction.
                 let (owner, pool) = {
-                    let frame = self.current()?;
+                    let frame = self.current(runtime)?;
                     let links = frame.links.as_ref().ok_or_else(|| {
                         runtime
                             .resources()
@@ -118,7 +118,7 @@ impl ExecutionStack<'_> {
                     (frame.loaded.clone(), links.constants.clone())
                 };
                 let value = pool.materialize(runtime, &owner, constant)?;
-                let mut frame = self.current_mut()?;
+                let mut frame = self.current_mut(runtime)?;
                 if !runtime.gc().validate_value(&value) {
                     return Err(runtime
                         .resources()

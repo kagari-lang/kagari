@@ -104,8 +104,8 @@ mod tests {
         for state in ["running", "terminated", "quarantined"] {
             let mut runtime = Runtime::default();
             let owner = allocation_owner(&mut runtime);
-            let _session = runtime.begin_execution(&owner, Default::default()).unwrap();
-            let heap = runtime.gc();
+            let mut _session = runtime.begin_execution(&owner, Default::default()).unwrap();
+            let heap = _session.runtime().gc();
             let task = TaskId(Identity {
                 owner: 1,
                 slot: 0,
@@ -164,7 +164,8 @@ mod tests {
             );
             assert_eq!(heap.stats(), committed);
             if state == "running" {
-                runtime.collect_garbage().unwrap();
+                _session.runtime_mut().collect_garbage().unwrap();
+                let heap = _session.runtime().gc();
                 assert_eq!(heap.stats().current_retained_bytes, 0);
             }
         }

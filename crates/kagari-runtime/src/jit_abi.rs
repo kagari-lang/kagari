@@ -13,7 +13,7 @@ pub static NATIVE_HELPERS: NativeHelperTable = NativeHelperTable {
 
 unsafe extern "C" fn poll_from_context(runtime: *const c_void, offset: u64) -> i32 {
     // SAFETY: the invocation context holds the live runtime for this call.
-    unsafe { jit_poll_execution(runtime.cast(), offset) }
+    unsafe { jit_poll_execution(runtime.cast_mut().cast(), offset) }
 }
 
 /// Publish a verified program point, poll cancellation and service GC.
@@ -21,9 +21,11 @@ unsafe extern "C" fn poll_from_context(runtime: *const c_void, offset: u64) -> i
 ///
 /// # Safety
 /// A non-null pointer must reference a live Runtime for the duration of this call.
-/// Generated code must obey that runtime's single-threaded execution ownership.
-pub unsafe extern "C" fn jit_poll_execution(runtime: *const Runtime, offset: u64) -> i32 {
-    let Some(runtime) = (unsafe { runtime.as_ref() }) else {
+/// Generated code must own the exclusive Runtime invocation borrow and hold no
+/// bank, frame or payload reference across the helper. The opaque C pointer does
+/// not grant shared-reference mutation.
+pub unsafe extern "C" fn jit_poll_execution(runtime: *mut Runtime, offset: u64) -> i32 {
+    let Some(runtime) = (unsafe { runtime.as_mut() }) else {
         return JIT_STATUS_INVALID_RUNTIME;
     };
     match usize::try_from(offset)

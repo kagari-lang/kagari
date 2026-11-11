@@ -1,5 +1,5 @@
-use super::load;
 use crate::test_support::bytecode::load_bytecode;
+use crate::test_support::update_programs::load_empty as load;
 use crate::{
     Runtime, StagedReload,
     closure::{ClosureTarget, ClosureValueSnapshot},
@@ -8,8 +8,10 @@ use crate::{
     gc::arrays::ArrayPayload,
     host::HostCallContext,
     module::{ExecutableModule, InstalledProgram},
-    native::{builder::ModuleBuilder, callable::PreparedClosure, declarations::FunctionDecl},
-    reload::ReloadValidationError,
+    native::{
+        builder::ModuleBuilder, callable::PreparedClosure, declarations::FunctionDecl,
+        module::NativeModule,
+    },
     session::{ExecutionEvent, ExecutionObserver},
     test_support::native::{
         invoke::invoke,
@@ -40,7 +42,7 @@ use std::{
     task::{Context, Waker},
 };
 
-fn stage(runtime: &Runtime, target: &InstalledProgram) -> StagedReload {
+fn stage(runtime: &mut Runtime, target: &InstalledProgram) -> StagedReload {
     runtime
         .stage_reload_verified_program(
             target,
@@ -69,27 +71,35 @@ fn publication_counts_nested_and_hidden_sessions_not_just_the_visible_root() {
     let mut runtime = Runtime::default();
     let target = load(&mut runtime, "target");
     let module = runtime.select_program(&target).unwrap();
-    let candidate = stage(&runtime, &target);
-    let outer = runtime
-        .begin_execution(&module, Default::default())
+    let candidate = stage(&mut runtime, &target);
+    let mut outer = runtime
+        .admit_execution(
+            &module,
+            Default::default(),
+            crate::session::ExecutionEntry::Program,
+        )
         .unwrap();
-    let nested = runtime
-        .begin_execution(&module, Default::default())
+    let mut nested = runtime
+        .admit_execution(
+            &module,
+            Default::default(),
+            crate::session::ExecutionEntry::Program,
+        )
         .unwrap();
-    drop(outer);
+    outer.retire(runtime.resources());
     rejected(&runtime);
 
     // Candidate entry temporarily hides the ordinary session; neither identity
     // nor the visible root is publication authority for any installation.
-    let candidate_session = runtime.begin_candidate_initialization(&candidate).unwrap();
-    rejected(&runtime);
+    let mut candidate_session = runtime.begin_candidate_initialization(&candidate).unwrap();
+    rejected(candidate_session.runtime_mut());
     drop(candidate_session);
     rejected(&runtime);
 
     let hidden = runtime.resources().replace_session(None);
     rejected(&runtime);
     runtime.resources().replace_session(hidden);
-    drop(nested);
+    nested.retire(runtime.resources());
     runtime.publish_staged_reload(candidate).unwrap();
     assert_ne!(runtime.select_program(&target).unwrap().key(), module.key());
     assert!(!runtime.is_quarantined());
@@ -101,13 +111,13 @@ fn publication_guard_excludes_entry_and_releases_on_errors_and_unwind() {
     let target = load(&mut runtime, "target");
     let other = load(&mut runtime, "same-label-is-not-authority");
     let module = runtime.select_program(&target).unwrap();
-    let candidate = stage(&runtime, &target);
+    let candidate = stage(&mut runtime, &target);
     let guard = runtime.begin_publication(&target).unwrap();
     rejected(guard.runtime());
     rejected(guard.runtime());
     assert_eq!(
         guard
-            .runtime()
+            .runtime
             .begin_execution(&module, Default::default())
             .err()
             .unwrap()
@@ -116,7 +126,7 @@ fn publication_guard_excludes_entry_and_releases_on_errors_and_unwind() {
     );
     assert_eq!(
         guard
-            .runtime()
+            .runtime
             .begin_candidate_initialization(&candidate)
             .err()
             .unwrap()
@@ -125,17 +135,17 @@ fn publication_guard_excludes_entry_and_releases_on_errors_and_unwind() {
     );
     assert!(candidate.initialization_error().is_none());
     assert_eq!(
-        guard.runtime().close().unwrap_err().kind(),
+        guard.runtime.close().unwrap_err().kind(),
         RuntimeErrorKind::ExecutionPhaseViolation
     );
     assert_eq!(
-        guard.runtime().collect_garbage().unwrap_err().kind(),
+        guard.runtime.collect_garbage().unwrap_err().kind(),
         RuntimeErrorKind::ExecutionPhaseViolation
     );
     assert!(guard.runtime().select_program(&target).is_ok());
     drop(guard);
 
-    let wrong = stage(&runtime, &other);
+    let wrong = stage(&mut runtime, &other);
     assert!(
         runtime
             .begin_publication(&target)
@@ -155,8 +165,8 @@ fn publication_guard_excludes_entry_and_releases_on_errors_and_unwind() {
         .publish(candidate)
         .unwrap();
 
-    let stale = stage(&runtime, &target);
-    let guard = runtime.begin_publication(&target).unwrap();
+    let stale = stage(&mut runtime, &target);
+    let mut guard = runtime.begin_publication(&target).unwrap();
     let next = guard
         .stage_reload_verified_program(
             None,
@@ -235,11 +245,11 @@ fn publication_allows_parked_frames_but_excludes_resume_and_scheduler_turns() {
     let owner = runtime
         .start_owned_execution(&module, FunctionRef::new(0), &[], Default::default())
         .unwrap();
-    let guard = runtime.begin_publication(&target).unwrap();
+    let mut guard = runtime.begin_publication(&target).unwrap();
     let cx = Context::from_waker(Waker::noop());
     assert_eq!(
         guard
-            .runtime()
+            .runtime
             .resume_owned_execution(&owner)
             .err()
             .unwrap()
@@ -248,7 +258,7 @@ fn publication_allows_parked_frames_but_excludes_resume_and_scheduler_turns() {
     );
     assert_eq!(
         guard
-            .runtime()
+            .runtime
             .begin_scheduler_turn(&cx, None)
             .err()
             .unwrap()
@@ -256,11 +266,7 @@ fn publication_allows_parked_frames_but_excludes_resume_and_scheduler_turns() {
         RuntimeErrorKind::ExecutionPhaseViolation
     );
     assert_eq!(
-        guard
-            .runtime()
-            .drain_retired_executions()
-            .unwrap_err()
-            .kind(),
+        guard.runtime.drain_retired_executions().unwrap_err().kind(),
         RuntimeErrorKind::ExecutionPhaseViolation
     );
     let candidate = guard
@@ -268,7 +274,7 @@ fn publication_allows_parked_frames_but_excludes_resume_and_scheduler_turns() {
         .unwrap();
     assert_eq!(
         guard
-            .runtime()
+            .runtime
             .enter_closure_execution_stack(&closure)
             .err()
             .unwrap()
@@ -276,25 +282,36 @@ fn publication_allows_parked_frames_but_excludes_resume_and_scheduler_turns() {
         RuntimeErrorKind::ExecutionPhaseViolation
     );
     guard.publish(candidate).unwrap();
-    let closure_stack = runtime.enter_closure_execution_stack(&closure).unwrap();
-    rejected(&runtime);
-    drop(closure_stack);
+    let mut closure_stack_activation = runtime.enter_closure_execution_stack(&closure).unwrap();
+    closure_stack_activation
+        .with(|runtime, _closure_stack| {
+            rejected(runtime);
+
+            Ok(())
+        })
+        .unwrap();
+    drop(closure_stack_activation);
     assert!(closure_root.value(runtime.gc()).is_some());
     let mut activation = Some(runtime.resume_owned_execution(&owner).unwrap());
-    rejected(&runtime);
-    assert!(ExecutionStack::try_park_ready(&mut activation, &runtime).unwrap());
+
+    activation
+        .as_mut()
+        .unwrap()
+        .with(|runtime, _| {
+            rejected(runtime);
+            Ok(())
+        })
+        .unwrap();
+    assert!(ExecutionStack::try_park_ready(&mut activation).unwrap());
+
     drop(activation);
     drop(runtime.begin_publication(&target).unwrap());
 
-    let turn = runtime.begin_scheduler_turn(&cx, None).unwrap();
-    rejected(&runtime);
+    let mut turn = runtime.begin_scheduler_turn(&cx, None).unwrap();
     assert!(
         turn.next_work().unwrap().is_none(),
         "the turn must not reject itself"
     );
-    let mut activation = Some(runtime.resume_owned_execution(&owner).unwrap());
-    assert!(ExecutionStack::try_park_ready(&mut activation, &runtime).unwrap());
-    drop(activation);
     drop(turn);
     drop(runtime.begin_publication(&target).unwrap());
     runtime.finish_owned_execution(&owner).unwrap();
@@ -329,18 +346,25 @@ fn publication_rechecks_native_borrows_and_rejects_foreign_targets() {
             Ok(())
         })
         .unwrap();
-    let guard = runtime.begin_publication(&target).unwrap();
+    let mut guard = runtime.begin_publication(&target).unwrap();
     let candidate = guard
         .stage_reload_verified_program(None, module.verified_program().clone())
         .unwrap();
-    guard.runtime().gc().with_native::<ArrayPayload, _>(array, |_| {
-        assert!(matches!(guard.runtime().publish_admitted_reload(candidate, &guard),
-            Err(ReloadValidationError::Runtime(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
-        Ok(())
-    }).unwrap();
+    guard
+        .runtime()
+        .gc()
+        .with_native::<ArrayPayload, _>(array, |_| {
+            assert_eq!(
+                guard.permit.recheck(guard.runtime()).unwrap_err().kind(),
+                RuntimeErrorKind::ModuleValidation
+            );
+            Ok(())
+        })
+        .unwrap();
+    drop(candidate);
     drop(guard);
     assert_eq!(runtime.select_program(&target).unwrap().key(), module.key());
-    let guard = runtime.begin_publication(&target).unwrap();
+    let mut guard = runtime.begin_publication(&target).unwrap();
     let candidate = guard
         .stage_reload_verified_program(None, module.verified_program().clone())
         .unwrap();
@@ -404,14 +428,23 @@ fn publication_is_rejected_inside_observers_and_native_callbacks() {
         }))
         .unwrap();
     let callback_calls = calls.clone();
-    let candidate = Mutex::new(Some(stage(&runtime, &target)));
+    let candidate = Mutex::new(Some(stage(&mut runtime, &target)));
     builder
-        .bind(function, move |cx: &HostCallContext<'_>, _: &[Value]| {
-            rejected(cx.runtime());
-            drop(candidate.lock().unwrap().take().unwrap());
-            callback_calls.fetch_add(1, Ordering::SeqCst);
-            Ok(Value::Unit)
-        })
+        .bind(
+            function,
+            move |cx: &mut HostCallContext<'_>, _: &[Value]| {
+                rejected(cx.runtime());
+                assert_eq!(
+                    NativeModule::install_all(&[], cx.runtime_mut())
+                        .unwrap_err()
+                        .kind(),
+                    RuntimeErrorKind::ExecutionPhaseViolation,
+                );
+                drop(candidate.lock().unwrap().take().unwrap());
+                callback_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(Value::Unit)
+            },
+        )
         .unwrap();
     let native = builder.finish().unwrap();
     let program = free_function_program(&native.to_declaration());
@@ -424,14 +457,15 @@ fn publication_is_rejected_inside_observers_and_native_callbacks() {
             fail: false,
         })
         .unwrap();
-    let session = runtime
+    let mut session = runtime
         .begin_execution(&caller, Default::default())
         .unwrap();
-    runtime.attach_execution_observer().unwrap();
-    runtime
+    session.runtime().attach_execution_observer().unwrap();
+    session
+        .runtime()
         .observe_execution(ExecutionEvent::BeforeInstruction)
         .unwrap();
-    invoke(&runtime, &caller, 0, &[]).unwrap();
+    invoke(session.runtime_mut(), &caller, 0, &[]).unwrap();
     drop(session);
     assert_eq!(calls.load(Ordering::SeqCst), 3);
     drop(runtime.begin_publication(&target).unwrap());

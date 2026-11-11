@@ -118,7 +118,7 @@ unsafe extern "C" fn execute(
     result: *mut JitValue,
 ) -> i32 {
     for offset in 0..2 {
-        let status = unsafe { jit_poll_execution((*runtime).runtime.cast(), offset) };
+        let status = unsafe { jit_poll_execution((*runtime).runtime.cast_mut().cast(), offset) };
         if status != JIT_STATUS_OK {
             return status;
         }
@@ -130,7 +130,7 @@ unsafe extern "C" fn execute(
 }
 
 unsafe extern "C" fn trap(runtime: *const NativeInvocationContext, _: *mut JitValue) -> i32 {
-    let status = unsafe { jit_poll_execution((*runtime).runtime.cast(), 0) };
+    let status = unsafe { jit_poll_execution((*runtime).runtime.cast_mut().cast(), 0) };
     if status == JIT_STATUS_OK {
         JIT_STATUS_INTEGER_OVERFLOW
     } else {
@@ -256,7 +256,7 @@ fn installed_handles_retain_code_and_old_versions_until_the_last_clone_drops() {
 fn invocation_checks_runtime_ownership_without_permission_flags() {
     let mut first = runtime();
     let installed = install(&mut first, execute);
-    let second = runtime();
+    let mut second = runtime();
     assert!(
         matches!(second.invoke_native_function(&installed).unwrap_err().error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::StaleHandle)
     );
@@ -423,24 +423,29 @@ fn failed_reload_keeps_installed_code_callable_and_its_version_retained() {
 fn native_reentry_preserves_the_callers_frame_and_shared_execution() {
     let mut runtime = runtime();
     let installed = install(&mut runtime, execute);
-    let outer = runtime.enter_execution_stack(installed.module()).unwrap();
-    outer
-        .push(
-            &runtime,
-            installed.module().slot(),
-            FunctionRef::new(0),
-            &[],
-            None,
-        )
-        .unwrap();
-    assert_eq!(
-        runtime.invoke_native_function(&installed).unwrap(),
-        Value::Unit
-    );
-    assert_eq!(outer.frames().unwrap().len(), 1);
-    assert_eq!(runtime.resources().counters().current_call_depth, 1);
+    let mut outer_activation = runtime.enter_execution_stack(installed.module()).unwrap();
+    outer_activation
+        .with(|runtime, outer| {
+            outer
+                .push(
+                    runtime,
+                    installed.module().slot(),
+                    FunctionRef::new(0),
+                    &[],
+                    None,
+                )
+                .unwrap();
+            assert_eq!(
+                runtime.invoke_native_function(&installed).unwrap(),
+                Value::Unit
+            );
+            assert_eq!(outer.frames(runtime).unwrap().len(), 1);
+            assert_eq!(runtime.resources().counters().current_call_depth, 1);
 
-    drop(outer);
+            Ok(())
+        })
+        .unwrap();
+    drop(outer_activation);
     assert_clean(&runtime);
 }
 
@@ -450,11 +455,14 @@ fn cancellation_of_an_active_session_prevents_native_progress() {
     let installed = install(&mut runtime, execute);
     let options = runtime.execution_options();
     let cancel = options.cancellation.clone();
-    let session = runtime
+    let mut session = runtime
         .begin_execution(installed.module(), options)
         .unwrap();
     cancel.cancel();
-    let failure = runtime.invoke_native_function(&installed).unwrap_err();
+    let failure = session
+        .runtime_mut()
+        .invoke_native_function(&installed)
+        .unwrap_err();
     assert!(
         matches!(failure.error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::Cancelled)
     );
@@ -588,19 +596,23 @@ fn execution_observers_prevent_native_entry_without_debug_callbacks() {
     let mut runtime = runtime();
     let installed = install(&mut runtime, execute);
     runtime.set_execution_observer(Observer).unwrap();
-    let session = runtime
+    let mut session = runtime
         .begin_execution(installed.module(), runtime.execution_options())
         .unwrap();
-    runtime.attach_execution_observer().unwrap();
+    session.runtime().attach_execution_observer().unwrap();
     assert!(matches!(
-        runtime
+        session
+            .runtime_mut()
             .invoke_native_function(&installed)
             .unwrap_err()
             .error,
         BackendInvocationError::UnsupportedArtifact(_)
     ));
 
-    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    assert_eq!(
+        session.runtime().resources().counters().current_call_depth,
+        0
+    );
     drop(session);
     assert_clean(&runtime);
 }

@@ -28,13 +28,13 @@ fn failed_array(source: &str, expected: &[i32], calls: usize) {
     .unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     assert!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .is_err()
     );
     assert_eq!(probe.calls.load(Ordering::SeqCst), calls);
-    let snapshot = inspect_retained(&vm, &loaded, &probe);
+    let snapshot = inspect_retained(&mut vm, &loaded, &probe);
     let Value::Array(array) = snapshot.value(vm.gc()).unwrap() else {
         panic!("snapshot")
     };

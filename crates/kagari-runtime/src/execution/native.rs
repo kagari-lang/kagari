@@ -7,7 +7,7 @@ use crate::{
     execution::{ExecutionReport, JitExecutionReport, JitExecutionStatus},
     executor::Executor,
     module::{ExecutableModule, InstalledProgram, entry::ProgramEntry},
-    session::{ExecutionOptions, ExecutionSession},
+    session::{ExecutionOptions, SessionScope},
     value::Value,
 };
 
@@ -48,7 +48,7 @@ impl Runtime {
     /// Execute already-prepared code or an explicit pre-entry fallback decision.
     /// This method never compiles and never restarts a partially executed native call.
     pub fn execute_prepared<'a>(
-        &self,
+        &mut self,
         program: &InstalledProgram,
         entry: impl Into<ProgramEntry<'a>>,
         args: &[Value],
@@ -70,7 +70,7 @@ impl Runtime {
     }
 
     pub fn execute_prepared_module<'a, 'p>(
-        &self,
+        &mut self,
         module: &ExecutableModule,
         entry: impl Into<ProgramEntry<'a>>,
         prepared: impl Into<PreparedNativeExecution<'p>>,
@@ -83,16 +83,22 @@ impl Runtime {
             .ok_or_else(|| RuntimeError::new(ErrorReason::MissingFunction(entry.label().into())))?;
         let (owner, function) = self.select_function(&owner, function)?;
         let session = self.begin_interpreter_execution(&owner, options)?;
-        self.execute_prepared_selected(&owner, function, entry.label(), prepared, &session)
+        session.runtime.execute_prepared_selected(
+            &owner,
+            function,
+            entry.label(),
+            prepared,
+            &session.scope,
+        )
     }
 
     pub(super) fn execute_prepared_selected<'p>(
-        &self,
+        &mut self,
         module: &ExecutableModule,
         function: FunctionRef,
         label: &str,
         prepared: impl Into<PreparedNativeExecution<'p>>,
-        session: &ExecutionSession<'_>,
+        session: &SessionScope,
     ) -> Result<ExecutionReport, RuntimeError> {
         let PreparedNativeExecution {
             prepared,
@@ -175,7 +181,7 @@ impl Runtime {
                 artifact,
                 diagnostics,
             }),
-            trace: session.trace(),
+            trace: session.trace(self.resources()),
         })
     }
 }

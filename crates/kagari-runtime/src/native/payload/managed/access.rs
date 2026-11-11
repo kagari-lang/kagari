@@ -33,12 +33,12 @@ impl<T: NativeData> Opaque<Managed<T>> {
         field: &BoundField<T, V>,
     ) -> NativeResult<V> {
         field.check(&self.native_type)?;
-        let mut conversion = ConversionContext::new(cx.runtime(), field.native_type.owner())?;
         cx.poll()?;
         let value = self.read(cx, |payload| {
             payload.values.get(field.slot).cloned().ok_or_else(invalid)
         })?;
-        conversion.decode_prepared(field.type_argument(), &value)
+        ConversionContext::new(cx.runtime_mut(), field.native_type.owner())?
+            .decode_prepared(field.type_argument(), &value)
     }
 
     pub fn set<V: IntoKagari>(
@@ -48,13 +48,13 @@ impl<T: NativeData> Opaque<Managed<T>> {
         value: V,
     ) -> NativeResult<()> {
         field.check(&self.native_type)?;
-        let mut conversion = ConversionContext::new(cx.runtime(), field.native_type.owner())?;
         let Value::GcHandle(id) = self.value(cx.runtime().gc())? else {
             return Err(invalid());
         };
+        let mut conversion = ConversionContext::new(cx.runtime_mut(), field.native_type.owner())?;
         conversion.argument_scope(|conversion| {
             let value = conversion.encode_prepared(field.type_argument(), value)?;
-            cx.runtime().gc().set_managed_field::<T>(
+            conversion.runtime().gc().set_managed_field::<T>(
                 id,
                 self.native_type.schema()?,
                 field.slot,

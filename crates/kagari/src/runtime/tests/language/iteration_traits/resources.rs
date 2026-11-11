@@ -41,15 +41,20 @@ pub fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
     let _selected_loaded = runtime.select_program(&loaded).unwrap();
     for entry in ["fail", "nested", "manual", "trap", "exhaust"] {
         let options = context.clone();
-        let cancellation = (entry == "exhaust").then(|| {
-            support::cancel_after(&runtime, &runtime.select_program(&loaded).unwrap(), 30)
-        });
-        let error = runtime.execute(&loaded, entry, &[], &options).unwrap_err();
+        let error = if entry == "exhaust" {
+            let selected = runtime.select_program(&loaded).unwrap();
+            let mut cancellation = support::cancel_after(&mut runtime, &selected, 30);
+            cancellation
+                .runtime_mut()
+                .execute(&loaded, entry, &[], &options)
+                .unwrap_err()
+        } else {
+            runtime.execute(&loaded, entry, &[], &options).unwrap_err()
+        };
         assert!(
             !format!("{error:?}").contains("MissingFunction"),
             "{entry}: {error:?}"
         );
-        drop(cancellation);
         assert!(!format!("{error:?}").contains("UnsupportedExecution"));
         assert!(!runtime.is_quarantined());
         assert_eq!(runtime.gc().active_roots(), 0, "{entry}");

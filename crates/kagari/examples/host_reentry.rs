@@ -61,34 +61,38 @@ fn main() {
     let retained = Arc::new(Mutex::new(None));
     let output = retained.clone();
     module
-        .bind(notify, move |call: &HostCallContext<'_>, _: &[Value]| {
-            let scratch = Value::Array(
-                call.runtime()
-                    .alloc_array(
-                        &call.runtime().execution_root().unwrap(),
-                        Ty::Builtin(BuiltinType::I32),
-                        vec![Value::I32(3)],
-                    )
-                    .unwrap(),
-            );
-            call.retain_temporaries(slice::from_ref(&scratch)).unwrap();
-            let root = call.runtime().execution_root().unwrap();
-            // Resolve only in the current pinned program, never through source
-            // analysis or a newer globally published generation.
-            let make = root
-                .bytecode
-                .functions
-                .iter()
-                .find(|function| function.name == "make")
-                .ok_or_else(|| HostError::new("missing pinned make entry"))?
-                .id;
-            let value = reenter(call, &root, make, &[])
-                .map_err(|error| HostError::new(format!("script callback failed: {error:?}")))?;
-            call.runtime().collect_garbage().unwrap();
-            assert!(call.runtime().gc().validate_value(&scratch));
-            *output.lock().unwrap() = Some(value);
-            Ok(Value::Unit)
-        })
+        .bind(
+            notify,
+            move |call: &mut HostCallContext<'_>, _: &[Value]| {
+                let scratch = Value::Array(
+                    call.runtime()
+                        .alloc_array(
+                            &call.runtime().execution_root().unwrap(),
+                            Ty::Builtin(BuiltinType::I32),
+                            vec![Value::I32(3)],
+                        )
+                        .unwrap(),
+                );
+                call.retain_temporaries(slice::from_ref(&scratch)).unwrap();
+                let root = call.runtime().execution_root().unwrap();
+                // Resolve only in the current pinned program, never through source
+                // analysis or a newer globally published generation.
+                let make = root
+                    .bytecode
+                    .functions
+                    .iter()
+                    .find(|function| function.name == "make")
+                    .ok_or_else(|| HostError::new("missing pinned make entry"))?
+                    .id;
+                let value = reenter(call, &root, make, &[]).map_err(|error| {
+                    HostError::new(format!("script callback failed: {error:?}"))
+                })?;
+                call.runtime_mut().collect_garbage().unwrap();
+                assert!(call.runtime().gc().validate_value(&scratch));
+                *output.lock().unwrap() = Some(value);
+                Ok(Value::Unit)
+            },
+        )
         .unwrap();
     builder.install(module.finish().unwrap()).unwrap();
     let engine = builder.build().unwrap();
@@ -107,21 +111,27 @@ fn main() {
     runtime
         .set_execution_observer(StackDepth::default())
         .unwrap();
-    let session = runtime
+    let mut session = runtime
         .begin_execution(&_selected_loaded, runtime.execution_options())
         .unwrap();
-    runtime.attach_execution_observer().unwrap();
+    session.runtime().attach_execution_observer().unwrap();
     assert_eq!(
-        runtime
+        session
+            .runtime_mut()
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
+            .value(session.runtime().gc())
             .expect("retained execution result"),
         Value::I32(42)
     );
     assert_eq!(
-        runtime.execution_observer::<StackDepth>().unwrap().0.get(),
+        session
+            .runtime()
+            .execution_observer::<StackDepth>()
+            .unwrap()
+            .0
+            .get(),
         2
     );
     assert_eq!(session.counters().current_call_depth, 0);

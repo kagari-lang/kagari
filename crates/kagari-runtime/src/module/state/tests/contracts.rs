@@ -122,7 +122,10 @@ fn source_free_imports_round_trip_and_bind_to_one_cell_without_initializing() {
         .begin_execution(&loaded, runtime.execution_options())
         .unwrap();
     assert!(matches!(
-        runtime.modules.static_state(&loaded, ModuleSlot::new(0)),
+        session
+            .runtime()
+            .modules
+            .static_state(&loaded, ModuleSlot::new(0)),
         Some(StaticState::Uninitialized(_))
     ));
     drop(session);

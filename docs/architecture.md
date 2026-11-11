@@ -1113,7 +1113,7 @@ fields and checked writes. Complete builders root initializers until publication
 Advanced NativePayload supplies tracing, a fallible `HeapCharge` description and
 Rust destruction. Its scoped borrows validate the registered Rust type and cannot
 span collection or reentry.
-Advanced CallContext and borrowed views remain for storage operations; StoredCallable
+Advanced NativeCall and borrowed views remain for storage operations; StoredCallable
 is a traced heap edge, while host-retained callbacks use `Function`.
 New payloads require no concrete Value/HeapObject variants. Scalar sequences use
 typed compact buffers; GC-bearing sequences use traced Values. Hash callbacks run

@@ -1,6 +1,6 @@
 use crate::{
     error::{RuntimeError, trap::TrapReason},
-    executor::Executor,
+    executor::Interpreter,
     numeric,
     value::Value,
     value_semantics,
@@ -8,7 +8,7 @@ use crate::{
 
 use kagari_bytecode::instruction::{BinaryOp, UnaryOp};
 
-impl Executor<'_> {
+impl Interpreter<'_> {
     pub(crate) fn apply_unary(op: UnaryOp, value: Value) -> Result<Value, RuntimeError> {
         numeric::unary(op, value)
     }

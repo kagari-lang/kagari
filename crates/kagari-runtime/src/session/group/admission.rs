@@ -12,7 +12,11 @@ use crate::{
 use std::{slice, task::Waker};
 
 impl Runtime {
-    pub(super) fn admit_group(&self, parent: SessionId, record: GroupRecord) -> NativeResult<()> {
+    pub(super) fn admit_group(
+        &mut self,
+        parent: SessionId,
+        record: GroupRecord,
+    ) -> NativeResult<()> {
         let GroupState::Admitting(cold, inputs) = record.state else {
             return Err(invalid());
         };
@@ -91,7 +95,7 @@ impl Runtime {
         };
         match admitted {
             Ok(()) => {
-                self.groups.borrow_mut().records.insert(parent, record);
+                self.groups.records.insert(parent, record);
                 Ok(())
             }
             Err(error) => self.finish_group_record(parent, record, Err(error)),

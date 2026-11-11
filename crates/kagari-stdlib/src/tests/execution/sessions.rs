@@ -69,8 +69,9 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
             let result = retained.clone();
             let mut runtime = runtime();
             logging_module(move |context, args| {
-                    let runtime = context.runtime();
-                    if matches!(args, [Value::Str(id)] if &*runtime.gc().string(*id).unwrap() == "outer") {
+
+                    if matches!(args, [Value::Str(id)] if &*context.runtime().gc().string(*id).unwrap() == "outer") {
+                        let root = context.runtime().execution_root().unwrap();
                         let token = context
                             .borrows()
                             .borrow_unique(HostObjectId(1), TypeId::new(0))
@@ -78,7 +79,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                         assert!(
                             reenter(
                                 context,
-                                &context.runtime().execution_root().unwrap(),
+                                &root,
                                 make,
                                 &[Value::Bool(true)]
                             )
@@ -86,7 +87,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                         );
                         let value = reenter(
                             context,
-                            &context.runtime().execution_root().unwrap(),
+                            &root,
                             make,
                             &[Value::I32(7)],
                         )
@@ -95,17 +96,17 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                             .borrows()
                             .validate(token, HostBorrowKind::Unique)
                             .unwrap();
-                        runtime.collect_garbage().unwrap();
-                        let Value::Array(id) = value.value(runtime.gc()).unwrap() else {
+                        context.runtime_mut().collect_garbage().unwrap();
+                        let Value::Array(id) = value.value(context.runtime().gc()).unwrap() else {
                             panic!("array result")
                         };
                         assert_eq!(
-                            runtime.gc().array_snapshot(id).unwrap(),
+                            context.runtime().gc().array_snapshot(id).unwrap(),
                             [Value::I32(7), Value::I32(8)]
                         );
                         *result.lock().unwrap() = Some(value);
                     } else {
-                        assert_eq!(runtime.resources().counters().current_call_depth, 4);
+                        assert_eq!(context.runtime().resources().counters().current_call_depth, 4);
                         assert_eq!(
                             context
                                 .borrows()
@@ -114,7 +115,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                                 .kind(),
                             RuntimeErrorKind::HostBorrowConflict
                         );
-                        runtime.collect_garbage().unwrap();
+                        context.runtime_mut().collect_garbage().unwrap();
                     }
                     Ok(Value::Unit)
                 }).install(&mut runtime)
@@ -123,7 +124,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                 load_bytecode(&mut runtime, "reentry.kgr", route(module, encoded)).unwrap();
             let _loaded_program = loaded;
             let loaded = runtime.select_program(&_loaded_program).unwrap();
-            let vm = runtime;
+            let mut vm = runtime;
             let prepared = native_fixtures::unsupported();
             let report = if jit {
                 vm.execute_prepared_module(
@@ -147,25 +148,26 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
             assert_eq!(vm.resources().counters().current_call_depth, 0);
             assert!(vm.execution_root().is_none());
             assert_eq!(vm.modules().retention_counts(loaded.key()).active_calls, 0);
-            let resources = vm.host_scope(&[]).unwrap();
+            let mut resources = vm.host_scope(&[]).unwrap();
             let frame = resources.borrows();
             frame
                 .borrow_unique(HostObjectId(1), TypeId::new(0))
                 .unwrap();
-            vm.collect_garbage().unwrap();
+            drop(frame);
+            resources.runtime_mut().collect_garbage().unwrap();
             let raw = retained
                 .lock()
                 .unwrap()
                 .as_ref()
                 .unwrap()
-                .value(vm.gc())
+                .value(resources.runtime().gc())
                 .unwrap();
-            assert!(vm.gc().validate_value(&raw));
+            assert!(resources.runtime().gc().validate_value(&raw));
             assert!(!Runtime::default().gc().validate_value(&raw));
             retained.lock().unwrap().take();
-            vm.collect_garbage().unwrap();
-            assert!(!vm.gc().validate_value(&raw));
-            assert_eq!(vm.gc().active_roots(), 0);
+            resources.runtime_mut().collect_garbage().unwrap();
+            assert!(!resources.runtime().gc().validate_value(&raw));
+            assert_eq!(resources.runtime().gc().active_roots(), 0);
         }
     }
 }
@@ -195,15 +197,16 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                     ..Default::default()
                 });
                 logging_module(move |context, args| {
+                    let root = context.runtime().execution_root().unwrap();
                     context.borrows().borrow_shared(HostObjectId(2), TypeId::new(0)).unwrap();
-                    let temporary = Value::Array(context.runtime().alloc_array(&context.runtime().execution_root().unwrap(), Ty::Builtin(BuiltinType::I32), vec![Value::I32(11)]).unwrap());
+                    let temporary = Value::Array(context.runtime().alloc_array(&root, Ty::Builtin(BuiltinType::I32), vec![Value::I32(11)]).unwrap());
                     context.retain_temporaries(std::slice::from_ref(&temporary)).unwrap();
-                    context.runtime().collect_garbage().unwrap();
+                    context.runtime_mut().collect_garbage().unwrap();
                     assert!(context.runtime().gc().validate_value(&temporary));
                     if matches!(args, [Value::Str(id)] if &*context.runtime().gc().string(*id).unwrap() == "inner") {
                         cancellation.cancel();
                     } else {
-                        let error = reenter(context, &context.runtime().execution_root().unwrap(), nested, &[]).expect_err("nested termination");
+                        let error = reenter(context, &root, nested, &[]).expect_err("nested termination");
                         assert!(matches!(&error, error if error.kind() == if cancel { RuntimeErrorKind::Cancelled } else { RuntimeErrorKind::ResourceLimitExceeded }));
                     }
                     // Even a host deliberately swallowing a nested terminal error cannot resume.
@@ -216,19 +219,25 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                 let mut options = runtime.execution_options();
                 options.cancellation = token;
 
-                let vm = runtime;
-                let scope = vm.begin_execution(&loaded, options).unwrap();
+                let mut vm = runtime;
+                let mut scope = vm.begin_execution(&loaded, options).unwrap();
+                let scope_options = scope.runtime().execution_options();
+                let scope_options = scope_options.clone();
 
                 let prepared = native_fixtures::unsupported();
                 let error = if jit {
-                    vm.execute_prepared_module(
+                    scope.runtime_mut().execute_prepared_module(
                         &loaded,
                         ProgramEntry::Main,
                         &prepared,
-                        vm.execution_options(),
+                        scope_options.clone(),
                     )
                 } else {
-                    vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
+                    scope.runtime_mut().execute_module(
+                        &loaded,
+                        ProgramEntry::Main,
+                        scope_options.clone(),
+                    )
                 }
                 .unwrap_err();
                 let names = error
@@ -249,8 +258,8 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                 assert!(
                     matches!(&error, error if error.kind() == if cancel { RuntimeErrorKind::Cancelled } else { RuntimeErrorKind::ResourceLimitExceeded })
                 );
-                assert_eq!(vm.resources().counters().current_call_depth, 0);
-                assert_eq!(vm.gc().active_roots(), 0);
+                assert_eq!(scope.runtime().resources().counters().current_call_depth, 0);
+                assert_eq!(scope.runtime().gc().active_roots(), 0);
                 assert_eq!(scope.host_scope_count(), 0);
                 drop(scope);
                 let resources = vm.host_scope(&[]).unwrap();
@@ -258,7 +267,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                 frame
                     .borrow_unique(HostObjectId(2), TypeId::new(0))
                     .unwrap();
-                assert!(vm.execution_root().is_none());
+                assert!(resources.runtime().execution_root().is_none());
             }
         }
     }
@@ -305,12 +314,12 @@ fn reentry_rejects_foreign_and_stale_inputs() {
     let mut runtime = runtime();
     logging_module(move |context, _| {
         called.fetch_add(1, Ordering::SeqCst);
-        let runtime = context.runtime();
+
         assert!(matches!(reenter(context, &foreign_module, main, &[]), Err(error) if error.kind() == RuntimeErrorKind::StaleHandle));
-        if let Some(root) = runtime.execution_root() {
+        if let Some(root) = context.runtime().execution_root() {
                 assert!(matches!(reenter(context, &root, echo, std::slice::from_ref(&foreign_value)), Err(error) if error.kind() == RuntimeErrorKind::ModuleValidation));
-                let stale = Value::Array(runtime.alloc_array(&root, Ty::Builtin(BuiltinType::I32), vec![]).unwrap());
-                runtime.collect_garbage().unwrap();
+                let stale = Value::Array(context.runtime().alloc_array(&root, Ty::Builtin(BuiltinType::I32), vec![]).unwrap());
+                context.runtime_mut().collect_garbage().unwrap();
                 assert!(matches!(reenter(context, &root, echo, &[stale]), Err(error) if error.kind() == RuntimeErrorKind::ModuleValidation));
         }
         Ok(Value::Unit)
@@ -318,7 +327,7 @@ fn reentry_rejects_foreign_and_stale_inputs() {
     let loaded = load_bytecode(&mut runtime, "inputs.kgr", module).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     assert_eq!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
@@ -373,11 +382,18 @@ fn reentry_selects_current_code_and_publication_requires_an_idle_boundary() {
         let _old_program = old;
         let old = runtime.select_program(&_old_program).unwrap();
         let mut vm = runtime;
-        let scope = vm.begin_execution(&old, vm.execution_options()).unwrap();
+        let mut scope = vm.begin_execution(&old, vm.execution_options()).unwrap();
+        let scope_options = scope.runtime().execution_options();
+        let scope_options = scope_options.clone();
         // This live session excludes mutable reload through Rust borrowing.
-        assert_eq!(vm.select_program(&_old_program).unwrap().key(), old.key());
+        assert_eq!(
+            scope.runtime().select_program(&_old_program).unwrap().key(),
+            old.key()
+        );
         versions.lock().unwrap().push(old.clone());
-        vm.execute_module(&old, ProgramEntry::Main, vm.execution_options())
+        scope
+            .runtime_mut()
+            .execute_module(&old, ProgramEntry::Main, scope_options.clone())
             .unwrap();
         drop(scope);
         reload_bytecode(
@@ -418,7 +434,7 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
             context.runtime().resources().counters().current_call_depth,
             2
         );
-        context.runtime().collect_garbage().unwrap();
+        context.runtime_mut().collect_garbage().unwrap();
         assert_eq!(context.runtime().gc().allocated_objects(), 1);
         let [Value::Str(text)] = args else {
             panic!("outer argument")
@@ -462,10 +478,12 @@ fn native_safepoint_reports_cancellation_at_the_current_instruction() {
     let token = CancellationToken::default();
     let mut options = runtime.execution_options();
     options.cancellation = token.clone();
-    let session = runtime.begin_execution(&loaded, options).unwrap();
+    let mut session = runtime.begin_execution(&loaded, options).unwrap();
     token.cancel();
-    assert!(matches!(runtime.invoke_native_function(&native),
-        Err(NativeInvocationFailure { error: BackendInvocationError::RuntimeFailure(error), .. }) if error.kind() == RuntimeErrorKind::Cancelled));
+    assert!(
+        matches!(session.runtime_mut().invoke_native_function(&native),
+        Err(NativeInvocationFailure { error: BackendInvocationError::RuntimeFailure(error), .. }) if error.kind() == RuntimeErrorKind::Cancelled)
+    );
 
     drop(session);
     assert_eq!(
@@ -499,26 +517,37 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
             let mut options = runtime.execution_options();
             options.cancellation = token;
             let mut vm = runtime;
-            let session = vm.begin_execution(&loaded, options).unwrap();
+            let mut session = vm.begin_execution(&loaded, options).unwrap();
+            let session_options = session.runtime().execution_options();
+            let session_options = session_options.clone();
             let prepared = native_fixtures::unsupported();
             let error = if jit {
-                vm.execute_prepared_module(
-                    &loaded,
-                    ProgramEntry::Main,
-                    &prepared,
-                    vm.execution_options(),
-                )
-                .unwrap_err()
+                session
+                    .runtime_mut()
+                    .execute_prepared_module(
+                        &loaded,
+                        ProgramEntry::Main,
+                        &prepared,
+                        session_options.clone(),
+                    )
+                    .unwrap_err()
             } else {
-                vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
+                session
+                    .runtime_mut()
+                    .execute_module(&loaded, ProgramEntry::Main, session_options.clone())
                     .unwrap_err()
             };
             assert!(matches!(&error, error if error.kind() == RuntimeErrorKind::Cancelled));
             assert_eq!(calls.load(Ordering::SeqCst), 1);
-            assert_eq!(vm.gc().active_roots(), 0);
-            assert_eq!(vm.resources().counters().current_call_depth, 0);
+            assert_eq!(session.runtime().gc().active_roots(), 0);
+            assert_eq!(
+                session.runtime().resources().counters().current_call_depth,
+                0
+            );
             assert!(
-                vm.execute_module(&loaded, "ready", vm.execution_options())
+                session
+                    .runtime_mut()
+                    .execute_module(&loaded, "ready", session_options.clone())
                     .is_err()
             );
             drop(session);
@@ -570,7 +599,7 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
         let candidate = runtime
             .stage_reload_program(&_old_program, Some("staged.kgr".into()), program())
             .unwrap();
-        let vm = runtime;
+        let mut vm = runtime;
         let error = vm
             .execute_module(
                 candidate.module(),
@@ -583,13 +612,21 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
         );
         assert!(vm.execution_root().is_none());
         assert_eq!(calls.load(Ordering::SeqCst), 0);
-        let session = vm.begin_candidate_initialization(&candidate).unwrap();
-        assert!(vm.begin_candidate_initialization(&candidate).is_err());
-        let error = vm
+        let mut session = vm.begin_candidate_initialization(&candidate).unwrap();
+        let session_options = session.runtime_mut().execution_options();
+        let session_options = session_options.clone();
+        assert!(
+            session
+                .runtime_mut()
+                .begin_candidate_initialization(&candidate)
+                .is_err()
+        );
+        let error = session
+            .runtime_mut()
             .execute_module(
                 candidate.module(),
                 ProgramEntry::Main,
-                vm.execution_options(),
+                session_options.clone(),
             )
             .unwrap_err();
         assert!(
@@ -659,7 +696,7 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
             load_bytecode(&mut runtime, "host-origin.kgr", route(module, encoded)).unwrap();
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
-        let vm = runtime;
+        let mut vm = runtime;
         let error = vm
             .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap_err();

@@ -47,7 +47,7 @@ impl InherentType for ObjectType {
 impl<S> Object<S> {
     pub fn schedule_async<A: IntoKagariArguments, R: FromKagari + Send + 'static>(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         method: &AsyncMethod<A, R>,
         arguments: A,
         options: ExecutionOptions,

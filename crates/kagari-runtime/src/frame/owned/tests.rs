@@ -4,8 +4,8 @@ use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
-    frame::{ExecutionStack, NativeEntryState},
-    gc::retention_probe::{measure, replace_cell},
+    frame::{ExecutionStack, FrameStack, NativeEntryState},
+    gc::retention_probe::{heap_owner, measure, replace_cell},
     module::ExecutableModule,
     native::{
         binding::NativeResult,
@@ -107,15 +107,15 @@ fn graph(runtime: &Runtime, size: usize, cyclic: bool) -> Value {
     value
 }
 
-pub(in crate::frame) fn set_frame(runtime: &Runtime, stack: &ExecutionStack<'_>, value: Value) {
-    let frame = stack.current().unwrap();
+pub(in crate::frame) fn set_frame(runtime: &Runtime, stack: &FrameStack, value: Value) {
+    let frame = stack.current(runtime).unwrap();
     let mut windows = runtime.resources().frame_values.borrow_mut();
     let range = windows.ranges(frame.slots).unwrap().managed;
     windows.values[range].fill(value);
 }
 
 fn fixture(
-    runtime: &Runtime,
+    runtime: &mut Runtime,
     module: &ExecutableModule,
     shape: &str,
     depth: usize,
@@ -124,41 +124,46 @@ fn fixture(
     let owner = runtime
         .start_owned_execution(module, FunctionRef::new(0), &[], Default::default())
         .unwrap();
-    let stack = runtime.resume_owned_execution(&owner).unwrap();
-    let shared = if shape == "scalar" {
-        Value::Unit
-    } else {
-        graph(runtime, 8, shape == "cyclic")
-    };
-    for index in 0..depth {
-        if index != 0 {
-            stack
-                .push(runtime, module.slot(), FunctionRef::new(0), &[], None)
-                .unwrap();
-        }
-        let value = if shape == "disjoint" {
-            graph(runtime, 8, false)
-        } else {
-            shared
-        };
-        if shape != "scalar" {
-            set_frame(runtime, &stack, value);
-        }
-        let frame = stack.current().unwrap();
-        let windows = runtime.resources().frame_values.borrow();
-        let ranges = windows.ranges(frame.slots).unwrap();
-        assert_eq!(
-            ranges.managed.len(),
-            if shape == "scalar" { 0 } else { aliases }
-        );
-    }
-    assert!(ExecutionStack::try_park_ready(&mut Some(stack), runtime).unwrap());
+    let mut stack_activation = runtime.resume_owned_execution(&owner).unwrap();
+    stack_activation
+        .with(|runtime, stack| {
+            let shared = if shape == "scalar" {
+                Value::Unit
+            } else {
+                graph(runtime, 8, shape == "cyclic")
+            };
+            for index in 0..depth {
+                if index != 0 {
+                    stack
+                        .push(runtime, module.slot(), FunctionRef::new(0), &[], None)
+                        .unwrap();
+                }
+                let value = if shape == "disjoint" {
+                    graph(runtime, 8, false)
+                } else {
+                    shared
+                };
+                if shape != "scalar" {
+                    set_frame(runtime, stack, value);
+                }
+                let frame = stack.current(runtime).unwrap();
+                let windows = runtime.resources().frame_values.borrow();
+                let ranges = windows.ranges(frame.slots).unwrap();
+                assert_eq!(
+                    ranges.managed.len(),
+                    if shape == "scalar" { 0 } else { aliases }
+                );
+            }
+            Ok(())
+        })
+        .unwrap();
+    transition(stack_activation);
     owner
 }
 
-fn transition(runtime: &Runtime, stack: ExecutionStack<'_>) {
+fn transition(stack: ExecutionStack<'_>) {
     let mut activation = Some(stack);
-    assert!(ExecutionStack::try_park_ready(&mut activation, runtime).unwrap());
+    assert!(ExecutionStack::try_park_ready(&mut activation).unwrap());
     assert!(activation.is_none());
 }
 
@@ -170,43 +175,83 @@ fn declined_parking_retains_activation_for_retry_and_errors_retain_trace() {
         .start_owned_execution(&module, FunctionRef::new(0), &[], Default::default())
         .unwrap();
     let mut activation = Some(runtime.resume_owned_execution(&owner).unwrap());
-    set_frame(
-        &runtime,
-        activation.as_ref().unwrap(),
-        Value::RuntimeEphemeral(EphemeralValueId(1)),
-    );
-    assert!(!ExecutionStack::try_park_ready(&mut activation, &runtime).unwrap());
+    activation
+        .as_mut()
+        .unwrap()
+        .with(|runtime, stack| {
+            set_frame(runtime, stack, Value::RuntimeEphemeral(EphemeralValueId(1)));
+            Ok(())
+        })
+        .unwrap();
+    assert!(!ExecutionStack::try_park_ready(&mut activation).unwrap());
     assert!(!owner.is_ready());
-    assert_eq!(runtime.resources().counters().current_call_depth, 1);
+    activation
+        .as_mut()
+        .unwrap()
+        .with(|runtime, _| {
+            assert_eq!(runtime.resources().counters().current_call_depth, 1);
+            Ok(())
+        })
+        .unwrap();
     assert_eq!(
         activation
-            .as_ref()
+            .as_mut()
             .unwrap()
-            .current()
-            .unwrap()
-            .instruction_offset(),
+            .with(|runtime, stack| Ok(stack.current(runtime)?.instruction_offset()))
+            .unwrap(),
         0
     );
-    assert!(ExecutionStack::try_park_ready(&mut activation, &Runtime::default()).is_err());
+    assert!(
+        activation
+            .as_mut()
+            .unwrap()
+            .drive(|_, stack| FrameStack::try_park_ready(stack, &Runtime::default()))
+            .is_err()
+    );
     assert!(activation.is_some());
-    assert_eq!(runtime.capture_error_trace().frames.len(), 1);
-    set_frame(&runtime, activation.as_ref().unwrap(), Value::Unit);
-    assert!(ExecutionStack::park_waiting(&mut activation, &runtime).is_err());
+    activation
+        .as_mut()
+        .unwrap()
+        .with(|runtime, _| {
+            assert_eq!(runtime.capture_error_trace().frames.len(), 1);
+            Ok(())
+        })
+        .unwrap();
+    activation
+        .as_mut()
+        .unwrap()
+        .with(|runtime, stack| {
+            set_frame(runtime, stack, Value::Unit);
+            Ok(())
+        })
+        .unwrap();
+    assert!(ExecutionStack::park_waiting(&mut activation).is_err());
     assert!(
         activation.is_some(),
         "strict wait without pending must preserve diagnostics"
     );
-    assert!(ExecutionStack::try_park_ready(&mut activation, &runtime).unwrap());
+    assert!(ExecutionStack::try_park_ready(&mut activation).unwrap());
     assert!(activation.is_none());
     assert!(owner.is_ready());
+    assert!(ExecutionStack::try_park_ready(&mut activation).is_err());
+    drop(activation);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
-    assert!(ExecutionStack::try_park_ready(&mut activation, &runtime).is_err());
-    let stack = runtime.resume_owned_execution(&owner).unwrap();
-    assert_eq!(
-        stack.current_mut().unwrap().next_instruction().unwrap(),
-        BytecodeInstruction::Return(None)
-    );
-    drop(stack);
+    let mut stack_activation = runtime.resume_owned_execution(&owner).unwrap();
+    stack_activation
+        .with(|runtime, stack| {
+            assert_eq!(
+                stack
+                    .current_mut(runtime)
+                    .unwrap()
+                    .next_instruction()
+                    .unwrap(),
+                BytecodeInstruction::Return(None)
+            );
+
+            Ok(())
+        })
+        .unwrap();
+    drop(stack_activation);
     runtime.finish_owned_execution(&owner).unwrap();
 }
 
@@ -217,32 +262,37 @@ fn parking_rechecks_alias_mutation_and_preserves_frame_error_order() {
     let owner = runtime
         .start_owned_execution(&module, FunctionRef::new(0), &[], Default::default())
         .unwrap();
-    let stack = runtime.resume_owned_execution(&owner).unwrap();
     let cell = runtime
         .gc()
         .alloc_cell(ValueType::Unit, Value::Unit)
         .unwrap();
-    set_frame(&runtime, &stack, Value::Cell(cell));
+    let mut stack = runtime.resume_owned_execution(&owner).unwrap();
     stack
-        .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
+        .with(|runtime, stack| {
+            set_frame(runtime, stack, Value::Cell(cell));
+            stack.push(runtime, module.slot(), FunctionRef::new(0), &[], None)?;
+            set_frame(runtime, stack, Value::Cell(cell));
+            Ok(())
+        })
         .unwrap();
-    set_frame(&runtime, &stack, Value::Cell(cell));
-    transition(&runtime, stack);
+    transition(stack);
     replace_cell(
         runtime.gc(),
         cell,
         Value::RuntimeEphemeral(EphemeralValueId(1)),
     );
+    let probe = heap_owner(runtime.gc());
     let mut activation = Some(runtime.resume_owned_execution(&owner).unwrap());
+
     activation
-        .as_ref()
+        .as_mut()
         .unwrap()
-        .current_mut()
-        .unwrap()
-        .native_entry = NativeEntryState::Running;
-    let (result, counts) = measure(runtime.gc(), || {
-        ExecutionStack::try_park_ready(&mut activation, &runtime)
-    });
+        .with(|runtime, stack| {
+            stack.current_mut(runtime)?.native_entry = NativeEntryState::Running;
+            Ok(())
+        })
+        .unwrap();
+    let (result, counts) = measure(probe, || ExecutionStack::try_park_ready(&mut activation));
     assert_eq!(result.unwrap_err().kind(), RuntimeErrorKind::ScriptTrap);
     assert_eq!(
         counts.frames, 1,
@@ -250,8 +300,16 @@ fn parking_rechecks_alias_mutation_and_preserves_frame_error_order() {
     );
     assert!(activation.is_some());
     assert!(!owner.is_ready());
-    assert!(!runtime.is_quarantined());
-    assert_eq!(runtime.capture_error_trace().frames.len(), 2);
+    activation
+        .as_mut()
+        .unwrap()
+        .with(|runtime, _| {
+            assert!(!runtime.is_quarantined());
+            assert_eq!(runtime.capture_error_trace().frames.len(), 2);
+            Ok(())
+        })
+        .unwrap();
+
     drop(activation);
     runtime.finish_owned_execution(&owner).unwrap();
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
@@ -277,7 +335,6 @@ fn parking_trace_panic_is_an_error_not_a_declined_transition() {
     let owner = runtime
         .start_owned_execution(&module, FunctionRef::new(0), &[], Default::default())
         .unwrap();
-    let stack = runtime.resume_owned_execution(&owner).unwrap();
     let fail = Arc::new(AtomicBool::new(false));
     let object = NativeStorage::payload::<TraceFailure>()
         .prepare_payload(
@@ -288,16 +345,38 @@ fn parking_trace_panic_is_an_error_not_a_declined_transition() {
         )
         .unwrap();
     let value = Value::GcHandle(runtime.gc().alloc_native(object).unwrap());
-    set_frame(&runtime, &stack, value);
-    transition(&runtime, stack);
+    let mut stack = runtime.resume_owned_execution(&owner).unwrap();
+    stack
+        .with(|runtime, stack| {
+            set_frame(runtime, stack, value);
+            Ok(())
+        })
+        .unwrap();
+    transition(stack);
     let mut activation = Some(runtime.resume_owned_execution(&owner).unwrap());
+
     fail.store(true, Ordering::Relaxed);
-    let error = ExecutionStack::try_park_ready(&mut activation, &runtime).unwrap_err();
+    let error = ExecutionStack::try_park_ready(&mut activation).unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
-    assert!(runtime.is_quarantined());
+    activation
+        .as_mut()
+        .unwrap()
+        .with(|runtime, _| {
+            assert!(runtime.is_quarantined());
+            Ok(())
+        })
+        .unwrap();
     assert!(activation.is_some());
     assert!(!owner.is_ready());
-    assert_eq!(runtime.capture_error_trace().frames.len(), 1);
+    activation
+        .as_mut()
+        .unwrap()
+        .with(|runtime, _| {
+            assert_eq!(runtime.capture_error_trace().frames.len(), 1);
+            Ok(())
+        })
+        .unwrap();
+
     drop(activation);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     let _ = runtime.finish_owned_execution(&owner);
@@ -314,9 +393,10 @@ fn parking_transition_probe() {
         for (depth, aliases) in [(1, 1), (4, 1), (4, 3)] {
             let mut runtime = Runtime::default();
             let module = module(&mut runtime, aliases, shape == "scalar");
-            let owner = fixture(&runtime, &module, shape, depth, aliases);
+            let owner = fixture(&mut runtime, &module, shape, depth, aliases);
+            let probe = heap_owner(runtime.gc());
             let stack = runtime.resume_owned_execution(&owner).unwrap();
-            let (_, counts) = measure(runtime.gc(), || transition(&runtime, stack));
+            let (_, counts) = measure(probe, || transition(stack));
             println!(
                 "RL02 {shape} D={depth} A={aliases}: proofs={} frames={} walks={} roots={} objects={}/{} edges={}/{}",
                 counts.proofs,
@@ -357,7 +437,7 @@ fn parking_transition_probe() {
                     for _ in 0..1000 {
                         let stack = runtime.resume_owned_execution(&owner).unwrap();
                         let start = Instant::now();
-                        transition(black_box(&runtime), stack);
+                        transition(black_box(stack));
                         elapsed += start.elapsed().as_nanos();
                     }
                     if sample != 0 {

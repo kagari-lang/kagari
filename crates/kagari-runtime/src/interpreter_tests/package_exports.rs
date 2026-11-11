@@ -77,7 +77,7 @@ fn direct_calls_use_public_paths_and_require_explicit_private_entry_selection() 
         .unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let fallback = PreparedNativeEntry::Unsupported {
         backend: BackendId::new("export-fixture"),
         diagnostics: vec!["interpreter route".into()],

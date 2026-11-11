@@ -103,7 +103,7 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
             .unwrap();
         let _owner_program = owner;
         let owner = runtime.select_program(&_owner_program).unwrap();
-        let vm = runtime;
+        let mut vm = runtime;
         let report = vm
             .execute_module(&owner, ProgramEntry::Main, vm.execution_options())
             .unwrap();

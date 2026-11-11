@@ -52,7 +52,7 @@ fn foreign_stale_out_of_bounds_and_exhausted_application_ids_cannot_alias() {
 
 #[test]
 fn rooted_application_keeps_its_environment_edges_until_last_lease() {
-    let runtime = Runtime::default();
+    let mut runtime = Runtime::default();
     let group = runtime.gc.alloc_operation_group(vec![]).unwrap();
     let mut environment =
         EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap();
@@ -98,7 +98,7 @@ fn application_only_growth_is_collected_at_safepoints_unless_disabled(
 ) {
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = threshold;
-    let runtime = Runtime::new(config);
+    let mut runtime = Runtime::new(config);
     for _ in 0..64 {
         runtime.gc.alloc_method_application(application()).unwrap();
         runtime.gc_safepoint().unwrap();
@@ -138,7 +138,11 @@ fn borrowed_application_view_prevents_allocation_and_any_partial_sweep() {
         RuntimeErrorKind::ModuleValidation
     );
     assert_eq!(
-        runtime.collect_garbage().unwrap_err().kind(),
+        runtime
+            .gc
+            .collect(&runtime.modules, &[])
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::EngineFault
     );
     assert_eq!(runtime.gc.stats(), before);
@@ -173,7 +177,11 @@ fn invalid_application_root_aborts_before_other_records_are_detached() {
     root.corrupt_metadata_for_test(&runtime.gc, vec![MetadataRoot::Application(invalid)]);
     let before = runtime.gc.stats();
     assert_eq!(
-        runtime.collect_garbage().unwrap_err().kind(),
+        runtime
+            .gc
+            .collect(&runtime.modules, &[])
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::EngineFault
     );
     assert_eq!(runtime.gc.stats(), before);

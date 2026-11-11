@@ -10,7 +10,7 @@ use kagari_runtime::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
-        context::CallContext,
+        context::NativeCall,
         declarations::{FunctionDecl, MethodDecl},
         module::NativeModule,
         payload::Opaque,
@@ -84,7 +84,7 @@ fn provider(count: &Arc<AtomicUsize>) -> (NativeModule, NativeModule) {
                         vec![]
                     },
                     Codec::Exact(if scalar { Type::i32() } else { Type::unit() }),
-                    move |cx: &mut CallContext<'_>| {
+                    move |cx: &mut NativeCall<'_>| {
                         count.fetch_add(1, Ordering::Relaxed);
                         if scalar {
                             cx.argument(0)
@@ -247,7 +247,7 @@ fn internal_script_and_native_calls() {
             "internal case={name} binding_ns={}",
             binding.elapsed().as_nanos()
         );
-        let call = |calls| {
+        let mut call = |calls| {
             let before = count.load(Ordering::Relaxed);
             assert_eq!(
                 black_box(runtime.call(&function, (calls,)).unwrap()),

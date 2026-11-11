@@ -238,7 +238,7 @@ pub fn make() -> Test {{ State {{ trace: 0, target: 7 }} }}
             .unwrap()
             .declaration;
         let method = |name| ModuleDecl::method_id(declaration, name, loaded.definitions()).unwrap();
-        let vm = runtime;
+        let mut vm = runtime;
         let baseline = vm.collect_garbage().unwrap().live_objects;
         let root = vm
             .execute_module(&loaded, "make", vm.execution_options())

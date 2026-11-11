@@ -13,7 +13,9 @@ use crate::{
         composition::future_output,
         conversion::{
             FromKagari, KagariType,
-            arguments::{IntoKagariArguments, KagariArguments, encode_arguments},
+            arguments::{
+                IntoKagariArguments, KagariArguments, PreparedArguments, encode_arguments,
+            },
             context::ConversionContext,
         },
         function_handle::Function,
@@ -57,11 +59,14 @@ impl<R: KagariType> KagariType for FutureOutput<R> {
 
 impl Runtime {
     pub fn bind_async_function<A: KagariArguments + 'static, R: KagariType + 'static>(
-        &self,
+        &mut self,
         owner: &Module,
         path: &str,
     ) -> NativeResult<AsyncFunction<A, R>> {
-        AsyncFunction::from_function(self, self.bind_function(owner, path)?)
+        {
+            let function = self.bind_function(owner, path)?;
+            AsyncFunction::from_function(self, function)
+        }
     }
 }
 
@@ -71,11 +76,15 @@ impl<A, R> AsyncFunction<A, R> {
     }
 
     pub(crate) fn from_function(
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         function: Function<A, FutureOutput<R>>,
     ) -> NativeResult<Self> {
         let prepared = function.prepare_call(runtime)?;
-        future_output(runtime, prepared.owner(), &prepared.signature.result)?;
+        future_output(
+            runtime,
+            prepared.owner(),
+            &prepared.selection.signature.result,
+        )?;
         Ok(Self { function })
     }
 
@@ -89,7 +98,7 @@ impl<A: IntoKagariArguments, R: FromKagari + Send + 'static> AsyncFunction<A, R>
     /// receiver polls only results; a backend scheduler must drive the runtime.
     pub fn schedule(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         arguments: A,
         mut options: ExecutionOptions,
     ) -> NativeResult<ScheduledResult<R>> {
@@ -103,12 +112,14 @@ impl<A: IntoKagariArguments, R: FromKagari + Send + 'static> AsyncFunction<A, R>
         let external = options.cancellation.clone();
         options.cancellation = Default::default();
         let prepared = self.function.prepare_call(runtime)?;
+        let prepared = &prepared.selection;
         let output = future_output(runtime, prepared.owner(), &prepared.signature.result)?;
-        let session = runtime.begin_pinned_execution_with_options(&prepared, options)?;
-        let execution = runtime.initialize_owned_factory(session, external, || {
+        let session = runtime.begin_pinned_execution_with_options(prepared, options)?;
+        let execution = Runtime::initialize_owned_factory(session, external, |runtime| {
             let mut cx = ConversionContext::new(runtime, prepared.owner())?;
-            let (roots, values) = encode_arguments(&mut cx, &prepared.signature.params, arguments)?;
-            runtime.gc().validate_async_values(&values)?;
+            let mapping = PreparedArguments::<A>::from_binding(&cx, &prepared.signature.params);
+            let (roots, values) = encode_arguments(&mut cx, mapping, arguments)?;
+            cx.runtime().gc().validate_async_values(&values)?;
             cx.poll()?;
             Ok(QueuedFactory {
                 owner: prepared.owner().clone(),

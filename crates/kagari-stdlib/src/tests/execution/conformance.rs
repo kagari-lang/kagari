@@ -33,7 +33,7 @@ fn interpreter_conformance_executes_control_flow_match_arrays_and_structs() {
     ));
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
@@ -61,7 +61,7 @@ fn missing_entry_is_rejected_before_execution() {
         let loaded = load_bytecode(&mut runtime, "missing-entry.kgr", program).unwrap();
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
-        let vm = runtime;
+        let mut vm = runtime;
         for jit in [false, true] {
             let error = if jit {
                 let prepared = native_fixtures::unsupported();
@@ -105,7 +105,7 @@ fn public_entries_use_verified_identity_despite_duplicate_display_names() {
         let loaded = load_bytecode(&mut runtime, "ambiguous-entry.kgr", program).unwrap();
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
-        let vm = runtime;
+        let mut vm = runtime;
         for jit in [false, true] {
             for (path, expected) in [("first", 1), ("second", 2)] {
                 let report = if jit {
@@ -133,7 +133,7 @@ fn interpreter_conformance_classifies_failure_paths() {
     let (runtime, loaded) = load_test_module("fn main() -> i32 { val values = [1]; values[3] }");
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let error = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect_err("out of bounds index should trap");
@@ -150,7 +150,7 @@ fn interpreter_conformance_classifies_failure_paths() {
         load_bytecode(&mut runtime, "resource_limit.kgr", bytecode).expect("module should load");
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let error = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect_err("resource limit should be classified");

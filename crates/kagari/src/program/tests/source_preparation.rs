@@ -34,7 +34,7 @@ fn prepared_source_survives_session_disposal_and_independent_runtime_binding() {
     let installed = direct
         .load_verified_program("direct", program.clone().into_verified())
         .unwrap();
-    let vm = direct;
+    let mut vm = direct;
     let loaded = vm.select_program(&installed).unwrap();
     let result = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())

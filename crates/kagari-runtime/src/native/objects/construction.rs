@@ -135,7 +135,7 @@ impl ObjectBuilder {
             .runtime()
             .root_value(Value::Struct(id))
             .ok_or_else(|| RuntimeError::module_validation("constructed object retention"))?;
-        cx.runtime().gc_safepoint()?;
+        cx.runtime_mut().gc_safepoint()?;
         Ok(Object {
             root,
             object_type: self.object_type,

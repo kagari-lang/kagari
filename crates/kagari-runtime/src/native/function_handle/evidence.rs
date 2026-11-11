@@ -46,7 +46,7 @@ impl EntryBinding {
         &self.route
     }
 
-    pub(super) fn prepare(&self, runtime: &Runtime) -> NativeResult<PreparedFunction> {
+    pub(super) fn prepare(&self, runtime: &mut Runtime) -> NativeResult<PreparedFunction> {
         let selected = runtime.select_call_route(&self.route)?;
         let owner = selected.owner();
         let shared = self

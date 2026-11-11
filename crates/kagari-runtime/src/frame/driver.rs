@@ -4,7 +4,7 @@ use crate::diagnostics::{self, Event};
 use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault},
-    frame::{ExecutionFrame, ExecutionStack, NativeEntryState},
+    frame::{ExecutionFrame, FrameStack, NativeEntryState},
     value::Value,
 };
 
@@ -41,21 +41,21 @@ impl ExecutionFrame {
     }
 }
 
-impl ExecutionStack<'_> {
+impl FrameStack {
     /// Admit initial/resumed activations and classify after an await transition.
     /// Internal calls and returns carry their established action directly.
     pub fn next_action(&self, runtime: &Runtime) -> Result<ExecutionAction, RuntimeError> {
-        self.validate_runtime(runtime)?;
+        self.validate_top(runtime)?;
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::DriverAdmission);
-        let state = self.session.state();
+        let state = self.session_state(runtime);
         if state.queued_factory.borrow().is_some()
             || state.queued_future.borrow().is_some()
             || state.pending.borrow().is_some()
         {
             return Ok(ExecutionAction::Await);
         }
-        let frames = self.frames()?;
+        let frames = self.frames(runtime)?;
         let frame = frames
             .last()
             .filter(|_| frames.len() > self.base)

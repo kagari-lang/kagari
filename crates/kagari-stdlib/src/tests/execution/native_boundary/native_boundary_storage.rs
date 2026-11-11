@@ -12,7 +12,7 @@ use std::ops::Bound;
 
 #[test]
 fn index_bounds_validate_the_applied_type_even_without_a_payload() {
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         r#"use core::ops::Bound;
         enum ForeignBound { Unbounded }
         pub fn valid() -> Bound<u64> { Bound::Unbounded }
@@ -72,7 +72,7 @@ fn index_bounds_validate_the_applied_type_even_without_a_payload() {
 
 #[test]
 fn assigns_stable_object_identity_and_kind() {
-    let (vm, program) = compile(
+    let (mut vm, program) = compile(
         include_str!("../../../../tests/fixtures/native/gc_identity.kgr"),
         None,
     );
@@ -103,7 +103,7 @@ fn assigns_stable_object_identity_and_kind() {
 
 #[test]
 fn root_scanning_traces_only_gc_managed_boundaries() {
-    let (vm, program) = compile(
+    let (mut vm, program) = compile(
         include_str!("../../../../tests/fixtures/native/gc_root_boundaries.kgr"),
         None,
     );
@@ -158,7 +158,7 @@ fn root_scanning_traces_only_gc_managed_boundaries() {
 
 #[test]
 fn root_scanning_handles_cycles_without_duplicate_identity() {
-    let (vm, program) = compile(
+    let (mut vm, program) = compile(
         include_str!("../../../../tests/fixtures/native/gc_cycle_roots.kgr"),
         None,
     );
@@ -179,7 +179,7 @@ fn root_scanning_handles_cycles_without_duplicate_identity() {
 
 #[test]
 fn custom_set_absent_removal_does_not_invalidate_iteration() {
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         r#"use std::collections::{HashSet};
 use std::hash::{Hash};
 

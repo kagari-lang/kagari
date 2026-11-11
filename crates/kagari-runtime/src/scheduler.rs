@@ -3,9 +3,10 @@
 use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault, reason::CancellationReason},
+    execution::owned::DriveResult,
     gc::roots::RootedValue,
     native::binding::NativeResult,
-    publication::SynchronousActivation,
+    publication::ActivationMark,
     resource::AsyncLimits,
     scheduler::{
         result::{CompletionSink, ScheduledResult, channel},
@@ -30,11 +31,11 @@ pub mod wake;
 mod wake_tests;
 
 use std::{
-    cell::{Cell, RefCell},
     collections::VecDeque,
     fmt,
+    marker::PhantomData,
     num::NonZeroUsize,
-    ptr,
+    rc::Rc,
     sync::{Arc, atomic::Ordering},
     task::{Context, Waker},
 };
@@ -68,7 +69,7 @@ pub(crate) enum WorkKey {
 
 struct Invocation {
     execution: OwnedExecution,
-    sink: RefCell<Box<dyn CompletionSink>>,
+    sink: Box<dyn CompletionSink>,
 }
 
 impl fmt::Debug for Invocation {
@@ -82,13 +83,13 @@ impl fmt::Debug for Invocation {
 #[derive(Debug)]
 pub(crate) struct Scheduler {
     pub(crate) hub: Arc<WakeHub>,
-    queue: RefCell<VecDeque<WorkKey>>,
-    invocations: RefCell<Vec<Invocation>>,
-    pub(crate) closing: Cell<bool>,
-    pub(crate) closed: Cell<bool>,
-    driving: Cell<bool>,
-    pub(crate) failures: RefCell<VecDeque<tasks::TaskFailureEvent>>,
-    pub(crate) suppressed: Cell<u64>,
+    queue: VecDeque<WorkKey>,
+    invocations: Vec<Invocation>,
+    pub(crate) closing: bool,
+    pub(crate) closed: bool,
+    driving: bool,
+    pub(crate) failures: VecDeque<tasks::TaskFailureEvent>,
+    pub(crate) suppressed: u64,
     limits: AsyncLimits,
 }
 
@@ -96,31 +97,30 @@ impl Scheduler {
     pub(crate) fn new(limits: AsyncLimits) -> Self {
         Self {
             hub: Arc::default(),
-            queue: RefCell::default(),
-            invocations: RefCell::default(),
-            closing: Cell::new(false),
-            closed: Cell::new(false),
-            driving: Cell::new(false),
-            failures: RefCell::default(),
-            suppressed: Cell::new(0),
+            queue: VecDeque::default(),
+            invocations: Vec::default(),
+            closing: false,
+            closed: false,
+            driving: false,
+            failures: VecDeque::default(),
+            suppressed: 0,
             limits,
         }
     }
 
-    pub(crate) fn reserve_work(&self) -> NativeResult<()> {
+    pub(crate) fn reserve_work(&mut self) -> NativeResult<()> {
         self.queue
-            .borrow_mut()
             .try_reserve(1)
             .map_err(|_| RuntimeError::resource_limit("scheduler ready records"))
     }
 
-    pub(crate) fn enqueue(&self, key: WorkKey) {
-        self.queue.borrow_mut().push_back(key);
+    pub(crate) fn enqueue(&mut self, key: WorkKey) {
+        self.queue.push_back(key);
         self.hub.mark_ready();
     }
 
-    pub(crate) fn forget(&self, key: WorkKey) {
-        self.queue.borrow_mut().retain(|entry| *entry != key);
+    pub(crate) fn forget(&mut self, key: WorkKey) {
+        self.queue.retain(|entry| *entry != key);
     }
 }
 
@@ -135,7 +135,8 @@ pub enum ScheduledWork<'runtime> {
 
 /// A selected invocation is detached from scheduler tables before callbacks run.
 pub struct InvocationActivation<'runtime> {
-    runtime: &'runtime Runtime,
+    _thread: PhantomData<Rc<()>>,
+    runtime: &'runtime mut Runtime,
     invocation: Option<Invocation>,
 }
 
@@ -148,37 +149,32 @@ impl InvocationActivation<'_> {
             .execution
     }
 
-    /// Runs inside the original active session, before its stack is retired.
-    pub fn prepare(&self, runtime: &Runtime, value: &RootedValue) -> NativeResult<()> {
-        if !ptr::eq(runtime, self.runtime) {
-            return Err(RuntimeError::module_validation(
-                "foreign completion runtime",
-            ));
-        }
+    /// Lend the selected execution and the same Runtime to a backend. Borrowed
+    /// storage cannot escape this access; dropping the activation still retires it.
+    pub fn with_execution<T>(
+        &mut self,
+        access: impl FnOnce(&mut Runtime, &OwnedExecution) -> NativeResult<T>,
+    ) -> NativeResult<T> {
         let invocation = self.invocation.as_ref().expect("active invocation");
-        if runtime
-            .resources()
-            .active_session()
-            .is_none_or(|state| state.id != invocation.execution.id)
-        {
-            return Err(RuntimeError::module_validation(
-                "completion requires its active session",
-            ));
-        }
-        let result = runtime
-            .scheduler
-            .hub
-            .contain(|| invocation.sink.borrow_mut().prepare(runtime, value));
-        runtime.check_scheduler_fault()?;
-        result.expect("contained converter")?;
-        runtime.resources().poll_execution()
+        access(self.runtime, &invocation.execution)
+    }
+
+    pub(crate) fn drive(&mut self, slice: NonZeroUsize) -> NativeResult<DriveResult> {
+        let invocation = self.invocation.as_mut().expect("active invocation");
+        self.runtime
+            .drive_with_completion(&invocation.execution, slice, |runtime, value| {
+                let hub = runtime.scheduler.hub.clone();
+                let result = hub.contain(|| invocation.sink.prepare(runtime, value));
+                runtime.check_scheduler_fault()?;
+                result.expect("contained converter")?;
+                runtime.resources().poll_execution()
+            })
     }
 
     pub fn park(mut self) {
         self.runtime
             .scheduler
             .invocations
-            .borrow_mut()
             .push(self.invocation.take().expect("active invocation"));
     }
 
@@ -224,29 +220,24 @@ impl Drop for InvocationActivation<'_> {
 /// Exclusive scheduling turn guard. It holds no active script frame or table
 /// borrow; synchronous host reentry remains a session operation, not a new turn.
 pub struct SchedulerTurn<'runtime> {
-    runtime: &'runtime Runtime,
-    _activation: SynchronousActivation<'runtime>,
+    runtime: &'runtime mut Runtime,
+    activation: Option<ActivationMark>,
 }
 
 impl SchedulerTurn<'_> {
     /// Stable rotation across all admitted work. Waiting records retain position;
     /// stale identities are discarded without exposing them to host scheduling.
-    pub fn next_work(&self) -> NativeResult<Option<ScheduledWork<'_>>> {
-        let runtime = self.runtime;
+    pub fn next_work(&mut self) -> NativeResult<Option<ScheduledWork<'_>>> {
+        let runtime = &mut *self.runtime;
         runtime.require_idle_driver()?;
         runtime.check_scheduler_fault()?;
-        let count = runtime.scheduler.queue.borrow().len();
+        let count = runtime.scheduler.queue.len();
         for _ in 0..count {
-            let key = runtime
-                .scheduler
-                .queue
-                .borrow_mut()
-                .pop_front()
-                .expect("queued work");
+            let key = runtime.scheduler.queue.pop_front().expect("queued work");
             match key {
                 WorkKey::Invocation(id) => {
                     let selected = {
-                        let mut invocations = runtime.scheduler.invocations.borrow_mut();
+                        let invocations = &mut runtime.scheduler.invocations;
                         let Some(index) = invocations
                             .iter()
                             .position(|entry| entry.execution.execution_id() == id)
@@ -259,23 +250,30 @@ impl SchedulerTurn<'_> {
                             None
                         }
                     };
-                    runtime.scheduler.queue.borrow_mut().push_back(key);
+                    runtime.scheduler.queue.push_back(key);
                     if let Some(invocation) = selected {
                         if invocation.execution.is_cancelled() {
                             runtime.retire_invocation(invocation, cancelled());
                             return Ok(None);
                         }
                         return Ok(Some(ScheduledWork::Invocation(InvocationActivation {
+                            _thread: Default::default(),
                             runtime,
                             invocation: Some(invocation),
                         })));
                     }
                 }
                 WorkKey::Group(id) => {
-                    runtime.scheduler.queue.borrow_mut().push_back(key);
+                    runtime.scheduler.queue.push_back(key);
                     match runtime.acquire_group(id.0)? {
-                        GroupWork::Branch(active) => {
-                            return Ok(Some(ScheduledWork::Branch(active)));
+                        GroupWork::Branch {
+                            parent,
+                            index,
+                            execution,
+                        } => {
+                            return Ok(Some(ScheduledWork::Branch(BranchActivation::new(
+                                runtime, parent, index, execution,
+                            ))));
                         }
                         GroupWork::Control => return Ok(Some(ScheduledWork::Control)),
                         GroupWork::Waiting => {}
@@ -284,13 +282,13 @@ impl SchedulerTurn<'_> {
                 }
                 WorkKey::Task(id) => {
                     let ready = {
-                        let tasks = runtime.tasks.borrow();
+                        let tasks = &runtime.tasks;
                         let Some(record) = tasks.tasks.get(id.0) else {
                             continue;
                         };
                         record.signal.ready.load(Ordering::Acquire)
                     };
-                    runtime.scheduler.queue.borrow_mut().push_back(key);
+                    runtime.scheduler.queue.push_back(key);
                     if ready {
                         return match runtime.acquire_scheduled_task(id)? {
                             TaskAcquisition::Active(active) => {
@@ -308,23 +306,37 @@ impl SchedulerTurn<'_> {
 
 impl Drop for SchedulerTurn<'_> {
     fn drop(&mut self) {
-        self.runtime.acknowledge_task_scopes();
-        self.runtime
-            .scheduler
-            .hub
-            .contain(|| self.runtime.release_dropped_task_scopes());
-        self.runtime
-            .scheduler
-            .hub
-            .finish_turn(self.runtime.scheduler_has_ready_work());
-        self.runtime.scheduler.driving.set(false);
+        let cleanup = TurnRetirement {
+            runtime: self.runtime,
+            activation: self.activation.take(),
+        };
+        cleanup.runtime.acknowledge_task_scopes();
+        let hub = cleanup.runtime.scheduler.hub.clone();
+        hub.contain(|| cleanup.runtime.release_dropped_task_scopes());
+        hub.finish_turn(cleanup.runtime.scheduler_has_ready_work());
+    }
+}
+
+/// Keep admission through destructor callbacks without borrowing Runtime fields
+/// across them; retire the turn even if local cleanup unwinds.
+struct TurnRetirement<'runtime> {
+    runtime: &'runtime mut Runtime,
+    activation: Option<ActivationMark>,
+}
+
+impl Drop for TurnRetirement<'_> {
+    fn drop(&mut self) {
+        if let Some(mark) = self.activation.take() {
+            mark.retire(self.runtime.resources());
+        }
+        self.runtime.scheduler.driving = false;
     }
 }
 
 impl Runtime {
     pub(crate) fn ensure_scheduler_open(&self) -> NativeResult<()> {
         self.check_scheduler_fault()?;
-        if self.scheduler.closing.get() {
+        if self.scheduler.closing {
             return Err(RuntimeError::from(CancellationReason::RuntimeIsClosed));
         }
         Ok(())
@@ -349,20 +361,20 @@ impl Runtime {
     /// once under its original context; publication follows guarded retirement.
     /// Registration failure also retires the transferred execution locally.
     pub fn schedule_execution<R, F>(
-        &self,
+        &mut self,
         execution: OwnedExecution,
         convert: F,
     ) -> NativeResult<ScheduledResult<R>>
     where
         R: Send + 'static,
-        F: FnOnce(&Runtime, &RootedValue) -> NativeResult<R> + Send + 'static,
+        F: FnOnce(&mut Runtime, &RootedValue) -> NativeResult<R> + Send + 'static,
     {
         let admission = (|| {
             self.require_idle_driver()?;
             self.ensure_scheduler_open()?;
             self.validate_owned_execution(&execution)?;
             self.scheduler.reserve_work()?;
-            let mut invocations = self.scheduler.invocations.borrow_mut();
+            let invocations = &mut self.scheduler.invocations;
             if invocations.len() >= self.scheduler.limits.max_scheduled_invocations.get() {
                 return Err(RuntimeError::resource_limit("scheduled invocations"));
             }
@@ -386,29 +398,29 @@ impl Runtime {
         self.scheduler
             .hub
             .contain(|| execution.set_waker(&Waker::from(self.scheduler.hub.clone())));
-        let invocation = Invocation {
-            execution,
-            sink: RefCell::new(sink),
-        };
+        let invocation = Invocation { execution, sink };
         if let Err(error) = self.check_scheduler_fault() {
             self.retire_invocation(invocation, error.clone());
             let _ = self.close();
             return Err(error);
         }
-        self.scheduler.invocations.borrow_mut().push(invocation);
+        self.scheduler.invocations.push(invocation);
         self.scheduler.enqueue(WorkKey::Invocation(id));
         Ok(ticket)
     }
 
     /// Synchronous cancellation for an exclusive borrowed-call drop path. This
     /// releases local state without executing script or waiting for external IO.
-    pub fn cancel_scheduled_execution<R>(&self, ticket: &ScheduledResult<R>) -> NativeResult<()> {
+    pub fn cancel_scheduled_execution<R>(
+        &mut self,
+        ticket: &ScheduledResult<R>,
+    ) -> NativeResult<()> {
         self.require_idle_driver()?;
         if !ticket.belongs_to(&self.scheduler.hub) {
             return Err(RuntimeError::module_validation("foreign scheduled result"));
         }
         let invocation = {
-            let mut invocations = self.scheduler.invocations.borrow_mut();
+            let invocations = &mut self.scheduler.invocations;
             invocations
                 .iter()
                 .position(|entry| entry.execution.execution_id() == ticket.id)
@@ -433,43 +445,43 @@ impl Runtime {
     /// Register the current driver before observing readiness. `None` updates the
     /// persistent external route; a borrowed route does not replace that route.
     pub fn begin_scheduler_turn(
-        &self,
+        &mut self,
         cx: &Context<'_>,
         driver: Option<&DriverRegistration>,
     ) -> NativeResult<SchedulerTurn<'_>> {
         self.require_idle_driver()?;
         self.ensure_scheduler_open()?;
-        if self.scheduler.driving.get() {
+        if self.scheduler.driving {
             return Err(RuntimeError::module_validation(
                 "scheduler turn already active",
             ));
         }
-        let activation = self.resources().begin_synchronous_activation()?;
-        self.scheduler.driving.set(true);
+        let activation = self.resources().begin_synchronous_activation()?.detach();
+        self.scheduler.driving = true;
+        let activation = Some(activation);
         let turn = SchedulerTurn {
             runtime: self,
-            _activation: activation,
+            activation,
         };
         match driver {
-            Some(driver) => self.scheduler.hub.update(driver, cx.waker())?,
-            None => self.scheduler.hub.register_external(cx.waker())?,
+            Some(driver) => turn.runtime.scheduler.hub.update(driver, cx.waker())?,
+            None => turn.runtime.scheduler.hub.register_external(cx.waker())?,
         }
-        self.scheduler.hub.begin_turn();
+        turn.runtime.scheduler.hub.begin_turn();
         Ok(turn)
     }
 
     pub fn scheduler_is_closed(&self) -> bool {
-        self.scheduler.closed.get()
+        self.scheduler.closed
     }
 
     fn scheduler_has_ready_work(&self) -> bool {
         self.scheduler
             .invocations
-            .borrow()
             .iter()
             .any(|entry| entry.execution.is_ready())
             || self.groups_have_ready_work()
-            || self.tasks.borrow().tasks.iter().any(|(_, task)| {
+            || self.tasks.tasks.iter().any(|(_, task)| {
                 task.signal
                     .scope
                     .upgrade()

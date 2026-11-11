@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault, trap::TrapReason},
     frame::{
-        ExecutionStack,
+        ExecutionStack, FrameStack,
         factory::QueuedFactory,
         types::arguments::TypeArgument,
         waiting::{ClaimedFuture, QueuedFuture},
@@ -11,9 +11,10 @@ use crate::{
     gc::roots::RootSet,
     module::ExecutableModule,
     native::future::ColdFuture,
+    publication::ActivationMark,
     session::{
-        ExecutionId, ExecutionOptions, ExecutionPhase, ExecutionSession, SessionState,
-        store::SessionId,
+        ExecutionId, ExecutionOptions, ExecutionPhase, ExecutionSession, SessionScope,
+        SessionState, store::SessionId,
     },
     value::Value,
 };
@@ -162,8 +163,23 @@ impl Drop for OwnedExecution {
 /// Own admission until a parked handle is transferred to its caller. Declare this
 /// before the activation so unwinding releases the active session before retirement.
 struct OwnedInitialization<'runtime> {
-    runtime: &'runtime Runtime,
+    activation: ExecutionStack<'runtime>,
     execution: Option<OwnedExecution>,
+}
+
+/// Retain synchronous admission through descendant and provider cleanup without
+/// holding a resource-field borrow over mutable Runtime operations.
+struct ExecutionRetirement<'runtime> {
+    runtime: &'runtime mut Runtime,
+    activation: Option<ActivationMark>,
+}
+
+impl Drop for ExecutionRetirement<'_> {
+    fn drop(&mut self) {
+        if let Some(mark) = self.activation.take() {
+            mark.retire(self.runtime.resources());
+        }
+    }
 }
 
 impl OwnedInitialization<'_> {
@@ -171,8 +187,9 @@ impl OwnedInitialization<'_> {
         let Some(execution) = self.execution.take() else {
             return Ok(());
         };
-        self.runtime
-            .retirement_cleanup(|| self.runtime.finish_owned_execution(&execution))
+        self.activation.retire_then(|runtime| {
+            runtime.retirement_cleanup(|runtime| runtime.finish_owned_execution(&execution))
+        })
     }
 }
 
@@ -195,7 +212,7 @@ impl Drop for SessionState {
 impl Runtime {
     /// Reserve a checked entry and its rooted arguments without running script.
     pub fn start_owned_execution(
-        &self,
+        &mut self,
         module: &ExecutableModule,
         entry: FunctionRef,
         args: &[Value],
@@ -234,7 +251,7 @@ impl Runtime {
     /// Queue exactly one Future layer. Neither script code nor native submission
     /// runs until the host drives the returned owner.
     pub fn start_owned_future(
-        &self,
+        &mut self,
         value: &Value,
         options: ExecutionOptions,
     ) -> Result<OwnedExecution, RuntimeError> {
@@ -272,7 +289,7 @@ impl Runtime {
     /// Queue a zero-argument Future factory. Its ordinary body and exactly one
     /// returned Future layer run in this same execution on subsequent drives.
     pub fn start_owned_factory(
-        &self,
+        &mut self,
         value: &Value,
         options: ExecutionOptions,
     ) -> Result<OwnedExecution, RuntimeError> {
@@ -289,7 +306,7 @@ impl Runtime {
     }
 
     pub(crate) fn start_queued_factory(
-        &self,
+        &mut self,
         factory: QueuedFactory,
         options: ExecutionOptions,
     ) -> Result<OwnedExecution, RuntimeError> {
@@ -301,20 +318,19 @@ impl Runtime {
     /// Prepare typed arguments inside the eventual invocation's session. The
     /// caller has entered using the retained callable's checked authority.
     pub(crate) fn initialize_owned_factory(
-        &self,
         session: ExecutionSession<'_>,
         external_cancellation: CancellationToken,
-        prepare: impl FnOnce() -> Result<QueuedFactory, RuntimeError>,
+        prepare: impl FnOnce(&mut Runtime) -> Result<QueuedFactory, RuntimeError>,
     ) -> Result<OwnedExecution, RuntimeError> {
         let owner = session.root();
-        self.initialize_owned_execution(&owner, session, external_cancellation, || {
-            prepare().map(OwnedStart::Factory)
+        Self::initialize_owned_execution(&owner, session, external_cancellation, |runtime| {
+            prepare(runtime).map(OwnedStart::Factory)
         })
     }
 
     /// Reserve an inactive child without invoking observers, providers or script.
     pub(crate) fn prepare_owned_branch(
-        &self,
+        &mut self,
         parent: SessionId,
         module: &ExecutableModule,
         value: Value,
@@ -375,7 +391,7 @@ impl Runtime {
     }
 
     fn create_owned_execution(
-        &self,
+        &mut self,
         module: &ExecutableModule,
         options: ExecutionOptions,
         entry: OwnedStart<'_>,
@@ -385,21 +401,20 @@ impl Runtime {
             cancellation: CancellationToken::default(),
             ..options
         };
-        let session = self.begin_execution(module, options)?;
+        let mut session = self.begin_execution(module, options)?;
         if !matches!(&entry, OwnedStart::Branch(_)) {
-            self.attach_execution_observer()?;
+            session.runtime_mut().attach_execution_observer()?;
         }
-        self.initialize_owned_execution(module, session, external_cancellation, || Ok(entry))
+        Self::initialize_owned_execution(module, session, external_cancellation, |_| Ok(entry))
     }
 
     fn initialize_owned_execution<'args>(
-        &self,
         module: &ExecutableModule,
         session: ExecutionSession<'_>,
         external_cancellation: CancellationToken,
-        prepare: impl FnOnce() -> Result<OwnedStart<'args>, RuntimeError>,
+        prepare: impl FnOnce(&mut Runtime) -> Result<OwnedStart<'args>, RuntimeError>,
     ) -> Result<OwnedExecution, RuntimeError> {
-        let id = session.id;
+        let id = session.scope.id;
         let owner = Arc::new(ExecutionOwner {
             abandoned: AtomicBool::new(false),
             ready: AtomicBool::new(true),
@@ -422,57 +437,63 @@ impl Runtime {
             )
             .expect("new external cancellation registration");
         let mut initialization = OwnedInitialization {
-            runtime: self,
+            activation: ExecutionStack::new(session)?,
             execution: Some(OwnedExecution {
                 id,
                 owner: owner.clone(),
             }),
         };
-        *session.state().owner.borrow_mut() = Some(owner);
-        let stack = ExecutionStack::new(session)?;
-        let initialized = (|| match prepare()? {
-            OwnedStart::Function(function, args) => {
-                stack.push(self, module.slot(), function, args, None)
+        let initialized = initialization.activation.with(|runtime, stack| {
+            *runtime
+                .resources()
+                .sessions
+                .get(id)
+                .expect("new session")
+                .owner
+                .borrow_mut() = Some(owner);
+            match prepare(runtime)? {
+                OwnedStart::Function(function, args) => {
+                    stack.push(runtime, module.slot(), function, args, None)
+                }
+                OwnedStart::Future(queued) | OwnedStart::Branch(queued) => {
+                    *runtime
+                        .resources()
+                        .sessions
+                        .get(id)
+                        .expect("new session")
+                        .queued_future
+                        .borrow_mut() = Some(queued);
+                    Ok(())
+                }
+                OwnedStart::Factory(queued) => {
+                    *runtime
+                        .resources()
+                        .sessions
+                        .get(id)
+                        .expect("new session")
+                        .queued_factory
+                        .borrow_mut() = Some(queued);
+                    Ok(())
+                }
             }
-            OwnedStart::Future(queued) | OwnedStart::Branch(queued) => {
-                *self
-                    .resources()
-                    .sessions
-                    .get(id)
-                    .expect("new session")
-                    .queued_future
-                    .borrow_mut() = Some(queued);
-                Ok(())
-            }
-            OwnedStart::Factory(queued) => {
-                *self
-                    .resources()
-                    .sessions
-                    .get(id)
-                    .expect("new session")
-                    .queued_factory
-                    .borrow_mut() = Some(queued);
-                Ok(())
-            }
-        })();
+        });
         if let Err(error) = initialized {
-            drop(stack);
             initialization.retire()?;
             return Err(error);
         }
-        let mut activation = Some(stack);
-        let parked = ExecutionStack::try_park_ready(&mut activation, self).and_then(|parked| {
-            if parked {
-                Ok(())
-            } else {
-                Err(RuntimeError::module_validation(
-                    "execution has non-suspendable resources",
-                ))
-            }
+        let parked = initialization.activation.drive(|runtime, frames| {
+            let result = FrameStack::try_park_ready(frames, runtime).and_then(|parked| {
+                if parked {
+                    Ok(())
+                } else {
+                    Err(RuntimeError::module_validation(
+                        "execution has non-suspendable resources",
+                    ))
+                }
+            });
+            result.map_err(|error| runtime.resources().admit_execution_error(error))
         });
         if let Err(error) = parked {
-            let error = self.resources().admit_execution_error(error);
-            drop(activation);
             initialization.retire()?;
             return Err(error);
         }
@@ -481,7 +502,7 @@ impl Runtime {
 
     /// Activate an existing stack. Independent and recursive roots cannot overlap.
     pub fn resume_owned_execution(
-        &self,
+        &mut self,
         owner: &OwnedExecution,
     ) -> Result<ExecutionStack<'_>, RuntimeError> {
         self.require_idle_driver()?;
@@ -511,13 +532,13 @@ impl Runtime {
         self.resources()
             .restore_call_depth(state.parked_depth.replace(0));
         drop(state);
-        let session = ExecutionSession {
-            id: owner.id,
-            resources: self.resources(),
-            _activation: activation,
+        let scope = SessionScope::new(owner.id, activation.detach());
+        let mut session = ExecutionSession {
+            runtime: self,
+            scope,
         };
-        self.resume_execution_observer()?;
-        ExecutionStack::resume(session, self)
+        session.runtime_mut().resume_execution_observer()?;
+        ExecutionStack::resume(session)
     }
 
     pub(crate) fn validate_owned_execution(
@@ -544,7 +565,7 @@ impl Runtime {
     }
 
     /// Release a terminal execution after its activation and output rooting end.
-    pub fn finish_owned_execution(&self, owner: &OwnedExecution) -> Result<(), RuntimeError> {
+    pub fn finish_owned_execution(&mut self, owner: &OwnedExecution) -> Result<(), RuntimeError> {
         self.require_idle_driver()?;
         self.validate_owned_execution(owner)?;
         self.retire_execution(owner.id)
@@ -552,11 +573,11 @@ impl Runtime {
 
     /// Complete owner-drop cleanup even if a provider or dispatcher never replies.
     /// A cleanup fault quarantines execution but does not stop the drain.
-    pub fn drain_retired_executions(&self) -> Result<usize, RuntimeError> {
+    pub fn drain_retired_executions(&mut self) -> Result<usize, RuntimeError> {
         self.drain_owned_executions(self.resources().is_quarantined())
     }
 
-    pub(crate) fn drain_owned_executions(&self, all: bool) -> Result<usize, RuntimeError> {
+    pub(crate) fn drain_owned_executions(&mut self, all: bool) -> Result<usize, RuntimeError> {
         self.require_idle_driver()?;
         let ids = self.resources().sessions.retired_owners(all);
         let mut count = ids.len();
@@ -584,6 +605,7 @@ impl Runtime {
     }
 
     pub(crate) fn require_idle_driver(&self) -> Result<(), RuntimeError> {
+        self.resources().ensure_synchronous_thread()?;
         self.resources().ensure_not_publishing()?;
         if self.resources().active_session().is_some() {
             return Err(RuntimeError::from(TrapReason::RuntimeDriverAlreadyActive));
@@ -591,17 +613,22 @@ impl Runtime {
         Ok(())
     }
 
-    fn retire_execution(&self, id: SessionId) -> Result<(), RuntimeError> {
-        let _activation = self.resources().begin_synchronous_activation()?;
-        let group_failure = self.close_owned_groups(id).err();
-        let (mut state, frames) = self.resources().sessions.remove(id).ok_or_else(|| {
+    fn retire_execution(&mut self, id: SessionId) -> Result<(), RuntimeError> {
+        let activation = self.resources().begin_synchronous_activation()?.detach();
+        let retirement = ExecutionRetirement {
+            runtime: self,
+            activation: Some(activation),
+        };
+        let runtime = &mut *retirement.runtime;
+        let group_failure = runtime.close_owned_groups(id).err();
+        let (mut state, frames) = runtime.resources().sessions.remove(id).ok_or_else(|| {
             RuntimeError::module_validation("foreign, retired or borrowed execution")
         })?;
         let mut failed = group_failure.is_some();
         if let Some(mut wait) = state.pending.get_mut().take() {
-            failed |= self.retirement_cleanup(|| wait.cancel()).is_err();
-            failed |= self
-                .retirement_cleanup(|| {
+            failed |= runtime.retirement_cleanup(|_| wait.cancel()).is_err();
+            failed |= runtime
+                .retirement_cleanup(|_| {
                     drop(wait);
                     Ok(())
                 })
@@ -609,11 +636,11 @@ impl Runtime {
         }
         // Release every window before dropping any frame's retained host owners.
         for frame in &frames {
-            frame.release_values(self.resources());
+            frame.release_values(runtime.resources());
         }
         for frame in frames {
-            failed |= self
-                .retirement_cleanup(|| {
+            failed |= runtime
+                .retirement_cleanup(|_| {
                     drop(frame);
                     Ok(())
                 })
@@ -622,37 +649,37 @@ impl Runtime {
         // A host control waker can have a panicking destructor too. Detach it
         // before SessionState's Drop so a failed finish is never retried there.
         if let Some(owner) = state.owner.get_mut().take() {
-            failed |= self
-                .retirement_cleanup(|| {
+            failed |= runtime
+                .retirement_cleanup(|_| {
                     owner.finish();
                     Ok(())
                 })
                 .is_err();
-            failed |= self
-                .retirement_cleanup(|| {
+            failed |= runtime
+                .retirement_cleanup(|_| {
                     drop(owner);
                     Ok(())
                 })
                 .is_err();
         }
-        failed |= self
-            .retirement_cleanup(|| {
+        failed |= runtime
+            .retirement_cleanup(|_| {
                 drop(state);
                 Ok(())
             })
             .is_err();
         if failed {
-            Err(self.quarantine_execution_invariant(EngineFault::OwnedExecutionCleanupFailed))
+            Err(runtime.quarantine_execution_invariant(EngineFault::OwnedExecutionCleanupFailed))
         } else {
             Ok(())
         }
     }
 
     pub(crate) fn retirement_cleanup(
-        &self,
-        cleanup: impl FnOnce() -> Result<(), RuntimeError>,
+        &mut self,
+        cleanup: impl FnOnce(&mut Runtime) -> Result<(), RuntimeError>,
     ) -> Result<(), RuntimeError> {
-        match catch_unwind(AssertUnwindSafe(cleanup)) {
+        match catch_unwind(AssertUnwindSafe(|| cleanup(self))) {
             Ok(Ok(())) => Ok(()),
             result => {
                 let error =

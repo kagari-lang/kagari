@@ -29,7 +29,7 @@ use std::slice;
 
 #[test]
 fn concrete_interface_object_resolves_a_linked_method_slot() {
-    let (runtime, loaded) = load_test_module(
+    let (mut runtime, loaded) = load_test_module(
         "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self + 1 } } fn read<T: Tag>(x: T) -> i32 { x.tag() } fn main() -> i32 { read(7) }",
     );
     let _loaded_program = loaded;
@@ -62,7 +62,7 @@ fn concrete_interface_object_resolves_a_linked_method_slot() {
             .is_err()
     );
 
-    let vm = runtime;
+    let mut vm = runtime;
     assert_eq!(
         vm.invoke_interface_method(&boxed, &method, &[]).unwrap(),
         Value::I32(8)
@@ -172,7 +172,7 @@ fn source_call_boxes_a_concrete_argument_for_an_interface_parameter() {
             .flat_map(|function| &function.instructions)
             .any(|instruction| matches!(instruction, BytecodeInstruction::MakeInterface { .. }))
     );
-    let vm = runtime;
+    let mut vm = runtime;
     assert_eq!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
@@ -190,7 +190,7 @@ fn source_call_boxes_an_interface_with_methods() {
     );
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     assert_eq!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
@@ -208,7 +208,7 @@ fn source_interface_method_call_dispatches_through_the_linked_slot() {
     );
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     assert_eq!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
@@ -283,7 +283,7 @@ fn static_bound_calls_preserve_explicit_self_typed_arguments_and_checked_signatu
     let loaded = load_bytecode(&mut runtime, "static-bound", program).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     assert_eq!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
@@ -304,7 +304,7 @@ fn source_return_and_local_bindings_keep_the_boxed_interface_value() {
     );
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     assert_eq!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
@@ -334,7 +334,7 @@ fn interface_method_selects_current_implementation_after_reload() {
     runtime.publish_staged_reload(candidate).unwrap();
     let _new_program = _old_program.clone();
     let new_value = runtime.make_interface(&new, 0, Value::I32(7)).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     assert_eq!(
         vm.invoke_interface_method(&old_value, &method, &[])
             .unwrap(),
@@ -385,35 +385,41 @@ fn interface_frames_and_descendants_select_current_code() {
         .find(|f| f.name == "helper")
         .unwrap()
         .id;
-    let stack = runtime.enter_execution_stack(&new).unwrap();
-    stack.push(&runtime, new.slot(), entry, &[], None).unwrap();
-    let wrong = runtime.resolve_interface_method(&boxed, &method).unwrap();
-    assert!(
-        stack
-            .push_interface_method(&runtime, wrong, &[Value::Bool(true)], None)
-            .is_err()
-    );
-    assert_eq!(stack.current().unwrap().loaded().key(), new.key());
-    stack
-        .push_interface_method(&runtime, resolved, &[Value::I32(7)], None)
+    let mut stack_activation = runtime.enter_execution_stack(&new).unwrap();
+    stack_activation
+        .with(|runtime, stack| {
+            stack.push(runtime, new.slot(), entry, &[], None).unwrap();
+            let wrong = runtime.resolve_interface_method(&boxed, &method).unwrap();
+            assert!(
+                stack
+                    .push_interface_method(runtime, wrong, &[Value::Bool(true)], None)
+                    .is_err()
+            );
+            assert_eq!(stack.current(runtime).unwrap().loaded().key(), new.key());
+            stack
+                .push_interface_method(runtime, resolved, &[Value::I32(7)], None)
+                .unwrap();
+            // The callee must retain selection metadata after its host lease and the
+            // receiver's external root are gone, even while a newer program is current.
+            drop(receiver_root);
+            runtime.collect_garbage().unwrap();
+            assert_eq!(stack.current(runtime).unwrap().loaded().key(), new.key());
+            stack.push(runtime, new.slot(), helper, &[], None).unwrap();
+            assert_eq!(stack.current(runtime).unwrap().loaded().key(), new.key());
+            stack.pop(runtime).unwrap();
+            assert_eq!(
+                stack
+                    .finish_return(runtime, ReturnValue::general(Value::I32(8)))
+                    .unwrap(),
+                ReturnAction::Continue(ExecutionAction::Script)
+            );
+            assert_eq!(stack.current(runtime).unwrap().loaded().key(), new.key());
+            stack.pop(runtime).unwrap();
+            assert_eq!(runtime.resources().counters().current_call_depth, 0);
+
+            Ok(())
+        })
         .unwrap();
-    // The callee must retain selection metadata after its host lease and the
-    // receiver's external root are gone, even while a newer program is current.
-    drop(receiver_root);
-    runtime.collect_garbage().unwrap();
-    assert_eq!(stack.current().unwrap().loaded().key(), new.key());
-    stack.push(&runtime, new.slot(), helper, &[], None).unwrap();
-    assert_eq!(stack.current().unwrap().loaded().key(), new.key());
-    stack.pop().unwrap();
-    assert_eq!(
-        stack
-            .finish_return(&runtime, ReturnValue::general(Value::I32(8)))
-            .unwrap(),
-        ReturnAction::Continue(ExecutionAction::Script)
-    );
-    assert_eq!(stack.current().unwrap().loaded().key(), new.key());
-    stack.pop().unwrap();
-    assert_eq!(runtime.resources().counters().current_call_depth, 0);
 }
 
 #[test]
@@ -447,11 +453,12 @@ fn source_interface_dispatch_selects_current_method_and_descendant_after_reload(
         .find(|f| f.name == "read")
         .unwrap()
         .id;
-    let mut old_call = Executor::new(&runtime, &new, read, &[old_value]).unwrap();
+    let mut old_call = Executor::new(&mut runtime, &new, read, &[old_value]).unwrap();
     assert_eq!(old_call.run().unwrap(), Value::I32(9));
     drop(old_call);
-    let mut new_call = Executor::new(&runtime, &new, read, &[new_value]).unwrap();
+    let mut new_call = Executor::new(&mut runtime, &new, read, &[new_value]).unwrap();
     assert_eq!(new_call.run().unwrap(), Value::I32(9));
+    drop(new_call);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     assert!(
         runtime
@@ -460,7 +467,6 @@ fn source_interface_dispatch_selects_current_method_and_descendant_after_reload(
             .reclaimed_modules
             .is_empty()
     );
-    drop(new_call);
     drop(old_root);
     let expected: std::collections::HashSet<_> = old.members().map(|member| member.key()).collect();
     let reclaimed: std::collections::HashSet<_> = runtime
@@ -489,7 +495,7 @@ fn generic_interface_and_retained_closure_keep_their_environment_after_reload() 
         .unwrap()
         .id;
     let closure = {
-        let mut execution = Executor::new(&runtime, &old, make, &[]).unwrap();
+        let mut execution = Executor::new(&mut runtime, &old, make, &[]).unwrap();
         execution.run().unwrap()
     };
     let closure_root = runtime.root_value(closure).unwrap();
@@ -518,7 +524,7 @@ fn generic_interface_and_retained_closure_keep_their_environment_after_reload() 
             .find(|function| function.name == name)
             .unwrap()
             .id;
-        let mut execution = Executor::new(&runtime, &new, entry, &args).unwrap();
+        let mut execution = Executor::new(&mut runtime, &new, entry, &args).unwrap();
         assert_eq!(execution.run().unwrap(), Value::I32(expected));
     }
     drop(interface_root);
@@ -546,7 +552,7 @@ fn trapped_interface_frame_releases_its_roots_and_call_depth() {
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let method = loaded.bytecode.interface_tables[0].methods[0].method;
     let boxed = runtime.make_interface(&loaded, 0, Value::I32(7)).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     assert!(vm.invoke_interface_method(&boxed, &method, &[]).is_err());
     assert_eq!(vm.resources().counters().current_call_depth, 0);
     assert_eq!(
@@ -568,7 +574,7 @@ fn interface_method_rejects_wrong_nominal_argument_before_execution() {
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let method = loaded.bytecode.interface_tables[0].methods[0].method;
     let boxed = runtime.make_interface(&loaded, 0, Value::I32(7)).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let right = vm
         .execute_module(&loaded, "make_a", vm.execution_options())
         .unwrap()
@@ -639,7 +645,7 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
     let loaded = load_bytecode(&mut runtime, "interface-instruction", decoded).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let value = vm
         .execute_fixture(&loaded, FunctionRef::new(0))
         .unwrap()
@@ -724,7 +730,7 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let dependency_key = loaded.member(ModuleRef::new(0)).unwrap().key();
-    let vm = runtime;
+    let mut vm = runtime;
     let value = vm
         .execute_fixture(&loaded, FunctionRef::new(0))
         .unwrap()
@@ -903,7 +909,7 @@ fn check_type_provenance_installations(source: &str, item_constructions: usize) 
         .find(|function| function.name == "make")
         .unwrap()
         .id;
-    let closure = Executor::new(&runtime, &second, make, &[interface])
+    let closure = Executor::new(&mut runtime, &second, make, &[interface])
         .unwrap()
         .run()
         .unwrap();
@@ -924,7 +930,7 @@ fn check_type_provenance_installations(source: &str, item_constructions: usize) 
         .unwrap()
         .id;
     assert_eq!(
-        Executor::new(&runtime, &third, call, &[closure])
+        Executor::new(&mut runtime, &third, call, &[closure])
             .unwrap()
             .run()
             .unwrap(),
@@ -1010,10 +1016,15 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
         .find(|function| function.name == "make")
         .unwrap()
         .id;
-    let closure = Executor::new(&runtime, &current, make, slice::from_ref(&current_receiver))
-        .unwrap()
-        .run()
-        .unwrap();
+    let closure = Executor::new(
+        &mut runtime,
+        &current,
+        make,
+        slice::from_ref(&current_receiver),
+    )
+    .unwrap()
+    .run()
+    .unwrap();
     let closure_root = runtime.root_value(closure).unwrap();
     let item = current
         .bytecode
@@ -1071,7 +1082,7 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
 fn retained_interface_calls_cannot_escape_candidate_initialization() {
     let source = include_str!("../../../tests/fixtures/execution/interface-methods.kgr");
 
-    let (vm, old) = load_test_module(source);
+    let (mut vm, old) = load_test_module(source);
 
     let _old_program = old;
 
@@ -1092,17 +1103,22 @@ fn retained_interface_calls_cannot_escape_candidate_initialization() {
         .unwrap();
 
     {
-        let _session = vm.begin_candidate_initialization(&candidate).unwrap();
+        let mut _session = vm.begin_candidate_initialization(&candidate).unwrap();
 
-        let candidate_value: Interface = vm
+        let candidate_value: Interface = _session
+            .runtime_mut()
             .execute_module_typed(candidate.module(), "make", (42,))
             .unwrap();
 
-        let get = vm
-            .bind_interface_method::<(), i32>(&candidate_value.member(&vm, "get").unwrap())
+        let member = candidate_value
+            .member(_session.runtime_mut(), "get")
+            .unwrap();
+        let get = _session
+            .runtime_mut()
+            .bind_interface_method::<(), i32>(&member)
             .unwrap();
 
-        let mut cx = vm.context(candidate.module()).unwrap();
+        let mut cx = _session.runtime_mut().context(candidate.module()).unwrap();
 
         assert!(old_value.call(&mut cx, &old_get, ()).is_err());
 

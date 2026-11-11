@@ -1220,7 +1220,7 @@ define the checked handoff.
 registered declaration/binding metadata and checked callable coercions, including
 generic `F: Fn() -> Future<T>` forwarding. Admission does not invoke the factory.
 `Task<T>.cancel()` requests cooperative cancellation without driving script.
-Native `CallContext` exposes these admission/control operations without exposing
+Native `NativeCall` exposes these admission/control operations without exposing
 an independent task driver. `SpawnError` is the canonical `core::task` enum with
 ScopeClosed, CapacityExceeded and DispatchUnavailable variants; it describes only
 failed admission, not later execution or business failures.

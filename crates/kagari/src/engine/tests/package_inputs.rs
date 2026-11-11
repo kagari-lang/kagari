@@ -20,7 +20,7 @@ use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     module::entry::ProgramEntry,
     native::{
-        builder::ModuleBuilder, context::CallContext, declarations::FunctionDecl, types::Type,
+        builder::ModuleBuilder, context::NativeCall, declarations::FunctionDecl, types::Type,
     },
 };
 use kagari_stdlib as stdlib;
@@ -354,7 +354,7 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
         .define_function(FunctionDecl::new("number").returns(Type::i32()))
         .unwrap();
     builder
-        .bind(number, |_: &mut CallContext<'_>| Ok(1i32))
+        .bind(number, |_: &mut NativeCall<'_>| Ok(1i32))
         .unwrap();
     let configured = KagariEngine::with_native_modules(
         Default::default(),

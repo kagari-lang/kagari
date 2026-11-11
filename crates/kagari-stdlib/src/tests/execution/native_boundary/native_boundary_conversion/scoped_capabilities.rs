@@ -2,7 +2,7 @@ use super::source_free_vm;
 use kagari_runtime::{
     Runtime,
     native::{
-        builder::ModuleBuilder, callable::CallableHandle, context::CallContext,
+        builder::ModuleBuilder, callable::CallableHandle, context::NativeCall,
         declarations::FunctionDecl, scalar::NativeScalar, types::Type, views::ValueHandle,
     },
     value::Value,
@@ -38,11 +38,11 @@ fn shared_formal_arguments_cannot_forward_mutable_capabilities() {
         builder
             .bind(
                 forward,
-                |cx: &mut CallContext<'_>, value: ValueHandle<'_>, callback: CallableHandle<'_>| {
+                |cx: &mut NativeCall<'_>, value: ValueHandle<'_>, callback: CallableHandle<'_>| {
                     cx.collect_garbage()?;
-                    assert_eq!(value.value(), cx.argument(0)?);
-                    assert_eq!(value.value(), cx.arguments().get(0).unwrap());
-                    i32::decode(callback.call_values(cx, &[value.value()])?)
+                    assert_eq!(value.value(cx)?, cx.argument(0)?);
+                    assert_eq!(value.value(cx)?, cx.arguments().get(cx.heap(), 0).unwrap());
+                    i32::decode(callback.call_values(cx, &[value.value(cx)?])?)
                 },
             )
             .unwrap();

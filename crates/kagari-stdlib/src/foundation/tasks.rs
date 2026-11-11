@@ -14,7 +14,7 @@ use kagari_runtime::{
     native::{
         assembly::draft::ModuleDraft,
         binding::{Codec, NativeBinding, NativeResult},
-        context::CallContext,
+        context::NativeCall,
         declarations::MethodDecl,
         storage::NativeStorage,
         types::Type,
@@ -120,7 +120,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     })
 }
 
-fn spawn(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
+fn spawn(symbols: &EnumSymbols, cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     let scope = cx.argument(0)?;
     let factory = cx.argument(1)?;
     let result = cx.result_type_argument()?;
@@ -148,7 +148,7 @@ fn spawn(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value>
     }
 }
 
-fn cancel(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+fn cancel(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     cx.cancel_task(&cx.argument(0)?)?;
     Ok(Value::Unit)
 }

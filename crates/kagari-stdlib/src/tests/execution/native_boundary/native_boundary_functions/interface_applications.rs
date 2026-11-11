@@ -35,7 +35,7 @@ const IDENTITY: &str = r#"
 
 #[test]
 fn inherited_generic_interface_bindings_require_checked_applications_and_keep_returns_alive() {
-    let (vm, owner) = fixture(IDENTITY, None);
+    let (mut vm, owner) = fixture(IDENTITY, None);
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
     let target: Interface = vm
@@ -44,54 +44,67 @@ fn inherited_generic_interface_bindings_require_checked_applications_and_keep_re
     let item: Object = vm
         .execute_typed(&_owner_program, "item", (), &Default::default())
         .unwrap();
-    let cx = ConversionContext::new(&vm, &owner).unwrap();
+    let mut cx = ConversionContext::new(&mut vm, &owner).unwrap();
     let integer = cx.type_for::<i32>().unwrap();
     let boolean = cx.type_for::<bool>().unwrap();
-    let member = target.member(&vm, "identity").unwrap();
-    assert!(vm.bind_interface_method::<(i32,), i32>(&member).is_err());
+    let member = target.member(cx.runtime(), "identity").unwrap();
     assert!(
-        vm.bind_interface_method_application::<(bool,), bool>(&member, &[boolean])
+        cx.runtime_mut()
+            .bind_interface_method::<(i32,), i32>(&member)
             .is_err()
     );
     assert!(
-        vm.bind_interface_method_application::<(i32,), bool>(&member, slice::from_ref(&integer))
+        cx.runtime_mut()
+            .bind_interface_method_application::<(bool,), bool>(&member, &[boolean])
             .is_err()
     );
-    let scalar = vm
+    assert!(
+        cx.runtime_mut()
+            .bind_interface_method_application::<(i32,), bool>(&member, slice::from_ref(&integer))
+            .is_err()
+    );
+    let scalar = cx
+        .runtime_mut()
         .bind_interface_method_application::<(i32,), i32>(&member, &[integer])
         .unwrap();
-    let object = vm
+    let object = cx
+        .runtime_mut()
         .bind_interface_method_application::<(Object,), Object>(
             &member,
             slice::from_ref(item.object_type().type_argument()),
         )
         .unwrap();
-    let delayed = vm
+    let member = target.member(cx.runtime(), "delayed").unwrap();
+    let delayed = cx
+        .runtime_mut()
         .bind_interface_method_application::<(Object,), Function<(), Object>>(
-            &target.member(&vm, "delayed").unwrap(),
+            &member,
             slice::from_ref(item.object_type().type_argument()),
         )
         .unwrap();
-    let mut cx = vm.context(&owner).unwrap();
-    vm.collect_garbage().unwrap();
+    let mut cx = cx.runtime_mut().context(&owner).unwrap();
+    cx.runtime_mut().collect_garbage().unwrap();
     assert_eq!(target.call(&mut cx, &scalar, (42,)).unwrap(), 42);
     let returned = target.call(&mut cx, &object, (item.clone(),)).unwrap();
-    let field = vm.bind_field::<i32>(item.object_type(), "value").unwrap();
+    let field = cx
+        .runtime_mut()
+        .bind_field::<i32>(item.object_type(), "value")
+        .unwrap();
     returned.set(&mut cx, &field, 43).unwrap();
     assert_eq!(item.get(&mut cx, &field).unwrap(), 43);
     let closure = target.call(&mut cx, &delayed, (item,)).unwrap();
     drop(returned);
     drop(target);
-    vm.collect_garbage().unwrap();
-    let returned = vm.call(&closure, ()).unwrap();
+    cx.runtime_mut().collect_garbage().unwrap();
+    let returned = cx.runtime_mut().call(&closure, ()).unwrap();
     assert_eq!(returned.get(&mut cx, &field).unwrap(), 43);
     drop(returned);
     drop(closure);
     drop(scalar);
     drop(object);
     drop(delayed);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(vm.gc().active_roots(), 0);
+    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(cx.runtime().gc().active_roots(), 0);
 }
 
 #[test]
@@ -188,7 +201,8 @@ fn generic_interface_constraints_keep_selected_operations_alive_through_gc_and_r
         )
         .unwrap();
     let mut cx = vm.context(&new).unwrap();
-    let wrong_key: Object = vm
+    let wrong_key: Object = cx
+        .runtime_mut()
         .execute_typed(&_old_program, "wrong_key", (), &Default::default())
         .unwrap();
     assert!(target.call(&mut cx, &invoke, (wrong_key,)).is_err());
@@ -210,7 +224,8 @@ fn generic_interface_constraints_keep_selected_operations_alive_through_gc_and_r
     drop(target);
     drop(key);
     assert!(
-        !vm.collect_garbage()
+        !cx.runtime_mut()
+            .collect_garbage()
             .unwrap()
             .reclaimed_modules
             .contains(&old.key())
@@ -219,7 +234,8 @@ fn generic_interface_constraints_keep_selected_operations_alive_through_gc_and_r
     // Applying old lexical evidence to a new receiver publishes that evidence in
     // the receiver publication's descriptor cache. Retire that actual owner too.
     assert!(
-        !vm.collect_garbage()
+        !cx.runtime_mut()
+            .collect_garbage()
             .unwrap()
             .reclaimed_modules
             .contains(&old.key())

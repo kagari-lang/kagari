@@ -30,49 +30,40 @@ fn host_borrows_and_path_operations_share_conflicts_and_release_before_retry() {
                 .with_prepare_write(|_, _, _| Ok(PreparedHostPathWrite::new(|| {}))),
         )
         .unwrap();
-    let scope = runtime.host_scope(&[]).unwrap();
+    let root_value = runtime.gc().alloc_host_root(root).unwrap();
+    let mut scope = runtime.host_scope(&[]).unwrap();
     scope
         .borrows()
         .borrow_unique(root.object_id(), root.type_id())
         .unwrap();
     assert_eq!(
-        runtime
-            .read_host_path(
-                &runtime.gc().alloc_host_root(root).unwrap(),
-                descriptor,
-                vec![]
-            )
+        scope
+            .runtime_mut()
+            .read_host_path(&root_value, descriptor, vec![])
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::HostBorrowConflict
     );
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     drop(scope);
-    let scope = runtime.host_scope(&[]).unwrap();
+    let mut scope = runtime.host_scope(&[]).unwrap();
     scope
         .borrows()
         .borrow_shared(root.object_id(), root.type_id())
         .unwrap();
-    runtime
-        .read_host_path(
-            &runtime.gc().alloc_host_root(root).unwrap(),
-            descriptor,
-            vec![],
-        )
+    scope
+        .runtime_mut()
+        .read_host_path(&root_value, descriptor, vec![])
         .unwrap();
     assert_eq!(
-        runtime
-            .set_host_path(
-                &runtime.gc().alloc_host_root(root).unwrap(),
-                descriptor,
-                vec![],
-                Value::I32(20)
-            )
+        scope
+            .runtime_mut()
+            .set_host_path(&root_value, descriptor, vec![], Value::I32(20))
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::HostBorrowConflict
     );
-    assert!(runtime.host_dirty_paths().is_empty());
+    assert!(scope.runtime().host_dirty_paths().is_empty());
     drop(scope);
     runtime
         .set_host_path(
@@ -127,7 +118,7 @@ fn path_callback_borrows_cannot_escape_in_read_results() {
         .borrows()
         .borrow_unique(HostObjectId(2), owner)
         .unwrap();
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(scope.runtime().gc().active_roots(), 0);
 }
 
 #[test]
@@ -268,23 +259,20 @@ fn cancellation_during_a_prepared_commit_is_observed_after_the_atomic_update() {
         .unwrap();
     let mut options = runtime.execution_options();
     options.cancellation = token;
-    let session = runtime.begin_execution(&module, options).unwrap();
-    runtime
-        .set_host_path(
-            &runtime.gc().alloc_host_root(root).unwrap(),
-            descriptor,
-            vec![],
-            Value::I32(20),
-        )
+    let mut session = runtime.begin_execution(&module, options).unwrap();
+    let root_value = session.runtime().gc().alloc_host_root(root).unwrap();
+    session
+        .runtime_mut()
+        .set_host_path(&root_value, descriptor, vec![], Value::I32(20))
         .unwrap();
     assert_eq!(target.load(Ordering::SeqCst), 20);
-    assert_eq!(runtime.host_dirty_paths().len(), 1);
+    assert_eq!(session.runtime().host_dirty_paths().len(), 1);
     assert_eq!(session.host_scope_count(), 0);
     assert_eq!(
-        runtime.gc_safepoint().unwrap_err().kind(),
+        session.runtime_mut().gc_safepoint().unwrap_err().kind(),
         RuntimeErrorKind::Cancelled
     );
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(session.runtime().gc().active_roots(), 0);
     drop(session);
     assert_eq!(
         runtime
@@ -333,114 +321,74 @@ fn nonstorable_previous_value_cannot_escape_through_the_dirty_ledger() {
 }
 
 #[test]
-fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
-    use std::{
-        cell::RefCell,
-        rc::{Rc, Weak},
-    };
-    for fault in ["panic", "execute", "allocate", "mutate", "collect", "root"] {
-        let mut runtime = path_mutation_runtime();
-        let scalar = register_i32(&runtime);
-        let owner = register_host_root_type(&mut runtime, "game::Player", PathAccess::ReadWrite);
-        let root = runtime
-            .register_host_root(HostObjectId(1), owner, HostSchemaEpoch::new(0))
-            .unwrap();
-        let descriptor = register_hp_descriptor(&mut runtime, owner, scalar, PathAccess::ReadWrite);
-        let allocation = allocation_owner(&mut runtime);
-        let commit_allocation = allocation.clone();
-        let array = runtime
-            .alloc_array(
-                &allocation,
-                Ty::Builtin(BuiltinType::I32),
-                vec![Value::I32(1)],
-            )
-            .unwrap();
-        // Fault injection only: the commit action intentionally tries forbidden
-        // runtime reentry. The shared adapter captures no runtime owner.
-        thread_local! {
-            static COMMIT_RUNTIME: RefCell<Option<Weak<Runtime>>> = const { RefCell::new(None) };
-        }
-        let committed = Arc::new(AtomicBool::new(false));
-        let prepare_committed = committed.clone();
-        runtime
-            .register_host_path_adapter(
-                descriptor,
-                HostPathAdapter::new()
-                    .with_read(|_, _| Ok(Value::I32(10)))
-                    .with_prepare_write(move |_, _, _| {
-                        let allocation = commit_allocation.clone();
-                        let committed = prepare_committed.clone();
-                        Ok(PreparedHostPathWrite::new(move || {
-                            committed.store(true, Ordering::SeqCst);
-                            let runtime = COMMIT_RUNTIME.with(|access| {
-                                access.borrow().as_ref().unwrap().upgrade().unwrap()
-                            });
-                            let error = match fault {
-                                "panic" => panic!("broken host commit invariant"),
-                                "execute" => runtime.resources().poll_execution().unwrap_err(),
-                                "allocate" => runtime
-                                    .alloc_array(&allocation, Ty::Builtin(BuiltinType::I32), vec![])
-                                    .unwrap_err(),
-                                "collect" => runtime.collect_garbage().unwrap_err(),
-                                "root" => {
-                                    assert!(runtime.root_value(Value::Array(array)).is_none());
-                                    runtime.resources().ensure_execution_allowed().unwrap_err()
-                                }
-                                "mutate" => {
-                                    assert!(
-                                        runtime.gc().array_set(array, 0, Value::I32(2)).is_err()
-                                    );
-                                    runtime.resources().ensure_execution_allowed().unwrap_err()
-                                }
-                                _ => unreachable!(),
-                            };
-                            assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
-                            // Swallowing the rejected nested operation cannot restore the runtime.
-                        }))
-                    }),
-            )
-            .unwrap();
-        let runtime = Rc::new(runtime);
-        COMMIT_RUNTIME.with(|access| *access.borrow_mut() = Some(Rc::downgrade(&runtime)));
-        let root_value = runtime.gc().alloc_host_root(root).unwrap();
-        let error = runtime
-            .set_host_path(&root_value, descriptor, vec![], Value::I32(20))
-            .unwrap_err();
-        assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
-        assert!(committed.load(Ordering::SeqCst));
-        assert!(runtime.is_quarantined());
-        assert_eq!(runtime.gc().active_roots(), 0);
-        assert_eq!(runtime.gc().array_get(array, 0), Some(Value::I32(1)));
+fn commit_panics_quarantine_only_the_affected_runtime() {
+    let mut runtime = path_mutation_runtime();
+    let scalar = register_i32(&runtime);
+    let owner = register_host_root_type(&mut runtime, "game::Player", PathAccess::ReadWrite);
+    let root = runtime
+        .register_host_root(HostObjectId(1), owner, HostSchemaEpoch::new(0))
+        .unwrap();
+    let descriptor = register_hp_descriptor(&mut runtime, owner, scalar, PathAccess::ReadWrite);
+    let allocation = allocation_owner(&mut runtime);
+    let array = runtime
+        .alloc_array(
+            &allocation,
+            Ty::Builtin(BuiltinType::I32),
+            vec![Value::I32(1)],
+        )
+        .unwrap();
+    let committed = Arc::new(AtomicBool::new(false));
+    let prepare_committed = committed.clone();
+    runtime
+        .register_host_path_adapter(
+            descriptor,
+            HostPathAdapter::new().with_prepare_write(move |_, _, _| {
+                let committed = prepare_committed.clone();
+                Ok(PreparedHostPathWrite::new(move || {
+                    committed.store(true, Ordering::SeqCst);
+                    panic!("broken host commit invariant");
+                }))
+            }),
+        )
+        .unwrap();
+    let root_value = runtime.gc().alloc_host_root(root).unwrap();
+    let error = runtime
+        .set_host_path(&root_value, descriptor, vec![], Value::I32(20))
+        .unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
+    assert!(committed.load(Ordering::SeqCst));
+    assert!(runtime.is_quarantined());
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.gc().array_get(array, 0), Some(Value::I32(1)));
 
-        assert_eq!(
-            runtime
-                .alloc_array(&allocation, Ty::Builtin(BuiltinType::I32), vec![])
-                .unwrap_err()
-                .kind(),
-            RuntimeErrorKind::EngineFault
-        );
-        assert_eq!(
-            runtime
-                .read_host_path(&root_value, descriptor, vec![])
-                .unwrap_err()
-                .kind(),
-            RuntimeErrorKind::EngineFault
-        );
-        assert_eq!(
-            runtime
-                .set_host_path(&root_value, descriptor, vec![], Value::I32(30))
-                .unwrap_err()
-                .kind(),
-            RuntimeErrorKind::EngineFault
-        );
-        let mut unaffected = Runtime::default();
-        let unaffected_owner = allocation_owner(&mut unaffected);
-        assert!(
-            unaffected
-                .alloc_array(&unaffected_owner, Ty::Builtin(BuiltinType::I32), vec![])
-                .is_ok()
-        );
-    }
+    assert_eq!(
+        runtime
+            .alloc_array(&allocation, Ty::Builtin(BuiltinType::I32), vec![])
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::EngineFault
+    );
+    assert_eq!(
+        runtime
+            .read_host_path(&root_value, descriptor, vec![])
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::EngineFault
+    );
+    assert_eq!(
+        runtime
+            .set_host_path(&root_value, descriptor, vec![], Value::I32(30))
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::EngineFault
+    );
+    let mut unaffected = Runtime::default();
+    let unaffected_owner = allocation_owner(&mut unaffected);
+    assert!(
+        unaffected
+            .alloc_array(&unaffected_owner, Ty::Builtin(BuiltinType::I32), vec![])
+            .is_ok()
+    );
 }
 
 #[test]

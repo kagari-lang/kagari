@@ -118,7 +118,7 @@ fn direct_native_imports_run_from_source_and_decoded_artifacts() {
         let loaded = load_bytecode(&mut runtime, "native-imports", program).unwrap();
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
-        let vm = runtime;
+        let mut vm = runtime;
         assert_eq!(
             vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
                 .unwrap()
@@ -278,7 +278,7 @@ fn concrete_collection_native_signatures_preserve_element_types() {
         let loaded = load_bytecode(&mut runtime, "native-collections", program).unwrap();
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
-        let vm = runtime;
+        let mut vm = runtime;
         assert_eq!(
             vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
                 .unwrap()

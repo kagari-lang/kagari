@@ -10,7 +10,11 @@ use crate::{
         binding::NativeResult,
         completion::{Completion, CompletionRegistry, Operation, OperationPoll},
         composition::ColdComposition,
-        conversion::{IntoKagari, arguments::FromKagariArguments, context::ConversionContext},
+        conversion::{
+            IntoKagari,
+            arguments::{FromKagariArguments, PreparedArguments},
+            context::ConversionContext,
+        },
         storage::{NativePayload, NativeStorage},
     },
     resource::HeapCharge,
@@ -53,7 +57,7 @@ trait Producer: fmt::Debug + Send + Sync {
 }
 
 pub(crate) trait PendingNative: fmt::Debug + Send {
-    fn poll(&mut self, runtime: &Runtime) -> NativeResult<Poll<Value>>;
+    fn poll(&mut self, runtime: &mut Runtime) -> NativeResult<Poll<Value>>;
 
     fn cancel(&mut self) -> NativeResult<()>;
 }
@@ -82,13 +86,12 @@ where
         registry: &CompletionRegistry,
         wake: &Waker,
     ) -> NativeResult<Box<dyn PendingNative>> {
-        cx.check_type::<R>(&cold.output)?;
-        A::check_types(cx, &cold.parameters)?;
+        let prepared = PreparedArguments::<A>::from_binding(cx, &cold.parameters);
         // Reserve before converters or submission can produce host side effects.
         let mut operation = registry.reserve::<R>()?;
         operation.set_waker(wake);
         let completion = operation.completion()?;
-        let arguments = A::from_arguments(cx, &cold.parameters, &cold.values)?;
+        let arguments = prepared.decode(cx, &cold.values)?;
         cx.poll()?;
         match (self.entry)(arguments, completion.clone())? {
             NativeStart::Ready(value) => {
@@ -121,14 +124,14 @@ impl<R> fmt::Debug for TypedPending<R> {
 }
 
 impl<R: IntoKagari + Send + 'static> PendingNative for TypedPending<R> {
-    fn poll(&mut self, runtime: &Runtime) -> NativeResult<Poll<Value>> {
+    fn poll(&mut self, runtime: &mut Runtime) -> NativeResult<Poll<Value>> {
         runtime.resources().poll_execution()?;
         match self.operation.poll()? {
             OperationPoll::Pending => Ok(Poll::Pending),
             OperationPoll::Ready(result) => {
                 let mut cx = ConversionContext::new(runtime, &self.owner)?;
                 cx.poll()?;
-                let value = cx.encode_value(&self.output, result?)?;
+                let value = cx.encode_prepared(&self.output, result?)?;
                 cx.poll()?;
                 Ok(Poll::Ready(value))
             }
@@ -154,7 +157,7 @@ pub(crate) struct NativeFuture {
 impl NativeFuture {
     pub(crate) fn start(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         registry: &CompletionRegistry,
         wake: &Waker,
     ) -> NativeResult<Box<dyn PendingNative>> {

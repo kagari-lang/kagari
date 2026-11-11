@@ -7,7 +7,7 @@ use kagari_runtime::{
     gc::roots::RootedValue,
     module::{ExecutableModule, entry::ProgramEntry},
     native::{
-        binding::NativeResult, builder::ModuleBuilder, context::CallContext,
+        binding::NativeResult, builder::ModuleBuilder, context::NativeCall,
         declarations::FunctionDecl, views::ValueHandle,
     },
     resource::RuntimeLimits,
@@ -46,10 +46,10 @@ impl MutationFixture {
         module
             .bind(
                 function,
-                move |cx: &mut CallContext<'_>, value: ValueHandle<'_>| -> NativeResult<()> {
+                move |cx: &mut NativeCall<'_>, value: ValueHandle<'_>| -> NativeResult<()> {
                     *keep.lock().unwrap() = Some(
                         cx.heap()
-                            .root_value(value.value())
+                            .root_value(value.value(cx)?)
                             .ok_or_else(|| RuntimeError::module_validation("fixture root"))?,
                     );
                     Ok(())
@@ -92,12 +92,13 @@ impl MutationFixture {
             .unwrap()
     }
 
-    fn is_empty(&self) -> bool {
+    fn is_empty(&mut self) -> bool {
+        let value = self.value();
         let result = crate::tests::support::invoke(
-            &self.vm,
+            &mut self.vm,
             &self.loaded,
             "retained_is_empty",
-            &[self.value()],
+            &[value],
         );
         let Some(Value::Bool(empty)) = result.value(self.vm.gc()) else {
             panic!("checked bool result")
@@ -108,7 +109,7 @@ impl MutationFixture {
 
 #[test]
 fn successful_removal_accounts_prepared_result_and_preserves_live_occupancy() {
-    let fixture = MutationFixture::new(
+    let mut fixture = MutationFixture::new(
         "use test::roots::retain; fn main() -> Option<i32> { val array: Vec<i32> = Vec::new(); array.push(42); retain(array); array.pop() }",
         RuntimeLimits {
             ..Default::default()
@@ -129,12 +130,12 @@ fn successful_removal_accounts_prepared_result_and_preserves_live_occupancy() {
     else {
         panic!("Option")
     };
-    let runtime = &fixture.vm;
     assert_eq!(
-        runtime.gc().enum_snapshot(result).unwrap().fields,
+        fixture.vm.gc().enum_snapshot(result).unwrap().fields,
         vec![Value::I32(42)]
     );
     assert!(fixture.is_empty());
+    let runtime = &mut fixture.vm;
     let counters = runtime.resources().counters();
     assert_eq!(counters.current_heap_units, 3);
     assert_eq!(counters.peak_heap_units, 4);
@@ -151,7 +152,7 @@ fn successful_removal_accounts_prepared_result_and_preserves_live_occupancy() {
 
 #[test]
 fn duplicate_native_insertions_preserve_final_container_contents() {
-    let fixture = MutationFixture::new(
+    let mut fixture = MutationFixture::new(
         r#"use std::collections::{HashMap, HashSet};
 
         fn main() -> bool {
@@ -182,7 +183,7 @@ fn duplicate_native_insertions_preserve_final_container_contents() {
 #[test]
 fn custom_map_removal_prepares_the_result_without_repeating_hash_callbacks() {
     {
-        let fixture = MutationFixture::new(
+        let mut fixture = MutationFixture::new(
             r#"use std::collections::{HashMap};
 use std::hash::{Hash};
 
@@ -214,10 +215,10 @@ use std::hash::{Hash};
                 .expect("retained execution result"),
             Value::I32(2)
         );
-        let heap = fixture.vm.gc();
         assert!(fixture.is_empty());
         fixture.retained.lock().unwrap().take();
         fixture.vm.collect_garbage().unwrap();
+        let heap = fixture.vm.gc();
         assert_eq!(heap.allocated_objects(), 0);
         assert_eq!(heap.stats().current_heap_units, 0);
         assert_eq!(heap.active_roots(), 0);

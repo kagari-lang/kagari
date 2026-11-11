@@ -81,28 +81,31 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
     let trace = Arc::new(Mutex::new(Vec::new()));
     let calls = trace.clone();
     builder
-        .bind(make, move |context: &HostCallContext<'_>, _: &[Value]| {
-            calls.lock().unwrap().push("make");
-            let owner = context.runtime().execution_root().unwrap();
-            let payload = owner
-                .bytecode
-                .functions
-                .iter()
-                .find(|function| function.name == "payload")
-                .ok_or_else(|| HostError::new("missing pinned payload entry"))?
-                .id;
-            let payload = reenter(context, &owner, payload, &[])
-                .map_err(|error| HostError::new(format!("payload construction: {error:?}")))?;
-            Ok(payload.value(context.runtime().gc()).unwrap())
-        })
+        .bind(
+            make,
+            move |context: &mut HostCallContext<'_>, _: &[Value]| {
+                calls.lock().unwrap().push("make");
+                let owner = context.runtime().execution_root().unwrap();
+                let payload = owner
+                    .bytecode
+                    .functions
+                    .iter()
+                    .find(|function| function.name == "payload")
+                    .ok_or_else(|| HostError::new("missing pinned payload entry"))?
+                    .id;
+                let payload = reenter(context, &owner, payload, &[])
+                    .map_err(|error| HostError::new(format!("payload construction: {error:?}")))?;
+                Ok(payload.value(context.runtime().gc()).unwrap())
+            },
+        )
         .unwrap();
     let calls = trace.clone();
     builder
         .bind(
             echo,
-            move |context: &HostCallContext<'_>, args: &[Value]| {
+            move |context: &mut HostCallContext<'_>, args: &[Value]| {
                 calls.lock().unwrap().push("echo");
-                context.runtime().collect_garbage().unwrap();
+                context.runtime_mut().collect_garbage().unwrap();
                 Ok(args[0])
             },
         )
@@ -204,7 +207,7 @@ fn offline_composite_signatures_reject_nested_source_mismatches() {
         )
         .unwrap();
     builder
-        .bind(take, |_: &HostCallContext<'_>, _: &[Value]| {
+        .bind(take, |_: &mut HostCallContext<'_>, _: &[Value]| {
             panic!("invalid source cannot invoke a host callback")
         })
         .unwrap();
@@ -246,7 +249,7 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
     builder
         .bind(
             take,
-            move |context: &HostCallContext<'_>, args: &[Value]| {
+            move |context: &mut HostCallContext<'_>, args: &[Value]| {
                 let Value::Array(array) = args[0] else {
                     panic!("array argument")
                 };

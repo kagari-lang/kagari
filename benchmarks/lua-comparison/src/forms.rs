@@ -8,7 +8,7 @@ use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_bytecode::instruction::BinaryOp;
 use kagari_runtime::{
     native::{
-        binding::NativeResult, builder::ModuleBuilder, context::CallContext,
+        binding::NativeResult, builder::ModuleBuilder, context::NativeCall,
         declarations::FunctionDecl, types::Type,
     },
     numeric,
@@ -71,7 +71,7 @@ pub fn byte_state() -> i32 { val memory: Vec<u8> = Vec::from([0u8; 256]); var st
     } sum }
 "#;
 
-fn native_step(_: &mut CallContext<'_>, state: i32) -> NativeResult<i32> {
+fn native_step(_: &mut NativeCall<'_>, state: i32) -> NativeResult<i32> {
     host_step(state)
 }
 
@@ -246,7 +246,7 @@ pub(super) fn run(options: &Options) {
         }
         let entry: Function = lua.load(lua_source(name)).eval().unwrap();
         let expected = reference(name);
-        let execute = |engine: &str| {
+        let mut execute = |engine: &str| {
             if engine == "lua54" {
                 return entry.call::<i32>(()).unwrap();
             }
@@ -280,7 +280,7 @@ pub(super) fn run(options: &Options) {
         }
         if options.profile.is_some() {
             profile::count_lua(&lua, &entry, expected);
-            profile::run(&runtime, &loaded, &context, name.into(), name, expected);
+            profile::run(&mut runtime, &loaded, &context, name.into(), name, expected);
             continue;
         }
         for sample in 0..options.samples {

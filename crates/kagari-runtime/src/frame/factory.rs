@@ -5,7 +5,7 @@ use crate::{
     error::RuntimeError,
     error_trace::asynchronous::CallableOrigin,
     frame::{
-        ExecutionStack, arguments::FrameArguments, types::arguments::TypeArgument,
+        FrameStack, arguments::FrameArguments, types::arguments::TypeArgument,
         waiting::QueuedFuture,
     },
     gc::roots::{RootSet, RootedValue},
@@ -101,13 +101,17 @@ impl Runtime {
     }
 }
 
-impl ExecutionStack<'_> {
+impl FrameStack {
     pub(super) fn start_queued_factory(&self, runtime: &Runtime) -> NativeResult<()> {
-        let queued = self.session.state().queued_factory.borrow_mut().take();
+        let queued = self
+            .session_state(runtime)
+            .queued_factory
+            .borrow_mut()
+            .take();
         let Some(queued) = queued else {
             return Ok(());
         };
-        if !self.can_park(runtime)? || !self.frames()?.is_empty() {
+        if !self.can_park(runtime)? || !self.frames(runtime)?.is_empty() {
             return Err(RuntimeError::module_validation(
                 "invalid factory activation",
             ));
@@ -142,7 +146,7 @@ impl ExecutionStack<'_> {
                 self.push_interface_method(runtime, *method, &arguments, None)?;
             }
         }
-        *self.session.state().factory_output.borrow_mut() = Some(queued.future);
+        *self.session_state(runtime).factory_output.borrow_mut() = Some(queued.future);
         Ok(())
     }
 
@@ -153,15 +157,19 @@ impl ExecutionStack<'_> {
     ) -> NativeResult<Option<Value>> {
         // A synchronous callback can finish its local stack scope while the
         // factory and native caller are still present in the owning session.
-        if !self.frames()?.is_empty() {
+        if !self.frames(runtime)?.is_empty() {
             return Ok(Some(value));
         }
-        let future = self.session.state().factory_output.borrow_mut().take();
+        let future = self
+            .session_state(runtime)
+            .factory_output
+            .borrow_mut()
+            .take();
         let Some(future) = future else {
             return Ok(Some(value));
         };
         runtime.resources().poll_execution()?;
-        let owner = self.session.root();
+        let owner = self.session_state(runtime).root.clone();
         if !future.matches(runtime, &value, &owner) {
             return Err(RuntimeError::module_validation(
                 "task factory returned an invalid Future",
@@ -174,7 +182,7 @@ impl ExecutionStack<'_> {
                 .root_value(value)
                 .ok_or_else(|| RuntimeError::module_validation("factory result root"))?,
         };
-        *self.session.state().queued_future.borrow_mut() = Some(queued);
+        *self.session_state(runtime).queued_future.borrow_mut() = Some(queued);
         Ok(None)
     }
 }

@@ -28,7 +28,7 @@ fn foreign_loaded_module_is_rejected_before_execution() {
     let _local_program = local;
     let local = second.select_program(&_local_program).unwrap();
     assert_eq!(foreign.key(), local.key());
-    let vm = second;
+    let mut vm = second;
     assert!(
         matches!(vm.execute_module(&foreign, ProgramEntry::Main, vm.execution_options()), Err(ref error) if error.kind() == RuntimeErrorKind::StaleHandle)
     );
@@ -47,7 +47,7 @@ fn executes_simple_arithmetic_function() {
     let (runtime, loaded) = load_test_module("fn main() -> i32 { val value = 1 + 2; value }");
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
@@ -177,7 +177,7 @@ fn executes_if_control_flow() {
     let (runtime, loaded) = load_test_module("fn main() -> i32 { if true { 1 } else { 2 } }");
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
@@ -201,7 +201,7 @@ fn main() -> i32 { callee() }
     );
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
@@ -222,7 +222,7 @@ fn deterministic_frames_keep_caller_and_callee_storage_isolated() {
     ));
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
@@ -257,7 +257,7 @@ fn main() -> i32 { middle() }
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
 
-    let vm = runtime;
+    let mut vm = runtime;
     let error = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect_err("third frame should exceed call depth");
@@ -301,7 +301,7 @@ fn unreachable_instruction_is_a_script_trap() {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
 
-    let vm = runtime;
+    let mut vm = runtime;
     let error = vm
         .execute_fixture(&loaded, FunctionRef::new(0))
         .expect_err("unreachable should trap");
@@ -318,7 +318,7 @@ fn executes_array_index_access() {
         load_test_module("fn main() -> i32 { val values = [1, 2, 3]; values[1] }");
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
@@ -346,7 +346,7 @@ fn main() -> i32 {
     );
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
@@ -365,7 +365,7 @@ fn executes_tuple_literal_return() {
     let (runtime, loaded) = load_test_module("fn main() -> (bool, bool) { (true, false) }");
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
@@ -398,7 +398,7 @@ fn main() -> Point {
     );
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
@@ -447,7 +447,7 @@ fn lazy_static_driver_enters_hidden_initializer_but_stores_cannot_initialize() {
     .unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     assert!(vm.execute_fixture(&loaded, FunctionRef::new(0)).is_err());
     assert!(
         vm.write_module_slot(&loaded, ModuleSlot::new(0), Value::I32(9))
@@ -520,7 +520,7 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
         "old active-call epoch must remain reachable after reload"
     );
 
-    let vm = runtime;
+    let mut vm = runtime;
     let old_report = vm
         .execute_fixture(&first_loaded, FunctionRef::new(0))
         .expect("an ordinary call through old evidence should select current code");

@@ -248,7 +248,7 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
             )
             .unwrap();
         builder
-            .bind(echo, move |_: &HostCallContext<'_>, args: &[Value]| {
+            .bind(echo, move |_: &mut HostCallContext<'_>, args: &[Value]| {
                 called.fetch_add(1, Ordering::SeqCst);
                 Ok(args[0])
             })
@@ -262,7 +262,7 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
             )
             .unwrap();
         builder
-            .bind(output, move |_: &HostCallContext<'_>, _: &[Value]| {
+            .bind(output, move |_: &mut HostCallContext<'_>, _: &[Value]| {
                 called.fetch_add(1, Ordering::SeqCst);
                 Ok(bad)
             })
@@ -322,9 +322,9 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
     builder
         .bind(
             echo,
-            move |context: &HostCallContext<'_>, args: &[Value]| {
+            move |context: &mut HostCallContext<'_>, args: &[Value]| {
                 called.fetch_add(1, Ordering::SeqCst);
-                context.runtime().collect_garbage().unwrap();
+                context.runtime_mut().collect_garbage().unwrap();
                 Ok(args[0])
             },
         )
@@ -341,7 +341,7 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
         .unwrap();
     let value = runtime.gc().alloc_tuple(vec![Value::Array(array)]).unwrap();
     assert_eq!(
-        native_invocation::invoke(&runtime, &entry, id, std::slice::from_ref(&value)).unwrap(),
+        native_invocation::invoke(&mut runtime, &entry, id, std::slice::from_ref(&value)).unwrap(),
         value
     );
     assert!(runtime.gc().array_snapshot(array).is_some());
@@ -360,10 +360,10 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
                 .unwrap(),
         )])
         .unwrap();
-    assert!(native_invocation::invoke(&runtime, &entry, id, &[foreign]).is_err());
+    assert!(native_invocation::invoke(&mut runtime, &entry, id, &[foreign]).is_err());
     runtime.collect_garbage().unwrap();
     assert!(runtime.gc().array_snapshot(array).is_none());
-    assert!(native_invocation::invoke(&runtime, &entry, id, &[value]).is_err());
+    assert!(native_invocation::invoke(&mut runtime, &entry, id, &[value]).is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
@@ -392,7 +392,7 @@ fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
         )
         .unwrap();
     builder
-        .bind(consume, |_: &HostCallContext<'_>, _: &[Value]| {
+        .bind(consume, |_: &mut HostCallContext<'_>, _: &[Value]| {
             panic!("an owned parameter must reject nested borrows before the callback")
         })
         .unwrap();
@@ -404,9 +404,10 @@ fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
     let entry = runtime.select_program(&_entry_program).unwrap();
     let id = native_slot(&runtime, &entry, &provider, "consume");
     for unique in [false, true] {
-        let scope = runtime.host_scope(&[]).unwrap();
+        let mut scope = runtime.host_scope(&[]).unwrap();
         let value = if unique {
-            runtime
+            scope
+                .runtime()
                 .gc()
                 .alloc_host_mut(
                     scope
@@ -416,7 +417,8 @@ fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
                 )
                 .unwrap()
         } else {
-            runtime
+            scope
+                .runtime()
                 .gc()
                 .alloc_host_ref(
                     scope
@@ -426,23 +428,30 @@ fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
                 )
                 .unwrap()
         };
-        let value = runtime
+        let value = scope
+            .runtime()
             .gc()
-            .alloc_tuple(vec![runtime.gc().alloc_tuple(vec![value]).unwrap()])
+            .alloc_tuple(vec![scope.runtime().gc().alloc_tuple(vec![value]).unwrap()])
             .unwrap();
         assert_eq!(
-            native_invocation::invoke(&runtime, &entry, id, std::slice::from_ref(&value))
-                .unwrap_err()
-                .kind(),
+            native_invocation::invoke(
+                scope.runtime_mut(),
+                &entry,
+                id,
+                std::slice::from_ref(&value)
+            )
+            .unwrap_err()
+            .kind(),
             RuntimeErrorKind::HostBorrowEscape
         );
         assert!(
-            runtime
+            scope
+                .runtime()
                 .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![value])
                 .is_err()
         );
         drop(scope);
-        assert!(native_invocation::invoke(&runtime, &entry, id, &[value]).is_err());
+        assert!(native_invocation::invoke(&mut runtime, &entry, id, &[value]).is_err());
     }
     assert!(!runtime.is_quarantined());
 }

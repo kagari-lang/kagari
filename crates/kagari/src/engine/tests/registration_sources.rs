@@ -14,7 +14,7 @@ use kagari_runtime::{
     native::{
         binding::NativeResult,
         builder::ModuleBuilder,
-        context::CallContext,
+        context::NativeCall,
         conversion::KagariType,
         declarations::{FunctionDecl, MethodDecl},
         module::NativeModule,
@@ -186,7 +186,7 @@ fn application(builder: &KagariEngineBuilder, doc: &str) -> NativeModule {
         )
         .unwrap();
     module
-        .bind(function, |_cx: &mut CallContext<'_>| Ok(42i32))
+        .bind(function, |_cx: &mut NativeCall<'_>| Ok(42i32))
         .unwrap();
     module.finish().unwrap()
 }

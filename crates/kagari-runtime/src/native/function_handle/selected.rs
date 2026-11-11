@@ -27,7 +27,7 @@ pub(super) struct SelectedBinding {
 }
 
 impl SelectedBinding {
-    pub(super) fn prepare(&self, runtime: &Runtime) -> NativeResult<PreparedFunction> {
+    pub(super) fn prepare(&self, runtime: &mut Runtime) -> NativeResult<PreparedFunction> {
         let selected = runtime.select_call_route(&self.route)?;
         let mut target = self.target.clone();
         target.environment = target
@@ -51,7 +51,7 @@ impl SelectedBinding {
 
 impl<A: KagariArguments, R: KagariType> Function<A, R> {
     pub(crate) fn from_selected(
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         caller: &ExecutableModule,
         target: &LinkedCallable,
     ) -> NativeResult<Self> {
@@ -59,6 +59,7 @@ impl<A: KagariArguments, R: KagariType> Function<A, R> {
         let cx = ConversionContext::new(runtime, &prepared.owner)?;
         A::check_types(&cx, &prepared.signature.params)?;
         cx.check_type::<R>(&prepared.signature.result)?;
+        drop(cx);
         let owner = prepared.owner.clone();
         let route = owner.bind_call_route(target.target)?;
         let mut target = target.clone();
@@ -85,7 +86,7 @@ impl<A: KagariArguments, R: KagariType> Function<A, R> {
 
 impl PreparedFunction {
     pub(crate) fn selected(
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         caller: &ExecutableModule,
         target: LinkedCallable,
     ) -> NativeResult<Self> {
@@ -115,10 +116,11 @@ impl PreparedFunction {
 
     pub(crate) fn call_values(
         &self,
-        cx: &NativeContext<'_>,
+        cx: &mut NativeContext<'_>,
         values: &[Value],
     ) -> NativeResult<RootedValue> {
-        let runtime = cx.runtime();
+        let invoke = cx.invoke_script;
+        let runtime = cx.runtime_mut();
         self.validate(runtime)?;
         let Target::Entry(target) = &self.target else {
             return Err(RuntimeError::module_validation("selected entry expected"));
@@ -135,12 +137,13 @@ impl PreparedFunction {
             .gc()
             .root_execution_values(values.to_vec())
             .ok_or_else(|| RuntimeError::module_validation("selected argument retention"))?;
-        let _session = runtime.begin_pinned_execution(self)?;
+        let mut session = runtime.begin_pinned_execution(self)?;
+        let runtime = session.runtime_mut();
         let value = match target.primitive {
             Some(primitive) => runtime
                 .invoke_standard_builtin(&self.owner, primitive, values)
                 .map_err(|error| error.into_runtime_error())?,
-            None => cx.invoke_script.ok_or_else(|| {
+            None => invoke.ok_or_else(|| {
                 RuntimeError::module_validation("call context has no execution backend")
             })?(runtime, &self.owner, ScriptCall::Pinned(self), values)?,
         };

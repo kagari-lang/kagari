@@ -136,10 +136,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         &[],
     )?;
     let owned = descriptor.create(
-        &mut NativeContext::new(&runtime, &loaded)?,
+        &mut NativeContext::new(&mut runtime, &loaded)?,
         Counter { value: 42 },
     )?;
-    let encoded = ConversionContext::new(&runtime, &loaded)?.encode(owned.clone())?;
+    let encoded = ConversionContext::new(&mut runtime, &loaded)?.encode(owned.clone())?;
     let value = encoded.value(runtime.gc()).expect("retained Counter");
     let (owner, slot) = loaded
         .members()
@@ -159,22 +159,26 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .map(|slot| (member, slot))
         })
         .expect("checked Readable::get application");
-    let stack = runtime.enter_execution_stack(&owner)?;
-    stack.push_callable(
-        &runtime,
-        owner.clone(),
-        CallableTarget::Native(NativeImportId::new(slot)),
-        &[value],
-        None,
-    )?;
-    stack.start_native_entry(&runtime, |_, _, _, _| {
-        unreachable!("Rust read never calls script")
+    let mut stack_activation = runtime.enter_execution_stack(&owner)?;
+    stack_activation.with(|runtime, stack| {
+        stack.push_callable(
+            runtime,
+            owner.clone(),
+            CallableTarget::Native(NativeImportId::new(slot)),
+            &[value],
+            None,
+        )?;
+        stack.start_native_entry(runtime, |_, _, _, _| {
+            unreachable!("Rust read never calls script")
+        })?;
+        assert_eq!(
+            stack.finish_native_return(runtime)?,
+            ReturnAction::Complete(Value::I32(42))
+        );
+
+        Ok(())
     })?;
-    assert_eq!(
-        stack.finish_native_return(&runtime)?,
-        ReturnAction::Complete(Value::I32(42))
-    );
-    drop(stack);
+    drop(stack_activation);
     drop(encoded);
     drop(owned);
     assert_eq!(runtime.gc().active_roots(), 0);

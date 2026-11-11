@@ -108,22 +108,34 @@ fn generic_value_handles_forward_selected_results_without_erasing_type_access_or
         assert!(number.decode::<String>(&mut cx).is_err());
         assert_eq!(text.decode::<String>(&mut cx).unwrap(), "retained");
         assert_eq!(
-            vm.call(&string_argument, (text.clone(),)).unwrap(),
+            cx.runtime_mut()
+                .call(&string_argument, (text.clone(),))
+                .unwrap(),
             "retained"
         );
-        assert!(vm.call(&string_argument, (number.clone(),)).is_err());
-        assert!(vm.call(&write, (readonly.clone(),)).is_err());
-        assert_eq!(vm.call(&read, (readonly.clone(),)).unwrap(), 42);
+        assert!(
+            cx.runtime_mut()
+                .call(&string_argument, (number.clone(),))
+                .is_err()
+        );
+        assert!(cx.runtime_mut().call(&write, (readonly.clone(),)).is_err());
+        assert_eq!(
+            cx.runtime_mut().call(&read, (readonly.clone(),)).unwrap(),
+            42
+        );
         let items = vector.decode::<(ScriptValue,)>(&mut cx).unwrap();
         let item = items.0.decode::<Object>(&mut cx).unwrap();
-        let field = vm.bind_field::<i32>(item.object_type(), "value").unwrap();
+        let field = cx
+            .runtime_mut()
+            .bind_field::<i32>(item.object_type(), "value")
+            .unwrap();
         assert_eq!(item.get(&mut cx, &field).unwrap(), 42);
         let callback = closure.decode::<Function<(), Object>>(&mut cx).unwrap();
         drop((number, text, vector, closure, readonly, items, item));
-        vm.collect_garbage().unwrap();
+        cx.runtime_mut().collect_garbage().unwrap();
         let result = callback.call(&mut cx, ()).unwrap();
         assert_eq!(result.get(&mut cx, &field).unwrap(), 42);
-        let (foreign, foreign_owner) = fixture("pub fn number() -> i32 { 7 }", None);
+        let (mut foreign, foreign_owner) = fixture("pub fn number() -> i32 { 7 }", None);
         let _foreign_owner_program = foreign_owner;
         let foreign_binding = foreign
             .bind_function::<(), ScriptValue>(&_foreign_owner_program.root(), "number")
@@ -169,7 +181,7 @@ fn selected_associated_tuple_results_keep_their_supplying_scope() {
                 let items = result.decode::<(ScriptValue,)>(cx)?;
                 let item = items.0.decode::<Object>(cx)?;
                 let field = cx
-                    .runtime()
+                    .runtime_mut()
                     .bind_field::<i32>(item.object_type(), "value")?;
                 item.set(cx, &field, 43)?;
                 Ok(result)
@@ -178,7 +190,7 @@ fn selected_associated_tuple_results_keep_their_supplying_scope() {
         .unwrap();
     contract.finish().unwrap();
     let module = module.finish().unwrap();
-    let (vm, owner) = fixture(
+    let (mut vm, owner) = fixture(
         r#"
         use example::associated_values::Producer;
         pub struct Item { pub var value: i32 }
@@ -207,21 +219,28 @@ fn selected_associated_tuple_results_keep_their_supplying_scope() {
     vm.collect_garbage().unwrap();
     let mut cx = vm.context(&owner).unwrap();
     let item = values.0.clone();
-    let field = vm.bind_field::<i32>(item.object_type(), "value").unwrap();
+    let field = cx
+        .runtime_mut()
+        .bind_field::<i32>(item.object_type(), "value")
+        .unwrap();
     assert_eq!(item.get(&mut cx, &field).unwrap(), 43);
-    let target: Interface = vm
+    let target: Interface = cx
+        .runtime_mut()
         .execute_typed(&_owner_program, "target", (), &Default::default())
         .unwrap();
-    let holder: Object = vm
+    let holder: Object = cx
+        .runtime_mut()
         .execute_typed(&_owner_program, "holder", (), &Default::default())
         .unwrap();
-    let relay = vm
+    let member = target.member(cx.runtime(), "relay").unwrap();
+    let relay = cx
+        .runtime_mut()
         .bind_interface_method_application::<(Object,), (Object,)>(
-            &target.member(&vm, "relay").unwrap(),
+            &member,
             slice::from_ref(holder.object_type().type_argument()),
         )
         .unwrap();
-    vm.collect_garbage().unwrap();
+    cx.runtime_mut().collect_garbage().unwrap();
     let returned = target.call(&mut cx, &relay, (holder,)).unwrap();
     let returned_item = returned.0.clone();
     assert_eq!(returned_item.get(&mut cx, &field).unwrap(), 43);

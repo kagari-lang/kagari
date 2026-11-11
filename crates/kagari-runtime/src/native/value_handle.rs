@@ -31,11 +31,11 @@ impl ScriptValue {
     }
 
     pub fn decode<T: FromKagari>(&self, cx: &mut NativeContext<'_>) -> NativeResult<T> {
-        let mut conversion = ConversionContext::new(cx.runtime(), &self.owner)?;
         let value = self
             .root
             .value(cx.runtime().gc())
             .ok_or_else(|| RuntimeError::module_validation("foreign or expired script value"))?;
+        let mut conversion = ConversionContext::new(cx.runtime_mut(), &self.owner)?;
         conversion.decode_prepared(&self.argument, &value)
     }
 }

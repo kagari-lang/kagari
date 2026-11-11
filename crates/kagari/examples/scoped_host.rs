@@ -81,7 +81,7 @@ fn main() {
         .unwrap();
     let owned: Opaque<Player> = descriptor
         .create(
-            &mut NativeContext::new(&runtime, &selected).unwrap(),
+            &mut NativeContext::new(&mut runtime, &selected).unwrap(),
             Player { hp: 60 },
         )
         .unwrap();
@@ -117,7 +117,7 @@ fn main() {
             Ok(())
         })
         .unwrap();
-    let cx = NativeContext::new(&runtime, &selected).unwrap();
+    let cx = NativeContext::new(&mut runtime, &selected).unwrap();
     assert_eq!(owned.read(&cx, |player| Ok(player.hp)).unwrap(), 70);
     owned
         .edit(&cx, |player| {

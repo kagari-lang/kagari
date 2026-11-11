@@ -2,6 +2,7 @@
 use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault, reason::CancellationReason},
+    execution::owned::DriveResult,
     gc::roots::RootedValue,
     native::{
         binding::NativeResult,
@@ -14,16 +15,16 @@ use crate::{
     },
 };
 
-use std::slice;
+use std::{num::NonZeroUsize, slice};
 
 impl Runtime {
-    pub(crate) fn acquire_group(&self, parent: SessionId) -> NativeResult<GroupWork<'_>> {
+    pub(crate) fn acquire_group(&mut self, parent: SessionId) -> NativeResult<GroupWork> {
         self.require_idle_driver()?;
-        let Some(mut record) = self.groups.borrow_mut().records.remove(&parent) else {
+        let Some(mut record) = self.groups.records.remove(&parent) else {
             return Ok(GroupWork::Stale);
         };
         if matches!(record.state, GroupState::Ready(_)) {
-            self.groups.borrow_mut().records.insert(parent, record);
+            self.groups.records.insert(parent, record);
             return Ok(GroupWork::Stale);
         }
         if let Err(error) = self.poll_group_parent(parent) {
@@ -49,14 +50,13 @@ impl Runtime {
                         break;
                     }
                 }
-                self.groups.borrow_mut().records.insert(parent, record);
+                self.groups.records.insert(parent, record);
                 Ok(match selected {
-                    Some((index, execution)) => GroupWork::Branch(BranchActivation {
-                        runtime: self,
+                    Some((index, execution)) => GroupWork::Branch {
                         parent,
                         index,
-                        execution: Some(execution),
-                    }),
+                        execution,
+                    },
                     None => GroupWork::Waiting,
                 })
             }
@@ -65,7 +65,7 @@ impl Runtime {
     }
 
     fn accept_branch(
-        &self,
+        &mut self,
         parent: SessionId,
         index: usize,
         mut record: GroupRecord,
@@ -115,7 +115,7 @@ impl Runtime {
         })();
         match decision {
             Ok(PairDecision::Continue) => {
-                self.groups.borrow_mut().records.insert(parent, record);
+                self.groups.records.insert(parent, record);
                 Ok(())
             }
             Ok(PairDecision::Finish(output)) => {
@@ -126,14 +126,37 @@ impl Runtime {
     }
 }
 
-impl BranchActivation<'_> {
+impl<'runtime> BranchActivation<'runtime> {
+    pub(crate) fn new(
+        runtime: &'runtime mut Runtime,
+        parent: SessionId,
+        index: usize,
+        execution: OwnedExecution,
+    ) -> Self {
+        Self {
+            _thread: Default::default(),
+            runtime,
+            parent,
+            index,
+            execution: Some(execution),
+        }
+    }
+
     pub fn execution(&self) -> &OwnedExecution {
         self.execution.as_ref().expect("active branch")
     }
 
+    pub(crate) fn drive(&mut self, slice: NonZeroUsize) -> NativeResult<DriveResult> {
+        self.runtime.drive_with_completion(
+            self.execution.as_ref().expect("active branch"),
+            slice,
+            |_, _| Ok(()),
+        )
+    }
+
     pub fn park(mut self) -> NativeResult<()> {
         self.runtime.require_idle_driver()?;
-        let mut groups = self.runtime.groups.borrow_mut();
+        let groups = &mut self.runtime.groups;
         let record = groups.records.get_mut(&self.parent).ok_or_else(invalid)?;
         let GroupState::Running(group) = &mut record.state else {
             return Err(invalid());
@@ -160,7 +183,6 @@ impl BranchActivation<'_> {
         let record = self
             .runtime
             .groups
-            .borrow_mut()
             .records
             .remove(&self.parent)
             .ok_or_else(invalid)?;
@@ -172,18 +194,13 @@ impl BranchActivation<'_> {
         self.runtime.require_idle_driver()?;
         let error = self
             .runtime
-            .retire_scheduled_execution(self.execution(), error);
+            .retire_scheduled_execution(self.execution.as_ref().expect("active execution"), error);
         self.close(error)
     }
 
     fn close(&mut self, error: RuntimeError) -> NativeResult<()> {
         let execution = self.execution.take().expect("active branch");
-        let record = self
-            .runtime
-            .groups
-            .borrow_mut()
-            .records
-            .remove(&self.parent);
+        let record = self.runtime.groups.records.remove(&self.parent);
         let Some(mut record) = record else {
             if self
                 .runtime
@@ -204,11 +221,7 @@ impl BranchActivation<'_> {
             // Preserve local ownership until an idle boundary can acknowledge it.
             self.runtime.scheduler.hub.contain(|| execution.cancel());
             group.branches[self.index] = Some(execution);
-            self.runtime
-                .groups
-                .borrow_mut()
-                .records
-                .insert(self.parent, record);
+            self.runtime.groups.records.insert(self.parent, record);
             self.runtime.scheduler.hub.mark_ready();
             return Ok(());
         }

@@ -30,7 +30,7 @@ impl NativeApplication {
 
 impl Runtime {
     pub(crate) fn prepare_native_application(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
         import: NativeImportId,
         environment: TypeEnvironment,

@@ -62,7 +62,7 @@ fn fixture() -> (Runtime, ExecutableModule, PreparedClosure) {
 
 #[test]
 fn prepared_and_stored_descriptors_do_not_root_or_alias_recycled_closures() {
-    let (runtime, loaded, prepared) = fixture();
+    let (mut runtime, loaded, prepared) = fixture();
     let stored = StoredCallable(prepared.clone());
     let environment_id = prepared
         .snapshot(&runtime)
@@ -105,7 +105,7 @@ fn prepared_and_stored_descriptors_do_not_root_or_alias_recycled_closures() {
 
 #[test]
 fn rooted_callback_retains_captures_but_not_storage_after_runtime_teardown() {
-    let (runtime, loaded, prepared) = fixture();
+    let (mut runtime, loaded, prepared) = fixture();
     let environment_id = prepared
         .snapshot(&runtime)
         .unwrap()
@@ -114,26 +114,40 @@ fn rooted_callback_retains_captures_but_not_storage_after_runtime_teardown() {
         .unwrap()
         .id;
     let runtime_owner = runtime.resources().lifetime_probe();
-    let mut conversion = ConversionContext::new(&runtime, &loaded).unwrap();
+    let mut conversion = ConversionContext::new(&mut runtime, &loaded).unwrap();
     let signature = conversion.type_for::<Function<(), i32>>().unwrap();
     let rooted =
         Function::<(), i32>::from_kagari(&mut conversion, &signature, prepared.value()).unwrap();
-    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 0);
-    assert!(runtime.gc.environment(environment_id).is_some());
     assert_eq!(
-        prepared.snapshot(&runtime).unwrap().captures,
+        conversion
+            .runtime_mut()
+            .collect_garbage()
+            .unwrap()
+            .reclaimed_objects,
+        0
+    );
+    assert!(
+        conversion
+            .runtime()
+            .gc
+            .environment(environment_id)
+            .is_some()
+    );
+    assert_eq!(
+        prepared.snapshot(conversion.runtime()).unwrap().captures,
         vec![Value::I32(7)]
     );
+    drop(conversion);
     drop(runtime);
     assert!(runtime_owner.upgrade().is_none());
-    let (foreign, foreign_loaded, _) = fixture();
-    let mut cx = NativeContext::new(&foreign, &foreign_loaded).unwrap();
+    let (mut foreign, foreign_loaded, _) = fixture();
+    let mut cx = NativeContext::new(&mut foreign, &foreign_loaded).unwrap();
     assert_eq!(
         rooted.call(&mut cx, ()).unwrap_err().kind(),
         RuntimeErrorKind::ModuleValidation
     );
     assert_eq!(
-        prepared.snapshot(&foreign).unwrap_err().kind(),
+        prepared.snapshot(cx.runtime()).unwrap_err().kind(),
         RuntimeErrorKind::ModuleValidation
     );
 }
@@ -176,7 +190,11 @@ fn scoped_closure_views_reject_mutation_without_panicking_or_partial_writes() {
     let before = runtime.resources().counters();
     let stats = runtime.gc.stats();
     assert_eq!(
-        runtime.collect_garbage().unwrap_err().kind(),
+        runtime
+            .gc
+            .collect(&runtime.modules, &[])
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::EngineFault
     );
     assert_eq!(runtime.resources().counters(), before);

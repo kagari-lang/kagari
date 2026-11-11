@@ -41,7 +41,7 @@ impl Runtime {
     /// later alias retargets affect only fresh bindings. Invalid/private paths and
     /// generic declarations without a closed entry fail before execution.
     pub fn bind_function<A: KagariArguments + 'static, R: KagariType + 'static>(
-        &self,
+        &mut self,
         owner: &Module,
         path: &str,
     ) -> NativeResult<Function<A, R>> {
@@ -55,7 +55,7 @@ impl Runtime {
     /// This declaration capability is independent of relative public-path lookup;
     /// native entries can be bound without adding a source wrapper or export alias.
     pub fn bind_function_declaration<A: KagariArguments + 'static, R: KagariType + 'static>(
-        &self,
+        &mut self,
         owner: &Module,
         declaration: &DefinitionPath,
     ) -> NativeResult<Function<A, R>> {
@@ -69,7 +69,7 @@ impl Runtime {
         A: KagariArguments + 'static,
         R: KagariType + 'static,
     >(
-        &self,
+        &mut self,
         owner: &Module,
         declaration: &DefinitionPath,
         arguments: &[TypeArgument],
@@ -116,7 +116,7 @@ impl Runtime {
     }
 
     pub(crate) fn bind_member_entry<A: KagariArguments + 'static, R: KagariType + 'static>(
-        &self,
+        &mut self,
         member: &InherentMember,
         arguments: &[TypeArgument],
     ) -> NativeResult<Function<A, R>> {
@@ -140,18 +140,10 @@ impl Runtime {
     }
 
     pub(super) fn cache_function<A: KagariArguments + 'static, R: KagariType + 'static>(
-        &self,
+        &mut self,
         evidence: EntryEvidence,
     ) -> NativeResult<Function<A, R>> {
-        let member = &evidence.owner;
-        let signature = &evidence.signature;
-        let cx = ConversionContext::new(self, member)?;
-        A::check_types(&cx, &signature.params)?;
-        cx.check_type::<R>(&signature.result)?;
-        let mut cache = self
-            .function_bindings
-            .try_borrow_mut()
-            .map_err(|_| RuntimeError::module_validation("function binding cache is borrowed"))?;
+        let cache = &mut self.function_bindings;
         cache.0.retain(|entry| entry.record.strong_count() != 0);
         let mapping = TypeId::of::<(A, R)>();
         if let Some(record) = cache
@@ -165,7 +157,14 @@ impl Runtime {
                 mapping: PhantomData,
             });
         }
+        let member = &evidence.owner;
+        let signature = &evidence.signature;
+        let cx = ConversionContext::new(self, member)?;
+        A::check_types(&cx, &signature.params)?;
+        cx.check_type::<R>(&signature.result)?;
+        drop(cx);
         let record = Arc::new(FunctionBinding::Entry(evidence.bind()?));
+        let cache = &mut self.function_bindings;
         cache
             .0
             .try_reserve(1)

@@ -218,11 +218,14 @@ fn shared_host_callbacks_can_retain_checked_root_leases() {
         )
         .unwrap();
     builder
-        .bind(function, move |cx: &HostCallContext<'_>, _: &[Value]| {
-            Ok(Value::Bool(
-                retained.value(cx.runtime().gc()).unwrap() == Value::Array(object),
-            ))
-        })
+        .bind(
+            function,
+            move |cx: &mut HostCallContext<'_>, _: &[Value]| {
+                Ok(Value::Bool(
+                    retained.value(cx.runtime().gc()).unwrap() == Value::Array(object),
+                ))
+            },
+        )
         .unwrap();
     let module = builder.finish().unwrap();
     let program = free_function_program(&module.to_declaration());
@@ -231,7 +234,7 @@ fn shared_host_callbacks_can_retain_checked_root_leases() {
     let loaded = runtime.select_program(&loaded_program).unwrap();
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
     assert_eq!(
-        invoke(&runtime, &loaded, 0, &[]).unwrap(),
+        invoke(&mut runtime, &loaded, 0, &[]).unwrap(),
         Value::Bool(true)
     );
     assert_eq!(runtime.gc().active_roots(), 1);

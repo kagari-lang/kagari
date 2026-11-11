@@ -79,22 +79,24 @@ fn cold_declarations() -> Result<DefinitionMetadata<ModuleDecl>, Box<dyn Error>>
     )?)
 }
 
-fn invoke_limit(runtime: &Runtime, owner: &ExecutableModule) -> NativeResult<Value> {
-    let stack = runtime.enter_execution_stack(owner)?;
-    stack.push_callable(
-        runtime,
-        owner.clone(),
-        CallableTarget::Native(NativeImportId::new(0)),
-        &[],
-        None,
-    )?;
-    stack.start_native_entry(runtime, |_, _, _, _| {
-        unreachable!("limit never calls script")
-    })?;
-    let ReturnAction::Complete(value) = stack.finish_native_return(runtime)? else {
-        panic!("root native return");
-    };
-    Ok(value)
+fn invoke_limit(runtime: &mut Runtime, owner: &ExecutableModule) -> NativeResult<Value> {
+    let mut stack_activation = runtime.enter_execution_stack(owner)?;
+    stack_activation.with(|runtime, stack| {
+        stack.push_callable(
+            runtime,
+            owner.clone(),
+            CallableTarget::Native(NativeImportId::new(0)),
+            &[],
+            None,
+        )?;
+        stack.start_native_entry(runtime, |_, _, _, _| {
+            unreachable!("limit never calls script")
+        })?;
+        let ReturnAction::Complete(value) = stack.finish_native_return(runtime)? else {
+            panic!("root native return");
+        };
+        Ok(value)
+    })
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -176,7 +178,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         ModuleBuilder::from_declaration(cold, &DeclarationCatalog::default(), BTreeMap::new())?;
     let function = builder.declared_function("limit")?;
     let immutable_limit = 42;
-    builder.bind(function, move |_: &HostCallContext<'_>, _: &[Value]| {
+    builder.bind(function, move |_: &mut HostCallContext<'_>, _: &[Value]| {
         Ok(Value::I32(immutable_limit))
     })?;
     let installed = builder.finish()?;
@@ -200,8 +202,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut options = runtime.execution_options();
     options.record_host_calls = true;
     options.inputs.unix_time_millis = 1_000;
-    let session = runtime.begin_execution(&loaded, options)?;
-    assert_eq!(invoke_limit(&runtime, &loaded)?, Value::I32(42));
+    let mut session = runtime.begin_execution(&loaded, options)?;
+    assert_eq!(
+        invoke_limit(session.runtime_mut(), &loaded)?,
+        Value::I32(42)
+    );
     let trace = session.trace().expect("recording was enabled");
     assert_eq!(trace.code_fingerprint, loaded.program_fingerprint());
     assert_eq!(trace.inputs.unix_time_millis, 1_000);
@@ -226,8 +231,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             &Default::default(),
         )?,
     )?;
-    let initialization = runtime.begin_candidate_initialization(&candidate)?;
-    assert_eq!(invoke_limit(&runtime, candidate.module())?, Value::I32(42));
+    let mut initialization = runtime.begin_candidate_initialization(&candidate)?;
+    assert_eq!(
+        invoke_limit(initialization.runtime_mut(), candidate.module())?,
+        Value::I32(42)
+    );
     drop(initialization);
     runtime.publish_staged_reload(candidate)?;
     assert_eq!(runtime.gc().active_roots(), 0);

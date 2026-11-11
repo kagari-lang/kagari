@@ -48,7 +48,7 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
             &path,
             HostPathAdapter::new().with_read(move |context, _| {
                 calls.lock().unwrap().push("read");
-                context.runtime().collect_garbage().unwrap();
+                context.runtime_mut().collect_garbage().unwrap();
                 Ok(Value::I32(42))
             }),
         )
@@ -260,7 +260,7 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
         .unwrap();
     let calls = trace.clone();
     builder
-        .bind(make, move |cx: &HostCallContext<'_>, _: &[Value]| {
+        .bind(make, move |cx: &mut HostCallContext<'_>, _: &[Value]| {
             calls.lock().unwrap().push("make");
             let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
             cx.runtime()
@@ -280,7 +280,7 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
             .unwrap();
         let calls = trace.clone();
         builder
-            .bind(function, move |_: &HostCallContext<'_>, _: &[Value]| {
+            .bind(function, move |_: &mut HostCallContext<'_>, _: &[Value]| {
                 calls.lock().unwrap().push(name);
                 Ok(Value::I32(result))
             })
@@ -293,7 +293,7 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
             &path,
             HostPathAdapter::new()
                 .with_read(move |cx, path| {
-                    cx.runtime().collect_garbage().unwrap();
+                    cx.runtime_mut().collect_garbage().unwrap();
                     let values = path
                         .dynamic_args
                         .as_slice()
@@ -307,7 +307,7 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
                     Ok(Value::I32(value.load(Ordering::SeqCst)))
                 })
                 .with_prepare_write(move |cx, _, record| {
-                    cx.runtime().collect_garbage().unwrap();
+                    cx.runtime_mut().collect_garbage().unwrap();
                     writes.lock().unwrap().push("prepare");
                     let Value::I32(next) = record.new_value else {
                         return Err(HostError::new("expected i32"));
@@ -443,7 +443,7 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
             let (calls, times) = (trace.clone(), root_calls.clone());
             schema
                 .builder
-                .bind(make, move |cx: &HostCallContext<'_>, _: &[Value]| {
+                .bind(make, move |cx: &mut HostCallContext<'_>, _: &[Value]| {
                     calls.lock().unwrap().push("root");
                     let object = if times.fetch_add(1, Ordering::SeqCst) == 0 {
                         7
@@ -469,7 +469,7 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
             let (calls, value, absent) = (trace.clone(), state.clone(), removed.clone());
             schema
                 .builder
-                .bind(rhs, move |_: &HostCallContext<'_>, _: &[Value]| {
+                .bind(rhs, move |_: &mut HostCallContext<'_>, _: &[Value]| {
                     calls.lock().unwrap().push("rhs");
                     value.store(after_rhs, Ordering::SeqCst);
                     absent.store(deleted, Ordering::SeqCst);
@@ -496,7 +496,7 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                         })
                         .with_prepare_write(move |context, _, record| {
                             writes.lock().unwrap().push("prepare");
-                            context.runtime().collect_garbage().unwrap();
+                            context.runtime_mut().collect_garbage().unwrap();
                             let Value::I32(next) = record.new_value else {
                                 return Err(HostError::new("expected i32"));
                             };

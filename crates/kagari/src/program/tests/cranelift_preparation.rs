@@ -82,7 +82,7 @@ unsafe impl CodegenBackend for LifetimeBackend {
     }
 }
 
-fn scalar(runtime: &SdkRuntime, loaded: &InstalledProgram, entry: &str) -> i32 {
+fn scalar(runtime: &mut SdkRuntime, loaded: &InstalledProgram, entry: &str) -> i32 {
     let report = runtime
         .execute(loaded, entry, &[], &Default::default())
         .unwrap();
@@ -250,18 +250,18 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
             drop(report.return_value);
             assert_eq!(first.gc().active_roots(), 0);
         }
-        assert_eq!(scalar(&first, &first_program, "script_next"), 1);
-        assert_eq!(scalar(&first, &first_program, "host_value"), 101);
-        assert_eq!(scalar(&second, &second_program, "host_value"), 201);
+        assert_eq!(scalar(&mut first, &first_program, "script_next"), 1);
+        assert_eq!(scalar(&mut first, &first_program, "host_value"), 101);
+        assert_eq!(scalar(&mut second, &second_program, "host_value"), 201);
         first
             .replace_program(&first_program, &candidate, Default::default())
             .unwrap();
         let updated = (next_native).install(&mut first, &first_program).unwrap();
-        assert_eq!(scalar(&first, &first_program, "script_next"), 2);
-        assert_eq!(scalar(&second, &second_program, "script_next"), 1);
+        assert_eq!(scalar(&mut first, &first_program, "script_next"), 2);
+        assert_eq!(scalar(&mut second, &second_program, "script_next"), 1);
         first_value.store(102, Ordering::SeqCst);
-        assert_eq!(scalar(&first, &first_program, "host_value"), 102);
-        assert_eq!(scalar(&second, &second_program, "host_value"), 201);
+        assert_eq!(scalar(&mut first, &first_program, "host_value"), 102);
+        assert_eq!(scalar(&mut second, &second_program, "host_value"), 201);
         let second_before = second.publication_token(&second_program).unwrap();
         assert!(matches!(
             (next_native).install(&mut second, &second_program),
@@ -272,8 +272,8 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
             second_before
         );
         for (runtime, loaded, entry, value) in [
-            (&first, &first_program, &updated, 43),
-            (&second, &second_program, &independent, 42),
+            (&mut first, &first_program, &updated, 43),
+            (&mut second, &second_program, &independent, 42),
         ] {
             let report = runtime
                 .execute_prepared(loaded, ProgramEntry::Main, &[], &context, entry)
@@ -305,7 +305,7 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
             "installed code and native pages must not retain compiler MIR"
         );
         second_value.store(202, Ordering::SeqCst);
-        assert_eq!(scalar(&second, &second_program, "host_value"), 202);
+        assert_eq!(scalar(&mut second, &second_program, "host_value"), 202);
         let report = second
             .execute_prepared(
                 &second_program,
@@ -474,29 +474,34 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
         .and_then(|native_code| (native_code).install(&mut runtime, &independent))
         .unwrap();
     let selected_old = runtime.select_program(&old).unwrap();
-    let outer = runtime
+    let mut outer = runtime
         .begin_execution(&selected_old, context.runtime_options())
         .unwrap();
+    let outer_options = outer.runtime().execution_options();
     // The live session's Runtime borrow statically excludes mutable publication.
     // Dynamic admission for forgotten scopes and callbacks is tested at its owner.
     assert_eq!(
-        runtime.select_program(&old).unwrap().key(),
+        outer.runtime().select_program(&old).unwrap().key(),
         selected_old.key()
     );
-    assert_eq!(runtime.execution_root().unwrap().key(), selected_old.key());
+    assert_eq!(
+        outer.runtime().execution_root().unwrap().key(),
+        selected_old.key()
+    );
     // Rejected publication must not replace the admitted function's pages.
-    let report = runtime
+    let report = outer
+        .runtime_mut()
         .execute_prepared_module(
             &selected_old,
             ProgramEntry::Main,
             &old_native,
-            runtime.execution_options(),
+            outer_options.clone(),
         )
         .unwrap();
     assert_eq!(
         report
             .return_value
-            .value(runtime.gc())
+            .value(outer.runtime().gc())
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -546,33 +551,34 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
         (&selected_independent, &independent_native, 42),
         (&selected_current, &current_native, 43),
     ] {
-        let _session = runtime
+        let mut _session = runtime
             .begin_execution(module, context.runtime_options())
             .unwrap();
-        let dead = runtime
+        let _session_options = _session.runtime().execution_options();
+        let dead = _session
+            .runtime()
             .alloc_array(module, Ty::Builtin(BuiltinType::I32), vec![Value::I32(9)])
             .unwrap();
-        let collections = runtime.gc().stats().collections;
-        let report = runtime
-            .execute_prepared_module(
-                module,
-                ProgramEntry::Main,
-                native,
-                runtime.execution_options(),
-            )
+        let collections = _session.runtime().gc().stats().collections;
+        let report = _session
+            .runtime_mut()
+            .execute_prepared_module(module, ProgramEntry::Main, native, _session_options.clone())
             .unwrap();
         assert_eq!(
             report
                 .return_value
-                .value(runtime.gc())
+                .value(_session.runtime().gc())
                 .expect("retained execution result"),
             Value::I32(value)
         );
         assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
         drop(report.return_value);
-        assert!(runtime.gc().stats().collections > collections);
-        assert!(runtime.gc().array_len(dead).is_none());
-        assert_eq!(runtime.gc().active_roots(), 0);
-        assert_eq!(runtime.resources().counters().current_call_depth, 0);
+        assert!(_session.runtime().gc().stats().collections > collections);
+        assert!(_session.runtime().gc().array_len(dead).is_none());
+        assert_eq!(_session.runtime().gc().active_roots(), 0);
+        assert_eq!(
+            _session.runtime().resources().counters().current_call_depth,
+            0
+        );
     }
 }

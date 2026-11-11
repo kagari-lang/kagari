@@ -140,7 +140,7 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
             &text.definitions().resolve(text.id()).unwrap().to_path(),
         )
         .unwrap();
-    let callback = ConversionContext::new(&vm, &old)
+    let callback = ConversionContext::new(&mut vm, &old)
         .unwrap()
         .encode(callback)
         .unwrap();
@@ -268,13 +268,13 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
     let mut options = vm.execution_options();
     options.cancellation = cancellation.clone();
     {
-        let _session = vm.begin_execution(&current, options).unwrap();
+        let mut _session = vm.begin_execution(&current, options).unwrap();
         cancellation.cancel();
-        assert!(vm.call(&returned, (20, 22)).is_err());
+        assert!(_session.runtime_mut().call(&returned, (20, 22)).is_err());
     }
     assert_eq!(calls.load(Ordering::Relaxed), before);
     assert_eq!(vm.call(&returned, (20, 22)).unwrap(), 42);
-    let (foreign, _) = fixture(source, Some(&module));
+    let (mut foreign, _) = fixture(source, Some(&module));
 
     assert!(foreign.call(&returned, (20, 22)).is_err());
     drop((returned, callback));
@@ -359,7 +359,7 @@ fn generic_native_function_values_retain_applied_nominal_scopes() {
 fn native_function_values_cannot_invent_a_missing_nested_application() {
     let module = generic_identity_module();
     let declaration = declaration_query(&module, DefinitionKind::Function, "identity");
-    let (vm, owner) = fixture(
+    let (mut vm, owner) = fixture(
         r#"
         use example::generic_helper::identity;
         trait Relay { fn relay<T>(self, value: T) -> T { identity(value) } }
@@ -372,7 +372,7 @@ fn native_function_values_cannot_invent_a_missing_nested_application() {
     );
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
-    let ty = ConversionContext::new(&vm, &owner)
+    let ty = ConversionContext::new(&mut vm, &owner)
         .unwrap()
         .type_for::<i32>()
         .unwrap();
@@ -432,7 +432,7 @@ fn a_boxed_named_native_entry_does_not_retain_its_obsolete_program() {
             &add.definitions().resolve(add.id()).unwrap().to_path(),
         )
         .unwrap();
-    let root = ConversionContext::new(&vm, &old)
+    let root = ConversionContext::new(&mut vm, &old)
         .unwrap()
         .encode(native)
         .unwrap();
@@ -451,7 +451,7 @@ fn a_boxed_named_native_entry_does_not_retain_its_obsolete_program() {
             .contains(&old.key())
     );
     let current = vm.select_program(&_old_program).unwrap();
-    let callback: Add = ConversionContext::new(&vm, &current)
+    let callback: Add = ConversionContext::new(&mut vm, &current)
         .unwrap()
         .decode(&root)
         .unwrap();

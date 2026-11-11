@@ -12,7 +12,7 @@ use kagari_runtime::{
             draft::{ModuleDraft, TraitImplementation},
         },
         binding::{Codec, NativeBinding, NativeResult},
-        context::CallContext,
+        context::NativeCall,
         scalar::NativeScalar,
         types::Type,
     },
@@ -95,23 +95,23 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     })
 }
 
-fn argument(cx: &CallContext<'_>) -> NativeResult<char> {
+fn argument(cx: &NativeCall<'_>) -> NativeResult<char> {
     let Value::Char(value) = cx.argument(0)? else {
         return Err(RuntimeError::module_validation("character argument"));
     };
     Ok(value)
 }
 
-fn to_u32(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+fn to_u32(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     Ok(u32::from(argument(cx)?).encode())
 }
 
-fn to_string(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+fn to_string(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     let text = argument(cx)?.to_string();
     cx.encode_result(text)
 }
 
-fn try_from_u32(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
+fn try_from_u32(symbols: &EnumSymbols, cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     let scalar = u32::decode(cx.argument(0)?)?;
     let (member, value) = match char::from_u32(scalar) {
         Some(value) => ("Ok", Value::Char(value)),

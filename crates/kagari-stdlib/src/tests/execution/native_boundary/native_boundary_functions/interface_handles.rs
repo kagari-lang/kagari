@@ -28,7 +28,7 @@ const SOURCE: &str = r#"
 
 #[test]
 fn retained_interface_round_trips_preserve_application_and_aliases() {
-    let (vm, owner) = fixture(SOURCE, None);
+    let (mut vm, owner) = fixture(SOURCE, None);
     let _owner_program = owner;
     let _owner = vm.select_program(&_owner_program).unwrap();
     let make = vm
@@ -54,7 +54,7 @@ fn retained_interface_round_trips_preserve_application_and_aliases() {
         .unwrap();
     drop(value);
     assert_eq!(vm.call(&read, (wrapped.unwrap(),)).unwrap(), 42);
-    let (foreign, foreign_owner) = fixture(SOURCE, None);
+    let (mut foreign, foreign_owner) = fixture(SOURCE, None);
     let _foreign_owner_program = foreign_owner;
     let foreign_read = foreign
         .bind_function::<(Interface,), i32>(&_foreign_owner_program.root(), "read")
@@ -113,7 +113,7 @@ fn typed_native_interfaces_keep_readonly_views_and_survive_collection() {
     }
     .unwrap();
     let module = builder.finish().unwrap();
-    let (vm, owner) = fixture(
+    let (mut vm, owner) = fixture(
         r#"
         use example::interface_handles::retain;
         use std::collections::{List, MutableList};

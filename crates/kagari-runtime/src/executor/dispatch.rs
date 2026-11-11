@@ -1,6 +1,6 @@
 use crate::{
     error::{RuntimeError, fault::EngineFault, trap::TrapReason},
-    executor::Executor,
+    executor::Interpreter,
     frame::transfer::ReturnValue,
     host::HostPathDescriptorId,
     numeric,
@@ -23,7 +23,7 @@ pub(super) enum InstructionProgress {
     Return(ReturnValue),
 }
 
-impl<'a> Executor<'a> {
+impl<'a> Interpreter<'a> {
     fn dispatch_range_bound(
         &mut self,
         value: Value,
@@ -442,7 +442,10 @@ impl<'a> Executor<'a> {
                 ref future,
             } => {
                 let value = self.current_frame()?.read_slot(self.runtime, value)?;
-                self.stack().begin_await(self.runtime, value, dst, future)?;
+                self.stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .begin_await(self.runtime, value, dst, future)?;
                 return Ok(InstructionProgress::Await);
             }
             BytecodeInstruction::ReadAggregateField { .. }
@@ -605,7 +608,7 @@ impl<'a> Executor<'a> {
     }
 }
 
-impl Executor<'_> {
+impl Interpreter<'_> {
     fn descriptor_id(&self, path: PathId) -> Result<HostPathDescriptorId, RuntimeError> {
         self.current_loaded()?
             .path_binding(path)

@@ -185,7 +185,7 @@ impl<'a> Case<'a> {
 }
 
 fn logging_module(
-    entry: impl for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+    entry: impl for<'call> Fn(&mut HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
     + Send
     + Sync
     + 'static,
@@ -367,7 +367,7 @@ fn assert_outcome(
 }
 
 fn execute_route(
-    runtime: &Runtime,
+    runtime: &mut Runtime,
     loaded: &InstalledProgram,
     case: &Case<'_>,
     route: Route,
@@ -401,7 +401,10 @@ fn execute_route(
             }
             outcome
         }
-        _ => runtime.execute(loaded, ProgramEntry::Main, &[], runtime.default_context()),
+        _ => {
+            let context = runtime.default_context().clone();
+            runtime.execute(loaded, ProgramEntry::Main, &[], &context)
+        }
     }
 }
 
@@ -478,7 +481,7 @@ fn run(
         .unwrap();
         let vector = builder.declared_function("vector").unwrap();
         builder
-            .bind(vector, move |_: &HostCallContext<'_>, _: &[Value]| {
+            .bind(vector, move |_: &mut HostCallContext<'_>, _: &[Value]| {
                 capture_host.lock().unwrap().calls.push(HostCall {
                     symbol: "observe.vector",
                     args: vec![],
@@ -558,25 +561,29 @@ fn run(
             })
         })
     });
-    let session = (case.cancel_call.is_some() || case.cancel_at.is_some()).then(|| {
+    let run = |runtime: &mut Runtime| {
+        if case.cancel_at.is_some() {
+            runtime.attach_execution_observer().unwrap();
+        }
+        for attempt in 0..case.repeat {
+            let outcome = execute_route(runtime, &loaded, case, route, prepared.as_ref());
+            assert_outcome(runtime, case, route, attempt, outcome);
+        }
+        assert_eq!(
+            runtime.resources().counters().current_call_depth,
+            0,
+            "{} ({route:?}): call resources must be released before session cleanup",
+            case.name
+        );
+    };
+    if case.cancel_call.is_some() || case.cancel_at.is_some() {
         let mut options = vm.execution_options();
         options.cancellation = cancellation.clone();
-        vm.begin_execution(&selected, options).unwrap()
-    });
-    if case.cancel_at.is_some() {
-        vm.attach_execution_observer().unwrap();
+        let mut session = vm.begin_execution(&selected, options).unwrap();
+        run(session.runtime_mut());
+    } else {
+        run(&mut vm);
     }
-    for attempt in 0..case.repeat {
-        let outcome = execute_route(&vm, &loaded, case, route, prepared.as_ref());
-        assert_outcome(&vm, case, route, attempt, outcome);
-    }
-    assert_eq!(
-        vm.resources().counters().current_call_depth,
-        0,
-        "{} ({route:?}): call resources must be released before session cleanup",
-        case.name
-    );
-    drop(session);
     if let Some(reload) = &case.published_reload {
         let candidate = reload.candidate;
         let program = candidate_program.expect("published candidate must compile");
@@ -673,20 +680,10 @@ fn run(
                 }
             }
         }
-        assert_outcome(
-            &vm,
-            candidate,
-            route,
-            0,
-            vm.execute_module(&selected, ProgramEntry::Main, vm.execution_options()),
-        );
-        assert_outcome(
-            &vm,
-            candidate,
-            route,
-            0,
-            execute_route(&vm, &current, candidate, route, current_native.as_ref()),
-        );
+        let outcome = vm.execute_module(&selected, ProgramEntry::Main, vm.execution_options());
+        assert_outcome(&vm, candidate, route, 0, outcome);
+        let outcome = execute_route(&mut vm, &current, candidate, route, current_native.as_ref());
+        assert_outcome(&vm, candidate, route, 0, outcome);
         let before = vm.modules().loaded_count();
         let stale_members = stale.module().members().count();
         assert!(matches!(
@@ -698,13 +695,8 @@ fn run(
             current_selected.key()
         );
         assert_eq!(vm.modules().loaded_count(), before - stale_members);
-        assert_outcome(
-            &vm,
-            candidate,
-            route,
-            1,
-            execute_route(&vm, &current, candidate, route, current_native.as_ref()),
-        );
+        let outcome = execute_route(&mut vm, &current, candidate, route, current_native.as_ref());
+        assert_outcome(&vm, candidate, route, 1, outcome);
     }
     assert_eq!(
         vm.resources().counters().current_call_depth,

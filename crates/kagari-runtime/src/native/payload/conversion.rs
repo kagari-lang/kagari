@@ -79,9 +79,10 @@ impl<T: Send + 'static> Opaque<T> {
             return Err(RuntimeError::module_validation("native object conversion"));
         };
         cx.runtime().gc().with_native::<T, _>(*id, |_| Ok(()))?;
+        let owner = cx.owner();
         let native_type = cx
-            .runtime()
-            .prepare_native_type(cx.owner(), expected.clone())?;
+            .runtime_mut()
+            .prepare_native_type(owner, expected.clone())?;
         let root = cx
             .runtime()
             .root_value(*value)

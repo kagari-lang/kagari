@@ -184,7 +184,7 @@ impl NominalSchema {
             )
             .unwrap();
         self.builder
-            .bind(make, move |cx: &HostCallContext<'_>, _: &[Value]| {
+            .bind(make, move |cx: &mut HostCallContext<'_>, _: &[Value]| {
                 trace.lock().unwrap().push(label);
                 let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
                 Ok(cx.runtime().gc().alloc_host_root(root).unwrap())

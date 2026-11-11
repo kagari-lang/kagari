@@ -104,7 +104,7 @@ fn main() {
         Arc::strong_count(&first_loaded.bytecode)
     );
 
-    let vm = first_runtime;
+    let mut vm = first_runtime;
     const CALLS: u32 = 10_000;
     for _ in 0..100 {
         black_box(

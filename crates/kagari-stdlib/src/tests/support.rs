@@ -11,7 +11,7 @@ use std::num::NonZeroUsize;
 
 /// Drive a checked public script entry with retained arguments and result roots.
 pub(super) fn invoke(
-    runtime: &Runtime,
+    runtime: &mut Runtime,
     module: &ExecutableModule,
     name: &str,
     arguments: &[Value],

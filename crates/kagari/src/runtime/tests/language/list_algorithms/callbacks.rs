@@ -3,7 +3,7 @@ use kagari_runtime::{
     gc::roots::RootedValue,
     module::entry::ProgramEntry,
     native::{
-        binding::NativeResult, builder::ModuleBuilder, context::CallContext,
+        binding::NativeResult, builder::ModuleBuilder, context::NativeCall,
         declarations::FunctionDecl, views::ValueHandle,
     },
     value::Value,
@@ -48,16 +48,13 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
         let token = context.cancellation.clone();
         let visit = module.define_function(FunctionDecl::new("visit")).unwrap();
         module
-            .bind(
-                visit,
-                move |_cx: &mut CallContext<'_>| -> NativeResult<()> {
-                    count.fetch_add(1, Ordering::SeqCst);
-                    if count.load(Ordering::SeqCst) == 3 {
-                        token.cancel();
-                    }
-                    Ok(())
-                },
-            )
+            .bind(visit, move |_cx: &mut NativeCall<'_>| -> NativeResult<()> {
+                count.fetch_add(1, Ordering::SeqCst);
+                if count.load(Ordering::SeqCst) == 3 {
+                    token.cancel();
+                }
+                Ok(())
+            })
             .unwrap();
         let retained: Arc<Mutex<Option<RootedValue>>> = Arc::new(Mutex::new(None));
         let capture = retained.clone();
@@ -72,8 +69,8 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
         module
             .bind(
                 keep,
-                move |_cx: &mut CallContext<'_>, value: ValueHandle<'_>| -> NativeResult<()> {
-                    *capture.lock().unwrap() = Some(value.root()?);
+                move |cx: &mut NativeCall<'_>, value: ValueHandle<'_>| -> NativeResult<()> {
+                    *capture.lock().unwrap() = Some(value.root(cx)?);
                     Ok(())
                 },
             )

@@ -24,7 +24,7 @@ use kagari_runtime::{
             references::DraftReference,
         },
         binding::{Codec, NativeBinding, NativeResult},
-        context::CallContext,
+        context::NativeCall,
         types::Type,
     },
     value::Value,
@@ -34,7 +34,7 @@ use kagari_types::{
     ty::{GenericBound, Ty},
 };
 
-type Entry = for<'call> fn(&mut CallContext<'call>) -> NativeResult<Value>;
+type Entry = for<'call> fn(&mut NativeCall<'call>) -> NativeResult<Value>;
 
 pub(crate) fn contribute(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     protocols::declare(module)?;

@@ -68,21 +68,24 @@ fn derived_mixed_dto_keeps_opaque_identity_and_checked_data_capabilities() {
             &[],
         )
         .unwrap();
-    let native = NativeContext::new(&runtime, &owner).unwrap();
     let config = descriptor
         .create(
-            &mut NativeContext::new(&runtime, &owner).unwrap(),
+            &mut NativeContext::new(&mut runtime, &owner).unwrap(),
             GameConfig { power: 7 },
         )
         .unwrap();
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
-    let root = cx
-        .encode(BattleInput {
-            label: "initial".into(),
-            config: config.clone(),
-        })
-        .unwrap();
-    let mut decoded: BattleInput = cx.decode(&root).unwrap();
+    let (root, mut decoded) = {
+        let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
+        let root = cx
+            .encode(BattleInput {
+                label: "initial".into(),
+                config: config.clone(),
+            })
+            .unwrap();
+        let decoded: BattleInput = cx.decode(&root).unwrap();
+        (root, decoded)
+    };
+    let mut native = NativeContext::new(&mut runtime, &owner).unwrap();
     decoded.label = "Rust snapshot".into();
     decoded
         .config
@@ -91,8 +94,11 @@ fn derived_mixed_dto_keeps_opaque_identity_and_checked_data_capabilities() {
             Ok(())
         })
         .unwrap();
-    runtime.collect_garbage().unwrap();
-    let again: BattleInput = cx.decode(&root).unwrap();
+    native.collect_garbage().unwrap();
+    let again: BattleInput = ConversionContext::new(native.runtime_mut(), &owner)
+        .unwrap()
+        .decode(&root)
+        .unwrap();
     assert_eq!(again.label, "initial");
     assert_eq!(
         again
@@ -104,9 +110,14 @@ fn derived_mixed_dto_keeps_opaque_identity_and_checked_data_capabilities() {
     assert_eq!(config.take(&native).unwrap().power, 12);
     assert!(decoded.config.read(&native, |_| Ok(())).is_err());
     assert!(again.config.read(&native, |_| Ok(())).is_err());
-    assert!(cx.decode::<BattleInput>(&root).is_err());
-    runtime.collect_garbage().unwrap();
-    assert!(!runtime.is_quarantined());
+    assert!(
+        ConversionContext::new(native.runtime_mut(), &owner)
+            .unwrap()
+            .decode::<BattleInput>(&root)
+            .is_err()
+    );
+    native.collect_garbage().unwrap();
+    assert!(!native.runtime().is_quarantined());
 }
 
 #[derive(Debug)]

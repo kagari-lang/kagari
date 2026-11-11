@@ -75,7 +75,7 @@ fn source_and_artifact_cross_module_calls_match_interpreter_and_jit_fallback() {
                 let loaded = load_bytecode(&mut runtime, "root", program.clone()).unwrap();
                 let _loaded_program = loaded;
                 let loaded = runtime.select_program(&_loaded_program).unwrap();
-                let vm = runtime;
+                let mut vm = runtime;
                 let report = if jit {
                     vm.execute_prepared_module(
                         &loaded,

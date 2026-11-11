@@ -10,8 +10,8 @@ use crate::{
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
         context::{
-            ArgumentSlots, ArgumentView, CallContext, CallableOwner, LinkedCallable,
-            LinkedOperation, ScriptCall,
+            ArgumentSlots, ArgumentView, CallableOwner, LinkedCallable, LinkedOperation,
+            NativeCall, ScriptCall,
         },
         declarations::FunctionDecl,
         storage::{NativePayload, NativeStorage},
@@ -19,7 +19,7 @@ use crate::{
         types::Type,
     },
     resource::HeapCharge,
-    test_support::native::program::free_function_program,
+    test_support::native::{invoke::invoke, program::free_function_program},
     value::Value,
 };
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
@@ -30,7 +30,7 @@ use std::sync::{
 };
 
 fn invoke_stored(
-    runtime: &Runtime,
+    runtime: &mut Runtime,
     owner: &ExecutableModule,
     target: ScriptCall<'_>,
     arguments: &[Value],
@@ -41,17 +41,19 @@ fn invoke_stored(
     let ScriptCall::Pinned(function) = target else {
         panic!("stored selection requires retained entry authority")
     };
-    let stack = runtime.enter_pinned_execution_stack(function)?;
-    stack.push_pinned_call(runtime, function, arguments)?;
-    stack.start_native_entry(runtime, invoke_stored)?;
-    let ReturnAction::Complete(value) = stack.finish_native_return(runtime)? else {
-        panic!("stored native return")
-    };
-    Ok(value)
+    let mut stack_activation = runtime.enter_pinned_execution_stack(function)?;
+    stack_activation.with(|runtime, stack| {
+        stack.push_pinned_call(runtime, function, arguments)?;
+        stack.start_native_entry(runtime, invoke_stored)?;
+        let ReturnAction::Complete(value) = stack.finish_native_return(runtime)? else {
+            panic!("stored native return")
+        };
+        Ok(value)
+    })
 }
 
 fn call_scalar_equal(
-    runtime: &Runtime,
+    runtime: &mut Runtime,
     owner: &ExecutableModule,
     target: &LinkedCallable,
 ) -> NativeResult<bool> {
@@ -59,12 +61,13 @@ fn call_scalar_equal(
         unreachable!()
     };
     let function = runtime.modules.native_binding(owner, import).unwrap();
-    let mut context = CallContext {
+    let mut context = NativeCall {
+        _thread: Default::default(),
+        pending: Default::default(),
         runtime,
         owner,
         function: &function,
         arguments: ArgumentView {
-            heap: runtime.gc(),
             frame: None,
             slots: ArgumentSlots::Scalars(&[]),
             narrowed: None,
@@ -93,6 +96,28 @@ fn stored_selections_select_current_with_frame_roots_and_checked_calls() {
         .native_storage(NativeStorage::payload::<Payload>())
         .unwrap();
     let payload = payload.finish().unwrap();
+    let staged = builder
+        .define_function(FunctionDecl::new("staged").returns(payload.apply([]).unwrap()))
+        .unwrap();
+    builder
+        .bind(
+            staged,
+            NativeBinding::scoped(vec![], Codec::Value, |call| {
+                let result = call.allocate_result_payload(Payload, &[])?;
+                call.set_result(result)?;
+                assert_eq!(
+                    call.set_result(Value::Unit).unwrap_err().kind(),
+                    RuntimeErrorKind::ModuleValidation
+                );
+                call.collect_garbage()?;
+                assert!(
+                    call.heap().validate_value(&result),
+                    "pending result survives collection before callback completion"
+                );
+                Ok(())
+            }),
+        )
+        .unwrap();
     let probe = builder
         .define_function(
             FunctionDecl::new("probe")
@@ -185,6 +210,7 @@ fn stored_selections_select_current_with_frame_roots_and_checked_calls() {
         )
     };
     let probe = import("probe");
+    let staged_import = import("staged");
     let selected = [
         (
             "hash",
@@ -227,10 +253,28 @@ fn stored_selections_select_current_with_frame_roots_and_checked_calls() {
     runtime.publish_staged_reload(staged).unwrap();
 
     let current = runtime.select_program(&old_program).unwrap();
+    let roots_before = runtime.gc().active_roots();
+    let staged_result = invoke(&mut runtime, &current, staged_import.index(), &[]).unwrap();
+    assert_eq!(
+        runtime.gc().active_roots(),
+        roots_before,
+        "pending result lease retires after commit"
+    );
+    runtime.collect_garbage().unwrap();
+    assert!(
+        !runtime.gc().validate_value(&staged_result),
+        "unretained result is collectible after return"
+    );
     *expected_publication.lock().unwrap() = Some(current.publication_token());
     {
-        let _stack = runtime.enter_execution_stack(&current).unwrap();
-        assert!(call_scalar_equal(&runtime, &old, selected[1].ready().unwrap()).unwrap());
+        let mut _stack_activation = runtime.enter_execution_stack(&current).unwrap();
+        _stack_activation
+            .with(|runtime, _stack| {
+                assert!(call_scalar_equal(runtime, &old, selected[1].ready().unwrap()).unwrap());
+
+                Ok(())
+            })
+            .unwrap();
     }
     assert!(
         !runtime
@@ -245,27 +289,36 @@ fn stored_selections_select_current_with_frame_roots_and_checked_calls() {
         .stage_reload_program(&old_program, None, code.clone())
         .unwrap();
     {
-        let _session = runtime.begin_candidate_initialization(&candidate).unwrap();
+        let mut _session = runtime.begin_candidate_initialization(&candidate).unwrap();
         assert_eq!(
-            call_scalar_equal(&runtime, &old, selected[1].ready().unwrap())
+            call_scalar_equal(_session.runtime_mut(), &old, selected[1].ready().unwrap())
                 .unwrap_err()
                 .kind(),
             RuntimeErrorKind::ExecutionPhaseViolation
         );
-        let stack = runtime.enter_execution_stack(candidate.module()).unwrap();
-        assert_eq!(
-            stack
-                .push_callable(
-                    &runtime,
-                    candidate.module().clone(),
-                    CallableTarget::Native(probe),
-                    &[value],
-                    None,
-                )
-                .unwrap_err()
-                .kind(),
-            RuntimeErrorKind::ExecutionPhaseViolation
-        );
+        let mut stack_activation = _session
+            .runtime_mut()
+            .enter_execution_stack(candidate.module())
+            .unwrap();
+        stack_activation
+            .with(|runtime, stack| {
+                assert_eq!(
+                    stack
+                        .push_callable(
+                            runtime,
+                            candidate.module().clone(),
+                            CallableTarget::Native(probe),
+                            &[value],
+                            None,
+                        )
+                        .unwrap_err()
+                        .kind(),
+                    RuntimeErrorKind::ExecutionPhaseViolation
+                );
+
+                Ok(())
+            })
+            .unwrap();
     }
     drop(candidate);
     assert_eq!(calls.load(Ordering::SeqCst), 0);
@@ -275,56 +328,75 @@ fn stored_selections_select_current_with_frame_roots_and_checked_calls() {
     let foreign_owner_program = load_bytecode(&mut foreign, "stored", code).unwrap();
     let foreign_owner = foreign.select_program(&foreign_owner_program).unwrap();
     {
-        let stack = foreign.enter_execution_stack(&foreign_owner).unwrap();
-        assert!(
-            stack
-                .push_callable(
-                    &foreign,
-                    foreign_owner,
-                    CallableTarget::Native(probe),
-                    &[value],
-                    None
-                )
-                .is_err()
-        );
+        let mut stack_activation = foreign.enter_execution_stack(&foreign_owner).unwrap();
+        stack_activation
+            .with(|foreign, stack| {
+                assert!(
+                    stack
+                        .push_callable(
+                            foreign,
+                            foreign_owner,
+                            CallableTarget::Native(probe),
+                            &[value],
+                            None
+                        )
+                        .is_err()
+                );
+
+                Ok(())
+            })
+            .unwrap();
     }
     // Even a backend that returns a value of the wrong type cannot publish it.
     {
-        let stack = runtime.enter_execution_stack(&current).unwrap();
-        stack
-            .push_callable(
-                &runtime,
-                current.clone(),
-                CallableTarget::Native(probe),
-                &[value],
-                None,
-            )
+        let mut stack_activation = runtime.enter_execution_stack(&current).unwrap();
+        stack_activation
+            .with(|runtime, stack| {
+                stack
+                    .push_callable(
+                        runtime,
+                        current.clone(),
+                        CallableTarget::Native(probe),
+                        &[value],
+                        None,
+                    )
+                    .unwrap();
+                let error = stack
+                    .start_native_entry(runtime, |_, _, _, _| Ok(Value::Unit))
+                    .unwrap_err();
+                assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+                assert!(error.to_string().contains("selected call result"));
+
+                Ok(())
+            })
             .unwrap();
-        let error = stack
-            .start_native_entry(&runtime, |_, _, _, _| Ok(Value::Unit))
-            .unwrap_err();
-        assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
-        assert!(error.to_string().contains("selected call result"));
     }
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 
-    let stack = runtime.enter_execution_stack(&current).unwrap();
-    stack
-        .push_callable(
-            &runtime,
-            current.clone(),
-            CallableTarget::Native(probe),
-            &[value],
-            None,
-        )
+    let mut stack_activation = runtime.enter_execution_stack(&current).unwrap();
+    stack_activation
+        .with(|runtime, stack| {
+            stack
+                .push_callable(
+                    runtime,
+                    current.clone(),
+                    CallableTarget::Native(probe),
+                    &[value],
+                    None,
+                )
+                .unwrap();
+            drop(root);
+            stack.start_native_entry(runtime, invoke_stored).unwrap();
+            let ReturnAction::Complete(result) = stack.finish_native_return(runtime).unwrap()
+            else {
+                panic!("probe return")
+            };
+            assert_eq!(result, Value::I64(11));
+
+            Ok(())
+        })
         .unwrap();
-    drop(root);
-    stack.start_native_entry(&runtime, invoke_stored).unwrap();
-    let ReturnAction::Complete(result) = stack.finish_native_return(&runtime).unwrap() else {
-        panic!("probe return")
-    };
-    assert_eq!(result, Value::I64(11));
-    drop(stack);
+    drop(stack_activation);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     assert_eq!(runtime.gc().active_roots(), 0);
@@ -336,16 +408,22 @@ fn stored_selections_select_current_with_frame_roots_and_checked_calls() {
             .contains(&old.key())
     );
     assert!(!runtime.gc().validate_value(&value));
-    let stack = runtime.enter_execution_stack(&current).unwrap();
-    assert!(
-        stack
-            .push_callable(
-                &runtime,
-                current,
-                CallableTarget::Native(probe),
-                &[value],
-                None
-            )
-            .is_err()
-    );
+    let mut stack_activation = runtime.enter_execution_stack(&current).unwrap();
+    stack_activation
+        .with(|runtime, stack| {
+            assert!(
+                stack
+                    .push_callable(
+                        runtime,
+                        current,
+                        CallableTarget::Native(probe),
+                        &[value],
+                        None
+                    )
+                    .is_err()
+            );
+
+            Ok(())
+        })
+        .unwrap();
 }

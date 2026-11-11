@@ -94,17 +94,19 @@ fn selected_fault_origin_survives_stripped_source_free_execution() {
         )
         .unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
-    let stack = runtime.enter_execution_stack(&loaded).unwrap();
+    let mut stack_activation = runtime.enter_execution_stack(&loaded).unwrap();
+    stack_activation.with(|runtime, stack| {
+
     stack
         .push(
-            &runtime,
+            runtime,
             loaded.slot(),
             entry,
             &[Value::I32(0), Value::I32(i32::MIN)],
             None,
         )
         .unwrap();
-    let Err(error) = stack.execute_region(&runtime, &mut None, |_, _, _, _| unreachable!()) else {
+    let Err(error) = stack.execute_region(runtime, &mut None, |_, _, _, _| unreachable!()) else {
         panic!("the selected negation must overflow");
     };
     assert!(
@@ -114,7 +116,10 @@ fn selected_fault_origin_survives_stripped_source_free_execution() {
     assert_eq!(trace.frames[0].source_span, Some(expected));
     assert_eq!(trace.frames[0].semantic_origin, Some(id));
     assert_eq!(trace.frames[0].instruction_offset, pc);
-    drop(stack);
+
+Ok(())
+}).unwrap();
+    drop(stack_activation);
     assert_eq!(runtime.gc().active_roots(), 0);
 }
 
@@ -167,17 +172,23 @@ fn native_origin_does_not_borrow_missing_coordinates_from_another_origin() {
             ..Default::default()
         },
     );
-    let stack = runtime.enter_execution_stack(&module).unwrap();
-    stack
-        .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
+    let mut stack_activation = runtime.enter_execution_stack(&module).unwrap();
+    stack_activation
+        .with(|runtime, stack| {
+            stack
+                .push(runtime, module.slot(), FunctionRef::new(0), &[], None)
+                .unwrap();
+            stack
+                .current_mut(runtime)
+                .unwrap()
+                .set_native_instruction(runtime, 1)
+                .unwrap();
+            let trace = runtime.capture_error_trace();
+            assert_eq!(trace.frames[0].semantic_origin, Some(1));
+            assert_eq!(trace.frames[0].source_span, Some(Span::new(40, 42)));
+            assert_eq!((trace.frames[0].line, trace.frames[0].column), (None, None));
+
+            Ok(())
+        })
         .unwrap();
-    stack
-        .current_mut()
-        .unwrap()
-        .set_native_instruction(&runtime, 1)
-        .unwrap();
-    let trace = runtime.capture_error_trace();
-    assert_eq!(trace.frames[0].semantic_origin, Some(1));
-    assert_eq!(trace.frames[0].source_span, Some(Span::new(40, 42)));
-    assert_eq!((trace.frames[0].line, trace.frames[0].column), (None, None));
 }

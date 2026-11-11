@@ -81,7 +81,7 @@ impl ExecutionObserver for InstructionCounts {
 }
 
 fn execute(
-    runtime: &Runtime,
+    runtime: &mut Runtime,
     module: &InstalledProgram,
     context: &ExecutionContext,
     entry: ProgramEntry<'_>,
@@ -102,7 +102,7 @@ fn execute(
 }
 
 pub(super) fn run(
-    runtime: &Runtime,
+    runtime: &mut Runtime,
     module: &InstalledProgram,
     context: &ExecutionContext,
     entry: ProgramEntry<'_>,
@@ -147,7 +147,7 @@ pub(super) fn run(
 }
 
 pub(super) fn count(
-    runtime: &Runtime,
+    runtime: &mut Runtime,
     module: &InstalledProgram,
     context: &ExecutionContext,
     entry: ProgramEntry<'_>,
@@ -158,13 +158,16 @@ pub(super) fn count(
         .unwrap();
     {
         let selected = runtime.select_program(module).unwrap();
-        let session = runtime
+        let mut session = runtime
             .begin_execution(&selected, Default::default())
             .unwrap();
-        runtime.attach_execution_observer().unwrap();
-        let report = runtime.execute(module, entry, &[], context).unwrap();
+        session.runtime().attach_execution_observer().unwrap();
+        let report = session
+            .runtime_mut()
+            .execute(module, entry, &[], context)
+            .unwrap();
         assert_eq!(
-            report.return_value.value(runtime.gc()).unwrap(),
+            report.return_value.value(session.runtime().gc()).unwrap(),
             Value::I32(expected)
         );
         drop(report);

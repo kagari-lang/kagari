@@ -461,9 +461,10 @@ fn cancellation_keeps_the_failing_frame_and_releases_resources() {
     let loaded = runtime
         .load_program(loaded_program.program(), Default::default())
         .unwrap();
-    let cancellation =
-        support::cancel_after(&runtime, &runtime.select_program(&loaded).unwrap(), 10);
-    let error = runtime
+    let selected = runtime.select_program(&loaded).unwrap();
+    let mut cancellation = support::cancel_after(&mut runtime, &selected, 10);
+    let error = cancellation
+        .runtime_mut()
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap_err();
     drop(cancellation);

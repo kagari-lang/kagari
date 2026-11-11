@@ -28,7 +28,7 @@ impl AppliedSchema {
     }
 
     pub(crate) fn prepare(
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         owner: &ExecutableModule,
         argument: &TypeArgument,
         declaration: Arc<ManagedSchema>,
@@ -94,7 +94,7 @@ impl AppliedSchema {
 impl<T: NativeData> NativeType<Managed<T>> {
     pub fn bind_field<V: KagariType>(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         field: &Field<V>,
     ) -> NativeResult<BoundField<T, V>> {
         let cx = ConversionContext::new(runtime, self.owner())?;

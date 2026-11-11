@@ -191,10 +191,14 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
         .unwrap();
     {
         let mut cx = vm.context(staged.module()).unwrap();
-        let mut options = vm.execution_options();
+        let mut options = cx.runtime().execution_options();
         options.phase = ExecutionPhase::CandidateInitialization;
-        let _session = vm.begin_candidate_initialization(&staged).unwrap();
-        assert!(base.call_with_options(&mut cx, (), options).is_err());
+        let mut session = cx
+            .runtime_mut()
+            .begin_candidate_initialization(&staged)
+            .unwrap();
+        let mut nested = session.runtime_mut().context(staged.module()).unwrap();
+        assert!(base.call_with_options(&mut nested, (), options).is_err());
     }
     drop(staged);
     reload_bytecode(
@@ -215,7 +219,8 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
     assert_eq!(twice.call(&mut cx, (receiver.clone(),)).unwrap(), 44);
     // Arguments keep their original evidence; ordinary method code is current.
     assert_eq!(new_twice.call(&mut cx, (receiver.clone(),)).unwrap(), 44);
-    let wrong_receiver: Object = vm
+    let wrong_receiver: Object = cx
+        .runtime_mut()
         .execute_typed(
             &_published_program,
             "wrong_receiver",
@@ -226,7 +231,7 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
     let before = effects.load(Ordering::Relaxed);
     assert!(new_twice.call(&mut cx, (wrong_receiver,)).is_err());
     assert_eq!(effects.load(Ordering::Relaxed), before);
-    let (foreign, foreign_owner) = fixture_without_foundation("pub fn main() {}", None);
+    let (mut foreign, foreign_owner) = fixture_without_foundation("pub fn main() {}", None);
     let _foreign_owner_program = foreign_owner;
     let foreign_owner = foreign.select_program(&_foreign_owner_program).unwrap();
     assert!(
@@ -369,7 +374,7 @@ fn selected_primitive_operations_use_checked_typed_arguments() {
         )
         .unwrap();
     let module = module.finish().unwrap();
-    let (vm, owner) = fixture(
+    let (mut vm, owner) = fixture(
         r#"
         use example::selected_hash::repeat;
         pub fn run() -> bool { repeat(42) == 42.hash() }

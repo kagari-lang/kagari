@@ -14,7 +14,7 @@ use kagari_runtime::{
         completion::{Completion, CompletionStatus},
         conversion::{
             FromKagari, IntoKagari, KagariType,
-            arguments::{IntoKagariArguments, KagariArguments},
+            arguments::{IntoKagariArguments, KagariArguments, PreparedArguments},
             context::ConversionContext,
         },
         declarations::FunctionDecl,
@@ -226,10 +226,10 @@ impl KagariArguments for PanickingArguments {
 }
 
 impl IntoKagariArguments for PanickingArguments {
-    fn into_arguments(
+    fn encode_arguments(
         self,
         _: &mut ConversionContext<'_>,
-        _: &[TypeArgument],
+        _: &PreparedArguments<'_, Self>,
     ) -> NativeResult<RootSet> {
         panic!("argument converter panic");
     }

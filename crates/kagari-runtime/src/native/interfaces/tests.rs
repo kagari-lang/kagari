@@ -187,19 +187,19 @@ fn script_interface_admission_is_installation_scoped_across_conversion_and_reloa
             .compatible(right_argument.view(&right))
     );
     let value = interface_value(&runtime, &left, counter);
-    let handle: Interface = ConversionContext::new(&runtime, &left)
+    let handle: Interface = ConversionContext::new(&mut runtime, &left)
         .unwrap()
         .decode_value(&left_argument, &value)
         .unwrap();
     assert!(!runtime.matches_type_in(&value, &ty, &right, None));
     assert!(
-        ConversionContext::new(&runtime, &right)
+        ConversionContext::new(&mut runtime, &right)
             .unwrap()
             .decode_value::<Interface>(&right_argument, &value)
             .is_err()
     );
     assert!(
-        ConversionContext::new(&runtime, &right)
+        ConversionContext::new(&mut runtime, &right)
             .unwrap()
             .encode_value(&right_argument, handle.clone())
             .is_err()
@@ -207,7 +207,7 @@ fn script_interface_admission_is_installation_scoped_across_conversion_and_reloa
     let accept = runtime
         .bind_function::<(Interface,), i32>(&right_program.root(), "accept")
         .unwrap();
-    let mut context = NativeContext::with_invoker(&runtime, &right, |_, _, _, _| {
+    let mut context = NativeContext::with_invoker(&mut runtime, &right, |_, _, _, _| {
         panic!("cross-installation interface reached script execution")
     })
     .unwrap();
@@ -228,7 +228,7 @@ fn script_interface_admission_is_installation_scoped_across_conversion_and_reloa
     assert!(left_argument.view(&left).compatible(fresh.view(&current)));
     assert!(runtime.matches_type_in(&value, &ty, &current, None));
     assert_eq!(
-        ConversionContext::new(&runtime, &current)
+        ConversionContext::new(&mut runtime, &current)
             .unwrap()
             .encode_value(&fresh, handle)
             .unwrap(),
@@ -269,13 +269,13 @@ fn shared_native_interfaces_keep_nested_script_trait_provenance() {
     );
     assert!(TypeView::new(&scalar, &left, None).compatible(TypeView::new(&scalar, &right, None)));
     let value = interface_value(&runtime, &left, shared);
-    let handle: Interface = ConversionContext::new(&runtime, &left)
+    let handle: Interface = ConversionContext::new(&mut runtime, &left)
         .unwrap()
         .decode_value(&left_argument, &value)
         .unwrap();
     assert!(runtime.matches_type_in(&value, &ty, &right, None));
     assert_eq!(
-        ConversionContext::new(&runtime, &right)
+        ConversionContext::new(&mut runtime, &right)
             .unwrap()
             .encode_value(&right_argument, handle)
             .unwrap(),

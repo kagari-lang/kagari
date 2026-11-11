@@ -56,10 +56,10 @@ fn conversion_limits_terminate_only_active_sessions_and_release_scratch_roots() 
     .unwrap()
     .finish()
     .unwrap();
-    let (vm, owner) = source_free_vm("pub fn main() {}", &module);
+    let (mut vm, owner) = source_free_vm("pub fn main() {}", &module);
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
-    let runtime = &vm;
+    let runtime = &mut vm;
     let input = ConversionContext::new(runtime, &owner)
         .unwrap()
         .encode(("a".to_owned(), "b".to_owned()))
@@ -80,31 +80,36 @@ fn conversion_limits_terminate_only_active_sessions_and_release_scratch_roots() 
     ] {
         for active in [false, true] {
             for decode in [false, true] {
-                let session = active.then(|| {
-                    runtime
-                        .begin_execution(&owner, runtime.execution_options())
-                        .unwrap()
-                });
                 let roots = runtime.gc().active_roots();
-                let error = {
-                    let mut cx = ConversionContext::with_limits(runtime, &owner, limits).unwrap();
-                    let error = if decode {
-                        cx.decode::<(String, String)>(&input).unwrap_err()
-                    } else {
-                        cx.encode(("a".to_owned(), "b".to_owned())).unwrap_err()
+                let run = |runtime: &mut Runtime| {
+                    let error = {
+                        let mut cx =
+                            ConversionContext::with_limits(runtime, &owner, limits).unwrap();
+                        let error = if decode {
+                            cx.decode::<(String, String)>(&input).unwrap_err()
+                        } else {
+                            cx.encode(("a".to_owned(), "b".to_owned())).unwrap_err()
+                        };
+                        assert_eq!(cx.runtime().gc().active_roots(), roots);
+                        error
                     };
-                    assert_eq!(runtime.gc().active_roots(), roots);
-                    error
+                    assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
+                    if active {
+                        assert_eq!(runtime.resources().termination(), Some(error.clone()));
+                        assert_eq!(runtime.resources().poll_execution().unwrap_err(), error);
+                    } else {
+                        assert!(runtime.resources().termination().is_none());
+                        runtime.resources().poll_execution().unwrap();
+                    }
                 };
-                assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
                 if active {
-                    assert_eq!(runtime.resources().termination(), Some(error.clone()));
-                    assert_eq!(runtime.resources().poll_execution().unwrap_err(), error);
+                    let mut session = runtime
+                        .begin_execution(&owner, runtime.execution_options())
+                        .unwrap();
+                    run(session.runtime_mut());
                 } else {
-                    assert!(runtime.resources().termination().is_none());
-                    runtime.resources().poll_execution().unwrap();
+                    run(runtime);
                 }
-                drop(session);
                 assert!(runtime.resources().termination().is_none());
                 let value = ConversionContext::new(runtime, &owner)
                     .unwrap()
@@ -129,7 +134,7 @@ fn script_objects_cross_typed_entries_without_exposing_heap_ids() {
         .unwrap()
         .finish()
         .unwrap();
-    let (vm, loaded) = source_free_vm(
+    let (mut vm, loaded) = source_free_vm(
         r#"
         pub struct Player { pub var hp: i32 }
         pub fn make() -> Player { Player { hp: 100 } }
@@ -154,21 +159,22 @@ fn script_objects_cross_typed_entries_without_exposing_heap_ids() {
         85
     );
     vm.collect_garbage().unwrap();
-    let mut cx = NativeContext::new(&vm, &loaded).unwrap();
+    let mut cx = NativeContext::new(&mut vm, &loaded).unwrap();
     assert_eq!(player.get(&mut cx, &hp).unwrap(), 85);
     player.set(&mut cx, &hp, 42).unwrap();
     assert_eq!(
-        vm.execute_typed::<_, i32>(
-            &_loaded_program,
-            "damage",
-            (player.clone(), 2i32),
-            &Default::default()
-        )
-        .unwrap(),
+        cx.runtime_mut()
+            .execute_typed::<_, i32>(
+                &_loaded_program,
+                "damage",
+                (player.clone(), 2i32),
+                &Default::default()
+            )
+            .unwrap(),
         40
     );
     drop(player);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
 }
 
 #[test]
@@ -242,7 +248,7 @@ fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments()
         })
         .unwrap();
     let module = module.finish().unwrap();
-    let (vm, loaded) = source_free_vm(
+    let (mut vm, loaded) = source_free_vm(
         r#"
         use example::typed::Label;
         fn main() -> String { Label::Text("雪").append(("🌱", "!")) }
@@ -251,14 +257,14 @@ fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments()
     );
     let _loaded_program = loaded;
     let loaded = vm.select_program(&_loaded_program).unwrap();
+    let result = vm
+        .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
+        .unwrap()
+        .return_value;
     assert!(
         script_equal(
             vm.gc(),
-            &(vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
-                .unwrap()
-                .return_value
-                .value(vm.gc())
-                .expect("retained execution result")),
+            &result.value(vm.gc()).expect("retained execution result"),
             &(vm.gc().alloc_string("雪🌱!".into()).unwrap())
         )
         .unwrap()
@@ -424,7 +430,7 @@ fn typed_concrete_result_uses_the_compiler_selected_interface_adapter() {
             },
         )
         .unwrap();
-    let (vm, program) = source_free_vm(
+    let (mut vm, program) = source_free_vm(
         include_str!("../../../../tests/fixtures/native/typed_concrete_payload.kgr"),
         &module.finish().unwrap(),
     );
@@ -490,7 +496,7 @@ fn failed_output_preserves_callback_effects_and_traps_release_conversion_roots()
     }
     .unwrap();
     let module = module.finish().unwrap();
-    let (vm, loaded) = source_free_vm(
+    let (mut vm, loaded) = source_free_vm(
         r#"
         use example::typed::{broken, trap};
         fn main() -> i32 { broken() }
@@ -551,7 +557,7 @@ fn typed_host_entries_convert_composites_and_retain_returned_handles() {
     .unwrap()
     .finish()
     .unwrap();
-    let (vm, loaded) = source_free_vm(
+    let (mut vm, loaded) = source_free_vm(
         r#"
         pub fn echo(value: Result<Option<((String, i32),)>, String>) -> Result<Option<((String, i32),)>, String> { value }
         pub fn retain(value: (i32, i32)) -> (i32, i32) { value }
@@ -641,7 +647,7 @@ fn typed_entry_signature_rejection_precedes_effects_and_data_failure_preserves_t
     }
     .unwrap();
     let module = module.finish().unwrap();
-    let (vm, loaded) = source_free_vm(
+    let (mut vm, loaded) = source_free_vm(
         r#"
         use example::typed::effect;
         pub fn run(value: i32) -> i32 { effect(); value }
@@ -686,7 +692,7 @@ fn moving_a_result_out_of_its_report_keeps_it_rooted_without_manual_registration
     .unwrap()
     .finish()
     .unwrap();
-    let (vm, loaded) = source_free_vm(
+    let (mut vm, loaded) = source_free_vm(
         r#"
         pub fn make() -> [i32] { [42] }
         pub fn idle() {}
@@ -745,7 +751,7 @@ fn native_collect_polls_between_iterator_steps_and_releases_the_failed_call() {
     }
     .unwrap();
     let module = module.finish().unwrap();
-    let (vm, loaded) = source_free_vm(
+    let (mut vm, loaded) = source_free_vm(
         "use example::typed::gather; fn main() -> i32 { gather() } pub fn healthy() -> i32 { 42 }",
         &module,
     );
@@ -753,9 +759,13 @@ fn native_collect_polls_between_iterator_steps_and_releases_the_failed_call() {
     let loaded = vm.select_program(&_loaded_program).unwrap();
     let mut options = vm.execution_options();
     options.cancellation = cancellation;
-    let session = vm.begin_execution(&loaded, options).unwrap();
+    let mut session = vm.begin_execution(&loaded, options).unwrap();
+    let session_options = session.runtime().execution_options();
+    let inherited = session_options.clone();
     assert!(
-        vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
+        session
+            .runtime_mut()
+            .execute_module(&loaded, ProgramEntry::Main, inherited)
             .is_err()
     );
     assert_eq!(steps.load(Ordering::SeqCst), 3);

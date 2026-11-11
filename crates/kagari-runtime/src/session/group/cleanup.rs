@@ -16,28 +16,23 @@ impl Runtime {
     /// Quarantine prevents the parent from resuming to consume its group result.
     /// Retirement retrieves the selected fatal outcome before disposing descendants.
     pub(crate) fn group_fatal_error(&self, root: SessionId) -> Option<RuntimeError> {
-        self.groups
-            .borrow()
-            .records
-            .iter()
-            .find_map(|(parent, record)| {
-                let GroupState::Ready(Err(error)) = &record.state else {
-                    return None;
-                };
-                (error.kind() == RuntimeErrorKind::EngineFault
-                    && self.resources().sessions.get(*parent)?.logical_root.get() == root)
-                    .then(|| error.clone())
-            })
+        self.groups.records.iter().find_map(|(parent, record)| {
+            let GroupState::Ready(Err(error)) = &record.state else {
+                return None;
+            };
+            (error.kind() == RuntimeErrorKind::EngineFault
+                && self.resources().sessions.get(*parent)?.logical_root.get() == root)
+                .then(|| error.clone())
+        })
     }
 
-    pub(crate) fn close_owned_groups(&self, parent: SessionId) -> NativeResult<()> {
+    pub(crate) fn close_owned_groups(&mut self, parent: SessionId) -> NativeResult<()> {
         let mut failure = None;
         loop {
             // Ownership ancestry is bounded at admission. Choose the deepest
             // descendant so retiring its branches cannot recurse into another group.
             let selected = self
                 .groups
-                .borrow()
                 .records
                 .keys()
                 .filter_map(|id| {
@@ -52,12 +47,7 @@ impl Runtime {
                 })
                 .max_by_key(|(_, distance)| *distance);
             let Some((id, _)) = selected else { break };
-            let record = self
-                .groups
-                .borrow_mut()
-                .records
-                .remove(&id)
-                .expect("selected group");
+            let record = self.groups.records.remove(&id).expect("selected group");
             self.scheduler.forget(WorkKey::Group(ExecutionId(id)));
             if let Err(error) = self.dispose_group(id, record) {
                 failure.get_or_insert(error);
@@ -66,7 +56,7 @@ impl Runtime {
         failure.map_or(Ok(()), Err)
     }
 
-    fn dispose_group(&self, parent: SessionId, mut record: GroupRecord) -> NativeResult<()> {
+    fn dispose_group(&mut self, parent: SessionId, mut record: GroupRecord) -> NativeResult<()> {
         self.dependencies.detach_group(parent);
         let mut failure = None;
         if let GroupState::Running(group) = &mut record.state {
@@ -77,7 +67,7 @@ impl Runtime {
                     {
                         failure.get_or_insert(error);
                     }
-                    if let Err(error) = self.retirement_cleanup(|| {
+                    if let Err(error) = self.retirement_cleanup(|_| {
                         drop(execution);
                         Ok(())
                     }) {
@@ -86,7 +76,7 @@ impl Runtime {
                 }
             }
         }
-        if let Err(error) = self.retirement_cleanup(|| {
+        if let Err(error) = self.retirement_cleanup(|_| {
             drop(record);
             Ok(())
         }) {
@@ -96,7 +86,7 @@ impl Runtime {
     }
 
     pub(super) fn finish_group_record(
-        &self,
+        &mut self,
         parent: SessionId,
         record: GroupRecord,
         mut outcome: NativeResult<RootedValue>,
@@ -141,7 +131,7 @@ impl Runtime {
             .err()
             .filter(|error| error.kind() == RuntimeErrorKind::EngineFault)
             .cloned();
-        self.groups.borrow_mut().records.insert(
+        self.groups.records.insert(
             parent,
             GroupRecord {
                 wake: wake.clone(),
@@ -155,7 +145,6 @@ impl Runtime {
                     .expect_err("new scheduler callback failure"),
             );
             self.groups
-                .borrow_mut()
                 .records
                 .get_mut(&parent)
                 .expect("ready group")

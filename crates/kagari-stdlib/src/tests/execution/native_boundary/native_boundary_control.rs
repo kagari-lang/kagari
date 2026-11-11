@@ -21,7 +21,7 @@ use kagari_runtime::{
     module::entry::ProgramEntry,
     native::{
         binding::NativeResult, builder::ModuleBuilder, callable::CallableHandle,
-        context::CallContext, declarations::FunctionDecl, installation::NativeInstallation,
+        context::NativeCall, declarations::FunctionDecl, installation::NativeInstallation,
         module::NativeModule, types::Type,
     },
     resource::RuntimeLimits,
@@ -45,7 +45,7 @@ use std::sync::{
 };
 
 fn logging_module(
-    entry: impl for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+    entry: impl for<'call> Fn(&mut HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
     + Send
     + Sync
     + 'static,
@@ -80,7 +80,7 @@ fn module() -> NativeModule {
     module
         .bind(
             choose,
-            |cx: &mut CallContext<'_>,
+            |cx: &mut NativeCall<'_>,
              run: bool,
              callback: CallableHandle<'_>|
              -> NativeResult<i32> { if run { callback.call(cx, ()) } else { Ok(7) } },
@@ -182,7 +182,7 @@ fn callback_depth_failure_precedes_effects_and_cleans_native_roots() {
                 load_bytecode(&mut runtime, "native-control", route(&program, encoded)).unwrap();
             let _loaded_program = loaded;
             let loaded = runtime.select_program(&_loaded_program).unwrap();
-            let vm = runtime;
+            let mut vm = runtime;
             let result = vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options());
             if fails {
                 assert!(
@@ -229,15 +229,18 @@ fn cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session()
         let mut options = runtime.execution_options();
         options.cancellation = token;
         let mut vm = runtime;
-        let session = vm.begin_execution(&loaded, options).unwrap();
+        let mut session = vm.begin_execution(&loaded, options).unwrap();
+        let session_options = session.runtime().execution_options();
 
         assert!(
-            matches!(vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options()), Err(error) if error.kind() == RuntimeErrorKind::Cancelled)
+            matches!(session.runtime_mut().execute_module(&loaded, ProgramEntry::Main, session_options.clone()), Err(error) if error.kind() == RuntimeErrorKind::Cancelled)
         );
         assert_eq!(*effects.lock().unwrap(), 1);
-        assert_clean(&vm);
+        assert_clean(session.runtime());
         assert!(
-            vm.execute_module(&loaded, "ready", vm.execution_options())
+            session
+                .runtime_mut()
+                .execute_module(&loaded, "ready", session_options.clone())
                 .is_err()
         );
         drop(session);
@@ -398,7 +401,7 @@ fn fail() -> i32 { boundary::choose(true, || { val n = 2147483647; n + 1 }) }
                     8
                 );
             }
-            context.runtime().collect_garbage().unwrap();
+            context.runtime_mut().collect_garbage().unwrap();
             Ok(Value::Unit)
         })
         .install(&mut runtime)
@@ -407,7 +410,7 @@ fn fail() -> i32 { boundary::choose(true, || { val n = 2147483647; n + 1 }) }
             load_bytecode(&mut runtime, "native-control", route(&program, encoded)).unwrap();
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
-        let vm = runtime;
+        let mut vm = runtime;
         assert_eq!(
             vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
                 .unwrap()
@@ -453,7 +456,7 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
             sink.lock()
                 .unwrap()
                 .push(result.value(context.runtime().gc()).unwrap());
-            context.runtime().collect_garbage().unwrap();
+            context.runtime_mut().collect_garbage().unwrap();
             Ok(Value::Unit)
         })
         .install(&mut runtime)
@@ -541,7 +544,7 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
             logging
                 .bind(
                     log.clone(),
-                    move |_: &HostCallContext<'_>, _: &[Value]| -> Result<Value, HostError> {
+                    move |_: &mut HostCallContext<'_>, _: &[Value]| -> Result<Value, HostError> {
                         *sink.lock().unwrap() += 1;
                         Ok(Value::Unit)
                     },
@@ -562,14 +565,19 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
                 )
                 .unwrap();
             let mut vm = runtime;
-            let session = vm.begin_execution(&loaded, options).unwrap();
-            vm.attach_execution_observer().unwrap();
-            match vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options()) {
+            let mut session = vm.begin_execution(&loaded, options).unwrap();
+            let session_options = session.runtime().execution_options();
+            session.runtime().attach_execution_observer().unwrap();
+            match session.runtime_mut().execute_module(
+                &loaded,
+                ProgramEntry::Main,
+                session_options.clone(),
+            ) {
                 Ok(report) => {
                     assert_eq!(
                         report
                             .return_value
-                            .value(vm.gc())
+                            .value(session.runtime().gc())
                             .expect("retained execution result"),
                         Value::I32(42)
                     );
@@ -579,13 +587,15 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
                     cancellations += 1;
                     assert!(matches!(&error, error if error.kind() == RuntimeErrorKind::Cancelled));
                     assert!(
-                        vm.execute_module(&loaded, "ready", vm.execution_options())
+                        session
+                            .runtime_mut()
+                            .execute_module(&loaded, "ready", session_options.clone())
                             .is_err()
                     );
                 }
             }
             assert!(*effects.lock().unwrap() <= 1);
-            assert_clean(&vm);
+            assert_clean(session.runtime());
             drop(session);
             vm.collect_garbage().unwrap();
             assert_eq!(
@@ -630,7 +640,7 @@ fn native_poll_observes_cancellation_and_return_cannot_swallow_it() {
             .define_function(FunctionDecl::new("work").returns(Type::i32()))
             .unwrap();
         native
-            .bind(work, move |cx: &mut CallContext<'_>| -> NativeResult<i32> {
+            .bind(work, move |cx: &mut NativeCall<'_>| -> NativeResult<i32> {
                 for index in 0..8 {
                     if index == 3 {
                         cancel.cancel();
@@ -660,16 +670,21 @@ fn native_poll_observes_cancellation_and_return_cannot_swallow_it() {
         let loaded = runtime.select_program(&_loaded_program).unwrap();
         let mut options = runtime.execution_options();
         options.cancellation = token;
-        let vm = runtime;
-        let session = vm.begin_execution(&loaded, options).unwrap();
+        let mut vm = runtime;
+        let mut session = vm.begin_execution(&loaded, options).unwrap();
+        let session_options = session.runtime().execution_options();
 
-        let error = vm
-            .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
+        let error = session
+            .runtime_mut()
+            .execute_module(&loaded, ProgramEntry::Main, session_options.clone())
             .unwrap_err();
         assert!(matches!(&error, error if error.kind() == RuntimeErrorKind::Cancelled));
         assert_eq!(visited.load(Ordering::SeqCst), 3);
-        assert_eq!(vm.gc().active_roots(), 0);
-        assert_eq!(vm.resources().counters().current_call_depth, 0);
+        assert_eq!(session.runtime().gc().active_roots(), 0);
+        assert_eq!(
+            session.runtime().resources().counters().current_call_depth,
+            0
+        );
         drop(session);
         assert!(vm.resources().poll_execution().is_ok());
     }

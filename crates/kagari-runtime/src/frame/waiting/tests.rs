@@ -28,7 +28,7 @@ struct MutatingPoll {
 }
 
 impl PendingNative for MutatingPoll {
-    fn poll(&mut self, runtime: &Runtime) -> NativeResult<Poll<Value>> {
+    fn poll(&mut self, runtime: &mut Runtime) -> NativeResult<Poll<Value>> {
         replace_cell(
             runtime.gc(),
             self.cell,
@@ -51,33 +51,47 @@ fn waiting_commit_rechecks_graph_after_poll_mutation() {
         .start_owned_execution(&module, FunctionRef::new(0), &[], Default::default())
         .unwrap();
     let mut activation = Some(runtime.resume_owned_execution(&owner).unwrap());
-    let stack = activation.as_ref().unwrap();
-    let cell = runtime
-        .gc()
-        .alloc_cell(ValueType::Unit, Value::Unit)
-        .unwrap();
-    set_frame(&runtime, stack, Value::Cell(cell));
-    assert!(stack.can_park(&runtime).unwrap());
-    let output = runtime
-        .resolve_type_arguments(&module, &[Ty::Builtin(BuiltinType::Unit)])
-        .unwrap()
-        .remove(0);
     let cancelled = Arc::new(AtomicUsize::new(0));
-    *stack.session.state().pending.borrow_mut() = Some(PendingWait {
-        destination: None,
-        pending: PendingOperation::Native(Box::new(MutatingPoll {
-            cell,
-            cancelled: cancelled.clone(),
-        })),
-        output,
-        awaitable: runtime.root_value(Value::Cell(cell)).unwrap(),
-    });
-    assert!(matches!(stack.poll_await(&runtime).unwrap(), Poll::Pending));
-    let error = ExecutionStack::park_waiting(&mut activation, &runtime).unwrap_err();
+    activation
+        .as_mut()
+        .unwrap()
+        .with(|runtime, stack| {
+            let cell = runtime
+                .gc()
+                .alloc_cell(ValueType::Unit, Value::Unit)
+                .unwrap();
+            set_frame(runtime, stack, Value::Cell(cell));
+            assert!(stack.can_park(runtime).unwrap());
+            let output = runtime
+                .resolve_type_arguments(&module, &[Ty::Builtin(BuiltinType::Unit)])
+                .unwrap()
+                .remove(0);
+            *stack.session_state(runtime).pending.borrow_mut() = Some(PendingWait {
+                destination: None,
+                pending: PendingOperation::Native(Box::new(MutatingPoll {
+                    cell,
+                    cancelled: cancelled.clone(),
+                })),
+                output,
+                awaitable: runtime.root_value(Value::Cell(cell)).unwrap(),
+            });
+            assert!(matches!(stack.poll_await(runtime).unwrap(), Poll::Pending));
+            Ok(())
+        })
+        .unwrap();
+    let error = ExecutionStack::park_waiting(&mut activation).unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
     assert!(activation.is_some());
     assert!(!owner.is_ready());
-    assert_eq!(runtime.capture_error_trace().frames.len(), 1);
+    activation
+        .as_mut()
+        .unwrap()
+        .with(|runtime, _| {
+            assert_eq!(runtime.capture_error_trace().frames.len(), 1);
+            Ok(())
+        })
+        .unwrap();
+
     drop(activation);
     runtime.finish_owned_execution(&owner).unwrap();
     assert_eq!(cancelled.load(Ordering::SeqCst), 1);

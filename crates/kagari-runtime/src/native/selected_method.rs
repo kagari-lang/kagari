@@ -37,7 +37,7 @@ impl NativeContext<'_> {
     /// No trait search occurs here: the installed call already carries the
     /// selected implementation, associated scopes and generic environment.
     pub fn selected_method<A: KagariArguments, R: KagariType>(
-        &self,
+        &mut self,
         required: &SelectedCall,
     ) -> NativeResult<SelectedMethod<A, R>> {
         self.runtime().gc().ensure_no_native_borrow()?;
@@ -54,7 +54,7 @@ impl NativeContext<'_> {
                 RuntimeError::module_validation("native callable requirement is not ready")
             })?;
         Ok(SelectedMethod {
-            function: Function::from_selected(self.runtime(), owner, target)?,
+            function: Function::from_selected(self.runtime_mut(), owner, target)?,
         })
     }
 }

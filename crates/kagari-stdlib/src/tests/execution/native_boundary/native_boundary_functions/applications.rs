@@ -37,7 +37,7 @@ use std::{
 fn generic_function_binding_uses_closed_witnesses_and_rejects_missing_applications() {
     let module = generic_identity_module();
     let declaration = declaration_query(&module, DefinitionKind::Function, "identity");
-    let (vm, owner) = fixture(
+    let (mut vm, owner) = fixture(
         r#"
         use example::generic_helper::identity;
         pub fn evidence() -> i32 { identity(42) }
@@ -48,9 +48,10 @@ fn generic_function_binding_uses_closed_witnesses_and_rejects_missing_applicatio
     );
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
-    let conversion = ConversionContext::new(&vm, &owner).unwrap();
+    let conversion = ConversionContext::new(&mut vm, &owner).unwrap();
     let i32_type = conversion.type_for::<i32>().unwrap();
     let string_type = conversion.type_for::<String>().unwrap();
+    drop(conversion);
     let identity = vm
         .bind_function_application_declaration::<(i32,), i32>(
             &_owner_program.root(),
@@ -111,7 +112,7 @@ fn generic_native_calls_return_retained_objects_tuples_and_closures() {
     let module = generic_identity_module();
     let identity_id = declaration_query(&module, DefinitionKind::Function, "identity");
     let singleton_id = declaration_query(&module, DefinitionKind::Function, "singleton");
-    let (vm, owner) = fixture(
+    let (mut vm, owner) = fixture(
         r#"
         use example::generic_helper::{identity, singleton};
         pub struct Item { pub val value: i32 }
@@ -123,8 +124,11 @@ fn generic_native_calls_return_retained_objects_tuples_and_closures() {
     );
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
-    let conversion = ConversionContext::new(&vm, &owner).unwrap();
+    let conversion = ConversionContext::new(&mut vm, &owner).unwrap();
     let i32_type = conversion.type_for::<i32>().unwrap();
+    type Callback = Function<(), i32>;
+    let callback_type = conversion.type_for::<Callback>().unwrap();
+    drop(conversion);
     let item = vm.bind_type(&_owner_program.root(), "Item", &[]).unwrap();
     let identity = vm
         .bind_function_application_declaration::<(Object,), Object>(
@@ -136,7 +140,8 @@ fn generic_native_calls_return_retained_objects_tuples_and_closures() {
     let make = vm
         .bind_function::<(), Object>(&_owner_program.root(), "make")
         .unwrap();
-    let object = vm.call(&identity, (vm.call(&make, ()).unwrap(),)).unwrap();
+    let made = vm.call(&make, ()).unwrap();
+    let object = vm.call(&identity, (made,)).unwrap();
     vm.collect_garbage().unwrap();
     let value = vm.bind_field::<i32>(&item, "value").unwrap();
     assert_eq!(
@@ -154,8 +159,7 @@ fn generic_native_calls_return_retained_objects_tuples_and_closures() {
         .unwrap();
     let values = vm.call(&singleton, (42,)).unwrap();
     assert_eq!(values, (42,));
-    type Callback = Function<(), i32>;
-    let callback_type = conversion.type_for::<Callback>().unwrap();
+
     let identity = vm
         .bind_function_application_declaration::<(Callback,), Callback>(
             &_owner_program.root(),
@@ -166,9 +170,8 @@ fn generic_native_calls_return_retained_objects_tuples_and_closures() {
     let closure = vm
         .bind_function::<(), Callback>(&_owner_program.root(), "closure")
         .unwrap();
-    let callback = vm
-        .call(&identity, (vm.call(&closure, ()).unwrap(),))
-        .unwrap();
+    let closure = vm.call(&closure, ()).unwrap();
+    let callback = vm.call(&identity, (closure,)).unwrap();
     vm.collect_garbage().unwrap();
     assert_eq!(vm.call(&callback, ()).unwrap(), 42);
 }
@@ -337,7 +340,7 @@ fn bound_native_application_uses_the_compilers_selected_trait_operation() {
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let (vm, owner) = fixture(
+    let (mut vm, owner) = fixture(
         r#"
         use example::bound::{Step, repeat};
         pub struct Counter { pub val amount: i32 }
@@ -359,7 +362,7 @@ fn bound_native_application_uses_the_compilers_selected_trait_operation() {
             slice::from_ref(counter.type_argument()),
         )
         .unwrap();
-    let integer = ConversionContext::new(&vm, &owner)
+    let integer = ConversionContext::new(&mut vm, &owner)
         .unwrap()
         .type_for::<i32>()
         .unwrap();
@@ -375,10 +378,8 @@ fn bound_native_application_uses_the_compilers_selected_trait_operation() {
     let make = vm
         .bind_function::<(), Object>(&_owner_program.root(), "make")
         .unwrap();
-    assert_eq!(
-        vm.call(&repeat, (vm.call(&make, ()).unwrap(),)).unwrap(),
-        42
-    );
+    let input = vm.call(&make, ()).unwrap();
+    assert_eq!(vm.call(&repeat, (input,)).unwrap(), 42);
     assert_eq!(effects.load(Ordering::Relaxed), 1);
 }
 
@@ -443,7 +444,7 @@ fn admitted_native_retains_its_frame_while_selected_callbacks_use_current_code()
             slice::from_ref(counter.type_argument()),
         )
         .unwrap();
-    let prepared = function.prepare_call(&vm).unwrap();
+    let prepared = function.prepare_call(&mut vm).unwrap();
     let native_owner = prepared.owner().key();
     assert_eq!(
         prepared.owner().publication_token(),
@@ -460,24 +461,26 @@ fn admitted_native_retains_its_frame_while_selected_callbacks_use_current_code()
         )
         .unwrap();
     {
-        let _session = vm.begin_candidate_initialization(&candidate).unwrap();
+        let mut _session = vm.begin_candidate_initialization(&candidate).unwrap();
+        let options = _session.runtime_mut().execution_options();
         let error = prepared
-            .call_with_options::<_, i32>(
-                &mut vm.context(candidate.module()).unwrap(),
+            .call_with_options(
+                &mut _session.runtime_mut().context(candidate.module()).unwrap(),
                 (receiver.clone(),),
-                vm.execution_options(),
+                options,
             )
             .unwrap_err();
         assert_eq!(error.kind(), RuntimeErrorKind::ExecutionPhaseViolation);
     }
     drop(candidate);
-    let (foreign, foreign_program) = fixture_without_foundation(source, Some(&module));
+    let (mut foreign, foreign_program) = fixture_without_foundation(source, Some(&module));
     let foreign_owner = foreign.select_program(&foreign_program).unwrap();
+    let options = foreign.execution_options();
     let error = prepared
-        .call_with_options::<_, i32>(
+        .call_with_options(
             &mut foreign.context(&foreign_owner).unwrap(),
             (receiver.clone(),),
-            foreign.execution_options(),
+            options,
         )
         .unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::StaleHandle);
@@ -495,26 +498,43 @@ fn admitted_native_retains_its_frame_while_selected_callbacks_use_current_code()
         prepared.owner().publication_token()
     );
     {
-        let _session = vm
+        let mut _session = vm
             .begin_execution(prepared.owner(), vm.execution_options())
             .unwrap();
+        let _session_options = _session.runtime().execution_options();
         // Current entries from the same installation may join the admitted session.
-        let nested = vm.enter_execution_stack(&current).unwrap();
-        assert_eq!(vm.execution_root().unwrap().key(), native_owner);
-        drop(nested);
+        let mut nested_activation = _session
+            .runtime_mut()
+            .enter_execution_stack(&current)
+            .unwrap();
+        nested_activation
+            .with(|vm, _nested| {
+                assert_eq!(vm.execution_root().unwrap().key(), native_owner);
+
+                Ok(())
+            })
+            .unwrap();
+        drop(nested_activation);
         for expected in [111, 121] {
+            let options = _session_options.clone();
             assert_eq!(
                 prepared
-                    .call_with_options::<_, i32>(
-                        &mut vm.context(prepared.owner()).unwrap(),
+                    .call_with_options(
+                        &mut _session.runtime_mut().context(prepared.owner()).unwrap(),
                         (receiver.clone(),),
-                        vm.execution_options(),
+                        options,
                     )
                     .unwrap(),
                 expected
             );
-            assert_eq!(vm.execution_root().unwrap().key(), native_owner);
-            assert_eq!(vm.resources().counters().current_call_depth, 0);
+            assert_eq!(
+                _session.runtime().execution_root().unwrap().key(),
+                native_owner
+            );
+            assert_eq!(
+                _session.runtime().resources().counters().current_call_depth,
+                0
+            );
         }
     }
     assert_eq!(*owners.lock().unwrap(), [native_owner, native_owner]);

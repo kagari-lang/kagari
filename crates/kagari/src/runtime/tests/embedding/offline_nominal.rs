@@ -134,7 +134,7 @@ fn assert_source_index_path(field_prefix: bool) {
         .unwrap();
     let calls = trace.clone();
     builder
-        .bind(make, move |cx: &HostCallContext<'_>, _: &[Value]| {
+        .bind(make, move |cx: &mut HostCallContext<'_>, _: &[Value]| {
             calls.lock().unwrap().push("make");
             let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
             Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
@@ -151,7 +151,7 @@ fn assert_source_index_path(field_prefix: bool) {
             .unwrap();
         let calls = trace.clone();
         builder
-            .bind(function, move |_: &HostCallContext<'_>, _: &[Value]| {
+            .bind(function, move |_: &mut HostCallContext<'_>, _: &[Value]| {
                 calls.lock().unwrap().push(name);
                 Ok(Value::I32(result))
             })

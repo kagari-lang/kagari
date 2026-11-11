@@ -65,7 +65,7 @@ fn foreign_stale_out_of_bounds_and_exhausted_ids_cannot_alias() {
 
 #[test]
 fn roots_trace_parents_but_retained_handles_do_not_prevent_reclamation() {
-    let runtime = Runtime::default();
+    let mut runtime = Runtime::default();
     let parent = runtime.alloc_environment(empty(&runtime)).unwrap();
     let mut child = empty(&runtime);
     child.include(Some(parent.clone())).unwrap();
@@ -95,7 +95,7 @@ fn roots_trace_parents_but_retained_handles_do_not_prevent_reclamation() {
 
 #[test]
 fn publication_rejects_expired_or_foreign_edges_without_allocating_records() {
-    let runtime = Runtime::default();
+    let mut runtime = Runtime::default();
     let foreign = Runtime::default();
     let parent = runtime.alloc_environment(empty(&runtime)).unwrap();
     let mut pending = empty(&runtime);
@@ -122,7 +122,7 @@ fn publication_rejects_expired_or_foreign_edges_without_allocating_records() {
 
 #[test]
 fn extensions_publish_a_new_record_and_do_not_change_existing_handles() {
-    let runtime = Runtime::default();
+    let mut runtime = Runtime::default();
     let original = runtime.alloc_environment(empty(&runtime)).unwrap();
     let group = runtime.gc.alloc_operation_group(vec![]).unwrap();
     let mut operations = OperationBindings::default();
@@ -170,7 +170,11 @@ fn borrowed_view_rejects_allocation_and_sweeping_before_any_detachment() {
     assert!(extend(&runtime, &environment, OperationBindings::default()).is_err());
     assert_eq!(runtime.gc.stats(), before);
     assert_eq!(
-        runtime.collect_garbage().unwrap_err().kind(),
+        runtime
+            .gc
+            .collect(&runtime.modules, &[])
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::EngineFault
     );
     assert_eq!(runtime.gc.stats(), before);
@@ -187,7 +191,7 @@ fn environment_growth_reaches_safepoints_without_value_allocations(
 ) {
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = threshold;
-    let runtime = Runtime::new(config);
+    let mut runtime = Runtime::new(config);
     for _ in 0..64 {
         runtime.alloc_environment(empty(&runtime)).unwrap();
         runtime.gc_safepoint().unwrap();

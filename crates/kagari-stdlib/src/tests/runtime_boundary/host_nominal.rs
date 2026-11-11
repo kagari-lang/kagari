@@ -253,7 +253,7 @@ fn nested_signature_types_must_be_bound_before_program_publication() {
     module
         .bind(
             take,
-            |_: &HostCallContext<'_>, _: &[Value]| -> Result<Value, HostError> {
+            |_: &mut HostCallContext<'_>, _: &[Value]| -> Result<Value, HostError> {
                 panic!("linking cannot invoke callbacks")
             },
         )
@@ -323,7 +323,7 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
         .unwrap();
     let observed = calls.clone();
     module
-        .bind(take, move |_: &HostCallContext<'_>, _: &[Value]| {
+        .bind(take, move |_: &mut HostCallContext<'_>, _: &[Value]| {
             observed.fetch_add(1, Ordering::SeqCst);
             Ok(Value::Unit)
         })
@@ -344,7 +344,7 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
     let captured = wrong.clone();
     let observed = calls.clone();
     module
-        .bind(result, move |cx: &HostCallContext<'_>, _: &[Value]| {
+        .bind(result, move |cx: &mut HostCallContext<'_>, _: &[Value]| {
             observed.fetch_add(1, Ordering::SeqCst);
             Ok(cx
                 .runtime()
@@ -364,9 +364,9 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
     let loaded = load_bytecode(&mut runtime, "nominal", program).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    invoke(&runtime, &loaded, 0, &[a_value]).unwrap();
-    assert!(invoke(&runtime, &loaded, 0, &[b_value]).is_err());
-    let scope = runtime.host_scope(&[]).unwrap();
+    invoke(&mut runtime, &loaded, 0, &[a_value]).unwrap();
+    assert!(invoke(&mut runtime, &loaded, 0, &[b_value]).is_err());
+    let mut scope = runtime.host_scope(&[]).unwrap();
     let a_token = scope
         .borrows()
         .borrow_shared(HostObjectId(1), a_ty)
@@ -375,25 +375,13 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
         .borrows()
         .borrow_shared(HostObjectId(2), b_ty)
         .unwrap();
-    invoke(
-        &runtime,
-        &loaded,
-        0,
-        &[runtime.gc().alloc_host_ref(a_token).unwrap()],
-    )
-    .unwrap();
-    assert!(
-        invoke(
-            &runtime,
-            &loaded,
-            0,
-            &[runtime.gc().alloc_host_ref(b_token).unwrap()]
-        )
-        .is_err()
-    );
+    let a_value = scope.runtime().gc().alloc_host_ref(a_token).unwrap();
+    let b_value = scope.runtime().gc().alloc_host_ref(b_token).unwrap();
+    invoke(scope.runtime_mut(), &loaded, 0, &[a_value]).unwrap();
+    assert!(invoke(scope.runtime_mut(), &loaded, 0, &[b_value]).is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 2);
     drop(scope);
-    assert!(invoke(&runtime, &loaded, 1, &[]).is_err());
+    assert!(invoke(&mut runtime, &loaded, 1, &[]).is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 3);
     assert_eq!(runtime.gc().active_roots(), 0);
     assert!(!runtime.is_quarantined());
@@ -418,7 +406,7 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
         .unwrap();
     let observed = calls.clone();
     module
-        .bind(take, move |_: &HostCallContext<'_>, _: &[Value]| {
+        .bind(take, move |_: &mut HostCallContext<'_>, _: &[Value]| {
             observed.fetch_add(1, Ordering::SeqCst);
             Ok(Value::Unit)
         })
@@ -435,7 +423,7 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
     let captured = foreign_value.clone();
     let observed = calls.clone();
     module
-        .bind(result, move |_: &HostCallContext<'_>, _: &[Value]| {
+        .bind(result, move |_: &mut HostCallContext<'_>, _: &[Value]| {
             observed.fetch_add(1, Ordering::SeqCst);
             Ok(*captured.lock().unwrap())
         })
@@ -463,16 +451,11 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
     let loaded = load_bytecode(&mut local, "owner", program).unwrap();
     let _loaded_program = loaded;
     let loaded = local.select_program(&_loaded_program).unwrap();
-    invoke(
-        &local,
-        &loaded,
-        0,
-        &[local.gc().alloc_tuple(vec![local_value]).unwrap()],
-    )
-    .unwrap();
+    let argument = local.gc().alloc_tuple(vec![local_value]).unwrap();
+    invoke(&mut local, &loaded, 0, &[argument]).unwrap();
     assert!(
         invoke(
-            &local,
+            &mut local,
             &loaded,
             0,
             &[foreign.gc().alloc_tuple(vec![other]).unwrap()]
@@ -480,7 +463,7 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
         .is_err()
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    assert!(invoke(&local, &loaded, 1, &[]).is_err());
+    assert!(invoke(&mut local, &loaded, 1, &[]).is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 2);
     assert_eq!(local.gc().active_roots(), 0);
     assert!(!local.is_quarantined());

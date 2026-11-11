@@ -6,7 +6,8 @@ ownership, API contracts and measurements belong to the
 [Runtime model](architecture/runtime.md#single-runtime-and-preparation-boundary),
 [embedding specification](spec/embedding-api.md) and
 [performance record](performance-baseline.md#runtime-consolidation-core-call-comparison-windows-2026-11-11).
-The remaining compact execution, Host and existing-GC work is unstarted. The
+Exclusive Runtime/Host services and prepared Native/Host mappings are implemented
+through RR02. Production execution storage and collector cutover remain pending. The
 [execution plan](runtime-refactor-plan.md) owns the selected RR00-RR06 sequence;
 this document owns its design inputs. The
 [roadmap](implementation-roadmap.md#runtime-execution-model-review) locates that
@@ -30,7 +31,7 @@ without widening Runtime APIs or recreating standard implementations. The
 [type/provenance review](review.md#r13--type-and-layout-provenance-retains-retired-code)
 record the reduced combinations and public-provider follow-up. Existing NC library
 gaps remain separate from this completed dependency cleanup. Compact frames,
-Host redesign and collector integration remain unstarted.
+Host root/storage redesign and collector integration remain pending after RR02.
 
 ## Session measurement boundary
 
@@ -50,7 +51,7 @@ This changes the earlier assumption that Runtime/library boundary work must wait
 for the paged incremental GC migration. D00-D05 implemented the detach-first boundary below. Single-Runtime consolidation
 is complete. The compact execution/Host redesign
 and existing-GC integration follow the [execution plan](runtime-refactor-plan.md);
-RR00 is the next implementation task and no code migration has started.
+RR00-RR02 have completed locally; RR03 owns the next coherent graph cutover.
 
 This document is the design owner. [Current architecture](architecture/runtime.md)
 continues to describe implemented behavior. The [native collections plan](native-collections-plan.md)
@@ -177,13 +178,13 @@ paths retire the same suffix, preserve completed effects and run cleanup once.
 | Local temporary protection | Execution-owned root suffix; durable registration only for escaping ownership |
 | Collection work | Collector safe boundary after source/payload loans end; not a compulsory full scan or step for every call |
 
-Current source still has repeated work: native/typed.rs::invoke builds a Value
-pack, checks mappings and roots a cloned pack; conversion/arguments.rs::from_arguments
-checks mappings again and roots another copied pack. frame/admission.rs still
-combines internal prepared transfer with broad admission. The ownership defect is
-preparation/lifetime work assigned to invocation, not an inherent consequence of
-static typing or Rust callbacks. Keep value-dependent checks while relocating
-immutable proof work. Do not claim every Native route has the same overhead.
+At design freeze, Native invocation and argument conversion both rebuilt fixed
+mappings and rooted copied packs. RR02 moves fixed Rust mappings to bindings and
+closed applications, preserving their typed evidence through Host preparation.
+Legacy typed argument packs/root leases and broad frame admission remain RR03
+work. The ownership defect is preparation/lifetime work assigned to invocation,
+not an inherent consequence of static typing or Rust callbacks. Keep value-dependent
+checks while relocating immutable proof work; Native routes have distinct costs.
 
 The [November 8 attribution](performance-baseline.md#empty-call-attribution-windows-2026-11-08)
 is historical and predates later changes. The
@@ -228,10 +229,11 @@ Mutable Runtime operations should receive exclusive mutable access: ordinary cal
 execute, drive/resume, binding preparation that changes state, and explicit
 collection. Observational queries keep shared access. Split the required fields
 or lend a small service view instead of giving every helper an undifferentiated
-Runtime reference. The current &self call/execute/collection surfaces contribute
-to RefCell state in frames, sessions, object stores, caches, tasks and observers;
-change those API/ownership boundaries coherently, rather than deleting guards.
-Existing borrowing Call futures already own an exclusive Runtime reference.
+Runtime reference. RR02 replaces shared call/execute/collection entrypoints and
+superseded cache/scheduler/Task/Group cells. Legacy frames/sessions/object stores
+move together with their root/loan ownership in RR03; the bounded observer cell
+still supports a mutable observer with read-only Runtime access. Borrowing Call
+futures and service activations own exclusive Runtime references.
 
 An interpreter region borrows execution and required memory/services exclusively.
 It holds direct frame/slot views only for that closed interval. Before arbitrary

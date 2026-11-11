@@ -44,6 +44,14 @@ close and conflicting loans during active execution. Scoped backend/NativeContex
 views retain dynamic admission and borrow checks; they do not permit concurrent
 heap access. Moving Runtime between host threads is an ownership transfer.
 
+Execution, collection, binding preparation and scheduler mutation require the same
+exclusive Runtime borrow. ExecutionSession/ExecutionStack and Host/Native service
+scopes lend it for synchronous reentry, then retire their checked suffix/loan
+marks on every exit. Active scopes stay on their admission thread; only an idle
+Runtime may move between threads. Scheduler, Task/Group stores and binding caches
+are ordinary Runtime fields. The observer's bounded mutable slot receives only
+a read-only Runtime view, with recursive observation checked dynamically.
+
 Execution records and value banks remain physically below GcHeap through
 ResourceState. Splitting these owners, redesigning slots and changing the collector
 are separate work. Arc references keep Rust owners alive; explicit roots and joint

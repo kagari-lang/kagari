@@ -347,11 +347,12 @@ fn execution_policy_preserves_cancellation_observers_and_native_failures() {
     runtime
         .set_execution_observer(Observer(observed.clone()))
         .unwrap();
-    let session = runtime
+    let mut session = runtime
         .begin_execution(&_selected_loaded, enabled.runtime_options())
         .unwrap();
-    runtime.attach_execution_observer().unwrap();
-    let report = runtime
+    session.runtime().attach_execution_observer().unwrap();
+    let report = session
+        .runtime_mut()
         .execute_prepared(&loaded, ProgramEntry::Main, &[], &enabled, &prepared)
         .unwrap();
     let jit = report.jit.unwrap();

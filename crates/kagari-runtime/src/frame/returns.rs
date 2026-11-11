@@ -5,7 +5,7 @@ use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault},
     frame::{
-        ExecutionStack, ReturnDestination,
+        FrameStack, ReturnDestination,
         driver::{ExecutionAction, ReturnAction},
         transfer::ReturnValue,
     },
@@ -13,7 +13,7 @@ use crate::{
 
 use kagari_bytecode::module::CallableTarget;
 
-impl ExecutionStack<'_> {
+impl FrameStack {
     /// Adapt while the callee's arguments and executable dependencies remain rooted.
     /// No exclusive stack or operand-bank borrow crosses an allocating adapter.
     fn adapt_return(
@@ -24,7 +24,7 @@ impl ExecutionStack<'_> {
         let mut value = packet
             .materialize()
             .ok_or_else(|| RuntimeError::module_validation("return representation"))?;
-        let frame = self.current()?;
+        let frame = self.current(runtime)?;
         if let Some(method) = frame.invocation() {
             value = runtime.finish_method_result(method, value)?;
         } else if let Some(environment) = frame.environment() {
@@ -56,14 +56,14 @@ impl ExecutionStack<'_> {
     ) -> Result<ReturnAction, RuntimeError> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::CallReturn);
-        self.validate_runtime(runtime)?;
+        self.validate_top(runtime)?;
         // Poll before borrowing frames so a terminated initializer keeps a complete trace.
         runtime.resources().poll_execution()?;
         let borrow_frames = || {
-            self.session
-                .resources
+            runtime
+                .resources()
                 .sessions
-                .frames_mut(self.session.id)
+                .frames_mut(self.session)
                 .ok_or_else(|| {
                     runtime
                         .resources()
@@ -82,7 +82,7 @@ impl ExecutionStack<'_> {
         if frame.environment.is_some() || frame.invocation.is_some() {
             drop(frames);
             packet = self.adapt_return(runtime, packet)?;
-            self.validate_runtime(runtime)?;
+            self.validate_top(runtime)?;
             frames = borrow_frames()?;
         }
         let frame = frames
@@ -99,9 +99,9 @@ impl ExecutionStack<'_> {
         }
         let destination = frame.return_to;
         let frame = frames.pop().expect("checked return frame");
-        let mut values = frame.retire_values(self.session.resources);
+        let mut values = frame.retire_values(runtime.resources());
         drop(frame);
-        self.session.resources.leave_call();
+        runtime.resources().leave_call();
         runtime.gc.ensure_execution_allowed()?;
         if frames.len() == self.base {
             drop(values);

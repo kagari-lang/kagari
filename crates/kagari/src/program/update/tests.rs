@@ -81,7 +81,7 @@ fn publish_update(
     Ok(())
 }
 
-fn call(runtime: &Runtime, program: &InstalledProgram, name: &str) -> i32 {
+fn call(runtime: &mut Runtime, program: &InstalledProgram, name: &str) -> i32 {
     runtime
         .execute_typed::<(), i32>(program, name, (), &Default::default())
         .unwrap()
@@ -156,8 +156,8 @@ fn complete_package_batch_adds_modules_and_preserves_state_and_failed_baseline()
     let old = runtime.source_snapshot(&program).unwrap();
     let answer = declaration(&runtime, &program, "answer");
     let old_capsule = Arc::downgrade(prepared.compilation.as_ref().unwrap());
-    assert_eq!(call(&runtime, &program, "bump"), 1);
-    assert_eq!(call(&runtime, &program, "answer"), 40);
+    assert_eq!(call(&mut runtime, &program, "bump"), 1);
+    assert_eq!(call(&mut runtime, &program, "answer"), 40);
     let mut update = Update::new();
     update.replace_file("src/./lib.kgr", "mod extra; static var COUNT: i32 = 0; pub fn bump() -> i32 { COUNT += 1; COUNT } pub fn answer() -> i32 { rules::new_value() + extra::bonus() }");
     update.replace_file(
@@ -173,7 +173,7 @@ fn complete_package_batch_adds_modules_and_preserves_state_and_failed_baseline()
     });
     // The recipient can execute its published version while the worker owns
     // detached preparation. One returned product serves both local publishers.
-    assert_eq!(call(&runtime, &program, "answer"), 40);
+    assert_eq!(call(&mut runtime, &program, "answer"), 40);
     let candidate = preparation.join().unwrap();
     runtime
         .replace_program(&program, candidate.program(), Default::default())
@@ -201,15 +201,15 @@ fn complete_package_batch_adds_modules_and_preserves_state_and_failed_baseline()
         runtime.publication_token(&program).unwrap(),
         published_before
     );
-    assert_eq!(call(&recipient, &recipient_program, "answer"), 40);
+    assert_eq!(call(&mut recipient, &recipient_program, "answer"), 40);
     recipient
         .replace_program(&recipient_program, candidate.program(), Default::default())
         .unwrap();
     prepared = candidate;
-    assert_eq!(call(&runtime, &program, "answer"), 42);
-    assert_eq!(call(&runtime, &program, "bump"), 2);
-    assert_eq!(call(&recipient, &recipient_program, "answer"), 42);
-    assert_eq!(call(&recipient, &recipient_program, "bump"), 1);
+    assert_eq!(call(&mut runtime, &program, "answer"), 42);
+    assert_eq!(call(&mut runtime, &program, "bump"), 2);
+    assert_eq!(call(&mut recipient, &recipient_program, "answer"), 42);
+    assert_eq!(call(&mut recipient, &recipient_program, "bump"), 1);
     runtime.collect_garbage().unwrap();
     recipient.collect_garbage().unwrap();
     assert!(
@@ -229,14 +229,14 @@ fn complete_package_batch_adds_modules_and_preserves_state_and_failed_baseline()
     ));
     assert_eq!(runtime.publication_token(&program).unwrap(), published);
     assert_eq!(text(&runtime, &program, &answer), successful);
-    assert_eq!(call(&runtime, &program, "bump"), 3);
+    assert_eq!(call(&mut runtime, &program, "bump"), 3);
     let mut next = Update::new();
     next.replace_function(
         "answer",
         "pub fn answer() -> i32 { rules::new_value() + extra::bonus() + 1 }",
     );
     publish_update(&mut runtime, &program, &mut prepared, next).unwrap();
-    assert_eq!(call(&runtime, &program, "answer"), 43);
+    assert_eq!(call(&mut runtime, &program, "answer"), 43);
     assert_eq!(
         captured.module(checked.module_identity()).unwrap().text(),
         root
@@ -278,8 +278,8 @@ fn opaque_private_method_and_named_local_targets_preserve_context_and_locator_id
         "pub fn unused<T>(v: T) -> i32 where T: Bound { 6 }",
     );
     publish_update(&mut runtime, &program, &mut prepared, update).unwrap();
-    assert_eq!(call(&runtime, &program, "answer"), 12);
-    assert_eq!(call(&runtime, &program, "named"), 9);
+    assert_eq!(call(&mut runtime, &program, "answer"), 12);
+    assert_eq!(call(&mut runtime, &program, "named"), 9);
     assert!(text(&runtime, &program, &generic).contains("{ 6 }"));
     let mut changed_bounds = Update::new();
     changed_bounds.replace_function("generic_alias", "pub fn unused<T>(v: T) -> i32 { 99 }");
@@ -294,7 +294,7 @@ fn opaque_private_method_and_named_local_targets_preserve_context_and_locator_id
         "fn hidden() -> i32 { 20 }",
     );
     publish_update(&mut runtime, &program, &mut prepared, next).unwrap();
-    assert_eq!(call(&runtime, &program, "answer"), 22);
+    assert_eq!(call(&mut runtime, &program, "answer"), 22);
     assert!(
         runtime
             .bind_function::<(), i32>(&program.root(), "hidden")
@@ -385,7 +385,7 @@ fn malformed_duplicate_overlapping_and_foreign_updates_leave_source_unchanged() 
     for update in failures {
         assert!(publish_update(&mut runtime, &program, &mut prepared, update).is_err());
         assert_eq!(runtime.publication_token(&program).unwrap(), token);
-        assert_eq!(call(&runtime, &program, "answer"), 1);
+        assert_eq!(call(&mut runtime, &program, "answer"), 1);
         assert!(text(&runtime, &program, &answer).contains("nested_target()"));
     }
     let mut valid = Update::new();
@@ -394,7 +394,7 @@ fn malformed_duplicate_overlapping_and_foreign_updates_leave_source_unchanged() 
         "pub fn answer() -> i32 { fn nested_target() -> i32 { 1 } nested_target() + 1 }",
     );
     publish_update(&mut runtime, &program, &mut prepared, valid).unwrap();
-    assert_eq!(call(&runtime, &program, "answer"), 2);
+    assert_eq!(call(&mut runtime, &program, "answer"), 2);
 }
 
 #[test]
@@ -438,11 +438,11 @@ fn admission_bounds_and_request_cancellation_precede_compilation() {
         publish_update(&mut runtime, &program, &mut prepared, cancelled),
         Err(EmbeddingError::Cancelled)
     ));
-    assert_eq!(call(&runtime, &program, "answer"), 1);
+    assert_eq!(call(&mut runtime, &program, "answer"), 1);
     let mut fresh = Update::new();
     fresh.replace_function("answer", "pub fn answer() -> i32 { 2 }");
     publish_update(&mut runtime, &program, &mut prepared, fresh).unwrap();
-    assert_eq!(call(&runtime, &program, "answer"), 2);
+    assert_eq!(call(&mut runtime, &program, "answer"), 2);
 }
 
 #[rstest]
@@ -519,7 +519,7 @@ fn artifact_source_is_opt_in_and_low_level_or_artifact_reload_never_reuses_old_c
         runtime.replace_program(&program, candidate.program(), Default::default()),
         Err(ReloadValidationError::Runtime(ref error)) if error.kind() == RuntimeErrorKind::StaleHandle
     ));
-    assert_eq!(call(&runtime, &program, "answer"), 1);
+    assert_eq!(call(&mut runtime, &program, "answer"), 1);
     let current = runtime.program(&program).unwrap();
     let restored = current
         .prepare_replacement(direct.program(), &Default::default())
@@ -532,7 +532,7 @@ fn artifact_source_is_opt_in_and_low_level_or_artifact_reload_never_reuses_old_c
     let mut update = Update::new();
     update.replace_function("answer", "pub fn answer() -> i32 { 3 }");
     publish_update(&mut runtime, &program, &mut direct, update).unwrap();
-    assert_eq!(call(&runtime, &program, "answer"), 3);
+    assert_eq!(call(&mut runtime, &program, "answer"), 3);
 }
 
 #[test]
@@ -614,7 +614,7 @@ fn standard_foundation_accepts_body_updates_and_advances_live_handles_and_source
         matches!(original.function(&answer), SourceQuery::Available(source) if source.text.contains("{ 1 }"))
     );
     assert_eq!(runtime.call(&function, ()).unwrap(), 2);
-    assert_eq!(call(&runtime, &program, "answer"), 2);
+    assert_eq!(call(&mut runtime, &program, "answer"), 2);
 }
 
 #[test]
@@ -636,7 +636,7 @@ fn rejected_initial_publication_releases_its_precommit_capsule() {
     let program = runtime
         .load_program(prepared.program(), Default::default())
         .unwrap();
-    assert_eq!(call(&runtime, &program, "answer"), 2);
+    assert_eq!(call(&mut runtime, &program, "answer"), 2);
 }
 
 #[test]
@@ -667,7 +667,7 @@ fn stale_publication_releases_candidate_capsule_and_preserves_current_source() {
     let mut next = Update::new();
     next.replace_function("answer", "pub fn answer() -> i32 { 3 }");
     publish_update(&mut runtime, &program, &mut prepared, next).unwrap();
-    assert_eq!(call(&runtime, &program, "answer"), 3);
+    assert_eq!(call(&mut runtime, &program, "answer"), 3);
 }
 
 #[cfg(feature = "native")]
@@ -697,5 +697,5 @@ fn source_updates_retain_requested_native_input_in_the_shared_product() {
             .bytecode()
             .same_version(prepared.program().bytecode())
     );
-    assert_eq!(call(&runtime, &program, "answer"), 2);
+    assert_eq!(call(&mut runtime, &program, "answer"), 2);
 }

@@ -115,7 +115,7 @@ pub fn load_test_module(source_text: &str) -> (Runtime, InstalledProgram) {
 
 /// Bind the fixed print service through ordinary common native registration.
 pub fn logging_module(
-    entry: impl for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+    entry: impl for<'call> Fn(&mut HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
     + Send
     + Sync
     + 'static,

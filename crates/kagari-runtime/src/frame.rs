@@ -1,8 +1,7 @@
 use crate::{
-    RootedInterfaceMethod, Runtime,
+    Runtime,
     error::{RuntimeError, fault::EngineFault, trap::TrapReason},
     frame::{
-        arguments::FrameArguments,
         types::TypeEnvironment,
         values::{ExecutionValues, FrameSlots},
     },
@@ -18,7 +17,7 @@ use crate::{
     },
     objects::invocation::MethodInvocation,
     resource::ResourceState,
-    session::ExecutionSession,
+    session::{ExecutionSession, store::SessionId},
     value::Value,
 };
 
@@ -28,15 +27,16 @@ use kagari_bytecode::{
     module::{BytecodeFunction, CallableTarget},
     program::ModuleRef,
 };
-use kagari_contract::ids::FunctionRef;
 use std::{
-    cell::{Ref, RefMut},
+    cell::RefMut,
     fmt,
     fmt::{Debug, Formatter},
-    ptr,
+    marker::PhantomData,
+    rc::Rc,
     sync::Arc,
 };
 
+mod activation;
 mod admission;
 pub(crate) mod arguments;
 mod calls;
@@ -52,299 +52,29 @@ mod native;
 mod owned;
 mod returns;
 mod shared;
+mod stack;
 mod statics;
 pub mod transfer;
 pub mod types;
 pub(crate) mod values;
 pub(crate) mod waiting;
 
-/// An execution scope over the root session's shared frame stack.
-/// Dropping it unwinds only the frames entered by this scope.
+/// An activation owns session lifetime and stack cleanup. Operations borrow the
+/// control record and Runtime together; neither may escape this closed access.
+#[must_use]
 pub struct ExecutionStack<'runtime> {
     session: ExecutionSession<'runtime>,
+    stack: Option<FrameStack>,
+}
+
+/// Checked coordinates for one execution suffix. The activation owns retirement;
+/// this record contains no reference into Runtime or its frame/value storage.
+pub struct FrameStack {
+    _thread: PhantomData<Rc<()>>,
+    session: SessionId,
     base: usize,
     id: u64,
     parked: bool,
-}
-
-impl<'runtime> ExecutionStack<'runtime> {
-    pub(crate) fn new(session: ExecutionSession<'runtime>) -> Result<Self, RuntimeError> {
-        let base = session
-            .resources
-            .sessions
-            .frames(session.id)
-            .ok_or_else(|| {
-                session
-                    .resources
-                    .quarantine(EngineFault::FrameStackIsBorrowedAcrossExecution)
-            })?
-            .len();
-        let state = session.state();
-        let id = state.next_frame_scope.get();
-        state.next_frame_scope.set(id.checked_add(1).ok_or_else(|| {
-            session
-                .resources
-                .quarantine(EngineFault::FrameScopeIdentityExhausted)
-        })?);
-        state.frame_scopes.borrow_mut().push(id);
-        drop(state);
-        Ok(Self {
-            session,
-            base,
-            id,
-            parked: false,
-        })
-    }
-
-    fn validate_runtime(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
-        self.validate_top()?;
-        if !ptr::eq(runtime.resources(), self.session.resources) {
-            return Err(RuntimeError::module_validation(
-                "execution stack belongs to another runtime",
-            ));
-        }
-        Ok(())
-    }
-
-    fn validate_top(&self) -> Result<(), RuntimeError> {
-        self.session.resources.ensure_execution_allowed()?;
-        if !self
-            .session
-            .resources
-            .active_session()
-            .is_some_and(|active| active.id == self.session.id)
-        {
-            return Err(self
-                .session
-                .resources
-                .quarantine(EngineFault::ExecutionUsedASuspendedSession));
-        }
-        if self.session.state().frame_scopes.borrow().last() != Some(&self.id) {
-            return Err(self
-                .session
-                .resources
-                .quarantine(EngineFault::ExecutionUsedASuspendedFrameScope));
-        }
-        Ok(())
-    }
-
-    pub fn frames(&self) -> Result<Ref<'_, Vec<ExecutionFrame>>, RuntimeError> {
-        self.session
-            .resources
-            .sessions
-            .frames(self.session.id)
-            .ok_or_else(|| {
-                self.session
-                    .resources
-                    .quarantine(EngineFault::FrameStackIsMutablyBorrowed)
-            })
-    }
-
-    pub fn current(&self) -> Result<Ref<'_, ExecutionFrame>, RuntimeError> {
-        self.validate_top()?;
-        let frames = self.frames()?;
-        if frames.len() <= self.base {
-            return Err(self
-                .session
-                .resources
-                .quarantine(EngineFault::MissingExecutionFrame));
-        }
-        Ok(Ref::map(frames, |frames| {
-            frames.last().expect("checked frame")
-        }))
-    }
-
-    pub fn current_mut(&self) -> Result<RefMut<'_, ExecutionFrame>, RuntimeError> {
-        self.validate_top()?;
-        let frames = self
-            .session
-            .resources
-            .sessions
-            .frames_mut(self.session.id)
-            .ok_or_else(|| {
-                self.session
-                    .resources
-                    .quarantine(EngineFault::FrameStackIsBorrowedAcrossExecution)
-            })?;
-        if frames.len() <= self.base {
-            return Err(self
-                .session
-                .resources
-                .quarantine(EngineFault::MissingExecutionFrame));
-        }
-        Ok(RefMut::map(frames, |frames| {
-            frames.last_mut().expect("checked frame")
-        }))
-    }
-
-    pub fn push(
-        &self,
-        runtime: &Runtime,
-        module: ModuleRef,
-        function: FunctionRef,
-        args: &[Value],
-        return_dst: Option<Slot>,
-    ) -> Result<(), RuntimeError> {
-        self.validate_runtime(runtime)?;
-        let loaded = {
-            let frames = self.frames()?;
-            let caller = (frames.len() > self.base)
-                .then(|| frames.last().map(ExecutionFrame::loaded))
-                .flatten();
-            match caller {
-                Some(caller) => caller.member(module),
-                None => self.session.root().member(module),
-            }
-            .ok_or_else(|| {
-                self.session
-                    .resources
-                    .quarantine(EngineFault::InvalidFrameModule)
-            })?
-        };
-        let route = loaded.bind_call_route(CallableTarget::Script(function))?;
-        let selected = runtime.select_call_route(&route)?;
-        self.push_callable(
-            runtime,
-            selected.owner().clone(),
-            selected.target(),
-            args,
-            return_dst,
-        )
-    }
-
-    /// Enters the current method selected by the rooted interface's checked evidence.
-    pub fn push_interface_method(
-        &self,
-        runtime: &Runtime,
-        method: RootedInterfaceMethod,
-        args: &[Value],
-        return_dst: Option<Slot>,
-    ) -> Result<(), RuntimeError> {
-        self.validate_runtime(runtime)?;
-        let method = method.admit(runtime)?;
-        let view = method.view(runtime)?;
-        runtime.validate_executable_module(view.implementation())?;
-        let arguments = FrameArguments::plain(args);
-        view.validate_arguments(runtime, arguments)?;
-        let loaded = view.implementation().clone();
-        let target = view.target();
-        let environment = view.environment().cloned();
-        drop(view);
-        // The host lease remains alive until the window has published all edges.
-        self.push_admitted_arguments(
-            runtime,
-            loaded,
-            target,
-            arguments,
-            return_dst,
-            FrameDispatch {
-                prepared: None,
-                entry: FrameEntry::Call,
-                invocation: Some(method.invocation),
-                environment,
-            },
-        )
-        .map(|_| ())
-    }
-
-    /// Enter an already selected exact callable. Retained computations and prepared
-    /// host entries must not resolve current code again at this admission boundary.
-    pub fn push_callable(
-        &self,
-        runtime: &Runtime,
-        loaded: ExecutableModule,
-        target: CallableTarget,
-        args: &[Value],
-        return_dst: Option<Slot>,
-    ) -> Result<(), RuntimeError> {
-        self.push_arguments(
-            runtime,
-            loaded,
-            target,
-            FrameArguments::plain(args),
-            return_dst,
-            FrameDispatch {
-                prepared: None,
-                entry: FrameEntry::Call,
-                invocation: None,
-                environment: None,
-            },
-        )
-    }
-
-    fn push_arguments(
-        &self,
-        runtime: &Runtime,
-        loaded: ExecutableModule,
-        target: CallableTarget,
-        args: FrameArguments<'_>,
-        return_dst: Option<Slot>,
-        dispatch: FrameDispatch<'_>,
-    ) -> Result<(), RuntimeError> {
-        self.validate_runtime(runtime)?;
-        self.push_admitted_arguments(runtime, loaded, target, args, return_dst, dispatch)
-            .map(|_| ())
-    }
-
-    pub fn pop(&self) -> Result<(), RuntimeError> {
-        self.validate_top()?;
-        let mut frames = self
-            .session
-            .resources
-            .sessions
-            .frames_mut(self.session.id)
-            .ok_or_else(|| {
-                self.session
-                    .resources
-                    .quarantine(EngineFault::FrameStackIsBorrowedAcrossExecution)
-            })?;
-        if frames.len() <= self.base {
-            return Err(self
-                .session
-                .resources
-                .quarantine(EngineFault::FrameScopeAttemptedToPopItsCaller));
-        }
-        if let Some(frame) = frames.pop() {
-            frame.release_values(self.session.resources);
-        }
-        self.session.resources.leave_call();
-        Ok(())
-    }
-
-    pub fn is_empty(&self) -> Result<bool, RuntimeError> {
-        Ok(self.frames()?.len() == self.base)
-    }
-}
-
-impl Drop for ExecutionStack<'_> {
-    fn drop(&mut self) {
-        let state = self.session.state();
-        let mut scopes = state.frame_scopes.borrow_mut();
-        let Some(position) = scopes.iter().position(|id| *id == self.id) else {
-            return;
-        };
-        if position + 1 != scopes.len() {
-            self.session
-                .resources
-                .quarantine(EngineFault::FrameScopesDroppedOutOfOrder);
-        }
-        scopes.truncate(position);
-        if self.parked {
-            return;
-        }
-        let Some(mut frames) = self.session.resources.sessions.frames_mut(self.session.id) else {
-            self.session
-                .resources
-                .quarantine(EngineFault::FrameStackRemainedBorrowedDuringCleanup);
-            return;
-        };
-        while frames.len() > self.base {
-            if let Some(frame) = frames.pop() {
-                frame.release_values(self.session.resources);
-            }
-            self.session.resources.leave_call();
-        }
-    }
 }
 
 #[derive(Clone, Copy)]

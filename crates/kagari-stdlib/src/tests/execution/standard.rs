@@ -34,7 +34,7 @@ fn executes_source_lowered_declared_host_log() {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
 
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
@@ -68,7 +68,7 @@ fn main()->(u64,bool,u64,bool){
     let (runtime, loaded) = load_bytecode_program("standard_collections.kbc", decoded);
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
@@ -107,7 +107,7 @@ fn main() -> u64 {
     );
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
@@ -140,7 +140,7 @@ fn main() -> i32 {
     );
     let program = loaded;
     let loaded = runtime.select_program(&program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");

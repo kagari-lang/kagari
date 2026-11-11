@@ -2,9 +2,8 @@
 use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault},
-    frame::{ExecutionStack, NativeEntryState},
+    frame::{FrameStack, NativeEntryState},
     module::linked_execution::LinkedFunction,
-    session::ExecutionSession,
 };
 #[cfg(test)]
 pub(super) mod tests;
@@ -15,17 +14,12 @@ use crate::gc::retention_probe::{self, Event};
 use kagari_bytecode::module::CallableTarget;
 use std::sync::Arc;
 
-impl<'runtime> ExecutionStack<'runtime> {
-    pub(crate) fn resume(
-        session: ExecutionSession<'runtime>,
-        runtime: &Runtime,
-    ) -> Result<Self, RuntimeError> {
-        let mut stack = Self::new(session)?;
-        stack.base = 0;
+impl FrameStack {
+    pub(super) fn refresh_resumed_calls(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
         // Refresh every frame, including parents blocked below an awaited child.
         // Bodies, PCs, environments, values and return destinations stay exact.
-        let links = stack
-            .frames()?
+        let links = self
+            .frames(runtime)?
             .iter()
             .map(|frame| match frame.target {
                 CallableTarget::Script(function)
@@ -50,11 +44,10 @@ impl<'runtime> ExecutionStack<'runtime> {
                 _ => Ok(None),
             })
             .collect::<Result<Vec<Option<Arc<LinkedFunction>>>, RuntimeError>>()?;
-        let mut frames = stack
-            .session
-            .resources
+        let mut frames = runtime
+            .resources()
             .sessions
-            .frames_mut(stack.session.id)
+            .frames_mut(self.session)
             .ok_or_else(|| {
                 runtime.quarantine_execution_invariant(EngineFault::ResumedFrameStackBorrowed)
             })?;
@@ -62,18 +55,17 @@ impl<'runtime> ExecutionStack<'runtime> {
             frame.links = links;
         }
         drop(frames);
-        Ok(stack)
+        Ok(())
     }
 
-    pub(super) fn release_execution_views(&self) -> Result<(), RuntimeError> {
-        let mut frames = self
-            .session
-            .resources
+    pub(super) fn release_execution_views(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
+        let mut frames = runtime
+            .resources()
             .sessions
-            .frames_mut(self.session.id)
+            .frames_mut(self.session)
             .ok_or_else(|| {
-                self.session
-                    .resources
+                runtime
+                    .resources()
                     .quarantine(EngineFault::ParkedFrameStackBorrowed)
             })?;
         let previous = frames
@@ -88,12 +80,12 @@ impl<'runtime> ExecutionStack<'runtime> {
     pub(crate) fn can_park(&self, runtime: &Runtime) -> Result<bool, RuntimeError> {
         #[cfg(test)]
         retention_probe::record(runtime.gc(), Event::Proof);
-        self.validate_runtime(runtime)?;
+        self.validate_top(runtime)?;
         runtime.gc().ensure_no_native_borrow()?;
         if runtime.static_initialization_active() {
             return Ok(false);
         }
-        let state = self.session.state();
+        let state = self.session_state(runtime);
         if state.owner.borrow().is_none()
             || state.scopes.get() != 1
             || state.frame_scopes.borrow().len() != 1
@@ -101,17 +93,12 @@ impl<'runtime> ExecutionStack<'runtime> {
         {
             return Ok(false);
         }
-        let frames = self.frames()?;
-        let values = self
-            .session
-            .resources
-            .frame_values
-            .try_borrow()
-            .map_err(|_| {
-                self.session
-                    .resources
-                    .quarantine(EngineFault::ExecutionWindowsBorrowedDuringSuspension)
-            })?;
+        let frames = self.frames(runtime)?;
+        let values = runtime.resources().frame_values.try_borrow().map_err(|_| {
+            runtime
+                .resources()
+                .quarantine(EngineFault::ExecutionWindowsBorrowedDuringSuspension)
+        })?;
         runtime.gc().with_async_values(|walk| {
             for frame in frames.iter() {
                 #[cfg(test)]
@@ -122,8 +109,8 @@ impl<'runtime> ExecutionStack<'runtime> {
                     return Ok(false);
                 }
                 let ranges = values.ranges(frame.slots).ok_or_else(|| {
-                    self.session
-                        .resources
+                    runtime
+                        .resources()
                         .quarantine(EngineFault::InvalidParkedFrameWindow)
                 })?;
                 let retained = &values.values[ranges.managed];
@@ -147,25 +134,24 @@ impl<'runtime> ExecutionStack<'runtime> {
         runtime: &Runtime,
     ) -> Result<bool, RuntimeError> {
         let stack = activation
-            .as_ref()
+            .as_mut()
             .ok_or_else(|| RuntimeError::module_validation("missing parking activation"))?;
         if !stack.can_park(runtime)? {
             return Ok(false);
         }
         // No callbacks or execution between proof and this commit. Notification
         // follows the parked flag, so even a wake unwind retains the frame roots.
-        stack.release_execution_views()?;
-        let mut stack = activation.take().expect("validated activation");
+        stack.release_execution_views(runtime)?;
         stack.parked = true;
         stack
-            .session
-            .state()
+            .session_state(runtime)
             .owner
             .borrow()
             .as_ref()
             .expect("owned activation")
             .mark_ready();
-        drop(stack);
+        let mut stack = activation.take().expect("validated activation");
+        stack.retire(runtime);
         Ok(true)
     }
 }

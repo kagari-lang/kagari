@@ -132,7 +132,7 @@ fn tracing_panic_quarantines_without_sweeping_a_partial_graph() {
 #[test]
 fn destructor_panics_dispose_each_detached_payload_once_and_quarantine() {
     let faults = Arc::new(Faults::default());
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         "use fixture::payload::{Payload, new}; fn main() -> (Payload, Payload) { (new(), new()) }",
         Some(&module(&faults)),
     );
@@ -223,24 +223,31 @@ fn clearing_reloaded_static_cells_disposes_payloads_once_even_when_destructors_p
 fn roots_do_not_keep_heap_payloads_alive_after_teardown() {
     use kagari_types::{scalar::BuiltinType, ty::Ty};
     let faults = Arc::new(Faults::default());
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         "use fixture::payload::{Payload, new}; fn main() -> Payload { new() }",
         Some(&module(&faults)),
     );
     let _loaded_program = loaded;
     let loaded = vm.select_program(&_loaded_program).unwrap();
-    let session = vm.begin_execution(&loaded, vm.execution_options()).unwrap();
-    let value = vm
-        .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
+    let mut session = vm.begin_execution(&loaded, vm.execution_options()).unwrap();
+    let session_options = session.runtime().execution_options();
+    let value = session
+        .runtime_mut()
+        .execute_module(&loaded, ProgramEntry::Main, session_options.clone())
         .unwrap()
         .return_value
-        .value(vm.gc())
+        .value(session.runtime().gc())
         .expect("retained execution result");
-    let root = vm.root_value(value).unwrap();
-    let array = vm
+    let root = session.runtime().root_value(value).unwrap();
+    let array = session
+        .runtime()
         .alloc_array(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
         .unwrap();
-    let array_root = vm.gc().root_value(Value::Array(array)).unwrap();
+    let array_root = session
+        .runtime()
+        .gc()
+        .root_value(Value::Array(array))
+        .unwrap();
     assert_eq!(faults.drops.load(Ordering::SeqCst), 0);
     drop(session);
     assert!(vm.execution_root().is_none());

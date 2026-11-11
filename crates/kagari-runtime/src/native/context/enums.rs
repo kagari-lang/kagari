@@ -8,7 +8,7 @@ use crate::{
     module::{EnumVariantRef, ExecutableModule},
     native::{
         binding::NativeResult,
-        context::CallContext,
+        context::NativeCall,
         types::{Type, VariantRef},
     },
     value::{EnumTag, EnumValueSnapshot, Value},
@@ -98,7 +98,7 @@ impl Runtime {
     }
 }
 
-impl CallContext<'_> {
+impl NativeCall<'_> {
     fn declared_enum_variant(
         &self,
         applied: &TypeArgument,

@@ -6,7 +6,7 @@ use crate::{
         binding::{Codec, NativeBinding, NativeResult},
         catalog::DeclarationCatalog,
         completion::Completion,
-        conversion::{IntoKagari, arguments::FromKagariArguments, context::ConversionContext},
+        conversion::{IntoKagari, arguments::FromKagariArguments},
         future::{ColdFuture, FuturePayload, NativeFuture, NativeStart, Producer, TypedProducer},
         types::TypeRef,
     },
@@ -56,7 +56,7 @@ where
             entry: self,
             marker: PhantomData::<fn(A) -> R>,
         });
-        let binding = NativeBinding::new(
+        let mut binding = NativeBinding::new(
             parameters
                 .iter()
                 .map(|ty| Codec::Exact(ty.clone()))
@@ -72,9 +72,6 @@ where
                 }
                 let signature = call.function.type_signature()?;
                 let output = signature.result.parameter(call.runtime, call.owner, 0)?;
-                let cx = ConversionContext::in_native_call(call)?;
-                cx.check_type::<R>(&output)?;
-                A::check_types(&cx, &signature.params)?;
                 let values = (0..call.arguments.len())
                     .map(|index| call.argument(index))
                     .collect::<NativeResult<Vec<_>>>()?;
@@ -100,6 +97,11 @@ where
                 )
             },
         );
+        binding.prepare_mapping = Some(Arc::new(|cx, signature| {
+            let output = signature.result.parameter(cx.runtime(), cx.owner(), 0)?;
+            cx.check_type::<R>(&output)?;
+            A::check_types(cx, &signature.params)
+        }));
         Ok(binding)
     }
 }

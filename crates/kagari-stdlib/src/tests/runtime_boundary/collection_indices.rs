@@ -48,7 +48,7 @@ fn slice(value: String, start: u64, end: u64) -> String { value.slice(start, end
 
 #[test]
 fn wide_array_indices_preserve_bounds_and_source_values() {
-    let (runtime, owner, slots) = fixture();
+    let (mut runtime, owner, slots) = fixture();
     let array = runtime
         .alloc_array(
             &owner,
@@ -57,12 +57,13 @@ fn wide_array_indices_preserve_bounds_and_source_values() {
         )
         .unwrap();
     let root = runtime.root_value(Value::Array(array)).unwrap();
+    let value = root.value(runtime.gc()).unwrap();
     for index in [1, 1u64 << 32, u64::MAX] {
         let error = invoke(
-            &runtime,
+            &mut runtime,
             &owner,
             slots["index"],
-            &[root.value(runtime.gc()).unwrap(), Value::U64(index)],
+            &[value, Value::U64(index)],
         )
         .unwrap_err();
         assert_eq!(error.kind(), RuntimeErrorKind::IndexOutOfBounds);
@@ -76,10 +77,10 @@ fn wide_array_indices_preserve_bounds_and_source_values() {
 
 #[test]
 fn string_slice_preserves_wide_range_and_utf8_errors() {
-    let (runtime, owner, slots) = fixture();
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let (mut runtime, owner, slots) = fixture();
+    let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
     let text = cx.encode("a火".to_owned()).unwrap();
-    let value = text.value(runtime.gc()).unwrap();
+    let value = text.value(cx.runtime().gc()).unwrap();
     let slot = slots["slice"];
     for (start, end) in [
         (0, 1u64 << 32),
@@ -89,7 +90,7 @@ fn string_slice_preserves_wide_range_and_utf8_errors() {
         (1, 2),
     ] {
         let error = invoke(
-            &runtime,
+            cx.runtime_mut(),
             &owner,
             slot,
             &[value, Value::U64(start), Value::U64(end)],
@@ -100,13 +101,13 @@ fn string_slice_preserves_wide_range_and_utf8_errors() {
     }
     for (start, end, expected) in [(1, 4, "火"), (4, 4, "")] {
         let result = invoke(
-            &runtime,
+            cx.runtime_mut(),
             &owner,
             slot,
             &[value, Value::U64(start), Value::U64(end)],
         )
         .unwrap();
-        let result = runtime.root_value(result).unwrap();
+        let result = cx.runtime().root_value(result).unwrap();
         assert_eq!(cx.decode::<String>(&result).unwrap(), expected);
     }
 }

@@ -8,7 +8,7 @@ use kagari_runtime::{
         binding::NativeResult,
         builder::ModuleBuilder,
         callable::{CallableHandle, StoredCallable},
-        context::CallContext,
+        context::NativeCall,
         declarations::FunctionDecl,
         function_handle::Function,
         storage::NativeStorage,
@@ -42,7 +42,7 @@ fn machine_scalar_conveniences_check_host_range_before_callback_entry() {
     builder
         .bind(
             unsigned,
-            move |_: &mut CallContext<'_>, value: usize| -> NativeResult<usize> {
+            move |_: &mut NativeCall<'_>, value: usize| -> NativeResult<usize> {
                 observed.fetch_add(1, Ordering::SeqCst);
                 Ok(value)
             },
@@ -65,7 +65,7 @@ fn machine_scalar_conveniences_check_host_range_before_callback_entry() {
             },
         )
         .unwrap();
-    let (vm, owner) = compile(
+    let (mut vm, owner) = compile(
         r#"
         use example::machine_scalars;
         pub fn unsigned(value: u64) -> u64 { machine_scalars::unsigned(value) }
@@ -114,7 +114,7 @@ fn machine_scalar_conveniences_check_host_range_before_callback_entry() {
 }
 
 fn call_repeatedly(
-    cx: &mut CallContext<'_>,
+    cx: &mut NativeCall<'_>,
     callback: CallableHandle<'_>,
     mut value: i32,
     count: usize,
@@ -156,7 +156,7 @@ fn function_arguments_call_captured_script_closures_synchronously() {
         .unwrap();
     builder.bind(apply, call_repeatedly).unwrap();
     let module = builder.finish().unwrap();
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         r#"
         use example::callbacks::apply;
         fn main() -> i32 {
@@ -319,7 +319,7 @@ fn stored_callbacks_trace_captures_through_an_ordinary_native_payload() {
     builder
         .bind(
             new,
-            |cx: &mut CallContext<'_>, callback: CallableHandle<'_>| -> NativeResult<Value> {
+            |cx: &mut NativeCall<'_>, callback: CallableHandle<'_>| -> NativeResult<Value> {
                 cx.allocate_result_payload(callback.store(), &[])
             },
         )
@@ -334,11 +334,17 @@ fn stored_callbacks_trace_captures_through_an_ordinary_native_payload() {
     builder
         .bind(
             invoke,
-            |cx: &mut CallContext<'_>, handler: ValueHandle<'_>| -> NativeResult<i32> {
-                let stored =
-                    handler.with_payload::<StoredCallable, _>(|callback| Ok(callback.clone()))?;
-                cx.collect_garbage()?;
-                let Value::I32(result) = stored.call_values(cx, &[Value::I32(1)])? else {
+            |cx: &mut NativeCall<'_>, handler: ValueHandle<'_>| -> NativeResult<i32> {
+                let result = handler
+                    .with_operation(cx, |cx| {
+                        let stored = handler.with_payload::<StoredCallable, _>(cx, |callback| {
+                            Ok(callback.clone())
+                        })?;
+                        cx.collect_garbage()?;
+                        stored.call_values(cx, &[Value::I32(1)])
+                    })?
+                    .expect("first guarded callback");
+                let Value::I32(result) = result else {
                     panic!("checked stored callback result");
                 };
                 Ok(result)
@@ -346,7 +352,7 @@ fn stored_callbacks_trace_captures_through_an_ordinary_native_payload() {
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         r#"
         use example::stored::{Handler, new, invoke};
         fn make() -> Handler { val offset = [41]; new(|value| value + offset[0]) }
@@ -367,8 +373,8 @@ fn stored_callbacks_trace_captures_through_an_ordinary_native_payload() {
     assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
 }
 
-fn identity(_cx: &mut CallContext<'_>, value: ValueHandle<'_>) -> NativeResult<Value> {
-    Ok(value.value())
+fn identity(cx: &mut NativeCall<'_>, value: ValueHandle<'_>) -> NativeResult<Value> {
+    value.value(cx)
 }
 
 #[test]
@@ -402,22 +408,22 @@ fn ordinary_generic_value_binding_keeps_closed_types_and_shared_values() {
     builder
         .bind(
             probe,
-            |_cx: &mut CallContext<'_>, value: ValueHandle<'_>| -> NativeResult<usize> {
+            |cx: &mut NativeCall<'_>, value: ValueHandle<'_>| -> NativeResult<usize> {
                 assert!(
                     value
-                        .scalar::<i64>()
+                        .scalar::<i64>(cx)
                         .unwrap_err()
                         .to_string()
                         .contains("argument type")
                 );
-                let host = value.scalar::<usize>()?;
-                assert_eq!(value.scalar::<u64>()?, host as u64);
+                let host = value.scalar::<usize>(cx)?;
+                assert_eq!(value.scalar::<u64>(cx)?, host as u64);
                 Ok(host)
             },
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         r#"
         use example::generic::{identity, probe};
         struct Item { val value: i32 }
@@ -464,11 +470,11 @@ fn array_and_callable_arguments_share_an_ordinary_rust_binding() {
     builder
         .bind(
             fold,
-            |cx: &mut CallContext<'_>,
+            |cx: &mut NativeCall<'_>,
              values: ValueHandle<'_>,
              map: CallableHandle<'_>|
              -> NativeResult<i32> {
-                let Value::Array(values) = values.value() else {
+                let Value::Array(values) = values.value(cx)? else {
                     panic!("checked array")
                 };
                 let length = cx.heap().array_len(values).unwrap();
@@ -484,7 +490,7 @@ fn array_and_callable_arguments_share_an_ordinary_rust_binding() {
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         "use example::fold::fold; fn main() -> i32 { fold([9, 10], |value| (value + 1) * 2) }",
         Some(&module),
     );

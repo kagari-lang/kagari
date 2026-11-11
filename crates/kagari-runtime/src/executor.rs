@@ -1,7 +1,7 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::{RuntimeError, fault::EngineFault},
-    frame::{ExecutionFrame, ExecutionStack},
+    frame::{ExecutionFrame, ExecutionStack, FrameStack},
     module::ExecutableModule,
     session::owned::OwnedExecution,
     value::Value,
@@ -20,8 +20,12 @@ use std::{
 };
 
 pub(crate) struct Executor<'a> {
-    runtime: &'a Runtime,
-    stack: Option<ExecutionStack<'a>>,
+    activation: ExecutionStack<'a>,
+}
+
+struct Interpreter<'a> {
+    runtime: &'a mut Runtime,
+    stack: &'a mut Option<FrameStack>,
 }
 
 pub(crate) enum DriveOutcome {
@@ -32,105 +36,114 @@ pub(crate) enum DriveOutcome {
 
 impl<'a> Executor<'a> {
     pub(crate) fn new(
-        runtime: &'a Runtime,
+        runtime: &'a mut Runtime,
         loaded: &'a ExecutableModule,
         entry: FunctionRef,
         args: &[Value],
     ) -> Result<Self, RuntimeError> {
-        let module = &loaded.bytecode;
-        module
+        loaded
+            .bytecode
             .functions
             .get(entry.index())
             .ok_or(RuntimeError::from(
                 EngineFault::VerifiedFunctionReferenceIsMissing,
             ))?;
-
-        let executor = Self {
-            runtime,
-            stack: Some(runtime.enter_execution_stack(loaded)?),
-        };
-        executor
-            .stack()
-            .push_callable(
-                runtime,
-                loaded.clone(),
-                CallableTarget::Script(entry),
-                args,
-                None,
-            )
-            .map_err(|error| runtime.resources().admit_execution_error(error))?;
-        Ok(executor)
+        let mut activation = runtime.enter_execution_stack(loaded)?;
+        activation.with(|runtime, stack| {
+            stack
+                .push_callable(
+                    runtime,
+                    loaded.clone(),
+                    CallableTarget::Script(entry),
+                    args,
+                    None,
+                )
+                .map_err(|error| runtime.resources().admit_execution_error(error))
+        })?;
+        Ok(Self { activation })
     }
 
     pub(crate) fn new_interface(
-        runtime: &'a Runtime,
+        runtime: &'a mut Runtime,
         method: RootedInterfaceMethod,
         args: &[Value],
     ) -> Result<Self, RuntimeError> {
         let loaded = method.implementation(runtime)?;
-        let stack = runtime.enter_execution_stack(&loaded)?;
-        stack
-            .push_interface_method(runtime, method, args, None)
-            .map_err(|error| runtime.resources().admit_execution_error(error))?;
-        Ok(Self {
-            runtime,
-            stack: Some(stack),
-        })
+        let mut activation = runtime.enter_execution_stack(&loaded)?;
+        activation.with(|runtime, stack| {
+            stack
+                .push_interface_method(runtime, method, args, None)
+                .map_err(|error| runtime.resources().admit_execution_error(error))
+        })?;
+        Ok(Self { activation })
+    }
+
+    pub(crate) fn from_activation(activation: ExecutionStack<'a>) -> Self {
+        Self { activation }
     }
 
     pub(crate) fn run(&mut self) -> Result<Value, RuntimeError> {
-        self.run_inner(None)
-            .and_then(|outcome| match outcome {
-                DriveOutcome::Complete(value) => Ok(value),
-                _ => Err(RuntimeError::from(EngineFault::HostInvariant(
-                    "synchronous entry cannot suspend",
-                ))),
-            })
-            .map_err(|error| {
-                error
-                    .admit_execution_error(self.runtime.resources())
-                    .with_trace(self.runtime.capture_error_trace())
-            })
+        self.activation.drive(|runtime, stack| {
+            Interpreter { runtime, stack }
+                .run_inner(None)
+                .and_then(|outcome| match outcome {
+                    DriveOutcome::Complete(value) => Ok(value),
+                    _ => Err(RuntimeError::from(EngineFault::HostInvariant(
+                        "synchronous entry cannot suspend",
+                    ))),
+                })
+                .map_err(|error| {
+                    error
+                        .admit_execution_error(runtime.resources())
+                        .with_trace(runtime.capture_error_trace())
+                })
+        })
     }
 
     pub(crate) fn resume(
-        runtime: &'a Runtime,
+        runtime: &'a mut Runtime,
         owner: &OwnedExecution,
     ) -> Result<Self, RuntimeError> {
         Ok(Self {
-            runtime,
-            stack: Some(runtime.resume_owned_execution(owner)?),
+            activation: runtime.resume_owned_execution(owner)?,
         })
     }
 
     pub(crate) fn run_slice(
         mut self,
         slice: NonZeroUsize,
-        complete: impl FnOnce(&Runtime, Value) -> Result<(), RuntimeError>,
+        complete: impl FnOnce(&mut Runtime, Value) -> Result<(), RuntimeError>,
     ) -> Result<DriveOutcome, RuntimeError> {
-        let value = self.run_inner(Some(slice.get())).map_err(|error| {
-            error
-                .admit_execution_error(self.runtime.resources())
-                .with_trace(self.runtime.capture_error_trace())
-        })?;
-        match &value {
-            DriveOutcome::Runnable => debug_assert!(self.stack.is_none()),
-            DriveOutcome::Waiting => ExecutionStack::park_waiting(&mut self.stack, self.runtime)
+        self.activation.drive(|runtime, stack| {
+            let value = Interpreter { runtime, stack }
+                .run_inner(Some(slice.get()))
                 .map_err(|error| {
                     error
-                        .admit_execution_error(self.runtime.resources())
-                        .with_trace(self.runtime.capture_error_trace())
+                        .admit_execution_error(runtime.resources())
+                        .with_trace(runtime.capture_error_trace())
+                })?;
+            match &value {
+                DriveOutcome::Runnable => debug_assert!(stack.is_none()),
+                DriveOutcome::Waiting => {
+                    FrameStack::park_waiting(stack, runtime).map_err(|error| {
+                        error
+                            .admit_execution_error(runtime.resources())
+                            .with_trace(runtime.capture_error_trace())
+                    })?
+                }
+                DriveOutcome::Complete(value) => complete(runtime, *value).map_err(|error| {
+                    error
+                        .admit_execution_error(runtime.resources())
+                        .with_trace(runtime.capture_error_trace())
                 })?,
-            DriveOutcome::Complete(value) => complete(self.runtime, *value).map_err(|error| {
-                error
-                    .admit_execution_error(self.runtime.resources())
-                    .with_trace(self.runtime.capture_error_trace())
-            })?,
-        }
-        Ok(value)
+            }
+            Ok(value)
+        })
     }
+}
 
-    fn stack(&self) -> &ExecutionStack<'a> {
+impl Interpreter<'_> {
+    fn stack(&self) -> &FrameStack {
         self.stack.as_ref().expect("active executor")
     }
 
@@ -139,10 +152,10 @@ impl<'a> Executor<'a> {
     }
 
     pub(crate) fn current_frame(&self) -> Result<Ref<'_, ExecutionFrame>, RuntimeError> {
-        self.stack().current()
+        self.stack().current(self.runtime)
     }
 
     pub(crate) fn current_frame_mut(&self) -> Result<RefMut<'_, ExecutionFrame>, RuntimeError> {
-        self.stack().current_mut()
+        self.stack().current_mut(self.runtime)
     }
 }

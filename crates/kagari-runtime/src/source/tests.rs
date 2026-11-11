@@ -251,13 +251,17 @@ fn current_routes_exact_values_frames_and_source_only_history() {
         .unwrap();
     let exact = runtime.value_source_target(&root).unwrap();
     let frame_target = {
-        let stack = runtime.enter_execution_stack(&old).unwrap();
-        stack
-            .push_closure(&runtime, &root.value(runtime.gc()).unwrap(), &[], None)
-            .unwrap();
-        let frame = stack.current().unwrap();
-        assert!(Runtime::default().frame_source_target(&frame).is_err());
-        runtime.frame_source_target(&frame).unwrap()
+        let mut stack_activation = runtime.enter_execution_stack(&old).unwrap();
+        stack_activation
+            .with(|runtime, stack| {
+                stack
+                    .push_closure(runtime, &root.value(runtime.gc()).unwrap(), &[], None)
+                    .unwrap();
+                let frame = stack.current(runtime).unwrap();
+                assert!(Runtime::default().frame_source_target(&frame).is_err());
+                Ok(runtime.frame_source_target(&frame).unwrap())
+            })
+            .unwrap()
     };
     let next = format!(
         "// moved unchanged definitions\r\n{}",
@@ -353,14 +357,11 @@ fn source_free_packages_stripping_mismatch_and_locator_authority(#[case] retaine
     let other = runtime.load_verified_program("other", code).unwrap();
     let snapshot = runtime.source_snapshot(&program).unwrap();
     let locator = declaration(&snapshot, "value");
-    let query = runtime
-        .function_source(
-            &runtime
-                .bind_function::<(), i32>(&program.root(), "value")
-                .unwrap()
-                .source_target(),
-        )
-        .unwrap();
+    let target = runtime
+        .bind_function::<(), i32>(&program.root(), "value")
+        .unwrap()
+        .source_target();
+    let query = runtime.function_source(&target).unwrap();
     if retained {
         assert!(available(query).text.contains("{ 1 }"));
         assert!(
@@ -491,19 +492,23 @@ fn cold_future_observation_is_exact_and_does_not_claim_the_body() {
         .find(|function| function.metadata.effects.may_suspend)
         .unwrap();
     let root = {
-        let stack = runtime.enter_execution_stack(&owner).unwrap();
-        stack
-            .push(&runtime, owner.slot(), factory.id, &[], None)
-            .unwrap();
-        let value = stack
-            .make_future(
-                &runtime,
-                resume.id,
-                vec![],
-                factory.metadata.semantic.result.as_ref().unwrap(),
-            )
-            .unwrap();
-        runtime.root_value(value).unwrap()
+        let mut stack_activation = runtime.enter_execution_stack(&owner).unwrap();
+        stack_activation
+            .with(|runtime, stack| {
+                stack
+                    .push(runtime, owner.slot(), factory.id, &[], None)
+                    .unwrap();
+                let value = stack
+                    .make_future(
+                        runtime,
+                        resume.id,
+                        vec![],
+                        factory.metadata.semantic.result.as_ref().unwrap(),
+                    )
+                    .unwrap();
+                Ok(runtime.root_value(value).unwrap())
+            })
+            .unwrap()
     };
     let exact = runtime.value_source_target(&root).unwrap();
     assert!(

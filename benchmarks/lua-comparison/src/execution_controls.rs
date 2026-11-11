@@ -40,7 +40,7 @@ impl Fixture {
         }
     }
 
-    fn park(&self, roots: &mut Vec<Option<OwnedExecution>>, population: usize) {
+    fn park(&mut self, roots: &mut Vec<Option<OwnedExecution>>, population: usize) {
         assert!(roots.is_empty());
         for index in 0..population {
             let execution = self
@@ -63,7 +63,7 @@ impl Fixture {
     }
 
     fn retire(
-        &self,
+        &mut self,
         roots: &mut Vec<Option<OwnedExecution>>,
         order: &[usize],
         cancel: bool,
@@ -129,7 +129,7 @@ pub(super) fn run(options: &Options) {
         .unwrap();
     let program =
         Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
-    let fixture = Fixture::new(&engine, &program);
+    let mut fixture = Fixture::new(&engine, &program);
     for (population, order) in CASES {
         for cancel in [false, true] {
             let indices = release_order(population, order);

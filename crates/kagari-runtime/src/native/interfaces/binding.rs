@@ -261,7 +261,7 @@ impl Runtime {
     }
 
     pub fn bind_interface_method<A: KagariArguments + 'static, R: KagariType + 'static>(
-        &self,
+        &mut self,
         member: &InterfaceMember,
     ) -> NativeResult<InterfaceMethod<A, R>> {
         self.bind_interface_method_application(member, &[])
@@ -272,7 +272,7 @@ impl Runtime {
         A: KagariArguments + 'static,
         R: KagariType + 'static,
     >(
-        &self,
+        &mut self,
         member: &InterfaceMember,
         arguments: &[TypeArgument],
     ) -> NativeResult<InterfaceMethod<A, R>> {
@@ -287,18 +287,8 @@ impl Runtime {
         } else {
             Some(ApplicationEvidence::find(self, member, arguments)?)
         };
-        let signature = match &evidence {
-            Some(evidence) => evidence.signature(self, member)?,
-            None => self.closed_interface_signature(member)?,
-        };
-        let cx = ConversionContext::new(self, &member.owner)?;
-        A::check_types(&cx, &signature.params)?;
-        cx.check_type::<R>(&signature.result)?;
         let mapping = TypeId::of::<(A, R)>();
-        let mut cache = self
-            .interface_bindings
-            .try_borrow_mut()
-            .map_err(|_| RuntimeError::module_validation("interface binding cache is borrowed"))?;
+        let cache = &mut self.interface_bindings;
         cache.0.retain(|entry| entry.strong_count() != 0);
         if let Some(record) = cache.0.iter().filter_map(Weak::upgrade).find(|record| {
             let previous = &record.member;
@@ -322,6 +312,14 @@ impl Runtime {
                 mapping: PhantomData,
             });
         }
+        let signature = match &evidence {
+            Some(evidence) => evidence.signature(self, member)?,
+            None => self.closed_interface_signature(member)?,
+        };
+        let cx = ConversionContext::new(self, &member.owner)?;
+        A::check_types(&cx, &signature.params)?;
+        cx.check_type::<R>(&signature.result)?;
+        drop(cx);
         let record = Arc::new(MethodRecord {
             member: member.clone(),
             signature,
@@ -331,6 +329,7 @@ impl Runtime {
                 .transpose()?,
             mapping,
         });
+        let cache = &mut self.interface_bindings;
         cache
             .0
             .try_reserve(1)

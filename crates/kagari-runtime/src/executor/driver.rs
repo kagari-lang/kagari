@@ -1,9 +1,9 @@
 //! Frame transitions carry established actions; activation and waits admit runtime state.
 use crate::{
     error::{RuntimeError, fault::EngineFault},
-    executor::{DriveOutcome, Executor, dispatch::InstructionProgress, native},
+    executor::{DriveOutcome, Interpreter, dispatch::InstructionProgress, native},
     frame::{
-        ExecutionStack,
+        FrameStack,
         cursor::kernel::RegionExit,
         driver::{ExecutionAction, ReturnAction},
     },
@@ -14,14 +14,14 @@ use kagari_bytecode::module::CallableTarget;
 
 use std::task::Poll;
 
-impl Executor<'_> {
+impl Interpreter<'_> {
     pub(super) fn run_inner(
         &mut self,
         remaining: Option<usize>,
     ) -> Result<DriveOutcome, RuntimeError> {
         self.drive_inner(remaining).inspect_err(|error| {
             let cause = error.to_string();
-            self.stack().fail_static_initializers(&cause);
+            self.stack().fail_static_initializers(self.runtime, &cause);
         })
     }
 
@@ -35,7 +35,11 @@ impl Executor<'_> {
                 action = Some(self.stack().next_action(self.runtime)?);
             }
             if action == Some(ExecutionAction::Await) {
-                let resumed = self.stack().poll_await(self.runtime);
+                let resumed = self
+                    .stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .poll_await(self.runtime);
                 match self.report_operation(resumed)? {
                     Poll::Pending => return Ok(DriveOutcome::Waiting),
                     Poll::Ready(Some(value)) => return Ok(DriveOutcome::Complete(value)),
@@ -45,9 +49,7 @@ impl Executor<'_> {
                 }
             }
             // A completed native result remains rooted in its frame if slicing parks here.
-            if remaining == Some(0)
-                && ExecutionStack::try_park_ready(&mut self.stack, self.runtime)?
-            {
+            if remaining == Some(0) && FrameStack::try_park_ready(self.stack, self.runtime)? {
                 return Ok(DriveOutcome::Runnable);
             }
             match action.expect("classified activation") {
@@ -67,7 +69,9 @@ impl Executor<'_> {
                     self.runtime
                         .observe_execution(ExecutionEvent::BeforeInstruction)?;
                     let result = self
-                        .stack()
+                        .stack
+                        .as_ref()
+                        .expect("active interpreter")
                         .start_native_entry(self.runtime, native::invoke_script);
                     action = Some(self.report_operation(result)?);
                     continue;
@@ -85,7 +89,9 @@ impl Executor<'_> {
                 .observe_execution(ExecutionEvent::BeforeInstruction)?;
 
             let result = self
-                .stack()
+                .stack
+                .as_ref()
+                .expect("active interpreter")
                 .execute_region(self.runtime, &mut remaining, native::invoke_script)
                 .map_err(RuntimeError::from);
             let progress = match self.report_operation(result)? {
@@ -153,7 +159,7 @@ impl Executor<'_> {
 #[cfg(test)]
 mod tests {
     use crate::test_support::bytecode::load_bytecode;
-    use crate::{executor::Executor, test_support::native::program::ProgramFixture};
+    use crate::{executor::Interpreter, test_support::native::program::ProgramFixture};
     use kagari_abi::representation::ValueType;
     use kagari_bytecode::{
         instruction::BytecodeInstruction,
@@ -210,16 +216,33 @@ mod tests {
         .unwrap();
         let _owner_program = owner;
         let owner = runtime.select_program(&_owner_program).unwrap();
-        let executor = Executor::new(&runtime, &owner, FunctionRef::new(0), &[]).unwrap();
+        let mut executor =
+            crate::executor::Executor::new(&mut runtime, &owner, FunctionRef::new(0), &[]).unwrap();
         let error = executor
-            .report_operation::<()>(Err(RuntimeError::resource_limit("driver operation")))
+            .activation
+            .drive(|runtime, stack| {
+                Interpreter { runtime, stack }
+                    .report_operation::<()>(Err(RuntimeError::resource_limit("driver operation")))
+            })
             .unwrap_err();
-        assert_eq!(runtime.resources().termination(), Some(error.clone()));
+        executor
+            .activation
+            .with(|runtime, _| {
+                assert_eq!(runtime.resources().termination(), Some(error.clone()));
+                Ok(())
+            })
+            .unwrap();
         let trace = error.trace().unwrap();
         assert!(!trace.incomplete);
         assert_eq!(trace.frames.len(), 1);
         assert_eq!(trace.frames[0].function_name, "main");
-        assert_eq!(runtime.resources().poll_execution().unwrap_err(), error);
+        executor
+            .activation
+            .with(|runtime, _| {
+                assert_eq!(runtime.resources().poll_execution().unwrap_err(), error);
+                Ok(())
+            })
+            .unwrap();
         drop(executor);
         assert!(runtime.resources().termination().is_none());
         assert_eq!(runtime.resources().counters().current_call_depth, 0);

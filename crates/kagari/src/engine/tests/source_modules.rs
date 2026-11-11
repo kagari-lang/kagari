@@ -61,10 +61,13 @@ fn host_fixture() -> (
         )
         .unwrap();
     builder
-        .bind(record, move |_: &HostCallContext<'_>, args: &[Value]| {
-            recorded.lock().unwrap().push(args[0]);
-            Ok(args[0])
-        })
+        .bind(
+            record,
+            move |_: &mut HostCallContext<'_>, args: &[Value]| {
+                recorded.lock().unwrap().push(args[0]);
+                Ok(args[0])
+            },
+        )
         .unwrap();
     let engine = KagariEngine::with_native_modules(
         Default::default(),

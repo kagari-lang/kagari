@@ -12,7 +12,7 @@ use crate::{
 
 impl Runtime {
     pub fn bind_method<A: KagariArguments + 'static, R: KagariType + 'static>(
-        &self,
+        &mut self,
         object_type: &impl InherentType,
         name: &str,
     ) -> NativeResult<Method<A, R>> {
@@ -20,7 +20,7 @@ impl Runtime {
     }
 
     pub fn bind_method_declaration<A: KagariArguments + 'static, R: KagariType + 'static>(
-        &self,
+        &mut self,
         member: &InherentMember,
     ) -> NativeResult<Method<A, R>> {
         self.bind_method_application_declaration(member, &[])
@@ -28,7 +28,7 @@ impl Runtime {
 
     /// Bind an installed application; type arguments here belong to the method.
     pub fn bind_method_application<A: KagariArguments + 'static, R: KagariType + 'static>(
-        &self,
+        &mut self,
         object_type: &impl InherentType,
         name: &str,
         arguments: &[TypeArgument],
@@ -40,7 +40,7 @@ impl Runtime {
         A: KagariArguments + 'static,
         R: KagariType + 'static,
     >(
-        &self,
+        &mut self,
         member: &InherentMember,
         arguments: &[TypeArgument],
     ) -> NativeResult<Method<A, R>> {
@@ -57,7 +57,7 @@ impl Runtime {
 
     /// Associated constructors and other static members use ordinary callable handles.
     pub fn bind_associated_function<A: KagariArguments + 'static, R: KagariType + 'static>(
-        &self,
+        &mut self,
         object_type: &impl InherentType,
         name: &str,
     ) -> NativeResult<Function<A, R>> {
@@ -68,7 +68,7 @@ impl Runtime {
         A: KagariArguments + 'static,
         R: KagariType + 'static,
     >(
-        &self,
+        &mut self,
         member: &InherentMember,
     ) -> NativeResult<Function<A, R>> {
         self.bind_associated_function_application_declaration(member, &[])
@@ -78,7 +78,7 @@ impl Runtime {
         A: KagariArguments + 'static,
         R: KagariType + 'static,
     >(
-        &self,
+        &mut self,
         object_type: &impl InherentType,
         name: &str,
         arguments: &[TypeArgument],
@@ -90,7 +90,7 @@ impl Runtime {
         A: KagariArguments + 'static,
         R: KagariType + 'static,
     >(
-        &self,
+        &mut self,
         member: &InherentMember,
         arguments: &[TypeArgument],
     ) -> NativeResult<Function<A, R>> {

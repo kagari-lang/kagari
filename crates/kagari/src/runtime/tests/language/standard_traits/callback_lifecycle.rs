@@ -90,7 +90,7 @@ pub fn make()->(Test,HashSet<Key>) {
             .lookup_child(declaration, DefinitionKind::Method, name, 0)
             .unwrap()
     };
-    let vm = runtime;
+    let mut vm = runtime;
     for mode in 1..=4 {
         let value = vm
             .execute_module(&loaded, "make", vm.execution_options())
@@ -181,8 +181,11 @@ pub fn make()->(Test,HashSet<Key>) {
         let values = vm.gc().tuple(values).unwrap().to_vec();
         let _options = vm.execution_options();
 
-        let session = support::cancel_after(&vm, &loaded, limit);
-        let result = vm.invoke_interface_method(&values[0], &method("attempt"), &[]);
+        let mut session = support::cancel_after(&mut vm, &loaded, limit);
+        let result =
+            session
+                .runtime_mut()
+                .invoke_interface_method(&values[0], &method("attempt"), &[]);
         drop(session);
         if result.is_err() {
             assert_eq!(

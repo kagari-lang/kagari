@@ -7,7 +7,7 @@ use std::sync::atomic::Ordering;
 #[test]
 fn sdk_for_await_iterator_control_contract() {
     let source = include_str!("../../../../../tests/fixtures/embedding/async/iterator-control.kgr");
-    let f = Fixture::source(source);
+    let mut f = Fixture::source(source);
     let calls = f.invoke("calls", &[]);
     let future = f.invoke("custom", &[f.value(&calls)]);
     let owner = f.start_future(&future);
@@ -18,7 +18,9 @@ fn sdk_for_await_iterator_control_contract() {
         ));
         assert_eq!(*f.inputs.lock().unwrap().last().unwrap(), input);
         assert_eq!(
-            f.value(&f.invoke("counts", &[f.value(&calls)])),
+            f.invoke("counts", &[f.value(&calls)])
+                .value(f.runtime.gc())
+                .unwrap(),
             Value::I32(count)
         );
         f.runtime.collect_garbage().unwrap();
@@ -27,9 +29,14 @@ fn sdk_for_await_iterator_control_contract() {
             CompletionStatus::Accepted
         );
     }
-    assert_eq!(f.value(&f.complete(&owner)), Value::I32(7));
     assert_eq!(
-        f.value(&f.invoke("counts", &[f.value(&calls)])),
+        f.complete(&owner).value(f.runtime.gc()).unwrap(),
+        Value::I32(7)
+    );
+    assert_eq!(
+        f.invoke("counts", &[f.value(&calls)])
+            .value(f.runtime.gc())
+            .unwrap(),
         Value::I32(112)
     );
 
@@ -51,7 +58,10 @@ fn sdk_for_await_iterator_control_contract() {
             CompletionStatus::Accepted
         );
     }
-    assert_eq!(f.value(&f.complete(&owner)), Value::I32(42));
+    assert_eq!(
+        f.complete(&owner).value(f.runtime.gc()).unwrap(),
+        Value::I32(42)
+    );
     drop(f.invoke("append", &[f.value(&items)]));
 
     // Both nested cursors survive suspension, so a committed structural write
@@ -66,7 +76,9 @@ fn sdk_for_await_iterator_control_contract() {
     let starts = f.starts.load(Ordering::SeqCst);
     drop(f.invoke("append", &[f.value(&invalidated_items)]));
     assert_eq!(
-        f.value(&f.invoke("size", &[f.value(&invalidated_items)])),
+        f.invoke("size", &[f.value(&invalidated_items)])
+            .value(f.runtime.gc())
+            .unwrap(),
         Value::U64(4)
     );
     f.runtime.collect_garbage().unwrap();
@@ -87,7 +99,9 @@ fn sdk_for_await_iterator_control_contract() {
     );
     assert_eq!(f.starts.load(Ordering::SeqCst), starts);
     assert_eq!(
-        f.value(&f.invoke("size", &[f.value(&invalidated_items)])),
+        f.invoke("size", &[f.value(&invalidated_items)])
+            .value(f.runtime.gc())
+            .unwrap(),
         Value::U64(4)
     );
 
@@ -129,7 +143,7 @@ fn sdk_for_await_iterator_control_contract() {
 
 #[test]
 fn sdk_script_future_and_for_await_contract() {
-    let f = Fixture::source(include_str!(
+    let mut f = Fixture::source(include_str!(
         "../../../../../tests/fixtures/embedding/async/script-future-iteration.kgr"
     ));
     let items = f.invoke("items", &[]);
@@ -173,20 +187,26 @@ fn sdk_script_future_and_for_await_contract() {
         f.sent.lock().unwrap().pop().unwrap().complete(Ok(7)),
         CompletionStatus::Accepted
     );
-    assert_eq!(f.value(&f.complete(&owner)), Value::I32(18));
+    assert_eq!(
+        f.complete(&owner).value(f.runtime.gc()).unwrap(),
+        Value::I32(18)
+    );
     drop(f.invoke("append", &[f.value(&items)]));
     let shared = f.invoke("closures", &[]);
     assert_eq!(
-        f.value(&f.complete(&f.start_future(&shared))),
+        f.run_future(&shared).value(f.runtime.gc()).unwrap(),
         Value::I32(12)
     );
     let nested = f.invoke("nested", &[]);
-    let inner = f.complete(&f.start_future(&nested));
+    let inner = f.run_future(&nested);
     assert!(
         matches!(f.value(&inner), Value::GcHandle(_)),
         "one root drive does not flatten nested Futures"
     );
-    assert_eq!(f.value(&f.complete(&f.start_future(&inner))), Value::I32(7));
+    assert_eq!(
+        f.run_future(&inner).value(f.runtime.gc()).unwrap(),
+        Value::I32(7)
+    );
     let early = f.invoke("early", &[]);
     let owner = f.start_future(&early);
     assert!(matches!(
@@ -256,22 +276,28 @@ fn sdk_script_future_and_for_await_contract() {
     let events = f.invoke("empty", &[]);
     let future = f.invoke("construct", &[f.value(&events)]);
     assert_eq!(
-        f.value(&f.invoke("order", &[f.value(&events)])),
+        f.invoke("order", &[f.value(&events)])
+            .value(f.runtime.gc())
+            .unwrap(),
         Value::I32(12)
     );
     assert_eq!(
-        f.value(&f.complete(&f.start_future(&future))),
+        f.run_future(&future).value(f.runtime.gc()).unwrap(),
         Value::I32(12)
     );
     assert_eq!(
-        f.value(&f.invoke("size", &[f.value(&events)])),
+        f.invoke("size", &[f.value(&events)])
+            .value(f.runtime.gc())
+            .unwrap(),
         Value::U64(2)
     );
 
     let items = f.invoke("items", &[]);
     let future = f.invoke("lazy", &[f.value(&items)]);
     assert_eq!(
-        f.value(&f.invoke("size", &[f.value(&items)])),
+        f.invoke("size", &[f.value(&items)])
+            .value(f.runtime.gc())
+            .unwrap(),
         Value::U64(3)
     );
     let queued = f.start_future(&future);
@@ -281,9 +307,11 @@ fn sdk_script_future_and_for_await_contract() {
         DriveResult::Complete(Err(error)) if matches!(error.clone(), ref error if error.kind() == RuntimeErrorKind::Cancelled)
     ));
     // Cancellation before first drive does not claim the cold value.
-    drop(f.complete(&f.start_future(&future)));
+    drop(f.run_future(&future));
     assert_eq!(
-        f.value(&f.invoke("size", &[f.value(&items)])),
+        f.invoke("size", &[f.value(&items)])
+            .value(f.runtime.gc())
+            .unwrap(),
         Value::U64(4)
     );
     let repeated = f.start_future(&future);
@@ -292,7 +320,9 @@ fn sdk_script_future_and_for_await_contract() {
         DriveResult::Complete(Err(error)) if matches!(error.clone(), ref error if error.kind() == RuntimeErrorKind::ScriptTrap)
     ));
     assert_eq!(
-        f.value(&f.invoke("size", &[f.value(&items)])),
+        f.invoke("size", &[f.value(&items)])
+            .value(f.runtime.gc())
+            .unwrap(),
         Value::U64(4)
     );
 }

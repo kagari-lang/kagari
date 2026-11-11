@@ -7,7 +7,7 @@ use kagari_runtime::{
     native::{
         assembly::draft::ModuleDraft,
         binding::{Codec, NativeBinding, NativeResult},
-        context::CallContext,
+        context::NativeCall,
         declarations::MethodDecl,
         primitive::NativePrimitive,
         types::Type,
@@ -67,7 +67,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     )
 }
 
-fn text<'a>(cx: &'a CallContext<'_>, index: usize) -> NativeResult<Ref<'a, str>> {
+fn text<'a>(cx: &'a NativeCall<'_>, index: usize) -> NativeResult<Ref<'a, str>> {
     let Value::Str(id) = cx.argument(index)? else {
         return Err(RuntimeError::module_validation("string argument"));
     };
@@ -76,28 +76,28 @@ fn text<'a>(cx: &'a CallContext<'_>, index: usize) -> NativeResult<Ref<'a, str>>
         .ok_or_else(|| RuntimeError::module_validation("invalid string argument"))
 }
 
-fn is_empty(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+fn is_empty(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     Ok(Value::Bool(text(cx, 0)?.is_empty()))
 }
 
-fn contains(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+fn contains(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     Ok(Value::Bool(text(cx, 0)?.contains(&*text(cx, 1)?)))
 }
 
-fn starts_with(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+fn starts_with(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     Ok(Value::Bool(text(cx, 0)?.starts_with(&*text(cx, 1)?)))
 }
 
-fn ends_with(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+fn ends_with(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     Ok(Value::Bool(text(cx, 0)?.ends_with(&*text(cx, 1)?)))
 }
 
-fn find(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+fn find(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     let result = text(cx, 0)?.find(&*text(cx, 1)?).map(|index| index as u64);
     cx.encode_result(result)
 }
 
-fn slice(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+fn slice(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     let start = index_argument(cx, 1)?;
     let end = index_argument(cx, 2)?;
     let source = text(cx, 0)?;
@@ -111,22 +111,22 @@ fn slice(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.encode_result(result)
 }
 
-fn trim(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+fn trim(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     let result = text(cx, 0)?.trim().to_owned();
     cx.encode_result(result)
 }
 
-fn trim_start(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+fn trim_start(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     let result = text(cx, 0)?.trim_start().to_owned();
     cx.encode_result(result)
 }
 
-fn trim_end(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+fn trim_end(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     let result = text(cx, 0)?.trim_end().to_owned();
     cx.encode_result(result)
 }
 
-fn replace(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+fn replace(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     let result = text(cx, 0)?.replace(&*text(cx, 1)?, &text(cx, 2)?);
     cx.encode_result(result)
 }

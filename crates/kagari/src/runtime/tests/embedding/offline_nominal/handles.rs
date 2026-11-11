@@ -106,7 +106,7 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
     let calls = trace.clone();
     schema
         .builder
-        .bind(rhs, move |_: &HostCallContext<'_>, _: &[Value]| {
+        .bind(rhs, move |_: &mut HostCallContext<'_>, _: &[Value]| {
             calls.lock().unwrap().push("argument");
             Ok(Value::I32(2))
         })
@@ -167,12 +167,12 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
                     return_type: Ty::Builtin(BuiltinType::I32),
                 };
                 let wrong =
-                    (|_: &HostCallContext<'_>, _: &[Value]| panic!("invalid member binding"))
+                    (|_: &mut HostCallContext<'_>, _: &[Value]| panic!("invalid member binding"))
                         .prepare(&wrong, &catalog)?;
                 assert!(methods.bind(method.clone(), wrong).is_err());
                 methods.bind(
                     method.clone(),
-                    move |context: &HostCallContext<'_>, args: &[Value]| {
+                    move |context: &mut HostCallContext<'_>, args: &[Value]| {
                         calls.lock().unwrap().push("method");
                         let root = context.runtime().execution_root().unwrap();
                         let nested = root
@@ -190,7 +190,7 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
                             panic!("checked parameter")
                         };
                         state.fetch_add(amount, Ordering::SeqCst);
-                        context.runtime().collect_garbage().unwrap();
+                        context.runtime_mut().collect_garbage().unwrap();
                         Ok(Value::I32(state.load(Ordering::SeqCst)))
                     },
                 )?;
@@ -303,10 +303,10 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
         .builder
         .bind(
             take,
-            move |context: &HostCallContext<'_>, args: &[Value]| {
+            move |context: &mut HostCallContext<'_>, args: &[Value]| {
                 calls.lock().unwrap().push("take");
                 assert!(matches!(args[0], Value::HostRoot(_)));
-                context.runtime().collect_garbage().unwrap();
+                context.runtime_mut().collect_garbage().unwrap();
                 Ok(Value::I32(42))
             },
         )

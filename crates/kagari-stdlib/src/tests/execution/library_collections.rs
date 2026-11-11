@@ -5,7 +5,7 @@ use kagari_runtime::{
     gc::roots::RootedValue,
     module::{ExecutableModule, entry::ProgramEntry},
     native::{
-        binding::NativeResult, builder::ModuleBuilder, context::CallContext,
+        binding::NativeResult, builder::ModuleBuilder, context::NativeCall,
         declarations::FunctionDecl, module::NativeModule, types::Type, views::ValueHandle,
     },
     value::Value,
@@ -76,7 +76,7 @@ fn after_failure_source(element: &str, count: usize) -> String {
     )
 }
 
-fn inspect_retained(vm: &Runtime, owner: &ExecutableModule, probe: &Probe) -> RootedValue {
+fn inspect_retained(vm: &mut Runtime, owner: &ExecutableModule, probe: &Probe) -> RootedValue {
     let value = probe
         .retained
         .lock()
@@ -103,7 +103,7 @@ fn run(text: &str) -> Value {
     let loaded = load_bytecode(&mut runtime, "sort", program(text, &[&library])).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .unwrap()
         .return_value
@@ -167,8 +167,8 @@ impl Probe {
         module
             .bind(
                 keep,
-                move |_cx: &mut CallContext<'_>, value: ValueHandle<'_>| -> NativeResult<()> {
-                    *capture.lock().unwrap() = Some(value.root()?);
+                move |cx: &mut NativeCall<'_>, value: ValueHandle<'_>| -> NativeResult<()> {
+                    *capture.lock().unwrap() = Some(value.root(cx)?);
                     Ok(())
                 },
             )
@@ -180,7 +180,7 @@ impl Probe {
         module
             .bind(
                 tick,
-                move |cx: &mut CallContext<'_>| -> NativeResult<usize> {
+                move |cx: &mut NativeCall<'_>| -> NativeResult<usize> {
                     count.fetch_add(1, Ordering::SeqCst);
                     cx.collect_garbage()?;
                     Ok(count.load(Ordering::SeqCst))
@@ -229,13 +229,13 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
     .unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     assert!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .is_err()
     );
     assert_eq!(probe.calls.load(Ordering::SeqCst), 3);
-    let snapshot = inspect_retained(&vm, &loaded, &probe);
+    let snapshot = inspect_retained(&mut vm, &loaded, &probe);
     let Value::Array(array) = snapshot.value(vm.gc()).unwrap() else {
         panic!("snapshot")
     };
@@ -311,7 +311,7 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
         .unwrap();
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
-        let vm = runtime;
+        let mut vm = runtime;
         let error = vm
             .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap_err();
@@ -319,7 +319,7 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
             format!("{error:?}").contains("guarded callback"),
             "{error:?}"
         );
-        let snapshot = inspect_retained(&vm, &loaded, &probe);
+        let snapshot = inspect_retained(&mut vm, &loaded, &probe);
         let Value::Array(array) = snapshot.value(vm.gc()).unwrap() else {
             panic!("snapshot")
         };

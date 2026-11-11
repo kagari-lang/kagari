@@ -8,7 +8,7 @@ use kagari_runtime::{
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         callable::StoredCallable,
-        context::CallContext,
+        context::NativeCall,
         functions::NativeFunction,
         scalar::NativeScalar,
         storage::{NativePayload, NativeStorage},
@@ -74,7 +74,7 @@ pub(crate) fn adapter_binding(operation: Operation) -> NativeBinding {
 }
 
 pub(crate) fn next_binding(symbols: EnumSymbols) -> NativeBinding {
-    (move |cx: &mut CallContext<'_>, receiver: ValueHandle<'_>| next(&symbols, cx, receiver))
+    (move |cx: &mut NativeCall<'_>, receiver: ValueHandle<'_>| next(&symbols, cx, receiver))
         .binding()
 }
 
@@ -82,7 +82,7 @@ fn invalid() -> RuntimeError {
     RuntimeError::module_validation("Iterable adapter contract")
 }
 
-fn construct(cx: &mut CallContext<'_>, operation: Operation) -> NativeResult<Value> {
+fn construct(cx: &mut NativeCall<'_>, operation: Operation) -> NativeResult<Value> {
     let receiver = cx.argument(0)?;
     let callback = if matches!(
         operation,
@@ -122,16 +122,25 @@ fn construct(cx: &mut CallContext<'_>, operation: Operation) -> NativeResult<Val
 
 fn next(
     symbols: &EnumSymbols,
-    cx: &mut CallContext<'_>,
+    cx: &mut NativeCall<'_>,
     receiver: ValueHandle<'_>,
 ) -> NativeResult<Value> {
-    let Some(_active) = receiver.try_enter_operation()? else {
-        return Err(RuntimeError::from(TrapReason::Provider(
-            "recursive next on the same lazy iterator".into(),
-        )));
-    };
+    receiver
+        .with_operation(cx, |cx| next_active(symbols, cx, &receiver))?
+        .ok_or_else(|| {
+            RuntimeError::from(TrapReason::Provider(
+                "recursive next on the same lazy iterator".into(),
+            ))
+        })
+}
+
+fn next_active(
+    symbols: &EnumSymbols,
+    cx: &mut NativeCall<'_>,
+    receiver: &ValueHandle<'_>,
+) -> NativeResult<Value> {
     let (source, second, operation, callback, mut remaining, switched) = receiver
-        .with_payload::<Adapter, _>(|adapter| {
+        .with_payload::<Adapter, _>(cx, |adapter| {
             Ok((
                 adapter.source,
                 adapter.second,
@@ -154,7 +163,7 @@ fn next(
         let result = cx.call_stored_values(0, slot, &[current])?;
         let Some(item) = enums::read_option(symbols, cx, &result)? else {
             if matches!(operation, Operation::Chain) && slot == 0 {
-                receiver.with_payload::<Adapter, _>(|adapter| {
+                receiver.with_payload::<Adapter, _>(cx, |adapter| {
                     adapter.switched.set(true);
                     Ok(())
                 })?;
@@ -190,7 +199,7 @@ fn next(
                 }
             }
             Operation::Take => {
-                receiver.with_payload::<Adapter, _>(|adapter| {
+                receiver.with_payload::<Adapter, _>(cx, |adapter| {
                     adapter.remaining.set(remaining - 1);
                     Ok(())
                 })?;
@@ -198,14 +207,14 @@ fn next(
             }
             Operation::Skip if remaining > 0 => {
                 remaining -= 1;
-                receiver.with_payload::<Adapter, _>(|adapter| {
+                receiver.with_payload::<Adapter, _>(cx, |adapter| {
                     adapter.remaining.set(remaining);
                     Ok(())
                 })?;
             }
             Operation::Enumerate => {
                 let following = increment(remaining)?;
-                receiver.with_payload::<Adapter, _>(|adapter| {
+                receiver.with_payload::<Adapter, _>(cx, |adapter| {
                     adapter.remaining.set(following);
                     Ok(())
                 })?;

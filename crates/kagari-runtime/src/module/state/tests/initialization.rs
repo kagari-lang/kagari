@@ -43,63 +43,77 @@ fn initializer_frame_drop_poison_survives_termination_and_releases_recipe_edges(
             .unwrap();
         let current = staged.module().clone();
         runtime.publish_staged_reload(staged).unwrap();
-        let stack = runtime.enter_execution_stack(&current).unwrap();
-        stack
-            .push(&runtime, current.slot(), FunctionRef::new(0), &[], None)
+        let mut stack_activation = runtime.enter_execution_stack(&current).unwrap();
+        stack_activation
+            .with(|runtime, stack| {
+                stack
+                    .push(runtime, current.slot(), FunctionRef::new(0), &[], None)
+                    .unwrap();
+                stack
+                    .current_mut(runtime)
+                    .unwrap()
+                    .next_instruction()
+                    .unwrap();
+                assert!(
+                    !stack
+                        .ensure_static_ready(runtime, ModuleSlot::new(0))
+                        .unwrap()
+                );
+                assert_eq!(stack.current(runtime).unwrap().loaded().key(), old.key());
+                assert!(runtime.static_initialization_active());
+                assert!(!stack.can_park(runtime).unwrap());
+                assert_eq!(
+                    runtime
+                        .spawn_task(&Value::Unit, &Value::Unit)
+                        .unwrap_err()
+                        .kind(),
+                    RuntimeErrorKind::ExecutionPhaseViolation
+                );
+                assert_eq!(
+                    runtime
+                        .create_dispatched_task_scope(
+                            &current,
+                            Default::default(),
+                            Arc::new(|_| Ok(()))
+                        )
+                        .unwrap_err()
+                        .kind(),
+                    RuntimeErrorKind::ExecutionPhaseViolation
+                );
+                assert_eq!(
+                    stack
+                        .make_future(runtime, FunctionRef::new(0), vec![], &scalar())
+                        .unwrap_err()
+                        .kind(),
+                    RuntimeErrorKind::ExecutionPhaseViolation
+                );
+                assert_eq!(
+                    stack
+                        .begin_await(runtime, Value::Unit, Slot::new(0), &scalar())
+                        .unwrap_err()
+                        .kind(),
+                    RuntimeErrorKind::ExecutionPhaseViolation
+                );
+                match mode {
+                    0 => {}
+                    1 => {
+                        runtime.execution_options().cancellation.cancel();
+                    }
+                    2 => {
+                        runtime.quarantine_execution_invariant(EngineFault::HostInvariant(
+                            "test cleanup after fault",
+                        ));
+                    }
+                    3 => {
+                        stack.fail_static_initializers(runtime, "observer failed");
+                    }
+                    _ => unreachable!(),
+                }
+
+                Ok(())
+            })
             .unwrap();
-        stack.current_mut().unwrap().next_instruction().unwrap();
-        assert!(
-            !stack
-                .ensure_static_ready(&runtime, ModuleSlot::new(0))
-                .unwrap()
-        );
-        assert_eq!(stack.current().unwrap().loaded().key(), old.key());
-        assert!(runtime.static_initialization_active());
-        assert!(!stack.can_park(&runtime).unwrap());
-        assert_eq!(
-            runtime
-                .spawn_task(&Value::Unit, &Value::Unit)
-                .unwrap_err()
-                .kind(),
-            RuntimeErrorKind::ExecutionPhaseViolation
-        );
-        assert_eq!(
-            runtime
-                .create_dispatched_task_scope(&current, Default::default(), Arc::new(|_| Ok(())))
-                .unwrap_err()
-                .kind(),
-            RuntimeErrorKind::ExecutionPhaseViolation
-        );
-        assert_eq!(
-            stack
-                .make_future(&runtime, FunctionRef::new(0), vec![], &scalar())
-                .unwrap_err()
-                .kind(),
-            RuntimeErrorKind::ExecutionPhaseViolation
-        );
-        assert_eq!(
-            stack
-                .begin_await(&runtime, Value::Unit, Slot::new(0), &scalar())
-                .unwrap_err()
-                .kind(),
-            RuntimeErrorKind::ExecutionPhaseViolation
-        );
-        match mode {
-            0 => {}
-            1 => {
-                runtime.execution_options().cancellation.cancel();
-            }
-            2 => {
-                runtime.quarantine_execution_invariant(EngineFault::HostInvariant(
-                    "test cleanup after fault",
-                ));
-            }
-            3 => {
-                stack.fail_static_initializers("observer failed");
-            }
-            _ => unreachable!(),
-        }
-        drop(stack);
+        drop(stack_activation);
         assert!(!runtime.static_initialization_active());
         assert!(matches!(
             runtime.modules.static_state(&current, ModuleSlot::new(0)),
@@ -134,17 +148,27 @@ fn pre_attempt_depth_rejection_leaves_cell_uninitialized() {
     });
     let loaded_program = load_bytecode(&mut runtime, "state", access_program()).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
-    let stack = runtime.enter_execution_stack(&loaded).unwrap();
-    stack
-        .push(&runtime, loaded.slot(), FunctionRef::new(0), &[], None)
+    let mut stack_activation = runtime.enter_execution_stack(&loaded).unwrap();
+    stack_activation
+        .with(|runtime, stack| {
+            stack
+                .push(runtime, loaded.slot(), FunctionRef::new(0), &[], None)
+                .unwrap();
+            stack
+                .current_mut(runtime)
+                .unwrap()
+                .next_instruction()
+                .unwrap();
+            assert!(
+                stack
+                    .ensure_static_ready(runtime, ModuleSlot::new(0))
+                    .is_err()
+            );
+
+            Ok(())
+        })
         .unwrap();
-    stack.current_mut().unwrap().next_instruction().unwrap();
-    assert!(
-        stack
-            .ensure_static_ready(&runtime, ModuleSlot::new(0))
-            .is_err()
-    );
-    drop(stack);
+    drop(stack_activation);
     assert!(matches!(
         runtime.modules.static_state(&loaded, ModuleSlot::new(0)),
         Some(StaticState::Uninitialized(_))
@@ -162,28 +186,38 @@ fn swallowed_cycle_cannot_commit_and_candidate_switch_cannot_escape_marker() {
     let candidate = runtime
         .stage_reload_program(&loaded_program, None, code)
         .unwrap();
-    let stack = runtime.enter_execution_stack(&loaded).unwrap();
-    stack
-        .push(&runtime, loaded.slot(), FunctionRef::new(0), &[], None)
+    let mut stack_activation = runtime.enter_execution_stack(&loaded).unwrap();
+    stack_activation
+        .with(|runtime, stack| {
+            stack
+                .push(runtime, loaded.slot(), FunctionRef::new(0), &[], None)
+                .unwrap();
+            stack
+                .current_mut(runtime)
+                .unwrap()
+                .next_instruction()
+                .unwrap();
+            assert!(
+                !stack
+                    .ensure_static_ready(runtime, ModuleSlot::new(0))
+                    .unwrap()
+            );
+            assert!(runtime.begin_candidate_initialization(&candidate).is_err());
+            assert!(
+                runtime
+                    .read_module_slot(&loaded, ModuleSlot::new(0))
+                    .is_err()
+            );
+            assert!(
+                stack
+                    .finish_return(runtime, ReturnValue::general(Value::I32(42)))
+                    .is_err()
+            );
+
+            Ok(())
+        })
         .unwrap();
-    stack.current_mut().unwrap().next_instruction().unwrap();
-    assert!(
-        !stack
-            .ensure_static_ready(&runtime, ModuleSlot::new(0))
-            .unwrap()
-    );
-    assert!(runtime.begin_candidate_initialization(&candidate).is_err());
-    assert!(
-        runtime
-            .read_module_slot(&loaded, ModuleSlot::new(0))
-            .is_err()
-    );
-    assert!(
-        stack
-            .finish_return(&runtime, ReturnValue::general(Value::I32(42)))
-            .is_err()
-    );
-    drop(stack);
+    drop(stack_activation);
     let StaticState::Failed(failure) = runtime
         .modules
         .static_state(&loaded, ModuleSlot::new(0))
@@ -199,23 +233,33 @@ fn initializer_return_failure_after_retirement_poison_is_owned_by_the_attempt() 
     let mut runtime = Runtime::default();
     let loaded_program = load_bytecode(&mut runtime, "state", access_program()).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
-    let stack = runtime.enter_execution_stack(&loaded).unwrap();
-    stack
-        .push(&runtime, loaded.slot(), FunctionRef::new(0), &[], None)
+    let mut stack_activation = runtime.enter_execution_stack(&loaded).unwrap();
+    stack_activation
+        .with(|runtime, stack| {
+            stack
+                .push(runtime, loaded.slot(), FunctionRef::new(0), &[], None)
+                .unwrap();
+            stack
+                .current_mut(runtime)
+                .unwrap()
+                .next_instruction()
+                .unwrap();
+            assert!(
+                !stack
+                    .ensure_static_ready(runtime, ModuleSlot::new(0))
+                    .unwrap()
+            );
+            let held = runtime.modules.inner.borrow();
+            let error = stack
+                .finish_return(runtime, ReturnValue::general(Value::I32(42)))
+                .unwrap_err();
+            assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
+            drop(held);
+
+            Ok(())
+        })
         .unwrap();
-    stack.current_mut().unwrap().next_instruction().unwrap();
-    assert!(
-        !stack
-            .ensure_static_ready(&runtime, ModuleSlot::new(0))
-            .unwrap()
-    );
-    let held = runtime.modules.inner.borrow();
-    let error = stack
-        .finish_return(&runtime, ReturnValue::general(Value::I32(42)))
-        .unwrap_err();
-    assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
-    drop(held);
-    drop(stack);
+    drop(stack_activation);
     let StaticState::Failed(failure) = runtime
         .modules
         .static_state(&loaded, ModuleSlot::new(0))
@@ -238,52 +282,62 @@ fn initializer_return_checks_semantic_type_before_ready_and_retries_access_pc() 
         let mut runtime = Runtime::default();
         let loaded_program = load_bytecode(&mut runtime, "state", access_program()).unwrap();
         let loaded = runtime.select_program(&loaded_program).unwrap();
-        let stack = runtime.enter_execution_stack(&loaded).unwrap();
-        stack
-            .push(&runtime, loaded.slot(), FunctionRef::new(0), &[], None)
-            .unwrap();
-        stack.current_mut().unwrap().next_instruction().unwrap();
-        assert!(
-            !stack
-                .ensure_static_ready(&runtime, ModuleSlot::new(0))
-                .unwrap()
-        );
-        let result = stack.finish_return(
-            &runtime,
-            ReturnValue::general(if valid {
-                Value::I32(42)
-            } else {
-                Value::Bool(true)
-            }),
-        );
-        if valid {
-            assert!(matches!(result, Ok(ReturnAction::Continue(_))));
-            assert!(!runtime.static_initialization_active());
-            stack.current_mut().unwrap().prepare_instruction();
-            assert!(matches!(
-                stack.current_mut().unwrap().next_instruction(),
-                Some(BytecodeInstruction::LoadModule { .. })
-            ));
-            assert!(
+        let mut stack_activation = runtime.enter_execution_stack(&loaded).unwrap();
+        stack_activation
+            .with(|runtime, stack| {
                 stack
-                    .ensure_static_ready(&runtime, ModuleSlot::new(0))
+                    .push(runtime, loaded.slot(), FunctionRef::new(0), &[], None)
+                    .unwrap();
+                stack
+                    .current_mut(runtime)
                     .unwrap()
-            );
-            assert_eq!(
-                runtime
-                    .read_module_slot(&loaded, ModuleSlot::new(0))
-                    .unwrap(),
-                Value::I32(42)
-            );
-            assert!(
-                runtime
-                    .write_module_slot(&loaded, ModuleSlot::new(0), Value::I32(9))
-                    .is_err()
-            );
-        } else {
-            assert!(result.is_err());
-        }
-        drop(stack);
+                    .next_instruction()
+                    .unwrap();
+                assert!(
+                    !stack
+                        .ensure_static_ready(runtime, ModuleSlot::new(0))
+                        .unwrap()
+                );
+                let result = stack.finish_return(
+                    runtime,
+                    ReturnValue::general(if valid {
+                        Value::I32(42)
+                    } else {
+                        Value::Bool(true)
+                    }),
+                );
+                if valid {
+                    assert!(matches!(result, Ok(ReturnAction::Continue(_))));
+                    assert!(!runtime.static_initialization_active());
+                    stack.current_mut(runtime).unwrap().prepare_instruction();
+                    assert!(matches!(
+                        stack.current_mut(runtime).unwrap().next_instruction(),
+                        Some(BytecodeInstruction::LoadModule { .. })
+                    ));
+                    assert!(
+                        stack
+                            .ensure_static_ready(runtime, ModuleSlot::new(0))
+                            .unwrap()
+                    );
+                    assert_eq!(
+                        runtime
+                            .read_module_slot(&loaded, ModuleSlot::new(0))
+                            .unwrap(),
+                        Value::I32(42)
+                    );
+                    assert!(
+                        runtime
+                            .write_module_slot(&loaded, ModuleSlot::new(0), Value::I32(9))
+                            .is_err()
+                    );
+                } else {
+                    assert!(result.is_err());
+                }
+
+                Ok(())
+            })
+            .unwrap();
+        drop(stack_activation);
         assert!(
             matches!(runtime.modules.static_state(&loaded, ModuleSlot::new(0)).unwrap(), StaticState::Ready(_) if valid)
                 || matches!(runtime.modules.static_state(&loaded, ModuleSlot::new(0)).unwrap(), StaticState::Failed(_) if !valid)

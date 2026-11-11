@@ -120,7 +120,7 @@ impl Fixture {
         }
     }
 
-    fn park(&self, roots: &mut Vec<OwnedExecution>, route: Route) {
+    fn park(&mut self, roots: &mut Vec<OwnedExecution>, route: Route) {
         assert!(roots.is_empty());
         let steps = if matches!(route, Route::Return) {
             self.instructions - 1
@@ -145,7 +145,7 @@ impl Fixture {
         }
     }
 
-    fn finish(&self, owner: &OwnedExecution, index: usize, cancel: bool) -> i64 {
+    fn finish(&mut self, owner: &OwnedExecution, index: usize, cancel: bool) -> i64 {
         if cancel {
             owner.cancel();
         }
@@ -169,7 +169,7 @@ impl Fixture {
         }
     }
 
-    fn cycle(&self, roots: &mut Vec<OwnedExecution>, route: Route) -> (u128, i64) {
+    fn cycle(&mut self, roots: &mut Vec<OwnedExecution>, route: Route) -> (u128, i64) {
         self.park(roots, route);
         let start = Instant::now();
         let mut checksum = 0;
@@ -223,7 +223,7 @@ fn main() {
             _ => panic!("expected optional --reverse and --batch 1|16"),
         }
     }
-    let fixture = Fixture::new();
+    let mut fixture = Fixture::new();
     println!("INSTRUCTIONS,{}", fixture.instructions);
     let mut routes = [Route::Complete, Route::Body, Route::Return, Route::Cancel];
     if reverse {

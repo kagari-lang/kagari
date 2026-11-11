@@ -18,7 +18,7 @@ const SOURCE: &str =
 
 #[test]
 fn prepared_interface_members_call_inherited_and_default_methods_on_multiple_receivers() {
-    let (vm, owner) = fixture(SOURCE, None);
+    let (mut vm, owner) = fixture(SOURCE, None);
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
     let player: Interface = vm
@@ -49,14 +49,16 @@ fn prepared_interface_members_call_inherited_and_default_methods_on_multiple_rec
     assert_eq!(player.call(&mut cx, &get, ()).unwrap(), 100);
     assert_eq!(second.call(&mut cx, &get, ()).unwrap(), 40);
     assert_eq!(player.call(&mut cx, &damage, (10,)).unwrap(), 90);
-    let fail = vm
-        .bind_interface_method::<(i32,), i32>(&player.member(&vm, "fail").unwrap())
+    let member = player.member(cx.runtime(), "fail").unwrap();
+    let fail = cx
+        .runtime_mut()
+        .bind_interface_method::<(i32,), i32>(&member)
         .unwrap();
     assert!(player.call(&mut cx, &fail, (0,)).is_err());
-    assert_eq!(vm.resources().counters().current_call_depth, 0);
+    assert_eq!(cx.runtime().resources().counters().current_call_depth, 0);
     let token = CancellationToken::default();
     token.cancel();
-    let mut options = vm.execution_options();
+    let mut options = cx.runtime().execution_options();
     options.cancellation = token;
     assert!(
         player
@@ -64,7 +66,7 @@ fn prepared_interface_members_call_inherited_and_default_methods_on_multiple_rec
             .is_err()
     );
     assert_eq!(player.call(&mut cx, &get, ()).unwrap(), 100);
-    let (foreign, foreign_owner) = fixture(SOURCE, None);
+    let (mut foreign, foreign_owner) = fixture(SOURCE, None);
     let _foreign_owner_program = foreign_owner;
     let foreign_owner = foreign.select_program(&_foreign_owner_program).unwrap();
     assert!(
@@ -76,7 +78,7 @@ fn prepared_interface_members_call_inherited_and_default_methods_on_multiple_rec
 
 #[test]
 fn interface_method_results_use_existing_native_and_inherited_adapters() {
-    let (vm, owner) = fixture(
+    let (mut vm, owner) = fixture(
         r#"
         use std::collections::List;
         pub fn make() -> List<i32> { Vec::from([20, 22]) }
@@ -110,23 +112,25 @@ fn interface_method_results_use_existing_native_and_inherited_adapters() {
     let mut cx = vm.context(&owner).unwrap();
     assert_eq!(list.call(&mut cx, &len, ()).unwrap(), 2);
     let iterator = list.call(&mut cx, &iter, ()).unwrap();
-    let next = vm
-        .bind_interface_method::<(), Option<i32>>(&iterator.member(&vm, "next").unwrap())
+    let member = iterator.member(cx.runtime(), "next").unwrap();
+    let next = cx
+        .runtime_mut()
+        .bind_interface_method::<(), Option<i32>>(&member)
         .unwrap();
     drop(list);
-    vm.collect_garbage().unwrap();
+    cx.runtime_mut().collect_garbage().unwrap();
     assert_eq!(iterator.call(&mut cx, &next, ()).unwrap(), Some(20));
-    vm.collect_garbage().unwrap();
+    cx.runtime_mut().collect_garbage().unwrap();
     assert_eq!(iterator.call(&mut cx, &next, ()).unwrap(), Some(22));
     assert_eq!(iterator.call(&mut cx, &next, ()).unwrap(), None);
     drop(iterator);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(vm.gc().active_roots(), 0);
+    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(cx.runtime().gc().active_roots(), 0);
 }
 
 #[test]
 fn interface_calls_preserve_associated_object_outputs_and_public_access() {
-    let (vm, owner) = fixture(
+    let (mut vm, owner) = fixture(
         r#"
         pub trait Reader { type Item; fn read(self) -> Self::Item; }
         trait Hidden { fn read(self) -> i32; }
@@ -236,14 +240,16 @@ fn interface_dispatch_collects_during_reentry_and_selects_current_default_code()
     drop(player);
     drop(damage);
     assert!(
-        !vm.collect_garbage()
+        !cx.runtime_mut()
+            .collect_garbage()
             .unwrap()
             .reclaimed_modules
             .contains(&old.key())
     );
     drop(duplicate);
     assert!(
-        vm.collect_garbage()
+        cx.runtime_mut()
+            .collect_garbage()
             .unwrap()
             .reclaimed_modules
             .contains(&old.key())

@@ -41,7 +41,7 @@ impl<A, R> Clone for AsyncMethod<A, R> {
 
 impl Runtime {
     pub fn bind_async_method<A: KagariArguments + 'static, R: KagariType + 'static>(
-        &self,
+        &mut self,
         object_type: &impl InherentType,
         name: &str,
     ) -> NativeResult<AsyncMethod<A, R>> {
@@ -53,11 +53,14 @@ impl Runtime {
     }
 
     pub fn bind_async_associated_function<A: KagariArguments + 'static, R: KagariType + 'static>(
-        &self,
+        &mut self,
         object_type: &impl InherentType,
         name: &str,
     ) -> NativeResult<AsyncFunction<A, R>> {
-        AsyncFunction::from_function(self, self.bind_associated_function(object_type, name)?)
+        {
+            let function = self.bind_associated_function(object_type, name)?;
+            AsyncFunction::from_function(self, function)
+        }
     }
 }
 
@@ -74,7 +77,7 @@ impl<A, R> AsyncMethod<A, R> {
 impl<A: IntoKagariArguments, R: FromKagari + Send + 'static> AsyncMethod<A, R> {
     pub(crate) fn schedule_on(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         receiver: AppliedReceiver,
         root: RootedValue,
         arguments: A,

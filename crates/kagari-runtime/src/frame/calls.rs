@@ -6,8 +6,7 @@ use crate::{
     error::{RuntimeError, fault::EngineFault},
     execution_metadata::call_contracts::InterfaceCallSite,
     frame::{
-        ExecutionStack, FrameDispatch, FrameEntry, arguments::FrameArguments,
-        driver::ExecutionAction,
+        FrameDispatch, FrameEntry, FrameStack, arguments::FrameArguments, driver::ExecutionAction,
     },
     module::{execution::calls::PreparedCallTarget, linked_execution::calls::LinkedCall},
 };
@@ -15,7 +14,7 @@ use crate::{
 use kagari_bytecode::module::CallableTarget;
 use std::slice;
 
-impl ExecutionStack<'_> {
+impl FrameStack {
     /// Only the executing sealed instruction selects a call record; external
     /// callers cannot supply a transfer plan or substitute a target generation.
     pub(super) fn push_prepared_call(
@@ -30,7 +29,7 @@ impl ExecutionStack<'_> {
         // suspension or collection occurs before this private transition.
         // Callee availability, dynamic values and depth remain checked below.
         let (owner, function, slots, environment, links) = {
-            let frames = self.frames()?;
+            let frames = self.frames(runtime)?;
             let caller = frames
                 .last()
                 .filter(|_| frames.len() > self.base)
@@ -82,7 +81,7 @@ impl ExecutionStack<'_> {
                 (route, Some(contract.as_ref()))
             }
             PreparedCallTarget::Closure(contract) => {
-                let caller = self.current()?;
+                let caller = self.current(runtime)?;
                 let value = caller.read_slot(runtime, contract.register)?;
                 let closure = runtime.resolve_closure(&value)?;
                 caller.validate_closure_call(
@@ -103,7 +102,7 @@ impl ExecutionStack<'_> {
                 receiver, closed, ..
             } => {
                 let (invocation, receiver) = {
-                    let caller = self.current()?;
+                    let caller = self.current(runtime)?;
                     let receiver = receiver
                         .map(|register| caller.read_slot(runtime, register))
                         .transpose()?;

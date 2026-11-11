@@ -226,6 +226,7 @@ impl GcHeap {
     }
 
     pub(crate) fn ensure_execution_allowed(&self) -> Result<(), RuntimeError> {
+        self.resources.ensure_synchronous_thread()?;
         self.ensure_no_native_borrow()?;
         self.resources.ensure_execution_allowed()
     }

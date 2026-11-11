@@ -2,7 +2,7 @@
 use kagari_runtime::{
     error::{RuntimeError, reason::IndexError},
     gc::HeapObjectId,
-    native::{binding::NativeResult, context::CallContext, scalar::NativeScalar},
+    native::{binding::NativeResult, context::NativeCall, scalar::NativeScalar},
     value::Value,
 };
 
@@ -10,7 +10,7 @@ pub(crate) fn invalid() -> RuntimeError {
     RuntimeError::module_validation("builtin array contract")
 }
 
-pub(crate) fn source(cx: &CallContext<'_>) -> NativeResult<HeapObjectId> {
+pub(crate) fn source(cx: &NativeCall<'_>) -> NativeResult<HeapObjectId> {
     let Value::Array(id) = cx.checked_argument(0)? else {
         return Err(invalid());
     };
@@ -18,18 +18,18 @@ pub(crate) fn source(cx: &CallContext<'_>) -> NativeResult<HeapObjectId> {
     Ok(id)
 }
 
-pub(crate) fn length(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn length(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     cx.heap()
         .array_len(source(cx)?)
         .map(NativeScalar::encode)
         .ok_or_else(invalid)
 }
 
-pub(crate) fn is_empty(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn is_empty(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     Ok(Value::Bool(u64::decode(length(cx)?)? == 0))
 }
 
-pub(crate) fn index(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn index(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     let source = source(cx)?;
     let index = index_argument(cx, 1)?;
     let out_of_bounds = || {
@@ -44,7 +44,7 @@ pub(crate) fn index(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 }
 
 /// Compare fixed arrays in order through the checked element operation.
-pub(crate) fn equal(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn equal(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     let left = source(cx)?;
     let Value::Array(right) = cx.checked_argument(1)? else {
         return Err(invalid());
@@ -70,6 +70,6 @@ pub(crate) fn equal(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     Ok(Value::Bool(true))
 }
 
-pub(crate) fn index_argument(cx: &CallContext<'_>, slot: usize) -> NativeResult<u64> {
+pub(crate) fn index_argument(cx: &NativeCall<'_>, slot: usize) -> NativeResult<u64> {
     u64::decode(cx.argument(slot)?)
 }

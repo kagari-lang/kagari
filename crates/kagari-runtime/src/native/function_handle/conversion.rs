@@ -105,7 +105,7 @@ impl<A: KagariArguments, R: KagariType> FromKagari for Function<A, R> {
 impl<A, R> Function<A, R> {
     pub(super) fn prepare_named_closure(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         root: &RootedValue,
     ) -> NativeResult<PreparedFunction> {
         let value = root
@@ -145,7 +145,8 @@ impl<A: KagariArguments, R: KagariType> IntoKagari for Function<A, R> {
             cx.check_value(expected, &value)?;
             return Ok(value);
         }
-        let prepared = self.prepare_call(cx.runtime())?;
+        let prepared = self.prepare_call(cx.runtime_mut())?;
+        let prepared = &prepared.selection;
         let value = match &prepared.target {
             Target::Closure { root, .. } => root
                 .value(cx.runtime().gc())

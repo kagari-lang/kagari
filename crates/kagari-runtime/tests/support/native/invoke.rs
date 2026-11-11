@@ -7,24 +7,26 @@ use kagari_runtime::{
 
 /// Enter a linked native callable with frame roots, session checks and ordinary cleanup.
 pub fn invoke(
-    runtime: &Runtime,
+    runtime: &mut Runtime,
     owner: &ExecutableModule,
     slot: usize,
     args: &[Value],
 ) -> NativeResult<Value> {
-    let stack = runtime.enter_execution_stack(owner)?;
-    stack.push_callable(
-        runtime,
-        owner.clone(),
-        CallableTarget::Native(NativeImportId::new(slot)),
-        args,
-        None,
-    )?;
-    stack.start_native_entry(runtime, |_, _, _, _| {
-        unreachable!("fixture does not call script")
-    })?;
-    let ReturnAction::Complete(value) = stack.finish_native_return(runtime)? else {
-        panic!("root native return");
-    };
-    Ok(value)
+    let mut stack_activation = runtime.enter_execution_stack(owner)?;
+    stack_activation.with(|runtime, stack| {
+        stack.push_callable(
+            runtime,
+            owner.clone(),
+            CallableTarget::Native(NativeImportId::new(slot)),
+            args,
+            None,
+        )?;
+        stack.start_native_entry(runtime, |_, _, _, _| {
+            unreachable!("fixture does not call script")
+        })?;
+        let ReturnAction::Complete(value) = stack.finish_native_return(runtime)? else {
+            panic!("root native return");
+        };
+        Ok(value)
+    })
 }

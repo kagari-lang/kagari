@@ -9,7 +9,7 @@ use crate::{
         assembly::{ModuleAssembly, ModuleDefinition, ModuleSetBuilder},
         binding::{Codec, NativeBinding, NativeResult},
         catalog::DeclarationCatalog,
-        context::{CallContext, ScriptCall},
+        context::{NativeCall, ScriptCall},
         declarations::MethodDecl,
         module::NativeModule,
         types::{Type, same_definition},
@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 // One Rust function, not two per-scalar implementations or a spelling dispatcher.
 // The binding for each declaration still states its own exact conversion contract.
-fn identity(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+fn identity(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     cx.argument(0)
 }
 
@@ -65,7 +65,7 @@ fn assembly(invalid_second_codec: bool) -> ModuleAssembly {
 }
 
 fn no_script_reentry(
-    _: &Runtime,
+    _: &mut Runtime,
     _: &ExecutableModule,
     _: ScriptCall<'_>,
     _: &[Value],
@@ -172,23 +172,30 @@ fn distinct_scalar_impls_reuse_one_algorithm_without_merging_checked_or_applied_
             matches!(&linked.binding.result, Codec::Exact(ty) if ty.abi() == &declaration.function.return_type)
         );
         applied.push((import.instance.clone(), import.binding));
-        let stack = runtime.enter_execution_stack(owner).unwrap();
-        stack
-            .push_callable(
-                &runtime,
-                owner.clone(),
-                CallableTarget::Native(*slot),
-                std::slice::from_ref(&value),
-                None,
-            )
+        let mut stack_activation = runtime.enter_execution_stack(owner).unwrap();
+        stack_activation
+            .with(|runtime, stack| {
+                stack
+                    .push_callable(
+                        runtime,
+                        owner.clone(),
+                        CallableTarget::Native(*slot),
+                        std::slice::from_ref(&value),
+                        None,
+                    )
+                    .unwrap();
+                stack
+                    .start_native_entry(runtime, no_script_reentry)
+                    .unwrap();
+                let ReturnAction::Complete(result) = stack.finish_native_return(runtime).unwrap()
+                else {
+                    panic!("scalar return")
+                };
+                assert_eq!(result, value);
+
+                Ok(())
+            })
             .unwrap();
-        stack
-            .start_native_entry(&runtime, no_script_reentry)
-            .unwrap();
-        let ReturnAction::Complete(result) = stack.finish_native_return(&runtime).unwrap() else {
-            panic!("scalar return")
-        };
-        assert_eq!(result, value);
     }
     assert_ne!(
         applied[0].0, applied[1].0,

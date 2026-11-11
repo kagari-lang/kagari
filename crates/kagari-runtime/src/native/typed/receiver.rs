@@ -7,7 +7,7 @@ use crate::{
         catalog::DeclarationCatalog,
         conversion::{
             FromKagari, KagariType,
-            arguments::{FromKagariArguments, KagariArguments, check_types},
+            arguments::{FromKagariArguments, KagariArguments, PreparedArguments},
             context::ConversionContext,
         },
         types::Type,
@@ -34,12 +34,12 @@ impl<S: KagariType, A: KagariArguments> KagariArguments for ReceiverArguments<S,
 }
 
 impl<S: FromKagari, A: FromKagariArguments> FromKagariArguments for ReceiverArguments<S, A> {
-    fn from_arguments(
+    fn decode_arguments(
         cx: &mut ConversionContext<'_>,
-        expected: &[TypeArgument],
+        prepared: &PreparedArguments<'_, Self>,
         values: &[Value],
     ) -> NativeResult<Self> {
-        check_types::<Self>(cx, expected)?;
+        let expected = prepared.types();
         if values.len() != expected.len() || values.is_empty() {
             return Err(RuntimeError::module_validation(
                 "typed receiver argument count",
@@ -55,8 +55,9 @@ impl<S: FromKagari, A: FromKagariArguments> FromKagariArguments for ReceiverArgu
             .gc()
             .root_execution_values(values.to_vec())
             .ok_or_else(|| RuntimeError::module_validation("typed receiver argument roots"))?;
-        let receiver = cx.decode_value::<S>(&expected[0], &values[0])?;
-        let arguments = A::from_arguments(cx, &expected[1..], &values[1..])?;
+        let receiver = cx.decode_prepared::<S>(&expected[0], &values[0])?;
+        let arguments =
+            PreparedArguments::<A>::from_binding(cx, &expected[1..]).decode(cx, &values[1..])?;
         drop(roots);
         Ok(Self(receiver, arguments))
     }

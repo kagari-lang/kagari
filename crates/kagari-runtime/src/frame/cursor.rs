@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault},
     frame::{
-        ExecutionFrame, ExecutionStack,
+        ExecutionFrame, FrameStack,
         cursor::kernel::{CursorExit, RegionError, RegionExit},
         values::operands::OperandWindow,
     },
@@ -36,18 +36,18 @@ struct ExecutionCursor<'a> {
     session: &'a SessionState,
 }
 
-impl ExecutionStack<'_> {
+impl FrameStack {
     /// Execute prepared operations, releasing transient views before callbacks or transitions.
     /// The driver has already polled and observed the first logical instruction.
     /// `invoke_script` supplies synchronous native-to-script reentry and never runs
     /// while the cursor retains a frame, session-state or operand-bank borrow.
     pub fn execute_region(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         remaining: &mut Option<usize>,
         invoke_script: ScriptInvoker,
     ) -> Result<RegionExit, RegionError> {
-        if !ptr::eq(runtime.resources(), self.session.resources) {
+        if !ptr::eq(runtime.resources(), runtime.resources()) {
             return Err(RuntimeError::module_validation(
                 "execution stack belongs to another runtime",
             )
@@ -63,11 +63,11 @@ impl ExecutionStack<'_> {
 
     fn execute_admitted_region(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         remaining: &mut Option<usize>,
     ) -> Result<CursorExit, RegionError> {
         // current_mut admits the active session/frame scope and sticky termination.
-        let mut frame = self.current_mut()?;
+        let mut frame = self.current_mut(runtime)?;
         frame.completed = None;
         runtime.gc().ensure_no_native_borrow()?;
         let mut values = runtime
@@ -84,7 +84,7 @@ impl ExecutionStack<'_> {
                 .resources()
                 .quarantine(EngineFault::InvalidExecutionFrameWindow)
         })?;
-        let session = self.session.state();
+        let session = self.session_state(runtime);
         // Split immutable execution facts from the only frame state a closed
         // region may change. Every handler shares this admitted function view;
         // calls, allocation and lazy preparation end the borrow before transition.

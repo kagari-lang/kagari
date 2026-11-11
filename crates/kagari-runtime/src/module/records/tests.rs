@@ -704,13 +704,10 @@ fn equivalent_member_layouts_share_prepared_identity_without_aliasing_versions()
 fn layout_admission_is_bounded_and_does_not_retain_producer_programs() {
     let (mut runtime, old_program, old, code) = fixture();
     let id = generic_structure(&old);
-    runtime
-        .publish_staged_reload(
-            runtime
-                .stage_reload_program(&old_program, None, code)
-                .unwrap(),
-        )
+    let candidate = runtime
+        .stage_reload_program(&old_program, None, code)
         .unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
 
     let latest = runtime.select_program(&old_program).unwrap();
     let arguments = [Ty::Builtin(BuiltinType::I32)];
@@ -825,7 +822,7 @@ fn link_lookup_checks_runtime_version_bounds_and_store_borrows() {
 
 #[test]
 fn abandoned_candidates_release_links_even_when_their_descriptors_are_retained() {
-    let (runtime, loaded_program, _loaded, code) = fixture();
+    let (mut runtime, loaded_program, _loaded, code) = fixture();
     let candidate = runtime
         .stage_reload_program(&loaded_program, None, code)
         .unwrap();

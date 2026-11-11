@@ -107,7 +107,7 @@ pub(super) fn run(options: &Options) {
         let name = format!("numeric_{ty}");
         let entry_name = format!("main_{ty}");
         let reference = expected(float);
-        let run = |engine: &str| {
+        let mut run = |engine: &str| {
             if engine == "lua54" {
                 return entry.call::<i32>(()).expect("numeric Lua execution");
             }

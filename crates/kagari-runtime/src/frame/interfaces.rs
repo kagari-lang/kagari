@@ -2,12 +2,12 @@
 use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault},
-    frame::ExecutionStack,
+    frame::FrameStack,
 };
 
 use kagari_bytecode::module::CallableTarget;
 
-impl ExecutionStack<'_> {
+impl FrameStack {
     pub(super) fn execute_interface_upcast(
         &self,
         runtime: &Runtime,
@@ -19,7 +19,7 @@ impl ExecutionStack<'_> {
                 .quarantine(EngineFault::InvalidPreparedInterfaceUpcast)
         };
         let (owner, target, links, environment, slots) = {
-            let frame = self.current()?;
+            let frame = self.current(runtime)?;
             (
                 frame.loaded.clone(),
                 frame.target,
@@ -67,7 +67,7 @@ impl ExecutionStack<'_> {
             .map_err(|_| invalid())?
             .set_location(slots, operand.dst, value)
             .ok_or_else(invalid)?;
-        let mut frame = self.current_mut()?;
+        let mut frame = self.current_mut(runtime)?;
         frame.completed = frame.executing;
         Ok(())
     }

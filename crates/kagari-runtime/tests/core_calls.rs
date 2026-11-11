@@ -18,6 +18,8 @@ use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 use std::{hint::black_box, sync::Arc, time::Instant};
 
+type CallCase<'a> = (&'a str, &'a dyn Fn(&mut Runtime));
+
 #[test]
 #[ignore = "manual call performance evidence; compilation and binding are excluded"]
 fn core_only_script_and_native_calls() {
@@ -60,7 +62,7 @@ fn core_only_script_and_native_calls() {
     let mut runtime = Runtime::default();
     provider.install(&mut runtime).unwrap();
     let program = load_bytecode(&mut runtime, "core", bytecode.into_unverified()).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let empty = vm
         .bind_function::<(), ()>(&program.root(), "empty")
         .unwrap();
@@ -70,12 +72,12 @@ fn core_only_script_and_native_calls() {
     let native = vm
         .bind_function::<(), i32>(&program.root(), "main")
         .unwrap();
-    let cases: [(&str, &dyn Fn()); 3] = [
-        ("empty", &|| vm.call(&empty, ()).unwrap()),
-        ("script", &|| {
+    let cases: [CallCase<'_>; 3] = [
+        ("empty", &|vm| vm.call(&empty, ()).unwrap()),
+        ("script", &|vm| {
             assert_eq!(black_box(vm.call(&script, ()).unwrap()), 42)
         }),
-        ("native", &|| {
+        ("native", &|vm| {
             assert_eq!(black_box(vm.call(&native, ()).unwrap()), 42)
         }),
     ];
@@ -84,7 +86,7 @@ fn core_only_script_and_native_calls() {
         for sample in 0..14 {
             let start = Instant::now();
             for _ in 0..CALLS {
-                call();
+                call(&mut vm);
             }
             let elapsed = start.elapsed().as_nanos();
             if sample >= 3 {
@@ -94,7 +96,7 @@ fn core_only_script_and_native_calls() {
                 );
             }
         }
-        let (counts, _) = measured(call);
+        let (counts, _) = measured(|| call(&mut vm));
         println!("core case={name} allocations={counts:?}");
     }
 }

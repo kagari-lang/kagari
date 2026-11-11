@@ -429,7 +429,8 @@ mod native {
         result: *mut JitValue,
     ) -> i32 {
         for offset in 0..2 {
-            let status = unsafe { jit_poll_execution((*runtime).runtime.cast(), offset) };
+            let status =
+                unsafe { jit_poll_execution((*runtime).runtime.cast_mut().cast(), offset) };
             if status != JIT_STATUS_OK {
                 return status;
             }

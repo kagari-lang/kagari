@@ -11,7 +11,9 @@ use crate::{
         composition::future_output,
         conversion::{
             FromKagari, KagariType,
-            arguments::{IntoKagariArguments, KagariArguments, encode_arguments},
+            arguments::{
+                IntoKagariArguments, KagariArguments, PreparedArguments, encode_arguments,
+            },
             context::ConversionContext,
         },
         function_handle::asynchronous::FutureOutput,
@@ -55,7 +57,7 @@ impl<A, R> Clone for AsyncInterfaceMethod<A, R> {
 
 impl Runtime {
     pub fn bind_async_interface_method<A: KagariArguments + 'static, R: KagariType + 'static>(
-        &self,
+        &mut self,
         member: &InterfaceMember,
     ) -> NativeResult<AsyncInterfaceMethod<A, R>> {
         let binding = self.bind_interface_method(member)?;
@@ -71,7 +73,7 @@ impl Runtime {
 impl<S> Interface<S> {
     pub fn schedule_async<A: IntoKagariArguments, R: FromKagari + Send + 'static>(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         binding: &AsyncInterfaceMethod<A, R>,
         arguments: A,
         mut options: ExecutionOptions,
@@ -90,16 +92,18 @@ impl<S> Interface<S> {
         let external = options.cancellation.clone();
         options.cancellation = Default::default();
         let session = runtime.begin_interface_execution(&method, options)?;
-        let execution = runtime.initialize_owned_factory(session, external, || {
+        let execution = Runtime::initialize_owned_factory(session, external, |runtime| {
             let mut cx = ConversionContext::new(runtime, &member.owner)?;
-            let (_arguments, mut values) =
-                encode_arguments(&mut cx, &binding.binding.record.signature.params, arguments)?;
+            let mapping =
+                PreparedArguments::<A>::from_binding(&cx, &binding.binding.record.signature.params);
+            let (_arguments, mut values) = encode_arguments(&mut cx, mapping, arguments)?;
             values
                 .try_reserve(1)
                 .map_err(|_| RuntimeError::resource_limit("interface receiver argument"))?;
             values.insert(0, *method.receiver());
-            runtime.gc().validate_async_values(&values)?;
-            let roots = runtime
+            cx.runtime().gc().validate_async_values(&values)?;
+            let roots = cx
+                .runtime()
                 .gc()
                 .root_execution_values(values.clone())
                 .ok_or_else(|| RuntimeError::resource_limit("async interface arguments"))?;
@@ -204,7 +208,7 @@ mod tests {
         )
     }
 
-    fn interface(runtime: &Runtime, owner: &ExecutableModule) -> Interface {
+    fn interface(runtime: &mut Runtime, owner: &ExecutableModule) -> Interface {
         let value = runtime.make_interface(owner, 0, Value::I32(7)).unwrap();
         let Value::Interface(id) = value else {
             unreachable!()
@@ -228,27 +232,33 @@ mod tests {
             .unwrap()
     }
 
-    fn dequeue(runtime: &Runtime, ticket: &ScheduledResult<i32>, expected: PublicationToken) {
+    fn dequeue(runtime: &mut Runtime, ticket: &ScheduledResult<i32>, expected: PublicationToken) {
         let context = Context::from_waker(Waker::noop());
-        let turn = runtime.begin_scheduler_turn(&context, None).unwrap();
-        let Some(ScheduledWork::Invocation(work)) = turn.next_work().unwrap() else {
+        let mut turn = runtime.begin_scheduler_turn(&context, None).unwrap();
+        let Some(ScheduledWork::Invocation(mut work)) = turn.next_work().unwrap() else {
             panic!("queued interface factory must be ready")
         };
         assert_eq!(work.execution().execution_id(), ticket.execution_id());
-        let mut activation = Some(runtime.resume_owned_execution(work.execution()).unwrap());
-        let stack = activation.as_ref().unwrap();
-        assert_eq!(stack.poll_await(runtime).unwrap(), Poll::Ready(None));
-        assert_eq!(
-            stack.current().unwrap().loaded().publication_token(),
-            expected,
-            "dequeue must enter the publication selected at admission"
-        );
-        runtime.collect_garbage().unwrap();
-        assert_eq!(
-            stack.current().unwrap().loaded().publication_token(),
-            expected
-        );
-        assert!(ExecutionStack::try_park_ready(&mut activation, runtime).unwrap());
+        work.with_execution(|runtime, owner| {
+            let mut activation = Some(runtime.resume_owned_execution(owner)?);
+            activation.as_mut().unwrap().with(|runtime, stack| {
+                assert_eq!(stack.poll_await(runtime).unwrap(), Poll::Ready(None));
+                assert_eq!(
+                    stack.current(runtime).unwrap().loaded().publication_token(),
+                    expected,
+                    "dequeue must enter the publication selected at admission"
+                );
+                runtime.collect_garbage().unwrap();
+                assert_eq!(
+                    stack.current(runtime).unwrap().loaded().publication_token(),
+                    expected
+                );
+                Ok(())
+            })?;
+            assert!(ExecutionStack::try_park_ready(&mut activation)?);
+            Ok(())
+        })
+        .unwrap();
         work.park();
         drop(turn);
         runtime.cancel_scheduled_execution(ticket).unwrap();
@@ -274,8 +284,8 @@ mod tests {
             .unwrap();
         let old = runtime.select_program(&program).unwrap();
         let unrelated = runtime.select_program(&unrelated_program).unwrap();
-        let receiver = interface(&runtime, &old);
-        let other_receiver = interface(&runtime, &unrelated);
+        let receiver = interface(&mut runtime, &old);
+        let other_receiver = interface(&mut runtime, &unrelated);
         let member = receiver.member(&runtime, "run").unwrap();
         let binding = runtime
             .bind_async_interface_method::<(), i32>(&member)
@@ -286,15 +296,15 @@ mod tests {
         let live = receiver.prepare_call(&runtime, &live_binding).unwrap();
         let live_clone = live.clone();
         let queued = receiver
-            .schedule_async(&runtime, &binding, (), Default::default())
+            .schedule_async(&mut runtime, &binding, (), Default::default())
             .unwrap();
         let cancelled = receiver
-            .schedule_async(&runtime, &binding, (), Default::default())
+            .schedule_async(&mut runtime, &binding, (), Default::default())
             .unwrap();
         let roots_before = runtime.gc.stats().method_applications;
         assert!(
             other_receiver
-                .schedule_async(&runtime, &binding, (), Default::default())
+                .schedule_async(&mut runtime, &binding, (), Default::default())
                 .is_err()
         );
         let candidate = runtime
@@ -323,11 +333,11 @@ mod tests {
         runtime.collect_garbage().unwrap();
         assert_eq!(runtime.gc.stats().method_applications, roots_before - 1);
         let fresh = receiver
-            .schedule_async(&runtime, &binding, (), Default::default())
+            .schedule_async(&mut runtime, &binding, (), Default::default())
             .unwrap();
         runtime.collect_garbage().unwrap();
-        dequeue(&runtime, &queued, old.publication_token());
-        dequeue(&runtime, &fresh, current.publication_token());
+        dequeue(&mut runtime, &queued, old.publication_token());
+        dequeue(&mut runtime, &fresh, current.publication_token());
         runtime.collect_garbage().unwrap();
         assert_eq!(
             runtime.gc.stats().method_applications,

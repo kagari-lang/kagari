@@ -333,7 +333,7 @@ mod tests {
         for function in [&retained, &fresh, &child_run] {
             assert_eq!(
                 function
-                    .prepare_call(&runtime)
+                    .prepare_call(&mut runtime)
                     .unwrap()
                     .owner()
                     .publication_token(),
@@ -469,7 +469,7 @@ mod tests {
         .unwrap()
     }
 
-    fn assert_live_binding_authority(runtime: &Runtime, owner: &Module) {
+    fn assert_live_binding_authority(runtime: &mut Runtime, owner: &Module) {
         let invalid = DefinitionPath {
             module: owner.namespace.clone(),
             path: vec![],
@@ -603,12 +603,12 @@ mod tests {
         assert!(runtime.module(&second.root(), "api::users::added").is_err());
         assert_ne!(runtime.select_program(&first).unwrap().key(), old.key());
 
-        let foreign = Runtime::default();
-        assert_live_binding_authority(&foreign, &prefix);
+        let mut foreign = Runtime::default();
+        assert_live_binding_authority(&mut foreign, &prefix);
         foreign.close().unwrap();
-        assert_live_binding_authority(&foreign, &prefix);
+        assert_live_binding_authority(&mut foreign, &prefix);
         runtime.close().unwrap();
-        assert_live_binding_authority(&runtime, &prefix);
+        assert_live_binding_authority(&mut runtime, &prefix);
         assert_eq!(
             runtime.module(&first.root(), "api").unwrap_err().kind(),
             RuntimeErrorKind::StaleHandle

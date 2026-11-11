@@ -257,7 +257,7 @@ mod tests {
 
     #[test]
     fn async_retention_graph_contract() {
-        let runtime = Runtime::default();
+        let mut runtime = Runtime::default();
         let heap = runtime.gc();
         let cell = heap.alloc_cell(ValueType::Unit, Value::Unit).unwrap();
         let root = Value::Cell(cell);
@@ -299,6 +299,7 @@ mod tests {
                 .is_err()
         );
         runtime.collect_garbage().unwrap();
+        let heap = runtime.gc();
         assert!(heap.validate_async_values(slice::from_ref(&root)).is_err());
         assert!(!runtime.is_quarantined());
     }

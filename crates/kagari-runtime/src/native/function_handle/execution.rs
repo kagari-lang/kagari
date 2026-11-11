@@ -1,7 +1,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::ExecutionStack,
+    frame::{ExecutionStack, FrameStack},
     native::{
         binding::NativeResult,
         function_handle::{PreparedFunction, Target},
@@ -41,37 +41,37 @@ impl PreparedFunction {
 
 impl Runtime {
     pub(crate) fn begin_pinned_execution(
-        &self,
+        &mut self,
         function: &PreparedFunction,
     ) -> NativeResult<ExecutionSession<'_>> {
         self.begin_pinned_execution_with_options(function, self.execution_options())
     }
 
     pub(crate) fn begin_pinned_execution_with_options(
-        &self,
+        &mut self,
         function: &PreparedFunction,
         options: ExecutionOptions,
     ) -> NativeResult<ExecutionSession<'_>> {
         function.validate(self)?;
         let root_entry = self.resources().active_session().is_none();
-        let session =
+        let mut session =
             self.begin_execution_inner(&function.owner, options, ExecutionEntry::RetainedFunction)?;
         if root_entry {
-            self.attach_execution_observer()?;
+            session.runtime_mut().attach_execution_observer()?;
         }
         Ok(session)
     }
 
     /// Backend entry for a checked host handle, including retained old versions.
     pub fn enter_pinned_execution_stack(
-        &self,
+        &mut self,
         function: &PreparedFunction,
     ) -> NativeResult<ExecutionStack<'_>> {
         ExecutionStack::new(self.begin_pinned_execution(function)?)
     }
 }
 
-impl ExecutionStack<'_> {
+impl FrameStack {
     pub fn push_pinned_call(
         &self,
         runtime: &Runtime,

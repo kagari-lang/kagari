@@ -12,7 +12,7 @@ use crate::{
     },
     native::registry::DependencyValidation,
     program::Program,
-    publication::PublicationGuard,
+    publication::PublicationPermit,
     reload::{
         ModuleEpoch, ReloadValidationError, updates::ReloadAdmission, validate_load_candidate,
         validate_reload_target, validate_verified_reload_candidate,
@@ -101,7 +101,7 @@ impl Runtime {
     }
 
     fn stage_linked_program(
-        &self,
+        &mut self,
         installation: Arc<Installation>,
         name: String,
         epoch: ModuleEpoch,
@@ -257,7 +257,7 @@ impl Runtime {
     }
 
     pub fn stage_reload_program(
-        &self,
+        &mut self,
         target: &InstalledProgram,
         program_name: Option<String>,
         bytecode: DefinitionMetadata<BytecodeProgram>,
@@ -282,7 +282,7 @@ impl Runtime {
     }
 
     pub fn stage_reload_artifact(
-        &self,
+        &mut self,
         target: &InstalledProgram,
         program_name: Option<String>,
         artifact: DefinitionMetadata<KbcArtifact>,
@@ -320,7 +320,7 @@ impl Runtime {
     /// Stage shared verified code without changing its immutable program identity.
     /// Host bindings, candidate state, permissions and publication remain runtime-local.
     pub fn stage_reload_verified_program(
-        &self,
+        &mut self,
         target: &InstalledProgram,
         program_name: Option<String>,
         program: VerifiedProgram,
@@ -330,7 +330,7 @@ impl Runtime {
     }
 
     pub(super) fn prepare_reload(
-        &self,
+        &mut self,
         target: &InstalledProgram,
         program_name: Option<String>,
         program: VerifiedProgram,
@@ -354,7 +354,7 @@ impl Runtime {
     }
 
     pub(super) fn stage_prepared_reload(
-        &self,
+        &mut self,
         candidate: PreparedReload,
     ) -> Result<StagedReload, ReloadValidationError> {
         let PreparedReload {
@@ -439,11 +439,13 @@ impl Runtime {
     }
 
     pub(crate) fn publish_admitted_reload(
-        &self,
+        &mut self,
         candidate: StagedReload,
-        guard: &PublicationGuard<'_>,
+        permit: &PublicationPermit,
     ) -> Result<(), ReloadValidationError> {
-        guard.recheck().map_err(ReloadValidationError::Runtime)?;
+        permit
+            .recheck(self)
+            .map_err(ReloadValidationError::Runtime)?;
         if let Some(error) = candidate.initialization_error() {
             return Err(ReloadValidationError::Runtime(error));
         }
@@ -469,7 +471,9 @@ impl Runtime {
             .interpreter_caches
             .prepare_invalidation(program.module().installation_id(), program.module().epoch)
             .map_err(ReloadValidationError::Runtime)?;
-        guard.recheck().map_err(ReloadValidationError::Runtime)?;
+        permit
+            .recheck(self)
+            .map_err(ReloadValidationError::Runtime)?;
         program
             .publish(&self.modules)
             .map_err(ReloadValidationError::Runtime)?;
@@ -533,7 +537,7 @@ impl Runtime {
                 StaleHandleReason::InstallationPublicationBaselineChangedOrClosed,
             )));
         }
-        let guard = self
+        let mut guard = self
             .begin_publication(previous)
             .map_err(ReloadValidationError::Runtime)?;
         let candidate = guard

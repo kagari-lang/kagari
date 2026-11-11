@@ -429,6 +429,9 @@ pub enum EngineFault {
     #[error("synchronous activation count overflow")]
     SynchronousActivationCountOverflow,
 
+    #[error("synchronous activation ended on another thread")]
+    SynchronousActivationEndedOnAnotherThread,
+
     #[error("synchronous activation count underflow")]
     SynchronousActivationCountUnderflow,
 

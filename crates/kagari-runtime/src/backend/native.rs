@@ -103,31 +103,34 @@ impl Runtime {
     /// A stale product is rejected before entry, not treated as a fallback request.
     /// Failures after native entry never request an interpreter restart.
     pub fn invoke_native_function(
-        &self,
+        &mut self,
         installed: &InstalledNativeFunction,
     ) -> Result<Value, NativeInvocationFailure> {
-        let failure = |error| NativeInvocationFailure {
+        let failure = |runtime: &Runtime, error| NativeInvocationFailure {
             error,
-            trace: self.capture_error_trace(),
+            trace: runtime.capture_error_trace(),
         };
         self.validate_executable_module(&installed.module)
             .map_err(runtime_failure)
-            .map_err(failure)?;
+            .map_err(|error| failure(self, error))?;
         self.resources()
             .ensure_execution_allowed()
             .map_err(runtime_failure)
-            .map_err(failure)?;
+            .map_err(|error| failure(self, error))?;
         let selected = self
             .select_call_route(&installed.route)
             .map_err(runtime_failure)
-            .map_err(failure)?;
+            .map_err(|error| failure(self, error))?;
         if selected.owner().key() != installed.module.key()
             || selected.owner().program_fingerprint() != installed.module.program_fingerprint()
             || selected.target() != CallableTarget::Script(installed.artifact().function)
         {
-            return Err(failure(runtime_failure(RuntimeError::module_validation(
-                "installed native product does not match the current call target",
-            ))));
+            return Err(failure(
+                self,
+                runtime_failure(RuntimeError::module_validation(
+                    "installed native product does not match the current call target",
+                )),
+            ));
         }
         // The existing native subset has no observer callbacks. Metadata alone
         // does not grant permission to bypass an attached execution observer.
@@ -136,25 +139,48 @@ impl Runtime {
             .active_session()
             .is_some_and(|session| session.observer_attached.get())
         {
-            return Err(failure(BackendInvocationError::UnsupportedArtifact(
-                "native invocation with an execution observer is unsupported".into(),
-            )));
+            return Err(failure(
+                self,
+                BackendInvocationError::UnsupportedArtifact(
+                    "native invocation with an execution observer is unsupported".into(),
+                ),
+            ));
         }
-        let stack = self
+        let mut stack = self
             .enter_execution_stack(&installed.module)
-            .map_err(runtime_failure)
-            .map_err(failure)?;
+            .map_err(|error| {
+                let trace = error.trace().cloned().unwrap_or_default();
+                NativeInvocationFailure {
+                    error: runtime_failure(error),
+                    trace,
+                }
+            })?;
         stack
-            .push_callable(self, selected.owner().clone(), selected.target(), &[], None)
-            .map_err(runtime_failure)
-            .map_err(failure)?;
-        // Map failures while the frame still exists. The stack guard then unwinds
-        // only this call's frames on success, trap, cancellation or call-depth failure.
-        self.call_native_entry(installed).map_err(failure)
+            .with(|runtime, frames| {
+                frames
+                    .push_callable(
+                        runtime,
+                        selected.owner().clone(),
+                        selected.target(),
+                        &[],
+                        None,
+                    )
+                    .map_err(|error| error.with_trace(runtime.capture_error_trace()))?;
+                Ok(runtime
+                    .call_native_entry(installed)
+                    .map_err(|error| failure(runtime, error)))
+            })
+            .map_err(|error| {
+                let trace = error.trace().cloned().unwrap_or_default();
+                NativeInvocationFailure {
+                    error: runtime_failure(error),
+                    trace,
+                }
+            })?
     }
 
     fn call_native_entry(
-        &self,
+        &mut self,
         installed: &InstalledNativeFunction,
     ) -> Result<Value, BackendInvocationError> {
         let ExecutableEntryPoint::Native { address, .. } = installed.artifact().code.entry else {
@@ -165,7 +191,7 @@ impl Runtime {
         let function = unsafe { mem::transmute::<usize, JitCompiledFunction>(address) };
         let mut result = JitValue::default();
         let context = NativeInvocationContext {
-            runtime: (self as *const Self).cast(),
+            runtime: (self as *mut Self).cast_const().cast(),
             helpers: &NATIVE_HELPERS,
         };
         let status = unsafe { function(&context, &mut result) };

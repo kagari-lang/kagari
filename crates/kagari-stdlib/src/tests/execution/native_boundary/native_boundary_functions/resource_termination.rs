@@ -113,7 +113,7 @@ fn conversion_reentry(failure: Failure, observer_error: Option<RuntimeErrorKind>
                     Failure::ConfiguredConversion => {
                         let owner = cx.runtime().execution_root().unwrap();
                         let mut conversion = ConversionContext::with_limits(
-                            cx.runtime(),
+                            cx.runtime_mut(),
                             &owner,
                             ConversionLimits {
                                 max_string_bytes: 0,
@@ -121,7 +121,7 @@ fn conversion_reentry(failure: Failure, observer_error: Option<RuntimeErrorKind>
                             },
                         )?;
                         let error = conversion.encode("x".to_owned()).unwrap_err();
-                        assert_eq!(cx.runtime().resources().termination(), Some(error));
+                        assert_eq!(conversion.runtime().resources().termination(), Some(error));
                         // Even swallowing the conversion inside its callback cannot resume.
                         Ok(String::new())
                     }
@@ -138,8 +138,8 @@ fn conversion_reentry(failure: Failure, observer_error: Option<RuntimeErrorKind>
             enter,
             move |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
                 let root = callback_root.get().expect("installed namespace");
-                let nested: Function<(), i32> = cx.runtime().bind_function(root, "nested")?;
-                let healthy: Function<(), i32> = cx.runtime().bind_function(root, "healthy")?;
+                let nested: Function<(), i32> = cx.runtime_mut().bind_function(root, "nested")?;
+                let healthy: Function<(), i32> = cx.runtime_mut().bind_function(root, "healthy")?;
                 let nested = nested.call(cx, ()).unwrap_err();
                 let termination = cx.runtime().resources().termination();
                 if termination.is_some() && observer_error.is_none() {
@@ -176,7 +176,7 @@ fn conversion_reentry(failure: Failure, observer_error: Option<RuntimeErrorKind>
             },
         )
         .unwrap();
-    let (vm, owner) = fixture(
+    let (mut vm, owner) = fixture(
         r#"
         use example::functions::{enter, fail, effect};
         fn main() -> i32 { val kept = [42]; effect(); enter(); effect(); kept[0] }
@@ -189,18 +189,21 @@ fn conversion_reentry(failure: Failure, observer_error: Option<RuntimeErrorKind>
     root.set(_owner_program.root()).unwrap();
     let owner = vm.select_program(&_owner_program).unwrap();
     let terminations = Arc::new(Mutex::new(Vec::new()));
-    let session = observer_error.map(|error| {
+    let result = if let Some(error) = observer_error {
         vm.set_execution_observer(TrapObserver {
             error,
             terminations: terminations.clone(),
         })
         .unwrap();
-        let session = vm.begin_execution(&owner, vm.execution_options()).unwrap();
-        assert!(vm.attach_execution_observer().unwrap());
+        let mut session = vm.begin_execution(&owner, vm.execution_options()).unwrap();
+        assert!(session.runtime().attach_execution_observer().unwrap());
+        let options = session.runtime().execution_options();
         session
-    });
-    let result = vm.execute_module(&owner, ProgramEntry::Main, vm.execution_options());
-    drop(session);
+            .runtime_mut()
+            .execute_module(&owner, ProgramEntry::Main, options)
+    } else {
+        vm.execute_module(&owner, ProgramEntry::Main, vm.execution_options())
+    };
     let observed = observed.lock().unwrap().take().expect("host entered");
     let terminal = !matches!(failure, Failure::OrdinaryTrap);
     let quarantined = observer_error == Some(RuntimeErrorKind::EngineFault);

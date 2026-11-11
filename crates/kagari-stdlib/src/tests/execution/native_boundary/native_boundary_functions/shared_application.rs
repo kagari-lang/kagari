@@ -144,7 +144,7 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
     vm.collect_garbage().unwrap();
     let prepared_environments = vm.gc().stats().environments;
     assert!(prepared_environments > 0);
-    let argument = ConversionContext::new(&vm, &owner)
+    let argument = ConversionContext::new(&mut vm, &owner)
         .unwrap()
         .type_for::<i32>()
         .unwrap();

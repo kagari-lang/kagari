@@ -273,15 +273,17 @@ fn selected_program_bodies_call_current_dependencies_and_reject_stale_reload() {
     );
     let selected_new = runtime.select_program(&new).unwrap();
     for (module, value) in [(&_selected_old, 2), (&selected_new, 2), (&_selected_old, 2)] {
-        let _session = runtime
+        let mut _session = runtime
             .begin_execution(module, context.runtime_options())
             .unwrap();
+        let _session_options = _session.runtime().execution_options();
         assert_eq!(
-            runtime
-                .execute_module(module, ProgramEntry::Main, runtime.execution_options())
+            _session
+                .runtime_mut()
+                .execute_module(module, ProgramEntry::Main, _session_options.clone())
                 .unwrap()
                 .return_value
-                .value(runtime.gc())
+                .value(_session.runtime().gc())
                 .expect("retained execution result"),
             Value::I32(value)
         );

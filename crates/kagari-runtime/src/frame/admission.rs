@@ -6,16 +6,15 @@ use crate::{
     error::{RuntimeError, fault::EngineFault},
     execution_metadata::MetadataRoot,
     frame::{
-        ExecutionFrame, ExecutionStack, FrameDispatch, FrameEntry, NativeEntryState,
-        ReturnDestination, arguments::FrameArguments, driver::ExecutionAction,
-        values::FrameMetadata,
+        ExecutionFrame, FrameDispatch, FrameEntry, FrameStack, NativeEntryState, ReturnDestination,
+        arguments::FrameArguments, driver::ExecutionAction, values::FrameMetadata,
     },
     module::ExecutableModule,
 };
 
 use kagari_bytecode::{instruction::Slot, module::CallableTarget};
 
-impl ExecutionStack<'_> {
+impl FrameStack {
     /// Reuse a checked stack only across internal preparation without callbacks.
     pub(super) fn push_admitted_arguments(
         &self,
@@ -65,19 +64,17 @@ impl ExecutionStack<'_> {
             .execution()
             .callee(target)
             .is_some_and(|callee| callee.may_suspend)
-            && (self.session.state().owner.borrow().is_none()
-                || (!self.frames()?.is_empty() && !matches!(dispatch.entry, FrameEntry::Await)))
+            && (self.session_state(runtime).owner.borrow().is_none()
+                || (!self.frames(runtime)?.is_empty()
+                    && !matches!(dispatch.entry, FrameEntry::Await)))
         {
             return Err(RuntimeError::module_validation(
                 "resume body requires an owned driver entry",
             ));
         }
-        let mut frames = resources
-            .sessions
-            .frames_mut(self.session.id)
-            .ok_or_else(|| {
-                resources.quarantine(EngineFault::FrameStackIsBorrowedAcrossExecution)
-            })?;
+        let mut frames = resources.sessions.frames_mut(self.session).ok_or_else(|| {
+            resources.quarantine(EngineFault::FrameStackIsBorrowedAcrossExecution)
+        })?;
         if frames.try_reserve(1).is_err() {
             drop(frames);
             return Err(resources.limit("frame capacity"));
@@ -87,7 +84,7 @@ impl ExecutionStack<'_> {
         resources.enter_call()?;
         let mut frames = resources
             .sessions
-            .frames_mut(self.session.id)
+            .frames_mut(self.session)
             .expect("frame preparation cannot reenter execution");
         // Keep fallible preparation inside the depth rollback boundary. Nothing
         // here can collect, invoke user code or mutate the inspected arguments.

@@ -6,7 +6,7 @@ use kagari_runtime::{
     native::{
         binding::{Codec, NativeResult},
         builder::ModuleBuilder,
-        context::CallContext,
+        context::NativeCall,
         declarations::{FunctionDecl, MethodDecl},
         types::Type,
     },
@@ -17,7 +17,7 @@ use kagari_types::{
     ty::Ty,
 };
 
-fn add(_cx: &mut CallContext<'_>, left: i32, right: i32) -> NativeResult<i32> {
+fn add(_cx: &mut NativeCall<'_>, left: i32, right: i32) -> NativeResult<i32> {
     Ok(left + right)
 }
 
@@ -130,7 +130,7 @@ fn trait_groups_bind_declared_members_and_associated_outputs() {
                 methods.associated_type("Output", Type::u64())?;
                 methods.bind(
                     "measure",
-                    |_cx: &mut CallContext<'_>, value: i32| -> NativeResult<usize> {
+                    |_cx: &mut NativeCall<'_>, value: i32| -> NativeResult<usize> {
                         Ok(value as usize)
                     },
                 )

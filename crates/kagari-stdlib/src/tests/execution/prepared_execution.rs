@@ -79,7 +79,7 @@ unsafe extern "C" fn native_unit(
     result: *mut JitValue,
 ) -> i32 {
     for offset in 0..2 {
-        let status = unsafe { jit_poll_execution((*runtime).runtime.cast(), offset) };
+        let status = unsafe { jit_poll_execution((*runtime).runtime.cast_mut().cast(), offset) };
         if status != JIT_STATUS_OK {
             return status;
         }
@@ -91,7 +91,7 @@ unsafe extern "C" fn native_unit(
 }
 
 unsafe extern "C" fn native_trap(runtime: *const NativeInvocationContext, _: *mut JitValue) -> i32 {
-    let status = unsafe { jit_poll_execution((*runtime).runtime.cast(), 0) };
+    let status = unsafe { jit_poll_execution((*runtime).runtime.cast_mut().cast(), 0) };
     if status == JIT_STATUS_OK {
         JIT_STATUS_INTEGER_OVERFLOW
     } else {
@@ -123,7 +123,7 @@ fn prepared(
 
 #[test]
 fn prepared_native_execution_reports_the_installed_descriptor_and_cleans_frames() {
-    let (vm, module) = setup(compile("fn main() {}", false));
+    let (mut vm, module) = setup(compile("fn main() {}", false));
     let _module_program = module;
     let module = vm.select_program(&_module_program).unwrap();
     assert_eq!(module.bytecode.functions[0].instructions.len(), 2);
@@ -153,7 +153,7 @@ fn prepared_native_execution_reports_the_installed_descriptor_and_cleans_frames(
 
 #[test]
 fn unsupported_preparation_runs_the_interpreter_with_an_honest_report() {
-    let (vm, module) = setup(compile("fn main() -> i32 { 40 + 2 }", false));
+    let (mut vm, module) = setup(compile("fn main() -> i32 { 40 + 2 }", false));
     let _module_program = module;
     let module = vm.select_program(&_module_program).unwrap();
     let preparation = PreparedNativeEntry::Unsupported {
@@ -183,7 +183,7 @@ fn unsupported_preparation_runs_the_interpreter_with_an_honest_report() {
 
 #[test]
 fn native_errors_never_restart_in_the_interpreter_and_keep_the_trace() {
-    let (vm, module) = setup(compile("fn main() {}", false));
+    let (mut vm, module) = setup(compile("fn main() {}", false));
     let _module_program = module;
     let module = vm.select_program(&_module_program).unwrap();
     let preparation = prepared(&vm, &module, native_trap);
@@ -205,7 +205,7 @@ fn native_errors_never_restart_in_the_interpreter_and_keep_the_trace() {
 #[test]
 fn prepared_function_identity_must_match_the_requested_entry() {
     let bytecode = compile("fn main() {} pub fn other() {}", false);
-    let (vm, module) = setup(bytecode);
+    let (mut vm, module) = setup(bytecode);
     let _module_program = module;
     let module = vm.select_program(&_module_program).unwrap();
     let preparation = prepared(&vm, &module, native_unit);
@@ -232,10 +232,10 @@ fn optimized_execution_preserves_results_traps_and_source_origins(#[case] source
     let original = compile(source, false);
     let optimized = compile(source, true);
     {
-        let (before, a) = setup(original.clone());
+        let (mut before, a) = setup(original.clone());
         let _a_program = a;
         let a = before.select_program(&_a_program).unwrap();
-        let (after, b) = setup(optimized.clone());
+        let (mut after, b) = setup(optimized.clone());
         let _b_program = b;
         let b = after.select_program(&_b_program).unwrap();
         let a = before.execute_module(&a, ProgramEntry::Main, before.execution_options());

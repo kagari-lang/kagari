@@ -270,7 +270,7 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
                     .unwrap()
                     .id;
                 let value = reenter(ctx, &version, answer, &[]).unwrap();
-                ctx.runtime().collect_garbage().unwrap();
+                ctx.runtime_mut().collect_garbage().unwrap();
                 return Ok(value.value(ctx.runtime().gc()).unwrap());
             }
             Ok(args[1])
@@ -381,7 +381,13 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
             .borrow_shared(root.object_id(), root.type_id())
             .unwrap();
         assert!(
-            vm.make_interface(&table_owner, 0, vm.gc().alloc_host_ref(token).unwrap())
+            scope
+                .runtime()
+                .make_interface(
+                    &table_owner,
+                    0,
+                    scope.runtime().gc().alloc_host_ref(token).unwrap()
+                )
                 .is_err()
         );
     }
@@ -437,7 +443,7 @@ fn host_associated_outputs_are_checked_against_trait_bounds_without_calls() {
                 )?;
                 methods.bind(
                     "number",
-                    |_: &HostCallContext<'_>, _: &[Value]| -> Result<Value, HostError> {
+                    |_: &mut HostCallContext<'_>, _: &[Value]| -> Result<Value, HostError> {
                         panic!("cold bound checking called Rust")
                     },
                 )

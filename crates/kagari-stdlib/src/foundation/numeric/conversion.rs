@@ -2,7 +2,7 @@
 use crate::foundation::enumerations::value::{self as enums, EnumSymbols};
 use kagari_runtime::{
     error::RuntimeError,
-    native::{binding::NativeResult, context::CallContext, scalar::NativeScalar},
+    native::{binding::NativeResult, context::NativeCall, scalar::NativeScalar},
     numeric,
     value::Value,
 };
@@ -13,7 +13,7 @@ fn invalid() -> RuntimeError {
     RuntimeError::module_validation("foundation construction contract")
 }
 
-fn result_item(cx: &CallContext<'_>) -> NativeResult<BuiltinType> {
+fn result_item(cx: &NativeCall<'_>) -> NativeResult<BuiltinType> {
     let Ty::Enum(nominal) = cx.result_type() else {
         return Err(invalid());
     };
@@ -24,7 +24,7 @@ fn result_item(cx: &CallContext<'_>) -> NativeResult<BuiltinType> {
     Ok(*target)
 }
 
-pub(crate) fn from_str(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn from_str(symbols: &EnumSymbols, cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     let Value::Str(text) = cx.argument(0)? else {
         return Err(invalid());
     };
@@ -50,7 +50,7 @@ pub(crate) fn from_str(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> Nativ
 
 fn result(
     symbols: &EnumSymbols,
-    cx: &CallContext<'_>,
+    cx: &NativeCall<'_>,
     value: Result<Value, &str>,
     error_type: &str,
 ) -> NativeResult<Value> {
@@ -79,7 +79,7 @@ fn result(
     )
 }
 
-pub(crate) fn try_from(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn try_from(symbols: &EnumSymbols, cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     let Ty::Builtin(source) = cx.argument_type(0)? else {
         return Err(invalid());
     };

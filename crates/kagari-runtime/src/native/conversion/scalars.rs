@@ -96,12 +96,18 @@ impl FromKagari for String {
                 "String conversion requires a string",
             ));
         };
-        let runtime = cx.runtime();
-        let value = runtime
+        let len = cx
+            .runtime()
+            .gc()
+            .string(*value)
+            .ok_or_else(|| RuntimeError::module_validation("invalid string"))?
+            .len();
+        cx.charge_string(len)?;
+        let value = cx
+            .runtime()
             .gc()
             .string(*value)
             .ok_or_else(|| RuntimeError::module_validation("invalid string"))?;
-        cx.charge_string(value.len())?;
         let mut result = String::new();
         result
             .try_reserve_exact(value.len())

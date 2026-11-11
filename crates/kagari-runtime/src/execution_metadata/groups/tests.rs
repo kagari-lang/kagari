@@ -43,7 +43,7 @@ fn foreign_stale_and_exhausted_group_ids_cannot_alias_records() {
 fn metadata_growth_reaches_safepoints_without_heap_allocations() {
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(4);
-    let runtime = Runtime::new(config);
+    let mut runtime = Runtime::new(config);
     for _ in 0..64 {
         runtime.gc.alloc_operation_group(vec![]).unwrap();
         runtime.gc_safepoint().unwrap();
@@ -56,7 +56,7 @@ fn metadata_growth_reaches_safepoints_without_heap_allocations() {
 
 #[test]
 fn detached_environments_reject_recycled_group_slots() {
-    let runtime = Runtime::default();
+    let mut runtime = Runtime::default();
     let old = runtime.gc.alloc_operation_group(vec![]).unwrap();
     let mut environment =
         EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap();
@@ -97,7 +97,11 @@ fn borrowed_group_views_reject_allocation_and_sweeping_before_detachment() {
     assert!(runtime.gc.alloc_operation_group(vec![]).is_err());
     assert_eq!(runtime.gc.stats(), before);
     assert_eq!(
-        runtime.collect_garbage().unwrap_err().kind(),
+        runtime
+            .gc
+            .collect(&runtime.modules, &[])
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::EngineFault
     );
     assert_eq!(runtime.gc.stats(), before);
@@ -296,7 +300,7 @@ fn selections() -> (
 
 #[test]
 fn selected_witnesses_keep_the_group_without_exposing_siblings() {
-    let (runtime, _loaded_program, _loaded, ids) = selections();
+    let (mut runtime, _loaded_program, _loaded, ids) = selections();
     assert_eq!(ids.len(), 2);
     let first = (*runtime.gc.bound_operation(ids[0]).unwrap()).clone();
     let sibling = (*runtime.gc.bound_operation(ids[1]).unwrap()).clone();
@@ -373,7 +377,7 @@ fn selected_witnesses_keep_the_group_without_exposing_siblings() {
 
 #[test]
 fn operation_access_checks_owner_generation_and_member_bounds() {
-    let (runtime, _loaded_program, _loaded, ids) = selections();
+    let (mut runtime, _loaded_program, _loaded, ids) = selections();
     let id = ids[0];
     let descriptor = (*runtime.gc.bound_operation(id).unwrap()).clone();
     let foreign = Runtime::default();
@@ -431,7 +435,11 @@ fn invalid_operation_metadata_aborts_before_detaching_any_groups() {
     root.corrupt_metadata_for_test(&runtime.gc, vec![MetadataRoot::Operation(invalid)]);
     let before = runtime.gc.stats();
     assert_eq!(
-        runtime.collect_garbage().unwrap_err().kind(),
+        runtime
+            .gc
+            .collect(&runtime.modules, &[])
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::EngineFault
     );
     assert_eq!(runtime.gc.stats(), before);
@@ -442,7 +450,7 @@ fn invalid_operation_metadata_aborts_before_detaching_any_groups() {
 
 #[test]
 fn associated_type_snapshots_survive_selection_collection_without_owning_environments() {
-    let (runtime, _loaded_program, loaded) = load_source(
+    let (mut runtime, _loaded_program, loaded) = load_source(
         r#"
         trait Reader { type Item; fn read(self) -> Self::Item; }
         impl Reader for i32 { type Item = i32; fn read(self) -> i32 { self } }

@@ -4,7 +4,7 @@ use kagari_bytecode::instruction::BinaryOp;
 use kagari_contract::numeric::NumericOperation;
 use kagari_runtime::{
     error::RuntimeError,
-    native::{binding::NativeResult, context::CallContext},
+    native::{binding::NativeResult, context::NativeCall},
     numeric,
     value::Value,
 };
@@ -14,19 +14,15 @@ fn invalid() -> RuntimeError {
     RuntimeError::module_validation("foundation construction contract")
 }
 
-pub(crate) fn sum(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn sum(symbols: &EnumSymbols, cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     aggregate(symbols, cx, false)
 }
 
-pub(crate) fn product(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn product(symbols: &EnumSymbols, cx: &mut NativeCall<'_>) -> NativeResult<Value> {
     aggregate(symbols, cx, true)
 }
 
-fn aggregate(
-    symbols: &EnumSymbols,
-    cx: &mut CallContext<'_>,
-    product: bool,
-) -> NativeResult<Value> {
+fn aggregate(symbols: &EnumSymbols, cx: &mut NativeCall<'_>, product: bool) -> NativeResult<Value> {
     let Ty::Builtin(kind) = cx.result_type() else {
         return Err(invalid());
     };

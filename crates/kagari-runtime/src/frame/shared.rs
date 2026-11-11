@@ -2,13 +2,13 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::{ExecutionStack, FrameDispatch, FrameEntry, arguments::FrameArguments},
+    frame::{FrameDispatch, FrameEntry, FrameStack, arguments::FrameArguments},
     module::ExecutableModule,
     native::context::LinkedCallable,
     value::Value,
 };
 
-impl ExecutionStack<'_> {
+impl FrameStack {
     /// Admit an exact callback/host selection. Its producer owns current-route
     /// selection and environment transport; retained queued work must not reselect.
     pub fn push_selected_call(

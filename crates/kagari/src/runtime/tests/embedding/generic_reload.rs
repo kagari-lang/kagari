@@ -45,7 +45,7 @@ pub(super) fn prepare_static_program(
     .unwrap()
 }
 
-fn static_call(runtime: &Runtime, module: &InstalledProgram, entry: &str) -> Value {
+fn static_call(runtime: &mut Runtime, module: &InstalledProgram, entry: &str) -> Value {
     runtime
         .execute(module, entry, &[], &Default::default())
         .unwrap()
@@ -83,8 +83,8 @@ pub fn write() { STATE = 128578u32; }
     let old = runtime
         .load_program(first.program(), Default::default())
         .unwrap();
-    assert_eq!(static_call(&runtime, &old, "read"), Value::I64(97));
-    static_call(&runtime, &old, "write");
+    assert_eq!(static_call(&mut runtime, &old, "read"), Value::I64(97));
+    static_call(&mut runtime, &old, "write");
     assert_eq!(
         runtime
             .program(&old)
@@ -113,7 +113,10 @@ pub fn write() { STATE = 128578u32; }
             .is_err()
     );
     for module in [&old, &current] {
-        assert_eq!(static_call(&runtime, module, "read"), Value::I64(128578));
+        assert_eq!(
+            static_call(&mut runtime, module, "read"),
+            Value::I64(128578)
+        );
     }
 }
 
@@ -142,7 +145,7 @@ fn persistent_static_objects_and_recursive_nominal_collections_preserve_aliases(
     let old = runtime
         .load_program(first.program(), Default::default())
         .unwrap();
-    assert_eq!(static_call(&runtime, &old, "check"), Value::Bool(true));
+    assert_eq!(static_call(&mut runtime, &old, "check"), Value::Bool(true));
     assert_eq!(
         runtime
             .program(&old)
@@ -162,11 +165,17 @@ fn persistent_static_objects_and_recursive_nominal_collections_preserve_aliases(
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
-    static_call(&runtime, &current, "replace");
+    static_call(&mut runtime, &current, "replace");
     for module in [&old, &current] {
-        assert_eq!(static_call(&runtime, module, "check"), Value::Bool(true));
-        assert_eq!(static_call(&runtime, module, "distinct"), Value::Bool(true));
-        assert_eq!(static_call(&runtime, module, "read"), Value::I32(791));
+        assert_eq!(
+            static_call(&mut runtime, module, "check"),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            static_call(&mut runtime, module, "distinct"),
+            Value::Bool(true)
+        );
+        assert_eq!(static_call(&mut runtime, module, "read"), Value::I32(791));
     }
 }
 
@@ -190,10 +199,10 @@ fn persistent_static_callbacks_and_interfaces_call_current_helpers(#[case] decod
     let old = runtime
         .load_program(first.program(), Default::default())
         .unwrap();
-    assert_eq!(static_call(&runtime, &old, "init"), Value::Bool(true));
+    assert_eq!(static_call(&mut runtime, &old, "init"), Value::Bool(true));
     // Force the aliases before replacing their original cells.
-    assert_eq!(static_call(&runtime, &old, "saved"), Value::I32(22));
-    assert_eq!(static_call(&runtime, &old, "function"), Value::I32(10));
+    assert_eq!(static_call(&mut runtime, &old, "saved"), Value::I32(22));
+    assert_eq!(static_call(&mut runtime, &old, "function"), Value::I32(10));
     runtime
         .program(&old)
         .map_err(ReloadValidationError::Runtime)
@@ -201,18 +210,27 @@ fn persistent_static_callbacks_and_interfaces_call_current_helpers(#[case] decod
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
-    static_call(&runtime, &current, "set_state");
+    static_call(&mut runtime, &current, "set_state");
 
     assert_eq!(
-        static_call(&runtime, &current, "fresh_lookup"),
+        static_call(&mut runtime, &current, "fresh_lookup"),
         Value::Bool(true)
     );
-    assert_eq!(static_call(&runtime, &current, "current"), Value::I32(50));
-    assert_eq!(static_call(&runtime, &current, "function"), Value::I32(20));
-    static_call(&runtime, &current, "replace");
-    assert_eq!(static_call(&runtime, &current, "current"), Value::I32(70));
-    assert_eq!(static_call(&runtime, &current, "saved"), Value::I32(50));
-    assert_eq!(static_call(&runtime, &old, "current"), Value::I32(70));
+    assert_eq!(
+        static_call(&mut runtime, &current, "current"),
+        Value::I32(50)
+    );
+    assert_eq!(
+        static_call(&mut runtime, &current, "function"),
+        Value::I32(20)
+    );
+    static_call(&mut runtime, &current, "replace");
+    assert_eq!(
+        static_call(&mut runtime, &current, "current"),
+        Value::I32(70)
+    );
+    assert_eq!(static_call(&mut runtime, &current, "saved"), Value::I32(50));
+    assert_eq!(static_call(&mut runtime, &old, "current"), Value::I32(70));
 }
 
 #[rstest]
@@ -232,10 +250,10 @@ fn persistent_static_hash_comparators_use_current_bodies_and_helpers(#[case] dec
         .load_program(first.program(), Default::default())
         .unwrap();
     for entry in ["map_lookup", "set_lookup"] {
-        assert_eq!(static_call(&runtime, &old, entry), Value::Bool(true));
+        assert_eq!(static_call(&mut runtime, &old, entry), Value::Bool(true));
     }
     assert_eq!(
-        static_call(&runtime, &old, "compare_contents"),
+        static_call(&mut runtime, &old, "compare_contents"),
         Value::I32(15)
     );
     for (updated, expected) in [(bodies, 2323), (helpers, 2424)] {
@@ -247,26 +265,32 @@ fn persistent_static_hash_comparators_use_current_bodies_and_helpers(#[case] dec
             .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
             .unwrap();
         for entry in ["map_lookup", "set_lookup"] {
-            static_call(&runtime, &old, "reset_markers");
-            assert_eq!(static_call(&runtime, &old, entry), Value::Bool(true));
-            assert_eq!(static_call(&runtime, &old, "markers"), Value::I32(expected));
+            static_call(&mut runtime, &old, "reset_markers");
+            assert_eq!(static_call(&mut runtime, &old, entry), Value::Bool(true));
+            assert_eq!(
+                static_call(&mut runtime, &old, "markers"),
+                Value::I32(expected)
+            );
         }
     }
     let current = old.clone();
     assert_eq!(
-        static_call(&runtime, &current, "compare_contents"),
+        static_call(&mut runtime, &current, "compare_contents"),
         Value::I32(15)
     );
     assert_eq!(
-        static_call(&runtime, &current, "content_hashes"),
+        static_call(&mut runtime, &current, "content_hashes"),
         Value::Bool(true)
     );
     assert_eq!(
-        static_call(&runtime, &current, "fresh_lookup"),
+        static_call(&mut runtime, &current, "fresh_lookup"),
         Value::Bool(true)
     );
     for entry in ["map_lookup", "set_lookup", "mutate_keys"] {
-        assert_eq!(static_call(&runtime, &current, entry), Value::Bool(true));
+        assert_eq!(
+            static_call(&mut runtime, &current, entry),
+            Value::Bool(true)
+        );
     }
     let changed_hash =
         include_str!("../../../../tests/fixtures/embedding/reload/static-hash-change-v4.kgr");
@@ -278,10 +302,13 @@ fn persistent_static_hash_comparators_use_current_bodies_and_helpers(#[case] dec
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     for entry in ["map_lookup", "set_lookup"] {
-        static_call(&runtime, &old, "reset_markers");
+        static_call(&mut runtime, &old, "reset_markers");
         // Changed hashes need not find old entries. Only current dispatch is asserted.
-        let _ = static_call(&runtime, &old, entry);
-        assert_eq!(static_call(&runtime, &old, "hash_observed"), Value::I32(34));
+        let _ = static_call(&mut runtime, &old, entry);
+        assert_eq!(
+            static_call(&mut runtime, &old, "hash_observed"),
+            Value::I32(34)
+        );
     }
 }
 
@@ -389,8 +416,9 @@ fn retained_local_function_values_call_current_bodies_and_clean_up_all_exits() {
         assert_eq!(vm.gc().active_roots(), 2);
         assert!(!vm.is_quarantined());
     }
-    let session = support::cancel_after(&vm, &current, 48);
-    let error = vm
+    let mut session = support::cancel_after(&mut vm, &current, 48);
+    let error = session
+        .runtime_mut()
         .invoke_interface_method(&fresh, &run, &[Value::I32(3)])
         .unwrap_err();
     drop(session);

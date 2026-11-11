@@ -6,7 +6,9 @@ use crate::{
     native::{
         binding::NativeResult,
         conversion::{
-            arguments::{FromKagariArguments, IntoKagariArguments, encode_arguments},
+            arguments::{
+                FromKagariArguments, IntoKagariArguments, PreparedArguments, encode_arguments,
+            },
             context::ConversionContext,
         },
     },
@@ -29,7 +31,8 @@ impl ConversionContext<'_> {
             .runtime()
             .declared_enum_variant(self.owner(), expected, member)?;
         let fields = self.variant_fields(&layout)?;
-        let (_roots, values) = encode_arguments(self, &fields, payload)
+        let mapping = PreparedArguments::<A>::new(self, &fields)?;
+        let (_roots, values) = encode_arguments(self, mapping, payload)
             .map_err(|error| error.at(ErrorLocation::Variant(member.to_owned())))?;
         self.runtime()
             .alloc_enum(EnumTag::Declared(layout), values)
@@ -75,7 +78,8 @@ impl ConversionContext<'_> {
             .enum_snapshot(*id)
             .ok_or_else(|| RuntimeError::module_validation("enum conversion snapshot"))?;
         let fields = self.variant_fields(&actual)?;
-        A::from_arguments(self, &fields, &snapshot.fields)
+        PreparedArguments::<A>::new(self, &fields)?
+            .decode(self, &snapshot.fields)
             .map_err(|error| error.at(ErrorLocation::Variant(member.to_owned())))
     }
 

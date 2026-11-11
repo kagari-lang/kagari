@@ -10,7 +10,7 @@ use kagari_runtime::{
         assembly::authoring::PendingBinding,
         binding::{Codec, NativeBinding, NativeResult},
         catalog::DeclarationCatalog,
-        context::CallContext,
+        context::NativeCall,
         types::{TypeRef, VariantRef},
     },
     value::{EnumTag, Value},
@@ -35,7 +35,7 @@ pub(crate) const PARSE_ERROR: EnumRequest = (
 );
 pub(crate) const CONVERSION_ERROR: EnumRequest = ("TryFromIntError", &["OutOfRange"]);
 
-pub(crate) type Entry = for<'call> fn(&EnumSymbols, &mut CallContext<'call>) -> NativeResult<Value>;
+pub(crate) type Entry = for<'call> fn(&EnumSymbols, &mut NativeCall<'call>) -> NativeResult<Value>;
 
 struct Enumeration {
     declaration: TypeRef,
@@ -119,7 +119,7 @@ pub(crate) fn pending(
 
 pub(crate) fn option(
     symbols: &EnumSymbols,
-    cx: &CallContext<'_>,
+    cx: &NativeCall<'_>,
     value: Option<Value>,
 ) -> NativeResult<Value> {
     let (some, none) = symbols.option_members()?;
@@ -132,7 +132,7 @@ pub(crate) fn option(
 
 pub(crate) fn allocate(
     symbols: &EnumSymbols,
-    cx: &CallContext<'_>,
+    cx: &NativeCall<'_>,
     ty: &TypeArgument,
     name: &str,
     member: &str,
@@ -149,7 +149,7 @@ pub(crate) fn allocate(
 /// The reader must not allocate on the script heap or invoke callbacks.
 pub(crate) fn read<R>(
     symbols: &EnumSymbols,
-    cx: &CallContext<'_>,
+    cx: &NativeCall<'_>,
     value: &Value,
     name: &str,
     read: impl FnOnce(&str, &[Value]) -> R,
@@ -188,7 +188,7 @@ pub(crate) fn read<R>(
 /// Copy at most one payload; its caller roots it before allocation or reentry.
 pub(crate) fn read_option(
     symbols: &EnumSymbols,
-    cx: &CallContext<'_>,
+    cx: &NativeCall<'_>,
     value: &Value,
 ) -> NativeResult<Option<Value>> {
     read(symbols, cx, value, "Option", |member, fields| {

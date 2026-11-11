@@ -92,7 +92,11 @@ pub fn factory() -> fn()->Future<i32> { || nested() }
             );
             None
         } else {
-            Some(scheduled(&f, if nested { "nested" } else { "direct" }, &[]))
+            Some(scheduled(
+                if nested { "nested" } else { "direct" },
+                &[],
+                &mut f,
+            ))
         };
         host.until(&mut f.runtime, || f.starts.load(Ordering::SeqCst) == 2);
         host.settle(&mut f.runtime);
@@ -201,9 +205,10 @@ pub async fn run() -> Result<(i32,i32),String> {
     let host = HostLoop::new();
     assert!(f.runtime.poll(&mut host.context()).is_pending());
     let future = f.invoke("run", &[]);
+    let selected_execution = f.start_future(&future);
     let mut ticket = f
         .runtime
-        .schedule_execution(f.start_future(&future), |_, _| -> Result<(), _> {
+        .schedule_execution(selected_execution, |_, _| -> Result<(), _> {
             panic!("fault must precede publication")
         })
         .unwrap();
@@ -261,7 +266,7 @@ pub async fn waiting() -> i32 { val (a,b)=join(request(10),request(20)).await; a
     );
     let host = HostLoop::new();
     assert!(f.runtime.poll(&mut host.context()).is_pending());
-    let mut ticket = scheduled(&f, "trap", &[]);
+    let mut ticket = scheduled("trap", &[], &mut f);
     host.until(&mut f.runtime, || ticket.is_finished());
     assert_eq!(
         result(&mut ticket).unwrap_err().kind(),
@@ -316,14 +321,17 @@ pub async fn serial() -> i32 { probe(); val a=probe(); val b=probe(); probe()+a+
                 .unwrap();
             let random = random.clone();
             module
-                .bind(function, move |cx: &HostCallContext<'_>, _: &[Value]| {
-                    assert_eq!(cx.execution_time_millis().unwrap(), 123);
-                    random
-                        .lock()
-                        .unwrap()
-                        .push(cx.next_execution_random_u64().unwrap());
-                    Ok(Value::I32(1))
-                })
+                .bind(
+                    function,
+                    move |cx: &mut HostCallContext<'_>, _: &[Value]| {
+                        assert_eq!(cx.execution_time_millis().unwrap(), 123);
+                        random
+                            .lock()
+                            .unwrap()
+                            .push(cx.next_execution_random_u64().unwrap());
+                        Ok(Value::I32(1))
+                    },
+                )
                 .unwrap();
             engine.install(module.finish().unwrap()).unwrap();
         },
@@ -347,7 +355,7 @@ pub async fn serial() -> i32 { probe(); val a=probe(); val b=probe(); probe()+a+
             .runtime
             .schedule_execution(execution, |runtime, value| {
                 let owner = runtime.execution_root().unwrap();
-                let session = runtime.begin_execution(&owner, runtime.execution_options())?;
+                let mut session = runtime.begin_execution(&owner, runtime.execution_options())?;
                 let trace = session.trace().unwrap();
                 assert_eq!(
                     trace.host_calls.len(),
@@ -355,7 +363,7 @@ pub async fn serial() -> i32 { probe(); val a=probe(); val b=probe(); probe()+a+
                     "branch calls record into original invocation"
                 );
                 assert!(trace.host_calls.iter().all(|call| call.outcome.is_some()));
-                decode(runtime, value)
+                decode(session.runtime_mut(), value)
             })
             .unwrap();
         host.until(&mut f.runtime, || ticket.is_finished());
@@ -384,7 +392,7 @@ pub async fn run() -> i32 { val (a,b)=core::task::join(branch(),branch()).await;
     let mut f = Fixture::configured_source(source, config);
     let old = f.runtime.select_program(&f.module).unwrap().key();
     let cold = f.invoke("run", &[]);
-    let mut waiting = scheduled(&f, "run", &[]);
+    let mut waiting = scheduled("run", &[], &mut f);
     let host = HostLoop::new();
     assert!(f.runtime.poll(&mut host.context()).is_pending());
     host.until(&mut f.runtime, || f.starts.load(Ordering::SeqCst) == 2);
@@ -410,9 +418,10 @@ pub async fn run() -> i32 { val (a,b)=core::task::join(branch(),branch()).await;
         })
         .unwrap();
     f.program = program;
+    let selected_execution = f.start_future(&cold);
     let mut retained = f
         .runtime
-        .schedule_execution(f.start_future(&cold), decode)
+        .schedule_execution(selected_execution, decode)
         .unwrap();
     drop(cold);
     host.until(&mut f.runtime, || f.starts.load(Ordering::SeqCst) == 4);

@@ -229,6 +229,7 @@ impl NativeModule {
 
     /// Publish a mutually dependent foundation as one validated installation.
     pub fn install_all(modules: &[Self], runtime: &mut Runtime) -> NativeResult<()> {
+        runtime.check_initial_publication()?;
         let mut staged = runtime.native_entries.clone();
         staged.metadata = runtime.types.snapshot();
         Self::install_batch(modules, &mut staged)?;

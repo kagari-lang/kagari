@@ -15,20 +15,20 @@ use kagari_contract::ids::FunctionRef;
 
 pub(crate) trait FixtureExecution {
     fn execute_fixture(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
         function: FunctionRef,
     ) -> Result<ExecutionReport, RuntimeError>;
 
     fn execute_fixture_prepared<'p>(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
         function: FunctionRef,
         prepared: impl Into<PreparedNativeExecution<'p>>,
     ) -> Result<ExecutionReport, RuntimeError>;
 
     fn start_fixture(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
         function: FunctionRef,
         arguments: &[Value],
@@ -38,28 +38,36 @@ pub(crate) trait FixtureExecution {
 
 impl FixtureExecution for Runtime {
     fn execute_fixture(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
         function: FunctionRef,
     ) -> Result<ExecutionReport, RuntimeError> {
         let (owner, function) = self.select_function(owner, function)?;
         let session = self.begin_interpreter_execution(&owner, self.execution_options())?;
-        self.execute_selected(&owner, function, "instruction fixture", &session)
+        session
+            .runtime
+            .execute_selected(&owner, function, "instruction fixture", &session.scope)
     }
 
     fn execute_fixture_prepared<'p>(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
         function: FunctionRef,
         prepared: impl Into<PreparedNativeExecution<'p>>,
     ) -> Result<ExecutionReport, RuntimeError> {
         let (owner, function) = self.select_function(owner, function)?;
         let session = self.begin_interpreter_execution(&owner, self.execution_options())?;
-        self.execute_prepared_selected(&owner, function, "instruction fixture", prepared, &session)
+        session.runtime.execute_prepared_selected(
+            &owner,
+            function,
+            "instruction fixture",
+            prepared,
+            &session.scope,
+        )
     }
 
     fn start_fixture(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
         function: FunctionRef,
         arguments: &[Value],

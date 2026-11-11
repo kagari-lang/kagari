@@ -5,7 +5,7 @@ use crate::tests::execution::common::{
 #[cfg(test)]
 use crate::tests::support::bytecode::load_bytecode;
 use kagari_runtime::{
-    RuntimeConfig,
+    Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
     execution::{owned::DriveResult, reentry::reenter},
     frame::ExecutionStack,
@@ -57,7 +57,7 @@ fn async_owned_drive_contract() {
         let root = context.runtime().execution_root().unwrap();
         assert!(
             context
-                .runtime()
+                .runtime_mut()
                 .start_owned_execution(&root, ping, &[], ExecutionOptions::default())
                 .is_err()
         );
@@ -71,7 +71,7 @@ fn async_owned_drive_contract() {
     let loaded = load_bytecode(&mut runtime, "owned", program).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let synchronous = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .unwrap();
@@ -167,68 +167,70 @@ fn async_owned_drive_contract() {
     let wakes = Arc::new(WakeCount::default());
     queued.set_waker(&Waker::from(wakes.clone()));
     assert!(queued.is_ready());
-    let activation = vm.resume_owned_execution(&queued).unwrap();
-    assert!(!queued.is_ready());
-    let before = wakes.0.load(Ordering::Relaxed);
-    cancellation.cancel();
-    assert!(queued.is_ready());
-    assert!(
-        wakes.0.load(Ordering::Relaxed) > before,
-        "external token must wake the owned execution"
-    );
-    assert!(ExecutionStack::try_park_ready(&mut Some(activation), &vm).unwrap());
-    assert!(matches!(
-        vm.drive(&queued, slice).unwrap(),
-        DriveResult::Complete(Err(_))
-    ));
-    assert!(
-        !queued.is_ready(),
-        "terminal execution must not be scheduled again"
-    );
-    assert_eq!(events.lock().unwrap().len(), 6);
+    let activation_activation = vm.resume_owned_execution(&queued).unwrap();
+    {
+        assert!(!queued.is_ready());
+        let before = wakes.0.load(Ordering::Relaxed);
+        cancellation.cancel();
+        assert!(queued.is_ready());
+        assert!(
+            wakes.0.load(Ordering::Relaxed) > before,
+            "external token must wake the owned execution"
+        );
+        assert!(ExecutionStack::try_park_ready(&mut Some(activation_activation)).unwrap());
+        assert!(matches!(
+            vm.drive(&queued, slice).unwrap(),
+            DriveResult::Complete(Err(_))
+        ));
+        assert!(
+            !queued.is_ready(),
+            "terminal execution must not be scheduled again"
+        );
+        assert_eq!(events.lock().unwrap().len(), 6);
 
-    let recursive = vm
-        .start(&loaded, "recurse", &[], ExecutionOptions::default())
-        .unwrap();
-    let mut exhausted = false;
-    for _ in 0..100 {
-        if let DriveResult::Complete(Err(error)) = vm.drive(&recursive, slice).unwrap() {
-            assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
-            exhausted = true;
-            break;
+        let recursive = vm
+            .start(&loaded, "recurse", &[], ExecutionOptions::default())
+            .unwrap();
+        let mut exhausted = false;
+        for _ in 0..100 {
+            if let DriveResult::Complete(Err(error)) = vm.drive(&recursive, slice).unwrap() {
+                assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
+                exhausted = true;
+                break;
+            }
         }
-    }
-    assert!(exhausted, "slicing cannot reset call-depth protection");
+        assert!(exhausted, "slicing cannot reset call-depth protection");
 
-    let abandoned = vm
-        .start(
-            &loaded,
-            ProgramEntry::Main,
-            &[],
-            ExecutionOptions::default(),
-        )
-        .unwrap();
-    assert!(matches!(
-        vm.drive(&abandoned, slice).unwrap(),
-        DriveResult::Runnable
-    ));
-    drop(abandoned);
-    assert_eq!(vm.drain_retired_executions().unwrap(), 1);
-    assert_eq!(vm.modules().retention_counts(loaded.key()).active_calls, 0);
-    assert!(!vm.resources().is_quarantined());
-    let result = vm
-        .execute_module(&loaded, "ping", vm.execution_options())
-        .unwrap();
-    assert_eq!(result.return_value.value(vm.gc()).unwrap(), Value::I32(7));
-    let shutdown = vm
-        .start(&loaded, "spin", &[], ExecutionOptions::default())
-        .unwrap();
-    assert!(shutdown.is_ready());
-    drop(vm);
-    assert!(
-        !shutdown.is_ready(),
-        "runtime destruction retires outstanding readiness"
-    );
+        let abandoned = vm
+            .start(
+                &loaded,
+                ProgramEntry::Main,
+                &[],
+                ExecutionOptions::default(),
+            )
+            .unwrap();
+        assert!(matches!(
+            vm.drive(&abandoned, slice).unwrap(),
+            DriveResult::Runnable
+        ));
+        drop(abandoned);
+        assert_eq!(vm.drain_retired_executions().unwrap(), 1);
+        assert_eq!(vm.modules().retention_counts(loaded.key()).active_calls, 0);
+        assert!(!vm.resources().is_quarantined());
+        let result = vm
+            .execute_module(&loaded, "ping", vm.execution_options())
+            .unwrap();
+        assert_eq!(result.return_value.value(vm.gc()).unwrap(), Value::I32(7));
+        let shutdown = vm
+            .start(&loaded, "spin", &[], ExecutionOptions::default())
+            .unwrap();
+        assert!(shutdown.is_ready());
+        drop(vm);
+        assert!(
+            !shutdown.is_ready(),
+            "runtime destruction retires outstanding readiness"
+        );
+    }
 }
 
 #[test]
@@ -260,9 +262,9 @@ fn async_owned_drive_contract_iterator_invalidation() {
     let loaded = load_bytecode(&mut runtime, "owned-iteration", artifact).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
-    let edit = |name: &str, value: Value| {
-        crate::tests::support::invoke(&vm, &loaded, name, &[value])
+    let mut vm = runtime;
+    let edit = |vm: &mut Runtime, name: &str, value: Value| {
+        crate::tests::support::invoke(vm, &loaded, name, &[value])
             .value(vm.gc())
             .unwrap()
     };
@@ -301,9 +303,9 @@ fn async_owned_drive_contract_iterator_invalidation() {
             Some(Value::I32(42))
         );
         if exit != 0 {
-            edit("append", value);
+            edit(&mut vm, "append", value);
         }
-        edit("replace", value);
+        edit(&mut vm, "replace", value);
         match exit {
             0 => {
                 let mut finished = false;
@@ -342,14 +344,14 @@ fn async_owned_drive_contract_iterator_invalidation() {
                     1,
                     "no second item after invalidation"
                 );
-                assert_eq!(edit("length", value), Value::U64(4));
+                assert_eq!(edit(&mut vm, "length", value), Value::U64(4));
             }
             _ => {
                 drop(owner);
                 assert_eq!(vm.drain_retired_executions().unwrap(), 1);
             }
         }
-        edit("append", value);
+        edit(&mut vm, "append", value);
         assert_eq!(vm.resources().counters().current_call_depth, 0);
         assert_eq!(vm.modules().retention_counts(loaded.key()).active_calls, 0);
     }

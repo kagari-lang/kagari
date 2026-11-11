@@ -54,16 +54,22 @@ fn external_root_actual_pointer_loans_release_and_revoke_on_all_exits() {
         .with_host_scope(|scope| {
             let view = scope.borrow_mut(descriptor.rust_type(), &mut external)?;
             saved = view.value();
-            view.read(scope, |state| {
-                view.read(scope, |other| {
+            view.read(scope, |scope, state| {
+                view.read(scope, |_scope, other| {
                     assert_eq!(state.count, other.count);
                     Ok(())
                 })
             })?;
-            assert!(view.read(scope, |_| view.edit(scope, |_| Ok(()))).is_err());
-            assert!(view.edit(scope, |_| view.read(scope, |_| Ok(()))).is_err());
             assert!(
-                view.edit(scope, |state| {
+                view.read(scope, |scope, _| view.edit(scope, |_scope, _| Ok(())))
+                    .is_err()
+            );
+            assert!(
+                view.edit(scope, |scope, _| view.read(scope, |_scope, _| Ok(())))
+                    .is_err()
+            );
+            assert!(
+                view.edit(scope, |_scope, state| {
                     state.count += 1;
                     Err::<(), _>(RuntimeError::host_call_failure("completed edit"))
                 })
@@ -72,16 +78,34 @@ fn external_root_actual_pointer_loans_release_and_revoke_on_all_exits() {
             assert!(
                 catch_unwind(AssertUnwindSafe(|| view.edit(
                     scope,
-                    |state| -> Result<(), RuntimeError> {
+                    |_scope, state| -> Result<(), RuntimeError> {
                         state.count += 1;
                         panic!("loan unwind");
                     }
                 )))
                 .is_err()
             );
-            view.edit(scope, |state| {
+            view.edit(scope, |_scope, state| {
                 state.count += 1;
                 Ok(())
+            })?;
+            scope.execute(&[view.value()], |runtime, values| {
+                let view = runtime.scoped_view(&values[0])?;
+                std::thread::scope(|threads| {
+                    let error = threads
+                        .spawn(move || {
+                            runtime
+                                .host_borrows
+                                .read_scoped::<State, ()>(runtime, view, |_| {
+                                    panic!("foreign admission thread must not project a Rust root")
+                                })
+                        })
+                        .join()
+                        .unwrap()
+                        .unwrap_err();
+                    assert_eq!(error.kind(), RuntimeErrorKind::ExecutionPhaseViolation);
+                });
+                Ok(Value::Unit)
             })?;
             scope.execute(&[view.value()], |runtime, _| {
                 runtime.collect_garbage()?;
@@ -100,7 +124,7 @@ fn external_root_actual_pointer_loans_release_and_revoke_on_all_exits() {
             |scope| -> Result<(), RuntimeError> {
                 let view = scope.borrow_mut(descriptor.rust_type(), &mut external)?;
                 saved = view.value();
-                view.edit(scope, |state| {
+                view.edit(scope, |_scope, state| {
                     state.count += 1;
                     Ok(())
                 })?;
@@ -118,7 +142,7 @@ fn external_root_actual_pointer_loans_release_and_revoke_on_all_exits() {
     runtime
         .with_host_scope(|scope| {
             let view = scope.borrow(descriptor.rust_type(), &external)?;
-            view.read(scope, |state| {
+            view.read(scope, |_scope, state| {
                 assert_eq!(state.count, 5);
                 Ok(())
             })
@@ -164,10 +188,10 @@ fn distinct_zero_sized_host_roots_allow_independent_unique_loans() {
         .with_host_scope(|scope| {
             let first = scope.borrow_mut(descriptor.rust_type(), &mut first[0])?;
             let second = scope.borrow_mut(descriptor.rust_type(), &mut second[0])?;
-            first.edit(scope, |_| second.edit(scope, |_| Ok(())))?;
+            first.edit(scope, |scope, _| second.edit(scope, |_scope, _| Ok(())))?;
             assert!(
                 first
-                    .edit(scope, |_| first.edit(scope, |_| Ok(())))
+                    .edit(scope, |scope, _| first.edit(scope, |_scope, _| Ok(())))
                     .is_err()
             );
             Ok(())

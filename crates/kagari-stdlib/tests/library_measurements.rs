@@ -66,7 +66,7 @@ fn setup() -> (Runtime, ExecutableModule, Value, Vec<DefinitionId>) {
     ]
     .map(|name| ModuleDecl::method_id(contract.declaration, name, loaded.definitions()).unwrap())
     .to_vec();
-    let vm = runtime;
+    let mut vm = runtime;
     let runner = vm
         .execute(&_loaded_program, "runner", &[], &Default::default())
         .unwrap()
@@ -81,7 +81,7 @@ fn setup() -> (Runtime, ExecutableModule, Value, Vec<DefinitionId>) {
 fn compare_rust_native_and_script_stable_sorting() {
     verify_counter();
     let compilation = Instant::now();
-    let (vm, loaded, runner, methods) = setup();
+    let (mut vm, loaded, runner, methods) = setup();
     println!("compile_and_load_ns={}", compilation.elapsed().as_nanos());
     let root = vm.root_value(runner).unwrap();
     for length in [16usize, 4096] {

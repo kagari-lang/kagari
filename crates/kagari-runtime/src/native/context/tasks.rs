@@ -1,15 +1,15 @@
 //! Native task providers receive admission and cancellation, never a driver.
 use crate::{
     gc::roots::RootedValue,
-    native::{binding::NativeResult, context::CallContext},
+    native::{binding::NativeResult, context::NativeCall},
     task::SpawnError,
     value::Value,
 };
 
-impl CallContext<'_> {
+impl NativeCall<'_> {
     /// Admit a cold factory into a checked scope without executing its body.
     pub fn spawn_task(
-        &self,
+        &mut self,
         scope: &Value,
         factory: &Value,
     ) -> NativeResult<Result<RootedValue, SpawnError>> {

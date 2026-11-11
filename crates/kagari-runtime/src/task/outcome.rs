@@ -20,12 +20,12 @@ use std::{
 
 impl Runtime {
     pub(crate) fn publish_task_result(
-        &self,
+        &mut self,
         task: TaskId,
         result: NativeResult<RootedValue>,
     ) -> NativeResult<()> {
         let (handle, signal, owner, output, spawn_origin, scope) = {
-            let tasks = self.tasks.borrow();
+            let tasks = &self.tasks;
             let record = tasks
                 .tasks
                 .get(task.0)
@@ -92,7 +92,6 @@ impl Runtime {
         signal.finished.store(true, Ordering::Release);
         signal.ready.store(true, Ordering::Release);
         self.tasks
-            .borrow_mut()
             .tasks
             .get_mut(task.0)
             .expect("completing task")
@@ -119,14 +118,14 @@ impl Runtime {
     /// Taking the bounded report releases its admission slot. Script Task handles
     /// retain their cached value independently and remain awaitable afterwards.
     pub fn take_task_report(
-        &self,
+        &mut self,
         scope: &TaskScopeOwner,
         task: TaskId,
     ) -> NativeResult<Option<TaskReport>> {
         self.require_idle_driver()?;
         self.validate_scope_owner(scope)?;
         let outcome = {
-            let tasks = self.tasks.borrow();
+            let tasks = &self.tasks;
             let Some(record) = tasks.tasks.get(task.0) else {
                 return Ok(None);
             };
@@ -140,12 +139,7 @@ impl Runtime {
             };
             outcome.clone()
         };
-        let record = self
-            .tasks
-            .borrow_mut()
-            .tasks
-            .remove(task.0)
-            .expect("reported Task");
+        let record = self.tasks.tasks.remove(task.0).expect("reported Task");
         Ok(Some(TaskReport {
             origin: record.origin,
             task,
@@ -155,7 +149,7 @@ impl Runtime {
     }
 
     pub(crate) fn acknowledge_task_scopes(&self) {
-        let tasks = self.tasks.borrow();
+        let tasks = &self.tasks;
         for (id, scope) in tasks.scopes.iter() {
             if scope.control.closing.load(Ordering::Acquire)
                 && !tasks.tasks.iter().any(|(_, task)| {

@@ -130,7 +130,7 @@ impl<R> Drop for ScheduledResult<R> {
 }
 
 pub(crate) trait CompletionSink: Send {
-    fn prepare(&mut self, runtime: &Runtime, value: &RootedValue) -> NativeResult<()>;
+    fn prepare(&mut self, runtime: &mut Runtime, value: &RootedValue) -> NativeResult<()>;
 
     fn publish(self: Box<Self>, outcome: NativeResult<()>);
 }
@@ -143,9 +143,9 @@ struct TypedSink<R, F> {
 
 impl<R: Send, F> CompletionSink for TypedSink<R, F>
 where
-    F: FnOnce(&Runtime, &RootedValue) -> NativeResult<R> + Send,
+    F: FnOnce(&mut Runtime, &RootedValue) -> NativeResult<R> + Send,
 {
-    fn prepare(&mut self, runtime: &Runtime, value: &RootedValue) -> NativeResult<()> {
+    fn prepare(&mut self, runtime: &mut Runtime, value: &RootedValue) -> NativeResult<()> {
         if self
             .cell
             .state
@@ -209,7 +209,7 @@ pub(crate) fn channel<R, F>(
 ) -> (ScheduledResult<R>, Box<dyn CompletionSink>)
 where
     R: Send + 'static,
-    F: FnOnce(&Runtime, &RootedValue) -> NativeResult<R> + Send + 'static,
+    F: FnOnce(&mut Runtime, &RootedValue) -> NativeResult<R> + Send + 'static,
 {
     let cell = Arc::new(ResultCell {
         state: Mutex::new(State {

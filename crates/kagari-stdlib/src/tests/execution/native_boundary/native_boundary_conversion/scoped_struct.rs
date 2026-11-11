@@ -82,7 +82,7 @@ fn registered_struct_loans_use_original_host_storage_and_common_methods() {
         hp: 10,
         label: "external".into(),
     };
-    let original = ConversionContext::new(&vm, &owner)
+    let original = ConversionContext::new(&mut vm, &owner)
         .unwrap()
         .encode(Player {
             hp: external.hp,
@@ -118,12 +118,12 @@ fn registered_struct_loans_use_original_host_storage_and_common_methods() {
             assert_eq!(&*runtime.gc().string(id).unwrap(), "external hp=10");
             Ok(Value::Unit)
         })?;
-        view.read(scope, |player| {
+        view.read(scope, |_scope, player| {
             assert_eq!(player.hp, 7);
             Ok(())
         })?;
         assert!(
-            view.read(scope, |_| Runtime::execute_scoped(
+            view.read(scope, |scope, _| Runtime::execute_scoped(
                 scope,
                 &_owner_program,
                 "damage",
@@ -136,9 +136,10 @@ fn registered_struct_loans_use_original_host_storage_and_common_methods() {
     })
     .unwrap();
     assert_eq!(external.hp, 7);
-    let mut cx = ConversionContext::new(&vm, &owner).unwrap();
+    let mut cx = ConversionContext::new(&mut vm, &owner).unwrap();
     assert_eq!(cx.decode::<Player>(&original).unwrap().hp, 10);
-    let copied: Player = vm
+    let copied: Player = cx
+        .runtime_mut()
         .execute_typed(
             &_owner_program,
             "copy",

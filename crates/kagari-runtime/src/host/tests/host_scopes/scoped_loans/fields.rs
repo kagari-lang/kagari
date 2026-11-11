@@ -4,8 +4,7 @@ use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
     error::RuntimeError,
-    host_scope::scoped::{HostScope, RefMut},
-    native::{builder::ModuleBuilder, catalog::DeclarationCatalog, rust_type::RustField},
+    native::{builder::ModuleBuilder, catalog::DeclarationCatalog},
 };
 use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
 use kagari_common::identity::map::DefinitionContext;
@@ -79,50 +78,51 @@ fn scoped_generated_fields_check_prefix_loans_and_resolve_replacements() {
             let stats = whole.field(scope, &stats_field)?;
             let inventory = whole.field(scope, &inventory_field)?;
             let hp = stats.field(scope, &hp_field)?;
-            stats.edit(scope, |stats| {
-                inventory.edit(scope, |inventory| {
+            let stats_view = &stats;
+            stats.edit(scope, |scope, stats| {
+                inventory.edit(scope, |scope, inventory| {
                     stats.hp += 30;
                     inventory.gold -= 5;
-                    assert!(whole.read(scope, |_| Ok(())).is_err());
-                    assert!(stats_read(&whole, scope, &stats_field).is_err());
+                    assert!(whole.read(scope, |_scope, _| Ok(())).is_err());
+                    assert!(stats_view.read(scope, |_scope, _| Ok(())).is_err());
                     Ok(())
                 })
             })?;
-            stats.read(scope, |first| {
-                stats.read(scope, |second| {
+            stats.read(scope, |scope, first| {
+                stats.read(scope, |scope, second| {
                     assert_eq!(first.hp, second.hp);
-                    assert!(hp.edit(scope, |_| Ok(())).is_err());
-                    inventory.edit(scope, |inventory| {
+                    assert!(hp.edit(scope, |_scope, _| Ok(())).is_err());
+                    inventory.edit(scope, |_scope, inventory| {
                         inventory.gold += 1;
                         Ok(())
                     })
                 })
             })?;
-            hp.edit(scope, |value| {
-                assert!(stats.edit(scope, |_| Ok(())).is_err());
-                assert!(whole.edit(scope, |_| Ok(())).is_err());
+            hp.edit(scope, |scope, value| {
+                assert!(stats.edit(scope, |_scope, _| Ok(())).is_err());
+                assert!(whole.edit(scope, |_scope, _| Ok(())).is_err());
                 *value += 1;
                 Ok(())
             })?;
-            whole.edit(scope, |player| {
+            whole.edit(scope, |_scope, player| {
                 player.stats = Stats { hp: 9 };
                 Ok(())
             })?;
-            hp.read(scope, |hp| {
+            hp.read(scope, |_scope, hp| {
                 assert_eq!(*hp, 9);
                 Ok(())
             })?;
             assert!(
                 catch_unwind(AssertUnwindSafe(|| hp.edit(
                     scope,
-                    |hp| -> Result<(), RuntimeError> {
+                    |_scope, hp| -> Result<(), RuntimeError> {
                         *hp += 1;
                         panic!("projected loan unwind");
                     }
                 )))
                 .is_err()
             );
-            stats.edit(scope, |stats| {
+            stats.edit(scope, |_scope, stats| {
                 assert_eq!(stats.hp, 10);
                 Ok(())
             })?;
@@ -131,12 +131,4 @@ fn scoped_generated_fields_check_prefix_loans_and_resolve_replacements() {
         .unwrap();
     assert_eq!(player.stats.hp, 10);
     assert_eq!(player.inventory.gold, 21);
-}
-
-fn stats_read<'scope>(
-    whole: &RefMut<'scope, Player>,
-    scope: &HostScope<'scope, '_>,
-    field: &RustField<Player, Stats>,
-) -> Result<(), RuntimeError> {
-    whole.field(scope, field)?.read(scope, |_| Ok(()))
 }

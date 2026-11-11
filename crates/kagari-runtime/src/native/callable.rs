@@ -8,7 +8,7 @@ use crate::{
     native::{
         arguments::CallArguments,
         binding::NativeResult,
-        context::{ArgumentView, CallContext, ScriptCall},
+        context::{ArgumentView, NativeCall, ScriptCall},
         scalar::NativeScalar,
         storage::NativePayload,
     },
@@ -85,7 +85,7 @@ impl PreparedClosure {
         &self.value
     }
 
-    fn invoke(&self, cx: &CallContext<'_>, arguments: &[Value]) -> NativeResult<Value> {
+    fn invoke(&self, cx: &mut NativeCall<'_>, arguments: &[Value]) -> NativeResult<Value> {
         let (prepared, _root) = self.prepare_call(cx.runtime)?;
         let owner = prepared.snapshot(cx.runtime)?.implementation.clone();
         (cx.invoke_script)(
@@ -98,7 +98,7 @@ impl PreparedClosure {
 
     fn call<R: NativeScalar, A: CallArguments>(
         &self,
-        cx: &CallContext<'_>,
+        cx: &mut NativeCall<'_>,
         params: &[Ty],
         result: &Ty,
         arguments: A,
@@ -112,7 +112,7 @@ impl PreparedClosure {
         arguments.with_values(|arguments| self.invoke(cx, arguments).and_then(R::decode))
     }
 
-    fn call_values(&self, cx: &CallContext<'_>, arguments: &[Value]) -> NativeResult<Value> {
+    fn call_values(&self, cx: &mut NativeCall<'_>, arguments: &[Value]) -> NativeResult<Value> {
         cx.heap().ensure_no_native_borrow()?;
         let (owner, signature) = {
             let closure = self.snapshot(cx.runtime)?;
@@ -148,7 +148,7 @@ pub struct CallableHandle<'call> {
 }
 
 impl<'call> CallableHandle<'call> {
-    pub(crate) fn from_argument(cx: &CallContext<'call>, index: usize) -> NativeResult<Self> {
+    pub(crate) fn from_argument(cx: &NativeCall<'call>, index: usize) -> NativeResult<Self> {
         cx.heap().ensure_no_native_borrow()?;
         let Ty::Function { params, result } = cx.argument_type(index)? else {
             return Err(RuntimeError::module_validation(
@@ -191,7 +191,7 @@ impl<'call> CallableHandle<'call> {
 
     pub fn call<R: NativeScalar, A: CallArguments>(
         &self,
-        cx: &mut CallContext<'_>,
+        cx: &mut NativeCall<'_>,
         arguments: A,
     ) -> NativeResult<R> {
         self.target.call(cx, self.params, self.result, arguments)
@@ -199,11 +199,7 @@ impl<'call> CallableHandle<'call> {
 
     /// Values read from mutable storage need working roots before callbacks.
     /// A returned GC value needs an explicit root before further reentry or GC.
-    pub fn call_values(
-        &self,
-        cx: &mut CallContext<'_>,
-        arguments: &[Value],
-    ) -> NativeResult<Value> {
+    pub fn call_values(&self, cx: &mut NativeCall<'_>, arguments: &[Value]) -> NativeResult<Value> {
         self.target.call_values(cx, arguments)
     }
 
@@ -233,11 +229,7 @@ impl StoredCallable {
     /// Invoke a descriptor retained by a currently rooted native payload. The
     /// closure is validated before entering the prepared frame; callers retaining
     /// it independently should use Function. Returned values need a root before GC.
-    pub fn call_values(
-        &self,
-        cx: &mut CallContext<'_>,
-        arguments: &[Value],
-    ) -> NativeResult<Value> {
+    pub fn call_values(&self, cx: &mut NativeCall<'_>, arguments: &[Value]) -> NativeResult<Value> {
         self.0.validate(cx.runtime)?;
         self.0.call_values(cx, arguments)
     }

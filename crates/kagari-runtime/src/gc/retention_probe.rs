@@ -55,7 +55,11 @@ pub(crate) fn record(heap: &GcHeap, event: Event) {
     });
 }
 
-pub(crate) fn measure<T>(heap: &GcHeap, run: impl FnOnce() -> T) -> (T, Counts) {
+pub(crate) fn heap_owner(heap: &GcHeap) -> u64 {
+    heap.owner
+}
+
+pub(crate) fn measure<T>(owner: u64, run: impl FnOnce() -> T) -> (T, Counts) {
     struct Reset;
 
     impl Drop for Reset {
@@ -66,7 +70,7 @@ pub(crate) fn measure<T>(heap: &GcHeap, run: impl FnOnce() -> T) -> (T, Counts) 
 
     ACTIVE.with_borrow_mut(|active| {
         assert!(active.is_none(), "nested retention measurement");
-        *active = Some((heap.owner, Counts::default()));
+        *active = Some((owner, Counts::default()));
     });
     let reset = Reset;
     let result = run();

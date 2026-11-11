@@ -105,17 +105,18 @@ pub fn after()->i32 { 42 }
     assert!(format!("{error:?}").contains("division by zero"));
     assert_eq!(runtime.gc().active_roots(), 0);
     let limited = ExecutionContext::default();
-    let cancellation =
-        support::cancel_after(&runtime, &runtime.select_program(&loaded).unwrap(), 1);
+    let selected = runtime.select_program(&loaded).unwrap();
+    let mut cancellation = support::cancel_after(&mut runtime, &selected, 1);
 
     assert_eq!(
-        runtime
+        cancellation
+            .runtime_mut()
             .execute(&loaded, ProgramEntry::Main, &[], &limited)
             .unwrap_err()
             .code(),
         "KG_RUNTIME_CANCELLED"
     );
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(cancellation.runtime().gc().active_roots(), 0);
     drop(cancellation);
     let cancelled = ExecutionContext::default();
     cancelled.cancellation.cancel();

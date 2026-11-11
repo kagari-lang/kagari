@@ -34,7 +34,7 @@ pub(super) fn engine(vector: bool) -> KagariEngine {
             .unwrap();
             let vector = module.declared_function("vector").unwrap();
             module
-                .bind(vector, |_: &HostCallContext<'_>, _: &[Value]| {
+                .bind(vector, |_: &mut HostCallContext<'_>, _: &[Value]| {
                     Err(HostError::new("compilation-only provider must not execute"))
                 })
                 .unwrap();

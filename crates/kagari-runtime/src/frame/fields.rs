@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::fault::EngineFault,
     frame::{
-        ExecutionFrame, ExecutionStack,
+        ExecutionFrame, FrameStack,
         cursor::kernel::{RegionError, RegionExit},
     },
     gc::roots::RootSet,
@@ -28,7 +28,7 @@ pub(super) enum FieldAction {
 impl FieldAction {
     fn execute_host(
         self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         layout: &StructLayoutRef,
         slot: usize,
         base: Value,
@@ -37,14 +37,11 @@ impl FieldAction {
         let view = runtime.scoped_view(&base)?;
         match self {
             Self::Read => runtime
-                .host_borrows
-                .read_field(runtime, view, layout, slot, access)
+                .read_scoped_field(view, layout, slot, access)
                 .map(Some)
                 .map_err(RegionError::from),
             Self::Write(value) => {
-                runtime
-                    .host_borrows
-                    .write_field(runtime, view, layout, slot, value)?;
+                runtime.write_scoped_field(view, layout, slot, value)?;
                 Ok(None)
             }
         }
@@ -101,15 +98,15 @@ impl ExecutionFrame {
     }
 }
 
-impl ExecutionStack<'_> {
+impl FrameStack {
     pub(super) fn execute_scoped_field(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         index: usize,
     ) -> Result<RegionExit, RegionError> {
         // The closed cursor has ended. Layout application can allocate metadata,
         // but no operand-bank borrow survives it. The frame roots its environment.
-        let frame = self.current()?;
+        let frame = self.current(runtime)?;
         let operation = frame.prepared_field(index).ok_or_else(|| {
             runtime
                 .resources()
@@ -167,7 +164,7 @@ impl ExecutionStack<'_> {
             };
             let slot = operation.slot;
             drop(frame);
-            let mut frame = self.current_mut()?;
+            let mut frame = self.current_mut(runtime)?;
             match access {
                 FieldAccess::Read { dst } => {
                     let bits = runtime
@@ -208,10 +205,12 @@ impl ExecutionStack<'_> {
         action.validate(runtime)?;
         let layout = frame.field_layout(runtime, operation.layout_site)?;
         let base = read(operation.base)?;
+        let slot = operation.slot as usize;
+        let reference = operation.reference;
+        drop(frame);
         let mut result_root = None;
-        let result = if let Some(access) = operation.reference {
-            result_root =
-                action.execute_host(runtime, &layout, operation.slot as usize, base, access)?;
+        let result = if let Some(access) = reference {
+            result_root = action.execute_host(runtime, &layout, slot, base, access)?;
             result_root
                 .as_ref()
                 .map(|root| {
@@ -220,10 +219,9 @@ impl ExecutionStack<'_> {
                 })
                 .transpose()?
         } else {
-            action.execute(runtime, &layout, operation.slot as usize, base)?
+            action.execute(runtime, &layout, slot, base)?
         };
-        drop(frame);
-        let mut frame = self.current_mut()?;
+        let mut frame = self.current_mut(runtime)?;
         if let Some(value) = result {
             let FieldAccess::Read { dst } = access else {
                 return Err(runtime

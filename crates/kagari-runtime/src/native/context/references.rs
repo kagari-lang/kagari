@@ -1,13 +1,13 @@
 //! Formal shared access publishes an inert alias, preserving the caller's capability.
 use crate::{
     error::RuntimeError,
-    native::{binding::NativeResult, context::CallContext},
+    native::{binding::NativeResult, context::NativeCall},
     value::Value,
 };
 use kagari_types::{declaration::host::HostPassingStyle, reference::ReferenceAccess, ty::Ty};
 
-impl CallContext<'_> {
-    pub(crate) fn narrow_arguments(&self) -> NativeResult<Self> {
+impl NativeCall<'_> {
+    pub(crate) fn narrow_arguments(&mut self) -> NativeResult<()> {
         let mut arguments = self.arguments.clone();
         let signature = self.function.type_signature()?;
         for (index, parameter) in signature.params.iter().enumerate() {
@@ -59,7 +59,7 @@ impl CallContext<'_> {
             if let Some(narrowed) = narrowed {
                 if arguments.narrowed.is_none() {
                     let values = (0..arguments.len())
-                        .map(|slot| arguments.get(slot).ok_or_else(invalid))
+                        .map(|slot| arguments.get(self.heap(), slot).ok_or_else(invalid))
                         .collect::<NativeResult<Vec<_>>>()?;
                     arguments.narrowed = Some(
                         self.heap()
@@ -75,13 +75,8 @@ impl CallContext<'_> {
                     .ok_or_else(invalid)?;
             }
         }
-        Ok(Self {
-            runtime: self.runtime,
-            owner: self.owner,
-            function: self.function,
-            arguments,
-            invoke_script: self.invoke_script,
-        })
+        self.arguments = arguments;
+        Ok(())
     }
 }
 

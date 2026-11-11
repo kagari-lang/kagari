@@ -13,7 +13,7 @@ use crate::{
     gc::GcHeap,
     host::HostFrameId,
     module::{ExecutableModule, retention::ProgramLease},
-    publication::SynchronousActivation,
+    publication::ActivationMark,
     resource::{ResourceCounters, ResourceState},
     session::store::SessionId,
     value::Value,
@@ -177,6 +177,24 @@ pub trait ExecutionObserver: Any + Debug + Send {
         Ok(())
     }
 
+    /// Inspect without lending mutable execution services. Reentry is excluded
+    /// while the observer's frame slice is borrowed:
+    /// ```compile_fail,E0596
+    /// use kagari_runtime::{Runtime, error::RuntimeError, frame::ExecutionFrame,
+    ///     module::entry::ProgramEntry, session::{ExecutionEvent, ExecutionObserver}};
+    /// #[derive(Debug)]
+    /// struct Reentrant;
+    /// impl ExecutionObserver for Reentrant {
+    ///     fn observe(&mut self, runtime: &Runtime, _: ExecutionEvent,
+    ///                frames: &[ExecutionFrame]) -> Result<(), RuntimeError> {
+    ///         if let Some(frame) = frames.last() {
+    ///             runtime.execute_module(frame.loaded(), ProgramEntry::Main,
+    ///                                    runtime.execution_options())?;
+    ///         }
+    ///         Ok(())
+    ///     }
+    /// }
+    /// ```
     fn observe(
         &mut self,
         runtime: &Runtime,
@@ -337,17 +355,58 @@ impl SessionState {
 ///
 /// ```compile_fail
 /// use kagari_runtime::{Runtime, module::ExecutableModule};
-/// fn detach(runtime: Runtime, module: &ExecutableModule) {
+/// fn detach(mut runtime: Runtime, module: &ExecutableModule) {
 ///     let session = runtime.begin_execution(module, runtime.execution_options()).unwrap();
 ///     drop(runtime);
 ///     drop(session);
 /// }
 /// ```
+/// Active admission cannot move to another thread:
+/// ```compile_fail,E0277
+/// use kagari_runtime::{Runtime, module::ExecutableModule};
+/// fn transfer(runtime: &mut Runtime, module: &ExecutableModule) {
+///     let session = runtime.begin_execution(module, Default::default()).unwrap();
+///     std::thread::scope(|threads| { threads.spawn(move || drop(session)); });
+/// }
+/// ```
 #[must_use]
 pub struct ExecutionSession<'runtime> {
+    pub(crate) runtime: &'runtime mut Runtime,
+    pub(crate) scope: SessionScope,
+}
+
+/// Session identity and cleanup authority. No heap or Runtime borrow is retained
+/// in this record; the owning activation supplies its service access on exit.
+pub(crate) struct SessionScope {
     pub(crate) id: SessionId,
-    pub(crate) resources: &'runtime ResourceState,
-    pub(crate) _activation: SynchronousActivation<'runtime>,
+    activation: Option<ActivationMark>,
+}
+
+impl SessionScope {
+    pub(crate) fn new(id: SessionId, activation: ActivationMark) -> Self {
+        Self {
+            id,
+            activation: Some(activation),
+        }
+    }
+
+    pub(crate) fn trace(&self, resources: &ResourceState) -> Option<ExecutionTrace> {
+        let state = self.state(resources);
+        state.options.record_host_calls.then(|| ExecutionTrace {
+            root_identity: state.root.bytecode.identity.clone(),
+            code_fingerprint: state.root.program_fingerprint(),
+            inputs: state.options.inputs,
+            host_calls: state.host_calls.borrow().clone(),
+            dropped_host_calls: state.dropped_host_calls.get(),
+        })
+    }
+
+    pub(crate) fn state<'r>(&self, resources: &'r ResourceState) -> Ref<'r, SessionState> {
+        resources
+            .sessions
+            .get(self.id)
+            .expect("live execution scope")
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -359,22 +418,23 @@ pub struct ExecutionCounters {
 }
 
 impl ExecutionSession<'_> {
+    /// Inspect the admitted Runtime without driving it.
+    pub fn runtime(&self) -> &Runtime {
+        self.runtime
+    }
+
+    /// Reborrow the same Runtime services for a nested synchronous operation.
+    /// The session retains admission and cleanup authority across that operation.
+    pub fn runtime_mut(&mut self) -> &mut Runtime {
+        self.runtime
+    }
+
     pub(crate) fn state(&self) -> Ref<'_, SessionState> {
-        self.resources
-            .sessions
-            .get(self.id)
-            .expect("live execution scope")
+        self.scope.state(self.runtime.resources())
     }
 
     pub fn trace(&self) -> Option<ExecutionTrace> {
-        let state = self.state();
-        state.options.record_host_calls.then(|| ExecutionTrace {
-            root_identity: state.root.bytecode.identity.clone(),
-            code_fingerprint: state.root.program_fingerprint(),
-            inputs: state.options.inputs,
-            host_calls: state.host_calls.borrow().clone(),
-            dropped_host_calls: state.dropped_host_calls.get(),
-        })
+        self.scope.trace(self.runtime.resources())
     }
 
     pub fn host_scope_count(&self) -> usize {
@@ -389,7 +449,7 @@ impl ExecutionSession<'_> {
 
     pub fn counters(&self) -> ExecutionCounters {
         let state = self.state();
-        let counters = self.resources.counters();
+        let counters = self.runtime.resources().counters();
         ExecutionCounters {
             current_call_depth: counters.current_call_depth,
             peak_call_depth: state.peak_call_depth.get(),
@@ -399,78 +459,99 @@ impl ExecutionSession<'_> {
     }
 }
 
-impl Drop for ExecutionSession<'_> {
-    fn drop(&mut self) {
-        let state = self.state();
+impl SessionScope {
+    fn release(&self, resources: &ResourceState) {
+        let state = self.state(resources);
         let scopes = state.scopes.get();
         state.scopes.set(scopes - 1);
         if scopes == 1 {
             if state.owner.borrow().is_some() {
                 if !state.frame_scopes.borrow().is_empty() || !state.host_scopes.borrow().is_empty()
                 {
-                    self.resources
-                        .quarantine(EngineFault::OwnedActivationEndedWithActiveScopes);
+                    resources.quarantine(EngineFault::OwnedActivationEndedWithActiveScopes);
                 }
-                state.parked_depth.set(self.resources.park_call_depth());
-                self.resources.end_execution(self.id);
+                state.parked_depth.set(resources.park_call_depth());
+                resources.end_execution(self.id);
                 return;
             }
-            if self
-                .resources
+            if resources
                 .sessions
                 .frames(self.id)
                 .is_none_or(|frames| !frames.is_empty())
                 || !state.frame_scopes.borrow().is_empty()
                 || !state.host_scopes.borrow().is_empty()
             {
-                self.resources
-                    .quarantine(EngineFault::ExecutionSessionEndedWithActiveResources);
+                resources.quarantine(EngineFault::ExecutionSessionEndedWithActiveResources);
             }
-            self.resources.end_execution(self.id);
+            resources.end_execution(self.id);
             drop(state);
-            if let Some((_state, frames)) = self.resources.sessions.remove(self.id) {
+            if let Some((_state, frames)) = resources.sessions.remove(self.id) {
                 for frame in frames {
-                    frame.release_values(self.resources);
+                    frame.release_values(resources);
                 }
             } else {
-                self.resources
-                    .quarantine(EngineFault::SessionRecordsRemainedBorrowedDuringCleanup);
+                resources.quarantine(EngineFault::SessionRecordsRemainedBorrowedDuringCleanup);
             }
         }
+    }
+}
+
+impl SessionScope {
+    pub(crate) fn retire(&mut self, resources: &ResourceState) {
+        if let Some(activation) = self.activation.take() {
+            let _activation = activation.attach(resources);
+            self.release(resources);
+        }
+    }
+}
+
+impl Drop for ExecutionSession<'_> {
+    fn drop(&mut self) {
+        self.scope.retire(self.runtime.resources());
     }
 }
 
 /// A separate initialization root that restores a suspended ordinary call on exit.
 pub struct CandidateSession<'runtime, 'candidate> {
     pub(crate) candidate: &'candidate StagedReload,
-    pub(crate) execution: Option<ExecutionSession<'runtime>>,
+    pub(crate) runtime: &'runtime mut Runtime,
+    pub(crate) execution: Option<SessionScope>,
     pub(crate) previous: Option<SessionId>,
-    pub(crate) resources: &'runtime ResourceState,
+}
+
+impl CandidateSession<'_, '_> {
+    /// Reborrow the isolated candidate's services. Ordinary publication remains
+    /// excluded until this guard retires candidate state and restores its parent.
+    pub fn runtime_mut(&mut self) -> &mut Runtime {
+        self.runtime
+    }
 }
 
 impl Drop for CandidateSession<'_, '_> {
     fn drop(&mut self) {
+        let resources = self.runtime.resources();
         if let Some(execution) = &self.execution
-            && let Err(error) = execution.state().poll(self.resources)
+            && let Err(error) = execution.state(resources).poll(resources)
         {
             self.candidate.record_initialization_error(error);
         }
         if self
             .execution
             .as_ref()
-            .is_some_and(|execution| execution.state().scopes.get() != 1)
+            .is_some_and(|execution| execution.state(resources).scopes.get() != 1)
         {
-            self.resources
-                .quarantine(EngineFault::CandidateSessionEndedWithNestedExecutionScopes);
+            resources.quarantine(EngineFault::CandidateSessionEndedWithNestedExecutionScopes);
         }
-        drop(self.execution.take());
+        if let Some(mut execution) = self.execution.take() {
+            execution.retire(resources);
+        }
         let previous = self.previous.take().filter(|id| {
-            self.resources
+            resources
                 .sessions
                 .get(*id)
                 .is_some_and(|state| state.scopes.get() != 0)
         });
-        self.resources.replace_session(previous);
+        resources.replace_session(previous);
     }
 }
 
@@ -542,7 +623,9 @@ mod tests {
         options.record_host_calls = true;
         let session = runtime.begin_execution(&module, options).unwrap();
         for _ in 0..10_001 {
-            session.state().begin_host_call(runtime.gc(), "ping", &[]);
+            session
+                .state()
+                .begin_host_call(session.runtime().gc(), "ping", &[]);
         }
         let trace = session.trace().unwrap();
         assert_eq!(trace.host_calls.len(), 10_000);

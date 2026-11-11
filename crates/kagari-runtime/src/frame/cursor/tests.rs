@@ -5,14 +5,14 @@ use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind, trap::TrapReason},
     frame::{
-        ExecutionStack,
+        FrameStack,
         cursor::kernel::{RegionError, RegionExit},
         driver::{ExecutionAction, ReturnAction},
     },
     module::ExecutableModule,
     native::{
         binding::NativeResult, builder::ModuleBuilder, catalog::DeclarationCatalog,
-        context::CallContext, declarations::FunctionDecl, types::Type,
+        context::NativeCall, declarations::FunctionDecl, types::Type,
     },
     value::Value,
 };
@@ -47,7 +47,7 @@ fn native_completion_fixture(
         .unwrap();
     if discard {
         native
-            .bind(value, move |cx: &mut CallContext<'_>| -> NativeResult<()> {
+            .bind(value, move |cx: &mut NativeCall<'_>| -> NativeResult<()> {
                 assert!(!cx.runtime.capture_error_trace().incomplete);
                 cx.runtime.collect_garbage()?;
                 invoked.fetch_add(1, Ordering::Relaxed);
@@ -56,20 +56,17 @@ fn native_completion_fixture(
             .unwrap();
     } else {
         native
-            .bind(
-                value,
-                move |cx: &mut CallContext<'_>| -> NativeResult<i32> {
-                    assert!(!cx.runtime.capture_error_trace().incomplete);
-                    cx.runtime.collect_garbage()?;
-                    if invoked.fetch_add(1, Ordering::Relaxed) == 1 && fail_second {
-                        Err(RuntimeError::from(TrapReason::Provider(
-                            "native failure".into(),
-                        )))
-                    } else {
-                        Ok(7)
-                    }
-                },
-            )
+            .bind(value, move |cx: &mut NativeCall<'_>| -> NativeResult<i32> {
+                assert!(!cx.runtime.capture_error_trace().incomplete);
+                cx.runtime.collect_garbage()?;
+                if invoked.fetch_add(1, Ordering::Relaxed) == 1 && fail_second {
+                    Err(RuntimeError::from(TrapReason::Provider(
+                        "native failure".into(),
+                    )))
+                } else {
+                    Ok(7)
+                }
+            })
             .unwrap();
     }
     let native = native.finish().unwrap();
@@ -136,7 +133,7 @@ fn native_completion_fixture(
 #[test]
 fn native_publication_exposes_first_definitions_only_after_success() {
     for fail_second in [false, true] {
-        let (runtime, loaded, calls) = native_completion_fixture(fail_second, false);
+        let (mut runtime, loaded, calls) = native_completion_fixture(fail_second, false);
         let entry = loaded
             .bytecode
             .functions
@@ -144,13 +141,15 @@ fn native_publication_exposes_first_definitions_only_after_success() {
             .find(|function| function.name == "main")
             .unwrap()
             .id;
-        let stack = runtime.enter_execution_stack(&loaded).unwrap();
+        let mut stack_activation = runtime.enter_execution_stack(&loaded).unwrap();
+        stack_activation.with(|runtime, stack| {
+
         stack
-            .push(&runtime, loaded.slot(), entry, &[], None)
+            .push(runtime, loaded.slot(), entry, &[], None)
             .unwrap();
         for call in 0..2 {
-            let result = complete_native_call(&stack, &runtime);
-            let frame = stack.current().unwrap();
+            let result = complete_native_call(stack, runtime);
+            let frame = stack.current(runtime).unwrap();
             let pc = frame.instruction_offset();
             let BytecodeInstruction::Call { dst: Some(dst), .. } =
                 frame.function().unwrap().instructions[pc]
@@ -177,25 +176,28 @@ fn native_publication_exposes_first_definitions_only_after_success() {
                     matches!(result, Err(RegionError::Runtime(ref error)) if error.kind() == RuntimeErrorKind::ScriptTrap)
                 );
                 assert_eq!(
-                    frame.read_slot(&runtime, dst).unwrap_err().kind(),
+                    frame.read_slot(runtime, dst).unwrap_err().kind(),
                     RuntimeErrorKind::ModuleValidation
                 );
             } else {
                 assert!(matches!(result, Ok(RegionExit::Safepoint)));
-                assert_eq!(frame.read_slot(&runtime, dst).unwrap(), Value::I32(7));
+                assert_eq!(frame.read_slot(runtime, dst).unwrap(), Value::I32(7));
             }
         }
         assert_eq!(calls.load(Ordering::Relaxed), 2);
         if !fail_second {
             let RegionExit::Return(value) = stack
-                .execute_region(&runtime, &mut None, |_, _, _, _| unreachable!())
+                .execute_region(runtime, &mut None, |_, _, _, _| unreachable!())
                 .unwrap()
             else {
                 panic!("native caller returns");
             };
             assert_eq!(value.materialize(), Some(Value::I32(15)));
         }
-        drop(stack);
+
+Ok(())
+}).unwrap();
+        drop(stack_activation);
         assert_eq!(runtime.resources().counters().current_call_depth, 0);
         assert_eq!(runtime.gc().active_roots(), 0);
     }
@@ -203,7 +205,7 @@ fn native_publication_exposes_first_definitions_only_after_success() {
 
 #[test]
 fn native_without_destination_finishes_once_before_the_successor() {
-    let (runtime, loaded, calls) = native_completion_fixture(false, true);
+    let (mut runtime, loaded, calls) = native_completion_fixture(false, true);
     let entry = loaded
         .bytecode
         .functions
@@ -211,44 +213,50 @@ fn native_without_destination_finishes_once_before_the_successor() {
         .find(|function| function.name == "main")
         .unwrap()
         .id;
-    let stack = runtime.enter_execution_stack(&loaded).unwrap();
-    stack
-        .push(&runtime, loaded.slot(), entry, &[], None)
+    let mut stack_activation = runtime.enter_execution_stack(&loaded).unwrap();
+    stack_activation
+        .with(|runtime, stack| {
+            stack
+                .push(runtime, loaded.slot(), entry, &[], None)
+                .unwrap();
+            assert!(matches!(
+                complete_native_call(stack, runtime),
+                Ok(RegionExit::Safepoint)
+            ));
+            {
+                let frame = stack.current(runtime).unwrap();
+                assert!(matches!(
+                    frame.function().unwrap().instructions[frame.instruction_offset()],
+                    BytecodeInstruction::Call { dst: None, .. }
+                ));
+            }
+            let RegionExit::Return(value) = stack
+                .execute_region(runtime, &mut None, |_, _, _, _| unreachable!())
+                .unwrap()
+            else {
+                panic!("discarding caller returns");
+            };
+            assert_eq!(value.materialize(), Some(Value::Unit));
+            assert_eq!(calls.load(Ordering::Relaxed), 1);
+
+            Ok(())
+        })
         .unwrap();
-    assert!(matches!(
-        complete_native_call(&stack, &runtime),
-        Ok(RegionExit::Safepoint)
-    ));
-    {
-        let frame = stack.current().unwrap();
-        assert!(matches!(
-            frame.function().unwrap().instructions[frame.instruction_offset()],
-            BytecodeInstruction::Call { dst: None, .. }
-        ));
-    }
-    let RegionExit::Return(value) = stack
-        .execute_region(&runtime, &mut None, |_, _, _, _| unreachable!())
-        .unwrap()
-    else {
-        panic!("discarding caller returns");
-    };
-    assert_eq!(value.materialize(), Some(Value::Unit));
-    assert_eq!(calls.load(Ordering::Relaxed), 1);
-    drop(stack);
+    drop(stack_activation);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     assert_eq!(runtime.gc().active_roots(), 0);
 }
 
 fn complete_native_call(
-    stack: &ExecutionStack<'_>,
-    runtime: &Runtime,
+    stack: &FrameStack,
+    runtime: &mut Runtime,
 ) -> Result<RegionExit, RegionError> {
     assert!(matches!(
         stack.execute_region(runtime, &mut None, |_, _, _, _| unreachable!())?,
         RegionExit::Call(ExecutionAction::NativeEntry)
     ));
     if let Err(error) = stack.start_native_entry(runtime, |_, _, _, _| unreachable!()) {
-        stack.pop()?;
+        stack.pop(runtime)?;
         return Err(error.into());
     }
     assert_eq!(
@@ -290,32 +298,38 @@ fn collection_during_an_operand_borrow_quarantines_without_further_execution() {
         .find(|function| function.name == "main")
         .unwrap()
         .id;
-    let stack = runtime.enter_execution_stack(&loaded).unwrap();
-    stack
-        .push(&runtime, loaded.slot(), entry, &[], None)
+    let mut stack_activation = runtime.enter_execution_stack(&loaded).unwrap();
+    stack_activation
+        .with(|runtime, stack| {
+            stack
+                .push(runtime, loaded.slot(), entry, &[], None)
+                .unwrap();
+            let mut frame = stack.current_mut(runtime).unwrap();
+            // Only engine code can now retain this borrow; GC roots live in the banks,
+            // independently of frame inspection. Simulate violating that engine contract.
+            let values = runtime.resources().frame_values.borrow_mut();
+            let error = runtime.gc.collect(&runtime.modules, &[]).unwrap_err();
+            assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
+            drop(values);
+            assert!(
+                frame
+                    .write_slot(runtime, Slot::new(0), Value::I32(99))
+                    .is_err()
+            );
+            assert!(frame.read_slot(runtime, Slot::new(0)).is_err());
+            drop(frame);
+            assert!(
+                stack
+                    .execute_region(runtime, &mut None, |_, _, _, _| unreachable!(
+                        "quarantined execution cannot invoke script"
+                    ))
+                    .is_err()
+            );
+
+            Ok(())
+        })
         .unwrap();
-    let mut frame = stack.current_mut().unwrap();
-    // Only engine code can now retain this borrow; GC roots live in the banks,
-    // independently of frame inspection. Simulate violating that engine contract.
-    let values = runtime.resources().frame_values.borrow_mut();
-    let error = runtime.collect_garbage().unwrap_err();
-    assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
-    drop(values);
-    assert!(
-        frame
-            .write_slot(&runtime, Slot::new(0), Value::I32(99))
-            .is_err()
-    );
-    assert!(frame.read_slot(&runtime, Slot::new(0)).is_err());
-    drop(frame);
-    assert!(
-        stack
-            .execute_region(&runtime, &mut None, |_, _, _, _| unreachable!(
-                "quarantined execution cannot invoke script"
-            ))
-            .is_err()
-    );
-    drop(stack);
+    drop(stack_activation);
     assert_eq!(runtime.gc().active_roots(), 0);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
 }

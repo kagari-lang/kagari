@@ -87,7 +87,7 @@ fn compile_offline() -> (KagariEngine, DefinitionMetadata<BytecodeArtifact>) {
                         effects: Default::default(),
                     },
                 )?;
-                methods.bind("read", |_: &HostCallContext<'_>, args: &[Value]| {
+                methods.bind("read", |_: &mut HostCallContext<'_>, args: &[Value]| {
                     let [Value::HostRoot(_), Value::I32(amount)] = args else {
                         return Err(HostError::new("checked Counter receiver and i32 argument"));
                     };
@@ -110,7 +110,7 @@ fn compile_offline() -> (KagariEngine, DefinitionMetadata<BytecodeArtifact>) {
         )
         .unwrap();
     module
-        .bind(make, |cx: &HostCallContext<'_>, _: &[Value]| {
+        .bind(make, |cx: &mut HostCallContext<'_>, _: &[Value]| {
             let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
             cx.runtime()
                 .gc()

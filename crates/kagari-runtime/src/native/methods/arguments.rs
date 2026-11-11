@@ -8,7 +8,7 @@ use crate::{
         catalog::DeclarationCatalog,
         conversion::{
             KagariType,
-            arguments::{IntoKagariArguments, KagariArguments},
+            arguments::{IntoKagariArguments, KagariArguments, PreparedArguments},
             context::ConversionContext,
         },
         methods::receiver::RetainedReceiver,
@@ -39,15 +39,16 @@ impl<A: KagariArguments> KagariArguments for ReceiverArguments<A> {
 }
 
 impl<A: IntoKagariArguments> IntoKagariArguments for ReceiverArguments<A> {
-    fn into_arguments(
+    fn encode_arguments(
         self,
         cx: &mut ConversionContext<'_>,
-        expected: &[TypeArgument],
+        prepared: &PreparedArguments<'_, Self>,
     ) -> NativeResult<RootSet> {
-        Self::check_types(cx, expected)?;
+        let expected = prepared.types();
         cx.argument_scope(|cx| {
             let receiver = cx.encode_prepared(&expected[0], self.receiver)?;
-            let arguments = self.arguments.into_arguments(cx, &expected[1..])?;
+            let arguments = PreparedArguments::<A>::from_binding(cx, &expected[1..])
+                .encode(cx, self.arguments)?;
             let mut values = Vec::new();
             values
                 .try_reserve_exact(expected.len())

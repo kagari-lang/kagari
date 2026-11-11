@@ -125,31 +125,36 @@ fn borrow_values_are_non_storable_and_fail_no_escape_validation() {
     let token = frame
         .borrow_shared(HostObjectId(1), TypeId::new(0))
         .unwrap();
-    let borrow_value = runtime.gc().alloc_host_ref(token).unwrap();
+    let borrow_value = resources.runtime().gc().alloc_host_ref(token).unwrap();
 
-    assert!(borrow_value.contains_host_borrow(runtime.gc()));
-    assert!(!borrow_value.is_storable(runtime.gc()));
-    assert!(!borrow_value.is_default_heap_payload(runtime.gc()));
+    assert!(borrow_value.contains_host_borrow(resources.runtime().gc()));
+    assert!(!borrow_value.is_storable(resources.runtime().gc()));
+    assert!(!borrow_value.is_default_heap_payload(resources.runtime().gc()));
     assert_eq!(
         HostBorrowTable::validate_no_escape(
-            runtime.gc(),
-            &runtime.gc().alloc_tuple(vec![borrow_value]).unwrap()
+            resources.runtime().gc(),
+            &resources
+                .runtime()
+                .gc()
+                .alloc_tuple(vec![borrow_value])
+                .unwrap()
         )
         .unwrap_err()
         .kind(),
         RuntimeErrorKind::HostBorrowEscape
     );
     assert_eq!(
-        HostCallGuard::validate_no_escape(runtime.gc(), &borrow_value)
+        HostCallGuard::validate_no_escape(resources.runtime().gc(), &borrow_value)
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::HostBorrowEscape
     );
 
     assert!(
-        runtime
+        resources
+            .runtime()
             .alloc_array(&module, Ty::Builtin(BuiltinType::I32), vec![borrow_value])
             .is_err()
     );
-    assert!(runtime.root_value(borrow_value).is_none());
+    assert!(resources.runtime().root_value(borrow_value).is_none());
 }

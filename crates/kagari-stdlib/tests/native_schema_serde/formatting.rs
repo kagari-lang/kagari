@@ -90,10 +90,10 @@ fn fixture() -> (Runtime, ExecutableModule) {
 
 #[test]
 fn serde_formatted_output_is_bounded_and_duplicate_fields_skip_child_effects() {
-    let (runtime, owner) = fixture();
+    let (mut runtime, owner) = fixture();
     let calls = Rc::new(Cell::new(0));
     let mut cx = ConversionContext::with_limits(
-        &runtime,
+        &mut runtime,
         &owner,
         ConversionLimits {
             max_string_bytes: 2,
@@ -104,10 +104,10 @@ fn serde_formatted_output_is_bounded_and_duplicate_fields_skip_child_effects() {
     let error = cx.encode(Serde(Formatted(Rc::clone(&calls)))).unwrap_err();
     assert!(error.to_string().contains("string byte limit"));
     assert_eq!(calls.get(), 2);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(cx.runtime().gc().active_roots(), 0);
     calls.set(0);
     let error = cx.encode(Serde(Duplicate(Rc::clone(&calls)))).unwrap_err();
     assert!(error.to_string().contains("duplicate object initializer"));
     assert_eq!(calls.get(), 0);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(cx.runtime().gc().active_roots(), 0);
 }

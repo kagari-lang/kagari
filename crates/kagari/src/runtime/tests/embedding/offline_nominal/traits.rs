@@ -220,17 +220,20 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
                             effects: Default::default(),
                         },
                     )?;
-                    methods.bind("get", |context: &HostCallContext<'_>, values: &[Value]| {
-                        context.runtime().collect_garbage().unwrap();
-                        let [Value::HostRoot(id)] = values else {
-                            panic!("root")
-                        };
-                        assert_eq!(
-                            context.runtime().gc().host_root(*id).unwrap().object_id(),
-                            HostObjectId(7)
-                        );
-                        Ok(Value::I32(42))
-                    })
+                    methods.bind(
+                        "get",
+                        |context: &mut HostCallContext<'_>, values: &[Value]| {
+                            context.runtime_mut().collect_garbage().unwrap();
+                            let [Value::HostRoot(id)] = values else {
+                                panic!("root")
+                            };
+                            assert_eq!(
+                                context.runtime().gc().host_root(*id).unwrap().object_id(),
+                                HostObjectId(7)
+                            );
+                            Ok(Value::I32(42))
+                        },
+                    )
                 })
             })
             .unwrap();
@@ -248,7 +251,7 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
             )
             .unwrap();
         builder
-            .bind(make, |context: &HostCallContext<'_>, _: &[Value]| {
+            .bind(make, |context: &mut HostCallContext<'_>, _: &[Value]| {
                 let root = context.runtime().host().root(HostObjectId(7)).unwrap();
                 context
                     .runtime()
@@ -553,7 +556,7 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
             builder
                 .implement(counter.clone(), |group| {
                     group.trait_impl(readable.apply([ty.clone()])?, |methods| {
-                        methods.bind("extra", |_: &HostCallContext<'_>, _: &[Value]| {
+                        methods.bind("extra", |_: &mut HostCallContext<'_>, _: &[Value]| {
                             Ok(Value::Unit)
                         })
                     })
@@ -572,7 +575,9 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
                             effects: Default::default(),
                         },
                     )?;
-                    methods.bind("get", |_: &HostCallContext<'_>, args: &[Value]| Ok(args[1]))
+                    methods.bind("get", |_: &mut HostCallContext<'_>, args: &[Value]| {
+                        Ok(args[1])
+                    })
                 })
             })
             .unwrap();
@@ -789,11 +794,14 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
                                     effects: Default::default(),
                                 },
                             )?;
-                            methods.bind("get", move |_: &HostCallContext<'_>, args: &[Value]| {
-                                trace.lock().unwrap().push(name);
-                                assert!(matches!(args, [Value::HostRoot(_)]));
-                                Ok(result)
-                            })
+                            methods.bind(
+                                "get",
+                                move |_: &mut HostCallContext<'_>, args: &[Value]| {
+                                    trace.lock().unwrap().push(name);
+                                    assert!(matches!(args, [Value::HostRoot(_)]));
+                                    Ok(result)
+                                },
+                            )
                         })?;
                     }
                     Ok(())
@@ -815,15 +823,18 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
             .unwrap();
         let trace = calls.clone();
         builder
-            .bind(make, move |context: &HostCallContext<'_>, _: &[Value]| {
-                trace.lock().unwrap().push("make");
-                let root = context.runtime().host().root(HostObjectId(7)).unwrap();
-                context
-                    .runtime()
-                    .gc()
-                    .alloc_host_root(root)
-                    .map_err(|error| HostError::new(error.to_string()))
-            })
+            .bind(
+                make,
+                move |context: &mut HostCallContext<'_>, _: &[Value]| {
+                    trace.lock().unwrap().push("make");
+                    let root = context.runtime().host().root(HostObjectId(7)).unwrap();
+                    context
+                        .runtime()
+                        .gc()
+                        .alloc_host_root(root)
+                        .map_err(|error| HostError::new(error.to_string()))
+                },
+            )
             .unwrap();
         builder.finish().unwrap()
     };

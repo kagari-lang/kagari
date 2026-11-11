@@ -38,7 +38,7 @@ use std::{
 };
 
 fn invoke_selected(
-    runtime: &Runtime,
+    runtime: &mut Runtime,
     _: &ExecutableModule,
     target: ScriptCall<'_>,
     arguments: &[Value],
@@ -46,13 +46,15 @@ fn invoke_selected(
     let ScriptCall::Pinned(function) = target else {
         panic!("pinned native operation")
     };
-    let stack = runtime.enter_pinned_execution_stack(function)?;
-    stack.push_pinned_call(runtime, function, arguments)?;
-    stack.start_native_entry(runtime, invoke_selected)?;
-    let ReturnAction::Complete(result) = stack.finish_native_return(runtime)? else {
-        panic!("selected return")
-    };
-    Ok(result)
+    let mut stack_activation = runtime.enter_pinned_execution_stack(function)?;
+    stack_activation.with(|runtime, stack| {
+        stack.push_pinned_call(runtime, function, arguments)?;
+        stack.start_native_entry(runtime, invoke_selected)?;
+        let ReturnAction::Complete(result) = stack.finish_native_return(runtime)? else {
+            panic!("selected return")
+        };
+        Ok(result)
+    })
 }
 
 #[test]
@@ -195,22 +197,29 @@ fn same_batch_override_executes_its_compiler_selected_requirement_in_both_orders
                     .map(|slot| (owner, slot))
             })
             .expect("compiler selected override import");
-        let stack = runtime.enter_execution_stack(&owner).unwrap();
-        stack
-            .push_callable(
-                &runtime,
-                owner.clone(),
-                CallableTarget::Native(NativeImportId::new(slot)),
-                &[Value::I32(40)],
-                None,
-            )
+        let mut stack_activation = runtime.enter_execution_stack(&owner).unwrap();
+        stack_activation
+            .with(|runtime, stack| {
+                stack
+                    .push_callable(
+                        runtime,
+                        owner.clone(),
+                        CallableTarget::Native(NativeImportId::new(slot)),
+                        &[Value::I32(40)],
+                        None,
+                    )
+                    .unwrap();
+                stack.start_native_entry(runtime, invoke_selected).unwrap();
+                let ReturnAction::Complete(result) = stack.finish_native_return(runtime).unwrap()
+                else {
+                    panic!("override return")
+                };
+                assert_eq!(result, Value::I32(42));
+                assert_eq!(calls.load(Ordering::SeqCst), 1);
+                assert_eq!(runtime.gc().active_roots(), 0);
+
+                Ok(())
+            })
             .unwrap();
-        stack.start_native_entry(&runtime, invoke_selected).unwrap();
-        let ReturnAction::Complete(result) = stack.finish_native_return(&runtime).unwrap() else {
-            panic!("override return")
-        };
-        assert_eq!(result, Value::I32(42));
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
-        assert_eq!(runtime.gc().active_roots(), 0);
     }
 }

@@ -158,7 +158,7 @@ fn bound(declarations: DefinitionMetadata<ModuleDecl>) -> Result<NativeModule, R
     assert!(builder.declared_method(0, "missing").is_err());
     builder.bind(
         method,
-        |_: &HostCallContext<'_>, _: &[Value]| -> Result<Value, HostError> {
+        |_: &mut HostCallContext<'_>, _: &[Value]| -> Result<Value, HostError> {
             panic!("metadata linking cannot invoke callbacks")
         },
     )?;
@@ -243,7 +243,7 @@ fn trait_module(implementation: Option<HostPassingStyle>) -> NativeModule {
                             effects: Default::default(),
                         },
                     )?;
-                    methods.bind("get", |_: &HostCallContext<'_>, _: &[Value]| {
+                    methods.bind("get", |_: &mut HostCallContext<'_>, _: &[Value]| {
                         Ok(Value::I32(1))
                     })
                 })

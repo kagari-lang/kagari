@@ -72,7 +72,7 @@ pub(crate) fn engine(output: Arc<Mutex<Output>>) -> Result<KagariEngine, Embeddi
     module
         .bind(
             print,
-            move |context: &HostCallContext<'_>, args: &[Value]| {
+            move |context: &mut HostCallContext<'_>, args: &[Value]| {
                 let [Value::Str(id)] = args else {
                     return Err(HostError::new("web::print requires String"));
                 };

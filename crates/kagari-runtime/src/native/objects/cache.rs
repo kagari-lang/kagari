@@ -39,7 +39,7 @@ impl Runtime {
     /// Generic declarations require existing executable layout evidence; binding
     /// never compiles or specializes a missing application.
     pub fn bind_type(
-        &self,
+        &mut self,
         owner: &Module,
         path: &str,
         arguments: &[TypeArgument],
@@ -81,7 +81,7 @@ impl Runtime {
     /// Bind a public declaration/application within the Module's installation.
     /// This advanced route does not grant private namespace navigation.
     pub fn bind_type_declaration(
-        &self,
+        &mut self,
         owner: &Module,
         declaration: &DefinitionPath,
         arguments: &[TypeArgument],
@@ -99,7 +99,7 @@ impl Runtime {
     }
 
     fn prepare_object_application(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
         declaration: DefinitionId,
         arguments: &[TypeArgument],
@@ -131,7 +131,7 @@ impl Runtime {
         self.retain_public_object_type(layout)
     }
 
-    fn retain_public_object_type(&self, layout: StructLayoutRef) -> NativeResult<ObjectType> {
+    fn retain_public_object_type(&mut self, layout: StructLayoutRef) -> NativeResult<ObjectType> {
         let result = self.retain_object_type(layout)?;
         if !result.0.public {
             return Err(RuntimeError::module_validation("object type is not public"));
@@ -140,12 +140,12 @@ impl Runtime {
     }
 
     /// Share the same retained layout owner with nominal DTO conversion.
-    pub(crate) fn retain_object_type(&self, layout: StructLayoutRef) -> NativeResult<ObjectType> {
+    pub(crate) fn retain_object_type(
+        &mut self,
+        layout: StructLayoutRef,
+    ) -> NativeResult<ObjectType> {
         self.validate_executable_module(layout.module())?;
-        let mut cache = self
-            .object_bindings
-            .try_borrow_mut()
-            .map_err(|_| RuntimeError::module_validation("object binding cache is borrowed"))?;
+        let cache = &mut self.object_bindings;
         cache.types.retain(|record| record.strong_count() != 0);
         if let Some(record) = cache.types.iter().filter_map(Weak::upgrade).find(|record| {
             record.layout.module().program_root().key() == layout.module().program_root().key()
@@ -179,6 +179,7 @@ impl Runtime {
             public,
             _program: program,
         });
+        let cache = &mut self.object_bindings;
         cache
             .types
             .try_reserve(1)

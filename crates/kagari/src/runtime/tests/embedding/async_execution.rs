@@ -57,12 +57,12 @@ impl Fixture {
         Self::with_prepared_program(config, install, |engine, _, _| prepare_source(engine, text))
     }
 
-    fn invoke(&self, entry: &str, arguments: &[Value]) -> RootedValue {
+    fn invoke(&mut self, entry: &str, arguments: &[Value]) -> RootedValue {
         self.call(entry, arguments).unwrap()
     }
 
     fn call(
-        &self,
+        &mut self,
         entry: &str,
         arguments: &[Value],
     ) -> kagari_runtime::native::binding::NativeResult<RootedValue> {
@@ -92,13 +92,18 @@ impl Fixture {
         root.value(self.runtime.gc()).unwrap()
     }
 
-    fn start_future(&self, future: &RootedValue) -> OwnedExecution {
+    fn start_future(&mut self, future: &RootedValue) -> OwnedExecution {
         self.runtime
             .start_future(&self.value(future), Default::default())
             .unwrap()
     }
 
-    fn complete(&self, owner: &OwnedExecution) -> RootedValue {
+    fn run_future(&mut self, future: &RootedValue) -> RootedValue {
+        let execution = self.start_future(future);
+        self.complete(&execution)
+    }
+
+    fn complete(&mut self, owner: &OwnedExecution) -> RootedValue {
         for _ in 0..1000 {
             match self
                 .runtime

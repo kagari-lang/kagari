@@ -37,7 +37,7 @@ fn task_owns_a_live_runtime_across_message_receive_awaits() {
         .worker_threads(2)
         .build()
         .unwrap();
-    let (runtime, loaded, root) = executor.block_on(async move {
+    let (mut runtime, loaded, root) = executor.block_on(async move {
         let (commands, mut receive) = mpsc::channel::<()>(1);
         let (responses, mut results) = mpsc::channel(1);
         // spawn requires both the future and its returned owned state to be Send.

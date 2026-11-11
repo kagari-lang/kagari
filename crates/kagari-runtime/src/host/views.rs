@@ -130,41 +130,49 @@ mod tests {
 
     #[test]
     fn shared_external_alias_preserves_owner_epoch_and_original_unique_token() {
-        let runtime = Runtime::new(RuntimeConfig {
+        let mut runtime = Runtime::new(RuntimeConfig {
             gc: GcHeapConfig {
                 collection_threshold: Some(1),
                 ..Default::default()
             },
             ..Default::default()
         });
-        let frame = runtime.host_scope(&[]).unwrap();
+        let mut frame = runtime.host_scope(&[]).unwrap();
         let ty = TypeId::new(0);
         let original = frame.borrows().borrow_unique(HostObjectId(7), ty).unwrap();
-        let value = runtime.gc().alloc_host_mut(original).unwrap();
-        let roots = runtime
+        let value = frame.runtime().gc().alloc_host_mut(original).unwrap();
+        let roots = frame
+            .runtime()
             .gc()
             .root_execution_values(vec![value, Value::Unit])
             .unwrap();
-        let shared = runtime.narrow_host_argument(&value).unwrap().unwrap();
-        roots.set(runtime.gc(), 1, shared).unwrap();
-        runtime.collect_garbage().unwrap();
-        let Value::Ephemeral(id) = roots.get(runtime.gc(), 1).unwrap() else {
+        let shared = frame
+            .runtime()
+            .narrow_host_argument(&value)
+            .unwrap()
+            .unwrap();
+        roots.set(frame.runtime().gc(), 1, shared).unwrap();
+        frame.runtime_mut().collect_garbage().unwrap();
+        let Value::Ephemeral(id) = roots.get(frame.runtime().gc(), 1).unwrap() else {
             panic!("alias")
         };
-        let Some(EphemeralValue::HostRef(shared)) = runtime.gc().ephemeral(id) else {
+        let Some(EphemeralValue::HostRef(shared)) = frame.runtime().gc().ephemeral(id) else {
             panic!("shared token")
         };
-        runtime
+        frame
+            .runtime()
             .validate_host_borrow(shared, HostBorrowKind::Shared)
             .unwrap();
         assert_eq!(
-            runtime
+            frame
+                .runtime()
                 .validate_host_borrow(shared, HostBorrowKind::Unique)
                 .unwrap_err()
                 .kind(),
             RuntimeErrorKind::HostBorrowConflict
         );
-        runtime
+        frame
+            .runtime()
             .validate_host_borrow(original, HostBorrowKind::Unique)
             .unwrap();
         let other = Runtime::default();

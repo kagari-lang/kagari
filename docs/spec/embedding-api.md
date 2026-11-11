@@ -394,7 +394,7 @@ native enums share checked generic instantiation, ordered tuple fields and pinne
 layouts. Unsupported enum operations use the existing JIT fallback before entry.
 `ExecutableModule::enum_variant` returns a verified `EnumVariantRef` retaining its
 generation. Registered native bodies use scoped type arguments and
-`CallContext::allocate_enum`; host construction uses
+`NativeCall::allocate_enum`; host construction uses
 `Runtime::make_enum_member(owner, applied_type, member, fields)`. Both validate
 identity, installed generation, substituted payload types and live nested handles.
 A same-named user enum has its own nominal identity and cannot become a core type.
@@ -742,7 +742,7 @@ and output capabilities are independent, and no borrowed input reference escapes
 NativeResult is the runtime-failure channel; a nested business Result remains data.
 Conversion does not implicitly install nominal providers or ignore type origins.
 Portable `Ty::Array` carries its element schema; `Type::array` authors that
-signature and `CallContext::allocate_array` allocates checked fixed storage. Native
+signature and `NativeCall::allocate_array` allocates checked fixed storage. Native
 values retain ordinary explicit declaration identities and type arguments. Runtime
 has no automatic Rust Vec conversion, collection-specific retained handle or nominal
 collection allocator. Libraries must author their own wrappers/explicit adapters;
@@ -828,6 +828,14 @@ native entries and other existing checked executable evidence. Both binding rout
 validate the complete Rust signature. Named bindings retain a checked live route,
 not an obsolete executable lease; invocation selects and admits the exact current target.
 
+`Function<A, R>::prepare_call` produces a `PreparedHostCall<A, R>` with private
+mapping evidence and one retained executable selection. Calls accept the bound
+`A` and return the bound `R`; changing that Rust mapping requires a new checked
+binding. Fixed mapping checks occur at binding, while each call still validates
+Runtime ownership, execution policy and actual values and executes its converters.
+Explicit prepared calls retain their selected body across publication; ordinary
+calls on Function continue to select current implementations.
+
 Prepare `Field<T>` and `Method<A, R>` once from the installed applied type, then
 reuse them. Native and script inherent members share declaration/name binding;
 method tuples exclude the receiver. Associated functions return `Function`.
@@ -869,7 +877,7 @@ Preauthored native catalogs can use `NativeBinding::declared` and
 `SelectedCall::from_declaration`; ordinary registration uses `bind` and
 FunctionBuilder::requires. Both consume the same validated declaration, scope and
 selected-operation machinery. RootedCallable is removed; independently retained
-host callbacks use `Function`. CallContext, borrowed native views and traced
+host callbacks use `Function`. NativeCall, borrowed native views and traced
 StoredCallable remain advanced adapters for concrete storage/iterator operations,
 with explicit rooting obligations. They are not a second ownership model.
 

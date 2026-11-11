@@ -7,7 +7,7 @@ use kagari_runtime::{
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
-        context::CallContext,
+        context::NativeCall,
         declarations::FunctionDecl,
         module::NativeModule,
         scalar::NativeScalar,
@@ -143,11 +143,11 @@ fn scalar_function_executes_through_the_checked_registration() {
     module
         .bind(
             add,
-            |_cx: &mut CallContext<'_>, a: i32, b: i32| -> NativeResult<i32> { Ok(a + b) },
+            |_cx: &mut NativeCall<'_>, a: i32, b: i32| -> NativeResult<i32> { Ok(a + b) },
         )
         .unwrap();
     let module = module.finish().unwrap();
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         "use example::math::add; fn main() -> i32 { add(20, 22) }",
         Some(&module),
     );
@@ -178,11 +178,11 @@ fn raw_result_contract_failure_releases_the_execution_scope() {
     module
         .bind(
             function,
-            |_cx: &mut CallContext<'_>| -> NativeResult<Value> { Ok(Value::Bool(true)) },
+            |_cx: &mut NativeCall<'_>| -> NativeResult<Value> { Ok(Value::Bool(true)) },
         )
         .unwrap();
     let module = module.finish().unwrap();
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         "use example::bad::broken; fn main() -> i32 { broken() } pub fn healthy() -> i32 { 42 }",
         Some(&module),
     );
@@ -204,7 +204,7 @@ fn raw_result_contract_failure_releases_the_execution_scope() {
 
 #[test]
 fn foundation_defaults_execute_without_optional_modules() {
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         r#"use std::collections::{HashMap, HashSet};
 
         fn main() -> i32 {
@@ -233,7 +233,7 @@ fn foundation_defaults_execute_without_optional_modules() {
 
 #[test]
 fn custom_hash_collisions_use_selected_script_methods() {
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         r#"use std::collections::{HashMap};
 use std::hash::{Hash};
 
@@ -323,7 +323,7 @@ fn selected_script_callbacks_return_directly_to_a_rust_loop() {
         )
         .unwrap();
     let module = module.finish().unwrap();
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         r#"
         use example::calls::{Step, repeat};
         struct Counter { val amount: i32 }
@@ -423,14 +423,6 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
                 Codec::Exact(Type::i32()),
                 |context| {
                     context.with_payload::<TracedCounter, _>(0, |payload| {
-                        // Collection and execution cannot invalidate this scoped Rust borrow.
-                        assert!(
-                            context
-                                .allocate_array(context.resolve_type(Type::i32().abi())?, vec![])
-                                .unwrap_err()
-                                .to_string()
-                                .contains("native storage access")
-                        );
                         let Value::Array(id) = payload.values else {
                             panic!("counter payload");
                         };
@@ -444,7 +436,7 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         "use example::objects::{Counter, new, read}; fn main() -> Counter<i32> { new() } pub fn answer() -> i32 { read(new()) }",
         Some(&module),
     );
@@ -510,7 +502,7 @@ fn array_literals_repeats_and_empty_arrays_preserve_native_access_and_aliases() 
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         r#"
         use example::arrays::probe;
         fn main() -> i32 {
@@ -538,7 +530,7 @@ fn array_literals_repeats_and_empty_arrays_preserve_native_access_and_aliases() 
 
 #[test]
 fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_elements() {
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         "struct Node { val value: i32 } pub fn values() -> [i32] { [1, 2, 3, 4] } pub fn nodes() -> [Node] { [Node { value: 42 }] }",
         None,
     );
@@ -679,7 +671,7 @@ fn every_scalar_array_preserves_its_declared_element_and_values() {
         .join(" ");
     let source =
         format!("use example::scalar_arrays::*; fn main() -> bool {{ {statements} true }}");
-    let (vm, loaded) = compile(&source, Some(&module));
+    let (mut vm, loaded) = compile(&source, Some(&module));
     let _loaded_program = loaded;
     let loaded = vm.select_program(&_loaded_program).unwrap();
     assert_eq!(
@@ -710,7 +702,7 @@ fn hash_callbacks_can_collect_and_trap_without_losing_keys_or_lookup_guards() {
     builder
         .bind(
             collect,
-            move |cx: &mut CallContext<'_>| -> NativeResult<i64> {
+            move |cx: &mut NativeCall<'_>| -> NativeResult<i64> {
                 cx.collect_garbage()?;
                 capture.fetch_add(1, Ordering::SeqCst);
                 Ok(7)
@@ -718,7 +710,7 @@ fn hash_callbacks_can_collect_and_trap_without_losing_keys_or_lookup_guards() {
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         include_str!("../../../tests/fixtures/native/hash-gc-and-trap.kgr"),
         Some(&module),
     );
@@ -811,7 +803,7 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         r#"
         use example::provided::{Counter, new, read, missing_payload};
         fn main() -> Counter { new([42]) }

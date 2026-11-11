@@ -90,7 +90,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
             let loaded = load_bytecode(&mut runtime, "fault.kgr", program).unwrap();
             let _loaded_program = loaded;
             let loaded = runtime.select_program(&_loaded_program).unwrap();
-            let vm = runtime;
+            let mut vm = runtime;
             let error = if jit {
                 vm.execute_fixture_prepared(&loaded, FunctionRef::new(0), &prepared)
                     .unwrap_err()
@@ -123,7 +123,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
             assert!(matches!(vm.invoke_native_function(&native),
                 Err(NativeInvocationFailure { error: BackendInvocationError::RuntimeFailure(ref error), .. }) if error.kind() == RuntimeErrorKind::EngineFault));
             assert_eq!(
-                unsafe { jit_poll_execution(&vm, 0) },
+                unsafe { jit_poll_execution(&mut vm, 0) },
                 JIT_STATUS_ENGINE_FAULT
             );
             assert_eq!(vm.resources().counters(), before);
@@ -133,15 +133,14 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
 
 #[test]
 fn typed_path_callbacks_reenter_the_root_session_before_commit() {
-    fn assert_reentry(call: &HostCallContext<'_>, function: FunctionRef) {
+    fn assert_reentry(call: &mut HostCallContext<'_>, function: FunctionRef) {
         let root = call.runtime().execution_root().unwrap();
-        let scope = call
-            .runtime()
-            .begin_execution(&root, call.runtime().execution_options())
-            .unwrap();
+        let options = call.runtime().execution_options();
+        let scope = call.runtime_mut().begin_execution(&root, options).unwrap();
         assert_eq!(scope.host_scope_count(), 2);
+        drop(scope);
         let value = reenter(call, &root, function, &[]).unwrap();
-        call.runtime().collect_garbage().unwrap();
+        call.runtime_mut().collect_garbage().unwrap();
         let Value::Array(array) = value.value(call.runtime().gc()).unwrap() else {
             panic!("array")
         };
@@ -165,14 +164,10 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                 }))
                 .unwrap();
             entered
-                .bind(entry, move |call: &HostCallContext<'_>, _: &[Value]| {
-                    call.runtime()
-                        .set_host_path(
-                            &call.runtime().gc().alloc_host_root(root).unwrap(),
-                            descriptor,
-                            vec![],
-                            Value::I32(20),
-                        )
+                .bind(entry, move |call: &mut HostCallContext<'_>, _: &[Value]| {
+                    let root_value = call.runtime().gc().alloc_host_root(root).unwrap();
+                    call.runtime_mut()
+                        .set_host_path(&root_value, descriptor, vec![], Value::I32(20))
                         .unwrap();
                     Ok(Value::Unit)
                 })
@@ -229,23 +224,26 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
             let _loaded_program = loaded;
             let loaded = runtime.select_program(&_loaded_program).unwrap();
             let mut vm = runtime;
-            let scope = vm.begin_execution(&loaded, vm.execution_options()).unwrap();
+            let mut scope = vm.begin_execution(&loaded, vm.execution_options()).unwrap();
             let prepared = native_fixtures::unsupported();
+            let options = scope.runtime().execution_options();
             let report = if jit {
-                vm.execute_prepared_module(
+                scope.runtime_mut().execute_prepared_module(
                     &loaded,
                     ProgramEntry::Main,
                     &prepared,
-                    vm.execution_options(),
+                    options,
                 )
             } else {
-                vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
+                scope
+                    .runtime_mut()
+                    .execute_module(&loaded, ProgramEntry::Main, options)
             }
             .unwrap();
             assert_eq!(
                 report
                     .return_value
-                    .value(vm.gc())
+                    .value(scope.runtime().gc())
                     .expect("retained execution result"),
                 Value::I32(42)
             );
@@ -254,7 +252,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
             assert_eq!(scope.host_scope_count(), 0);
             assert_eq!(scope.counters().current_call_depth, 0);
             drop(report);
-            assert_eq!(vm.gc().active_roots(), 0);
+            assert_eq!(scope.runtime().gc().active_roots(), 0);
             drop(scope);
             let replacement = vm
                 .stage_reload_verified_program(
@@ -329,7 +327,7 @@ fn executes_typed_path_read_set_modify_and_view_instructions() {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
 
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm.execute_fixture(&loaded, FunctionRef::new(0)).unwrap();
 
     assert_eq!(
@@ -408,7 +406,7 @@ fn installed_typed_path_helpers_need_no_permission_flags() {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
 
-    let vm = runtime;
+    let mut vm = runtime;
     assert_eq!(
         vm.execute_fixture(&loaded, FunctionRef::new(0))
             .unwrap()
@@ -520,7 +518,7 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
                 RuntimeErrorKind::TypedPathValidation
             );
             assert_eq!(runtime.modules().loaded_count(), 1);
-            let vm = runtime;
+            let mut vm = runtime;
             let value = if jit {
                 let prepared = native_fixtures::unsupported();
                 vm.execute_fixture_prepared(&loaded, FunctionRef::new(0), &prepared)

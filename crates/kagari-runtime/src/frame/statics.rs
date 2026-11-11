@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault},
     frame::{
-        ExecutionStack, FrameDispatch, FrameEntry, arguments::FrameArguments, driver::ReturnAction,
+        FrameDispatch, FrameEntry, FrameStack, arguments::FrameArguments, driver::ReturnAction,
         transfer::ReturnValue,
     },
 };
@@ -13,7 +13,7 @@ use kagari_bytecode::{
     module::CallableTarget,
 };
 
-impl ExecutionStack<'_> {
+impl FrameStack {
     /// Ensure the current verified static operand is ready. `false` means a hidden
     /// initializer frame was entered: the driver continues normally, then retries
     /// this same access PC. This grants no arbitrary function-entry authority.
@@ -22,9 +22,9 @@ impl ExecutionStack<'_> {
         runtime: &Runtime,
         slot: ModuleSlot,
     ) -> Result<bool, RuntimeError> {
-        self.validate_runtime(runtime)?;
+        self.validate_top(runtime)?;
         let (owner, pc) = {
-            let frame = self.current()?;
+            let frame = self.current(runtime)?;
             let pc = frame.executing.ok_or_else(|| {
                 RuntimeError::module_validation("static access requires an executing instruction")
             })?;
@@ -54,11 +54,10 @@ impl ExecutionStack<'_> {
         )?;
         // Admission cannot call user code. The caller's windows and inputs remain
         // live, and only this access is retried, never an earlier RHS or index call.
-        let mut frames = self
-            .session
-            .resources
+        let mut frames = runtime
+            .resources()
             .sessions
-            .frames_mut(self.session.id)
+            .frames_mut(self.session)
             .expect("initializer admission released the frame stack");
         let caller_index = frames.len() - 2;
         frames[caller_index].ip = pc;
@@ -79,19 +78,18 @@ impl ExecutionStack<'_> {
         let _result = runtime
             .root_value(value)
             .ok_or_else(|| RuntimeError::module_validation("initializer return root"))?;
-        let mut frames = self
-            .session
-            .resources
+        let mut frames = runtime
+            .resources()
             .sessions
-            .frames_mut(self.session.id)
+            .frames_mut(self.session)
             .ok_or_else(|| {
                 runtime
                     .resources()
                     .quarantine(EngineFault::InitializerReturnStackIsBorrowed)
             })?;
         let frame = frames.pop().expect("checked initializer return frame");
-        let retired = frame.retire_values(self.session.resources).is_some();
-        self.session.resources.leave_call();
+        let retired = frame.retire_values(runtime.resources()).is_some();
+        runtime.resources().leave_call();
         let initializer = frame
             .initializer
             .as_ref()
@@ -126,8 +124,8 @@ impl ExecutionStack<'_> {
 
     /// Preserve the real error before unwinding. No execution admission is required:
     /// cancellation, quarantine and observer failure must also settle attempts.
-    pub fn fail_static_initializers(&self, cause: &str) {
-        if let Some(frames) = self.session.resources.sessions.frames(self.session.id) {
+    pub fn fail_static_initializers(&self, runtime: &Runtime, cause: &str) {
+        if let Some(frames) = runtime.resources().sessions.frames(self.session) {
             for frame in frames.iter().skip(self.base) {
                 if let Some(initializer) = &frame.initializer {
                     initializer.fail(cause);

@@ -25,7 +25,7 @@ pub fn ready() -> i32 { READY }
 pub fn late() -> i32 { LATE }
 "#;
 
-fn call(runtime: &Runtime, module: &InstalledProgram, entry: &str) -> i32 {
+fn call(runtime: &mut Runtime, module: &InstalledProgram, entry: &str) -> i32 {
     runtime
         .execute_typed(module, entry, (), &Default::default())
         .unwrap()
@@ -46,12 +46,12 @@ fn main() {
         .bind_function::<(), i32>(&old.root(), "current_code")
         .unwrap();
 
-    assert_eq!(call(&runtime, &old, "next"), 1);
-    assert_eq!(call(&runtime, &old, "ready"), 10);
+    assert_eq!(call(&mut runtime, &old, "next"), 1);
+    assert_eq!(call(&mut runtime, &old, "ready"), 10);
     let before = (
-        call(&runtime, &old, "next"),
-        call(&runtime, &old, "bump_object"),
-        call(&runtime, &old, "callback"),
+        call(&mut runtime, &old, "next"),
+        call(&mut runtime, &old, "bump_object"),
+        call(&mut runtime, &old, "callback"),
     );
     assert_eq!(before, (2, 2, 12));
     println!(
@@ -78,17 +78,17 @@ fn main() {
 
     // Reload neither resets COUNT nor replaces BOX. A val binding still permits
     // mutation of the object's var field; old and new code share the same object.
-    assert_eq!(call(&runtime, &current, "object"), 2);
-    assert_eq!(call(&runtime, &current, "ready"), 10);
+    assert_eq!(call(&mut runtime, &current, "object"), 2);
+    assert_eq!(call(&mut runtime, &current, "ready"), 10);
     let after = (
-        call(&runtime, &current, "next"),
-        call(&runtime, &current, "bump_object"),
-        call(&runtime, &current, "callback"),
-        call(&runtime, &current, "current_code"),
+        call(&mut runtime, &current, "next"),
+        call(&mut runtime, &current, "bump_object"),
+        call(&mut runtime, &current, "callback"),
+        call(&mut runtime, &current, "current_code"),
     );
     assert_eq!(after, (3, 3, 23, 23));
-    assert_eq!(call(&runtime, &old, "object"), 3);
-    assert_eq!(call(&runtime, &old, "current_code"), 23);
+    assert_eq!(call(&mut runtime, &old, "object"), 3);
+    assert_eq!(call(&mut runtime, &old, "current_code"), 23);
     // CALLBACK retains its closure body, but its call to version selects V2.
     // A named function binding likewise follows the current implementation.
     assert_eq!(runtime.call(&retained_current_code, ()).unwrap(), 23);
@@ -99,7 +99,7 @@ fn main() {
 
     // LATE still enters V1's original recipe, whose ordinary call selects V2's helper.
     // In contrast, READY above keeps its already initialized value of 10.
-    let late = call(&runtime, &current, "late");
+    let late = call(&mut runtime, &current, "late");
     assert_eq!(late, 20);
     println!("First read of untouched LATE after reload: {late} (V1 recipe, V2 helper)");
 
@@ -109,14 +109,14 @@ fn main() {
         .load_program(&second, Default::default())
         .unwrap();
     let installed = (
-        call(&fresh_runtime, &fresh, "next"),
-        call(&fresh_runtime, &fresh, "object"),
-        call(&fresh_runtime, &fresh, "callback"),
-        call(&fresh_runtime, &fresh, "late"),
+        call(&mut fresh_runtime, &fresh, "next"),
+        call(&mut fresh_runtime, &fresh, "object"),
+        call(&mut fresh_runtime, &fresh, "callback"),
+        call(&mut fresh_runtime, &fresh, "late"),
     );
     assert_eq!(installed, (1, 1, 21, 20));
-    assert_eq!(call(&fresh_runtime, &fresh, "ready"), 20);
-    assert_eq!(call(&runtime, &current, "current_code"), 23);
+    assert_eq!(call(&mut fresh_runtime, &fresh, "ready"), 20);
+    assert_eq!(call(&mut runtime, &current, "current_code"), 23);
     println!(
         "Fresh V2 installation: counter={}, object={}, callback={}, LATE={}",
         installed.0, installed.1, installed.2, installed.3

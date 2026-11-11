@@ -57,6 +57,7 @@ fn main() {
     assert_eq!(gc.array_get(id, 0), Some(Value::I32(42)));
     assert_eq!(gc.array_len(id), Some(1));
     runtime.collect_garbage().unwrap();
+    let gc = runtime.gc();
     assert_eq!(root.value(gc), Some(Value::Array(id)));
     gc.array_set(id, 0, Value::I32(7)).unwrap();
     assert_eq!(gc.array_snapshot(id), Some(vec![Value::I32(7)]));

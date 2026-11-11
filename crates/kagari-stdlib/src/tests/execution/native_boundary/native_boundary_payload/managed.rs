@@ -86,8 +86,8 @@ fn registration() -> Registration {
                   (hp, name, callback): (i32, String, Callback)|
                   -> NativeResult<Holder> {
                 let ty = cx.result_native_type::<Managed<State>>()?;
-                let name_field = ty.bind_field(cx.runtime(), &name_token)?;
-                let callback_field = ty.bind_field(cx.runtime(), &callback_token)?;
+                let name_field = ty.bind_field(cx.runtime_mut(), &name_token)?;
+                let callback_field = ty.bind_field(cx.runtime_mut(), &callback_token)?;
                 let mut builder = ty.build(State { hp })?;
                 builder.set(cx, &name_field, name)?;
                 builder.set(cx, &callback_field, callback)?;
@@ -126,7 +126,7 @@ fn registration() -> Registration {
             move |cx: &mut NativeContext<'_>,
                   (holder, callback): (Holder, Callback)|
                   -> NativeResult<()> {
-                let field = holder.native_type().bind_field(cx.runtime(), &token)?;
+                let field = holder.native_type().bind_field(cx.runtime_mut(), &token)?;
                 holder.set(cx, &field, callback)
             },
         )
@@ -143,7 +143,7 @@ fn registration() -> Registration {
         .bind(
             invoke,
             move |cx: &mut NativeContext<'_>, (holder,): (Holder,)| -> NativeResult<i32> {
-                let field = holder.native_type().bind_field(cx.runtime(), &token)?;
+                let field = holder.native_type().bind_field(cx.runtime_mut(), &token)?;
                 holder.get(cx, &field)?.call(cx, ())
             },
         )
@@ -186,8 +186,8 @@ fn registered_payload_fields_support_aliases_reentry_and_rootless_callback_cycle
     let native_type = vm
         .bind_native_type::<Managed<State>>(&_owner_program.root(), &ty, &[])
         .unwrap();
-    let name = native_type.bind_field(&vm, &name).unwrap();
-    let callback = native_type.bind_field(&vm, &callback).unwrap();
+    let name = native_type.bind_field(&mut vm, &name).unwrap();
+    let callback = native_type.bind_field(&mut vm, &callback).unwrap();
     let mut cx = vm.context(&owner).unwrap();
     assert_eq!(object.get(&mut cx, &name).unwrap(), "initial");
     object.set(&mut cx, &name, "updated".into()).unwrap();
@@ -198,18 +198,18 @@ fn registered_payload_fields_support_aliases_reentry_and_rootless_callback_cycle
     object
         .edit_data(&cx, |state| {
             state.hp = 40;
-            assert!(cx.collect_garbage().is_err());
             Ok(())
         })
         .unwrap();
     assert_eq!(
-        vm.execute_typed::<_, i32>(
-            &_owner_program,
-            "run",
-            (object.clone(),),
-            &Default::default()
-        )
-        .unwrap(),
+        cx.runtime_mut()
+            .execute_typed::<_, i32>(
+                &_owner_program,
+                "run",
+                (object.clone(),),
+                &Default::default()
+            )
+            .unwrap(),
         41
     );
     assert!(
@@ -247,16 +247,17 @@ fn managed_construction_and_replacement_require_every_checked_field() {
         name,
         callback,
     } = registration();
-    let (vm, owner) = fixture(SOURCE, Some(&module));
+    let (mut vm, owner) = fixture(SOURCE, Some(&module));
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
     let native_type = vm
         .bind_native_type::<Managed<State>>(&_owner_program.root(), &ty, &[])
         .unwrap();
-    let name_field = native_type.bind_field(&vm, &name).unwrap();
-    let callback_field = native_type.bind_field(&vm, &callback).unwrap();
+    let name_field = native_type.bind_field(&mut vm, &name).unwrap();
+    let callback_field = native_type.bind_field(&mut vm, &callback).unwrap();
     let mut cx = vm.context(&owner).unwrap();
-    let callback: Callback = vm
+    let callback: Callback = cx
+        .runtime_mut()
         .execute_typed(&_owner_program, "plain", (), &Default::default())
         .unwrap();
     let mut incomplete = native_type.build(State { hp: 10 }).unwrap();
@@ -285,14 +286,18 @@ fn managed_construction_and_replacement_require_every_checked_field() {
         .set(&mut cx, &name_field, "replaced".into())
         .unwrap();
     replacement.set(&mut cx, &callback_field, callback).unwrap();
-    let units = vm.gc().stats().current_heap_units;
+    let units = cx.runtime().gc().stats().current_heap_units;
     replacement.replace(&mut cx, &object).unwrap();
-    assert_eq!(vm.gc().stats().current_heap_units, units);
+    assert_eq!(cx.runtime().gc().stats().current_heap_units, units);
     assert_eq!(alias.read(&cx, |p| Ok(p.data().hp)).unwrap(), 20);
     assert_eq!(alias.get(&mut cx, &name_field).unwrap(), "replaced");
     let other = registration();
-    assert!(native_type.bind_field(&vm, &other.name).is_err());
-    let (foreign, foreign_owner) = fixture(SOURCE, Some(&module));
+    assert!(
+        native_type
+            .bind_field(cx.runtime_mut(), &other.name)
+            .is_err()
+    );
+    let (mut foreign, foreign_owner) = fixture(SOURCE, Some(&module));
     let _foreign_owner_program = foreign_owner;
     let foreign_owner = foreign.select_program(&_foreign_owner_program).unwrap();
     let callback: Callback = foreign
@@ -327,7 +332,7 @@ fn stored_callback_keeps_old_code_and_releases_the_old_program_with_its_cycle() 
     let object: Holder = vm
         .execute_typed(&_old_program, "cycle", (41,), &Default::default())
         .unwrap();
-    let field = object.native_type().bind_field(&vm, &callback).unwrap();
+    let field = object.native_type().bind_field(&mut vm, &callback).unwrap();
     reload_bytecode(
         &mut vm,
         &_old_program,
@@ -346,7 +351,8 @@ fn stored_callback_keeps_old_code_and_releases_the_old_program_with_its_cycle() 
             .unwrap(),
         42
     );
-    let replacement: Holder = vm
+    let replacement: Holder = cx
+        .runtime_mut()
         .execute_typed(&_new_program, "cycle", (41,), &Default::default())
         .unwrap();
     assert_eq!(
@@ -400,7 +406,7 @@ impl IntoKagari for Converted {
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
     ) -> NativeResult<Value> {
-        cx.runtime().collect_garbage()?;
+        cx.runtime_mut().collect_garbage()?;
         if self.fail {
             return Err(RuntimeError::module_validation(
                 "conversion failure after GC",
@@ -434,7 +440,7 @@ fn failed_converters_keep_prior_initializers_and_committed_fields_rooted() {
     let mut wrong_ty = module.define_type("Wrong").unwrap();
     wrong_ty.native_storage(wrong_storage.finish()).unwrap();
     let wrong_ty = wrong_ty.finish().unwrap();
-    let (vm, owner) = fixture(
+    let (mut vm, owner) = fixture(
         "pub fn callback() -> fn() -> i32 { || 42 }",
         Some(&module.finish().unwrap()),
     );
@@ -446,13 +452,14 @@ fn failed_converters_keep_prior_initializers_and_committed_fields_rooted() {
     assert!(
         vm.bind_native_type::<Managed<()>>(&_owner_program.root(), &wrong_ty, &[])
             .unwrap()
-            .bind_field(&vm, &wrong_token)
+            .bind_field(&mut vm, &wrong_token)
             .is_err()
     );
-    let callback_field = native_type.bind_field(&vm, &callback_token).unwrap();
-    let text_field = native_type.bind_field(&vm, &text_token).unwrap();
+    let callback_field = native_type.bind_field(&mut vm, &callback_token).unwrap();
+    let text_field = native_type.bind_field(&mut vm, &text_token).unwrap();
     let mut cx = vm.context(&owner).unwrap();
-    let callback: Callback = vm
+    let callback: Callback = cx
+        .runtime_mut()
         .execute_typed(&_owner_program, "callback", (), &Default::default())
         .unwrap();
     let mut builder = native_type.build(()).unwrap();
@@ -565,7 +572,7 @@ fn generic_managed_fields_keep_their_argument_scope_across_native_calls_and_bind
             wrap,
             move |cx: &mut NativeContext<'_>, (value,): (ScriptValue,)| -> NativeResult<Boxed> {
                 let ty = cx.result_native_type::<Managed<()>>()?;
-                let field = ty.bind_field(cx.runtime(), &token)?;
+                let field = ty.bind_field(cx.runtime_mut(), &token)?;
                 let mut builder = ty.build(())?;
                 builder.set(cx, &field, value)?;
                 builder.finish(cx)
@@ -586,7 +593,7 @@ fn generic_managed_fields_keep_their_argument_scope_across_native_calls_and_bind
         .bind(
             read,
             move |cx: &mut NativeContext<'_>, (value,): (Boxed,)| -> NativeResult<ScriptValue> {
-                let field = value.native_type().bind_field(cx.runtime(), &token)?;
+                let field = value.native_type().bind_field(cx.runtime_mut(), &token)?;
                 cx.collect_garbage()?;
                 value.get(cx, &field)
             },
@@ -639,11 +646,11 @@ fn generic_managed_fields_keep_their_argument_scope_across_native_calls_and_bind
     );
     let old_field = old_value
         .native_type()
-        .bind_field(&vm, &value_token)
+        .bind_field(&mut vm, &value_token)
         .unwrap();
     let new_field = new_value
         .native_type()
-        .bind_field(&vm, &value_token)
+        .bind_field(&mut vm, &value_token)
         .unwrap();
     let mut cx = vm.context(&new).unwrap();
     assert!(new_value.get(&mut cx, &old_field).is_err());
@@ -655,36 +662,45 @@ fn generic_managed_fields_keep_their_argument_scope_across_native_calls_and_bind
             .is_err()
     );
     assert!(
-        vm.execute_typed::<_, i64>(
-            &_new_program,
-            "run",
-            (old_value.clone(),),
-            &Default::default()
-        )
-        .is_err()
+        cx.runtime_mut()
+            .execute_typed::<_, i64>(
+                &_new_program,
+                "run",
+                (old_value.clone(),),
+                &Default::default()
+            )
+            .is_err()
     );
-    let new_item = vm.bind_type(&_new_program.root(), "Item", &[]).unwrap();
+    let new_item = cx
+        .runtime_mut()
+        .bind_type(&_new_program.root(), "Item", &[])
+        .unwrap();
     assert!(
-        vm.bind_native_type::<Managed<()>>(
-            &_old_program.root(),
-            &ty,
-            slice::from_ref(new_item.type_argument())
-        )
-        .is_err()
+        cx.runtime_mut()
+            .bind_native_type::<Managed<()>>(
+                &_old_program.root(),
+                &ty,
+                slice::from_ref(new_item.type_argument())
+            )
+            .is_err()
     );
-    let scoped_type = vm
+    let scoped_type = cx
+        .runtime_mut()
         .bind_native_type::<Managed<()>>(
             &_new_program.root(),
             &ty,
             slice::from_ref(new_item.type_argument()),
         )
         .unwrap();
-    let scoped_field = scoped_type.bind_field(&vm, &value_token).unwrap();
+    let scoped_field = scoped_type
+        .bind_field(cx.runtime_mut(), &value_token)
+        .unwrap();
     let mut builder = scoped_type.build(()).unwrap();
     builder.set(&mut cx, &scoped_field, newer_item).unwrap();
     let scoped = builder.finish(&mut cx).unwrap();
     assert_eq!(
-        vm.execute_typed::<_, i64>(&_new_program, "run", (scoped.clone(),), &Default::default())
+        cx.runtime_mut()
+            .execute_typed::<_, i64>(&_new_program, "run", (scoped.clone(),), &Default::default())
             .unwrap(),
         42
     );
@@ -695,13 +711,14 @@ fn generic_managed_fields_keep_their_argument_scope_across_native_calls_and_bind
         .unwrap();
     assert!(wrong_replacement.replace(&mut cx, &old_value).is_err());
     assert_eq!(
-        vm.execute_typed::<_, i32>(
-            &_old_program,
-            "run",
-            (old_value.clone(),),
-            &Default::default()
-        )
-        .unwrap(),
+        cx.runtime_mut()
+            .execute_typed::<_, i32>(
+                &_old_program,
+                "run",
+                (old_value.clone(),),
+                &Default::default()
+            )
+            .unwrap(),
         42
     );
     drop((scoped, old_value, new_value));

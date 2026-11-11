@@ -7,32 +7,39 @@ use std::sync::atomic::Ordering;
 
 #[test]
 fn sdk_async_block_capture_and_control_flow_contract() {
-    let f = Fixture::source(include_str!(
+    let mut f = Fixture::source(include_str!(
         "../../../../../tests/fixtures/embedding/async/blocks-capture-control.kgr"
     ));
     for (entry, expected) in [("captures", 155), ("boundaries", 339), ("propagation", 72)] {
         let future = f.invoke(entry, &[]);
         assert_eq!(
-            f.value(&f.complete(&f.start_future(&future))),
+            f.run_future(&future).value(f.runtime.gc()).unwrap(),
             Value::I32(expected)
         );
     }
     let unit = f.invoke("unit", &[]);
-    assert_eq!(f.value(&f.complete(&f.start_future(&unit))), Value::Unit);
+    assert_eq!(
+        f.run_future(&unit).value(f.runtime.gc()).unwrap(),
+        Value::Unit
+    );
     let events = f.invoke("events", &[]);
     drop(f.invoke("discard", &[f.value(&events)]));
     let outer = f.invoke("nested", &[f.value(&events)]);
-    let inner = f.complete(&f.start_future(&outer));
+    let inner = f.run_future(&outer);
     assert_eq!(
-        f.value(&f.invoke("count", &[f.value(&events)])),
+        f.invoke("count", &[f.value(&events)])
+            .value(f.runtime.gc())
+            .unwrap(),
         Value::U64(0)
     );
     assert_eq!(
-        f.value(&f.complete(&f.start_future(&inner))),
+        f.run_future(&inner).value(f.runtime.gc()).unwrap(),
         Value::I32(42)
     );
     assert_eq!(
-        f.value(&f.invoke("count", &[f.value(&events)])),
+        f.invoke("count", &[f.value(&events)])
+            .value(f.runtime.gc())
+            .unwrap(),
         Value::U64(1)
     );
     let repeated = f.start_future(&inner);
@@ -41,14 +48,16 @@ fn sdk_async_block_capture_and_control_flow_contract() {
         DriveResult::Complete(Err(error)) if matches!(error.clone(), ref error if error.kind() == RuntimeErrorKind::ScriptTrap)
     ));
     assert_eq!(
-        f.value(&f.invoke("count", &[f.value(&events)])),
+        f.invoke("count", &[f.value(&events)])
+            .value(f.runtime.gc())
+            .unwrap(),
         Value::U64(1)
     );
 }
 
 #[test]
 fn sdk_async_block_native_wait_retains_captures() {
-    let f = Fixture::source(
+    let mut f = Fixture::source(
         r#"
 use test::async_sdk::request;
 pub fn cold() -> Future<i32> {
@@ -72,7 +81,10 @@ pub fn cold() -> Future<i32> {
         f.sent.lock().unwrap().pop().unwrap().complete(Ok(2)),
         CompletionStatus::Accepted
     );
-    assert_eq!(f.value(&f.complete(&owner)), Value::I32(42));
+    assert_eq!(
+        f.complete(&owner).value(f.runtime.gc()).unwrap(),
+        Value::I32(42)
+    );
     drop(owner);
     f.runtime.collect_garbage().unwrap();
     assert_eq!(f.runtime.gc().active_roots(), 0);

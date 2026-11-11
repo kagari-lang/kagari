@@ -22,7 +22,7 @@ use kagari_runtime::{
     native::{
         binding::NativeResult,
         builder::ModuleBuilder,
-        context::CallContext,
+        context::NativeCall,
         declarations::{FunctionDecl, MethodDecl},
         module::NativeModule,
         types::Type,
@@ -49,7 +49,7 @@ fn installed_function_needs_no_execution_permissions() {
         )
         .unwrap();
     builder
-        .bind(function, |_: &HostCallContext<'_>, _: &[Value]| {
+        .bind(function, |_: &mut HostCallContext<'_>, _: &[Value]| {
             Ok(Value::I32(42))
         })
         .unwrap();
@@ -62,7 +62,10 @@ fn installed_function_needs_no_execution_permissions() {
     let loaded = load_bytecode(&mut runtime, "installed", program).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    assert_eq!(invoke(&runtime, &loaded, 0, &[]).unwrap(), Value::I32(42));
+    assert_eq!(
+        invoke(&mut runtime, &loaded, 0, &[]).unwrap(),
+        Value::I32(42)
+    );
 }
 
 #[test]
@@ -81,7 +84,7 @@ fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
         )
         .unwrap();
     builder
-        .bind(function, move |_: &HostCallContext<'_>, _: &[Value]| {
+        .bind(function, move |_: &mut HostCallContext<'_>, _: &[Value]| {
             callback_cancel.cancel();
             Ok(Value::I32(42))
         })
@@ -93,7 +96,7 @@ fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
     let loaded = load_bytecode(&mut runtime, "cancel", program).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let session = runtime
+    let mut session = runtime
         .begin_execution(
             &loaded,
             ExecutionOptions {
@@ -103,19 +106,26 @@ fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
         )
         .unwrap();
     assert_eq!(
-        invoke(&runtime, &loaded, 0, &[]).unwrap_err().kind(),
+        invoke(session.runtime_mut(), &loaded, 0, &[])
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::Cancelled
     );
     assert_eq!(
-        runtime.resources().poll_execution().unwrap_err().kind(),
+        session
+            .runtime()
+            .resources()
+            .poll_execution()
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::Cancelled
     );
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(session.runtime().gc().active_roots(), 0);
     drop(session);
     let _next = runtime
         .begin_execution(&loaded, ExecutionOptions::default())
         .unwrap();
-    runtime.resources().poll_execution().unwrap();
+    _next.runtime().resources().poll_execution().unwrap();
 }
 
 #[rstest]
@@ -196,7 +206,7 @@ fn native_declarations_require_exact_installation_without_calls() {
         .define_function(FunctionDecl::new("answer").returns(Type::i32()))
         .unwrap();
     builder
-        .bind(function, |_: &mut CallContext<'_>| -> NativeResult<i32> {
+        .bind(function, |_: &mut NativeCall<'_>| -> NativeResult<i32> {
             panic!("declaration validation must not execute native code")
         })
         .unwrap();

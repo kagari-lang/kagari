@@ -8,7 +8,7 @@ use crate::{
         context::ScriptCall,
         conversion::{
             FromKagari,
-            arguments::{IntoKagariArguments, encode_arguments},
+            arguments::{IntoKagariArguments, PreparedArguments, encode_arguments},
             context::ConversionContext,
         },
         interfaces::{Interface, binding::InterfaceMethod},
@@ -42,15 +42,23 @@ impl<S> Interface<S> {
         let invoke = cx.invoke_script.ok_or_else(|| {
             RuntimeError::module_validation("call context has no execution backend")
         })?;
-        let _session = runtime.begin_interface_execution(&method, options)?;
-        let mut conversion = ConversionContext::new(runtime, &member.owner)?;
-        let (_roots, mut values) =
-            encode_arguments(&mut conversion, &binding.record.signature.params, arguments)?;
+        let mut session = cx
+            .runtime_mut()
+            .begin_interface_execution(&method, options)?;
+        let mut conversion = ConversionContext::new(session.runtime_mut(), &member.owner)?;
+        let mapping =
+            PreparedArguments::<A>::from_binding(&conversion, &binding.record.signature.params);
+        let (_roots, mut values) = encode_arguments(&mut conversion, mapping, arguments)?;
         values
             .try_reserve(1)
             .map_err(|_| RuntimeError::resource_limit("interface receiver argument"))?;
         values.insert(0, *method.receiver());
-        let result = invoke(runtime, &owner, ScriptCall::Interface(&method), &values)?;
+        let result = invoke(
+            conversion.runtime_mut(),
+            &owner,
+            ScriptCall::Interface(&method),
+            &values,
+        )?;
         conversion.decode_prepared(&binding.record.signature.result, &result)
     }
 
@@ -113,7 +121,7 @@ impl<S> Interface<S> {
 
 impl Runtime {
     pub(crate) fn begin_interface_execution(
-        &self,
+        &mut self,
         method: &RootedInterfaceMethod,
         options: ExecutionOptions,
     ) -> NativeResult<ExecutionSession<'_>> {
@@ -130,17 +138,17 @@ impl Runtime {
             ));
         }
         let root_entry = self.resources().active_session().is_none();
-        let session =
+        let mut session =
             self.begin_execution_inner(&owner, options, ExecutionEntry::RetainedFunction)?;
         if root_entry {
-            self.attach_execution_observer()?;
+            session.runtime_mut().attach_execution_observer()?;
         }
         Ok(session)
     }
 
     /// Backend entry for an already rooted, generation-checked dispatch selection.
     pub fn enter_interface_execution_stack(
-        &self,
+        &mut self,
         method: &RootedInterfaceMethod,
     ) -> NativeResult<ExecutionStack<'_>> {
         ExecutionStack::new(self.begin_interface_execution(method, self.execution_options())?)

@@ -16,15 +16,16 @@ impl Runtime {
     /// execution policy. The context cannot escape; returned handles retain their
     /// own values. Traps and unwinds release the execution session automatically.
     pub fn with_context<R>(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
         context: &ExecutionContext,
         access: impl FnOnce(&mut NativeContext<'_>) -> NativeResult<R>,
     ) -> NativeResult<R> {
         context.validate_for_execute("host object access")?;
-        let _session = self.begin_execution(owner, context.runtime_options())?;
-        self.attach_execution_observer()?;
-        let mut cx = self.context(owner)?;
+        let mut session = self.begin_execution(owner, context.runtime_options())?;
+        let runtime = session.runtime_mut();
+        runtime.attach_execution_observer()?;
+        let mut cx = runtime.context(owner)?;
 
         (|| {
             cx.poll()?;
@@ -35,15 +36,16 @@ impl Runtime {
     }
 
     pub fn call<A: IntoKagariArguments, R: FromKagari>(
-        &self,
+        &mut self,
         function: &Function<A, R>,
         arguments: A,
     ) -> NativeResult<R> {
-        self.call_with_context(function, arguments, &self.default_context)
+        let context = self.default_context.clone();
+        self.call_with_context(function, arguments, &context)
     }
 
     pub fn call_with_context<A: IntoKagariArguments, R: FromKagari>(
-        &self,
+        &mut self,
         function: &Function<A, R>,
         arguments: A,
         context: &ExecutionContext,

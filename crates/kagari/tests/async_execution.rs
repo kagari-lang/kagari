@@ -42,7 +42,7 @@ mod fixture;
 use fixture::{Fixture, slice};
 
 impl Fixture {
-    fn cold(&self, input: i32) -> RootedValue {
+    fn cold(&mut self, input: i32) -> RootedValue {
         let execution = self
             .runtime
             .start(
@@ -142,7 +142,7 @@ fn sdk_scheduler_source_free_wake_contract() {
 
 #[test]
 fn sdk_owned_native_wait_contract() {
-    let f = Fixture::new();
+    let mut f = Fixture::new();
     assert!(f.program.program().bytecode().modules().len() > 1);
     assert!(
         f.runtime

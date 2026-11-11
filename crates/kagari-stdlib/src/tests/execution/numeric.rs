@@ -168,11 +168,13 @@ fn direct_local_overflow_keeps_the_old_destination_and_prior_commit() {
         let loaded = load_bytecode(&mut runtime, "local-commit", program).unwrap();
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
-        let vm = runtime;
-        let session = vm.begin_execution(&loaded, Default::default()).unwrap();
-        assert!(vm.attach_execution_observer().unwrap());
-        let error = vm
-            .execute_module(&loaded, "main", vm.execution_options())
+        let mut vm = runtime;
+        let mut session = vm.begin_execution(&loaded, Default::default()).unwrap();
+        let session_options = session.runtime().execution_options();
+        assert!(session.runtime().attach_execution_observer().unwrap());
+        let error = session
+            .runtime_mut()
+            .execute_module(&loaded, "main", session_options.clone())
             .unwrap_err();
         assert!(matches!(error, ref error if error.kind() == RuntimeErrorKind::ScriptTrap));
         assert_eq!(*states.lock().unwrap(), [(Value::I32(1), Value::I32(127))]);
@@ -212,7 +214,7 @@ fn check_with_options(source: &str, entries: &[String], traps: bool, options: &M
         let loaded = load_bytecode(&mut runtime, "numeric", program).unwrap();
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
-        let vm = runtime;
+        let mut vm = runtime;
         for entry in entries {
             let result = vm.execute_module(&loaded, entry.as_str(), vm.execution_options());
             if traps {

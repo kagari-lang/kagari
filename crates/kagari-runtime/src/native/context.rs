@@ -2,6 +2,7 @@
 mod enums;
 pub mod operations;
 mod references;
+mod result;
 mod tasks;
 #[cfg(test)]
 mod tests;
@@ -23,6 +24,7 @@ use crate::{
         arguments::CallArguments,
         binding::{LinkedNativeFunction, NativeResult},
         callable::{CallableHandle, PreparedClosure},
+        context::result::PendingReturn,
         conversion::{IntoKagari, context::ConversionContext},
         declarations::SelectedCall,
         function_handle::PreparedFunction,
@@ -37,7 +39,7 @@ use crate::{
 use kagari_bytecode::{module::CallableTarget, program::ModuleRef};
 use kagari_contract::standard::RuntimePrimitive;
 use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::Ty};
-use std::{slice, sync::Arc};
+use std::{marker::PhantomData, rc::Rc, slice, sync::Arc};
 
 #[derive(Clone, Copy)]
 pub(crate) enum ArgumentSlots<'call> {
@@ -52,20 +54,14 @@ pub(crate) enum ArgumentSlots<'call> {
 
 #[derive(Clone)]
 pub struct ArgumentView<'call> {
-    heap: &'call GcHeap,
     frame: Option<FrameSlots>,
     slots: ArgumentSlots<'call>,
     narrowed: Option<RootSet>,
 }
 
 impl<'call> ArgumentView<'call> {
-    pub(crate) fn frame(
-        heap: &'call GcHeap,
-        frame: FrameSlots,
-        slots: ArgumentSlots<'call>,
-    ) -> Self {
+    pub(crate) fn frame(frame: FrameSlots, slots: ArgumentSlots<'call>) -> Self {
         Self {
-            heap,
             frame: Some(frame),
             slots,
             narrowed: None,
@@ -84,38 +80,42 @@ impl<'call> ArgumentView<'call> {
         self.len() == 0
     }
 
-    pub(crate) fn contains(&self, index: usize) -> bool {
+    pub(crate) fn contains(&self, heap: &GcHeap, index: usize) -> bool {
         if let Some(roots) = &self.narrowed {
-            return roots.contains_slot(self.heap, index);
+            return roots.contains_slot(heap, index);
         }
         if let ArgumentSlots::Scalars(values) = self.slots {
             return index < values.len();
         }
-        self.with_value(index, |_| ()).is_some()
+        self.with_value(heap, index, |_| ()).is_some()
     }
 
     /// Read rooted immutable slot data without an owning clone. The closure cannot
     /// retain a slot reference; it must not reenter while this borrow is active.
-    pub fn with_value<R>(&self, index: usize, read: impl FnOnce(&Value) -> R) -> Option<R> {
+    pub fn with_value<R>(
+        &self,
+        heap: &GcHeap,
+        index: usize,
+        read: impl FnOnce(&Value) -> R,
+    ) -> Option<R> {
         if let Some(roots) = &self.narrowed {
-            return roots.with_value(self.heap, index, read);
+            return roots.with_value(heap, index, read);
         }
         match self.slots {
             ArgumentSlots::Scalars(values) => values.get(index).map(read),
             ArgumentSlots::Prepared(slots) => {
-                self.frame?
-                    .with_location(self.heap, *slots.get(index)?, read)
+                self.frame?.with_location(heap, *slots.get(index)?, read)
             }
             ArgumentSlots::Contiguous { start, count } if index < count => {
                 self.frame?
-                    .with_value(self.heap, start.checked_add(index)?, read)
+                    .with_value(heap, start.checked_add(index)?, read)
             }
             ArgumentSlots::Contiguous { .. } => None,
         }
     }
 
-    pub fn get(&self, index: usize) -> Option<Value> {
-        self.with_value(index, Value::clone)
+    pub fn get(&self, heap: &GcHeap, index: usize) -> Option<Value> {
+        self.with_value(heap, index, Value::clone)
     }
 }
 
@@ -237,23 +237,25 @@ pub enum ScriptCall<'target> {
 }
 
 pub type ScriptInvoker =
-    fn(&Runtime, &ExecutableModule, ScriptCall<'_>, &[Value]) -> NativeResult<Value>;
+    fn(&mut Runtime, &ExecutableModule, ScriptCall<'_>, &[Value]) -> NativeResult<Value>;
 
-pub struct CallContext<'call> {
-    pub(crate) runtime: &'call Runtime,
+pub struct NativeCall<'call> {
+    pub(crate) _thread: PhantomData<Rc<()>>,
+    pub(crate) pending: PendingReturn,
+    pub(crate) runtime: &'call mut Runtime,
     pub(crate) owner: &'call ExecutableModule,
     pub(crate) function: &'call LinkedNativeFunction,
     pub(crate) arguments: ArgumentView<'call>,
     pub(crate) invoke_script: ScriptInvoker,
 }
 
-impl<'call> CallContext<'call> {
+impl<'call> NativeCall<'call> {
     pub fn callable(&self, index: usize) -> NativeResult<CallableHandle<'call>> {
         CallableHandle::from_argument(self, index)
     }
 
     /// Allocate the checked factory of this call's declared nominal Native result.
-    pub fn allocate_result(&self) -> NativeResult<Value> {
+    pub fn allocate_result(&mut self) -> NativeResult<Value> {
         self.heap().ensure_no_native_borrow()?;
         let ty = self.function.type_signature()?.result.ty();
         let Ty::NativeObject(nominal) = ty else {
@@ -282,7 +284,7 @@ impl<'call> CallContext<'call> {
 
     /// Retain only declared selected slots as metadata edges of the result.
     pub fn allocate_result_payload<S: NativePayload>(
-        &self,
+        &mut self,
         payload: S,
         slots: &[usize],
     ) -> NativeResult<Value> {
@@ -330,13 +332,24 @@ impl<'call> CallContext<'call> {
             .ok_or_else(|| RuntimeError::module_validation("stored callable slot"))?
             .retain(self.runtime)?;
         let function = PreparedFunction::selected(self.runtime, self.owner, target)?;
-        let context = NativeContext::with_invoker(self.runtime, self.owner, self.invoke_script)?;
-        function
-            .call_values(&context, values)?
+        let result = {
+            let mut context =
+                NativeContext::with_invoker(self.runtime, self.owner, self.invoke_script)?;
+            function.call_values(&mut context, values)?
+        };
+        result
             .value(self.heap())
             .ok_or_else(|| RuntimeError::module_validation("stored callable result retention"))
     }
 
+    /// Inspect a checked payload while excluding mutable Runtime services.
+    /// The callback may query metadata and cannot retain the Rust reference.
+    /// ```compile_fail,E0500
+    /// use kagari_runtime::native::{context::NativeCall, storage::NativePayload};
+    /// fn reenter<T: NativePayload>(call: &mut NativeCall<'_>) {
+    ///     call.with_payload::<T, _>(0, |_| { call.collect_garbage()?; Ok(()) }).unwrap();
+    /// }
+    /// ```
     pub fn with_payload<S: NativePayload, R>(
         &self,
         index: usize,
@@ -350,11 +363,11 @@ impl<'call> CallContext<'call> {
 
     /// Collection sees this call's existing argument/frame roots. A payload borrow
     /// cannot span collection, just as it cannot span script reentry.
-    pub fn collect_garbage(&self) -> NativeResult<GcCollection> {
+    pub fn collect_garbage(&mut self) -> NativeResult<GcCollection> {
         self.runtime.collect_garbage()
     }
 
-    pub fn heap(&self) -> &'call GcHeap {
+    pub fn heap(&self) -> &GcHeap {
         self.runtime.gc()
     }
 
@@ -396,7 +409,7 @@ impl<'call> CallContext<'call> {
     /// Convert an owned Rust result after all scoped input views are released.
     /// This uses the typed boundary's limits and temporary roots. The caller
     /// publishes the returned value before the next safepoint.
-    pub fn encode_result<T: IntoKagari>(&self, value: T) -> NativeResult<Value> {
+    pub fn encode_result<T: IntoKagari>(&mut self, value: T) -> NativeResult<Value> {
         let signature = self.function.type_signature()?;
         ConversionContext::in_native_call(self)?.encode_value(&signature.result, value)
     }
@@ -418,14 +431,14 @@ impl<'call> CallContext<'call> {
 
     /// Forward optional enum failure provenance after checked construction.
     /// Both values must remain rooted across this allocation.
-    pub fn forward_enum_origin(&self, original: &Value, value: &Value) -> NativeResult<Value> {
+    pub fn forward_enum_origin(&mut self, original: &Value, value: &Value) -> NativeResult<Value> {
         self.runtime
             .forward_enum_origin(self.owner, original, value)
     }
 
     /// Allocate a fixed-length builtin array with an explicit element contract.
     pub fn allocate_array(
-        &self,
+        &mut self,
         element: TypeArgument,
         elements: Vec<Value>,
     ) -> NativeResult<Value> {
@@ -448,7 +461,7 @@ impl<'call> CallContext<'call> {
 
     pub fn argument(&self, index: usize) -> NativeResult<Value> {
         self.arguments
-            .get(index)
+            .get(self.heap(), index)
             .ok_or_else(|| RuntimeError::module_validation("native argument slot"))
     }
 
@@ -561,12 +574,13 @@ impl<'call> CallContext<'call> {
                     .modules
                     .native_binding(&owner, import)
                     .ok_or_else(|| RuntimeError::module_validation("unlinked native callback"))?;
-                let mut context = CallContext {
+                let mut context = NativeCall {
+                    _thread: Default::default(),
+                    pending: Default::default(),
                     runtime: self.runtime,
                     owner: &owner,
                     function: &function,
                     arguments: ArgumentView {
-                        heap: self.heap(),
                         frame: None,
                         slots: ArgumentSlots::Scalars(arguments),
                         narrowed: None,

@@ -68,7 +68,7 @@ impl<S: KagariType> FromKagari for Object<S> {
             .gc()
             .struct_layout(*id)
             .ok_or_else(|| RuntimeError::module_validation("foreign or expired object"))?;
-        let object_type = cx.runtime().retain_object_type(layout.clone())?;
+        let object_type = cx.runtime_mut().retain_object_type(layout.clone())?;
         let root = cx
             .runtime()
             .root_value(*value)

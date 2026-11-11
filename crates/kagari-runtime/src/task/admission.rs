@@ -27,7 +27,7 @@ use std::{
 
 impl Runtime {
     pub fn create_dispatched_task_scope(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
         options: ExecutionOptions,
         dispatcher: Arc<dyn TaskDispatcher>,
@@ -36,7 +36,7 @@ impl Runtime {
     }
 
     pub(crate) fn create_task_scope_inner(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
         options: ExecutionOptions,
         dispatcher: Arc<dyn TaskDispatcher>,
@@ -53,7 +53,6 @@ impl Runtime {
         }
         let id = ScopeId(
             self.tasks
-                .borrow_mut()
                 .scopes
                 .reserve()
                 .map_err(|_| RuntimeError::resource_limit("task scopes"))?,
@@ -77,7 +76,7 @@ impl Runtime {
                     control: control.clone(),
                 },
             )?;
-            self.tasks.borrow_mut().scopes.insert(
+            self.tasks.scopes.insert(
                 id.0,
                 ScopeRecord {
                     control: control.clone(),
@@ -90,7 +89,7 @@ impl Runtime {
             })
         })();
         if result.is_err() {
-            self.tasks.borrow_mut().scopes.remove(id.0);
+            self.tasks.scopes.remove(id.0);
         }
         result
     }
@@ -98,7 +97,7 @@ impl Runtime {
     /// Admission errors are values; invalid capabilities/captures and terminated
     /// callers remain execution errors. Publication commits before returning Ok.
     pub fn spawn_task(
-        &self,
+        &mut self,
         capability: &Value,
         factory: &Value,
     ) -> NativeResult<Result<RootedValue, SpawnError>> {
@@ -109,7 +108,7 @@ impl Runtime {
             return Err(RuntimeError::execution_phase_violation("task spawn"));
         }
         let control = self.gc().scope_control(capability)?;
-        if control.id.0.owner != self.tasks.borrow().owner {
+        if control.id.0.owner != self.tasks.owner {
             return Err(RuntimeError::module_validation("foreign TaskScope"));
         }
         if control.closing.load(Ordering::Acquire) {
@@ -120,7 +119,6 @@ impl Runtime {
         }
         let options = self
             .tasks
-            .borrow()
             .scopes
             .get(control.id.0)
             .filter(|scope| Arc::ptr_eq(&scope.control, &control))
@@ -141,7 +139,7 @@ impl Runtime {
         if control.scheduler.is_some() && self.scheduler.reserve_work().is_err() {
             return Ok(Err(SpawnError::CapacityExceeded));
         }
-        let id = match self.tasks.borrow_mut().tasks.reserve() {
+        let id = match self.tasks.tasks.reserve() {
             Ok(id) => TaskId(id),
             Err(error) => return Ok(Err(error)),
         };
@@ -152,7 +150,7 @@ impl Runtime {
         ) {
             Ok(value) => value,
             Err(error) => {
-                self.tasks.borrow_mut().tasks.remove(id.0);
+                self.tasks.tasks.remove(id.0);
                 // A heap limit may have terminated the calling execution. An
                 // admission Result cannot turn that sticky failure into success.
                 self.resources().poll_execution()?;
@@ -172,7 +170,7 @@ impl Runtime {
             factory: prepared.origin(),
             site: self.capture_async_site(),
         };
-        self.tasks.borrow_mut().tasks.insert(
+        self.tasks.tasks.insert(
             id.0,
             TaskRecord {
                 origin,
@@ -191,7 +189,7 @@ impl Runtime {
         signal.mark_ready();
         if let Err(error) = self.resources().poll_execution() {
             signal.finished.store(true, Ordering::Release);
-            let discarded = self.tasks.borrow_mut().tasks.remove(id.0);
+            let discarded = self.tasks.tasks.remove(id.0);
             drop(discarded);
             return Err(error);
         }
@@ -206,11 +204,10 @@ impl Runtime {
         };
         if let Some(error) = failure {
             signal.finished.store(true, Ordering::Release);
-            self.tasks.borrow_mut().tasks.remove(id.0);
+            self.tasks.tasks.remove(id.0);
             return Ok(Err(error));
         }
         self.tasks
-            .borrow_mut()
             .tasks
             .get_mut(id.0)
             .expect("admitting task")
@@ -224,7 +221,6 @@ impl Runtime {
     pub(crate) fn validate_scope_owner(&self, scope: &TaskScopeOwner) -> NativeResult<()> {
         if self
             .tasks
-            .borrow()
             .scopes
             .get(scope.id().0)
             .is_none_or(|record| !Arc::ptr_eq(&record.control, &scope.control))

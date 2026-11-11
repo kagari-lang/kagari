@@ -18,7 +18,7 @@ use crate::{
         context::{LinkedCallable, ScriptCall},
         conversion::{
             FromKagari,
-            arguments::{IntoKagariArguments, encode_arguments},
+            arguments::{IntoKagariArguments, PreparedArguments, encode_arguments},
             context::ConversionContext,
         },
         function_handle::{evidence::EntryBinding, selected::SelectedBinding},
@@ -65,6 +65,43 @@ enum FunctionBinding {
 pub struct Function<A, R> {
     binding: Arc<FunctionBinding>,
     mapping: PhantomData<fn(A) -> R>,
+}
+
+/// One exact execution selection paired with its already checked Rust mapping.
+/// Only a typed Function can construct this witness; clones retain the same body.
+/// Actual values, Runtime authority and execution policy are checked on each call.
+///
+/// The result mapping cannot be replaced after preparation:
+/// ```compile_fail,E0308
+/// use kagari_runtime::native::{function_handle::PreparedHostCall, typed::NativeContext};
+/// fn wrong(call: &PreparedHostCall<(), i32>, cx: &mut NativeContext<'_>) {
+///     let _: bool = call.call_with_options(cx, (), Default::default()).unwrap();
+/// }
+/// ```
+#[derive(Debug)]
+pub struct PreparedHostCall<A, R> {
+    selection: Arc<PreparedFunction>,
+    mapping: PhantomData<fn(A) -> R>,
+}
+
+impl<A, R> Clone for PreparedHostCall<A, R> {
+    fn clone(&self) -> Self {
+        Self {
+            selection: self.selection.clone(),
+            mapping: PhantomData,
+        }
+    }
+}
+
+impl<A, R> PreparedHostCall<A, R> {
+    pub fn owner(&self) -> &ExecutableModule {
+        self.selection.owner()
+    }
+
+    /// Inspect or enter the exact backend selection without changing its mapping.
+    pub fn selection(&self) -> &PreparedFunction {
+        &self.selection
+    }
 }
 
 impl<A, R> Clone for Function<A, R> {
@@ -117,9 +154,9 @@ impl<A, R> Function<A, R> {
 
     /// Select once, before argument conversion, and retain that exact entry until
     /// execution and result conversion finish. Admission validates Runtime ownership.
-    pub fn prepare_call(&self, runtime: &Runtime) -> NativeResult<Arc<PreparedFunction>> {
+    pub fn prepare_call(&self, runtime: &mut Runtime) -> NativeResult<PreparedHostCall<A, R>> {
         runtime.gc().ensure_no_native_borrow()?;
-        match self.binding.as_ref() {
+        let selection = match self.binding.as_ref() {
             FunctionBinding::Entry(entry) => entry.prepare(runtime).map(Arc::new),
             FunctionBinding::Selected(binding) => binding.prepare(runtime).map(Arc::new),
             FunctionBinding::NamedClosure { root, .. } => {
@@ -129,7 +166,11 @@ impl<A, R> Function<A, R> {
                 prepared.validate(runtime)?;
                 Ok(prepared.clone())
             }
-        }
+        }?;
+        Ok(PreparedHostCall {
+            selection,
+            mapping: PhantomData,
+        })
     }
 }
 
@@ -145,7 +186,7 @@ impl<A: IntoKagariArguments, R: FromKagari> Function<A, R> {
         arguments: A,
         options: ExecutionOptions,
     ) -> NativeResult<R> {
-        self.prepare_call(cx.runtime())?
+        self.prepare_call(cx.runtime_mut())?
             .call_with_options(cx, arguments, options)
     }
 }
@@ -154,33 +195,41 @@ impl PreparedFunction {
     pub fn owner(&self) -> &ExecutableModule {
         &self.owner
     }
+}
 
+impl<A: IntoKagariArguments, R: FromKagari> PreparedHostCall<A, R> {
     /// Execute this exact selection, including conversions and result retention.
     /// This never resolves a live route a second time.
-    pub fn call_with_options<A: IntoKagariArguments, R: FromKagari>(
+    pub fn call_with_options(
         &self,
         cx: &mut NativeContext<'_>,
         arguments: A,
         options: ExecutionOptions,
     ) -> NativeResult<R> {
-        let runtime = cx.runtime();
-        self.validate(runtime)?;
+        let selected = self.selection();
+        selected.validate(cx.runtime())?;
         let invoke = cx.invoke_script.ok_or_else(|| {
             RuntimeError::module_validation("call context has no execution backend")
         })?;
-        let _session = runtime.begin_pinned_execution_with_options(self, options)?;
-        let mut conversion = ConversionContext::new(runtime, self.owner())?;
-        // This public backend seam erases the binding's Rust result mapping.
-        conversion.check_type::<R>(&self.signature.result)?;
-        let (_roots, values) =
-            encode_arguments(&mut conversion, &self.signature.params, arguments)?;
-        let value = match &self.target {
-            Target::Entry(target) if target.primitive.is_some() => runtime
+        let mut session = cx
+            .runtime_mut()
+            .begin_pinned_execution_with_options(selected, options)?;
+        let mut conversion = ConversionContext::new(session.runtime_mut(), self.owner())?;
+        let mapping = PreparedArguments::<A>::from_binding(&conversion, &selected.signature.params);
+        let (_roots, values) = encode_arguments(&mut conversion, mapping, arguments)?;
+        let value = match &selected.target {
+            Target::Entry(target) if target.primitive.is_some() => conversion
+                .runtime_mut()
                 .invoke_standard_builtin(self.owner(), target.primitive.unwrap(), &values)
                 .map_err(|error| error.into_runtime_error())?,
-            _ => invoke(runtime, self.owner(), ScriptCall::Pinned(self), &values)?,
+            _ => invoke(
+                conversion.runtime_mut(),
+                self.owner(),
+                ScriptCall::Pinned(selected),
+                &values,
+            )?,
         };
         // Retention is established before conversion can poll, collect or reenter.
-        conversion.decode_prepared(&self.signature.result, &value)
+        conversion.decode_prepared(&selected.signature.result, &value)
     }
 }

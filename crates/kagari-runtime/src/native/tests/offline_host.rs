@@ -82,7 +82,7 @@ fn declaration(context: &DefinitionContext, package: &str) -> DefinitionMetadata
 
 fn bound(
     declarations: DefinitionMetadata<ModuleDecl>,
-    callback: impl for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+    callback: impl for<'call> Fn(&mut HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
     + Send
     + Sync
     + 'static,
@@ -180,7 +180,7 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
     assert_eq!(a.bytecode.native_imports.len(), 1);
     assert_eq!(b.bytecode.native_imports.len(), 1);
     assert_eq!(a.key(), b.key());
-    assert!(invoke(&second, &a, 0, &[Value::I32(1)]).is_err());
+    assert!(invoke(&mut second, &a, 0, &[Value::I32(1)]).is_err());
     assert!(second.validate_executable_module(&a).is_err());
     assert!(second.module_instance_snapshot(&a).is_none());
     assert!(
@@ -190,7 +190,7 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
     );
     assert!(second.validate_executable_module(&b).is_ok());
     assert_eq!(
-        invoke(&second, &b, 0, &[Value::I32(7)]).unwrap(),
+        invoke(&mut second, &b, 0, &[Value::I32(7)]).unwrap(),
         Value::I32(7)
     );
 }
@@ -211,10 +211,10 @@ fn callback_arguments_and_result_obey_the_declared_representation() {
     let loaded_program =
         load_bytecode(&mut runtime, "host", free_function_program(&declaration)).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
-    assert!(invoke(&runtime, &loaded, 0, &[]).is_err());
-    assert!(invoke(&runtime, &loaded, 0, &[Value::Bool(true)]).is_err());
+    assert!(invoke(&mut runtime, &loaded, 0, &[]).is_err());
+    assert!(invoke(&mut runtime, &loaded, 0, &[Value::Bool(true)]).is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 0);
-    assert!(invoke(&runtime, &loaded, 0, &[Value::I32(1)]).is_err());
+    assert!(invoke(&mut runtime, &loaded, 0, &[Value::I32(1)]).is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(runtime.gc().active_roots(), 0);
 }
@@ -401,7 +401,7 @@ fn invalid_registration_leaves_registry_unchanged() {
         load_bytecode(&mut runtime, "original", free_function_program(&original)).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     assert_eq!(
-        invoke(&runtime, &loaded, 0, &[Value::I32(1)]).unwrap(),
+        invoke(&mut runtime, &loaded, 0, &[Value::I32(1)]).unwrap(),
         Value::I32(7)
     );
 }

@@ -45,7 +45,7 @@ fn rejected_allocations_leave_all_counters_and_free_slots_unchanged() {
     assert_eq!(runtime.resources().counters(), before);
     assert_eq!(runtime.gc().stats(), heap_before);
     assert_eq!(runtime.gc().array_get(first, 0), Some(Value::I32(1)));
-    let (runtime, owner) = runtime_with_owner();
+    let (mut runtime, owner) = runtime_with_owner();
     let old = runtime
         .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![])
         .unwrap();

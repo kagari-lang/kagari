@@ -260,7 +260,7 @@ fn native_inherent_members_support_prepared_calls_and_method_parameters() {
     let (mut vm, owner) = fixture(SOURCE, Some(&module));
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
-    let runtime = &vm;
+    let runtime = &mut vm;
     let ty = runtime
         .bind_native_type::<PlayerState>(&_owner_program.root(), &declaration, &[])
         .unwrap();
@@ -280,67 +280,69 @@ fn native_inherent_members_support_prepared_calls_and_method_parameters() {
     let new = runtime
         .bind_associated_function::<(i32,), Opaque<PlayerState>>(&ty, "new")
         .unwrap();
-    let player = vm.call(&new, (100,)).unwrap();
+    let player = runtime.call(&new, (100,)).unwrap();
     assert_eq!(
-        vm.execute_typed::<_, i32>(
-            &_owner_program,
-            "hit",
-            (player.clone(), 5),
-            &Default::default()
-        )
-        .unwrap(),
+        runtime
+            .execute_typed::<_, i32>(
+                &_owner_program,
+                "hit",
+                (player.clone(), 5),
+                &Default::default()
+            )
+            .unwrap(),
         95
     );
-    let mut cx = vm.context(&owner).unwrap();
+    let mut cx = runtime.context(&owner).unwrap();
     assert_eq!(player.call(&mut cx, &damage, (10,)).unwrap(), 85);
-    runtime.collect_garbage().unwrap();
+    cx.runtime_mut().collect_garbage().unwrap();
     assert_eq!(player.call(&mut cx, &again, (15,)).unwrap(), 70);
-    let echo = runtime
-        .bind_method_application::<(i32,), i32>(
-            &ty,
-            "echo",
-            &[ConversionContext::new(runtime, &owner)
-                .unwrap()
-                .type_for::<i32>()
-                .unwrap()],
-        )
+    let argument = ConversionContext::new(cx.runtime_mut(), &owner)
+        .unwrap()
+        .type_for::<i32>()
+        .unwrap();
+    let echo = cx
+        .runtime_mut()
+        .bind_method_application::<(i32,), i32>(&ty, "echo", &[argument])
         .unwrap();
     assert_eq!(player.call(&mut cx, &echo, (42,)).unwrap(), 42);
-    assert!(runtime.bind_method::<(bool,), i32>(&ty, "damage").is_err());
-    assert!(runtime.bind_method::<(i32,), i32>(&ty, "new").is_err());
     assert!(
-        runtime
+        cx.runtime_mut()
+            .bind_method::<(bool,), i32>(&ty, "damage")
+            .is_err()
+    );
+    assert!(
+        cx.runtime_mut()
+            .bind_method::<(i32,), i32>(&ty, "new")
+            .is_err()
+    );
+    assert!(
+        cx.runtime_mut()
             .bind_associated_function::<(Opaque<PlayerState>, i32), i32>(&ty, "damage")
             .is_err()
     );
-    let mut nested = vm.context(&owner).unwrap();
-    player
-        .edit(&cx, |_| {
-            assert!(player.call(&mut nested, &damage, (1,)).is_err());
-            Ok(())
-        })
-        .unwrap();
-    drop((cx, nested));
+    drop(cx);
     reload_bytecode(
-        &mut vm,
+        runtime,
         &_owner_program,
         Some("functions".into()),
         compile_program(SOURCE, Some(&module)),
     )
     .unwrap();
     let _newer_program = _owner_program.clone();
-    let runtime = &vm;
+
     let newer = runtime.select_program(&_newer_program).unwrap();
-    let mut cx = vm.context(&newer).unwrap();
-    let newer_type = runtime
+    let mut cx = runtime.context(&newer).unwrap();
+    let newer_type = cx
+        .runtime_mut()
         .bind_native_type::<PlayerState>(&_newer_program.root(), &declaration, &[])
         .unwrap();
-    let newer_damage = runtime
+    let newer_damage = cx
+        .runtime_mut()
         .bind_method::<(i32,), i32>(&newer_type, "damage")
         .unwrap();
     assert_eq!(player.call(&mut cx, &newer_damage, (1,)).unwrap(), 69);
     assert_eq!(player.call(&mut cx, &damage, (1,)).unwrap(), 68);
-    let (foreign, foreign_owner) = fixture(SOURCE, Some(&module));
+    let (mut foreign, foreign_owner) = fixture(SOURCE, Some(&module));
     let _foreign_owner_program = foreign_owner;
     let foreign_owner = foreign.select_program(&_foreign_owner_program).unwrap();
     assert!(
@@ -350,27 +352,30 @@ fn native_inherent_members_support_prepared_calls_and_method_parameters() {
     );
     assert_eq!(player.read(&cx, |state| Ok(state.hp)).unwrap(), 68);
     assert_eq!(
-        vm.execute_typed::<_, String>(
-            &_owner_program,
-            "inspect",
-            (player.clone(),),
-            &Default::default()
-        )
-        .unwrap(),
+        cx.runtime_mut()
+            .execute_typed::<_, String>(
+                &_owner_program,
+                "inspect",
+                (player.clone(),),
+                &Default::default()
+            )
+            .unwrap(),
         "hp=68"
     );
     assert_eq!(
-        vm.execute_typed::<_, String>(
-            &_owner_program,
-            "describe",
-            (player.clone(),),
-            &Default::default()
-        )
-        .unwrap(),
+        cx.runtime_mut()
+            .execute_typed::<_, String>(
+                &_owner_program,
+                "describe",
+                (player.clone(),),
+                &Default::default()
+            )
+            .unwrap(),
         "trait hp=68"
     );
     assert_eq!(
-        vm.execute_typed::<_, String>(&_owner_program, "ordinary", (), &Default::default())
+        cx.runtime_mut()
+            .execute_typed::<_, String>(&_owner_program, "ordinary", (), &Default::default())
             .unwrap(),
         "script"
     );
@@ -464,24 +469,31 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
     );
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
-    let runtime = &vm;
-    let conversion = ConversionContext::new(runtime, &owner).unwrap();
+    let runtime = &mut vm;
+    let mut conversion = ConversionContext::new(runtime, &owner).unwrap();
     let i32_type = conversion.type_for::<i32>().unwrap();
     let string_type = conversion.type_for::<String>().unwrap();
-    let ty = runtime
+    let ty = conversion
+        .runtime_mut()
         .bind_native_type::<PlayerState>(&_owner_program.root(), &holder, &[i32_type])
         .unwrap();
-    let exchange = runtime.bind_method::<(i32,), i32>(&ty, "exchange").unwrap();
-    let choose = runtime
+    let exchange = conversion
+        .runtime_mut()
+        .bind_method::<(i32,), i32>(&ty, "exchange")
+        .unwrap();
+    let choose = conversion
+        .runtime_mut()
         .bind_method_application::<(i32, String), String>(&ty, "choose", &[string_type])
         .unwrap();
-    let value: Opaque<PlayerState> = vm
+    let value: Opaque<PlayerState> = conversion
+        .runtime_mut()
         .execute_typed(&_owner_program, "make", (), &Default::default())
         .unwrap();
-    let other: Opaque<PlayerState> = vm
+    let other: Opaque<PlayerState> = conversion
+        .runtime_mut()
         .execute_typed(&_owner_program, "other", (), &Default::default())
         .unwrap();
-    let mut cx = vm.context(&owner).unwrap();
+    let mut cx = conversion.runtime_mut().context(&owner).unwrap();
     assert_eq!(value.call(&mut cx, &exchange, (33,)).unwrap(), 33);
     assert_eq!(
         value.call(&mut cx, &choose, (1, "host".into())).unwrap(),
@@ -489,17 +501,18 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
     );
     assert!(other.call(&mut cx, &exchange, (1,)).is_err());
     assert_eq!(
-        vm.execute_typed::<_, String>(&_owner_program, "evidence", (), &Default::default())
+        cx.runtime_mut()
+            .execute_typed::<_, String>(&_owner_program, "evidence", (), &Default::default())
             .unwrap(),
         "selected"
     );
     assert!(
-        runtime
+        cx.runtime_mut()
             .bind_method::<(String,), String>(&ty, "exchange")
             .is_err()
     );
     assert!(
-        runtime
+        cx.runtime_mut()
             .bind_method::<(i32, String), String>(&ty, "choose")
             .is_err()
     );
@@ -509,21 +522,22 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
         hp: 17,
         position: [0.0; 3],
     };
-    vm.with_host_scope(|scope| {
-        let view = scope.borrow(ty.rust_type(), &external)?;
-        assert_eq!(
-            kagari_runtime::Runtime::execute_scoped(
-                scope,
-                &_owner_program,
-                "external",
-                &[view.value()],
-                &Default::default()
-            )?,
-            kagari_runtime::value::Value::I32(17)
-        );
-        Ok(())
-    })
-    .unwrap();
+    runtime
+        .with_host_scope(|scope| {
+            let view = scope.borrow(ty.rust_type(), &external)?;
+            assert_eq!(
+                kagari_runtime::Runtime::execute_scoped(
+                    scope,
+                    &_owner_program,
+                    "external",
+                    &[view.value()],
+                    &Default::default()
+                )?,
+                kagari_runtime::value::Value::I32(17)
+            );
+            Ok(())
+        })
+        .unwrap();
 }
 
 #[test]
@@ -585,7 +599,7 @@ fn native_method_requirements_use_selected_generic_evidence() {
         })
         .unwrap();
     let module = module.finish().unwrap();
-    let (vm, owner) = fixture(
+    let (mut vm, owner) = fixture(
         r#"
         use example::bounded_methods::{Holder, Read};
         pub struct Item { pub val value: i32 }
@@ -598,7 +612,7 @@ fn native_method_requirements_use_selected_generic_evidence() {
     );
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
-    let runtime = &vm;
+    let runtime = &mut vm;
     let item_type = runtime
         .bind_type(&_owner_program.root(), "Item", &[])
         .unwrap();
@@ -612,20 +626,21 @@ fn native_method_requirements_use_selected_generic_evidence() {
     let read = runtime
         .bind_method::<(ScriptValue,), i32>(&ty, "read")
         .unwrap();
-    let holder: Opaque<PlayerState> = vm
+    let holder: Opaque<PlayerState> = runtime
         .execute_typed(&_owner_program, "make", (), &Default::default())
         .unwrap();
-    let item: ScriptValue = vm
+    let item: ScriptValue = runtime
         .execute_typed(&_owner_program, "item", (), &Default::default())
         .unwrap();
     assert_eq!(
         holder
-            .call(&mut vm.context(&owner).unwrap(), &read, (item,))
+            .call(&mut runtime.context(&owner).unwrap(), &read, (item,))
             .unwrap(),
         77
     );
     assert_eq!(
-        vm.execute_typed::<_, i32>(&_owner_program, "evidence", (), &Default::default())
+        runtime
+            .execute_typed::<_, i32>(&_owner_program, "evidence", (), &Default::default())
             .unwrap(),
         77
     );
@@ -634,7 +649,7 @@ fn native_method_requirements_use_selected_generic_evidence() {
 #[test]
 fn taken_opaque_aliases_reject_edits_and_pinned_method_calls_after_reinsertion() {
     let (module, declaration, _) = registration();
-    let (vm, owner) = fixture(SOURCE, Some(&module));
+    let (mut vm, owner) = fixture(SOURCE, Some(&module));
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
     let ty = vm
@@ -651,19 +666,20 @@ fn taken_opaque_aliases_reject_edits_and_pinned_method_calls_after_reinsertion()
     assert!(alias.edit(&cx, |_| Ok(())).is_err());
     assert!(alias.call(&mut cx, &damage, (1,)).is_err());
     assert!(
-        vm.execute_typed::<_, i32>(
-            &_owner_program,
-            "hit",
-            (alias.clone(), 1),
-            &Default::default()
-        )
-        .is_err()
+        cx.runtime_mut()
+            .execute_typed::<_, i32>(
+                &_owner_program,
+                "hit",
+                (alias.clone(), 1),
+                &Default::default()
+            )
+            .is_err()
     );
     let fresh = ty.create(&mut cx, state).unwrap();
     assert_eq!(fresh.call(&mut cx, &damage, (1,)).unwrap(), 99);
     assert!(alias.call(&mut cx, &damage, (1,)).is_err());
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 1);
+    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 1);
     drop((player, alias, fresh));
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(vm.gc().stats().current_heap_units, 0);
+    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(cx.runtime().gc().stats().current_heap_units, 0);
 }

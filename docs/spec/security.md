@@ -34,7 +34,7 @@ borrow leases and generation retention. A fresh root can execute after cleanup;
 a reused cancelled token continues to reject execution.
 
 The interpreter and supported JIT poll at valid execution boundaries. Long native
-work uses `CallContext::poll` at appropriate chunks or callbacks. Indivisible
+work uses `NativeCall::poll` at appropriate chunks or callbacks. Indivisible
 primitive bulk operations, including primitive slice sorting, complete before the
 next poll. Prepared mutations commit their target and dirty record together.
 Cancellation cannot forcibly preempt a blocking Rust callback or guarantee a

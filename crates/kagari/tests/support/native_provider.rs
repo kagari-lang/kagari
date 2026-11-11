@@ -12,7 +12,7 @@ use {
             binding::NativeResult,
             builder::ModuleBuilder,
             callable::{CallableHandle, StoredCallable},
-            context::CallContext,
+            context::NativeCall,
             declarations::{FunctionDecl, MethodDecl},
             module::NativeModule,
             storage::{NativePayload, NativeStorage},
@@ -26,7 +26,7 @@ use {
 };
 
 fn fill(
-    cx: &mut CallContext<'_>,
+    cx: &mut NativeCall<'_>,
     count: usize,
     callback: CallableHandle<'_>,
 ) -> NativeResult<Value> {
@@ -106,8 +106,8 @@ fn register_handler(module: &mut ModuleBuilder, drops: Arc<AtomicUsize>) -> Nati
             let apply = methods.define_method(MethodDecl::instance("apply").returns(item))?;
             methods.bind(
                 apply,
-                |cx: &mut CallContext<'_>, receiver: ValueHandle<'_>| -> NativeResult<Value> {
-                    let (value, callback) = receiver.with_payload::<Handler, _>(|handler| {
+                |cx: &mut NativeCall<'_>, receiver: ValueHandle<'_>| -> NativeResult<Value> {
+                    let (value, callback) = receiver.with_payload::<Handler, _>(cx, |handler| {
                         Ok((handler.value, handler.callback.clone()))
                     })?;
                     cx.collect_garbage()?;
@@ -126,13 +126,13 @@ fn register_handler(module: &mut ModuleBuilder, drops: Arc<AtomicUsize>) -> Nati
     })?;
     module.bind(
         hold,
-        move |cx: &mut CallContext<'_>,
+        move |cx: &mut NativeCall<'_>,
               value: ValueHandle<'_>,
               callback: CallableHandle<'_>|
               -> NativeResult<Value> {
             cx.allocate_result_payload(
                 Handler {
-                    value: value.value(),
+                    value: value.value(cx)?,
                     callback: callback.store(),
                     drops: drops.clone(),
                 },

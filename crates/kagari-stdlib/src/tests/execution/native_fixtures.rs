@@ -35,7 +35,7 @@ unsafe extern "C" fn constant_i32<const VALUE: i32>(
     result: *mut JitValue,
 ) -> i32 {
     for offset in 0..2 {
-        let status = unsafe { jit_poll_execution((*context).runtime.cast(), offset) };
+        let status = unsafe { jit_poll_execution((*context).runtime.cast_mut().cast(), offset) };
         if status != JIT_STATUS_OK {
             return status;
         }

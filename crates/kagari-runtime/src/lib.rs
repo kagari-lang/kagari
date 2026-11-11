@@ -30,7 +30,7 @@ use crate::{
     scheduler::Scheduler,
     session::{
         CandidateSession, ExecutionEntry, ExecutionObserver, ExecutionOptions, ExecutionPhase,
-        ExecutionSession, dependencies::Dependencies, group::GroupStore,
+        ExecutionSession, SessionScope, dependencies::Dependencies, group::GroupStore,
     },
     task::store::TaskStore,
     value::Value,
@@ -168,9 +168,9 @@ pub struct RuntimeConfig {
 pub struct Runtime {
     default_context: ExecutionContext,
     scheduler: Scheduler,
-    groups: RefCell<GroupStore>,
+    groups: GroupStore,
     dependencies: Arc<Dependencies>,
-    tasks: RefCell<TaskStore>,
+    tasks: TaskStore,
     operations: OnceLock<Result<CompletionRegistry, RuntimeError>>,
     async_limits: AsyncLimits,
     gc: GcHeap,
@@ -181,9 +181,9 @@ pub struct Runtime {
 
     modules: ModuleStore,
     interpreter_caches: InterpreterCacheRegistry,
-    object_bindings: RefCell<BindingCache>,
-    function_bindings: RefCell<FunctionCache>,
-    interface_bindings: RefCell<InterfaceCache>,
+    object_bindings: BindingCache,
+    function_bindings: FunctionCache,
+    interface_bindings: InterfaceCache,
     observer: RefCell<Option<Box<dyn ExecutionObserver>>>,
 }
 
@@ -216,9 +216,9 @@ impl Runtime {
         Self {
             default_context: ExecutionContext::default(),
             scheduler: Scheduler::new(config.async_limits),
-            groups: RefCell::default(),
+            groups: GroupStore::default(),
             dependencies: Arc::new(Dependencies::new(config.async_limits)),
-            tasks: RefCell::new(TaskStore::new(config.async_limits)),
+            tasks: TaskStore::new(config.async_limits),
             operations: OnceLock::new(),
             async_limits: config.async_limits,
             gc: GcHeap::new(config.gc, resources),
@@ -229,9 +229,9 @@ impl Runtime {
 
             modules: ModuleStore::default(),
             interpreter_caches: InterpreterCacheRegistry::default(),
-            object_bindings: RefCell::default(),
-            function_bindings: RefCell::default(),
-            interface_bindings: RefCell::default(),
+            object_bindings: BindingCache::default(),
+            function_bindings: FunctionCache::default(),
+            interface_bindings: InterfaceCache::default(),
             observer: RefCell::new(None),
         }
     }
@@ -252,7 +252,7 @@ impl Runtime {
     }
 
     pub fn enter_execution_stack(
-        &self,
+        &mut self,
         module: &ExecutableModule,
     ) -> Result<ExecutionStack<'_>, RuntimeError> {
         self.gc.ensure_no_native_borrow()?;
@@ -264,7 +264,7 @@ impl Runtime {
     /// Nested closure calls share the current session and its counters, while
     /// ordinary entries still require the current caller's checked dependency graph.
     pub fn enter_closure_execution_stack(
-        &self,
+        &mut self,
         closure: &PreparedClosure,
     ) -> Result<ExecutionStack<'_>, RuntimeError> {
         closure.validate(self)?;
@@ -312,10 +312,10 @@ impl Runtime {
     }
 
     pub fn begin_candidate_initialization<'candidate>(
-        &self,
+        &mut self,
         candidate: &'candidate StagedReload,
     ) -> Result<CandidateSession<'_, 'candidate>, RuntimeError> {
-        let _activation = self.resources().begin_synchronous_activation()?;
+        self.resources().ensure_not_publishing()?;
         self.reject_static_initialization("candidate session switch")?;
         if let Some(error) = candidate.initialization_error() {
             return Err(error);
@@ -329,24 +329,23 @@ impl Runtime {
         let mut options = self.execution_options();
         options.phase = ExecutionPhase::CandidateInitialization;
         let previous = self.resources().replace_session(None);
-        let mut guard = CandidateSession {
-            candidate,
-            execution: None,
-            previous,
-            resources: self.resources(),
-        };
-        match self.begin_execution_inner(candidate.module(), options, ExecutionEntry::Candidate) {
-            Ok(execution) => guard.execution = Some(execution),
+        match self.admit_execution(candidate.module(), options, ExecutionEntry::Candidate) {
+            Ok(execution) => Ok(CandidateSession {
+                candidate,
+                runtime: self,
+                execution: Some(execution),
+                previous,
+            }),
             Err(error) => {
+                self.resources().replace_session(previous);
                 candidate.record_initialization_error(error.clone());
-                return Err(error);
+                Err(error)
             }
         }
-        Ok(guard)
     }
 
     pub fn begin_execution(
-        &self,
+        &mut self,
         module: &ExecutableModule,
         options: ExecutionOptions,
     ) -> Result<ExecutionSession<'_>, RuntimeError> {
@@ -354,11 +353,26 @@ impl Runtime {
     }
 
     fn begin_execution_inner(
-        &self,
+        &mut self,
         module: &ExecutableModule,
         options: ExecutionOptions,
         entry: ExecutionEntry,
     ) -> Result<ExecutionSession<'_>, RuntimeError> {
+        let scope = self
+            .admit_execution(module, options, entry)
+            .map_err(|error| error.with_trace(self.capture_error_trace()))?;
+        Ok(ExecutionSession {
+            runtime: self,
+            scope,
+        })
+    }
+
+    fn admit_execution(
+        &mut self,
+        module: &ExecutableModule,
+        options: ExecutionOptions,
+        entry: ExecutionEntry,
+    ) -> Result<SessionScope, RuntimeError> {
         let activation = self.resources().begin_synchronous_activation()?;
         self.ensure_scheduler_open()?;
         self.gc.ensure_no_native_borrow()?;
@@ -443,13 +457,12 @@ impl Runtime {
         })?;
         state.scopes.set(scopes);
         drop(state);
-        let guard = ExecutionSession {
-            id,
-            resources: self.resources(),
-            _activation: activation,
-        };
-        self.resources().poll_execution()?;
-        Ok(guard)
+        let mut scope = SessionScope::new(id, activation.detach());
+        if let Err(error) = self.resources().poll_execution() {
+            scope.retire(self.resources());
+            return Err(error);
+        }
+        Ok(scope)
     }
 
     pub fn gc(&self) -> &GcHeap {
@@ -469,7 +482,7 @@ impl Runtime {
         self.host_borrows.validate(token, required)
     }
 
-    pub fn host_scope(&self, values: &[Value]) -> Result<HostResourceScope<'_>, RuntimeError> {
+    pub fn host_scope(&mut self, values: &[Value]) -> Result<HostResourceScope<'_>, RuntimeError> {
         HostResourceScope::new(self, values)
     }
 
@@ -555,22 +568,20 @@ impl Runtime {
     }
 
     pub fn read_host_path(
-        &self,
+        &mut self,
         root_or_view: &value::Value,
         descriptor_id: host::HostPathDescriptorId,
         dynamic_args: Vec<value::Value>,
     ) -> Result<value::Value, RuntimeError> {
         self.resources().ensure_execution_allowed()?;
         self.reject_candidate_external_access()?;
-        let result = self
-            .host
-            .read_path(self, root_or_view, descriptor_id, dynamic_args);
+        let result = self.read_path(root_or_view, descriptor_id, dynamic_args);
         self.resources().ensure_execution_allowed()?;
         result
     }
 
     pub fn set_host_path(
-        &self,
+        &mut self,
         root_or_view: &value::Value,
         descriptor_id: host::HostPathDescriptorId,
         dynamic_args: Vec<value::Value>,
@@ -578,15 +589,13 @@ impl Runtime {
     ) -> Result<(), RuntimeError> {
         self.resources().poll_execution()?;
         self.reject_candidate_external_access()?;
-        let result = self
-            .host
-            .set_path(self, root_or_view, descriptor_id, dynamic_args, value);
+        let result = self.set_path(root_or_view, descriptor_id, dynamic_args, value);
         self.resources().ensure_execution_allowed()?;
         result
     }
 
     pub fn modify_host_path(
-        &self,
+        &mut self,
         root_or_view: &value::Value,
         descriptor_id: host::HostPathDescriptorId,
         dynamic_args: Vec<value::Value>,
@@ -595,9 +604,7 @@ impl Runtime {
     ) -> Result<value::Value, RuntimeError> {
         self.resources().poll_execution()?;
         self.reject_candidate_external_access()?;
-        let result =
-            self.host
-                .modify_path(self, root_or_view, descriptor_id, dynamic_args, op, value);
+        let result = self.modify_path(root_or_view, descriptor_id, dynamic_args, op, value);
         self.resources().ensure_execution_allowed()?;
         result
     }
@@ -606,7 +613,7 @@ impl Runtime {
         self.host.dirty_paths()
     }
 
-    pub fn clear_host_dirty_paths(&self) {
+    pub fn clear_host_dirty_paths(&mut self) {
         self.host.clear_dirty_paths();
     }
 
@@ -665,14 +672,25 @@ impl Runtime {
     }
 
     /// Collect unreachable heap objects and module instances in one graph traversal.
-    pub fn collect_garbage(&self) -> Result<GcCollection, RuntimeError> {
+    pub fn collect_garbage(&mut self) -> Result<GcCollection, RuntimeError> {
+        self.resources().ensure_synchronous_thread()?;
         self.resources().ensure_not_publishing()?;
         self.gc.ensure_no_native_borrow()?;
         self.resources().ensure_execution_allowed()?;
         self.gc.collect(&self.modules, &self.host.gc_roots())
     }
 
-    pub fn gc_safepoint(&self) -> Result<(), RuntimeError> {
+    /// Collect at an eligible safepoint with exclusive Runtime access.
+    /// Read views must end before the safepoint:
+    /// ```compile_fail,E0502
+    /// use kagari_runtime::Runtime;
+    /// fn collect(runtime: &mut Runtime) {
+    ///     let heap = runtime.gc();
+    ///     runtime.gc_safepoint().unwrap();
+    ///     let _ = heap.stats();
+    /// }
+    /// ```
+    pub fn gc_safepoint(&mut self) -> Result<(), RuntimeError> {
         self.resources().poll_execution()?;
         let collection_due = if self.gc.collection_due() {
             true
@@ -727,7 +745,7 @@ impl Runtime {
 
     /// Invoke a checked primitive value operation.
     pub fn invoke_standard_builtin(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
         intrinsic: RuntimePrimitive,
         args: &[value::Value],

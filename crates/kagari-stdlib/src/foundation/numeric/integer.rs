@@ -9,7 +9,7 @@ use kagari_runtime::{
     native::{
         assembly::draft::ModuleDraft,
         binding::{Codec, NativeBinding, NativeResult},
-        context::CallContext,
+        context::NativeCall,
         declarations::MethodDecl,
         types::Type,
     },
@@ -190,7 +190,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
 }
 
 fn invoke(
-    cx: &mut CallContext<'_>,
+    cx: &mut NativeCall<'_>,
     operation: IntegerMethod,
     receiver: BuiltinType,
 ) -> NativeResult<Option<Value>> {

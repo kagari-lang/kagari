@@ -32,18 +32,18 @@ fn scalar_field_overflow_preserves_prior_effects_and_does_not_commit() {
                 .unwrap()
                 .id
         };
-        let vm = runtime;
+        let mut vm = runtime;
         let kept = vm
             .execute_module(&loaded, "main", vm.execution_options())
             .unwrap();
         let value = kept.return_value.value(vm.gc()).unwrap();
-        let result = Executor::new(&vm, &loaded, function("update"), &[value])
+        let result = Executor::new(&mut vm, &loaded, function("update"), &[value])
             .unwrap()
             .run();
         assert!(matches!(result, Err(error) if error.kind() == RuntimeErrorKind::ScriptTrap));
         vm.collect_garbage().unwrap();
         assert_eq!(
-            Executor::new(&vm, &loaded, function("check"), &[value])
+            Executor::new(&mut vm, &loaded, function("check"), &[value])
                 .unwrap()
                 .run()
                 .unwrap(),

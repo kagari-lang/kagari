@@ -31,7 +31,7 @@ fn executes_runtime_reflect_type_of_helper() {
     let program = loaded;
     let loaded = runtime.select_program(&program).unwrap();
 
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_fixture(&loaded, FunctionRef::new(0))
         .expect("vm should execute");
@@ -116,7 +116,7 @@ fn executes_runtime_reflect_get_and_set_field_helpers() {
     let program = loaded;
     let loaded = runtime.select_program(&program).unwrap();
 
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_fixture(&loaded, FunctionRef::new(0))
         .expect("vm should execute");
@@ -194,7 +194,7 @@ fn executes_runtime_reflect_set_index_helper() {
     let program = loaded;
     let loaded = runtime.select_program(&program).unwrap();
 
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_fixture(&loaded, FunctionRef::new(0))
         .expect("vm should execute");
@@ -230,7 +230,7 @@ fn main() -> i32 {
     );
     let program = loaded;
     let loaded = runtime.select_program(&program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
@@ -259,7 +259,7 @@ fn main() -> [i32] {
     );
     let program = loaded;
     let loaded = runtime.select_program(&program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
@@ -295,7 +295,7 @@ fn main() -> i32 {
     );
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");

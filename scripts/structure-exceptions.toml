@@ -42,6 +42,6 @@ evidence = "docs/architecture/runtime.md"
 [[exceptions]]
 path = "crates/kagari/src/context.rs"
 rule = "reexport-whitelist"
-declaration = "pub use kagari_runtime::context::{ExecutionContext, JitPolicy, PanicPolicy};"
+declaration = "pub use kagari_runtime::context::{ExecutionContext, JitPolicy};"
 reason = "The SDK facade shares invocation policy with standalone Runtime consumers."
 evidence = "docs/architecture/runtime.md"

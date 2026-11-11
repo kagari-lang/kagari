@@ -23,7 +23,7 @@ use kagari_contract::types::{PublicItem, named::NamedContract};
 use kagari_runtime::{
     module::entry::ProgramEntry,
     native::{
-        binding::NativeResult, builder::ModuleBuilder, context::CallContext,
+        binding::NativeResult, builder::ModuleBuilder, context::NativeCall,
         declarations::FunctionDecl, types::Type,
     },
     value::Value,
@@ -191,7 +191,7 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
         .define_function(FunctionDecl::new("number").returns(Type::scalar(BuiltinType::U8)))
         .unwrap();
     module
-        .bind(function, |_: &mut CallContext<'_>| -> NativeResult<u8> {
+        .bind(function, |_: &mut NativeCall<'_>| -> NativeResult<u8> {
             Ok(0)
         })
         .unwrap();
@@ -369,14 +369,17 @@ fn cancellation_boundaries_unwind_nested_provider_callbacks() {
                 token: context.cancellation.clone(),
             })
             .unwrap();
-        let session = runtime.begin_execution(&_selected_loaded, options).unwrap();
-        runtime.attach_execution_observer().unwrap();
-        match runtime.execute(&loaded, ProgramEntry::Main, &[], &context) {
+        let mut session = runtime.begin_execution(&_selected_loaded, options).unwrap();
+        session.runtime().attach_execution_observer().unwrap();
+        match session
+            .runtime_mut()
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
+        {
             Ok(report) => {
                 assert_eq!(
                     report
                         .return_value
-                        .value(runtime.gc())
+                        .value(session.runtime().gc())
                         .expect("retained execution result"),
                     Value::I32(42)
                 );
@@ -387,8 +390,11 @@ fn cancellation_boundaries_unwind_nested_provider_callbacks() {
                 cancelled += 1;
             }
         }
-        assert_eq!(runtime.gc().active_roots(), 0);
-        assert_eq!(runtime.resources().counters().current_call_depth, 0);
+        assert_eq!(session.runtime().gc().active_roots(), 0);
+        assert_eq!(
+            session.runtime().resources().counters().current_call_depth,
+            0
+        );
         drop(session);
         runtime.collect_garbage().unwrap();
         assert_eq!(runtime.gc().allocated_objects(), 0);

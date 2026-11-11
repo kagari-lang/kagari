@@ -7,7 +7,7 @@ use crate::{
     executor::Executor,
     gc::roots::RootedValue,
     module::{ExecutableModule, InstalledProgram, entry::ProgramEntry},
-    session::{ExecutionOptions, ExecutionSession, ExecutionTrace},
+    session::{ExecutionOptions, ExecutionSession, ExecutionTrace, SessionScope},
     value::Value,
 };
 
@@ -78,7 +78,7 @@ impl Runtime {
 
     /// Execute a current installed public path or the explicit zero-argument root entry.
     pub fn execute<'a>(
-        &self,
+        &mut self,
         program: &InstalledProgram,
         entry: impl Into<ProgramEntry<'a>>,
         args: &[Value],
@@ -117,13 +117,17 @@ impl Runtime {
     }
 
     fn begin_interpreter_execution(
-        &self,
+        &mut self,
         module: &ExecutableModule,
         options: ExecutionOptions,
     ) -> Result<ExecutionSession<'_>, RuntimeError> {
-        let session = self.begin_execution(module, options)?;
-        if self.execution_observer::<DebugSession>().is_some() {
-            self.attach_execution_observer()?;
+        let mut session = self.begin_execution(module, options)?;
+        if session
+            .runtime()
+            .execution_observer::<DebugSession>()
+            .is_some()
+        {
+            session.runtime_mut().attach_execution_observer()?;
         }
         Ok(session)
     }
@@ -133,7 +137,7 @@ impl Runtime {
     /// selection remains current; candidate initialization inherits its active phase.
     /// This entry is useful for staged initialization and source-free backend drivers.
     pub fn execute_module<'a>(
-        &self,
+        &mut self,
         module: &ExecutableModule,
         entry: impl Into<ProgramEntry<'a>>,
         options: ExecutionOptions,
@@ -146,7 +150,9 @@ impl Runtime {
             .ok_or_else(|| RuntimeError::new(ErrorReason::MissingFunction(entry_name.clone())))?;
         let (module, function) = self.select_function(&module, function)?;
         let session = self.begin_interpreter_execution(&module, options)?;
-        self.execute_selected(&module, function, &entry_name, &session)
+        session
+            .runtime
+            .execute_selected(&module, function, &entry_name, &session.scope)
     }
 
     fn select_function(
@@ -166,14 +172,13 @@ impl Runtime {
     }
 
     fn execute_selected(
-        &self,
+        &mut self,
         module: &ExecutableModule,
         function: FunctionRef,
         label: &str,
-        session: &ExecutionSession<'_>,
+        session: &SessionScope,
     ) -> Result<ExecutionReport, RuntimeError> {
-        let mut executor = Executor::new(self, module, function, &[])?;
-        let return_value = executor.run()?;
+        let return_value = Executor::new(self, module, function, &[])?.run()?;
         let failure = self.result_failure(&return_value);
         let return_value = self
             .root_value(return_value)
@@ -186,7 +191,7 @@ impl Runtime {
             failure,
             return_value,
             jit: None,
-            trace: session.trace(),
+            trace: session.trace(self.resources()),
         })
     }
 
@@ -194,7 +199,7 @@ impl Runtime {
     /// interface value. The method ID must belong to the value's retained definition
     /// prefix. The receiver and arguments remain rooted while the method body executes.
     pub fn invoke_interface_method(
-        &self,
+        &mut self,
         interface: &Value,
         method: &DefinitionId,
         arguments: &[Value],
@@ -210,8 +215,9 @@ impl Runtime {
                 .ok_or(RuntimeError::from(TrapReason::Provider(
                     ("invalid interface method argument").into(),
                 )))?;
-        let _session = self.begin_interpreter_execution(&loaded, self.execution_options())?;
-        self.validate_executable_module(&loaded)?;
-        Executor::new_interface(self, resolved, &args)?.run()
+        let mut session = self.begin_interpreter_execution(&loaded, self.execution_options())?;
+        let runtime = session.runtime_mut();
+        runtime.validate_executable_module(&loaded)?;
+        Executor::new_interface(runtime, resolved, &args)?.run()
     }
 }

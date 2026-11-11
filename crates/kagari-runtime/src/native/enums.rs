@@ -8,7 +8,7 @@ use crate::{
     native::{
         binding::NativeResult,
         conversion::{
-            arguments::{IntoKagariArguments, encode_arguments},
+            arguments::{IntoKagariArguments, PreparedArguments, encode_arguments},
             context::ConversionContext,
         },
         typed::NativeContext,
@@ -105,23 +105,25 @@ impl<A: IntoKagariArguments> EnumVariant<A> {
     pub fn create(&self, cx: &mut NativeContext<'_>, payload: A) -> NativeResult<ScriptValue> {
         let record = &self.record;
         let ty = &record.member.enum_type;
-        let runtime = cx.runtime();
+        let runtime = cx.runtime_mut();
         runtime.gc().ensure_no_native_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
         runtime.validate_executable_module(ty.owner())?;
-        cx.poll()?;
+        runtime.resources().poll_execution()?;
         let mut conversion = ConversionContext::new(runtime, ty.owner())?;
-        let (_roots, values) = encode_arguments(&mut conversion, &record.payload, payload)?;
-        let id = runtime.alloc_enum(EnumTag::Declared(record.member.layout.clone()), values)?;
-        let root = runtime
+        let mapping = PreparedArguments::<A>::from_binding(&conversion, &record.payload);
+        let (_roots, values) = encode_arguments(&mut conversion, mapping, payload)?;
+        let id = conversion
+            .runtime_mut()
+            .alloc_enum(EnumTag::Declared(record.member.layout.clone()), values)?;
+        let root = conversion
+            .runtime()
             .root_value(Value::Enum(id))
             .ok_or_else(|| RuntimeError::module_validation("enum construction retention"))?;
-        runtime.gc_safepoint()?;
-        conversion.decode_prepared(
-            ty.type_argument(),
-            &root
-                .value(runtime.gc())
-                .ok_or_else(|| RuntimeError::module_validation("constructed enum value"))?,
-        )
+        conversion.runtime_mut().gc_safepoint()?;
+        let value = root
+            .value(conversion.runtime().gc())
+            .ok_or_else(|| RuntimeError::module_validation("constructed enum value"))?;
+        conversion.decode_prepared(ty.type_argument(), &value)
     }
 }

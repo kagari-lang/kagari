@@ -299,7 +299,7 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
                 })
                 .with_prepare_write(move |cx, _, record| {
                     let value = record.new_value;
-                    let runtime = cx.runtime();
+                    let runtime = cx.runtime_mut();
                     // The scoped host descriptor and both script arrays are roots.
                     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 3);
                     assert_eq!(

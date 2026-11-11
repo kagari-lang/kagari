@@ -8,7 +8,7 @@ use crate::{
     frame::types::{arguments::TypeArgument, bindings::TypeBindings, compatibility::TypeView},
     host::{
         BorrowEpoch, FrameBorrowRecord, HostBorrowKind, HostBorrowOwner, HostBorrowTable,
-        HostCallGuard, HostFrameId, HostObjectId,
+        HostCallGuard, HostFrameId, HostFrameMark, HostObjectId,
     },
     module::{ExecutableModule, ModuleEpochRetention, retention::ProgramLease},
     native::{
@@ -136,9 +136,9 @@ impl HostBorrowTable {
         };
         let active = state
             .active_frames
-            .get_mut(&frame.frame_id)
+            .get_mut(&frame.frame_id())
             .ok_or_else(invalid)?;
-        if active.epoch != frame.epoch || frame.table.owner != self.owner {
+        if active.epoch != frame.epoch() || frame.table.owner != self.owner {
             return Err(invalid());
         }
         // Identical shared aliases reuse a record. A capability may never be
@@ -174,8 +174,8 @@ impl HostBorrowTable {
         }
         Ok(ScopedHostView {
             owner: self.owner,
-            frame: frame.frame_id,
-            epoch: frame.epoch,
+            frame: frame.frame_id(),
+            epoch: frame.epoch(),
             object,
             place: 0,
             access,
@@ -268,6 +268,17 @@ impl HostBorrowTable {
         requests: [(ScopedHostView, TypeId, ReferenceAccess); N],
         f: impl FnOnce([*mut (); N]) -> NativeResult<R>,
     ) -> NativeResult<R> {
+        let (mark, pointers) = self.prepare_scoped_loans(runtime, requests)?;
+        let _loan = HostCallGuard::from_mark(self, runtime.resources(), mark);
+        f(pointers)
+    }
+
+    pub(crate) fn prepare_scoped_loans<const N: usize>(
+        &self,
+        runtime: &Runtime,
+        requests: [(ScopedHostView, TypeId, ReferenceAccess); N],
+    ) -> NativeResult<(HostFrameMark, [*mut (); N])> {
+        runtime.resources().ensure_synchronous_thread()?;
         runtime.resources().poll_execution()?;
         let mut prepared = Vec::new();
         prepared
@@ -315,9 +326,7 @@ impl HostBorrowTable {
             }
             pointers[slot] = pointer;
         }
-        let result = f(pointers);
-        drop(loan);
-        result
+        Ok((loan.into_mark(), pointers))
     }
 
     pub(crate) fn project_scoped<T: Send + 'static, F: Send + 'static>(
@@ -485,4 +494,36 @@ impl Runtime {
 
 fn invalid() -> RuntimeError {
     RuntimeError::expired_host_borrow("foreign, expired or incompatible external host view")
+}
+
+struct HostLoanScope<'runtime> {
+    runtime: &'runtime mut Runtime,
+    mark: Option<HostFrameMark>,
+}
+
+impl Drop for HostLoanScope<'_> {
+    fn drop(&mut self) {
+        if let Some(mark) = self.mark.take() {
+            drop(HostCallGuard::from_mark(
+                &self.runtime.host_borrows,
+                self.runtime.resources(),
+                mark,
+            ));
+        }
+    }
+}
+
+impl Runtime {
+    pub(crate) fn with_host_loans<R, const N: usize>(
+        &mut self,
+        requests: [(ScopedHostView, TypeId, ReferenceAccess); N],
+        access: impl FnOnce(&mut Runtime, [*mut (); N]) -> NativeResult<R>,
+    ) -> NativeResult<R> {
+        let (mark, pointers) = self.host_borrows.prepare_scoped_loans(self, requests)?;
+        let scope = HostLoanScope {
+            runtime: self,
+            mark: Some(mark),
+        };
+        access(scope.runtime, pointers)
+    }
 }

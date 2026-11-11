@@ -20,7 +20,7 @@ use std::{marker::PhantomData, sync::Arc};
 
 impl Runtime {
     pub fn bind_native_type<T: NativePayload>(
-        &self,
+        &mut self,
         owner: &Module,
         declaration: &TypeRef,
         arguments: &[TypeArgument],
@@ -34,7 +34,7 @@ impl Runtime {
     }
 
     pub fn bind_native_type_declaration<T: NativePayload>(
-        &self,
+        &mut self,
         owner: &Module,
         declaration: DefinitionId,
         definitions: &DefinitionTable,
@@ -85,7 +85,7 @@ impl Runtime {
     }
 
     pub(crate) fn prepare_native_type<T: Send + 'static>(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
         argument: TypeArgument,
     ) -> NativeResult<NativeType<T>> {
@@ -100,6 +100,7 @@ impl Runtime {
             .native_entries
             .storage
             .get_id(nominal.declaration)
+            .cloned()
             .ok_or_else(invalid)?;
         if storage.layout() != NativeStorageLayout::Opaque || !storage.accepts_payload::<T>() {
             return Err(invalid());
@@ -114,7 +115,7 @@ impl Runtime {
         Ok(NativeType {
             record: Arc::new(TypeRecord {
                 rust_type,
-                storage: storage.clone(),
+                storage,
                 managed,
             }),
             mapping: PhantomData,

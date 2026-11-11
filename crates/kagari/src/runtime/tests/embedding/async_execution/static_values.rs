@@ -67,8 +67,14 @@ fn persistent_static_future_and_task_keep_old_code_but_observe_shared_state(#[ca
     ));
     assert_eq!(*f.inputs.lock().unwrap(), vec![20]);
     f.sent.lock().unwrap().pop().unwrap().complete(Ok(20));
-    assert_eq!(f.value(&f.complete(&owner)), Value::I32(66));
-    assert_eq!(f.value(&f.invoke("state", &[])), Value::I32(6));
+    assert_eq!(
+        f.complete(&owner).value(f.runtime.gc()).unwrap(),
+        Value::I32(66)
+    );
+    assert_eq!(
+        f.invoke("state", &[]).value(f.runtime.gc()).unwrap(),
+        Value::I32(6)
+    );
 
     let waiter = f.invoke("await_task", &[]);
     let waiter = f.start_future(&waiter);
@@ -89,7 +95,13 @@ fn persistent_static_future_and_task_keep_old_code_but_observe_shared_state(#[ca
     );
     let report = f.runtime.take_task_report(&scope, id).unwrap().unwrap();
     assert_eq!(f.value(&report.outcome.unwrap()), Value::I32(101));
-    assert_eq!(f.value(&f.complete(&waiter)), Value::I32(121));
-    assert_eq!(f.value(&f.invoke("state", &[])), Value::I32(51));
+    assert_eq!(
+        f.complete(&waiter).value(f.runtime.gc()).unwrap(),
+        Value::I32(121)
+    );
+    assert_eq!(
+        f.invoke("state", &[]).value(f.runtime.gc()).unwrap(),
+        Value::I32(51)
+    );
     assert_eq!(f.starts.load(Ordering::SeqCst), 2);
 }

@@ -5,7 +5,7 @@ use crate::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
-        context::CallContext,
+        context::NativeCall,
         declarations::{CallableRequirement, FunctionDecl, MethodDecl},
         module::NativeModule,
         storage::{NativePayload, NativeStorage},
@@ -16,7 +16,7 @@ use crate::{
 };
 use kagari_types::{declaration::module::ModuleDecl, scalar::BuiltinType};
 
-fn count(_cx: &mut CallContext<'_>) -> NativeResult<u64> {
+fn count(_cx: &mut NativeCall<'_>) -> NativeResult<u64> {
     Ok(1)
 }
 

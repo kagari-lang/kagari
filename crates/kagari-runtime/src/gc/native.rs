@@ -6,7 +6,7 @@ mod tests;
 use crate::{
     error::RuntimeError,
     frame::types::compatibility::TypeView,
-    gc::{GcHeap, HeapObjectId, leases::BorrowedLease, storage::HeapObject},
+    gc::{GcHeap, HeapObjectId, storage::HeapObject},
     native::{binding::NativeResult, storage::NativeObject, stored_selection::StoredSelection},
 };
 use kagari_types::ty::Ty;
@@ -78,10 +78,7 @@ impl GcHeap {
         }
     }
 
-    pub(crate) fn try_enter_native_operation(
-        &self,
-        id: HeapObjectId,
-    ) -> NativeResult<Option<BorrowedLease<'_>>> {
+    pub(crate) fn try_enter_native_operation(&self, id: HeapObjectId) -> NativeResult<bool> {
         self.ensure_execution_allowed()?;
         let objects = self
             .objects
@@ -96,9 +93,13 @@ impl GcHeap {
             ));
         }
         if self.native_operations.is_active(id) {
-            return Ok(None);
+            return Ok(false);
         }
-        self.native_operations.borrow(id).map(Some)
+        self.native_operations.borrow(id).map(|()| true)
+    }
+
+    pub(crate) fn leave_native_operation(&self, id: HeapObjectId) {
+        self.native_operations.release_borrow(id);
     }
 
     pub(crate) fn matches_native_type(&self, id: HeapObjectId, expected: TypeView<'_>) -> bool {

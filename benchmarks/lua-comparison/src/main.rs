@@ -211,7 +211,7 @@ impl ExecutionRoutes {
         }
         if options.profile.is_some() {
             profile::run(
-                &self.runtime,
+                &mut self.runtime,
                 &self.module,
                 &self.context,
                 ProgramEntry::Main,

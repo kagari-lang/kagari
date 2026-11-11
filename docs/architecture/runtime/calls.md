@@ -46,6 +46,15 @@ Runtime's current prepared selection. Interface receivers and captured closures
 also have their own checked selection behavior. They do not make the ordinary
 Direct path perform public lookup or infer types.
 
+`Function<A, R>` checks the Rust mapping when it is bound or decoded. Its
+`prepare_call` returns `PreparedHostCall<A, R>`, a sealed witness retaining one
+exact `PreparedFunction`; callers cannot choose another argument/result mapping
+at execution. Ordinary calls create a current selection, while explicitly retained
+prepared calls and queued factories keep their selected body. Fixed Rust mapping
+checks do not repeat on execution; actual value conversion effects do. Weak
+binding-cache entries reuse the same checked mapping and never retain code on
+their own. Reload signature transport and dynamic value/authority checks remain.
+
 Parking clears function-link views on every frame, including parents waiting on a
 child. Resume refreshes the entire stack from committed tables. Bodies, PCs,
 captures, values, return destinations and lexical environments remain exact.
@@ -110,7 +119,8 @@ down an unrelated suspended execution. Quarantine handles invalid internal state
 
 Sources: [return handling](../../../crates/kagari-runtime/src/frame/returns.rs),
 [return packet](../../../crates/kagari-runtime/src/frame/transfer.rs),
-[scope cleanup](../../../crates/kagari-runtime/src/frame.rs).
+[activation cleanup](../../../crates/kagari-runtime/src/frame/activation.rs) and
+[stack suffix retirement](../../../crates/kagari-runtime/src/frame/stack.rs).
 
 ## Native call: what an empty body still pays for
 
@@ -119,24 +129,25 @@ Its frame starts Pending and has logical result slot 0 and parameter slots after
 it. The callback-facing structures expose the current mutation boundary:
 
 ```text
-CallContext<'call> {
-    runtime: &'call Runtime,
+NativeCall<'call> {
+    runtime: &'call mut Runtime,
     owner: &'call ExecutableModule,
     function: &'call LinkedNativeFunction,
     arguments: ArgumentView<'call>,
+    pending: Unset | Unit | Scalar(Value) | Managed(RootedValue),
     invoke_script: ScriptInvoker
 }
 ArgumentView<'call> {
-    heap, frame: Option<FrameSlots>,
+    frame: Option<FrameSlots>,
     slots: prepared locations | contiguous frame range | sealed scalars,
     narrowed: Option<RootSet>
 }
-NativeEntry = Fn(&mut CallContext) -> NativeResult<Value>
+ErasedNativeEntry = Fn(&mut NativeCall) -> Result<(), Box<RuntimeError>>
 ```
 
-Mutably borrowing CallContext does not provide an exclusive `&mut Runtime`;
-the context points to shared Runtime access whose owners use dynamic checks and
-interior mutation. The remaining sequence is:
+NativeCall lends the same exclusive Runtime for synchronous script reentry.
+No frame/bank or mutable registry borrow spans the callback. Immutable entry
+descriptors may be pinned across it. The remaining sequence is:
 
 ```mermaid
 sequenceDiagram
@@ -147,14 +158,14 @@ sequenceDiagram
     participant Body as Rust callback
     Driver->>Frame: Pending to Running, capture owner, slots<br/>and environment
     Frame->>Binding: LOOKUP binding, prepare or reuse generic<br/>application if needed
-    Frame->>Binding: invoke CallContext over rooted argument<br/>slots
+    Frame->>Binding: invoke NativeCall over rooted argument<br/>slots
     Binding->>Binding: CHECK arity, poll, narrow shared<br/>capabilities where needed
     Binding->>Adapter: Invoke registered entry
-    Adapter->>Adapter: Optional CHECK mappings, RESERVE argument<br/>pack, ROOT, decode
+    Adapter->>Adapter: Optional RESERVE argument pack, ROOT,<br/>check actual values and decode
     Adapter->>Body: CALLBACK
     Body-->>Adapter: Rust result
     Adapter->>Adapter: Optional encode result, release conversion<br/>roots
-    Adapter-->>Binding: Value or RuntimeError
+    Adapter-->>Binding: Stage result in NativeCall; small status
     Binding->>Binding: Poll, CHECK or adapt result as required
     Binding-->>Frame: Publish slot 0, Running to Complete
     Frame-->>Driver: NativeReturn action
@@ -163,16 +174,27 @@ sequenceDiagram
 
 Low-level callbacks do not necessarily use the typed adapter pack. The existing
 owned typed adapter specifically materializes a Vec of argument Values, clones
-the pack for execution-root protection, checks mappings/receiver loans, decodes
-arguments and encodes the result. Zero parameters can change allocation behavior;
+the pack for execution-root protection, checks actual values/receiver loans,
+decodes arguments and encodes the result. Rust type/codec mappings are prepared
+by the immutable binding or its actual closed application before callbacks run. Zero parameters can change allocation behavior;
 do not label every box as an unconditional allocation in an empty Native call.
 Formal shared receiver narrowing creates additional protected aliases only when
 the actual argument requires it.
 The [empty-call measurement](../../performance-baseline.md#empty-call-attribution-windows-2026-11-08)
 distinguishes these routes: raw/flat callbacks have no proportional allocator
-traffic, while the zero-argument Unit owned adapter creates two result mappings
-and two empty root leases per call. Its allocation and calibrated timing evidence
-must not be generalized to every Native adapter.
+traffic, while that revision's zero-argument Unit owned adapter created two result mappings
+and two empty root leases per call. RR02 removes the repeated fixed mappings;
+the old-heap root leases remain until the execution-root cutover. Its allocation and calibrated timing evidence
+must not be generalized to every Native adapter. Current matched measurements
+retain their own revision and denominator in the performance record.
+
+ArgumentView and ValueHandle carry protected locations and immutable type facts,
+not heap references. Reads and payload access use the current NativeCall. A guarded
+payload operation owns a mutable call scope and releases its operation mark on
+return, error or unwind; script reentry borrows that same call. Collection still
+checks actual payload loans. Pending results stage once in NativeCall before the
+post-call poll and destination commit; managed results currently use an old-heap
+root lease until RR03 replaces it with a managed local slot.
 
 Before invoking Rust, frame and operand-bank borrows are released. Rust may
 allocate or synchronously call script through the supplied invoker. Its arguments

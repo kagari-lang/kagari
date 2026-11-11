@@ -512,9 +512,9 @@ fn retained_method_transports_binders_witnesses_and_constructions_after_impl_reo
         .stage_reload_verified_program(&program, None, candidate.verified_program().clone())
         .unwrap();
     {
-        let _session = runtime.begin_candidate_initialization(&candidate).unwrap();
+        let mut _session = runtime.begin_candidate_initialization(&candidate).unwrap();
         assert_eq!(
-            admitted.view(&runtime).err().unwrap().kind(),
+            admitted.view(_session.runtime_mut()).err().unwrap().kind(),
             RuntimeErrorKind::ExecutionPhaseViolation,
             "exact admission must not bypass candidate isolation"
         );
@@ -620,84 +620,96 @@ fn retained_method_transports_binders_witnesses_and_constructions_after_impl_reo
             .publication_token(),
         old.publication_token()
     );
-    let stack = runtime.enter_execution_stack(&current).unwrap();
-    stack
-        .push_interface_method(
-            &runtime,
-            method.clone(),
-            &[Value::I32(0), Value::I32(7)],
-            None,
-        )
+    let mut stack_activation = runtime.enter_execution_stack(&current).unwrap();
+    stack_activation
+        .with(|runtime, stack| {
+            stack
+                .push_interface_method(
+                    runtime,
+                    method.clone(),
+                    &[Value::I32(0), Value::I32(7)],
+                    None,
+                )
+                .unwrap();
+            assert_eq!(
+                stack.current(runtime).unwrap().loaded().publication_token(),
+                current.publication_token()
+            );
+            assert_eq!(stack.current(runtime).unwrap().target(), selected_target);
+            assert!(matches!(selected_target, CallableTarget::Script(_)));
+            drop((
+                stack,
+                environment_root,
+                result_root,
+                read,
+                admitted,
+                method,
+                root,
+            ));
+            runtime.collect_garbage().unwrap();
+            assert!(!runtime.is_quarantined());
+
+            Ok(())
+        })
         .unwrap();
-    assert_eq!(
-        stack.current().unwrap().loaded().publication_token(),
-        current.publication_token()
-    );
-    assert_eq!(stack.current().unwrap().target(), selected_target);
-    assert!(matches!(selected_target, CallableTarget::Script(_)));
-    drop((
-        stack,
-        environment_root,
-        result_root,
-        read,
-        admitted,
-        method,
-        root,
-    ));
-    runtime.collect_garbage().unwrap();
-    assert!(!runtime.is_quarantined());
 }
 
 #[test]
 fn polymorphic_retention_is_bounded_and_eviction_preserves_active_applications() {
-    let (runtime, _loaded_program, loaded, table) = generic_fixture();
+    let (mut runtime, _loaded_program, loaded, table) = generic_fixture();
     let value = runtime
         .make_interface(&loaded, table, Value::I32(1))
         .unwrap();
     let retained = apply_generic(&runtime, &loaded, value, Ty::Builtin(BuiltinType::I32));
     let application = retained.invocation.application.unwrap();
-    let stack = runtime.enter_execution_stack(&loaded).unwrap();
-    stack
-        .push_interface_method(
-            &runtime,
-            retained.clone(),
-            &[Value::I32(1), Value::I32(7)],
-            None,
-        )
+    let mut stack_activation = runtime.enter_execution_stack(&loaded).unwrap();
+    stack_activation
+        .with(|runtime, stack| {
+            stack
+                .push_interface_method(
+                    runtime,
+                    retained.clone(),
+                    &[Value::I32(1), Value::I32(7)],
+                    None,
+                )
+                .unwrap();
+            // More distinct applications than the retention limit. The older call stays
+            // rooted through its host handle even when the program evicts its index edge.
+            for length in 0..160 {
+                drop(apply_generic(
+                    runtime,
+                    &loaded,
+                    value,
+                    Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); length]),
+                ));
+            }
+            runtime.collect_garbage().unwrap();
+            assert!(runtime.gc.method_application(application).is_some());
+            // The active frame also retains its separately admitted computation.
+            assert_eq!(runtime.gc.stats().method_applications, 130);
+            drop(retained);
+            runtime.collect_garbage().unwrap();
+            // With the external lease gone and the cache entry evicted, only the active
+            // window protects the applied signature and exact computation needed on return.
+            assert!(runtime.gc.method_application(application).is_some());
+            assert_eq!(runtime.gc.stats().method_applications, 130);
+            assert_eq!(
+                stack
+                    .finish_return(runtime, ReturnValue::general(Value::I32(7)))
+                    .unwrap(),
+                ReturnAction::Complete(Value::I32(7))
+            );
+            runtime.collect_garbage().unwrap();
+            assert!(runtime.gc.method_application(application).is_none());
+            assert_eq!(runtime.gc.stats().method_applications, 128);
+            let Value::Interface(id) = value else {
+                unreachable!()
+            };
+            assert!(runtime.gc.interface_snapshot(id).is_none());
+
+            Ok(())
+        })
         .unwrap();
-    // More distinct applications than the retention limit. The older call stays
-    // rooted through its host handle even when the program evicts its index edge.
-    for length in 0..160 {
-        drop(apply_generic(
-            &runtime,
-            &loaded,
-            value,
-            Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); length]),
-        ));
-    }
-    runtime.collect_garbage().unwrap();
-    assert!(runtime.gc.method_application(application).is_some());
-    // The active frame also retains its separately admitted computation.
-    assert_eq!(runtime.gc.stats().method_applications, 130);
-    drop(retained);
-    runtime.collect_garbage().unwrap();
-    // With the external lease gone and the cache entry evicted, only the active
-    // window protects the applied signature and exact computation needed on return.
-    assert!(runtime.gc.method_application(application).is_some());
-    assert_eq!(runtime.gc.stats().method_applications, 130);
-    assert_eq!(
-        stack
-            .finish_return(&runtime, ReturnValue::general(Value::I32(7)))
-            .unwrap(),
-        ReturnAction::Complete(Value::I32(7))
-    );
-    runtime.collect_garbage().unwrap();
-    assert!(runtime.gc.method_application(application).is_none());
-    assert_eq!(runtime.gc.stats().method_applications, 128);
-    let Value::Interface(id) = value else {
-        unreachable!()
-    };
-    assert!(runtime.gc.interface_snapshot(id).is_none());
 }
 
 #[rstest]

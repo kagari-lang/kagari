@@ -516,7 +516,7 @@ mod tests {
     use kagari_hir::typeck::const_budget::ConstLimits;
     use kagari_package::{modules::VirtualSources, project::ProjectInputs};
     use kagari_runtime::native::{
-        builder::ModuleBuilder, context::CallContext, declarations::FunctionDecl, types::Type,
+        builder::ModuleBuilder, context::NativeCall, declarations::FunctionDecl, types::Type,
     };
     use kagari_source::{
         package::{PackageEnvironment, PackageScope},
@@ -614,7 +614,7 @@ mod tests {
             .define_function(FunctionDecl::new("number").returns(Type::i32()))
             .unwrap();
         native
-            .bind(function, move |_: &mut CallContext<'_>| {
+            .bind(function, move |_: &mut NativeCall<'_>| {
                 calls.fetch_add(1, Ordering::Relaxed);
                 Ok(42i32)
             })

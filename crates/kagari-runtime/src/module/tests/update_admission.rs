@@ -17,7 +17,7 @@ use kagari_contract::updates::{BodyRecord, CallRequirement};
 use std::sync::Arc;
 
 fn rejected_without_effects(
-    runtime: &Runtime,
+    runtime: &mut Runtime,
     loaded_program: &InstalledProgram,
     candidate: &str,
     expected_error: Option<&str>,
@@ -98,7 +98,7 @@ fn lazy_initializer_freezes_expression_but_allows_transitive_helper_updates() {
             .is_some_and(|part| part.name == "STATE")
     );
     rejected_without_effects(
-        &runtime,
+        &mut runtime,
         &loaded_program,
         &source.replace("helper() + (1 + 2)", "helper() + 3"),
         Some(&format!(
@@ -304,7 +304,7 @@ fn source_free_candidates_require_historical_specializations_after_code_collecti
     let second_source = source
         .replace("run() -> i32 { generic(7) }", "run() -> i32 { 9 }")
         .replace("-> i32 { 11 }", "-> i32 { 12 }");
-    rejected_without_effects(&runtime, &first_program, &second_source, None);
+    rejected_without_effects(&mut runtime, &first_program, &second_source, None);
     let second_code = retained_candidate(&first, &second_source);
     assert_ne!(
         specialization(&second_code).instructions,
@@ -326,7 +326,7 @@ fn source_free_candidates_require_historical_specializations_after_code_collecti
     // Generation two has no source call to generic<i32>, and generation one's
     // executable graph has gone. Only the installation envelope can retain it.
     let third_source = second_source.replace("-> i32 { 12 }", "-> i32 { 13 }");
-    rejected_without_effects(&runtime, &first_program, &third_source, None);
+    rejected_without_effects(&mut runtime, &first_program, &third_source, None);
     let third_code = retained_candidate(&second, &third_source);
     assert_ne!(
         specialization(&third_code).instructions,

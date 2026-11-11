@@ -3,6 +3,7 @@ use crate::{
     Runtime,
     error::{RuntimeError, reason::CancellationReason},
     error_trace::ErrorTrace,
+    execution::owned::DriveResult,
     gc::roots::RootedValue,
     native::binding::NativeResult,
     session::owned::OwnedExecution,
@@ -10,7 +11,9 @@ use crate::{
     value::Value,
 };
 
-use std::{mem, sync::atomic::Ordering, task::Waker};
+use std::{
+    marker::PhantomData, mem, num::NonZeroUsize, rc::Rc, sync::atomic::Ordering, task::Waker,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskDriveResult {
@@ -28,7 +31,8 @@ pub enum TaskAcquisition<'a> {
 /// The backend must return the execution after each slice. Dropping an unfinished
 /// activation requests cancellation and leaves cleanup to the control drain.
 pub struct TaskActivation<'a> {
-    runtime: &'a Runtime,
+    _thread: PhantomData<Rc<()>>,
+    runtime: &'a mut Runtime,
     task: TaskId,
     execution: Option<OwnedExecution>,
 }
@@ -38,10 +42,28 @@ impl TaskActivation<'_> {
         self.execution.as_ref().expect("live task activation")
     }
 
+    pub fn with_execution<T>(
+        &mut self,
+        access: impl FnOnce(&mut Runtime, &OwnedExecution) -> NativeResult<T>,
+    ) -> NativeResult<T> {
+        access(
+            self.runtime,
+            self.execution.as_ref().expect("live task activation"),
+        )
+    }
+
+    pub(crate) fn drive(&mut self, slice: NonZeroUsize) -> NativeResult<DriveResult> {
+        self.runtime.drive_with_completion(
+            self.execution.as_ref().expect("live task activation"),
+            slice,
+            |_, _| Ok(()),
+        )
+    }
+
     pub fn park(mut self, runnable: bool) -> NativeResult<TaskDriveResult> {
         self.runtime.require_idle_driver()?;
         let signal = {
-            let mut tasks = self.runtime.tasks.borrow_mut();
+            let tasks = &mut self.runtime.tasks;
             let record = tasks
                 .tasks
                 .get_mut(self.task.0)
@@ -65,7 +87,7 @@ impl TaskActivation<'_> {
         self.runtime.require_idle_driver()?;
         let error = self
             .runtime
-            .retire_scheduled_execution(self.execution(), error);
+            .retire_scheduled_execution(self.execution.as_ref().expect("active execution"), error);
         self.complete(Err(error))
     }
 
@@ -82,7 +104,7 @@ impl Drop for TaskActivation<'_> {
     fn drop(&mut self) {
         if let Some(execution) = self.execution.take() {
             let signal = {
-                let mut tasks = self.runtime.tasks.borrow_mut();
+                let tasks = &mut self.runtime.tasks;
                 let Some(record) = tasks.tasks.get_mut(self.task.0) else {
                     return;
                 };
@@ -107,7 +129,6 @@ impl Runtime {
         self.validate_scope_owner(scope)?;
         Ok(self
             .tasks
-            .borrow()
             .tasks
             .iter()
             .filter(|(_, record)| {
@@ -120,7 +141,7 @@ impl Runtime {
     }
 
     pub fn acquire_task(
-        &self,
+        &mut self,
         scope: &TaskScopeOwner,
         task: TaskId,
     ) -> NativeResult<TaskAcquisition<'_>> {
@@ -136,14 +157,14 @@ impl Runtime {
     }
 
     pub(crate) fn acquire_task_inner(
-        &self,
+        &mut self,
         scope: ScopeId,
         task: TaskId,
     ) -> NativeResult<TaskAcquisition<'_>> {
         self.require_idle_driver()?;
         self.gc().ensure_no_native_borrow()?;
         let (state, signal, options) = {
-            let mut tasks = self.tasks.borrow_mut();
+            let tasks = &mut self.tasks;
             let Some(record) = tasks.tasks.get_mut(task.0) else {
                 return Ok(TaskAcquisition::Inactive(TaskDriveResult::Stale));
             };
@@ -220,6 +241,7 @@ impl Runtime {
             _ => unreachable!("checked task state"),
         };
         Ok(TaskAcquisition::Active(TaskActivation {
+            _thread: Default::default(),
             runtime: self,
             task,
             execution: Some(execution),

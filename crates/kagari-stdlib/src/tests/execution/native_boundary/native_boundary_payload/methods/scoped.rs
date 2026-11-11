@@ -4,6 +4,7 @@ use crate::tests::execution::native_boundary::{
 };
 use kagari_runtime::{
     Runtime,
+    context::ExecutionContext,
     error::{RuntimeError, RuntimeErrorKind},
     native::binding::NativeResult,
     value::Value,
@@ -18,7 +19,7 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
     let (module, player, _) = registration();
     let (mut vm, owner) = fixture(SOURCE, Some(&module));
     let _owner_program = owner;
-    let owner = vm.select_program(&_owner_program).unwrap();
+    let _owner = vm.select_program(&_owner_program).unwrap();
     let descriptor = vm
         .bind_native_type::<PlayerState>(&_owner_program.root(), &player, &[])
         .unwrap();
@@ -29,15 +30,15 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
     let stale = vm
         .with_host_scope(|scope| {
             let view = scope.borrow_mut(descriptor.rust_type(), &mut external)?;
-            view.read(scope, |state| {
+            view.read(scope, |scope, state| {
                 assert_eq!(state.hp, 10);
-                assert!(view.edit(scope, |_| Ok(())).is_err());
-                view.read(scope, |nested| {
+                assert!(view.edit(scope, |_scope, _| Ok(())).is_err());
+                view.read(scope, |_scope, nested| {
                     assert_eq!(nested.hp, 10);
                     Ok(())
                 })
             })?;
-            view.read(scope, |_| {
+            view.read(scope, |scope, _| {
                 Runtime::execute_scoped(
                     scope,
                     &_owner_program,
@@ -57,7 +58,7 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
                 );
                 Ok(())
             })?;
-            view.edit(scope, |_| {
+            view.edit(scope, |scope, _| {
                 assert!(
                     Runtime::execute_scoped(
                         scope,
@@ -71,24 +72,24 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
                 Ok(())
             })?;
             assert!(
-                view.edit::<()>(scope, |state| {
+                view.edit::<()>(scope, |scope, state| {
                     state.position[0] = 2.0;
-                    assert!(view.read(scope, |_| Ok(())).is_err());
-                    assert!(view.edit(scope, |_| Ok(())).is_err());
+                    assert!(view.read(scope, |_scope, _| Ok(())).is_err());
+                    assert!(view.edit(scope, |_scope, _| Ok(())).is_err());
                     Err(RuntimeError::host_call_failure("completed write"))
                 })
                 .is_err()
             );
             assert!(
                 catch_unwind(AssertUnwindSafe(|| {
-                    let _: NativeResult<()> = view.edit(scope, |state| {
+                    let _: NativeResult<()> = view.edit(scope, |_scope, state| {
                         state.position[1] = 3.0;
                         panic!("loan cleanup")
                     });
                 }))
                 .is_err()
             );
-            view.read(scope, |state| {
+            view.read(scope, |_scope, state| {
                 assert_eq!(state.position[..2], [2.0, 3.0]);
                 Ok(())
             })?;
@@ -120,7 +121,7 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
         })
         .unwrap();
     assert_eq!(external.hp, 9);
-    let (foreign, foreign_owner) = fixture(SOURCE, Some(&module));
+    let (mut foreign, foreign_owner) = fixture(SOURCE, Some(&module));
     let _foreign_owner_program = foreign_owner;
     let foreign_descriptor = foreign
         .bind_native_type::<PlayerState>(&_foreign_owner_program.root(), &player, &[])
@@ -174,7 +175,7 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
             let _: NativeResult<()> = vm.with_host_scope(|scope| {
                 let view = scope.borrow_mut(descriptor.rust_type(), &mut external)?;
                 revoked.set(Some(view.value()));
-                view.edit(scope, |state| {
+                view.edit(scope, |_scope, state| {
                     state.hp = 8;
                     Ok(())
                 })?;
@@ -196,7 +197,7 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
             .is_err()
         );
         let view = scope.borrow_mut(descriptor.rust_type(), &mut external)?;
-        view.edit(scope, |state| {
+        view.edit(scope, |_scope, state| {
             state.hp = 9;
             Ok(())
         })
@@ -214,30 +215,28 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
         )
         .unwrap_err();
         assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
-        view.read(scope, |state| {
+        view.read(scope, |_scope, state| {
             assert!(state.hp < 9);
             Ok(())
         })?;
-        view.edit(scope, |state| {
+        view.edit(scope, |_scope, state| {
             state.hp = 9;
             Ok(())
         })?;
         let token = CancellationToken::default();
-        let error = scope
-            .execute(&[view.value()], |runtime, _| {
-                let mut options = runtime.execution_options();
-                options.cancellation = token.clone();
-                let _session = runtime.begin_execution(&owner, options)?;
-                token.cancel();
-                Runtime::execute_scoped(
-                    scope,
-                    &_owner_program,
-                    "scoped_damage",
-                    &[view.value()],
-                    &Default::default(),
-                )
-            })
-            .unwrap_err();
+        token.cancel();
+        let context = ExecutionContext {
+            cancellation: token,
+            ..Default::default()
+        };
+        let error = Runtime::execute_scoped(
+            scope,
+            &_owner_program,
+            "scoped_damage",
+            &[view.value()],
+            &context,
+        )
+        .unwrap_err();
         assert_eq!(error.kind(), RuntimeErrorKind::Cancelled);
         assert_eq!(
             Runtime::execute_scoped(

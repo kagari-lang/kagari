@@ -199,15 +199,16 @@ mod tests {
 
     #[test]
     fn strings_are_bounded_owned_copies_not_retained_heap_handles() {
-        let runtime = Runtime::default();
+        let mut runtime = Runtime::default();
         let heap = runtime.gc();
         let value = heap.alloc_string("😀".repeat(RESULT_BYTES)).unwrap();
         let root = heap.root_value(value).unwrap();
         runtime.collect_garbage().unwrap();
-        let owned = OwnedResult::rooted(&root, heap).unwrap_or_else(|_| panic!("rooted String"));
+        let owned =
+            OwnedResult::rooted(&root, runtime.gc()).unwrap_or_else(|_| panic!("rooted String"));
         drop(root);
         runtime.collect_garbage().unwrap();
-        assert!(!heap.validate_value(&value));
+        assert!(!runtime.gc().validate_value(&value));
         let json = serde_json::to_value(owned).unwrap();
         assert_eq!(json["tag"], "string");
         assert_eq!(json["value"].as_str().unwrap().len(), RESULT_BYTES);

@@ -2,7 +2,7 @@
 use crate::foundation::enumerations::value::{self as enums, EnumSymbols};
 use kagari_runtime::{
     error::RuntimeError,
-    native::{binding::NativeResult, context::CallContext},
+    native::{binding::NativeResult, context::NativeCall},
     value::Value,
 };
 use std::slice;
@@ -13,9 +13,9 @@ fn invalid() -> RuntimeError {
 
 pub(crate) fn for_each(
     symbols: &EnumSymbols,
-    cx: &mut CallContext<'_>,
+    cx: &mut NativeCall<'_>,
     first: usize,
-    mut visit: impl FnMut(&mut CallContext<'_>, Value) -> NativeResult<()>,
+    mut visit: impl FnMut(&mut NativeCall<'_>, Value) -> NativeResult<()>,
 ) -> NativeResult<()> {
     let source = cx.argument(0)?;
 

@@ -9,7 +9,7 @@ use crate::{
     module::ExecutableModule,
     native::{
         binding::NativeResult,
-        context::CallContext,
+        context::NativeCall,
         future::{ColdFuture, FuturePayload},
         types::VariantRef,
     },
@@ -207,10 +207,10 @@ impl PairContext<'_> {
     }
 }
 
-impl CallContext<'_> {
+impl NativeCall<'_> {
     /// Construct a cold two-input composition using the linked native signature.
     /// No branch is claimed or started until the returned Future is driven.
-    pub fn compose_pair(&self, policy: Arc<dyn PairPolicy>) -> NativeResult<Value> {
+    pub fn compose_pair(&mut self, policy: Arc<dyn PairPolicy>) -> NativeResult<Value> {
         self.runtime
             .reject_static_initialization("cold composition construction")?;
         self.runtime.resources().poll_execution()?;

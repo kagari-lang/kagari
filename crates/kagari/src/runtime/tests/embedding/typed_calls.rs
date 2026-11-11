@@ -12,10 +12,9 @@ use kagari_compiler::{
 };
 use kagari_contract::source::ExecutableOrigin;
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
-use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     Runtime,
-    error::RuntimeError,
+    error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionFrame,
     native::{
         assembly::{ModuleDefinition, ModuleSetBuilder},
@@ -28,6 +27,7 @@ use kagari_runtime::{
         storage::NativeStorage,
         types::Type,
     },
+    reload::ReloadValidationError,
     session::{ExecutionEvent, ExecutionObserver},
     source::{SourceQuery, SourceUnavailableReason},
 };
@@ -165,7 +165,7 @@ fn existing_typed_handles_select_current_implementations_and_keep_closure_bodies
             Ok(())
         })
         .unwrap();
-    let foreign = {
+    let mut foreign = {
         let mut runtime = Runtime::default();
         runtime.set_default_context(Default::default());
         runtime
@@ -464,15 +464,13 @@ fn bound_calls_use_the_sdk_execution_context_and_return_retained_values() {
     let make_callback = runtime
         .bind_function::<(), Function<(), i32>>(&loaded.root(), "make_callback")
         .unwrap();
-    let prepared = make.prepare_call(&runtime).unwrap();
-    assert!(
+    assert_eq!(
         runtime
-            .with_context(prepared.owner(), &context, |cx| {
-                prepared.call_with_options::<(), bool>(cx, (), Default::default())
-            })
-            .is_err()
+            .bind_function::<(), bool>(&loaded.root(), "make")
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::ModuleValidation,
     );
-    drop(prepared);
     let player = runtime.call_with_context(&make, (), &context).unwrap();
     let callback = runtime
         .call_with_context(&make_callback, (), &context)

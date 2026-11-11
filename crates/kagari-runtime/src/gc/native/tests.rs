@@ -5,7 +5,7 @@ use crate::{
 
 #[test]
 fn reserved_empty_string_drives_automatic_collection() {
-    let runtime = Runtime::default();
+    let mut runtime = Runtime::default();
     let value = runtime
         .gc()
         .alloc_string(String::with_capacity(128 * 1024))
@@ -118,7 +118,7 @@ fn rejected_provider_charge_never_publishes_storage_or_counters() {
 fn byte_threshold_is_configurable_and_none_disables_automatic_collection() {
     use crate::{RuntimeConfig, gc::GcHeapConfig};
     for enabled in [false, true] {
-        let runtime = Runtime::new(RuntimeConfig {
+        let mut runtime = Runtime::new(RuntimeConfig {
             gc: GcHeapConfig {
                 collection_threshold: enabled.then_some(usize::MAX),
                 retained_byte_threshold: 128,
@@ -166,6 +166,7 @@ fn array_layouts_charge_capacity_not_values_or_zst_capacity_sentinel() {
         let bytes = size_of::<ArrayPayload>() + capacity.checked_mul(width).unwrap();
         assert_eq!(heap.stats().current_retained_bytes, bytes as u128);
         runtime.collect_garbage().unwrap();
+        let heap = runtime.gc();
         assert_eq!(heap.stats().current_retained_bytes, 0);
     }
     // Traced slots have Value width even when their current values are scalar.

@@ -25,7 +25,7 @@ use std::{
 
 #[test]
 fn mark_sweep_traces_tuples_enum_payloads_and_cycles_without_retaining_unreachable_graphs() {
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         r#"use std::collections::{HashMap, HashSet};
 
         struct Node { val edges: HashMap<i32, Node> }
@@ -72,7 +72,7 @@ fn mark_sweep_traces_tuples_enum_payloads_and_cycles_without_retaining_unreachab
 
 #[test]
 fn tracing_a_deep_heap_chain_uses_an_explicit_work_stack() {
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         r#"
         struct Node { val next: Option<Node> }
         fn main() -> Option<Node> {
@@ -99,7 +99,7 @@ fn tracing_a_deep_heap_chain_uses_an_explicit_work_stack() {
 
 #[test]
 fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         r#"
         struct Node { var next: Option<Node> }
         fn main() -> Node {
@@ -121,13 +121,13 @@ fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
     else {
         panic!("array")
     };
-    let runtime = &vm;
+    let runtime = &mut vm;
     let preview = format_value(runtime.gc(), &Value::Struct(object), true).unwrap();
     assert!(preview.starts_with("Struct@"));
     assert_eq!(
         format_value(
             runtime.gc(),
-            &vm.gc().alloc_string("a\nb".into()).unwrap(),
+            &runtime.gc().alloc_string("a\nb".into()).unwrap(),
             true
         )
         .unwrap(),
@@ -136,14 +136,14 @@ fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
     assert!(
         format_value(
             runtime.gc(),
-            &vm.gc().alloc_string("x".repeat(1_048_577)).unwrap(),
+            &runtime.gc().alloc_string("x".repeat(1_048_577)).unwrap(),
             false
         )
         .is_err()
     );
     let mut value = Value::I32(42);
     for _ in 0..66 {
-        value = vm.gc().alloc_tuple(vec![value]).unwrap();
+        value = runtime.gc().alloc_tuple(vec![value]).unwrap();
     }
     assert!(format_value(runtime.gc(), &value, true).is_err());
     assert!(runtime.gc().struct_layout(object).is_some());

@@ -3,25 +3,25 @@ use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault},
     frame::{
-        ExecutionStack, NativeEntryState,
+        FrameStack, NativeEntryState,
         driver::{ExecutionAction, ReturnAction},
         transfer::ReturnValue,
     },
     module::linked_execution::LinkedNativeBody,
-    native::context::{ArgumentSlots, ArgumentView, CallContext, ScriptInvoker},
+    native::context::{ArgumentSlots, ArgumentView, NativeCall, ScriptInvoker},
 };
 
 use kagari_bytecode::module::CallableTarget;
 
-impl ExecutionStack<'_> {
+impl FrameStack {
     pub fn start_native_entry(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         invoke_script: ScriptInvoker,
     ) -> Result<ExecutionAction, RuntimeError> {
-        self.validate_runtime(runtime)?;
+        self.validate_top(runtime)?;
         let (loaded, import, roots, environment) = {
-            let mut frame = self.current_mut()?;
+            let mut frame = self.current_mut(runtime)?;
             let CallableTarget::Native(import) = frame.target else {
                 return Err(RuntimeError::module_validation(
                     "expected native callable frame",
@@ -65,13 +65,14 @@ impl ExecutionStack<'_> {
         let function = application
             .as_ref()
             .map_or(function.as_ref(), |application| &application.function);
-        let mut context = CallContext {
+        let mut context = NativeCall {
+            _thread: Default::default(),
+            pending: Default::default(),
             runtime,
             owner: &loaded,
             function,
             invoke_script,
             arguments: ArgumentView::frame(
-                &runtime.gc,
                 roots,
                 ArgumentSlots::Contiguous {
                     start: 1,
@@ -80,7 +81,7 @@ impl ExecutionStack<'_> {
             ),
         };
         let value = function.invoke(&mut context)?;
-        let mut frame = self.current_mut()?;
+        let mut frame = self.current_mut(runtime)?;
         frame
             .slots
             .set(&runtime.gc, 0, value)
@@ -91,9 +92,9 @@ impl ExecutionStack<'_> {
 
     /// Consume a completed native frame at an explicit return transition.
     pub fn finish_native_return(&self, runtime: &Runtime) -> Result<ReturnAction, RuntimeError> {
-        self.validate_runtime(runtime)?;
+        self.validate_top(runtime)?;
         let value = {
-            let frame = self.current()?;
+            let frame = self.current(runtime)?;
             if !matches!(frame.native_entry, NativeEntryState::Complete) {
                 return Err(runtime
                     .resources()
@@ -110,7 +111,7 @@ impl ExecutionStack<'_> {
 
     pub(super) fn invoke_prepared_native(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         index: usize,
         invoke_script: ScriptInvoker,
     ) -> Result<(), RuntimeError> {
@@ -118,7 +119,7 @@ impl ExecutionStack<'_> {
         // intervened. Retain the linked descriptor and roots, releasing all frame
         // and bank borrows before invoking arbitrary Rust or reentrant script.
         let (loaded, roots, links) = {
-            let frame = self.current()?;
+            let frame = self.current(runtime)?;
             (frame.loaded.clone(), frame.slots, frame.links.clone())
         };
         let operation = links
@@ -134,19 +135,17 @@ impl ExecutionStack<'_> {
                 .resources()
                 .quarantine(EngineFault::SealedNativeBodyReachedCallbackTransition));
         };
-        let mut context = CallContext {
+        let mut context = NativeCall {
+            _thread: Default::default(),
+            pending: Default::default(),
             runtime,
             owner: &loaded,
             function: &callback.function,
             invoke_script,
-            arguments: ArgumentView::frame(
-                &runtime.gc,
-                roots,
-                ArgumentSlots::Prepared(&callback.arguments),
-            ),
+            arguments: ArgumentView::frame(roots, ArgumentSlots::Prepared(&callback.arguments)),
         };
         let value = callback.function.invoke(&mut context)?;
-        let mut frame = self.current_mut()?;
+        let mut frame = self.current_mut(runtime)?;
         if let Some(destination) = operation.destination {
             frame
                 .slots

@@ -259,7 +259,7 @@ fn registration_scope_survives_catalog_growth_and_module_drop() {
 
 #[test]
 fn external_authoring_uses_common_type_and_member_binding_policies() {
-    fn callback(_: &HostCallContext<'_>, _: &[Value]) -> Result<Value, HostError> {
+    fn callback(_: &mut HostCallContext<'_>, _: &[Value]) -> Result<Value, HostError> {
         Ok(Value::I32(0))
     }
 

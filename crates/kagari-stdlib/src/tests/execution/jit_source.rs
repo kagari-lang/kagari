@@ -5,7 +5,7 @@ use kagari_runtime::{
     execution::JitExecutionStatus,
     module::entry::ProgramEntry,
     native::{
-        binding::NativeResult, builder::ModuleBuilder, context::CallContext,
+        binding::NativeResult, builder::ModuleBuilder, context::NativeCall,
         declarations::FunctionDecl,
     },
     value::Value,
@@ -38,7 +38,7 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
                 .define_function(FunctionDecl::new("unrelated"))
                 .unwrap();
             unrelated
-                .bind(entry, |_: &mut CallContext<'_>| -> NativeResult<()> {
+                .bind(entry, |_: &mut NativeCall<'_>| -> NativeResult<()> {
                     panic!("a log import must not invoke an unrelated native entry")
                 })
                 .unwrap();
@@ -61,7 +61,7 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
             let _loaded_program = loaded;
             let loaded = runtime.select_program(&_loaded_program).unwrap();
             assert_eq!(loaded.bytecode.native_imports.len(), 1);
-            let vm = runtime;
+            let mut vm = runtime;
             let report = if jit {
                 vm.execute_prepared_module(
                     &loaded,
@@ -105,7 +105,7 @@ fn main() -> (u64, u64, i32) {
     );
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let prepared = native_fixtures::unsupported();
 
     let report = vm

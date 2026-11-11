@@ -379,7 +379,7 @@ reentry and cancellation checks still apply. See [publication contracts](spec/mo
 Assembly methods currently take no caller cancellation token. They are synchronous
 collection/preparation operations, not cancellable script sessions; factory Rust
 work is not automatically preempted. At execution time cancellation remains
-cooperative: long callback loops must use `CallContext::poll()` and keep existing
+cooperative: long callback loops must use `NativeCall::poll()` and keep existing
 native helpers' polling, rooting and cleanup behavior. Cancellation/traps retain
 completed script and host effects; neither registration nor cancellation promises
 rollback of those effects. See [execution](spec/execution.md) for execution policy.

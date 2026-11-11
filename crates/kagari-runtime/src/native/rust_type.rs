@@ -111,7 +111,7 @@ impl Runtime {
     /// Resolve a generated public inline field. DTO and Serde schemas without
     /// dedicated layout proofs reject, as do mismatched Rust field representations.
     pub fn bind_rust_field<T: Send + 'static, F: KagariType + Send + 'static>(
-        &self,
+        &mut self,
         parent: &RustType<T>,
         name: &str,
     ) -> NativeResult<RustField<T, F>> {
@@ -156,13 +156,14 @@ impl Runtime {
     /// payload constructors already supply this same descriptor through NativeType.
     /// Custom conversion schemas do not prove Rust field layout or projectors.
     pub fn bind_rust_type<T: KagariType + Send + 'static>(
-        &self,
+        &mut self,
         owner: &Module,
     ) -> NativeResult<RustType<T>> {
         let snapshot = self.capture_module(owner)?;
         let owner = &snapshot.root;
         let cx = ConversionContext::new(self, owner)?;
         let argument = cx.type_for::<T>()?;
+        drop(cx);
         RustType::prepare(self, owner, argument)
     }
 }

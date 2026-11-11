@@ -8,7 +8,7 @@ fn executes_source_lowered_type_of_helper() {
     );
     let program = loaded;
     let loaded = runtime.select_program(&program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
@@ -44,7 +44,7 @@ fn standard_collection_reflection_metadata_reports_runtime_categories() {
     let program = loaded;
     let loaded = runtime.select_program(&program).unwrap();
 
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");

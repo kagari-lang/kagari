@@ -10,7 +10,7 @@ use kagari_runtime::{
     },
     native::{
         builder::ModuleBuilder,
-        context::CallContext,
+        context::NativeCall,
         declarations::{FunctionDecl, MethodDecl},
         installation::NativeInstallation,
         types::Type,
@@ -62,22 +62,25 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
         .unwrap();
     assert!(
         builder
-            .bind(echo.clone(), |cx: &mut CallContext<'_>| cx.argument(0))
+            .bind(echo.clone(), |cx: &mut NativeCall<'_>| cx.argument(0))
             .is_err()
     );
     builder
-        .bind(echo.clone(), |cx: &HostCallContext<'_>, args: &[Value]| {
-            cx.runtime().collect_garbage().unwrap();
-            let Value::Str(id) = args[0] else {
-                panic!("string argument")
-            };
-            let text = cx.runtime().gc().string(id).unwrap().to_owned();
-            let time = cx.execution_time_millis().unwrap();
-            cx.runtime()
-                .gc()
-                .alloc_string(format!("{text}:{time}"))
-                .map_err(|error| HostError::new(error.to_string()))
-        })
+        .bind(
+            echo.clone(),
+            |cx: &mut HostCallContext<'_>, args: &[Value]| {
+                cx.runtime_mut().collect_garbage().unwrap();
+                let Value::Str(id) = args[0] else {
+                    panic!("string argument")
+                };
+                let text = cx.runtime().gc().string(id).unwrap().to_owned();
+                let time = cx.execution_time_millis().unwrap();
+                cx.runtime()
+                    .gc()
+                    .alloc_string(format!("{text}:{time}"))
+                    .map_err(|error| HostError::new(error.to_string()))
+            },
+        )
         .unwrap();
     let entered = Arc::new(AtomicUsize::new(0));
     for name in ["configuration", "fail", "cancel", "panic"] {
@@ -96,18 +99,21 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
             .unwrap();
         let entered = entered.clone();
         builder
-            .bind(function, move |cx: &HostCallContext<'_>, _: &[Value]| {
-                entered.fetch_add(1, Ordering::Relaxed);
-                match name {
-                    "configuration" => Ok(Value::I32(7)),
-                    "fail" => Err(HostError::new("service failed")),
-                    "cancel" => {
-                        cx.runtime().execution_options().cancellation.cancel();
-                        Err(HostError::new("failure after cancellation"))
+            .bind(
+                function,
+                move |cx: &mut HostCallContext<'_>, _: &[Value]| {
+                    entered.fetch_add(1, Ordering::Relaxed);
+                    match name {
+                        "configuration" => Ok(Value::I32(7)),
+                        "fail" => Err(HostError::new("service failed")),
+                        "cancel" => {
+                            cx.runtime().execution_options().cancellation.cancel();
+                            Err(HostError::new("failure after cancellation"))
+                        }
+                        _ => panic!("service unwind"),
                     }
-                    _ => panic!("service unwind"),
-                }
-            })
+                },
+            )
             .unwrap();
     }
     let missing_policy = builder
@@ -117,16 +123,16 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
         builder
             .bind(
                 missing_policy.clone(),
-                |_: &HostCallContext<'_>, _: &[Value]| Ok(Value::Unit)
+                |_: &mut HostCallContext<'_>, _: &[Value]| Ok(Value::Unit)
             )
             .is_err()
     );
     // A rejected binding does not consume the declaration; complete it normally.
     builder
-        .bind(missing_policy, |_: &mut CallContext<'_>| Ok(Value::Unit))
+        .bind(missing_policy, |_: &mut NativeCall<'_>| Ok(Value::Unit))
         .unwrap();
     let module = builder.finish().unwrap();
-    let (vm, owner) = source_free_vm(
+    let (mut vm, owner) = source_free_vm(
         r#"
         use example::services;
         pub fn run() -> String { services::echo("hello") }
@@ -146,17 +152,20 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
             unix_time_millis: 123,
             random_seed: 9,
         };
-        let session = vm.begin_execution(&owner, options).unwrap();
-        let report = vm
-            .execute_module(&owner, "run", vm.execution_options())
+        let mut session = vm.begin_execution(&owner, options).unwrap();
+        let session_options = session.runtime().execution_options();
+        let report = session
+            .runtime_mut()
+            .execute_module(&owner, "run", session_options.clone())
             .unwrap();
-        let Value::Str(id) = report.return_value.value(vm.gc()).unwrap() else {
+        let Value::Str(id) = report.return_value.value(session.runtime().gc()).unwrap() else {
             panic!("string result")
         };
-        assert_eq!(&*vm.gc().string(id).unwrap(), "hello:123");
+        assert_eq!(&*session.runtime().gc().string(id).unwrap(), "hello:123");
         assert_eq!(session.host_scope_count(), 0);
-        let error = vm
-            .execute_module(&owner, "fail", vm.execution_options())
+        let error = session
+            .runtime_mut()
+            .execute_module(&owner, "fail", session_options.clone())
             .unwrap_err();
         assert!(
             matches!(&error, error if error.kind() == RuntimeErrorKind::HostCallFailure && error.to_string() == "host call failed: service failed"),
@@ -192,14 +201,20 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
     {
         let mut options = vm.execution_options();
         options.phase = ExecutionPhase::CandidateInitialization;
-        let session = vm.begin_execution(&owner, options).unwrap();
+        let mut session = vm.begin_execution(&owner, options).unwrap();
+        let session_options = session.runtime().execution_options();
         let before = entered.load(Ordering::Relaxed);
-        let report = vm
-            .execute_module(&owner, "configuration", vm.execution_options())
+        let report = session
+            .runtime_mut()
+            .execute_module(&owner, "configuration", session_options.clone())
             .unwrap();
-        assert_eq!(report.return_value.value(vm.gc()), Some(Value::I32(7)));
-        let error = vm
-            .execute_module(&owner, "fail", vm.execution_options())
+        assert_eq!(
+            report.return_value.value(session.runtime().gc()),
+            Some(Value::I32(7))
+        );
+        let error = session
+            .runtime_mut()
+            .execute_module(&owner, "fail", session_options.clone())
             .unwrap_err();
         assert!(
             matches!(&error, error if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation)
@@ -208,9 +223,11 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
         assert_eq!(session.host_scope_count(), 0);
     }
     {
-        let session = vm.begin_execution(&owner, vm.execution_options()).unwrap();
-        let error = vm
-            .execute_module(&owner, "cancel", vm.execution_options())
+        let mut session = vm.begin_execution(&owner, vm.execution_options()).unwrap();
+        let session_options = session.runtime().execution_options();
+        let error = session
+            .runtime_mut()
+            .execute_module(&owner, "cancel", session_options.clone())
             .unwrap_err();
         assert!(matches!(&error, error if error.kind() == RuntimeErrorKind::Cancelled));
         assert_eq!(session.host_scope_count(), 0);
@@ -334,8 +351,8 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
                 )?;
                 methods.bind(
                     method,
-                    move |context: &HostCallContext<'_>, values: &[Value]| {
-                        context.runtime().collect_garbage().unwrap();
+                    move |context: &mut HostCallContext<'_>, values: &[Value]| {
+                        context.runtime_mut().collect_garbage().unwrap();
                         let [value, Value::I32(amount)] = values else {
                             panic!("root and amount")
                         };
@@ -359,8 +376,8 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
                 )?;
                 methods.bind(
                     "hp",
-                    move |context: &HostCallContext<'_>, values: &[Value]| {
-                        context.runtime().collect_garbage().unwrap();
+                    move |context: &mut HostCallContext<'_>, values: &[Value]| {
+                        context.runtime_mut().collect_garbage().unwrap();
                         let [value] = values else { panic!("root") };
                         assert_external_argument(context, value, PathAccess::ReadOnly);
                         if matches!(value, Value::HostPathView(_)) {
@@ -372,7 +389,7 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
                             assert_eq!(nested.access(), PathAccess::ReadOnly);
                             assert!(
                                 context
-                                    .runtime()
+                                    .runtime_mut()
                                     .set_host_path(value, path, vec![], *value)
                                     .is_err()
                             );
@@ -515,7 +532,7 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
     assert_eq!(state.load(Ordering::SeqCst), 20);
 }
 
-fn assert_external_argument(context: &HostCallContext<'_>, value: &Value, access: PathAccess) {
+fn assert_external_argument(context: &mut HostCallContext<'_>, value: &Value, access: PathAccess) {
     let runtime = context.runtime();
     let object = match value {
         Value::HostRoot(id) => runtime.gc().host_root(*id).unwrap().object_id(),

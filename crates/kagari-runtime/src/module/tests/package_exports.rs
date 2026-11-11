@@ -294,7 +294,7 @@ fn retained_namespace_bindings_follow_current_declarations_not_retargeted_aliase
 
 #[test]
 fn relative_object_aliases_share_exact_layout_and_reject_unsupported_leaves_without_effects() {
-    let (runtime, program) = relative_binding_fixture();
+    let (mut runtime, program) = relative_binding_fixture();
     let root = program.root();
     let api = runtime.module(&program.root(), "slotless").unwrap();
     let executable = runtime.select_program(&program).unwrap();
@@ -774,7 +774,7 @@ fn relative_object_binding_rejections_preserve_state_and_heap(
     #[case] with_arguments: bool,
     #[case] detail: &str,
 ) {
-    let (runtime, program) = relative_binding_fixture();
+    let (mut runtime, program) = relative_binding_fixture();
     let api = runtime.module(&program.root(), "slotless").unwrap();
     let executable = runtime.select_program(&program).unwrap();
     let arguments = runtime
@@ -812,7 +812,7 @@ fn relative_object_binding_rejections_preserve_state_and_heap(
 #[case::closed_alias("Alias")]
 #[case::cyclic_namespace("again::Object")]
 fn relative_object_alias_paths_retain_the_same_nominal_layout(#[case] path: &str) {
-    let (runtime, program) = relative_binding_fixture();
+    let (mut runtime, program) = relative_binding_fixture();
     let api = runtime.module(&program.root(), "slotless").unwrap();
     let object = runtime.bind_type(&api, "Object", &[]).unwrap();
     let alias = runtime.bind_type(&api, path, &[]).unwrap();

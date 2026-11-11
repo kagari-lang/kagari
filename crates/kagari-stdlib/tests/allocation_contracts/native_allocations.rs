@@ -15,7 +15,7 @@ use kagari_runtime::{
     native::{
         binding::NativeResult,
         builder::ModuleBuilder,
-        context::{CallContext, ScriptCall},
+        context::{NativeCall, ScriptCall},
         declarations::FunctionDecl,
         module::NativeModule,
         types::Type,
@@ -46,7 +46,7 @@ fn module() -> NativeModule {
     module
         .bind(
             add,
-            |cx: &mut CallContext<'_>, a: i32, b: i32| -> NativeResult<i32> {
+            |cx: &mut NativeCall<'_>, a: i32, b: i32| -> NativeResult<i32> {
                 assert_eq!(
                     cx.argument_type_argument(0)?.ty(),
                     &Ty::Builtin(BuiltinType::I32)
@@ -69,12 +69,12 @@ fn module() -> NativeModule {
     module
         .bind(
             sum,
-            |cx: &mut CallContext<'_>, values: ValueHandle<'_>| -> NativeResult<i32> {
+            |cx: &mut NativeCall<'_>, values: ValueHandle<'_>| -> NativeResult<i32> {
                 assert_eq!(
                     cx.argument_type_parameter(0, 0)?.ty(),
                     &Ty::Builtin(BuiltinType::I32)
                 );
-                let Value::Array(id) = values.value() else {
+                let Value::Array(id) = values.value(cx)? else {
                     panic!("checked array")
                 };
                 let mut sum = 0;
@@ -175,7 +175,7 @@ impl CallSite {
 }
 
 fn unexpected_callback(
-    _: &Runtime,
+    _: &mut Runtime,
     _: &ExecutableModule,
     _: ScriptCall<'_>,
     _: &[Value],
@@ -184,83 +184,87 @@ fn unexpected_callback(
 }
 
 fn sample(
-    runtime: &Runtime,
+    runtime: &mut Runtime,
     loaded: &ExecutableModule,
     site: &CallSite,
     arguments: &[Value],
     calls: usize,
     expected: i32,
 ) -> (Counts, Duration) {
-    let stack = runtime.enter_execution_stack(loaded).unwrap();
-    stack
-        .push(runtime, loaded.slot(), site.function, arguments, None)
-        .unwrap();
-    for (register, value) in site.arguments.iter().zip(arguments) {
-        stack
-            .current_mut()
-            .unwrap()
-            .write_slot(runtime, *register, *value)
-            .unwrap();
-    }
-    let invoke = || {
-        stack
-            .current_mut()
-            .unwrap()
-            .jump_to(runtime, site.pc)
-            .unwrap();
-        assert!(matches!(
+    let mut stack_activation = runtime.enter_execution_stack(loaded).unwrap();
+    stack_activation
+        .with(|runtime, stack| {
             stack
-                .execute_region(runtime, &mut Some(1), unexpected_callback)
-                .unwrap(),
-            RegionExit::Call(ExecutionAction::NativeEntry)
-        ));
-        assert_eq!(
-            stack
-                .start_native_entry(runtime, unexpected_callback)
-                .unwrap(),
-            ExecutionAction::NativeReturn
-        );
-        assert_eq!(
-            stack.finish_native_return(runtime).unwrap(),
-            ReturnAction::Continue(ExecutionAction::Script)
-        );
-    };
-    // Warm the boundary and initialize every thread-local/cache outside accounting.
-    for _ in 0..128 {
-        invoke();
-    }
-    let roots = runtime.gc().active_roots();
-    let occupancy = runtime.gc().stats().current_heap_units;
-    let sample = measured(|| {
-        for _ in 0..calls {
-            black_box(&invoke)();
-        }
-    });
-    assert_eq!(
-        sample.0,
-        Counts::default(),
-        "prepared boundary must not allocate or release Rust heap storage"
-    );
-    assert_eq!(runtime.gc().active_roots(), roots);
-    assert_eq!(runtime.gc().stats().current_heap_units, occupancy);
-    assert_eq!(
-        stack
-            .current()
-            .unwrap()
-            .read_slot(runtime, site.destination.unwrap())
-            .unwrap(),
-        Value::I32(expected)
-    );
-    sample
+                .push(runtime, loaded.slot(), site.function, arguments, None)
+                .unwrap();
+            for (register, value) in site.arguments.iter().zip(arguments) {
+                stack
+                    .current_mut(runtime)
+                    .unwrap()
+                    .write_slot(runtime, *register, *value)
+                    .unwrap();
+            }
+            let invoke = |runtime: &mut Runtime| {
+                stack
+                    .current_mut(runtime)
+                    .unwrap()
+                    .jump_to(runtime, site.pc)
+                    .unwrap();
+                assert!(matches!(
+                    stack
+                        .execute_region(runtime, &mut Some(1), unexpected_callback)
+                        .unwrap(),
+                    RegionExit::Call(ExecutionAction::NativeEntry)
+                ));
+                assert_eq!(
+                    stack
+                        .start_native_entry(runtime, unexpected_callback)
+                        .unwrap(),
+                    ExecutionAction::NativeReturn
+                );
+                assert_eq!(
+                    stack.finish_native_return(runtime).unwrap(),
+                    ReturnAction::Continue(ExecutionAction::Script)
+                );
+            };
+            // Warm the boundary and initialize every thread-local/cache outside accounting.
+            for _ in 0..128 {
+                invoke(runtime);
+            }
+            let roots = runtime.gc().active_roots();
+            let occupancy = runtime.gc().stats().current_heap_units;
+            let sample = measured(|| {
+                for _ in 0..calls {
+                    black_box(&invoke)(runtime);
+                }
+            });
+            assert_eq!(
+                sample.0,
+                Counts::default(),
+                "prepared boundary must not allocate or release Rust heap storage"
+            );
+            assert_eq!(runtime.gc().active_roots(), roots);
+            assert_eq!(runtime.gc().stats().current_heap_units, occupancy);
+            assert_eq!(
+                stack
+                    .current(runtime)
+                    .unwrap()
+                    .read_slot(runtime, site.destination.unwrap())
+                    .unwrap(),
+                Value::I32(expected)
+            );
+            Ok(sample)
+        })
+        .unwrap()
 }
 
 #[test]
 fn warmed_scalar_and_array_read_boundaries_add_no_allocations() {
     verify_counter();
-    let (runtime, loaded) = load();
+    let (mut runtime, loaded) = load();
     let scalar = CallSite::find(&loaded, "scalar");
     let (counts, elapsed) = sample(
-        &runtime,
+        &mut runtime,
         &loaded,
         &scalar,
         &[Value::I32(20), Value::I32(22)],
@@ -282,7 +286,7 @@ fn warmed_scalar_and_array_read_boundaries_add_no_allocations() {
             )
             .unwrap();
         let (counts, elapsed) = sample(
-            &runtime,
+            &mut runtime,
             &loaded,
             &bulk,
             &[Value::Array(array)],
@@ -301,7 +305,7 @@ fn warmed_scalar_and_array_read_boundaries_add_no_allocations() {
 #[test]
 fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
     verify_counter();
-    let (runtime, loaded) = load();
+    let (mut runtime, loaded) = load();
     let caller = loaded
         .bytecode
         .functions
@@ -326,112 +330,124 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
             _ => None,
         })
         .unwrap();
-    let stack = runtime.enter_execution_stack(&loaded).unwrap();
-    stack
-        .push(
-            &runtime,
-            loaded.slot(),
-            caller.id,
-            &[Value::I32(20), Value::I32(11)],
-            None,
-        )
-        .unwrap();
-    assert!(matches!(
-        stack
-            .execute_region(&runtime, &mut None, unexpected_callback)
-            .unwrap(),
-        RegionExit::Call(ExecutionAction::Script)
-    ));
-    for (index, expected) in [11, 20, 11].into_iter().enumerate() {
-        assert_eq!(
+    let mut stack_activation = runtime.enter_execution_stack(&loaded).unwrap();
+    stack_activation
+        .with(|runtime, stack| {
             stack
-                .current()
-                .unwrap()
-                .read_slot(&runtime, Slot::new(index))
-                .unwrap(),
-            Value::I32(expected)
-        );
-    }
-    let RegionExit::Return(value) = stack
-        .execute_region(&runtime, &mut None, unexpected_callback)
-        .unwrap()
-    else {
-        panic!("concrete scalar callee must remain in its prepared region");
-    };
-    stack.finish_return(&runtime, value).unwrap();
-    let external = [Value::I32(11), Value::I32(20), Value::I32(11)];
-    stack
-        .push(&runtime, module, callee, &external, None)
-        .unwrap();
-    stack.pop().unwrap();
-    let enter = || {
-        stack.current_mut().unwrap().jump_to(&runtime, pc).unwrap();
-        assert!(matches!(
-            stack
-                .execute_region(black_box(&runtime), &mut None, unexpected_callback)
-                .unwrap(),
-            RegionExit::Call(ExecutionAction::Script)
-        ));
-    };
-    let (window, _) = measured(|| {
-        for _ in 0..1000 {
-            enter();
-            stack.pop().unwrap();
-        }
-    });
-    let (returned, _) = measured(|| {
-        for _ in 0..1000 {
-            for (register, value) in arguments.iter().zip(&external) {
+                .push(
+                    runtime,
+                    loaded.slot(),
+                    caller.id,
+                    &[Value::I32(20), Value::I32(11)],
+                    None,
+                )
+                .unwrap();
+            assert!(matches!(
                 stack
-                    .current_mut()
-                    .unwrap()
-                    .write_slot(&runtime, *register, *value)
-                    .unwrap();
+                    .execute_region(runtime, &mut None, unexpected_callback)
+                    .unwrap(),
+                RegionExit::Call(ExecutionAction::Script)
+            ));
+            for (index, expected) in [11, 20, 11].into_iter().enumerate() {
+                assert_eq!(
+                    stack
+                        .current(runtime)
+                        .unwrap()
+                        .read_slot(runtime, Slot::new(index))
+                        .unwrap(),
+                    Value::I32(expected)
+                );
             }
-            enter();
             let RegionExit::Return(value) = stack
-                .execute_region(&runtime, &mut None, unexpected_callback)
+                .execute_region(runtime, &mut None, unexpected_callback)
                 .unwrap()
             else {
-                panic!("scalar return");
+                panic!("concrete scalar callee must remain in its prepared region");
             };
-            assert_eq!(
-                stack.finish_return(&runtime, value).unwrap(),
-                ReturnAction::Continue(ExecutionAction::Script)
-            );
-            assert_eq!(
-                stack
-                    .current()
-                    .unwrap()
-                    .read_slot(&runtime, destination.unwrap())
-                    .unwrap(),
-                Value::I32(42)
-            );
-        }
-    });
-    assert_eq!(
-        returned,
-        Counts::default(),
-        "warm scalar entry, execution and return must not allocate"
-    );
-    let (slice, _) = measured(|| {
-        for _ in 0..1000 {
+            stack.finish_return(runtime, value).unwrap();
+            let external = [Value::I32(11), Value::I32(20), Value::I32(11)];
             stack
-                .push(&runtime, module, callee, black_box(&external), None)
+                .push(runtime, module, callee, &external, None)
                 .unwrap();
-            stack.pop().unwrap();
-        }
-    });
-    assert_eq!(
-        window, slice,
-        "register-to-window copying must add no packing allocations"
-    );
-    assert_eq!(
-        window,
-        Counts::default(),
-        "warmed direct scalar frame entry must not allocate"
-    );
-    println!("SCRIPT_FRAME_ALLOCATIONS,calls=1000,window={window:?},borrowed_slice={slice:?}");
-    drop(stack);
+            stack.pop(runtime).unwrap();
+            let enter = |runtime: &mut Runtime| {
+                stack
+                    .current_mut(runtime)
+                    .unwrap()
+                    .jump_to(runtime, pc)
+                    .unwrap();
+                assert!(matches!(
+                    stack
+                        .execute_region(black_box(runtime), &mut None, unexpected_callback)
+                        .unwrap(),
+                    RegionExit::Call(ExecutionAction::Script)
+                ));
+            };
+            let (window, _) = measured(|| {
+                for _ in 0..1000 {
+                    enter(runtime);
+                    stack.pop(runtime).unwrap();
+                }
+            });
+            let (returned, _) = measured(|| {
+                for _ in 0..1000 {
+                    for (register, value) in arguments.iter().zip(&external) {
+                        stack
+                            .current_mut(runtime)
+                            .unwrap()
+                            .write_slot(runtime, *register, *value)
+                            .unwrap();
+                    }
+                    enter(runtime);
+                    let RegionExit::Return(value) = stack
+                        .execute_region(runtime, &mut None, unexpected_callback)
+                        .unwrap()
+                    else {
+                        panic!("scalar return");
+                    };
+                    assert_eq!(
+                        stack.finish_return(runtime, value).unwrap(),
+                        ReturnAction::Continue(ExecutionAction::Script)
+                    );
+                    assert_eq!(
+                        stack
+                            .current(runtime)
+                            .unwrap()
+                            .read_slot(runtime, destination.unwrap())
+                            .unwrap(),
+                        Value::I32(42)
+                    );
+                }
+            });
+            assert_eq!(
+                returned,
+                Counts::default(),
+                "warm scalar entry, execution and return must not allocate"
+            );
+            let (slice, _) = measured(|| {
+                for _ in 0..1000 {
+                    stack
+                        .push(runtime, module, callee, black_box(&external), None)
+                        .unwrap();
+                    stack.pop(runtime).unwrap();
+                }
+            });
+            assert_eq!(
+                window, slice,
+                "register-to-window copying must add no packing allocations"
+            );
+            assert_eq!(
+                window,
+                Counts::default(),
+                "warmed direct scalar frame entry must not allocate"
+            );
+            println!(
+                "SCRIPT_FRAME_ALLOCATIONS,calls=1000,window={window:?},borrowed_slice={slice:?}"
+            );
+
+            Ok(())
+        })
+        .unwrap();
+    drop(stack_activation);
     assert_eq!(runtime.gc().active_roots(), 0);
 }

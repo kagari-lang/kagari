@@ -46,9 +46,9 @@ impl<T: NativeData> ManagedBuilder<T> {
         value: V,
     ) -> NativeResult<()> {
         field.check(&self.native_type)?;
-        let mut conversion = ConversionContext::new(cx.runtime(), self.native_type.owner())?;
+        let mut conversion = ConversionContext::new(cx.runtime_mut(), self.native_type.owner())?;
         let value = conversion.encode_prepared(field.type_argument(), value)?;
-        let root = cx.runtime().root_value(value).ok_or_else(invalid)?;
+        let root = conversion.runtime().root_value(value).ok_or_else(invalid)?;
         self.fields[field.slot] = Some(root);
         Ok(())
     }
@@ -111,6 +111,6 @@ impl<T: NativeData> ManagedBuilder<T> {
             return Err(invalid());
         };
         cx.runtime().gc().replace_managed(id, payload)?;
-        cx.runtime().gc_safepoint()
+        cx.runtime_mut().gc_safepoint()
     }
 }

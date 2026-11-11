@@ -30,10 +30,10 @@ const PLAYER: &str = r#"
 
 #[test]
 fn prepared_methods_and_associated_functions_enforce_receiver_and_access() {
-    let (vm, owner) = fixture(PLAYER, None);
+    let (mut vm, owner) = fixture(PLAYER, None);
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
-    let runtime = &vm;
+    let runtime = &mut vm;
     let player_type = runtime
         .bind_type(&_owner_program.root(), "Player", &[])
         .unwrap();
@@ -89,31 +89,38 @@ fn prepared_methods_and_associated_functions_enforce_receiver_and_access() {
             .bind_associated_function::<(Object, i32), i32>(&player_type, "damage")
             .is_err()
     );
-    let player = vm.call(&create, (100,)).unwrap();
-    let mut cx = vm.context(&owner).unwrap();
+    let player = runtime.call(&create, (100,)).unwrap();
+    let mut cx = runtime.context(&owner).unwrap();
     assert_eq!(player.call(&mut cx, &damage, (10,)).unwrap(), 90);
-    let enemy: Object = vm
+    let enemy: Object = cx
+        .runtime_mut()
         .execute_typed(&_owner_program, "enemy", (), &Default::default())
         .unwrap();
     assert!(enemy.call(&mut cx, &damage, (10,)).is_err());
-    let enemy_hp = runtime
+    let enemy_hp = cx
+        .runtime_mut()
         .bind_field::<i32>(enemy.object_type(), "hp")
         .unwrap();
     assert_eq!(enemy.get(&mut cx, &enemy_hp).unwrap(), 10);
-    runtime.collect_garbage().unwrap();
+    cx.runtime_mut().collect_garbage().unwrap();
     assert_eq!(player.call(&mut cx, &again, (20,)).unwrap(), 70);
-    let alias = runtime
+    let alias = cx
+        .runtime_mut()
         .bind_method::<(), Object>(&player_type, "alias")
         .unwrap();
     let aliased = player.call(&mut cx, &alias, ()).unwrap();
-    let fail = runtime
+    let fail = cx
+        .runtime_mut()
         .bind_method::<(i32,), i32>(&player_type, "fail")
         .unwrap();
     assert!(player.call(&mut cx, &fail, (0,)).is_err());
-    let hp = runtime.bind_field::<i32>(&player_type, "hp").unwrap();
+    let hp = cx
+        .runtime_mut()
+        .bind_field::<i32>(&player_type, "hp")
+        .unwrap();
     assert_eq!(aliased.get(&mut cx, &hp).unwrap(), 69);
-    assert_eq!(runtime.resources().counters().current_call_depth, 0);
-    let (foreign, foreign_owner) = fixture(PLAYER, None);
+    assert_eq!(cx.runtime().resources().counters().current_call_depth, 0);
+    let (mut foreign, foreign_owner) = fixture(PLAYER, None);
     let _foreign_owner_program = foreign_owner;
     let foreign_owner = foreign.select_program(&_foreign_owner_program).unwrap();
     assert!(
@@ -154,7 +161,7 @@ fn object_method_reentry_collects_and_retains_returned_aliases() {
         "pub fn alias(self) -> Player { collect(); self }",
     );
     let source = format!("use example::methods::collect;\n{source}");
-    let (vm, owner) = fixture(&source, Some(&builder.finish().unwrap()));
+    let (mut vm, owner) = fixture(&source, Some(&builder.finish().unwrap()));
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
     let player_type = vm.bind_type(&_owner_program.root(), "Player", &[]).unwrap();
@@ -207,7 +214,8 @@ fn prepared_methods_select_current_code_and_preserve_receiver_admission() {
         .unwrap();
     let new_player = vm.call(&new_create, (100,)).unwrap();
     let mut cx = vm.context(&new).unwrap();
-    let enemy: Object = vm
+    let enemy: Object = cx
+        .runtime_mut()
         .execute_typed(&_new_program, "enemy", (), &Default::default())
         .unwrap();
     assert!(enemy.call(&mut cx, &old_damage, (1,)).is_err());
@@ -215,23 +223,28 @@ fn prepared_methods_select_current_code_and_preserve_receiver_admission() {
     drop(enemy);
     assert_eq!(new_player.call(&mut cx, &old_damage, (1,)).unwrap(), 98);
     assert_eq!(player.call(&mut cx, &new_damage, (1,)).unwrap(), 98);
-    vm.collect_garbage().unwrap();
+    cx.runtime_mut().collect_garbage().unwrap();
     assert_eq!(player.call(&mut cx, &old_damage, (10,)).unwrap(), 87);
     assert_eq!(new_player.call(&mut cx, &new_damage, (10,)).unwrap(), 87);
-    let duplicate = vm.bind_method::<(i32,), i32>(&old_type, "damage").unwrap();
+    let duplicate = cx
+        .runtime_mut()
+        .bind_method::<(i32,), i32>(&old_type, "damage")
+        .unwrap();
     drop(player);
     drop(old_create);
     drop(old_damage);
     drop(old_type);
     assert!(
-        !vm.collect_garbage()
+        !cx.runtime_mut()
+            .collect_garbage()
             .unwrap()
             .reclaimed_modules
             .contains(&old.key())
     );
     drop(duplicate);
     assert!(
-        vm.collect_garbage()
+        cx.runtime_mut()
+            .collect_garbage()
             .unwrap()
             .reclaimed_modules
             .contains(&old.key())

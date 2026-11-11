@@ -13,12 +13,12 @@ use kagari_contract::ids::FunctionRef;
 /// Synchronously select the current implementation of a checked function.
 /// Host callbacks keep returned heap objects alive through this owned root.
 pub fn reenter(
-    context: &HostCallContext<'_>,
+    context: &mut HostCallContext<'_>,
     loaded: &ExecutableModule,
     function: FunctionRef,
     args: &[Value],
 ) -> Result<RootedValue, RuntimeError> {
-    let runtime = context.runtime();
+    let runtime = context.runtime_mut();
     let invalid = |message| RuntimeError::module_validation(message);
     runtime
         .execution_root()
@@ -30,7 +30,8 @@ pub fn reenter(
     let CallableTarget::Script(function) = selected.target() else {
         return Err(invalid("script reentry selected a native import"));
     };
-    let _scope = runtime.begin_execution(loaded, runtime.execution_options())?;
+    let mut scope = runtime.begin_execution(loaded, runtime.execution_options())?;
+    let runtime = scope.runtime_mut();
     let target = loaded
         .bytecode
         .functions
@@ -47,8 +48,7 @@ pub fn reenter(
             "reentry arguments do not match the linked signature",
         ));
     }
-    let mut executor = Executor::new(runtime, loaded, function, args)?;
-    let value = executor.run()?;
+    let value = Executor::new(runtime, loaded, function, args)?.run()?;
     if !value.has_representation(target.metadata.return_type) {
         return Err(invalid(
             "reentry result does not match the linked signature",

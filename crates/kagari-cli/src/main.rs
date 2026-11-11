@@ -284,7 +284,7 @@ fn engine_builder() -> Result<KagariEngineBuilder, CliError> {
     .map_err(registration)?;
     let log = module.declared_function("log").map_err(registration)?;
     module
-        .bind(log, |cx: &HostCallContext<'_>, args: &[Value]| {
+        .bind(log, |cx: &mut HostCallContext<'_>, args: &[Value]| {
             let [Value::Str(message)] = args else {
                 return Err(HostError::new("host.log expects one string argument"));
             };

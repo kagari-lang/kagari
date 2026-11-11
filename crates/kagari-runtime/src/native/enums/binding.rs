@@ -134,7 +134,7 @@ impl Runtime {
     }
 
     pub fn bind_enum_variant<A: KagariArguments>(
-        &self,
+        &mut self,
         ty: &EnumType,
         name: &str,
     ) -> NativeResult<EnumVariant<A>> {
@@ -142,7 +142,7 @@ impl Runtime {
     }
 
     pub fn bind_enum_variant_declaration<A: KagariArguments>(
-        &self,
+        &mut self,
         member: &EnumMember,
     ) -> NativeResult<EnumVariant<A>> {
         self.gc().ensure_no_native_borrow()?;

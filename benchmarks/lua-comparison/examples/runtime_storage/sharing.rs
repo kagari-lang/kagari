@@ -117,7 +117,7 @@ fn lifecycle(engine: &KagariEngine, program: &Program, options: &Options) -> Mea
         installed.push(loaded);
     }
     let loaded = snapshot(start);
-    for (runtime, installed) in runtimes.iter().zip(&installed) {
+    for (runtime, installed) in runtimes.iter_mut().zip(&installed) {
         let result: i32 = runtime
             .execute_typed(installed, "main", (), &context)
             .unwrap();

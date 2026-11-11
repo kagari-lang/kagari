@@ -58,10 +58,10 @@ fn enum_factories_preserve_nominal_identity_payloads_and_empty_unit_distinction(
         .unwrap()
         .pop()
         .unwrap();
-    let (vm, owner) = fixture_without_foundation(SOURCE, Some(&strings));
+    let (mut vm, owner) = fixture_without_foundation(SOURCE, Some(&strings));
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
-    let runtime = &vm;
+    let runtime = &mut vm;
     let item_type = runtime
         .bind_type(&_owner_program.root(), "Item", &[])
         .unwrap();
@@ -101,35 +101,38 @@ fn enum_factories_preserve_nominal_identity_payloads_and_empty_unit_distinction(
             .is_err()
     );
     assert!(runtime.bind_enum_variant::<()>(&packet, "Missing").is_err());
-    let item: Object = vm
+    let item: Object = runtime
         .execute_typed(&_owner_program, "item", (42,), &Default::default())
         .unwrap();
     let read = runtime
         .bind_function::<(ScriptValue,), i32>(&_owner_program.root(), "read")
         .unwrap();
-    let mut cx = vm.context(&owner).unwrap();
+    let mut cx = runtime.context(&owner).unwrap();
     let value = data
         .create(&mut cx, (item.clone(), "retained".into()))
         .unwrap();
     let zero = empty.create(&mut cx, ()).unwrap();
     let one = unit.create(&mut cx, ((),)).unwrap();
-    let field = runtime.bind_field::<i32>(&item_type, "value").unwrap();
+    let field = cx
+        .runtime_mut()
+        .bind_field::<i32>(&item_type, "value")
+        .unwrap();
     item.set(&mut cx, &field, 43).unwrap();
     drop(item);
-    runtime.collect_garbage().unwrap();
-    assert_eq!(vm.call(&read, (value.clone(),)).unwrap(), 43);
-    assert_eq!(vm.call(&read, (zero,)).unwrap(), 0);
-    assert_eq!(vm.call(&read, (one,)).unwrap(), 1);
-    let other = ConversionContext::new(runtime, &owner)
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(cx.runtime_mut().call(&read, (value.clone(),)).unwrap(), 43);
+    assert_eq!(cx.runtime_mut().call(&read, (zero,)).unwrap(), 0);
+    assert_eq!(cx.runtime_mut().call(&read, (one,)).unwrap(), 1);
+    let other = ConversionContext::new(cx.runtime_mut(), &owner)
         .unwrap()
         .type_for::<i32>()
         .unwrap();
     assert!(
-        runtime
+        cx.runtime()
             .bind_enum_type(&_owner_program.root(), "Packet", &[other])
             .is_err()
     );
-    let (foreign, foreign_owner) = fixture("pub fn main() {}", None);
+    let (mut foreign, foreign_owner) = fixture("pub fn main() {}", None);
     let _foreign_owner_program = foreign_owner;
     let foreign_owner = foreign.select_program(&_foreign_owner_program).unwrap();
     assert!(
@@ -138,8 +141,8 @@ fn enum_factories_preserve_nominal_identity_payloads_and_empty_unit_distinction(
             .is_err()
     );
     drop(value);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(cx.runtime().gc().active_roots(), 0);
 }
 
 #[test]
@@ -173,18 +176,20 @@ fn enum_variant_handles_keep_old_layouts_alive_and_release_them_after_reload() {
     let mut cx = vm.context(&new).unwrap();
     let value = data.create(&mut cx, (item, String::new())).unwrap();
     assert!(
-        !vm.collect_garbage()
+        !cx.runtime_mut()
+            .collect_garbage()
             .unwrap()
             .reclaimed_modules
             .contains(&old.key())
     );
     assert_eq!(
-        vm.execute_typed::<_, i32>(&_new_program, "read", (value.clone(),), &Default::default())
+        cx.runtime_mut()
+            .execute_typed::<_, i32>(&_new_program, "read", (value.clone(),), &Default::default())
             .unwrap(),
         42
     );
     drop((value, data, packet, item_type));
-    let collected = vm.collect_garbage().unwrap();
+    let collected = cx.runtime_mut().collect_garbage().unwrap();
     assert!(collected.reclaimed_modules.contains(&old.key()));
     assert_eq!(collected.live_objects, 0);
 }
@@ -199,7 +204,7 @@ impl KagariType for FailAfterGc {
 
 impl IntoKagari for FailAfterGc {
     fn into_kagari(self, cx: &mut ConversionContext<'_>, _: &TypeArgument) -> NativeResult<Value> {
-        assert_eq!(cx.runtime().collect_garbage()?.live_objects, 1);
+        assert_eq!(cx.runtime_mut().collect_garbage()?.live_objects, 1);
         Err(RuntimeError::module_validation(
             "payload conversion failure",
         ))
@@ -208,7 +213,7 @@ impl IntoKagari for FailAfterGc {
 
 #[test]
 fn failed_enum_payload_conversion_roots_earlier_fields_and_publishes_nothing() {
-    let (vm, owner) = fixture(SOURCE, None);
+    let (mut vm, owner) = fixture(SOURCE, None);
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
     let item_type = vm.bind_type(&_owner_program.root(), "Item", &[]).unwrap();
@@ -237,10 +242,10 @@ fn failed_enum_payload_conversion_roots_earlier_fields_and_publishes_nothing() {
 
 #[test]
 fn registered_enum_templates_construct_without_script_constructor_roots() {
-    let (vm, owner) = fixture("pub struct Item { pub var value: i32 }", None);
+    let (mut vm, owner) = fixture("pub struct Item { pub var value: i32 }", None);
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
-    let runtime = &vm;
+    let runtime = &mut vm;
     let item_type = runtime
         .bind_type(&_owner_program.root(), "Item", &[])
         .unwrap();
@@ -255,21 +260,24 @@ fn registered_enum_templates_construct_without_script_constructor_roots() {
         .bind_enum_variant::<(Object,)>(&optional, "Some")
         .unwrap();
     let none = runtime.bind_enum_variant::<()>(&optional, "None").unwrap();
-    let mut cx = vm.context(&owner).unwrap();
-    let field = runtime.bind_field::<i32>(&item_type, "value").unwrap();
+    let mut cx = runtime.context(&owner).unwrap();
+    let field = cx
+        .runtime_mut()
+        .bind_field::<i32>(&item_type, "value")
+        .unwrap();
     let mut builder = item_type.builder().unwrap();
     builder.set(&mut cx, &field, 42).unwrap();
     let item = builder.build(&mut cx).unwrap();
     let value = some.create(&mut cx, (item,)).unwrap();
     let decoded: Option<Object> = value.decode(&mut cx).unwrap();
     drop(value);
-    runtime.collect_garbage().unwrap();
+    cx.runtime_mut().collect_garbage().unwrap();
     assert_eq!(decoded.as_ref().unwrap().get(&mut cx, &field).unwrap(), 42);
     let empty = none.create(&mut cx, ()).unwrap();
     assert!(empty.decode::<Option<Object>>(&mut cx).unwrap().is_none());
     assert!(empty.decode::<Result<Object, String>>(&mut cx).is_err());
     drop((empty, decoded));
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
 }
 
 #[test]
@@ -281,7 +289,7 @@ fn enum_bindings_reject_unwitnessed_bounds_and_incompatible_payload_scopes() {
         impl Factory for i32 { fn wrap<T: Eq>(self, value: T) -> Restricted<T> { Restricted::Data(value) } }
         pub fn shared() -> Restricted<i32> { val factory: Factory = 0; factory.wrap(1) }
     "#;
-    let (vm, owner) = fixture(source, None);
+    let (mut vm, owner) = fixture(source, None);
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
     assert!(
@@ -291,9 +299,10 @@ fn enum_bindings_reject_unwitnessed_bounds_and_incompatible_payload_scopes() {
             .iter()
             .any(|layout| layout.arguments.iter().any(|ty| !ty.is_concrete()))
     );
-    let conversion = ConversionContext::new(&vm, &owner).unwrap();
+    let conversion = ConversionContext::new(&mut vm, &owner).unwrap();
     let integer = conversion.type_for::<i32>().unwrap();
     let float = conversion.type_for::<f64>().unwrap();
+    drop(conversion);
     let restricted = vm
         .bind_enum_type(&_owner_program.root(), "Restricted", &[integer])
         .unwrap();
@@ -360,7 +369,7 @@ fn registered_variant_identities_bind_directly_and_move_with_the_runtime() {
     let wrong = other.variant("Data", [Type::i32()]).unwrap();
     other.finish().unwrap();
     let module = module.finish().unwrap();
-    let (vm, owner) = fixture(
+    let (mut vm, owner) = fixture(
         r#"
         use example::events::Event;
         pub fn read(event: Event<i32>) -> i32 { match event { Event::Data(value) => value } }
@@ -369,7 +378,7 @@ fn registered_variant_identities_bind_directly_and_move_with_the_runtime() {
     );
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
-    let element = ConversionContext::new(&vm, &owner)
+    let element = ConversionContext::new(&mut vm, &owner)
         .unwrap()
         .type_for::<i32>()
         .unwrap();
@@ -401,11 +410,13 @@ fn registered_variant_identities_bind_directly_and_move_with_the_runtime() {
         let value = duplicate.create(&mut cx, (42,)).unwrap();
         let another = variant.create(&mut cx, (43,)).unwrap();
         assert_eq!(
-            vm.execute_typed::<_, i32>(&_owner_program, "read", (another,), &Default::default())
+            cx.runtime_mut()
+                .execute_typed::<_, i32>(&_owner_program, "read", (another,), &Default::default())
                 .unwrap(),
             43
         );
-        vm.execute_typed::<_, i32>(&_owner_program, "read", (value,), &Default::default())
+        cx.runtime_mut()
+            .execute_typed::<_, i32>(&_owner_program, "read", (value,), &Default::default())
             .unwrap()
     })
     .join()

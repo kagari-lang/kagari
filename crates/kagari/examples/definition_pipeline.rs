@@ -173,7 +173,7 @@ fn main() {
         "independent_runtime_shared_module={}",
         Arc::ptr_eq(&first.bytecode, &second.bytecode)
     );
-    let vm = first_runtime;
+    let mut vm = first_runtime;
     assert!(matches!(
         vm.execute_module(&first, ProgramEntry::Main, vm.execution_options())
             .unwrap()

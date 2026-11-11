@@ -4,7 +4,7 @@ use crate::{
     closure::{ClosureTarget, ClosureValueSnapshot},
     error::{RuntimeError, trap::TrapReason},
     frame::{
-        ExecutionFrame, ExecutionStack, FrameDispatch, FrameEntry, arguments::FrameArguments,
+        ExecutionFrame, FrameDispatch, FrameEntry, FrameStack, arguments::FrameArguments,
         driver::ExecutionAction,
     },
     module::{
@@ -19,7 +19,7 @@ use kagari_contract::representation::semantic_representation;
 use kagari_types::ty::Ty;
 use std::borrow::Cow;
 
-impl ExecutionStack<'_> {
+impl FrameStack {
     pub fn push_closure(
         &self,
         runtime: &Runtime,
@@ -27,7 +27,7 @@ impl ExecutionStack<'_> {
         args: &[Value],
         return_dst: Option<Slot>,
     ) -> Result<(), RuntimeError> {
-        self.validate_runtime(runtime)?;
+        self.validate_top(runtime)?;
         let closure = runtime.resolve_closure(value)?;
         self.push_resolved_closure(
             runtime,

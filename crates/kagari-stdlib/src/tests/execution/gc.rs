@@ -53,7 +53,7 @@ fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints(
             let loaded = load_bytecode(&mut runtime, "gc.kgr", program).unwrap();
             let _loaded_program = loaded;
             let loaded = runtime.select_program(&_loaded_program).unwrap();
-            let vm = runtime;
+            let mut vm = runtime;
             let report = if jit {
                 vm.execute_prepared_module(
                     &loaded,
@@ -95,7 +95,7 @@ fn closures_keep_captured_objects_and_cells_alive_across_collection() {
     let loaded = load_bytecode(&mut runtime, "closure_gc.kgr", module).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .unwrap();
@@ -119,7 +119,7 @@ fn closure_handles_reject_other_runtimes_and_reclaimed_slots() {
     let loaded = load_bytecode(&mut owner_runtime, "closure_handles.kgr", module).unwrap();
     let _loaded_program = loaded;
     let loaded = owner_runtime.select_program(&_loaded_program).unwrap();
-    let vm = owner_runtime;
+    let mut vm = owner_runtime;
     let value = vm
         .execute_module(&loaded, "make", vm.execution_options())
         .unwrap()
@@ -201,7 +201,7 @@ fn native_scalar_execution_visits_the_same_collection_safepoint() {
         .unwrap();
     let native =
         PreparedNativeEntry::Native(native_fixtures::install_i32::<42>(&runtime, &loaded, false));
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_prepared_module(&loaded, ProgramEntry::Main, &native, vm.execution_options())
         .unwrap();
@@ -225,7 +225,7 @@ fn traps_release_frame_roots_and_call_depth() {
         let loaded = load_bytecode(&mut runtime, "gc.kgr", module.clone()).unwrap();
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
-        let vm = runtime;
+        let mut vm = runtime;
         assert!(
             vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
                 .is_err()
@@ -289,7 +289,7 @@ fn growing_execution_windows_keep_outer_values_alive_and_release_them_on_return(
     let loaded = load_bytecode(&mut runtime, "growing_windows", program).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .unwrap();

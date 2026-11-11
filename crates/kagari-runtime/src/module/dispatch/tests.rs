@@ -106,15 +106,21 @@ fn staged_selection_and_abandonment_do_not_advance_identity_history() {
     let escaped = route(abandoned.module(), "added");
     assert!(runtime.select_call_route(&escaped).is_err());
     {
-        let _session = runtime.begin_candidate_initialization(&abandoned).unwrap();
+        let mut _session = runtime.begin_candidate_initialization(&abandoned).unwrap();
         assert_eq!(
-            runtime
+            _session
+                .runtime_mut()
                 .select_call_route(&escaped)
                 .unwrap()
                 .publication_token(),
             abandoned_token
         );
-        assert!(runtime.select_call_route(&old_route).is_err());
+        assert!(
+            _session
+                .runtime_mut()
+                .select_call_route(&old_route)
+                .is_err()
+        );
     }
     drop(abandoned);
     assert_eq!(

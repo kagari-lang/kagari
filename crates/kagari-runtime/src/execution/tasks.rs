@@ -14,19 +14,21 @@ use std::num::NonZeroUsize;
 
 impl Runtime {
     pub fn drive_task(
-        &self,
+        &mut self,
         scope: &TaskScopeOwner,
         task: TaskId,
         slice: NonZeroUsize,
     ) -> Result<TaskDriveResult, RuntimeError> {
-        let active = match self.acquire_task(scope, task)? {
+        let mut active = match self.acquire_task(scope, task)? {
             TaskAcquisition::Inactive(result) => return Ok(result),
             TaskAcquisition::Active(active) => active,
         };
-        Ok(match self.drive(active.execution(), slice)? {
-            DriveResult::Runnable => active.park(true)?,
-            DriveResult::Waiting => active.park(false)?,
-            DriveResult::Complete(outcome) => active.complete(outcome)?,
-        })
+        Ok(
+            match active.with_execution(|runtime, execution| runtime.drive(execution, slice))? {
+                DriveResult::Runnable => active.park(true)?,
+                DriveResult::Waiting => active.park(false)?,
+                DriveResult::Complete(outcome) => active.complete(outcome)?,
+            },
+        )
     }
 }

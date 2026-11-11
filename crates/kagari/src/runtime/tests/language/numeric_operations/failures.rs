@@ -52,7 +52,7 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
     let memory_slot = Arc::new(Mutex::new(None));
     let captured_memory = memory_slot.clone();
     builder
-        .bind(memory, move |_: &HostCallContext<'_>, _: &[Value]| {
+        .bind(memory, move |_: &mut HostCallContext<'_>, _: &[Value]| {
             Ok(Value::Array(
                 captured_memory.lock().unwrap().expect("initialized memory"),
             ))

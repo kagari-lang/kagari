@@ -683,7 +683,7 @@ only gaps required by these collections and the external proof.
   remain [fixed NativeData](../crates/kagari-runtime/src/native/payload/data.rs).
   Checked resizing, barriers and revision commits must be usable by external
   providers, not only by heap sequence/hash operations.
-- Operation protection: [try_enter_operation](../crates/kagari-runtime/src/native/views.rs)
+- Operation protection: [ValueHandle::with_operation](../crates/kagari-runtime/src/native/views.rs)
   prevents explicitly guarded recursion. It does not by itself establish that all
   alias reads/writes obey sort or lookup protection. NC01 specifies participating
   access checks, permitted callback activity and cleanup using existing guard owners;

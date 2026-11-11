@@ -12,7 +12,7 @@ use crate::{
 use std::mem;
 
 impl Runtime {
-    pub(super) fn publish_invocation(&self, invocation: Invocation, outcome: NativeResult<()>) {
+    pub(super) fn publish_invocation(&mut self, invocation: Invocation, outcome: NativeResult<()>) {
         if outcome
             .as_ref()
             .is_err_and(|error| error.kind() == RuntimeErrorKind::EngineFault)
@@ -23,16 +23,16 @@ impl Runtime {
             .forget(WorkKey::Invocation(invocation.execution.execution_id()));
         self.scheduler
             .hub
-            .contain(|| invocation.sink.into_inner().publish(outcome));
+            .contain(|| invocation.sink.publish(outcome));
         self.scheduler.hub.contain(|| drop(invocation.execution));
     }
 
-    pub(super) fn retire_invocation(&self, invocation: Invocation, error: RuntimeError) {
+    pub(super) fn retire_invocation(&mut self, invocation: Invocation, error: RuntimeError) {
         if self.require_idle_driver().is_err() {
             // A backend abandoned its selection before releasing the activation.
             // Keep cleanup ownership until that active scope has unwound.
             self.scheduler.hub.contain(|| invocation.execution.cancel());
-            self.scheduler.invocations.borrow_mut().push(invocation);
+            self.scheduler.invocations.push(invocation);
             self.scheduler.hub.mark_ready();
             return;
         }
@@ -44,7 +44,7 @@ impl Runtime {
     /// itself fails. Entry failures can precede stack activation; cleanup failures
     /// can instead arrive after the backend has already removed the session.
     pub(crate) fn retire_scheduled_execution(
-        &self,
+        &mut self,
         execution: &OwnedExecution,
         error: RuntimeError,
     ) -> RuntimeError {
@@ -84,25 +84,24 @@ impl Runtime {
     /// owners. No factory, continuation or remote cancellation acknowledgement is
     /// run here. Completed receiver values remain available. Cleanup faults are
     /// quarantined and do not prevent retiring other owners. Repeated close is safe.
-    pub fn close(&self) -> NativeResult<()> {
+    pub fn close(&mut self) -> NativeResult<()> {
         self.require_idle_driver()?;
         self.gc().ensure_no_native_borrow()?;
-        if self.scheduler.driving.get() {
+        if self.scheduler.driving {
             return Err(RuntimeError::module_validation(
                 "close during scheduler turn",
             ));
         }
-        self.scheduler.closing.set(true);
-        if self.scheduler.closed.get() {
+        self.scheduler.closing = true;
+        if self.scheduler.closed {
             return self.check_scheduler_fault();
         }
         // Mark teardown before callbacks: a reentrant close cannot repeat it.
-        self.scheduler.closed.set(true);
+        self.scheduler.closed = true;
         self.modules().retire_installations();
         let mut failure = self.check_scheduler_fault().err();
         let controls = self
             .tasks
-            .borrow()
             .scopes
             .iter()
             .map(|(_, scope)| scope.control.clone())
@@ -115,13 +114,14 @@ impl Runtime {
         if let Err(error) = self.check_scheduler_fault() {
             failure.get_or_insert(error);
         }
-        if let Some(Err(error)) = self.scheduler.hub.contain(|| self.drain_cancelled_tasks()) {
+        let hub = self.scheduler.hub.clone();
+        if let Some(Err(error)) = hub.contain(|| self.drain_cancelled_tasks()) {
             failure.get_or_insert(error);
         }
         if let Err(error) = self.check_scheduler_fault() {
             failure.get_or_insert(error);
         }
-        let invocations = mem::take(&mut *self.scheduler.invocations.borrow_mut());
+        let invocations = mem::take(&mut self.scheduler.invocations);
         for invocation in invocations {
             let error = failure.clone().unwrap_or_else(cancelled);
             self.retire_invocation(invocation, error);
@@ -132,7 +132,7 @@ impl Runtime {
         if let Err(error) = self.drain_owned_executions(true) {
             failure.get_or_insert(error);
         }
-        self.scheduler.queue.borrow_mut().clear();
+        self.scheduler.queue.clear();
         self.scheduler.hub.close();
         if let Err(error) = self.check_scheduler_fault() {
             failure.get_or_insert(error);

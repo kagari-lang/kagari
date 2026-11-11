@@ -41,7 +41,7 @@ fn main() {
     .expect("logging module");
     let log = logging.declared_function("log").expect("log function");
     logging
-        .bind(log, |cx: &HostCallContext<'_>, args: &[Value]| {
+        .bind(log, |cx: &mut HostCallContext<'_>, args: &[Value]| {
             let [Value::Str(message)] = args else {
                 return Err(HostError::new("host.log expects one string argument"));
             };

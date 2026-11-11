@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault},
-    frame::{ExecutionStack, types::arguments::TypeArgument},
+    frame::{FrameStack, types::arguments::TypeArgument},
     gc::roots::{RootSet, RootedValue},
     native::{
         binding::NativeResult,
@@ -71,7 +71,7 @@ impl PendingWait {
         }
     }
 
-    fn poll(&mut self, runtime: &Runtime) -> NativeResult<Poll<Value>> {
+    fn poll(&mut self, runtime: &mut Runtime) -> NativeResult<Poll<Value>> {
         match &mut self.pending {
             PendingOperation::Native(pending) => pending.poll(runtime),
             PendingOperation::Group { parent, result } => match runtime.poll_group(*parent)? {
@@ -109,28 +109,28 @@ impl Runtime {
     }
 }
 
-impl ExecutionStack<'_> {
+impl FrameStack {
     /// Start a single await. Repeated polling uses `poll_await`, never this entry.
     /// The backend advances its PC before entering and publishes no destination
     /// value until the resumed completion is successfully converted.
     pub fn begin_await(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         value: Value,
         destination: Slot,
         future: &Ty,
     ) -> NativeResult<()> {
-        self.validate_runtime(runtime)?;
+        self.validate_top(runtime)?;
         runtime.reject_static_initialization("await")?;
         self.discard_dead_await_slots(runtime)?;
-        if !self.can_park(runtime)? || self.session.state().pending.borrow().is_some() {
+        if !self.can_park(runtime)? || self.session_state(runtime).pending.borrow().is_some() {
             return Err(RuntimeError::module_validation(
                 "await requires a suspendable owned execution",
             ));
         }
         runtime.resources().poll_execution()?;
         let (output, role) = {
-            let frame = self.current()?;
+            let frame = self.current(runtime)?;
             let applied = frame
                 .type_arguments(runtime, slice::from_ref(future))?
                 .pop()
@@ -162,7 +162,7 @@ impl ExecutionStack<'_> {
 
     fn start_await(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         value: Value,
         destination: Option<Slot>,
         output: TypeArgument,
@@ -180,16 +180,15 @@ impl ExecutionStack<'_> {
             .gc()
             .validate_async_values(slice::from_ref(&Value::GcHandle(id)))?;
         let wake = self
-            .session
-            .state()
+            .session_state(runtime)
             .owner
             .borrow()
             .as_ref()
             .expect("owned activation")
             .waker();
         if role == NativeStorageLayout::Task {
-            let pending = runtime.begin_task_wait(&Value::GcHandle(id), self.session.id, wake)?;
-            *self.session.state().pending.borrow_mut() = Some(PendingWait {
+            let pending = runtime.begin_task_wait(&Value::GcHandle(id), self.session, wake)?;
+            *self.session_state(runtime).pending.borrow_mut() = Some(PendingWait {
                 destination,
                 pending: PendingOperation::Task(pending),
                 output,
@@ -208,15 +207,14 @@ impl ExecutionStack<'_> {
 
     fn start_claimed(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         cold: ColdFuture,
         root: RootedValue,
         destination: Option<Slot>,
         output: TypeArgument,
     ) -> NativeResult<()> {
         let wake = self
-            .session
-            .state()
+            .session_state(runtime)
             .owner
             .borrow()
             .as_ref()
@@ -224,11 +222,11 @@ impl ExecutionStack<'_> {
             .waker();
         let cold = match cold {
             ColdFuture::Composition(cold) => {
-                runtime.request_group(self.session.id, cold, wake)?;
-                *self.session.state().pending.borrow_mut() = Some(PendingWait {
+                runtime.request_group(self.session, cold, wake)?;
+                *self.session_state(runtime).pending.borrow_mut() = Some(PendingWait {
                     destination,
                     pending: PendingOperation::Group {
-                        parent: self.session.id,
+                        parent: self.session,
                         result: None,
                     },
                     output,
@@ -241,13 +239,13 @@ impl ExecutionStack<'_> {
             }
             ColdFuture::Native(cold) => cold,
         };
-        let registry = runtime.operation_registry()?;
-        let started = cold.start(runtime, registry, &wake);
+        let registry = runtime.operation_registry()?.clone();
+        let started = cold.start(runtime, &registry, &wake);
         registry.check().map_err(|_| {
             runtime.quarantine_execution_invariant(EngineFault::NativeOperationCleanupFailed)
         })?;
         let pending = started?;
-        *self.session.state().pending.borrow_mut() = Some(PendingWait {
+        *self.session_state(runtime).pending.borrow_mut() = Some(PendingWait {
             destination,
             pending: PendingOperation::Native(pending),
             output,
@@ -257,7 +255,7 @@ impl ExecutionStack<'_> {
     }
 
     fn discard_dead_await_slots(&self, runtime: &Runtime) -> NativeResult<()> {
-        let frame = self.current()?;
+        let frame = self.current(runtime)?;
         let invalid = || RuntimeError::module_validation("await lacks checked suspension facts");
         let CallableTarget::Script(function) = frame.target else {
             return Err(invalid());
@@ -282,15 +280,19 @@ impl ExecutionStack<'_> {
 
     /// No callback, conversion or result destruction occurs while the session
     /// table is borrowed. This also permits custom conversion to allocate safely.
-    pub fn poll_await(&self, runtime: &Runtime) -> NativeResult<Poll<Option<Value>>> {
+    pub fn poll_await(&self, runtime: &mut Runtime) -> NativeResult<Poll<Option<Value>>> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::AwaitPoll);
-        self.validate_runtime(runtime)?;
+        self.validate_top(runtime)?;
         runtime.resources().poll_execution()?;
         self.start_queued_factory(runtime)?;
-        let queued = self.session.state().queued_future.borrow_mut().take();
+        let queued = self
+            .session_state(runtime)
+            .queued_future
+            .borrow_mut()
+            .take();
         if let Some(queued) = queued {
-            if !self.can_park(runtime)? || !self.frames()?.is_empty() {
+            if !self.can_park(runtime)? || !self.frames(runtime)?.is_empty() {
                 return Err(RuntimeError::module_validation(
                     "invalid queued Future activation",
                 ));
@@ -311,7 +313,7 @@ impl ExecutionStack<'_> {
                 )?;
             }
         }
-        let pending = self.session.state().pending.borrow_mut().take();
+        let pending = self.session_state(runtime).pending.borrow_mut().take();
         let Some(mut wait) = pending else {
             return Ok(Poll::Ready(None));
         };
@@ -323,14 +325,14 @@ impl ExecutionStack<'_> {
         }
         match polled? {
             Poll::Pending => {
-                *self.session.state().pending.borrow_mut() = Some(wait);
+                *self.session_state(runtime).pending.borrow_mut() = Some(wait);
                 Ok(Poll::Pending)
             }
             Poll::Ready(value) => {
                 let owner = if wait.destination.is_some() {
-                    self.current()?.loaded().clone()
+                    self.current(runtime)?.loaded().clone()
                 } else {
-                    self.session.root()
+                    self.session_state(runtime).root.clone()
                 };
                 if !wait.output.matches(runtime, &value, &owner) {
                     return Err(RuntimeError::module_validation(
@@ -338,7 +340,7 @@ impl ExecutionStack<'_> {
                     ));
                 }
                 if let Some(destination) = wait.destination {
-                    self.current_mut()?
+                    self.current_mut(runtime)?
                         .write_slot(runtime, destination, value)?;
                     Ok(Poll::Ready(None))
                 } else {
@@ -357,15 +359,15 @@ impl ExecutionStack<'_> {
         let stack = activation
             .as_ref()
             .ok_or_else(|| RuntimeError::module_validation("missing parking activation"))?;
-        if !stack.can_park(runtime)? || stack.session.state().pending.borrow().is_none() {
+        if !stack.can_park(runtime)? || stack.session_state(runtime).pending.borrow().is_none() {
             return Err(RuntimeError::module_validation(
                 "no suspendable pending wait",
             ));
         }
-        stack.release_execution_views()?;
+        stack.release_execution_views(runtime)?;
         let mut stack = activation.take().expect("validated pending activation");
         stack.parked = true;
-        drop(stack);
+        stack.retire(runtime);
         Ok(())
     }
 }

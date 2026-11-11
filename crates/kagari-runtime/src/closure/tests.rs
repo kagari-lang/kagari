@@ -107,33 +107,41 @@ fn named_values_and_named_locals_select_current_but_zero_capture_bodies_stay_exa
         observed.push(token);
         assert!(Runtime::default().observe_callable_value(root).is_err());
         let current = runtime.select_program(&program).unwrap();
-        let stack = runtime.enter_execution_stack(&current).unwrap();
-        stack.push_closure(&runtime, &value, &[], None).unwrap();
-        assert_eq!(
-            stack.current().unwrap().loaded().publication_token(),
-            expected
-        );
-        if *kind == CallRouteKind::BodyOwned {
-            let mut called = false;
-            for _ in 0..64 {
-                match stack
-                    .execute_region(&runtime, &mut None, |_, _, _, _| panic!("no native calls"))
-                    .unwrap()
-                {
-                    RegionExit::Call(ExecutionAction::Script) => {
-                        assert_eq!(
-                            stack.current().unwrap().loaded().publication_token(),
-                            current_token
-                        );
-                        called = true;
-                        break;
+        let mut stack_activation = runtime.enter_execution_stack(&current).unwrap();
+        stack_activation
+            .with(|runtime, stack| {
+                stack.push_closure(runtime, &value, &[], None).unwrap();
+                assert_eq!(
+                    stack.current(runtime).unwrap().loaded().publication_token(),
+                    expected
+                );
+                if *kind == CallRouteKind::BodyOwned {
+                    let mut called = false;
+                    for _ in 0..64 {
+                        match stack
+                            .execute_region(runtime, &mut None, |_, _, _, _| {
+                                panic!("no native calls")
+                            })
+                            .unwrap()
+                        {
+                            RegionExit::Call(ExecutionAction::Script) => {
+                                assert_eq!(
+                                    stack.current(runtime).unwrap().loaded().publication_token(),
+                                    current_token
+                                );
+                                called = true;
+                                break;
+                            }
+                            RegionExit::Boundary | RegionExit::Safepoint => {}
+                            _ => panic!("retained body must call the ordinary helper"),
+                        }
                     }
-                    RegionExit::Boundary | RegionExit::Safepoint => {}
-                    _ => panic!("retained body must call the ordinary helper"),
+                    assert!(called);
                 }
-            }
-            assert!(called);
-        }
+
+                Ok(())
+            })
+            .unwrap();
     }
     // Observation alone must not keep an old executable or heap value alive.
     drop(values);
@@ -155,7 +163,7 @@ fn only_named_value_roots_allow_old_code_collection_and_current_admission() {
     let (_, helper) = old.exported_function("helper").unwrap();
     let value = runtime.make_closure(&old, helper, vec![], None).unwrap();
     let named = {
-        let mut cx = ConversionContext::new(&runtime, &old).unwrap();
+        let mut cx = ConversionContext::new(&mut runtime, &old).unwrap();
         let signature = cx.type_for::<Function<(), i32>>().unwrap();
         Function::<(), i32>::from_kagari(&mut cx, &signature, &value).unwrap()
     };
@@ -215,23 +223,29 @@ fn only_named_value_roots_allow_old_code_collection_and_current_admission() {
         assert_eq!(source.reason, SourceUnavailableReason::MissingPackage);
         assert_eq!(source.publication, Some(current_token));
     }
-    let prepared = named.prepare_call(&runtime).unwrap();
+    let prepared = named.prepare_call(&mut runtime).unwrap();
     assert_eq!(prepared.owner().publication_token(), current_token);
     let current = runtime.select_program(&program).unwrap();
-    let stack = runtime.enter_execution_stack(&current).unwrap();
-    stack
-        .push_closure(&runtime, &root.value(runtime.gc()).unwrap(), &[], None)
+    let mut stack_activation = runtime.enter_execution_stack(&current).unwrap();
+    stack_activation
+        .with(|runtime, stack| {
+            stack
+                .push_closure(runtime, &root.value(runtime.gc()).unwrap(), &[], None)
+                .unwrap();
+            let RegionExit::Return(result) = stack
+                .execute_region(runtime, &mut None, |_, _, _, _| panic!("no native calls"))
+                .unwrap()
+            else {
+                panic!("scalar helper returns directly");
+            };
+            assert_eq!(
+                stack.finish_return(runtime, result).unwrap(),
+                ReturnAction::Complete(Value::I32(2))
+            );
+
+            Ok(())
+        })
         .unwrap();
-    let RegionExit::Return(result) = stack
-        .execute_region(&runtime, &mut None, |_, _, _, _| panic!("no native calls"))
-        .unwrap()
-    else {
-        panic!("scalar helper returns directly");
-    };
-    assert_eq!(
-        stack.finish_return(&runtime, result).unwrap(),
-        ReturnAction::Complete(Value::I32(2))
-    );
 }
 
 #[test]

@@ -1,5 +1,6 @@
 mod borrows;
 pub(crate) mod installation;
+mod path_calls;
 mod registry;
 pub mod scoped;
 mod views;
@@ -416,14 +417,14 @@ pub struct HostPathMutationRecord {
     pub new_value: Value,
 }
 
-pub type HostPathReadCallback = dyn Fn(&HostCallContext<'_>, &HostPathContext) -> Result<Value, HostError>
+pub type HostPathReadCallback = dyn Fn(&mut HostCallContext<'_>, &HostPathContext) -> Result<Value, HostError>
     + Send
     + Sync
     + 'static;
 
 /// Preparation validates and reserves host resources without changing the target.
 pub type HostPathPrepareWriteCallback = dyn Fn(
-        &HostCallContext<'_>,
+        &mut HostCallContext<'_>,
         &HostPathContext,
         &HostPathMutationRecord,
     ) -> Result<PreparedHostPathWrite, HostError>
@@ -448,7 +449,7 @@ impl PreparedHostPathWrite {
 }
 
 pub type HostPathValidateCallback = dyn Fn(
-        &HostCallContext<'_>,
+        &mut HostCallContext<'_>,
         &HostPathContext,
         HostPathOperation,
         Option<&Value>,
@@ -481,7 +482,7 @@ impl HostPathAdapter {
 
     pub fn with_read(
         mut self,
-        read: impl Fn(&HostCallContext<'_>, &HostPathContext) -> Result<Value, HostError>
+        read: impl Fn(&mut HostCallContext<'_>, &HostPathContext) -> Result<Value, HostError>
         + Send
         + Sync
         + 'static,
@@ -493,7 +494,7 @@ impl HostPathAdapter {
     pub fn with_prepare_write(
         mut self,
         prepare: impl Fn(
-            &HostCallContext<'_>,
+            &mut HostCallContext<'_>,
             &HostPathContext,
             &HostPathMutationRecord,
         ) -> Result<PreparedHostPathWrite, HostError>
@@ -508,7 +509,7 @@ impl HostPathAdapter {
     pub fn with_validate(
         mut self,
         validate: impl Fn(
-            &HostCallContext<'_>,
+            &mut HostCallContext<'_>,
             &HostPathContext,
             HostPathOperation,
             Option<&Value>,
@@ -749,20 +750,29 @@ pub struct HostBorrowTable {
 /// drop(guard);
 /// ```
 #[derive(Debug)]
-pub struct HostCallGuard<'runtime> {
-    table: &'runtime HostBorrowTable,
-    resources: Option<&'runtime ResourceState>,
+pub(crate) struct HostFrameMark {
     frame_id: HostFrameId,
     epoch: BorrowEpoch,
 }
 
+enum HostFrameAccess<'scope> {
+    Owned(HostFrameMark),
+    Borrowed(&'scope HostFrameMark),
+}
+
+pub struct HostCallGuard<'runtime> {
+    table: &'runtime HostBorrowTable,
+    resources: Option<&'runtime ResourceState>,
+    frame: Option<HostFrameAccess<'runtime>>,
+}
+
 impl HostCallGuard<'_> {
     pub fn frame_id(&self) -> HostFrameId {
-        self.frame_id
+        self.mark().frame_id
     }
 
     pub fn epoch(&self) -> BorrowEpoch {
-        self.epoch
+        self.mark().epoch
     }
 
     pub fn borrow_shared(
@@ -791,11 +801,11 @@ impl HostCallGuard<'_> {
         if let Some(resources) = self.resources {
             resources.ensure_execution_allowed()?;
         }
-        if token.frame_id != self.frame_id {
+        if token.frame_id != self.frame_id() {
             return Err(RuntimeError::expired_host_borrow(format!(
                 "token frame {} does not match current frame {}",
                 token.frame_id.index(),
-                self.frame_id.index()
+                self.frame_id().index()
             )));
         }
         self.table.validate(token, required_kind)
@@ -806,10 +816,52 @@ impl HostCallGuard<'_> {
     }
 }
 
+impl<'runtime> HostCallGuard<'runtime> {
+    fn mark(&self) -> &HostFrameMark {
+        match self.frame.as_ref().expect("live Host frame access") {
+            HostFrameAccess::Owned(mark) => mark,
+            HostFrameAccess::Borrowed(mark) => mark,
+        }
+    }
+
+    pub(crate) fn into_mark(mut self) -> HostFrameMark {
+        match self.frame.take().expect("live owned Host frame") {
+            HostFrameAccess::Owned(mark) => mark,
+            HostFrameAccess::Borrowed(_) => unreachable!("only owned admission can transfer"),
+        }
+    }
+
+    pub(crate) fn borrow_mark(
+        table: &'runtime HostBorrowTable,
+        resources: &'runtime ResourceState,
+        mark: &'runtime HostFrameMark,
+    ) -> Self {
+        Self {
+            table,
+            resources: Some(resources),
+            frame: Some(HostFrameAccess::Borrowed(mark)),
+        }
+    }
+
+    pub(crate) fn from_mark(
+        table: &'runtime HostBorrowTable,
+        resources: &'runtime ResourceState,
+        mark: HostFrameMark,
+    ) -> Self {
+        Self {
+            table,
+            resources: Some(resources),
+            frame: Some(HostFrameAccess::Owned(mark)),
+        }
+    }
+}
+
 impl Drop for HostCallGuard<'_> {
     fn drop(&mut self) {
-        self.table
-            .leave_frame(self.frame_id, self.epoch, self.resources);
+        if let Some(HostFrameAccess::Owned(mark)) = self.frame.take() {
+            self.table
+                .leave_frame(mark.frame_id, mark.epoch, self.resources);
+        }
     }
 }
 
@@ -871,21 +923,25 @@ pub struct HostCallContext<'a> {
 }
 
 impl<'a> HostCallContext<'a> {
-    pub(crate) fn new(runtime: &'a Runtime, args: &[Value]) -> Result<Self, RuntimeError> {
+    pub(crate) fn new(runtime: &'a mut Runtime, args: &[Value]) -> Result<Self, RuntimeError> {
         Ok(Self {
             scope: runtime.host_scope(args)?,
         })
     }
 
-    pub fn runtime(&self) -> &'a Runtime {
+    pub fn runtime(&self) -> &Runtime {
         self.scope.runtime()
     }
 
-    pub fn borrows(&self) -> &HostCallGuard<'_> {
+    pub fn runtime_mut(&mut self) -> &mut Runtime {
+        self.scope.runtime_mut()
+    }
+
+    pub fn borrows(&self) -> HostCallGuard<'_> {
         self.scope.borrows()
     }
 
-    pub fn retain_temporaries(&self, values: &[Value]) -> Result<(), RuntimeError> {
+    pub fn retain_temporaries(&mut self, values: &[Value]) -> Result<(), RuntimeError> {
         self.scope.retain_values(values)
     }
 
@@ -908,7 +964,7 @@ pub struct HostRegistry {
     roots: HashMap<HostObjectId, HostRootHandle>,
     path_descriptors: HashMap<HostPathDescriptorId, HostPathDescriptor>,
     path_adapters: HashMap<HostPathDescriptorId, HostPathAdapter>,
-    dirty_paths: RefCell<Vec<HostPathMutationRecord>>,
+    dirty_paths: Vec<HostPathMutationRecord>,
 }
 
 /// Runtime slots derived from checked declaration owners, without another schema

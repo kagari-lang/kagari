@@ -88,8 +88,8 @@ fn fixture() -> (Runtime, InstalledProgram) {
 }
 
 fn player(cx: &mut NativeContext<'_>, ty: &ObjectType, hp: i32) -> Object {
-    let health = cx.runtime().bind_field::<i32>(ty, "hp").unwrap();
-    let name = cx.runtime().bind_field::<String>(ty, "name").unwrap();
+    let health = cx.runtime_mut().bind_field::<i32>(ty, "hp").unwrap();
+    let name = cx.runtime_mut().bind_field::<String>(ty, "name").unwrap();
     let mut builder = ty.builder().unwrap();
     builder.set(cx, &health, hp).unwrap();
     builder.set(cx, &name, "Ada".to_owned()).unwrap();
@@ -98,7 +98,7 @@ fn player(cx: &mut NativeContext<'_>, ty: &ObjectType, hp: i32) -> Object {
 
 #[test]
 fn prepared_fields_preserve_aliases_and_public_access_after_gc() {
-    let (runtime, owner) = fixture();
+    let (mut runtime, owner) = fixture();
     let _owner_program = owner;
     let owner = runtime.select_program(&_owner_program).unwrap();
     let ty = runtime
@@ -109,32 +109,45 @@ fn prepared_fields_preserve_aliases_and_public_access_after_gc() {
         .bind_field_declaration::<String>(&ty.field("name").unwrap())
         .unwrap();
     assert!(runtime.bind_field::<u32>(&ty, "hp").is_err());
-    let mut cx = NativeContext::new(&runtime, &owner).unwrap();
+    let mut cx = NativeContext::new(&mut runtime, &owner).unwrap();
     let object = player(&mut cx, &ty, 100);
     let alias = object.clone();
     for remaining in [90, 80, 70] {
         object.set(&mut cx, &hp, remaining).unwrap();
-        runtime.collect_garbage().unwrap();
+        cx.runtime_mut().collect_garbage().unwrap();
         assert_eq!(alias.get(&mut cx, &hp).unwrap(), remaining);
     }
     assert_eq!(object.get(&mut cx, &name).unwrap(), "Ada");
     assert!(object.set(&mut cx, &name, "Grace".into()).is_err());
     assert_eq!(object.get(&mut cx, &name).unwrap(), "Ada");
     drop(object);
-    runtime.collect_garbage().unwrap();
+    cx.runtime_mut().collect_garbage().unwrap();
     assert_eq!(alias.get(&mut cx, &hp).unwrap(), 70);
     drop(alias);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
 
-    let hidden = runtime
+    let hidden = cx
+        .runtime_mut()
         .bind_type(&_owner_program.root(), "Hidden", &[])
         .unwrap();
-    assert!(runtime.bind_field::<i32>(&hidden, "secret").is_err());
-    assert!(runtime.bind_field::<i32>(&hidden, "internal").is_err());
-    assert!(runtime.bind_field::<i32>(&hidden, "visible").is_ok());
+    assert!(
+        cx.runtime_mut()
+            .bind_field::<i32>(&hidden, "secret")
+            .is_err()
+    );
+    assert!(
+        cx.runtime_mut()
+            .bind_field::<i32>(&hidden, "internal")
+            .is_err()
+    );
+    assert!(
+        cx.runtime_mut()
+            .bind_field::<i32>(&hidden, "visible")
+            .is_ok()
+    );
     assert!(hidden.builder().is_err());
     assert!(
-        runtime
+        cx.runtime_mut()
             .bind_type(&_owner_program.root(), "Private", &[])
             .is_err()
     );
@@ -142,7 +155,7 @@ fn prepared_fields_preserve_aliases_and_public_access_after_gc() {
 
 #[test]
 fn object_reads_retain_children_and_failed_construction_releases_temporaries() {
-    let (runtime, owner) = fixture();
+    let (mut runtime, owner) = fixture();
     let _owner_program = owner;
     let owner = runtime.select_program(&_owner_program).unwrap();
     let player_type = runtime
@@ -155,14 +168,14 @@ fn object_reads_retain_children_and_failed_construction_releases_temporaries() {
     let second = runtime.bind_field::<Object>(&pair_type, "second").unwrap();
     let hp = runtime.bind_field::<i32>(&player_type, "hp").unwrap();
     let name = runtime.bind_field::<String>(&player_type, "name").unwrap();
-    let mut cx = NativeContext::new(&runtime, &owner).unwrap();
+    let mut cx = NativeContext::new(&mut runtime, &owner).unwrap();
     let child = player(&mut cx, &player_type, 42);
     let mut incomplete = pair_type.builder().unwrap();
     incomplete.set(&mut cx, &first, child.clone()).unwrap();
     assert!(incomplete.set(&mut cx, &first, child.clone()).is_err());
     assert!(incomplete.build(&mut cx).is_err());
     // The retained player also owns its separately traced String.
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
+    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 2);
     let mut complete = pair_type.builder().unwrap();
     complete.set(&mut cx, &first, child.clone()).unwrap();
     complete.set(&mut cx, &second, child.clone()).unwrap();
@@ -171,16 +184,16 @@ fn object_reads_retain_children_and_failed_construction_releases_temporaries() {
     drop(child);
     drop(pair);
     // The retained player also owns its separately traced String.
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
+    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 2);
     assert_eq!(read.get(&mut cx, &hp).unwrap(), 42);
     assert_eq!(read.get(&mut cx, &name).unwrap(), "Ada");
     drop(read);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
 }
 
 #[test]
 fn fields_reject_foreign_runtimes_and_unrelated_nominal_types() {
-    let (runtime, owner) = fixture();
+    let (mut runtime, owner) = fixture();
     let _owner_program = owner;
     let owner = runtime.select_program(&_owner_program).unwrap();
     let ty = runtime
@@ -190,16 +203,16 @@ fn fields_reject_foreign_runtimes_and_unrelated_nominal_types() {
         .bind_type(&_owner_program.root(), "Other", &[])
         .unwrap();
     let hp = runtime.bind_field::<i32>(&ty, "hp").unwrap();
-    let mut cx = NativeContext::new(&runtime, &owner).unwrap();
+    let mut cx = NativeContext::new(&mut runtime, &owner).unwrap();
     let object = player(&mut cx, &other, 10);
     assert!(object.get(&mut cx, &hp).is_err());
     assert!(object.set(&mut cx, &hp, 20).is_err());
     let object = player(&mut cx, &ty, 10);
-    let (foreign, foreign_owner) = fixture();
+    let (mut foreign, foreign_owner) = fixture();
     let _foreign_owner_program = foreign_owner;
     let foreign_owner = foreign.select_program(&_foreign_owner_program).unwrap();
     assert!(foreign.bind_field::<i32>(&ty, "hp").is_err());
-    let mut foreign_cx = NativeContext::new(&foreign, &foreign_owner).unwrap();
+    let mut foreign_cx = NativeContext::new(&mut foreign, &foreign_owner).unwrap();
     assert!(object.get(&mut foreign_cx, &hp).is_err());
     assert!(object.set(&mut foreign_cx, &hp, 20).is_err());
     assert_eq!(object.get(&mut cx, &hp).unwrap(), 10);
@@ -216,14 +229,14 @@ impl KagariType for FailAfterGc {
 impl IntoKagari for FailAfterGc {
     fn into_kagari(self, cx: &mut ConversionContext<'_>, _: &TypeArgument) -> NativeResult<Value> {
         self.0.store(true, Ordering::Relaxed);
-        cx.runtime().collect_garbage()?;
+        cx.runtime_mut().collect_garbage()?;
         Err(RuntimeError::module_validation("converter failure"))
     }
 }
 
 #[test]
 fn a_failed_conversion_preserves_earlier_commits_and_never_publishes_partial_writes() {
-    let (runtime, owner) = fixture();
+    let (mut runtime, owner) = fixture();
     let _owner_program = owner;
     let owner = runtime.select_program(&_owner_program).unwrap();
     let ty = runtime
@@ -231,7 +244,7 @@ fn a_failed_conversion_preserves_earlier_commits_and_never_publishes_partial_wri
         .unwrap();
     let hp = runtime.bind_field::<i32>(&ty, "hp").unwrap();
     let failing = runtime.bind_field::<FailAfterGc>(&ty, "hp").unwrap();
-    let mut cx = NativeContext::new(&runtime, &owner).unwrap();
+    let mut cx = NativeContext::new(&mut runtime, &owner).unwrap();
     let object = player(&mut cx, &ty, 100);
     object.set(&mut cx, &hp, 90).unwrap();
     let attempted = Arc::new(AtomicBool::new(false));
@@ -246,7 +259,7 @@ fn a_failed_conversion_preserves_earlier_commits_and_never_publishes_partial_wri
 
 #[test]
 fn applied_fields_preserve_nominal_arguments() {
-    let (runtime, owner) = fixture();
+    let (mut runtime, owner) = fixture();
     let _owner_program = owner;
     let owner = runtime.select_program(&_owner_program).unwrap();
     let player_type = runtime
@@ -261,14 +274,14 @@ fn applied_fields_preserve_nominal_arguments() {
         .unwrap();
     let value = runtime.bind_field::<Object>(&cell_type, "value").unwrap();
     let hp = runtime.bind_field::<i32>(&player_type, "hp").unwrap();
-    let mut cx = NativeContext::new(&runtime, &owner).unwrap();
+    let mut cx = NativeContext::new(&mut runtime, &owner).unwrap();
     let child = player(&mut cx, &player_type, 11);
     let mut builder = cell_type.builder().unwrap();
     builder.set(&mut cx, &value, child).unwrap();
     let cell = builder.build(&mut cx).unwrap();
     let child = cell.get(&mut cx, &value).unwrap();
     drop(cell);
-    runtime.collect_garbage().unwrap();
+    cx.runtime_mut().collect_garbage().unwrap();
     assert_eq!(child.get(&mut cx, &hp).unwrap(), 11);
 }
 
@@ -282,7 +295,11 @@ fn binding_handles_pin_old_versions_but_the_cache_does_not() {
         .unwrap();
     let hp = runtime.bind_field::<i32>(&ty, "hp").unwrap();
     let duplicate = runtime.bind_field::<i32>(&ty, "hp").unwrap();
-    let object = player(&mut NativeContext::new(&runtime, &old).unwrap(), &ty, 50);
+    let object = player(
+        &mut NativeContext::new(&mut runtime, &old).unwrap(),
+        &ty,
+        50,
+    );
     let candidate = runtime
         .stage_reload_program(&_old_program, Some("objects".into()), program(SOURCE))
         .unwrap();
@@ -292,15 +309,15 @@ fn binding_handles_pin_old_versions_but_the_cache_does_not() {
         .bind_type(&_old_program.root(), "Player", &[])
         .unwrap();
     let new_hp = runtime.bind_field::<i32>(&new_ty, "hp").unwrap();
-    let mut cx = NativeContext::new(&runtime, &new).unwrap();
-    runtime.collect_garbage().unwrap();
+    let mut cx = NativeContext::new(&mut runtime, &new).unwrap();
+    cx.runtime_mut().collect_garbage().unwrap();
     assert_eq!(object.get(&mut cx, &hp).unwrap(), 50);
     assert!(object.get(&mut cx, &new_hp).is_err());
     drop(object);
     drop(ty);
     drop(hp);
     assert!(
-        !runtime
+        !cx.runtime_mut()
             .collect_garbage()
             .unwrap()
             .reclaimed_modules
@@ -308,15 +325,15 @@ fn binding_handles_pin_old_versions_but_the_cache_does_not() {
     );
     drop(duplicate);
     assert!(
-        runtime
+        cx.runtime_mut()
             .collect_garbage()
             .unwrap()
             .reclaimed_modules
             .contains(&old.key())
     );
-    assert!(runtime.validate_executable_module(&old).is_err());
+    assert!(cx.runtime().validate_executable_module(&old).is_err());
     assert!(
-        runtime
+        cx.runtime_mut()
             .bind_type(&_old_program.root(), "Player", &[])
             .is_ok()
     );
@@ -324,7 +341,7 @@ fn binding_handles_pin_old_versions_but_the_cache_does_not() {
 
 #[test]
 fn nested_dynamic_handles_store_heap_edges_and_cycles_are_collectible() {
-    let (runtime, owner) = fixture();
+    let (mut runtime, owner) = fixture();
     let _owner_program = owner;
     let owner = runtime.select_program(&_owner_program).unwrap();
     let node_type = runtime
@@ -352,7 +369,7 @@ fn nested_dynamic_handles_store_heap_edges_and_cycles_are_collectible() {
             .bind_field::<(Object, u32)>(&bag_type, "pair")
             .is_err()
     );
-    let mut cx = NativeContext::new(&runtime, &owner).unwrap();
+    let mut cx = NativeContext::new(&mut runtime, &owner).unwrap();
     let mut builder = node_type.builder().unwrap();
     builder.set(&mut cx, &next, None).unwrap();
     let node = builder.build(&mut cx).unwrap();
@@ -369,7 +386,7 @@ fn nested_dynamic_handles_store_heap_edges_and_cycles_are_collectible() {
     assert!(read.1.is_none());
     drop(node);
     drop(bag);
-    runtime.collect_garbage().unwrap();
+    cx.runtime_mut().collect_garbage().unwrap();
     assert!(pair_read.get(&mut cx, &next).unwrap().is_some());
     assert!(
         read.0
@@ -381,12 +398,12 @@ fn nested_dynamic_handles_store_heap_edges_and_cycles_are_collectible() {
     );
     drop(pair_read);
     drop(read);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
 }
 
 #[test]
 fn typed_handles_and_bindings_move_with_exclusive_runtime_ownership() {
-    let (runtime, owner) = fixture();
+    let (mut runtime, owner) = fixture();
     let _owner_program = owner;
     let owner = runtime.select_program(&_owner_program).unwrap();
     let ty = runtime
@@ -394,12 +411,12 @@ fn typed_handles_and_bindings_move_with_exclusive_runtime_ownership() {
         .unwrap();
     let hp = runtime.bind_field::<i32>(&ty, "hp").unwrap();
     let (object, values) = {
-        let mut cx = NativeContext::new(&runtime, &owner).unwrap();
+        let mut cx = NativeContext::new(&mut runtime, &owner).unwrap();
         (
             player(&mut cx, &ty, 42),
-            runtime
+            cx.runtime()
                 .root_value(Value::Array(
-                    runtime
+                    cx.runtime()
                         .alloc_array(
                             &owner,
                             kagari_types::ty::Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
@@ -411,18 +428,21 @@ fn typed_handles_and_bindings_move_with_exclusive_runtime_ownership() {
         )
     };
     thread::spawn(move || {
-        let mut cx = NativeContext::new(&runtime, &owner).unwrap();
-        runtime.collect_garbage().unwrap();
+        let mut cx = NativeContext::new(&mut runtime, &owner).unwrap();
+        cx.runtime_mut().collect_garbage().unwrap();
         object.set(&mut cx, &hp, 43).unwrap();
-        let Value::Array(array) = values.value(runtime.gc()).unwrap() else {
+        let Value::Array(array) = values.value(cx.runtime().gc()).unwrap() else {
             panic!("array")
         };
-        runtime.gc().array_set(array, 1, Value::I32(3)).unwrap();
+        cx.runtime()
+            .gc()
+            .array_set(array, 1, Value::I32(3))
+            .unwrap();
         assert_eq!(object.get(&mut cx, &hp).unwrap(), 43);
-        assert_eq!(runtime.gc().array_get(array, 1), Some(Value::I32(3)));
+        assert_eq!(cx.runtime().gc().array_get(array, 1), Some(Value::I32(3)));
         drop(object);
         drop(values);
-        assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+        assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
         (ty, hp)
         // The receiving thread destroys storage; immutable bindings may outlive it.
     })

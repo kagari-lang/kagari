@@ -76,7 +76,7 @@ fn alias(state: State, kind: i32) -> bool {
         .unwrap()
         .declaration;
     let method = |name| ModuleDecl::method_id(declaration, name, loaded.definitions()).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     assert_eq!(vm.gc().active_roots(), 0);
     let baseline = vm.collect_garbage().unwrap().live_objects;
     for kind in 1..=1 {

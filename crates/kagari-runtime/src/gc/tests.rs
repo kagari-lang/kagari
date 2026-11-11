@@ -168,10 +168,12 @@ fn unique_borrow_value(heap: &GcHeap, object_id: u64) -> Value {
 fn rejects_ephemeral_values_as_heap_payloads() {
     let mut runtime = Runtime::default();
     let owner = allocation_owner(&mut runtime);
-    let heap = runtime.gc();
 
-    let rejected = [shared_borrow_value(heap, 1), unique_borrow_value(heap, 2)];
-    let before = heap.stats();
+    let rejected = [
+        shared_borrow_value(runtime.gc(), 1),
+        unique_borrow_value(runtime.gc(), 2),
+    ];
+    let before = runtime.gc().stats();
     assert!(
         runtime
             .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![rejected[0]])
@@ -182,47 +184,52 @@ fn rejects_ephemeral_values_as_heap_payloads() {
             .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![rejected[1]])
             .is_err()
     );
-    assert_eq!(heap.stats(), before);
+    assert_eq!(runtime.gc().stats(), before);
 }
 
 #[test]
 fn rejects_host_handles_and_path_views_as_default_heap_payloads() {
     let mut runtime = Runtime::default();
     let owner = allocation_owner(&mut runtime);
-    let heap = runtime.gc();
 
-    let rejected = [host_root_value(heap, 1), path_view_value(heap, 3)];
-    let before = heap.stats();
+    let rejected = [
+        host_root_value(runtime.gc(), 1),
+        path_view_value(runtime.gc(), 3),
+    ];
+    let before = runtime.gc().stats();
     assert!(
         runtime
             .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![rejected[0]])
             .is_err()
     );
     assert!(
-        heap.alloc_struct(
-            layout(
-                "HostBacked",
-                "path",
-                Ty::Array(Box::new(Ty::Builtin(
-                    kagari_types::scalar::BuiltinType::I32
-                )))
-            ),
-            vec![rejected[1]],
-        )
-        .is_err()
+        runtime
+            .gc()
+            .alloc_struct(
+                layout(
+                    "HostBacked",
+                    "path",
+                    Ty::Array(Box::new(Ty::Builtin(
+                        kagari_types::scalar::BuiltinType::I32
+                    )))
+                ),
+                vec![rejected[1]],
+            )
+            .is_err()
     );
-    assert_eq!(heap.stats(), before);
+    assert_eq!(runtime.gc().stats(), before);
 }
 
 #[test]
 fn rejects_non_storable_heap_mutations() {
     let mut runtime = Runtime::default();
     let owner = allocation_owner(&mut runtime);
-    let heap = runtime.gc();
+
     let array = runtime
         .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(1)])
         .unwrap();
-    let record = heap
+    let record = runtime
+        .gc()
         .alloc_struct(
             layout(
                 "Record",
@@ -234,71 +241,103 @@ fn rejects_non_storable_heap_mutations() {
         .unwrap();
 
     assert!(
-        heap.array_set(array, 0, shared_borrow_value(heap, 1))
+        runtime
+            .gc()
+            .array_set(array, 0, shared_borrow_value(runtime.gc(), 1))
             .is_err()
     );
-    assert!(heap.array_set(array, 0, path_view_value(heap, 4)).is_err());
     assert!(
-        heap.struct_set_slot(
-            record,
-            &heap.struct_layout(record).unwrap(),
-            0,
-            host_root_value(heap, 5)
-        )
-        .is_err()
+        runtime
+            .gc()
+            .array_set(array, 0, path_view_value(runtime.gc(), 4))
+            .is_err()
+    );
+    assert!(
+        runtime
+            .gc()
+            .struct_set_slot(
+                record,
+                &runtime.gc().struct_layout(record).unwrap(),
+                0,
+                host_root_value(runtime.gc(), 5)
+            )
+            .is_err()
     );
 
-    assert_eq!(heap.array_snapshot(array), Some(vec![Value::I32(1)]));
     assert_eq!(
-        heap.struct_get_slot(record, &heap.struct_layout(record).unwrap(), 0),
+        runtime.gc().array_snapshot(array),
+        Some(vec![Value::I32(1)])
+    );
+    assert_eq!(
+        runtime
+            .gc()
+            .struct_get_slot(record, &runtime.gc().struct_layout(record).unwrap(), 0),
         Some(Value::I32(1))
     );
 }
 
 #[test]
 fn exhausted_object_generation_retires_storage_without_aliasing_old_values() {
-    let runtime = Runtime::default();
-    let heap = runtime.gc();
-    let first = heap.alloc_cell(ValueType::I32, Value::I32(7)).unwrap();
+    let mut runtime = Runtime::default();
+
+    let first = runtime
+        .gc()
+        .alloc_cell(ValueType::I32, Value::I32(7))
+        .unwrap();
     // Advance the existing allocation to its final reusable generation without
     // billions of collections. No stale handle is admitted as a root.
-    heap.objects.borrow_mut().slots[first.index()].generation = u32::MAX - 1;
-    let penultimate = HeapObjectId::new(heap.owner, first.index(), u32::MAX - 1);
-    let root = heap.root_value(Value::Cell(penultimate)).unwrap();
-    assert!(!heap.validate_value(&Value::Cell(first)));
+    runtime.gc().objects.borrow_mut().slots[first.index()].generation = u32::MAX - 1;
+    let penultimate = HeapObjectId::new(runtime.gc().owner, first.index(), u32::MAX - 1);
+    let root = runtime.gc().root_value(Value::Cell(penultimate)).unwrap();
+    assert!(!runtime.gc().validate_value(&Value::Cell(first)));
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
     drop(root);
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
 
-    let last = heap.alloc_cell(ValueType::I32, Value::I32(8)).unwrap();
+    let last = runtime
+        .gc()
+        .alloc_cell(ValueType::I32, Value::I32(8))
+        .unwrap();
     assert_eq!(last.index(), first.index());
     assert_eq!(last.generation(), u32::MAX);
-    assert!(!heap.validate_value(&Value::Cell(penultimate)));
-    let root = heap.root_value(Value::Cell(last)).unwrap();
+    assert!(!runtime.gc().validate_value(&Value::Cell(penultimate)));
+    let root = runtime.gc().root_value(Value::Cell(last)).unwrap();
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
     drop(root);
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
 
-    let next = heap.alloc_cell(ValueType::I32, Value::I32(9)).unwrap();
+    let next = runtime
+        .gc()
+        .alloc_cell(ValueType::I32, Value::I32(9))
+        .unwrap();
     assert_ne!(next.index(), last.index());
-    assert!(!heap.validate_value(&Value::Cell(first)));
-    assert!(!heap.validate_value(&Value::Cell(last)));
-    assert!(heap.root_value(Value::Cell(last)).is_none());
-    assert_eq!(heap.cell_get(next, ValueType::I32).unwrap(), Value::I32(9));
-    assert_eq!(heap.stats().allocated_objects, 1);
+    assert!(!runtime.gc().validate_value(&Value::Cell(first)));
+    assert!(!runtime.gc().validate_value(&Value::Cell(last)));
+    assert!(runtime.gc().root_value(Value::Cell(last)).is_none());
+    assert_eq!(
+        runtime.gc().cell_get(next, ValueType::I32).unwrap(),
+        Value::I32(9)
+    );
+    assert_eq!(runtime.gc().stats().allocated_objects, 1);
 }
 
 #[test]
 fn sparse_collection_preserves_aliases_and_mutation_across_payload_relocation() {
-    let runtime = Runtime::default();
-    let heap = runtime.gc();
+    let mut runtime = Runtime::default();
+
     let mut retained = Vec::new();
     for index in 0..256_i32 {
-        let text = heap.alloc_string(index.to_string()).unwrap();
-        let cell = heap.alloc_cell(ValueType::I32, Value::I32(index)).unwrap();
-        let tuple = heap.alloc_tuple(vec![text, Value::Cell(cell)]).unwrap();
+        let text = runtime.gc().alloc_string(index.to_string()).unwrap();
+        let cell = runtime
+            .gc()
+            .alloc_cell(ValueType::I32, Value::I32(index))
+            .unwrap();
+        let tuple = runtime
+            .gc()
+            .alloc_tuple(vec![text, Value::Cell(cell)])
+            .unwrap();
         if index % 31 == 0 || index == 255 {
-            retained.push((heap.root_value(tuple).unwrap(), text, cell, index));
+            retained.push((runtime.gc().root_value(tuple).unwrap(), text, cell, index));
         }
     }
     assert_eq!(
@@ -307,35 +346,46 @@ fn sparse_collection_preserves_aliases_and_mutation_across_payload_relocation() 
     );
     for (_, text, cell, expected) in &retained {
         let Value::Str(id) = text else { unreachable!() };
-        assert_eq!(&*heap.string(*id).unwrap(), expected.to_string());
+        assert_eq!(&*runtime.gc().string(*id).unwrap(), expected.to_string());
         assert_eq!(
-            heap.cell_get(*cell, ValueType::I32).unwrap(),
+            runtime.gc().cell_get(*cell, ValueType::I32).unwrap(),
             Value::I32(*expected)
         );
-        heap.cell_set(*cell, ValueType::I32, Value::I32(*expected + 1))
+        runtime
+            .gc()
+            .cell_set(*cell, ValueType::I32, Value::I32(*expected + 1))
             .unwrap();
     }
     // Reuse directory slots and grow the now sparse stores again.
     for index in 0..512_i32 {
-        heap.alloc_string(index.to_string()).unwrap();
-        heap.alloc_cell(ValueType::I32, Value::I32(index)).unwrap();
+        runtime.gc().alloc_string(index.to_string()).unwrap();
+        runtime
+            .gc()
+            .alloc_cell(ValueType::I32, Value::I32(index))
+            .unwrap();
     }
     runtime.collect_garbage().unwrap();
     for (root, text, cell, expected) in &retained {
-        let Value::Tuple(tuple) = root.value(heap).unwrap() else {
+        let Value::Tuple(tuple) = root.value(runtime.gc()).unwrap() else {
             unreachable!()
         };
-        assert_eq!(&*heap.tuple(tuple).unwrap(), &[*text, Value::Cell(*cell)]);
         assert_eq!(
-            heap.cell_get(*cell, ValueType::I32).unwrap(),
+            &*runtime.gc().tuple(tuple).unwrap(),
+            &[*text, Value::Cell(*cell)]
+        );
+        assert_eq!(
+            runtime.gc().cell_get(*cell, ValueType::I32).unwrap(),
             Value::I32(*expected + 1)
         );
     }
     let stale = retained[0].2;
     drop(retained);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
-    heap.alloc_cell(ValueType::I32, Value::I32(1)).unwrap();
-    assert!(!heap.validate_value(&Value::Cell(stale)));
+    runtime
+        .gc()
+        .alloc_cell(ValueType::I32, Value::I32(1))
+        .unwrap();
+    assert!(!runtime.gc().validate_value(&Value::Cell(stale)));
 }
 
 fn reset_discovery_visits(heap: &GcHeap) {
@@ -349,53 +399,61 @@ fn discovery_visits(heap: &GcHeap) -> usize {
 #[test]
 fn occupied_discovery_follows_live_payloads_not_directory_peak() {
     for peak in [64, 4096] {
-        let runtime = Runtime::default();
-        let heap = runtime.gc();
+        let mut runtime = Runtime::default();
+
         let schema = layout("Sparse", "value", Ty::Builtin(BuiltinType::I32));
         let mut roots = Vec::new();
         for index in 0..peak {
-            let text = heap.alloc_string(index.to_string()).unwrap();
-            let cell = heap.alloc_cell(ValueType::I32, Value::I32(index)).unwrap();
-            let record = heap
+            let text = runtime.gc().alloc_string(index.to_string()).unwrap();
+            let cell = runtime
+                .gc()
+                .alloc_cell(ValueType::I32, Value::I32(index))
+                .unwrap();
+            let record = runtime
+                .gc()
                 .alloc_struct(schema.clone(), vec![Value::I32(index)])
                 .unwrap();
-            let tuple = heap
+            let tuple = runtime
+                .gc()
                 .alloc_tuple(vec![text, Value::Cell(cell), Value::Struct(record)])
                 .unwrap();
             if index == 0 || index == peak - 1 {
-                roots.push((heap.root_value(tuple).unwrap(), cell, record, index));
+                roots.push((runtime.gc().root_value(tuple).unwrap(), cell, record, index));
             }
         }
-        reset_discovery_visits(heap);
+        reset_discovery_visits(runtime.gc());
         assert_eq!(runtime.collect_garbage().unwrap().live_objects, 8);
-        assert_eq!(discovery_visits(heap), peak as usize * 4);
-        let history = heap.objects.borrow().slots.len();
+        assert_eq!(discovery_visits(runtime.gc()), peak as usize * 4);
+        let history = runtime.gc().objects.borrow().slots.len();
         for _ in 0..3 {
-            reset_discovery_visits(heap);
+            reset_discovery_visits(runtime.gc());
             assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 0);
-            assert_eq!(discovery_visits(heap), 8);
-            assert_eq!(heap.objects.borrow().slots.len(), history);
+            assert_eq!(discovery_visits(runtime.gc()), 8);
+            assert_eq!(runtime.gc().objects.borrow().slots.len(), history);
             for (_, cell, record, expected) in &roots {
                 assert_eq!(
-                    heap.cell_get(*cell, ValueType::I32).unwrap(),
+                    runtime.gc().cell_get(*cell, ValueType::I32).unwrap(),
                     Value::I32(*expected)
                 );
                 assert_eq!(
-                    heap.struct_get_slot(*record, &schema, 0),
+                    runtime.gc().struct_get_slot(*record, &schema, 0),
                     Some(Value::I32(*expected))
                 );
             }
         }
         let stale = roots[1].2;
         drop(roots);
-        reset_discovery_visits(heap);
+        reset_discovery_visits(runtime.gc());
         assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 8);
-        assert_eq!(discovery_visits(heap), 8);
-        reset_discovery_visits(heap);
+        assert_eq!(discovery_visits(runtime.gc()), 8);
+        reset_discovery_visits(runtime.gc());
         runtime.collect_garbage().unwrap();
-        assert_eq!(discovery_visits(heap), 0);
-        heap.alloc_struct(schema, vec![Value::I32(42)]).unwrap();
-        assert!(!heap.validate_value(&Value::Struct(stale)));
+        assert_eq!(discovery_visits(runtime.gc()), 0);
+        runtime
+            .gc()
+            .alloc_struct(schema, vec![Value::I32(42)])
+            .unwrap();
+        assert!(!runtime.gc().validate_value(&Value::Struct(stale)));
         eprintln!("object directory peak={history}: fixed-live visits=8, empty visits=0");
     }
 }
@@ -408,48 +466,48 @@ fn interface_occupancy_tracks_wrappers_not_snapshot_liveness_or_history() {
         let Value::Interface(original_id) = original else {
             unreachable!()
         };
-        let heap = runtime.gc();
-        let snapshot = heap.interface_snapshot_id(original_id).unwrap();
+
+        let snapshot = runtime.gc().interface_snapshot_id(original_id).unwrap();
         let metadata = runtime
             .root_metadata(vec![MetadataRoot::Interface(snapshot)])
             .unwrap();
         let mut roots = Vec::new();
         for index in 0..peak {
-            let wrapper = Value::Interface(heap.alloc_interface(snapshot).unwrap());
+            let wrapper = Value::Interface(runtime.gc().alloc_interface(snapshot).unwrap());
             if index == 0 || index == peak - 1 {
-                roots.push(heap.root_value(wrapper).unwrap());
+                roots.push(runtime.gc().root_value(wrapper).unwrap());
             }
         }
-        reset_discovery_visits(heap);
+        reset_discovery_visits(runtime.gc());
         assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
-        assert_eq!(discovery_visits(heap), peak + 1);
-        assert!(!heap.validate_value(&original));
-        reset_discovery_visits(heap);
+        assert_eq!(discovery_visits(runtime.gc()), peak + 1);
+        assert!(!runtime.gc().validate_value(&original));
+        reset_discovery_visits(runtime.gc());
         assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 0);
-        assert_eq!(discovery_visits(heap), 2);
+        assert_eq!(discovery_visits(runtime.gc()), 2);
         drop(roots.pop());
-        reset_discovery_visits(heap);
+        reset_discovery_visits(runtime.gc());
         assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
-        assert_eq!(discovery_visits(heap), 2);
-        assert!(roots[0].value(heap).is_some());
+        assert_eq!(discovery_visits(runtime.gc()), 2);
+        assert!(roots[0].value(runtime.gc()).is_some());
         drop(roots);
-        reset_discovery_visits(heap);
+        reset_discovery_visits(runtime.gc());
         assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
-        assert_eq!(discovery_visits(heap), 1);
-        reset_discovery_visits(heap);
+        assert_eq!(discovery_visits(runtime.gc()), 1);
+        reset_discovery_visits(runtime.gc());
         runtime.collect_garbage().unwrap();
-        assert_eq!(discovery_visits(heap), 0);
-        assert!(heap.interface_metadata(snapshot).is_some());
-        let replacement = Value::Interface(heap.alloc_interface(snapshot).unwrap());
-        assert!(!heap.validate_value(&original));
+        assert_eq!(discovery_visits(runtime.gc()), 0);
+        assert!(runtime.gc().interface_metadata(snapshot).is_some());
+        let replacement = Value::Interface(runtime.gc().alloc_interface(snapshot).unwrap());
+        assert!(!runtime.gc().validate_value(&original));
         drop(metadata);
-        reset_discovery_visits(heap);
+        reset_discovery_visits(runtime.gc());
         let collected = runtime.collect_garbage().unwrap();
-        assert_eq!(discovery_visits(heap), 1);
+        assert_eq!(discovery_visits(runtime.gc()), 1);
         assert_eq!(collected.reclaimed_objects, 1);
         assert_eq!(collected.reclaimed_interface_snapshots, 1);
-        assert!(!heap.validate_value(&replacement));
-        assert_eq!(heap.stats().current_heap_units, 0);
+        assert!(!runtime.gc().validate_value(&replacement));
+        assert_eq!(runtime.gc().stats().current_heap_units, 0);
         eprintln!(
             "interface peak={}: visits=2/2/1/0/1, metadata-only snapshot retained",
             peak + 1
@@ -461,88 +519,107 @@ fn interface_occupancy_tracks_wrappers_not_snapshot_liveness_or_history() {
 fn occupied_discovery_excludes_taken_native_identity_after_slot_reuse() {
     let mut runtime = Runtime::default();
     let owner = allocation_owner(&mut runtime);
-    let heap = runtime.gc();
+
     let storage = NativeStorage::takeable::<i32>();
     let mut roots = Vec::new();
     for value in [7_i32, 9] {
         let object = storage
-            .prepare_payload(heap, &Ty::Builtin(BuiltinType::I32), value, &owner)
+            .prepare_payload(runtime.gc(), &Ty::Builtin(BuiltinType::I32), value, &owner)
             .unwrap();
-        let id = heap.alloc_native(object).unwrap();
-        roots.push((heap.root_value(Value::GcHandle(id)).unwrap(), id));
+        let id = runtime.gc().alloc_native(object).unwrap();
+        roots.push((runtime.gc().root_value(Value::GcHandle(id)).unwrap(), id));
     }
     let taken = roots[0].1;
-    assert_eq!(heap.take_native::<i32>(taken).unwrap(), 7);
-    assert!(!heap.validate_value(&Value::GcHandle(taken)));
-    let replacement = heap.alloc_cell(ValueType::I32, Value::I32(42)).unwrap();
+    assert_eq!(runtime.gc().take_native::<i32>(taken).unwrap(), 7);
+    assert!(!runtime.gc().validate_value(&Value::GcHandle(taken)));
+    let replacement = runtime
+        .gc()
+        .alloc_cell(ValueType::I32, Value::I32(42))
+        .unwrap();
     assert_eq!(replacement.index(), taken.index());
     assert_ne!(replacement.generation(), taken.generation());
-    let replacement_root = heap.root_value(Value::Cell(replacement)).unwrap();
-    reset_discovery_visits(heap);
+    let replacement_root = runtime.gc().root_value(Value::Cell(replacement)).unwrap();
+    reset_discovery_visits(runtime.gc());
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
-    assert_eq!(discovery_visits(heap), 2);
-    assert!(heap.moved.borrow().contains(&taken));
+    assert_eq!(discovery_visits(runtime.gc()), 2);
+    assert!(runtime.gc().moved.borrow().contains(&taken));
     assert_eq!(
-        heap.with_native::<i32, _>(roots[1].1, |value| Ok(*value))
+        runtime
+            .gc()
+            .with_native::<i32, _>(roots[1].1, |value| Ok(*value))
             .unwrap(),
         9
     );
     drop((roots, replacement_root));
-    reset_discovery_visits(heap);
+    reset_discovery_visits(runtime.gc());
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 2);
-    assert_eq!(discovery_visits(heap), 2);
-    assert!(heap.moved.borrow().is_empty());
-    assert_eq!(heap.stats().current_heap_units, 0);
-    assert_eq!(heap.stats().current_retained_bytes, 0);
-    reset_discovery_visits(heap);
+    assert_eq!(discovery_visits(runtime.gc()), 2);
+    assert!(runtime.gc().moved.borrow().is_empty());
+    assert_eq!(runtime.gc().stats().current_heap_units, 0);
+    assert_eq!(runtime.gc().stats().current_retained_bytes, 0);
+    reset_discovery_visits(runtime.gc());
     runtime.collect_garbage().unwrap();
-    assert_eq!(discovery_visits(heap), 0);
+    assert_eq!(discovery_visits(runtime.gc()), 0);
 }
 
 #[test]
 fn roots_are_explicit_storable_slots() {
     let mut runtime = Runtime::default();
     let owner = allocation_owner(&mut runtime);
-    let heap = runtime.gc();
+
     let object = runtime
         .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(1)])
         .unwrap();
-    let root = heap.root_value(Value::Array(object)).unwrap();
+    let root = runtime.gc().root_value(Value::Array(object)).unwrap();
 
-    assert_eq!(root.value(heap).unwrap(), Value::Array(object));
-    assert_eq!(heap.active_roots(), 1);
-    assert_eq!(heap.trace_roots().unwrap(), vec![object]);
+    assert_eq!(root.value(runtime.gc()).unwrap(), Value::Array(object));
+    assert_eq!(runtime.gc().active_roots(), 1);
+    assert_eq!(runtime.gc().trace_roots().unwrap(), vec![object]);
 
-    assert!(heap.root_value(host_root_value(heap, 1)).is_none());
-    assert!(heap.root_value(path_view_value(heap, 1)).is_none());
     assert!(
-        heap.root_value(
-            heap.alloc_tuple(vec![shared_borrow_value(heap, 2)])
-                .unwrap()
-        )
-        .is_none()
+        runtime
+            .gc()
+            .root_value(host_root_value(runtime.gc(), 1))
+            .is_none()
     );
-    assert_eq!(heap.active_roots(), 1);
+    assert!(
+        runtime
+            .gc()
+            .root_value(path_view_value(runtime.gc(), 1))
+            .is_none()
+    );
+    assert!(
+        runtime
+            .gc()
+            .root_value(
+                runtime
+                    .gc()
+                    .alloc_tuple(vec![shared_borrow_value(runtime.gc(), 2)])
+                    .unwrap()
+            )
+            .is_none()
+    );
+    assert_eq!(runtime.gc().active_roots(), 1);
 
-    let bare_copy = root.value(heap).unwrap();
+    let bare_copy = root.value(runtime.gc()).unwrap();
     let retained = root.clone();
     drop(root);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
     drop(retained);
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
-    assert!(!heap.validate_value(&bare_copy));
+    assert!(!runtime.gc().validate_value(&bare_copy));
 }
 
 #[test]
 fn replacement_errors_preserve_targets_and_internal_fault_categories() {
     let mut runtime = Runtime::default();
     let owner = allocation_owner(&mut runtime);
-    let heap = runtime.gc();
+
     let resources = runtime.resources();
     let array = runtime
         .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(1)])
         .unwrap();
-    let before = heap.stats().current_heap_units;
+    let before = runtime.gc().stats().current_heap_units;
     let mut foreign_runtime = Runtime::default();
     let foreign_owner = allocation_owner(&mut foreign_runtime);
     let foreign = foreign_runtime
@@ -550,13 +627,17 @@ fn replacement_errors_preserve_targets_and_internal_fault_categories() {
         .unwrap();
     // Payload and receiver rejection must not be relabeled from the index.
     assert_eq!(
-        heap.array_set(array, u64::MAX, Value::Array(foreign))
+        runtime
+            .gc()
+            .array_set(array, u64::MAX, Value::Array(foreign))
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::ScriptTrap
     );
     assert_eq!(
-        heap.array_set(foreign, u64::MAX, Value::I32(9))
+        runtime
+            .gc()
+            .array_set(foreign, u64::MAX, Value::I32(9))
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::ScriptTrap
@@ -564,48 +645,63 @@ fn replacement_errors_preserve_targets_and_internal_fault_categories() {
 
     for index in [2, 1_u64 << 32, u64::MAX] {
         assert_eq!(
-            heap.array_set(array, index, Value::I32(9))
+            runtime
+                .gc()
+                .array_set(array, index, Value::I32(9))
                 .unwrap_err()
                 .kind(),
             RuntimeErrorKind::IndexOutOfBounds
         );
-        assert_eq!(heap.array_element(array, index).unwrap(), None);
-        assert_eq!(heap.array_get(array, index), None);
+        assert_eq!(runtime.gc().array_element(array, index).unwrap(), None);
+        assert_eq!(runtime.gc().array_get(array, index), None);
     }
     // Exercise failed machine conversion even on a 64-bit test host.
     let unrepresentable = usize::MAX as u128 + 1;
     assert_eq!(
-        heap.array_set(array, unrepresentable, Value::I32(9))
+        runtime
+            .gc()
+            .array_set(array, unrepresentable, Value::I32(9))
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::IndexOutOfBounds
     );
-    assert_eq!(heap.array_element(array, unrepresentable).unwrap(), None);
-    assert_eq!(heap.array_get(array, unrepresentable), None);
-    assert_eq!(heap.array_get(array, 0), Some(Value::I32(1)));
-    assert_eq!(heap.stats().current_heap_units, before);
+    assert_eq!(
+        runtime.gc().array_element(array, unrepresentable).unwrap(),
+        None
+    );
+    assert_eq!(runtime.gc().array_get(array, unrepresentable), None);
+    assert_eq!(runtime.gc().array_get(array, 0), Some(Value::I32(1)));
+    assert_eq!(runtime.gc().stats().current_heap_units, before);
     let schema = layout(
         "Record",
         "value",
         Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
     );
-    let object = heap
+    let object = runtime
+        .gc()
         .alloc_struct(schema.clone(), vec![Value::I32(7)])
         .unwrap();
     assert_eq!(
-        heap.struct_set_slot(object, &schema, 0, Value::Bool(false))
+        runtime
+            .gc()
+            .struct_set_slot(object, &schema, 0, Value::Bool(false))
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::ScriptTrap
     );
     assert_eq!(
-        heap.struct_get_slot(object, &schema, 0),
+        runtime.gc().struct_get_slot(object, &schema, 0),
         Some(Value::I32(7))
     );
     // Simulate a broken engine invariant rather than a script type error.
-    heap.objects.borrow_mut().corrupt_structure_for_test(object);
-    let error = crate::reflection::set_field(heap, &Value::Struct(object), "value", Value::I32(9))
-        .unwrap_err();
+    runtime
+        .gc()
+        .objects
+        .borrow_mut()
+        .corrupt_structure_for_test(object);
+    let error =
+        crate::reflection::set_field(runtime.gc(), &Value::Struct(object), "value", Value::I32(9))
+            .unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
     assert_eq!(
         error.into_write_error().kind(),
@@ -613,13 +709,21 @@ fn replacement_errors_preserve_targets_and_internal_fault_categories() {
     );
     assert!(resources.is_quarantined());
     assert_eq!(
-        heap.array_set(array, 0, Value::I32(9)).unwrap_err().kind(),
+        runtime
+            .gc()
+            .array_set(array, 0, Value::I32(9))
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::EngineFault
     );
-    assert_eq!(heap.array_get(array, 0), Some(Value::I32(1)));
-    let error =
-        crate::reflection::set_index(heap, &Value::Array(array), &Value::I32(0), Value::I32(9))
-            .unwrap_err();
+    assert_eq!(runtime.gc().array_get(array, 0), Some(Value::I32(1)));
+    let error = crate::reflection::set_index(
+        runtime.gc(),
+        &Value::Array(array),
+        &Value::I32(0),
+        Value::I32(9),
+    )
+    .unwrap_err();
     assert_eq!(
         error.into_write_error().kind(),
         RuntimeErrorKind::EngineFault
@@ -627,3 +731,35 @@ fn replacement_errors_preserve_targets_and_internal_fault_categories() {
 }
 
 mod gc_ownership;
+
+#[test]
+fn host_commit_rejects_nested_heap_operations_before_effects() {
+    for operation in ["execute", "allocate", "mutate", "collect", "root"] {
+        let mut runtime = Runtime::default();
+        let owner = allocation_owner(&mut runtime);
+        let array = runtime
+            .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(1)])
+            .unwrap();
+        let gc = runtime.gc();
+        let error = gc
+            .commit_host_write(|| {
+                let error = match operation {
+                    "execute" => runtime.resources().poll_execution().unwrap_err(),
+                    "allocate" => gc.alloc_string("forbidden".into()).unwrap_err(),
+                    "mutate" => gc.array_set(array, 0, Value::I32(2)).unwrap_err(),
+                    "collect" => gc.collect(&runtime.modules, &[]).unwrap_err(),
+                    "root" => {
+                        assert!(gc.root_value(Value::Array(array)).is_none());
+                        runtime.resources().ensure_execution_allowed().unwrap_err()
+                    }
+                    _ => unreachable!(),
+                };
+                assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
+            })
+            .unwrap_err();
+        assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
+        assert!(runtime.is_quarantined());
+        assert_eq!(gc.array_get(array, 0), Some(Value::I32(1)));
+        assert_eq!(gc.active_roots(), 0);
+    }
+}

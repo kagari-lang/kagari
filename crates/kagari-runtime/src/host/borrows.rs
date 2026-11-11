@@ -3,8 +3,8 @@ use crate::{
     gc::GcHeap,
     host::{
         ActiveBorrowFrame, BorrowEpoch, FrameBorrowRecord, FrameHostBorrowToken, HostBorrowKind,
-        HostBorrowOwner, HostBorrowTable, HostCallGuard, HostFrameId, HostObjectId,
-        PathBorrowState,
+        HostBorrowOwner, HostBorrowTable, HostCallGuard, HostFrameAccess, HostFrameId,
+        HostFrameMark, HostObjectId, PathBorrowState,
     },
     metadata::TypeId,
     resource::ResourceState,
@@ -124,8 +124,7 @@ impl HostBorrowTable {
         Ok(HostCallGuard {
             table: self,
             resources,
-            frame_id,
-            epoch,
+            frame: Some(HostFrameAccess::Owned(HostFrameMark { frame_id, epoch })),
         })
     }
 
@@ -195,11 +194,11 @@ impl HostBorrowTable {
         )?;
         Ok(FrameHostBorrowToken::new(
             self.owner,
-            frame.frame_id,
+            frame.frame_id(),
             object_id,
             borrow_kind,
             type_id,
-            frame.epoch,
+            frame.epoch(),
         ))
     }
 
@@ -213,12 +212,9 @@ impl HostBorrowTable {
             borrow_kind,
             ..
         } = record;
-        let HostCallGuard {
-            frame_id,
-            epoch,
-            resources,
-            ..
-        } = *frame;
+        let frame_id = frame.frame_id();
+        let epoch = frame.epoch();
+        let resources = frame.resources;
         if let Some(resources) = resources {
             resources.ensure_execution_allowed()?;
         }

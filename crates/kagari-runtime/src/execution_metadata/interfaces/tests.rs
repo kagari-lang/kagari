@@ -89,7 +89,7 @@ fn boxed_scalar_does_not_acquire_object_identity() {
 
 #[test]
 fn rejected_parent_publication_keeps_the_cache_empty_until_valid_upcast() {
-    let (runtime, _loaded_program, loaded, table, value) = fixture();
+    let (mut runtime, _loaded_program, loaded, table, value) = fixture();
     let id = identity(&runtime, &value);
     let root = runtime.root_value(value).unwrap();
     let stale_value = runtime
@@ -204,7 +204,7 @@ fn application_publication_checks_owners_and_retains_only_published_edges() {
 
 #[test]
 fn receiver_cache_rejects_invalid_edges_before_publishing_either_cell() {
-    let (runtime, _program, _, _, value) = fixture();
+    let (mut runtime, _program, _, _, value) = fixture();
     let id = identity(&runtime, &value);
     let _root = runtime.root_value(value).unwrap();
     let stale = runtime.gc.alloc_operation_group(vec![]).unwrap();
@@ -265,7 +265,7 @@ fn receiver_cache_rejects_invalid_edges_before_publishing_either_cell() {
 
 #[test]
 fn parent_cache_and_prepared_method_keep_views_until_last_root() {
-    let (runtime, _loaded_program, _loaded, _table, value) = fixture();
+    let (mut runtime, _loaded_program, _loaded, _table, value) = fixture();
     let id = identity(&runtime, &value);
     let view = runtime.gc.interface_metadata(id).unwrap();
     let source = view.description.interface_type().clone();
@@ -298,7 +298,7 @@ fn parent_cache_and_prepared_method_keep_views_until_last_root() {
 
 #[test]
 fn shared_descriptions_keep_receiver_views_separate_and_retire_after_last_root() {
-    let (runtime, _loaded_program, loaded, table, first) = fixture();
+    let (mut runtime, _loaded_program, loaded, table, first) = fixture();
     let second = runtime
         .make_interface(&loaded, table, Value::I32(23))
         .unwrap();
@@ -390,7 +390,7 @@ fn interface_descriptions_do_not_merge_reloaded_implementation_generations() {
 
 #[test]
 fn interface_ids_reject_foreign_stale_bounds_and_exhausted_generations() {
-    let (runtime, _loaded_program, loaded, table, value) = fixture();
+    let (mut runtime, _loaded_program, loaded, table, value) = fixture();
     let id = identity(&runtime, &value);
     let (foreign, _foreign_loaded_program, _foreign_loaded, _foreign_table, foreign_value) =
         fixture();
@@ -455,7 +455,11 @@ fn borrowed_interface_view_prevents_any_partial_reclamation() {
     );
     assert_eq!(runtime.gc.stats(), before);
     assert_eq!(
-        runtime.collect_garbage().unwrap_err().kind(),
+        runtime
+            .gc
+            .collect(&runtime.modules, &[])
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::EngineFault
     );
     assert_eq!(runtime.gc.stats(), before);
@@ -491,7 +495,11 @@ fn invalid_cached_parent_aborts_before_any_storage_is_detached() {
     let _root = runtime.root_value(value).unwrap();
     let before = runtime.gc.stats();
     assert_eq!(
-        runtime.collect_garbage().unwrap_err().kind(),
+        runtime
+            .gc
+            .collect(&runtime.modules, &[])
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::EngineFault
     );
     assert_eq!(runtime.gc.stats(), before);
@@ -501,7 +509,7 @@ fn invalid_cached_parent_aborts_before_any_storage_is_detached() {
 
 #[test]
 fn interface_metadata_root_and_prepared_method_do_not_own_records_after_teardown() {
-    let (runtime, _loaded_program, _loaded, _table, value) = fixture();
+    let (mut runtime, _loaded_program, _loaded, _table, value) = fixture();
     let id = identity(&runtime, &value);
     let view = runtime.gc.interface_metadata(id).unwrap();
     let target = view.description.interface_type().clone();
@@ -555,7 +563,7 @@ fn interface_metadata_root_and_prepared_method_do_not_own_records_after_teardown
 
 #[test]
 fn metadata_only_root_retains_the_heap_receiver_without_retaining_the_wrapper() {
-    let (runtime, _loaded_program, loaded) = load_source(
+    let (mut runtime, _loaded_program, loaded) = load_source(
         r#"
         trait Read { fn read(self) -> i32; }
         struct Boxed { val value: i32 }
@@ -602,7 +610,7 @@ fn metadata_only_root_retains_the_heap_receiver_without_retaining_the_wrapper() 
 
 #[test]
 fn independent_heap_aliases_keep_their_snapshot_after_wrapper_reuse() {
-    let (runtime, _loaded_program, _loaded, _table, old) = fixture();
+    let (mut runtime, _loaded_program, _loaded, _table, old) = fixture();
     let id = identity(&runtime, &old);
     let metadata = runtime
         .root_metadata(vec![MetadataRoot::Interface(id)])
@@ -639,7 +647,7 @@ fn independent_heap_aliases_keep_their_snapshot_after_wrapper_reuse() {
 
 #[test]
 fn invalid_interface_inspection_preserves_declaration_and_slot_error_kinds() {
-    let (runtime, _loaded_program, _loaded, _table, value) = fixture();
+    let (mut runtime, _loaded_program, _loaded, _table, value) = fixture();
     let id = identity(&runtime, &value);
     let snapshot = runtime.gc.interface_metadata(id).unwrap();
     let target = snapshot.description.interface_type().clone();

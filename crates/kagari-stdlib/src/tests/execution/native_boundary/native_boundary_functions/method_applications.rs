@@ -29,13 +29,14 @@ const SOURCE: &str = r#"
 
 #[test]
 fn inherent_applications_infer_impl_arguments_and_check_method_evidence() {
-    let (vm, owner) = fixture(SOURCE, None);
+    let (mut vm, owner) = fixture(SOURCE, None);
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
-    let runtime = &vm;
+    let runtime = &mut vm;
     let conversion = ConversionContext::new(runtime, &owner).unwrap();
     let i32_type = conversion.type_for::<i32>().unwrap();
     let string_type = conversion.type_for::<String>().unwrap();
+    drop(conversion);
     let holder = runtime
         .bind_type(&_owner_program.root(), "Holder", slice::from_ref(&i32_type))
         .unwrap();
@@ -86,7 +87,7 @@ fn inherent_applications_infer_impl_arguments_and_check_method_evidence() {
             .bind_method_application::<(i32,), i32>(
                 &holder,
                 "choose",
-                &[i32_type.clone(), i32_type]
+                &[i32_type.clone(), i32_type.clone()]
             )
             .is_err()
     );
@@ -99,19 +100,20 @@ fn inherent_applications_infer_impl_arguments_and_check_method_evidence() {
             .bind_associated_function_application::<(i32,), i32>(
                 &other,
                 "identity",
-                &[conversion.type_for::<i32>().unwrap()]
+                slice::from_ref(&i32_type)
             )
             .is_err()
     );
-    let object = vm.call(&create, (42,)).unwrap();
-    let mut cx = vm.context(&owner).unwrap();
+    let object = runtime.call(&create, (42,)).unwrap();
+    let mut cx = runtime.context(&owner).unwrap();
     assert_eq!(object.call(&mut cx, &get, ()).unwrap(), 42);
     assert_eq!(object.call(&mut cx, &replace, (11,)).unwrap(), 42);
-    runtime.collect_garbage().unwrap();
+    cx.collect_garbage().unwrap();
     assert_eq!(object.call(&mut cx, &get, ()).unwrap(), 11);
     assert_eq!(object.call(&mut cx, &choose, (7,)).unwrap(), 7);
     assert_eq!(object.call(&mut cx, &again, (8,)).unwrap(), 8);
-    assert_eq!(vm.call(&identity, (9,)).unwrap(), 9);
+    drop(cx);
+    assert_eq!(runtime.call(&identity, (9,)).unwrap(), 9);
     drop(object);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
     assert_eq!(runtime.gc().active_roots(), 0);
@@ -125,7 +127,7 @@ fn inherent_application_handles_select_current_code_after_reload() {
     let (mut vm, old) = fixture_without_foundation(&source, None);
     let _old_program = old;
     let old = vm.select_program(&_old_program).unwrap();
-    let i32_type = ConversionContext::new(&vm, &old)
+    let i32_type = ConversionContext::new(&mut vm, &old)
         .unwrap()
         .type_for::<i32>()
         .unwrap();
@@ -157,18 +159,25 @@ fn inherent_application_handles_select_current_code_after_reload() {
         .execute_typed(&_new_program, "make", (), &Default::default())
         .unwrap();
     let mut cx = vm.context(&new).unwrap();
-    let other: Object = vm
+    let other: Object = cx
+        .runtime_mut()
         .execute_typed(&_new_program, "other", (), &Default::default())
         .unwrap();
     assert!(other.call(&mut cx, &old_get, ()).is_err());
     assert!(other.call(&mut cx, &new_get, ()).is_err());
     assert_eq!(object.call(&mut cx, &new_get, ()).unwrap(), 42);
     assert_eq!(replacement.call(&mut cx, &old_get, ()).unwrap(), 43);
-    vm.collect_garbage().unwrap();
+    cx.runtime_mut().collect_garbage().unwrap();
     assert_eq!(object.call(&mut cx, &old_get, ()).unwrap(), 42);
     assert_eq!(replacement.call(&mut cx, &new_get, ()).unwrap(), 43);
-    let old_calls = vm.bind_field::<i32>(&old_type, "calls").unwrap();
-    let new_calls = vm.bind_field::<i32>(&new_type, "calls").unwrap();
+    let old_calls = cx
+        .runtime_mut()
+        .bind_field::<i32>(&old_type, "calls")
+        .unwrap();
+    let new_calls = cx
+        .runtime_mut()
+        .bind_field::<i32>(&new_type, "calls")
+        .unwrap();
     assert_eq!(object.get(&mut cx, &old_calls).unwrap(), 20);
     assert_eq!(replacement.get(&mut cx, &new_calls).unwrap(), 20);
 }
@@ -187,11 +196,11 @@ fn nested_inherent_arguments_retain_nominal_results_and_selected_bounds() {
         pub fn make() -> Holder<Vec<Item>> { Holder { value: Vec::from([Item { value: 42 }]) } }
         pub fn evidence() -> i32 { val holder = make(); holder.read(holder.first()) }
     "#;
-    let (vm, owner) = fixture(source, None);
+    let (mut vm, owner) = fixture(source, None);
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
-    let runtime = &vm;
-    let object: Object = vm
+    let runtime = &mut vm;
+    let object: Object = runtime
         .execute_typed(&_owner_program, "make", (), &Default::default())
         .unwrap();
     let item = runtime
@@ -216,18 +225,18 @@ fn nested_inherent_arguments_retain_nominal_results_and_selected_bounds() {
             .bind_method_application::<(i32,), i32>(object.object_type(), "read", &[wrong])
             .is_err()
     );
-    let mut cx = vm.context(&owner).unwrap();
+    let mut cx = runtime.context(&owner).unwrap();
     let result = object.call(&mut cx, &first, ()).unwrap();
-    runtime.collect_garbage().unwrap();
-    let value = runtime.bind_field::<i32>(&item, "value").unwrap();
+    cx.runtime_mut().collect_garbage().unwrap();
+    let value = cx.runtime_mut().bind_field::<i32>(&item, "value").unwrap();
     result.set(&mut cx, &value, 43).unwrap();
     assert_eq!(object.call(&mut cx, &read, (result.clone(),)).unwrap(), 43);
     drop(object);
-    runtime.collect_garbage().unwrap();
+    cx.runtime_mut().collect_garbage().unwrap();
     assert_eq!(result.get(&mut cx, &value).unwrap(), 43);
     drop(result);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(cx.runtime().gc().active_roots(), 0);
 }
 
 #[test]
@@ -264,7 +273,7 @@ fn repeated_impl_parameters_reject_mixed_nominal_layout_scopes() {
         )
         .unwrap();
         let _new_program = new;
-        let runtime = &vm;
+        let runtime = &mut vm;
         let new_item = runtime
             .bind_type(&_new_program.root(), "Item", &[])
             .unwrap();

@@ -482,7 +482,7 @@ fn prepared_reload_is_inert_and_rejects_a_stale_publication() {
     let baseline = runtime.select_program(&baseline_program).unwrap();
     let before_count = runtime.modules().loaded_count();
     let before_resources = runtime.resources().counters();
-    let prepare = |runtime: &Runtime| {
+    let prepare = |runtime: &mut Runtime| {
         runtime
             .prepare_reload(
                 &baseline_program,
@@ -500,8 +500,8 @@ fn prepared_reload_is_inert_and_rejects_a_stale_publication() {
             )
             .unwrap()
     };
-    let candidate = prepare(&runtime);
-    let stale = prepare(&runtime);
+    let candidate = prepare(&mut runtime);
+    let stale = prepare(&mut runtime);
     assert_eq!(runtime.modules().loaded_count(), before_count);
     assert_eq!(runtime.resources().counters(), before_resources);
     assert_eq!(

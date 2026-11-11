@@ -61,7 +61,7 @@ impl IntoKagari for Reply {
     ) -> NativeResult<Value> {
         self.encoded.fetch_add(1, Ordering::SeqCst);
         let value = cx.encode_value(expected, (7_i32,))?;
-        cx.runtime().collect_garbage()?;
+        cx.runtime_mut().collect_garbage()?;
         match self.boundary {
             Boundary::DuringConversion => self.cancellation.cancel(),
             Boundary::ConversionFault => {
@@ -82,7 +82,7 @@ impl Drop for Reply {
     }
 }
 
-fn drive(f: &Fixture, scope: &TaskScopeOwner, task: TaskId) -> TaskDriveResult {
+fn drive(f: &mut Fixture, scope: &TaskScopeOwner, task: TaskId) -> TaskDriveResult {
     for _ in 0..1000 {
         let result = f
             .runtime
@@ -108,7 +108,7 @@ fn async_output_publication_contract() {
         let cancelled = Arc::new(AtomicUsize::new(0));
         let encoded = Arc::new(AtomicUsize::new(0));
         let dropped = Arc::new(AtomicUsize::new(0));
-        let f = Fixture::with_source(SOURCE, Default::default(), |engine| {
+        let mut f = Fixture::with_source(SOURCE, Default::default(), |engine| {
             let send = sent.clone();
             let cancelled = cancelled.clone();
             let mut module =
@@ -141,7 +141,6 @@ fn async_output_publication_contract() {
             engine.install(module.finish().unwrap()).unwrap();
         });
 
-        let runtime = &f.runtime;
         let context = ExecutionContext::default();
         let scope = f
             .runtime
@@ -153,13 +152,14 @@ fn async_output_publication_contract() {
             .unwrap();
         let items = f.invoke("items", &[]);
         let factory = f.invoke("factory", &[f.value(&items)]);
-        let handle = runtime
+        let handle = f
+            .runtime
             .spawn_task(&f.value(scope.capability()), &f.value(&factory))
             .unwrap()
             .unwrap();
         drop(factory);
-        let task = runtime.task_id(&f.value(&handle)).unwrap();
-        assert_eq!(drive(&f, &scope, task), TaskDriveResult::Waiting);
+        let task = f.runtime.task_id(&f.value(&handle)).unwrap();
+        assert_eq!(drive(&mut f, &scope, task), TaskDriveResult::Waiting);
         let reply = Reply {
             boundary,
             cancellation: context.cancellation.clone(),
@@ -182,9 +182,9 @@ fn async_output_publication_contract() {
         if boundary == Boundary::BeforeConversion {
             context.cancellation.cancel();
         }
-        assert_eq!(drive(&f, &scope, task), TaskDriveResult::Complete);
-        let report = runtime.take_task_report(&scope, task).unwrap().unwrap();
-        assert!(runtime.take_task_report(&scope, task).unwrap().is_none());
+        assert_eq!(drive(&mut f, &scope, task), TaskDriveResult::Complete);
+        let report = f.runtime.take_task_report(&scope, task).unwrap().unwrap();
+        assert!(f.runtime.take_task_report(&scope, task).unwrap().is_none());
         if boundary == Boundary::Success {
             assert_eq!(f.value(&report.outcome.unwrap()), Value::I32(12));
         } else {
@@ -192,12 +192,14 @@ fn async_output_publication_contract() {
             assert_eq!(failure.source_task, task);
             if boundary == Boundary::ConversionFault {
                 assert_eq!(failure.error.kind(), RuntimeErrorKind::EngineFault);
-                assert!(runtime.is_quarantined());
+                assert!(f.runtime.is_quarantined());
             } else {
                 assert_eq!(failure.error.kind(), RuntimeErrorKind::Cancelled);
                 assert_eq!(failure.cancellation, Some(CancellationCause::ScopeClose));
                 assert_eq!(
-                    f.value(&f.invoke("first", &[f.value(&items)])),
+                    f.invoke("first", &[f.value(&items)])
+                        .value(f.runtime.gc())
+                        .unwrap(),
                     Value::I32(5)
                 );
             }
@@ -216,22 +218,22 @@ fn async_output_publication_contract() {
             CompletionStatus::Stale
         );
         if boundary != Boundary::ConversionFault {
-            assert!(!runtime.is_quarantined());
+            assert!(!f.runtime.is_quarantined());
             let _ = f.invoke("write", slice::from_ref(&f.value(&items)));
         }
         scope.close();
-        runtime.drain_cancelled_tasks().unwrap();
+        f.runtime.drain_cancelled_tasks().unwrap();
         drop((scope, handle, items));
         if boundary == Boundary::ConversionFault {
             assert_eq!(
-                runtime.collect_garbage().unwrap_err().kind(),
+                f.runtime.collect_garbage().unwrap_err().kind(),
                 RuntimeErrorKind::EngineFault
             );
         } else {
-            runtime.collect_garbage().unwrap();
-            assert_eq!(runtime.gc().allocated_objects(), 0);
+            f.runtime.collect_garbage().unwrap();
+            assert_eq!(f.runtime.gc().allocated_objects(), 0);
         }
-        assert_eq!(runtime.gc().active_roots(), 0);
-        assert_eq!(runtime.resources().counters().current_call_depth, 0);
+        assert_eq!(f.runtime.gc().active_roots(), 0);
+        assert_eq!(f.runtime.resources().counters().current_call_depth, 0);
     }
 }

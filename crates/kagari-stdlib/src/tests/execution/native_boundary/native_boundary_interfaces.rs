@@ -12,7 +12,7 @@ use kagari_runtime::{
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
-        context::CallContext,
+        context::NativeCall,
         declarations::{CallableRequirement, FunctionDecl, MethodDecl},
         module::NativeModule,
         types::Type,
@@ -108,7 +108,7 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
     let loaded = load_bytecode(&mut runtime, "shared-native", decoded).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     assert_eq!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
@@ -180,7 +180,7 @@ fn registered_default_calls_the_selected_receiver_operation() {
         .unwrap();
     declaration.finish().unwrap();
     let module = module.finish().unwrap();
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         r#"
         use example::defaults::Read;
         struct Number {}
@@ -207,7 +207,7 @@ fn registered_default_calls_the_selected_receiver_operation() {
 
 #[test]
 fn dynamic_list_iteration_adapts_the_concrete_cursor_result() {
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         r#"use std::collections::{List};
 
         fn sum(values: List<i32>) -> i32 {
@@ -247,7 +247,7 @@ fn dynamic_iterator_adapters_round_trip_and_reject_forged_tables() {
     let loaded = load_bytecode(&mut runtime, "round-trip", decoded).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     assert_eq!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
@@ -307,13 +307,13 @@ fn dynamic_iteration_preserves_gc_roots_and_detects_invalidation() {
         .define_function(FunctionDecl::new("collect").returns(Type::unit()))
         .unwrap();
     builder
-        .bind(collect, |cx: &mut CallContext<'_>| -> NativeResult<()> {
+        .bind(collect, |cx: &mut NativeCall<'_>| -> NativeResult<()> {
             cx.collect_garbage()?;
             Ok(())
         })
         .unwrap();
     let module = builder.finish().unwrap();
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         r#"use std::collections::{List, MutableList};
 
         use example::collection_gc::collect;
@@ -360,7 +360,7 @@ fn dynamic_iteration_preserves_gc_roots_and_detects_invalidation() {
 
 #[test]
 fn script_iterator_results_use_the_same_dynamic_adapter() {
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         r#"
         struct Cursor { var current: i32 }
         impl Iterator for Cursor {
@@ -400,7 +400,7 @@ fn script_iterator_results_use_the_same_dynamic_adapter() {
 
 #[test]
 fn default_map_and_set_iterate_through_readonly_parent_views() {
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         r#"use std::collections::{HashMap, HashSet, Map, MutableMap, MutableSet, Set};
 
         fn map_sum(values: MutableMap<i32, i32>) -> i32 {
@@ -510,7 +510,7 @@ fn generic_native_default_uses_the_callers_ordering_operation() {
     let loaded = load_bytecode(&mut runtime, "native-constraint", decoded).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     assert_eq!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
@@ -549,7 +549,7 @@ fn main() -> i32 {
     let loaded = load_bytecode(&mut runtime, "shared-helper", decoded).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     assert_eq!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
@@ -756,7 +756,7 @@ fn generic_native_default_calls_the_selected_receiver_operation() {
         .unwrap();
     declaration.finish().unwrap();
     let module = module.finish().unwrap();
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         r#"
 use example::receiver::Read;
 struct Source<R> { val value: R }
@@ -837,7 +837,7 @@ fn a_shared_native_helper_calls_a_generic_constraint_member() {
         )
         .unwrap();
     let module = module.finish().unwrap();
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         r#"
 use example::generic_operation::{Identity, invoke};
 struct Source { var calls: i32 }

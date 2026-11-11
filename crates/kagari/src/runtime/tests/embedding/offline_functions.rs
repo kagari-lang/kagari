@@ -38,7 +38,7 @@ fn echo_module(result: Type, calls: Arc<Mutex<Vec<i32>>>) -> NativeModule {
         )
         .unwrap();
     builder
-        .bind(echo, move |_: &HostCallContext<'_>, args: &[Value]| {
+        .bind(echo, move |_: &mut HostCallContext<'_>, args: &[Value]| {
             let [Value::I32(value)] = args else {
                 unreachable!()
             };

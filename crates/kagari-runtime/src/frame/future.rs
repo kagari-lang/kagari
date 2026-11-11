@@ -4,7 +4,7 @@ use crate::{
     closure::{ClosureTarget, ClosureValueSnapshot},
     error::RuntimeError,
     frame::{
-        ExecutionStack, FrameDispatch, FrameEntry, arguments::FrameArguments,
+        FrameDispatch, FrameEntry, FrameStack, arguments::FrameArguments,
         types::arguments::TypeArgument,
     },
     module::ExecutableModule,
@@ -20,7 +20,7 @@ use kagari_contract::ids::FunctionRef;
 use kagari_types::ty::Ty;
 use std::{cell::Ref, slice};
 
-impl ExecutionStack<'_> {
+impl FrameStack {
     pub fn make_future(
         &self,
         runtime: &Runtime,
@@ -28,7 +28,7 @@ impl ExecutionStack<'_> {
         values: Vec<Value>,
         future: &Ty,
     ) -> NativeResult<Value> {
-        self.validate_runtime(runtime)?;
+        self.validate_top(runtime)?;
         runtime.reject_static_initialization("cold Future construction")?;
         if runtime.execution_options().phase != ExecutionPhase::Ordinary {
             return Err(RuntimeError::execution_phase_violation(
@@ -36,7 +36,7 @@ impl ExecutionStack<'_> {
             ));
         }
         runtime.gc().validate_async_values(&values)?;
-        let frame = self.current()?;
+        let frame = self.current(runtime)?;
         let owner = frame.loaded();
         let invalid = || RuntimeError::module_validation("cold script Future contract");
         let target = owner
@@ -120,9 +120,9 @@ impl ExecutionStack<'_> {
             return Err(invalid());
         }
         let owner = if destination.is_some() {
-            self.current()?.loaded().clone()
+            self.current(runtime)?.loaded().clone()
         } else {
-            self.session.root()
+            self.session_state(runtime).root.clone()
         };
         let closure = runtime.checked_future_resume(value, &owner, output)?;
         let ClosureTarget::Script(function) = closure.target else {

@@ -8,31 +8,31 @@ use crate::{
 };
 
 pub(crate) fn invoke_script(
-    runtime: &Runtime,
+    runtime: &mut Runtime,
     _owner: &ExecutableModule,
     target: ScriptCall<'_>,
     arguments: &[Value],
 ) -> NativeResult<Value> {
     let stack = match target {
         ScriptCall::Closure(closure) => {
-            let stack = runtime.enter_closure_execution_stack(closure)?;
-            stack.push_closure(runtime, closure.value(), arguments, None)?;
+            let mut stack = runtime.enter_closure_execution_stack(closure)?;
+            stack.with(|runtime, frames| {
+                frames.push_closure(runtime, closure.value(), arguments, None)
+            })?;
             stack
         }
         ScriptCall::Pinned(function) => {
-            let stack = runtime.enter_pinned_execution_stack(function)?;
-            stack.push_pinned_call(runtime, function, arguments)?;
+            let mut stack = runtime.enter_pinned_execution_stack(function)?;
+            stack.with(|runtime, frames| frames.push_pinned_call(runtime, function, arguments))?;
             stack
         }
         ScriptCall::Interface(method) => {
-            let stack = runtime.enter_interface_execution_stack(method)?;
-            stack.push_interface_method(runtime, method.clone(), arguments, None)?;
+            let mut stack = runtime.enter_interface_execution_stack(method)?;
+            stack.with(|runtime, frames| {
+                frames.push_interface_method(runtime, method.clone(), arguments, None)
+            })?;
             stack
         }
     };
-    Executor {
-        runtime,
-        stack: Some(stack),
-    }
-    .run()
+    Executor::from_activation(stack).run()
 }

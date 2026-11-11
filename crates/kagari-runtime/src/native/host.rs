@@ -1,13 +1,16 @@
 //! External-ID service adaptation uses ordinary checked native entry and host scopes.
 use crate::{
+    Runtime,
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
     host::{HostBorrowKind, HostBorrowTable, HostCallContext, HostError},
+    module::ExecutableModule,
+    native::binding::LinkedNativeFunction,
     native::{
         adapter::{Host, NativeAdapter},
         binding::{Codec, NativeBinding, NativeResult},
         catalog::DeclarationCatalog,
-        context::CallContext,
+        context::NativeCall,
     },
     session::store::SessionId,
     value::{EphemeralValue, Value},
@@ -20,7 +23,7 @@ use std::fmt::Write;
 
 impl<F> NativeAdapter<Host, Value> for F
 where
-    F: for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+    F: for<'call> Fn(&mut HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
         + Send
         + Sync
         + 'static,
@@ -49,17 +52,19 @@ where
                 }
                 cx.runtime.validate_native_host_policy(&policy)?;
                 let trace = begin_trace(cx, &values)?;
+                let owner = cx.owner;
+                let function = cx.function;
                 let result = (|| {
-                    let context = HostCallContext::new(cx.runtime, &values)?;
-                    check_arguments(cx, &values, &policy)?;
+                    let mut context = HostCallContext::new(cx.runtime, &values)?;
+                    check_arguments(context.runtime(), owner, function, &values, &policy)?;
                     acquire_arguments(&context, &values, &policy)?;
-                    let result = self(&context, &values)
+                    let result = self(&mut context, &values)
                         .map_err(RuntimeError::from_host)
-                        .and_then(|value| check_result(cx, value));
+                        .and_then(|value| check_result(context.runtime(), owner, function, value));
                     context.runtime().resources().poll_execution()?;
                     let value = result?;
-                    HostBorrowTable::validate_no_escape(cx.heap(), &value)?;
-                    if !cx.heap().validate_value(&value) {
+                    HostBorrowTable::validate_no_escape(context.runtime().gc(), &value)?;
+                    if !context.runtime().gc().validate_value(&value) {
                         return Err(RuntimeError::host_call_failure(
                             "invalid heap reference in host result",
                         ));
@@ -82,7 +87,7 @@ where
     }
 }
 
-fn begin_trace(cx: &CallContext<'_>, values: &[Value]) -> NativeResult<Option<(SessionId, usize)>> {
+fn begin_trace(cx: &NativeCall<'_>, values: &[Value]) -> NativeResult<Option<(SessionId, usize)>> {
     let Some(session) = cx.runtime.resources().active_session() else {
         return Ok(None);
     };
@@ -120,16 +125,18 @@ fn begin_trace(cx: &CallContext<'_>, values: &[Value]) -> NativeResult<Option<(S
 }
 
 fn check_arguments(
-    cx: &CallContext<'_>,
+    runtime: &Runtime,
+    owner: &ExecutableModule,
+    function: &LinkedNativeFunction,
     values: &[Value],
     policy: &HostCallPolicy,
 ) -> NativeResult<()> {
-    let signature = cx.function.type_signature()?;
+    let signature = function.type_signature()?;
     for ((value, expected), passing) in values.iter().zip(&signature.params).zip(&policy.passing) {
         if *passing == HostPassingStyle::Owned {
-            HostBorrowTable::validate_no_escape(cx.heap(), value)?;
+            HostBorrowTable::validate_no_escape(runtime.gc(), value)?;
         }
-        if !matches_external_value(cx, expected, value) {
+        if !matches_external_value(runtime, owner, expected, value) {
             return Err(RuntimeError::host_call_failure(
                 "host arguments do not match the declared signature",
             ));
@@ -138,13 +145,18 @@ fn check_arguments(
     Ok(())
 }
 
-fn check_result(cx: &CallContext<'_>, value: Value) -> NativeResult<Value> {
-    if !cx.heap().validate_candidate_value(&value) {
+fn check_result(
+    runtime: &Runtime,
+    owner: &ExecutableModule,
+    function: &LinkedNativeFunction,
+    value: Value,
+) -> NativeResult<Value> {
+    if !runtime.gc().validate_candidate_value(&value) {
         return Err(RuntimeError::execution_phase_violation(
             "external object in candidate host result",
         ));
     }
-    if !matches_external_value(cx, &cx.function.type_signature()?.result, &value) {
+    if !matches_external_value(runtime, owner, &function.type_signature()?.result, &value) {
         return Err(RuntimeError::host_call_failure(
             "host result does not match the declared signature",
         ));
@@ -154,11 +166,16 @@ fn check_result(cx: &CallContext<'_>, value: Value) -> NativeResult<Value> {
 
 // External borrow tokens are accepted only for declaration matching at this
 // boundary. General value admission still forbids storing or returning them.
-fn matches_external_value(cx: &CallContext<'_>, expected: &TypeArgument, value: &Value) -> bool {
-    if !cx.heap().validate_value(value) {
+fn matches_external_value(
+    runtime: &Runtime,
+    owner: &ExecutableModule,
+    expected: &TypeArgument,
+    value: &Value,
+) -> bool {
+    if !runtime.gc().validate_value(value) {
         return false;
     }
-    expected.matches(cx.runtime, value, cx.owner)
+    expected.matches(runtime, value, owner)
 }
 
 fn acquire_arguments(

@@ -43,7 +43,7 @@ fn content_callbacks_preserve_effects_and_release_roots_on_all_exits() {
         .unwrap()
         .declaration;
     let method = |name| ModuleDecl::method_id(declaration, name, loaded.definitions()).unwrap();
-    let vm = runtime;
+    let mut vm = runtime;
     for helper in [false, true] {
         for mode in 0..=if helper { 4 } else { 6 } {
             let root = vm
@@ -103,8 +103,9 @@ fn content_callbacks_preserve_effects_and_release_roots_on_all_exits() {
         let value = root.value(vm.gc()).unwrap();
         vm.invoke_interface_method(&value, &method("mode"), &[Value::I32(4)])
             .unwrap();
-        let session = support::cancel_after(&vm, &loaded, limit);
-        let error = vm
+        let mut session = support::cancel_after(&mut vm, &loaded, limit);
+        let error = session
+            .runtime_mut()
             .invoke_interface_method(&value, &method("compare"), &[Value::Bool(true)])
             .unwrap_err();
         drop(session);

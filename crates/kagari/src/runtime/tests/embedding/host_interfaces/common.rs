@@ -67,7 +67,7 @@ pub struct Fixture {
 impl Fixture {
     pub fn new(
         config: Config,
-        read: impl Fn(&HostCallContext<'_>, &[Value]) -> Result<Value, HostError>
+        read: impl Fn(&mut HostCallContext<'_>, &[Value]) -> Result<Value, HostError>
         + Send
         + Sync
         + 'static,
@@ -122,19 +122,22 @@ impl Fixture {
                             },
                         },
                     )?;
-                    methods.bind("read", move |cx: &HostCallContext<'_>, args: &[Value]| {
-                        let [Value::HostRoot(_), Value::I32(amount)] = args else {
-                            panic!("checked host arguments")
-                        };
-                        calls.lock().unwrap().push(*amount);
-                        let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
-                        assert!(
-                            cx.borrows()
-                                .borrow_unique(root.object_id(), root.type_id())
-                                .is_err()
-                        );
-                        read(cx, args)
-                    })
+                    methods.bind(
+                        "read",
+                        move |cx: &mut HostCallContext<'_>, args: &[Value]| {
+                            let [Value::HostRoot(_), Value::I32(amount)] = args else {
+                                panic!("checked host arguments")
+                            };
+                            calls.lock().unwrap().push(*amount);
+                            let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
+                            assert!(
+                                cx.borrows()
+                                    .borrow_unique(root.object_id(), root.type_id())
+                                    .is_err()
+                            );
+                            read(cx, args)
+                        },
+                    )
                 })
             })
             .unwrap();
@@ -160,7 +163,7 @@ impl Fixture {
             .unwrap();
         let calls = trace.clone();
         module
-            .bind(make, move |cx: &HostCallContext<'_>, _: &[Value]| {
+            .bind(make, move |cx: &mut HostCallContext<'_>, _: &[Value]| {
                 calls.lock().unwrap().push(0);
                 let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
                 Ok(cx.runtime().gc().alloc_host_root(root).unwrap())

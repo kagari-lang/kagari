@@ -141,7 +141,7 @@ fn embedding_host_path_module(path_access: PathAccess) -> NativeModule {
         )
         .unwrap();
     builder
-        .bind(make, |cx: &HostCallContext<'_>, _: &[Value]| {
+        .bind(make, |cx: &mut HostCallContext<'_>, _: &[Value]| {
             let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
             Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
         })

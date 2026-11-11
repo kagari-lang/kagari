@@ -44,7 +44,7 @@ pub fn healthy() -> i32 { 42 }
     .unwrap();
     let log = builder.declared_function("log").unwrap();
     builder
-        .bind(log, move |cx: &HostCallContext<'_>, args: &[Value]| {
+        .bind(log, move |cx: &mut HostCallContext<'_>, args: &[Value]| {
             let [Value::Str(id)] = args else {
                 panic!("log string")
             };
@@ -91,9 +91,10 @@ pub fn healthy() -> i32 { 42 }
         assert!(runtime.execution_root().is_none());
         let limited = context.clone();
 
-        let cancellation =
-            support::cancel_after(&runtime, &runtime.select_program(&loaded).unwrap(), 20);
-        let error = runtime
+        let selected = runtime.select_program(&loaded).unwrap();
+        let mut cancellation = support::cancel_after(&mut runtime, &selected, 20);
+        let error = cancellation
+            .runtime_mut()
             .execute(&loaded, "forever", &[], &limited)
             .unwrap_err();
         assert_eq!(error.code(), "KG_RUNTIME_CANCELLED");

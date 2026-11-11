@@ -371,17 +371,19 @@ fn reload_shares_cells_preserves_recipe_and_isolates_candidate_and_new_installat
         cell(&runtime.modules, &baseline, 0),
         cell(&runtime.modules, &independent, 0)
     );
-    let session = runtime.begin_candidate_initialization(&candidate).unwrap();
+    let mut session = runtime.begin_candidate_initialization(&candidate).unwrap();
     for target in [&baseline, candidate.module()] {
         assert_eq!(
-            runtime
+            session
+                .runtime_mut()
                 .read_module_slot(target, ModuleSlot::new(0))
                 .unwrap_err()
                 .kind(),
             RuntimeErrorKind::ExecutionPhaseViolation
         );
         assert_eq!(
-            runtime
+            session
+                .runtime_mut()
                 .write_module_slot(target, ModuleSlot::new(0), Value::I32(9))
                 .unwrap_err()
                 .kind(),
@@ -758,44 +760,50 @@ fn corrupt_storage_quarantines_and_cleans_frame_resources(#[case] corruption: St
     let independent = runtime.select_program(&independent_program).unwrap();
     ready(&runtime, &independent, 0, Value::I32(9));
     let other_cell = cell(&runtime.modules, &independent, 0);
-    let stack = runtime.enter_execution_stack(&module).unwrap();
-    stack
-        .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
+    let mut stack_activation = runtime.enter_execution_stack(&module).unwrap();
+    stack_activation
+        .with(|runtime, stack| {
+            stack
+                .push(runtime, module.slot(), FunctionRef::new(0), &[], None)
+                .unwrap();
+            stack
+                .current_mut(runtime)
+                .unwrap()
+                .write_slot(runtime, Slot::new(0), array(runtime, &module, 7))
+                .unwrap();
+            let id = cell(&runtime.modules, &module, 0);
+            if corruption == StorageCorruption::MissingCell {
+                runtime.modules.inner.borrow_mut().cells.remove(&id);
+            } else if corruption == StorageCorruption::WrongValue {
+                runtime
+                    .modules
+                    .inner
+                    .borrow_mut()
+                    .cells
+                    .get_mut(&id)
+                    .unwrap()
+                    .state = StaticState::Ready(Value::Bool(true));
+            } else {
+                let mut store = runtime.modules.inner.borrow_mut();
+                let record = store.records.get_mut(&module.key()).unwrap();
+                if corruption == StorageCorruption::ForeignBinding {
+                    record.bindings[0] = other_cell;
+                } else {
+                    record.bindings.clear();
+                }
+            }
+            assert_eq!(
+                runtime
+                    .read_module_slot(&module, ModuleSlot::new(0))
+                    .unwrap_err()
+                    .kind(),
+                RuntimeErrorKind::EngineFault
+            );
+
+            Ok(())
+        })
         .unwrap();
-    stack
-        .current_mut()
-        .unwrap()
-        .write_slot(&runtime, Slot::new(0), array(&runtime, &module, 7))
-        .unwrap();
-    let id = cell(&runtime.modules, &module, 0);
-    if corruption == StorageCorruption::MissingCell {
-        runtime.modules.inner.borrow_mut().cells.remove(&id);
-    } else if corruption == StorageCorruption::WrongValue {
-        runtime
-            .modules
-            .inner
-            .borrow_mut()
-            .cells
-            .get_mut(&id)
-            .unwrap()
-            .state = StaticState::Ready(Value::Bool(true));
-    } else {
-        let mut store = runtime.modules.inner.borrow_mut();
-        let record = store.records.get_mut(&module.key()).unwrap();
-        if corruption == StorageCorruption::ForeignBinding {
-            record.bindings[0] = other_cell;
-        } else {
-            record.bindings.clear();
-        }
-    }
-    assert_eq!(
-        runtime
-            .read_module_slot(&module, ModuleSlot::new(0))
-            .unwrap_err()
-            .kind(),
-        RuntimeErrorKind::EngineFault
-    );
-    drop(stack);
+    drop(stack_activation);
     assert!(runtime.execution_root().is_none());
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     assert_eq!(runtime.gc().active_roots(), 0);
