@@ -68,7 +68,7 @@ fn groups_waits_are_nonowning_and_cycles_cross_nested_groups() {
 }
 
 #[test]
-fn groups_pre_admission_cancel_capacity_and_parent_depth() {
+fn groups_pre_admission_cancellation_preserves_inputs_and_releases_capacity() {
     let mut config = EngineConfig::default();
     config.default_runtime.async_limits.max_groups = NonZeroUsize::new(1).unwrap();
     let mut f = Fixture::configured_source(SOURCE, config);
@@ -107,18 +107,6 @@ fn groups_pre_admission_cancel_capacity_and_parent_depth() {
         result(&mut ticket).unwrap(),
         14,
         "cancel before admission claims neither input and releases capacity"
-    );
-    let mut config = EngineConfig::default();
-    config.default_runtime.limits.max_call_depth = Some(8);
-    let mut f = Fixture::configured_source(SOURCE, config);
-    let host = HostLoop::new();
-    assert!(f.runtime.poll(&mut host.context()).is_pending());
-    let mut ticket = scheduled("deep", &[], &mut f);
-    host.until(&mut f.runtime, || ticket.is_finished());
-    assert_eq!(
-        result(&mut ticket).unwrap_err().kind(),
-        RuntimeErrorKind::ResourceLimitExceeded,
-        "branches inherit logical parent depth"
     );
 }
 

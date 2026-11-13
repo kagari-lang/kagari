@@ -57,6 +57,7 @@ mod debug;
 mod defaults;
 mod interfaces;
 mod placement;
+mod tail;
 mod views;
 
 #[derive(Debug)]
@@ -147,7 +148,7 @@ fn lower_linked_module(
         ..Default::default()
     };
     context.native_imports = ir.native_targets.clone();
-    let functions = ir
+    let mut functions = ir
         .functions
         .iter()
         .map(|function| {
@@ -158,6 +159,13 @@ fn lower_linked_module(
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
+    tail::exclude_entries(
+        &mut functions,
+        ir.module_slots
+            .iter()
+            .filter(|slot| slot.contract.supplier == ir.identity)
+            .map(|slot| FunctionRef::new(slot.initializer.index())),
+    );
     let interface_tables =
         collect_interface_tables(ir, program, &mut context.native_imports, catalog, cancel)?;
     let mut module = BytecodeModule {
@@ -398,6 +406,7 @@ fn lower_function(
             .iter()
             .map(|param| lower_local(param.local))
             .collect(),
+        self_tail_calls: tail::candidates(function),
         return_type: function.return_type,
         roots: RootSlotLayout::from_types(&slots),
         slots,

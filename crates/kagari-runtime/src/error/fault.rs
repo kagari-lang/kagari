@@ -283,9 +283,6 @@ pub enum EngineFault {
     #[error("missing prepared call")]
     MissingPreparedCall,
 
-    #[error("missing prepared native call")]
-    MissingPreparedNativeCall,
-
     #[error("missing return frame")]
     MissingReturnFrame,
 
@@ -387,9 +384,6 @@ pub enum EngineFault {
 
     #[error("script call requires a script caller")]
     ScriptCallRequiresAScriptCaller,
-
-    #[error("sealed native body reached callback transition")]
-    SealedNativeBodyReachedCallbackTransition,
 
     #[error("sequence lease restoration failed")]
     SequenceLeaseRestorationFailed,

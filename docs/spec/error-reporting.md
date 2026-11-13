@@ -76,6 +76,14 @@ incomplete flag. Function names, source URIs and payload previews are limited to
 4096 UTF-8 bytes each (a preview may append a truncation marker). Unavailable
 frames/locations are explicit and do not replace the original failure.
 
+Verified [scalar self-tail replacement](execution.md#scalar-self-tail-replacement)
+can retire earlier callers before failure. A surviving frame's
+`tail_calls_elided` flag reports that bounded loss of history; it is neither an
+eliminated-frame count nor the physical `omitted_frames` truncation count.
+Formatted traces mark it as `[self-tail callers elided]`. Observation before entry
+keeps ordinary frames; attaching later reports existing elision and prevents
+further replacement. The selected body's actual source origin remains authoritative.
+
 Each frame copies the code fingerprint, module slot and epoch, function identity/name,
 final executable `instruction_offset`, optional `semantic_origin` ID and available
 source range/position. These are different coordinates, scoped to the retained

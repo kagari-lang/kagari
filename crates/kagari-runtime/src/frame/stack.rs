@@ -2,7 +2,7 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::{RuntimeError, fault::EngineFault},
-    execution::roots::SessionId,
+    execution::{roots::SessionId, space},
     execution_metadata::managed::sources::MetadataSource,
     frame::{
         ExecutionFrame, FrameDispatch, FrameEntry, FrameEnvironment, FrameStack,
@@ -40,8 +40,16 @@ impl FrameStack {
                 .resources()
                 .quarantine(EngineFault::FrameScopeIdentityExhausted)
         })?);
-        state.frame_scopes.borrow_mut().push(id);
+        let reserve = {
+            let mut scopes = state.frame_scopes.borrow_mut();
+            let reserve = space::reserve(&mut scopes, 1, &state.space);
+            if reserve.is_ok() {
+                scopes.push(id);
+            }
+            reserve
+        };
         drop(state);
+        reserve.map_err(|error| runtime.managed_memory_error(error))?;
         Ok(Self {
             _thread: Default::default(),
             session,
@@ -334,6 +342,7 @@ impl FrameStack {
         drop(frames);
         if let Some(mut frame) = retired {
             frame.release_values(&mut runtime.memory, &runtime.resources);
+            frame.release_control(&runtime.resources);
         }
         runtime.resources().leave_call();
         Ok(())
@@ -371,6 +380,7 @@ impl FrameStack {
         while frames.len() > self.base {
             if let Some(mut frame) = frames.pop() {
                 frame.release_values(memory, resources);
+                frame.release_control(resources);
             }
             resources.leave_call();
         }

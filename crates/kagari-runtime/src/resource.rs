@@ -1,8 +1,15 @@
 pub(crate) mod candidate;
+pub(crate) mod native_stack;
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind, fault::EngineFault, reason::CancellationReason},
+    error::{
+        RuntimeError, RuntimeErrorKind,
+        fault::EngineFault,
+        reason::{CancellationReason, ErrorReason},
+    },
     execution::roots::SessionId,
+    execution::space::DEFAULT_STACK_BYTES,
     execution_state::ExecutionState,
+    frame::uncommon::UncommonFrames,
     host::HostRegistryId,
     module::ModuleKey,
     publication::PublicationState,
@@ -50,16 +57,23 @@ impl Default for AsyncLimits {
     }
 }
 
-/// Runtime-wide protection against accidental recursion. No execution metering.
+/// Committed VM storage per execution and independent Native/Rust-stack protection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeLimits {
-    pub max_call_depth: Option<u32>,
+    /// Committed frame, slot and execution-source capacity per execution.
+    /// Defaults to 8 MiB; excludes managed heap and temporary allocator peaks.
+    pub max_stack_bytes: NonZeroUsize,
+
+    /// Nested Native/compiled entries sharing the Runtime's Rust stack.
+    /// Defaults to 32. Supported hosts additionally check remaining OS stack.
+    pub max_native_depth: NonZeroUsize,
 }
 
 impl Default for RuntimeLimits {
     fn default() -> Self {
         Self {
-            max_call_depth: Some(256),
+            max_stack_bytes: NonZeroUsize::new(DEFAULT_STACK_BYTES).expect("positive default"),
+            max_native_depth: NonZeroUsize::new(32).expect("positive default"),
         }
     }
 }
@@ -86,8 +100,10 @@ pub struct ResourceState {
     static_failures: Arc<AtomicBool>,
     pub(crate) publication: PublicationState,
     pub(crate) sessions: SessionStore,
+    pub(crate) uncommon_frames: UncommonFrames,
     execution: ExecutionState,
     limits: RuntimeLimits,
+    native_depth: Cell<usize>,
     counters: RefCell<ResourceCounters>,
     temporary_heap_units: Cell<usize>,
 }
@@ -126,8 +142,10 @@ impl ResourceState {
             static_failures: Arc::new(AtomicBool::new(false)),
             publication: PublicationState::default(),
             sessions: SessionStore::default(),
+            uncommon_frames: UncommonFrames::default(),
             execution: Default::default(),
             limits,
+            native_depth: Cell::new(0),
             counters: RefCell::new(ResourceCounters::default()),
             temporary_heap_units: Cell::new(0),
         }
@@ -149,6 +167,12 @@ impl ResourceState {
         self.active_session
             .get()
             .and_then(|id| self.sessions.get(id))
+    }
+
+    /// Compare activation identity while the caller already owns a checked
+    /// session-record loan. This grants no access to an unborrowed record.
+    pub(crate) fn active_session_id(&self) -> Option<SessionId> {
+        self.active_session.get()
     }
 
     pub(crate) fn candidate_owner(&self) -> Option<(HostRegistryId, ModuleKey)> {
@@ -220,7 +244,10 @@ impl ResourceState {
     pub fn admit_execution_error(&self, error: RuntimeError) -> RuntimeError {
         if matches!(
             error.kind(),
-            RuntimeErrorKind::ResourceLimitExceeded | RuntimeErrorKind::Cancelled
+            RuntimeErrorKind::ResourceLimitExceeded
+                | RuntimeErrorKind::StackOverflow
+                | RuntimeErrorKind::AllocationFailure
+                | RuntimeErrorKind::Cancelled
         ) && let Some(session) = self.active_session()
         {
             return session.terminate(self, error);
@@ -230,6 +257,14 @@ impl ResourceState {
 
     pub(crate) fn limit(&self, name: &'static str) -> RuntimeError {
         self.admit_execution_error(RuntimeError::resource_limit(name))
+    }
+
+    pub(crate) fn stack_overflow(&self) -> RuntimeError {
+        self.admit_execution_error(RuntimeError::new(ErrorReason::StackOverflow))
+    }
+
+    pub(crate) fn allocation_failure(&self) -> RuntimeError {
+        self.admit_execution_error(RuntimeError::new(ErrorReason::AllocationFailure))
     }
 
     pub(crate) fn close_execution(&self) {
@@ -268,6 +303,10 @@ impl ResourceState {
         *self.counters.borrow()
     }
 
+    pub(crate) fn stack_limit(&self) -> usize {
+        self.limits.max_stack_bytes.get()
+    }
+
     pub(crate) fn park_call_depth(&self) -> u32 {
         mem::take(&mut self.counters.borrow_mut().current_call_depth)
     }
@@ -278,22 +317,23 @@ impl ResourceState {
 
     pub(crate) fn enter_call(&self) -> Result<(), RuntimeError> {
         self.poll_execution()?;
+        self.record_call()
+            .map_err(|error| self.admit_execution_error(error))
+    }
+
+    /// Record an internal frame without trace capture under source/control loans.
+    /// The closed executor admits any failure after releasing all those loans.
+    pub(crate) fn enter_call_closed(&self) -> Result<(), RuntimeError> {
+        self.poll_closed()?;
+        self.record_call()
+    }
+
+    fn record_call(&self) -> Result<(), RuntimeError> {
         let mut counters = self.counters.borrow_mut();
         let next = counters
             .current_call_depth
             .checked_add(1)
-            .ok_or_else(|| self.limit("call depth"))?;
-        let base = self
-            .active_session()
-            .map_or(0, |session| session.depth_base.get());
-        let logical_depth = next
-            .checked_add(base)
-            .ok_or_else(|| self.limit("call depth"))?;
-        if let Some(max) = self.limits.max_call_depth
-            && logical_depth > max
-        {
-            return Err(self.limit("call depth"));
-        }
+            .ok_or_else(|| RuntimeError::new(ErrorReason::StackOverflow))?;
         counters.current_call_depth = next;
         counters.peak_call_depth = counters.peak_call_depth.max(next);
         if let Some(session) = self.active_session() {
@@ -392,16 +432,15 @@ mod tests {
 
     #[test]
     fn tracks_call_depth_peaks() {
-        let resources = ResourceState::new(RuntimeLimits {
-            max_call_depth: Some(2),
-        });
+        let resources = ResourceState::default();
 
         resources.enter_call().unwrap();
         resources.enter_call().unwrap();
         assert_eq!(resources.counters().peak_call_depth, 2);
-        assert!(resources.enter_call().is_err());
+        resources.enter_call().unwrap();
+        assert_eq!(resources.counters().peak_call_depth, 3);
         resources.leave_call();
-        assert_eq!(resources.counters().current_call_depth, 1);
+        assert_eq!(resources.counters().current_call_depth, 2);
     }
 }
 

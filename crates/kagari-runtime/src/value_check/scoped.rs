@@ -175,10 +175,10 @@ fn single<'gc, 'ty>(
         return Ok(Match::Leaf(false));
     };
     let result = match expected.ty {
-        Ty::Builtin(kind) if kind.integer_layout().is_some() => {
-            scalar::read_integer(*kind, value).is_ok()
-        }
-        Ty::Builtin(_) => value.has_representation(semantic_representation(expected.ty)),
+        Ty::Builtin(kind) => value.scalar_payload().map_or_else(
+            || value.has_representation(semantic_representation(expected.ty)),
+            |payload| scalar::matches_builtin_payload(*kind, payload),
+        ),
         Ty::Tuple(types) if value.kind() == Some(ObjectKind::Tuple) => {
             let object = object::<TupleObject>(cx, value)?;
             if cx.read(object, TupleObject::len) != types.len() {
@@ -317,6 +317,8 @@ fn valid_capability(result: Result<(), RuntimeError>) -> Result<bool, CheckError
                 RuntimeErrorKind::Cancelled
                     | RuntimeErrorKind::EngineFault
                     | RuntimeErrorKind::ResourceLimitExceeded
+                    | RuntimeErrorKind::StackOverflow
+                    | RuntimeErrorKind::AllocationFailure
             ) =>
         {
             Err(error.into())

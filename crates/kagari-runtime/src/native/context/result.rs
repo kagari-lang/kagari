@@ -1,4 +1,4 @@
-//! Native completion stays in the authoritative source until checked caller publication.
+//! One Native completion stages inline scalars or authoritative source locations.
 use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault},
@@ -14,9 +14,11 @@ use crate::{
     native::{binding::NativeResult, context::NativeCall, conversion::arguments::ArgumentValues},
     value::{
         place::{PublishedResult, ResultPlace},
+        scalar,
         view::ValueView,
     },
 };
+use kagari_abi::representation::ValueType;
 use kagari_gc::{error::GcError, heap::Phase};
 use std::ops::{Deref, DerefMut};
 
@@ -55,13 +57,22 @@ impl ReturnSource<'_> {
     }
 }
 
-/// The pending cell precedes this call's conversion suffix. Neither scalars nor
-/// objects register a Host root, and cleanup consumes one complete Native mark.
+enum StagedValue {
+    Unset,
+    Scalar {
+        representation: ValueType,
+        bits: u64,
+    },
+    Source,
+}
+
+/// Managed completion precedes this call's conversion suffix. Edge-free scalar
+/// completion stays inline; cleanup consumes the same complete Native mark.
 pub(crate) struct PendingReturn {
     native: Option<NativeSourceMark>,
     body: DependencyId<RevisionState>,
     application: Option<DependencyId<ApplicationObject>>,
-    staged: bool,
+    staged: StagedValue,
     invoked: bool,
 }
 
@@ -153,7 +164,7 @@ impl PendingReturn {
                     native: Some(native),
                     body,
                     application,
-                    staged: false,
+                    staged: StagedValue::Unset,
                     invoked: false,
                 }))
             })
@@ -223,9 +234,23 @@ impl PendingReturn {
 }
 
 impl<'call> NativeCall<'call> {
-    /// Stage once without changing the caller's destination. The protected cell
-    /// survives later conversion, collection and reentry until post-call checks.
+    /// Stage once without changing the caller's destination. Inline scalars or
+    /// protected source cells survive conversion, collection and reentry until
+    /// post-call checks. Nested temporary views share this completion state.
     pub fn set_result(&mut self, value: ValueView<'_>) -> NativeResult<()> {
+        self.pending.ensure_unstaged()?;
+        if let Some((representation, bits)) = value.scalar_payload() {
+            // Inline payloads have no source/heap capability to admit. Preserve
+            // the setter's thread/lifecycle checks and once-only staging before
+            // final type/candidate checks and caller publication.
+            self.runtime.resources.ensure_synchronous_thread()?;
+            self.runtime.resources.ensure_execution_allowed()?;
+            self.pending.staged = StagedValue::Scalar {
+                representation,
+                bits,
+            };
+            return Ok(());
+        }
         let place = self.pending_place()?;
         let published = place.publish(self.runtime, &value)?;
         self.accept_staged(published)
@@ -234,11 +259,7 @@ impl<'call> NativeCall<'call> {
     /// Internal encoders publish before their child conversion owner retires.
     /// Issuing a place alone stages nothing; an encoding error permits recovery.
     pub(crate) fn pending_place(&self) -> NativeResult<ResultPlace<'call>> {
-        if self.pending.staged {
-            return Err(RuntimeError::module_validation(
-                "native result already staged",
-            ));
-        }
+        self.pending.ensure_unstaged()?;
         Ok(ResultPlace::new(
             self.pending
                 .native
@@ -249,11 +270,7 @@ impl<'call> NativeCall<'call> {
     }
 
     pub(crate) fn accept_staged(&mut self, published: PublishedResult<'_>) -> NativeResult<()> {
-        if self.pending.staged {
-            return Err(RuntimeError::module_validation(
-                "native result already staged",
-            ));
-        }
+        self.pending.ensure_unstaged()?;
         published.admit(
             self.pending
                 .native
@@ -261,13 +278,26 @@ impl<'call> NativeCall<'call> {
                 .expect("live Native suffix")
                 .result_location(),
         )?;
-        self.pending.staged = true;
+        self.pending.staged = StagedValue::Source;
         Ok(())
     }
 
     pub(crate) fn result(&mut self) -> NativeResult<ValueView<'call>> {
-        if !self.pending.staged {
-            return Err(RuntimeError::module_validation("native result is unset"));
+        match self.pending.staged {
+            StagedValue::Unset => {
+                return Err(RuntimeError::module_validation("native result is unset"));
+            }
+            StagedValue::Scalar {
+                representation,
+                bits,
+            } => {
+                return scalar::decode(representation, bits)
+                    .ok_or_else(|| RuntimeError::module_validation("invalid native scalar result"))
+                    .and_then(|value| {
+                        ValueView::protected(value, None).map_err(|error| self.gc_error(error))
+                    });
+            }
+            StagedValue::Source => {}
         }
         self.runtime
             .memory
@@ -280,5 +310,17 @@ impl<'call> NativeCall<'call> {
                 })
             })
             .map_err(|error| self.gc_error(error))
+    }
+}
+
+impl PendingReturn {
+    fn ensure_unstaged(&self) -> NativeResult<()> {
+        if matches!(self.staged, StagedValue::Unset) {
+            Ok(())
+        } else {
+            Err(RuntimeError::module_validation(
+                "native result already staged",
+            ))
+        }
     }
 }

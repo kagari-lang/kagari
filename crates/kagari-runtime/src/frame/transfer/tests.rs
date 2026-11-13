@@ -121,7 +121,7 @@ fn return_snapshots_survive_slot_changes_and_reject_frame_reuse() -> Result<(), 
         assert!(slots.scope().read(object, |text| text.as_str() == "returned"));
         let view = packet.view(slots, execution)?;
         assert!(view.get(slots)?.object().unwrap().ptr_eq(object.erase()));
-        let independent = slots.enter(0)?;
+        let independent = slots.enter(0, 8 * 1024 * 1024)?;
         let other = slots.enter_frame(independent, 0, 0, || Ok::<_, GcError>(()))?;
         assert!(matches!(packet.read(slots, independent), Err(GcError::Representation)), "matching depths in another execution do not admit this control packet");
         slots.retire_frame(other)?;

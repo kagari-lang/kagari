@@ -6,7 +6,8 @@ RR03's coordinated Runtime heap-owner/consumer cutover is complete locally.
 Default workspace all-target Clippy and selected diagnostic/AOT/serde/JIT consumers
 build/lint. Actual Runtime source/provider/cycle/reentry/failure proofs and
 committed resource/session/diagnostic observations have selected passing evidence.
-RR04 execution-space work, RR05 measured acceptance and required CI remain open;
+RR04 execution-space work and its local frozen call gate are complete. RR05
+whole-cost/GC measured acceptance and required CI remain open;
 local phase exit is not full integrated acceptance. This document owns the remaining GC
 acceptance register and inherited measurements. The
 [Runtime execution plan](runtime-refactor-plan.md#order-and-build-boundaries) is the

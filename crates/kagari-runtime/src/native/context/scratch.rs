@@ -120,6 +120,7 @@ impl<'call> NativeCall<'call> {
             _thread: Default::default(),
             pending: ReturnSource::Borrowed(&mut self.pending),
             locals: Some(mark),
+            native_stack: None,
             runtime: self.runtime,
             owner: self.owner,
             function: self.function,

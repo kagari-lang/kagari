@@ -40,6 +40,12 @@ pub(crate) enum FrameAllocationError {
     Execution(RuntimeError),
 }
 
+#[derive(Debug)]
+pub(crate) enum FrameAccessError {
+    Banks,
+    Storage(GcError),
+}
+
 impl From<ArgumentError> for FrameAllocationError {
     fn from(error: ArgumentError) -> Self {
         match error {
@@ -159,15 +165,13 @@ impl FrameSlots {
         )
     }
 
-    pub(crate) fn allocate<'gc>(
-        slots: &mut Slots<'_, 'gc>,
-        execution: SessionId,
+    pub(crate) fn validate_arguments(
+        slots: &mut Slots<'_, '_>,
         layout: &FrameLayout,
         parameters: &[usize],
         arguments: FrameArguments<'_, '_>,
-        metadata: FrameMetadata<'_, 'gc>,
         resources: &ResourceState,
-    ) -> Result<FrameStorage, FrameAllocationError> {
+    ) -> Result<(), FrameAllocationError> {
         if parameters.len() != arguments.len() {
             return Err(GcError::Representation.into());
         }
@@ -187,6 +191,19 @@ impl FrameSlots {
                 return Err(arguments.reject(index, GcError::Representation).into());
             }
         }
+        Ok(())
+    }
+
+    pub(crate) fn allocate<'gc>(
+        slots: &mut Slots<'_, 'gc>,
+        execution: SessionId,
+        layout: &FrameLayout,
+        parameters: &[usize],
+        arguments: FrameArguments<'_, '_>,
+        metadata: FrameMetadata<'_, 'gc>,
+        resources: &ResourceState,
+    ) -> Result<FrameStorage, FrameAllocationError> {
+        Self::validate_arguments(slots, layout, parameters, arguments, resources)?;
         let inherited = match metadata.inherited_body {
             Some(body) => {
                 if !slots.dependency(body)?.ptr_eq(metadata.body) {
@@ -279,6 +296,21 @@ impl FrameSlots {
             slots,
             banks: self.banks,
         })
+    }
+
+    /// Admit banks and their executable source in one paired interval. The
+    /// caller keeps the returned window's loan through its entire region.
+    pub(crate) fn execution_operands<'access, 'source, 'gc>(
+        self,
+        slots: &'access mut Slots<'source, 'gc>,
+    ) -> Result<(Gc<'gc, RevisionState>, OperandWindow<'access, 'source, 'gc>), FrameAccessError>
+    {
+        let values = self.operands(slots).map_err(|_| FrameAccessError::Banks)?;
+        let body = values
+            .slots
+            .dependency(self.body)
+            .map_err(FrameAccessError::Storage)?;
+        Ok((body, values))
     }
 
     pub(crate) fn managed_location(self, location: Location) -> Result<ValueLocation, GcError> {

@@ -1,0 +1,13 @@
+use test::stack;
+
+fn recur() -> i32 {
+    stack::choose(true, || recur())
+}
+
+pub fn exhaust() -> i32 {
+    recur()
+}
+
+pub fn healthy() -> i32 {
+    stack::choose(false, || 0)
+}

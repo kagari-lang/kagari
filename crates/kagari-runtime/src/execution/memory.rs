@@ -4,8 +4,9 @@ use self::accounting::Accounting;
 #[cfg(feature = "execution-diagnostics")]
 use crate::diagnostics::storage::BufferUsage;
 use crate::{
-    execution::roots::{
-        DependencyId, ExecutionRoots, SessionId, ValueLocation, frames::FrameBanks,
+    execution::{
+        roots::{DependencyId, ExecutionRoots, SessionId, ValueLocation, frames::FrameBanks},
+        space::{DEFAULT_STACK_BYTES, ExecutionSpace},
     },
     resource::ResourceState,
     value::view::ValueView,
@@ -19,7 +20,7 @@ use kagari_gc::{
     root_source::{RootAccess, RootDriver},
     scan::WorkBudget,
 };
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 /// Runtime policy for starting collection from committed managed pressure.
 #[derive(Debug, Clone, Copy)]
@@ -96,8 +97,13 @@ impl ManagedMemory {
         resources: &ResourceState,
     ) -> Result<SessionId, GcError> {
         self.scope(resources, |cx, roots| {
-            ExecutionRoots::with(roots, cx, |slots| slots.enter(0))
+            ExecutionRoots::with(roots, cx, |slots| slots.enter(0, DEFAULT_STACK_BYTES))
         })
+    }
+
+    pub(crate) fn execution_space(&self, id: SessionId) -> Result<Arc<ExecutionSpace>, GcError> {
+        self.driver
+            .inspect_source(|source| source.inspect_space(id))
     }
 
     /// Retire the execution after control records and active Native suffixes end.
@@ -124,6 +130,16 @@ impl ManagedMemory {
 
     pub(crate) fn stats(&self) -> HeapStats {
         self.driver.stats()
+    }
+
+    /// Pure scalar matching needs no branded heap/source access, but still
+    /// rejects the collector's terminal states as ordinary paired access does.
+    pub(crate) fn check_scalar_access(&self) -> Result<(), GcError> {
+        match self.driver.stats().phase {
+            Phase::Closed => Err(GcError::Closed),
+            Phase::Faulted => Err(GcError::Faulted),
+            _ => Ok(()),
+        }
     }
 
     pub(crate) fn contains_frame_banks(&self, banks: FrameBanks) -> bool {

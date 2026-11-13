@@ -5,6 +5,7 @@ use crate::{
     execution::roots::ExecutionRoots,
     frame::{
         FrameStack,
+        calls::PreparedCallOutcome,
         cursor::kernel::{PreparedTransition, RegionError, RegionExit},
     },
     module::{execution::indices::IndexAccess, managed::revision::RevisionState},
@@ -22,13 +23,12 @@ impl FrameStack {
         invoke_script: ScriptInvoker,
     ) -> Result<RegionExit, RegionError> {
         let result = match transition {
-            PreparedTransition::Native { index } => self
-                .invoke_prepared_native(runtime, index, invoke_script)
-                .map(|()| RegionExit::Safepoint)
-                .map_err(RegionError::from),
             PreparedTransition::Call { index } => self
-                .push_prepared_call(runtime, index)
-                .map(RegionExit::Call)
+                .execute_prepared_call(runtime, index, invoke_script)
+                .map(|outcome| match outcome {
+                    PreparedCallOutcome::Frame(action) => RegionExit::Call(action),
+                    PreparedCallOutcome::NativeComplete => RegionExit::Safepoint,
+                })
                 .map_err(RegionError::from),
             PreparedTransition::Upcast { index } => self
                 .execute_interface_upcast(runtime, index)

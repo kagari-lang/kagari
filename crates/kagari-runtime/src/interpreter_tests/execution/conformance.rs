@@ -10,6 +10,7 @@ use crate::{
     },
     resource::RuntimeLimits,
 };
+use std::num::NonZeroUsize;
 
 #[cfg(test)]
 use crate::test_support::bytecode::load_bytecode;
@@ -135,7 +136,8 @@ fn interpreter_conformance_classifies_failure_paths() {
     let bytecode = compile_test_bytecode("fn main() -> i32 { 1 + 2 }");
     let mut runtime = test_runtime(RuntimeConfig {
         limits: RuntimeLimits {
-            max_call_depth: Some(0),
+            max_stack_bytes: NonZeroUsize::new(64).unwrap(),
+            ..Default::default()
         },
         ..RuntimeConfig::default()
     });
@@ -150,7 +152,7 @@ fn interpreter_conformance_classifies_failure_paths() {
     assert!(matches!(
         error,
         ref error
-            if error.kind() == RuntimeErrorKind::ResourceLimitExceeded
+            if error.kind() == RuntimeErrorKind::StackOverflow
     ));
 }
 

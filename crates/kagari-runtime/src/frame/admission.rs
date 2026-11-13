@@ -4,16 +4,17 @@ use crate::diagnostics::{self, Event};
 use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault},
-    execution::roots::ExecutionRoots,
+    execution::{roots::ExecutionRoots, space},
     execution_metadata::{
         applications::AdmittedApplication,
         environments::AdmittedEnvironment,
         managed::{ProtectedGraph, ProtectedMetadata, sources::MetadataError},
     },
     frame::{
-        ExecutionFrame, FrameDispatch, FrameEntry, FrameStack, NativeEntryState, ReturnDestination,
+        ExecutionFrame, FrameDispatch, FrameEntry, FrameStack, ReturnDestination,
         arguments::FrameArguments,
         driver::ExecutionAction,
+        uncommon::{FrameUncommon, UncommonFrames},
         values::{FrameAllocationError, FrameMetadata, FrameSlots},
     },
     module::{ExecutableModule, managed::source::RevisionSource},
@@ -71,12 +72,28 @@ impl FrameStack {
             let mut frames = resources.sessions.frames_mut(self.session).ok_or_else(|| {
                 resources.quarantine(EngineFault::FrameStackIsBorrowedAcrossExecution)
             })?;
-            if frames.try_reserve(1).is_err() {
-                drop(frames);
-                return Err(resources.limit("frame capacity"));
-            }
+            let reserve = space::reserve(&mut frames, 1, &self.session_state(runtime).space);
+            drop(frames);
+            reserve.map_err(|error| runtime.managed_memory_error(error))?;
         }
         // Depth polling/diagnostics run with no source or frame-control loan.
+        let uncommon_space = if dispatch.invocation.is_some()
+            || matches!(&dispatch.entry, FrameEntry::StaticInitializer(_))
+        {
+            runtime
+                .resources
+                .uncommon_frames
+                .reserve()
+                .map_err(|error| runtime.managed_memory_error(error))?;
+            Some(
+                self.session_state(runtime)
+                    .space
+                    .lease(UncommonFrames::entry_bytes())
+                    .map_err(|error| runtime.managed_memory_error(error))?,
+            )
+        } else {
+            None
+        };
         runtime.resources.enter_call()?;
         let prepare = || -> Result<_, RuntimeError> {
             let FrameDispatch {
@@ -97,21 +114,19 @@ impl FrameStack {
                     "frame argument count does not match the linked function",
                 ));
             }
-            let (generic, native_entry, action) = match target {
+            let (generic, action) = match target {
                 CallableTarget::Script(function) => (
                     loaded.bytecode.functions[function.index()]
                         .metadata
                         .semantic
                         .generic
                         .as_ref(),
-                    NativeEntryState::Script,
                     ExecutionAction::Script,
                 ),
                 CallableTarget::Native(import) => (
                     loaded.bytecode.native_imports[import.index()]
                         .generic
                         .as_ref(),
-                    NativeEntryState::Pending,
                     ExecutionAction::NativeEntry,
                 ),
             };
@@ -170,8 +185,6 @@ impl FrameStack {
                 }
                 _ => None,
             };
-            let slot_layout = callee.slot_layout.clone();
-            let slot_count = slot_layout.locations.len();
             let Runtime {
                 memory,
                 modules,
@@ -282,35 +295,34 @@ impl FrameStack {
                     FrameAllocationError::Storage(error) => runtime.managed_memory_error(error),
                     FrameAllocationError::Execution(error) => error,
                 })?;
+            let mut frame = ExecutionFrame::from_storage(
+                loaded,
+                target,
+                storage,
+                prepared.map_or(ReturnDestination::Slot(return_dst), |call| {
+                    ReturnDestination::Prepared(call.destination)
+                }),
+            );
+            frame.links = links;
+            frame.environment = environment;
             Ok((
-                ExecutionFrame {
-                    links,
-                    environment,
-                    loaded,
-                    target,
-                    native_entry,
-                    ip: 0,
-                    executing: None,
-                    completed: None,
-                    native_origin: None,
-                    storage: Some(storage),
-                    slot_count,
-                    slot_layout: Some(slot_layout),
-                    return_to: prepared.map_or(ReturnDestination::Slot(return_dst), |call| {
-                        ReturnDestination::Prepared(call.destination)
-                    }),
+                frame,
+                action,
+                FrameUncommon::new(
                     invocation,
-                    initializer: match entry {
+                    match entry {
                         FrameEntry::StaticInitializer(attempt) => Some(attempt),
                         FrameEntry::Call | FrameEntry::Await => None,
                     },
-                },
-                action,
+                    uncommon_space,
+                ),
             ))
         };
         match prepare() {
-            Ok((mut frame, action)) => {
-                if let Some(attempt) = &mut frame.initializer
+            Ok((mut frame, action, mut uncommon)) => {
+                if let Some(attempt) = uncommon
+                    .as_mut()
+                    .and_then(|state| state.initializer.as_mut())
                     && let Err(error) = attempt.begin(runtime)
                 {
                     let error = runtime.resources.admit_execution_error(error);
@@ -318,6 +330,8 @@ impl FrameStack {
                     runtime.resources.leave_call();
                     return Err(error);
                 }
+                frame.uncommon =
+                    uncommon.map(|state| runtime.resources.uncommon_frames.insert(state));
                 // All fallible operations have ended. No callback can invalidate
                 // the capacity/stack identity checked before the source transaction.
                 runtime

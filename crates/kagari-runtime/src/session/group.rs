@@ -164,7 +164,10 @@ impl Runtime {
         }
         if matches!(
             error.kind(),
-            RuntimeErrorKind::Cancelled | RuntimeErrorKind::ResourceLimitExceeded
+            RuntimeErrorKind::Cancelled
+                | RuntimeErrorKind::ResourceLimitExceeded
+                | RuntimeErrorKind::StackOverflow
+                | RuntimeErrorKind::AllocationFailure
         ) {
             return state.terminate(self.resources(), error);
         }

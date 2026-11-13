@@ -40,6 +40,7 @@ use crate::{
     session::{
         CandidateSession, ExecutionEntry, ExecutionObserver, ExecutionOptions, ExecutionPhase,
         ExecutionSession, SessionScope, dependencies::Dependencies, group::GroupStore,
+        store::SessionStorage,
     },
     task::store::TaskStore,
     value::{
@@ -496,7 +497,7 @@ impl Runtime {
                         Ok(revision) => revision,
                         Err(error) => return Ok(Err(error)),
                     };
-                    let id = slots.enter(0)?;
+                    let id = slots.enter(0, resources.stack_limit())?;
                     match slots.push_dependency(id, revision) {
                         Ok(body) => Ok(Ok((id, body))),
                         Err(error) => {
@@ -523,7 +524,13 @@ impl Runtime {
                 options,
                 resources.counters(),
                 registration,
-                body,
+                SessionStorage {
+                    body,
+                    space: self
+                        .memory
+                        .execution_space(id)
+                        .map_err(|error| self.managed_memory_error(error))?,
+                },
             ) {
                 if let Err(cleanup) = self.memory.retire_execution(&self.resources, id) {
                     return Err(resources
@@ -735,7 +742,8 @@ impl Runtime {
 
     fn managed_memory_error(&self, error: GcError) -> RuntimeError {
         match error {
-            GcError::Allocation => self.resources.limit("managed allocation"),
+            GcError::Allocation => self.resources.allocation_failure(),
+            GcError::SourceLimit => self.resources.stack_overflow(),
             GcError::Limit(name) => self.resources.limit(name),
             GcError::Closed => RuntimeError::from(CancellationReason::RuntimeIsClosed),
             error => self

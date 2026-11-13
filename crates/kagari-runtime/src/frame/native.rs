@@ -1,4 +1,6 @@
 //! Ordinary native functions finish synchronously using the caller's existing roots.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
 use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault},
@@ -6,20 +8,109 @@ use crate::{
     execution_metadata::managed::sources::MetadataSource,
     frame::{
         FrameStack, NativeEntryState,
+        arguments::FrameArguments,
         driver::{ExecutionAction, ReturnAction},
         transfer::ReturnValue,
+        values::{FrameAllocationError, FrameSlots},
     },
-    module::{linked_execution::LinkedNativeBody, managed::source::RevisionSource},
+    module::{ExecutableModule, execution::calls::PreparedCall, managed::source::RevisionSource},
     native::{
         context::{NativeCall, NativeEntry, ScriptInvoker},
         conversion::{arguments::ArgumentValues, context::ConversionContext},
     },
+    session::native::NativeActivation,
     value::place::ResultPlace,
+    value_check,
 };
 
-use kagari_bytecode::module::CallableTarget;
+use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
+
+pub(super) struct NativeCallSite<'site> {
+    pub(super) owner: &'site ExecutableModule,
+    pub(super) import: NativeImportId,
+    pub(super) caller: FrameSlots,
+    pub(super) call: &'site PreparedCall,
+    pub(super) origin: RevisionSource<'site>,
+}
 
 impl FrameStack {
+    pub(super) fn invoke_selected_native(
+        &self,
+        runtime: &mut Runtime,
+        site: NativeCallSite<'_>,
+        invoke_script: ScriptInvoker,
+    ) -> Result<(), RuntimeError> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::CallAdmission);
+        let NativeCallSite {
+            owner,
+            import,
+            caller,
+            call,
+            origin,
+        } = site;
+        let arguments = FrameArguments::frame(caller, &call.arguments);
+        value_check::candidate_arguments(runtime, arguments)?;
+        let depth = self.frames(runtime)?.len();
+        let function = runtime
+            .modules
+            .native_binding(owner, import)
+            .ok_or_else(|| RuntimeError::module_validation("unlinked selected Native callback"))?;
+        let callee = owner
+            .execution()
+            .callee(CallableTarget::Native(import))
+            .ok_or_else(|| {
+                runtime
+                    .resources
+                    .quarantine(EngineFault::InvalidPreparedCalleeLayout)
+            })?;
+        NativeActivation::enter(runtime, owner.clone(), import, depth)?.invoke(
+            |runtime| {
+                runtime
+                    .memory
+                    .scope(&runtime.resources, |cx, roots| {
+                        ExecutionRoots::with(roots, cx, |slots| {
+                            Ok(FrameSlots::validate_arguments(
+                                slots,
+                                &callee.slot_layout,
+                                &callee.parameter_slots,
+                                arguments,
+                                &runtime.resources,
+                            ))
+                        })
+                    })
+                    .map_err(|error| runtime.managed_memory_error(error))?
+                    .map_err(|error| match error {
+                        FrameAllocationError::Storage(error) => runtime.managed_memory_error(error),
+                        FrameAllocationError::Execution(error) => error,
+                    })
+            },
+            |runtime| {
+                runtime.gc_safepoint()?;
+                let mut context = NativeCall::new(
+                    runtime,
+                    owner,
+                    NativeEntry::Closed(&function),
+                    origin,
+                    ArgumentValues::prepared(
+                        caller.banks.execution,
+                        caller.banks.managed,
+                        caller.banks.scalars,
+                        &call.arguments,
+                    ),
+                    invoke_script,
+                )?;
+                let published =
+                    context.invoke(ResultPlace::frame(&caller, call.destination.as_ref()))?;
+                published.admit_frame(&caller, call.destination.as_ref())?;
+                Ok(())
+            },
+        )?;
+        let mut frame = self.current_mut(runtime)?;
+        frame.completed = frame.executing;
+        Ok(())
+    }
+
     pub fn start_native_entry(
         &self,
         runtime: &mut Runtime,
@@ -155,53 +246,5 @@ impl FrameStack {
             })
             .map_err(|error| runtime.managed_memory_error(error))?;
         self.finish_return(runtime, packet)
-    }
-
-    pub(super) fn invoke_prepared_native(
-        &self,
-        runtime: &mut Runtime,
-        index: usize,
-        invoke_script: ScriptInvoker,
-    ) -> Result<(), RuntimeError> {
-        // execute_region admitted this runtime/session; no callback or collection
-        // intervened. Retain the linked descriptor and roots, releasing all frame
-        // and bank borrows before invoking arbitrary Rust or reentrant script.
-        let (loaded, roots, links) = {
-            let frame = self.current(runtime)?;
-            (frame.loaded.clone(), frame.slots(), frame.links.clone())
-        };
-        let operation = links
-            .as_ref()
-            .and_then(|links| links.native_call(index))
-            .ok_or_else(|| {
-                runtime
-                    .resources()
-                    .quarantine(EngineFault::MissingPreparedNativeCall)
-            })?;
-        let LinkedNativeBody::Callback(callback) = &operation.body else {
-            return Err(runtime
-                .resources()
-                .quarantine(EngineFault::SealedNativeBodyReachedCallbackTransition));
-        };
-        let mut context = NativeCall::new(
-            runtime,
-            &loaded,
-            NativeEntry::Closed(&callback.function),
-            RevisionSource::Execution(roots.body),
-            ArgumentValues::prepared(
-                roots.banks.execution,
-                roots.banks.managed,
-                roots.banks.scalars,
-                &callback.arguments,
-            ),
-            invoke_script,
-        )?;
-        let published =
-            context.invoke(ResultPlace::frame(&roots, operation.destination.as_ref()))?;
-        published.admit_frame(&roots, operation.destination.as_ref())?;
-        drop(context);
-        let mut frame = self.current_mut(runtime)?;
-        frame.completed = frame.executing;
-        Ok(())
     }
 }

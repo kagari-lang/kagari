@@ -335,6 +335,13 @@ impl<'gc> DataWalk<'gc> {
         self.pending.try_reserve(1)?;
         self.pending.push(object);
         while let Some(object) = self.pending.pop() {
+            // Candidate ownership admission precedes the call's cancellation
+            // checkpoint. Descendant scanning remains cooperatively polled.
+            if let Some(owner) = self.candidate
+                && !candidate_object(cx, object, owner)?
+            {
+                return Ok(false);
+            }
             checkpoint.check(resources)?;
             self.seen.try_reserve(1)?;
             if !self.seen.insert(object) {
@@ -349,11 +356,6 @@ impl<'gc> DataWalk<'gc> {
             if is::<HostRootObject>(cx, object)?
                 || is::<HostPathObject>(cx, object)?
                 || is::<EphemeralObject>(cx, object)?
-            {
-                return Ok(false);
-            }
-            if let Some(owner) = self.candidate
-                && !candidate_object(cx, object, owner)?
             {
                 return Ok(false);
             }

@@ -28,6 +28,17 @@ pub(crate) fn read_integer_view(
     read_integer_payload(ty, value.scalar_payload())
 }
 
+/// Match an edge-free payload against its exact builtin carrier and domain.
+/// The same predicate serves scoped values and inline call completions.
+pub(crate) fn matches_builtin_payload(ty: BuiltinType, payload: (ValueType, u64)) -> bool {
+    if ty.integer_layout().is_some() {
+        read_integer_payload(ty, Some(payload)).is_ok()
+    } else {
+        payload.0 == builtin_representation(ty)
+            && domain::admits_payload(payload.0, Some(ty), payload.1)
+    }
+}
+
 fn read_integer_payload(
     ty: BuiltinType,
     payload: Option<(ValueType, u64)>,

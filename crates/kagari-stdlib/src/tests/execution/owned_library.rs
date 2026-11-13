@@ -11,7 +11,6 @@ use kagari_runtime::{
     frame::ExecutionStack,
     module::entry::ProgramEntry,
     native::conversion::context::ConversionContext,
-    resource::RuntimeLimits,
     session::ExecutionOptions,
     value::{carriers::RootedValue, view::ValueView},
 };
@@ -49,9 +48,6 @@ fn async_owned_drive_contract() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let received = events.clone();
     let mut runtime = standard_runtime(RuntimeConfig {
-        limits: RuntimeLimits {
-            max_call_depth: Some(8),
-        },
         ..Default::default()
     });
     logging_module(move |context, args| {

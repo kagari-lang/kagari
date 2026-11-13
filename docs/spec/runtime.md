@@ -761,7 +761,11 @@ Host interop rules are defined in [host-interop.md](host-interop.md).
 
 ## Execution Control and Lifecycle Accounting
 
-RuntimeLimits contains a runtime-wide optional max_call_depth (default Some(256)).
+RuntimeLimits configures nonzero max_stack_bytes (default 8 MiB per execution)
+and max_native_depth (default 32 nested Native/compiled entries). Committed VM
+capacity and Native/Rust-stack admission have independent guards; see
+[execution control](security.md#execution-control) for accounting and platform
+boundaries. StackOverflow and AllocationFailure terminate the current execution.
 Runtime owns ResourceState by value within its heap; components use scoped borrows,
 not Rc/Weak ownership of the resource/session graph. ExecutionSession<'runtime>
 identifies a central record containing the root program, immutable

@@ -26,12 +26,14 @@ pub struct ExecutionCounts {
     pub call_selections: u64,
     pub call_admissions: u64,
     pub call_returns: u64,
+    /// Committed scalar self-tail replacements, without another physical call.
+    pub tail_replacements: u64,
     pub call_descriptors: u64,
     /// Successful capacity changes of managed/scalar/initialization value banks.
     pub bank_reservations: u64,
     /// Execution-source directory/bank/dependency examinations, including retries and holes.
     pub execution_root_slots_examined: u64,
-    /// Bytes initialized in appended/reused value and scalar-initialization cells.
+    /// Bytes initialized in appended/reused cells, including self-tail initialization resets.
     pub bank_bytes_initialized: u64,
     /// Old capacity bytes offered to realloc on growth; not measured physical copying.
     pub bank_bytes_reallocated: u64,
@@ -60,6 +62,7 @@ pub(crate) enum Event {
     CallSelection,
     CallAdmission,
     CallReturn,
+    TailReplacement,
     CallDescriptor,
     BankReservation,
     ExecutionRootSlotExamined,
@@ -101,6 +104,7 @@ pub(crate) fn record_amount(event: Event, amount: u64) {
             Event::CallSelection => &mut counts.call_selections,
             Event::CallAdmission => &mut counts.call_admissions,
             Event::CallReturn => &mut counts.call_returns,
+            Event::TailReplacement => &mut counts.tail_replacements,
             Event::CallDescriptor => &mut counts.call_descriptors,
             Event::BankReservation => &mut counts.bank_reservations,
             Event::ExecutionRootSlotExamined => &mut counts.execution_root_slots_examined,

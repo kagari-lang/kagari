@@ -5,7 +5,7 @@ use crate::{
     execution::roots::SessionId,
     execution_metadata::{call_contracts::ScopedInterfaceCall, managed::sources::MetadataSource},
     module::{
-        ExecutableModule,
+        ExecutableModule, ModuleKey,
         dispatch::{
             CallRoute,
             bindings::{PreparedSelection, PublishedRoutes},
@@ -18,9 +18,12 @@ use crate::{
 };
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget},
-    module::BytecodeFunction,
+    module::{BytecodeFunction, CallableTarget},
 };
-use kagari_contract::callable::{interface::InterfaceCallContract, shared::SharedCall};
+use kagari_contract::{
+    callable::{interface::InterfaceCallContract, shared::SharedCall},
+    ids::FunctionRef,
+};
 use kagari_types::ty::Ty;
 use std::sync::Arc;
 
@@ -28,6 +31,7 @@ use std::sync::Arc;
 pub(crate) enum LinkedCall {
     Physical,
     Direct(BoundRoute),
+    SelfTail(Box<TailLink>),
     Shared {
         route: BoundRoute,
         contract: Box<SharedCall>,
@@ -37,6 +41,30 @@ pub(crate) enum LinkedCall {
         prepared: Option<Arc<ScopedInterfaceCall>>,
     },
     Closure(Option<Box<Ty>>),
+}
+
+/// Only candidate sites carry these extra facts. Ordinary direct bindings keep
+/// their existing layout. Published route refresh computes eligibility once.
+#[derive(Debug, Clone)]
+pub(crate) struct TailLink {
+    binding: BoundRoute,
+    owner: ModuleKey,
+    function: FunctionRef,
+    same_body: bool,
+}
+
+impl TailLink {
+    fn new(binding: BoundRoute, owner: ModuleKey, function: FunctionRef) -> Self {
+        let same_body = binding
+            .selected
+            .selects(owner, CallableTarget::Script(function));
+        Self {
+            binding,
+            owner,
+            function,
+            same_body,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -59,10 +87,29 @@ impl LinkedCall {
         let mut result = self.clone();
         let binding = match &mut result {
             Self::Direct(binding) | Self::Shared { route: binding, .. } => binding,
+            Self::SelfTail(tail) => &mut tail.binding,
             _ => return Ok(result),
         };
         binding.selected = routes.selection(&binding.route)?;
+        if let Self::SelfTail(tail) = &mut result {
+            tail.same_body = tail
+                .binding
+                .selected
+                .selects(tail.owner, CallableTarget::Script(tail.function));
+        }
         Ok(result)
+    }
+
+    pub(crate) fn direct(&self) -> Option<&BoundRoute> {
+        match self {
+            Self::Direct(binding) => Some(binding),
+            Self::SelfTail(tail) => Some(&tail.binding),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn reuses_self(&self) -> bool {
+        matches!(self, Self::SelfTail(tail) if tail.same_body)
     }
 
     pub(super) fn interface(&self) -> Option<&Arc<ScopedInterfaceCall>> {
@@ -141,12 +188,30 @@ impl Runtime {
                         CallTarget::Function(_)
                         | CallTarget::ModuleFunction { .. }
                         | CallTarget::Native(_),
-                    ) => Ok(LinkedCall::Direct(BoundRoute::new(
-                        owner
-                            .member(*module)
-                            .ok_or_else(invalid)?
-                            .bind_call_route(*target)?,
-                    ))),
+                    ) => {
+                        let binding = BoundRoute::new(
+                            owner
+                                .member(*module)
+                                .ok_or_else(invalid)?
+                                .bind_call_route(*target)?,
+                        );
+                        Ok(
+                            if function
+                                .metadata
+                                .self_tail_calls
+                                .binary_search(&call.pc)
+                                .is_ok()
+                            {
+                                LinkedCall::SelfTail(Box::new(TailLink::new(
+                                    binding,
+                                    owner.key(),
+                                    function.id,
+                                )))
+                            } else {
+                                LinkedCall::Direct(binding)
+                            },
+                        )
+                    }
                     (PreparedCallTarget::Closure(_), CallTarget::ClosureRegister { .. }) => {
                         Ok(LinkedCall::Physical)
                     }

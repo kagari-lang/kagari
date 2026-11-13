@@ -15,6 +15,7 @@ use crate::{
         },
     },
     native::conversion::arguments::ArgumentValues,
+    resource::ResourceState,
 };
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, ModuleSlot, Slot},
@@ -181,8 +182,7 @@ impl FrameStack {
                         .quarantine(EngineFault::InitializerReturnLostItsCaller)
                 })?;
             let commit = frame
-                .initializer
-                .as_ref()
+                .initializer(&runtime.resources)
                 .expect("checked initializer authority")
                 .commit_target();
             // Preflight exit before committing the successful initializer. No
@@ -233,7 +233,9 @@ impl FrameStack {
         drop(frames);
         retired.map_err(|error| runtime.managed_memory_error(error))?;
         runtime.resources.leave_call();
-        drop(frame);
+        if let Some(mut frame) = frame {
+            frame.release_control(&runtime.resources);
+        }
         Ok(ReturnAction::Continue(action))
     }
 
@@ -242,7 +244,7 @@ impl FrameStack {
     pub fn fail_static_initializers(&self, runtime: &Runtime, cause: &str) {
         if let Some(frames) = runtime.resources.sessions.frames(self.session) {
             for frame in frames.iter().skip(self.base) {
-                if let Some(initializer) = &frame.initializer {
+                if let Some(initializer) = frame.initializer(&runtime.resources) {
                     initializer.fail(cause);
                 }
             }
@@ -251,7 +253,7 @@ impl FrameStack {
 }
 
 impl ExecutionFrame {
-    pub(crate) fn pending_static_failure(&self) -> Option<StaticCommit> {
-        self.initializer.as_ref()?.pending_failure()
+    pub(crate) fn pending_static_failure(&self, resources: &ResourceState) -> Option<StaticCommit> {
+        self.initializer(resources)?.pending_failure()
     }
 }

@@ -5,12 +5,14 @@ use crate::test_support::bytecode::reload_bytecode;
 use crate::{RuntimeConfig, module::entry::ProgramEntry};
 use crate::{
     debug::DebugSession,
+    error::reason::ErrorReason,
     execution::{
         JitExecutionStatus,
         fixtures::FixtureExecution,
         native::{PreparedNativeEntry, PreparedNativeExecution},
     },
     interpreter_tests::{common, common::test_runtime, native_fixtures},
+    resource::RuntimeLimits,
 };
 use kagari_abi::{native::BackendId, representation::ValueType};
 use kagari_bytecode::{
@@ -21,6 +23,7 @@ use kagari_bytecode::{
 };
 use kagari_common::{identity::metadata::DefinitionMetadata, span::Span};
 use kagari_contract::ids::{DebugPointId, FunctionRef};
+use std::num::NonZeroUsize;
 
 #[test]
 fn jit_unsupported_preparation_falls_back_to_interpreter_with_diagnostics() {
@@ -231,13 +234,31 @@ fn jit_native_execution_reports_installed_artifact() {
         vec![ValueType::I32],
         vec![ConstantOperand::I32(7)],
     );
+    let runtime = test_runtime(RuntimeConfig {
+        limits: RuntimeLimits {
+            max_native_depth: NonZeroUsize::new(1).unwrap(),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
     let (runtime, loaded) =
-        common::load_bytecode_module_with_runtime(jit_runtime(), "jit_native", module);
+        common::load_bytecode_module_with_runtime(runtime, "jit_native", module);
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = runtime;
     let prepared =
         PreparedNativeEntry::Native(native_fixtures::install_i32::<7>(&mut vm, &loaded, false));
+
+    // Model an admitted outer Native entry without keeping a ResourceState
+    // loan across execution. The compiled boundary must consume the same guard.
+    let outer = vm.resources.enter_native_stack().unwrap();
+    let error = vm
+        .execute_fixture_prepared(&loaded, FunctionRef::new(0), &prepared)
+        .unwrap_err();
+    assert_eq!(error.reason(), &ErrorReason::NativeStackOverflow);
+    assert_eq!(vm.resources().counters().current_call_depth, 0);
+    assert!(vm.execution_root().is_none());
+    vm.resources.leave_native_stack(outer);
 
     let report = vm
         .execute_fixture_prepared(&loaded, FunctionRef::new(0), &prepared)

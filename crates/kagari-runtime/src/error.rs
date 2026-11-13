@@ -44,6 +44,8 @@ pub enum RuntimeErrorKind {
     TypedPathValidation,
     ModuleValidation,
     ResourceLimitExceeded,
+    StackOverflow,
+    AllocationFailure,
     MetadataConflict,
     StaleHandle,
 }
@@ -66,6 +68,8 @@ impl RuntimeErrorKind {
             Self::TypedPathValidation => "KG_RUNTIME_TYPED_PATH_VALIDATION",
             Self::ModuleValidation => "KG_RUNTIME_MODULE_VALIDATION",
             Self::ResourceLimitExceeded => "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED",
+            Self::StackOverflow => "KG_RUNTIME_STACK_OVERFLOW",
+            Self::AllocationFailure => "KG_RUNTIME_ALLOCATION_FAILURE",
             Self::MetadataConflict => "KG_RUNTIME_METADATA_CONFLICT",
             Self::StaleHandle => "KG_RUNTIME_STALE_HANDLE",
         }

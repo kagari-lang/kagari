@@ -49,8 +49,10 @@ No public standard algorithm is expanded into a second compiler implementation.
 Direct native calls share existing Rust helpers. Resumable calls retain explicit
 roots and continuations on the active execution frames, release dynamic borrows
 before callbacks, and preserve each original logical operation's charge. Native,
-script and nested native callbacks share cancellation, call-depth and allocation
-limits. Iterator captures retain the checked import and defining dependency versions.
+script and nested native callbacks share cancellation, sticky termination and
+execution-space accounting. Native/Rust-stack admission is separately guarded;
+see [execution control](security.md#execution-control). Iterator captures retain
+the checked import and defining dependency versions.
 Core iterator/range operations use the same typed primitives as native entrypoints.
 
 Storage mutations preserve their commit point: preparation failures publish no
@@ -157,7 +159,8 @@ Observer events, per-instruction cancellation/GC checks and nonzero interpreter
 slices consume the final verified executable's actual instructions. Deterministic
 compiler selection may remove transport, choose an atomic direct destination, or
 combine a control-only comparison with its branch. Runtime preparation remains
-one-to-one with that final input and may not skip boundaries still present there.
+one-to-one with that final input. The verified scalar self-tail transfer described
+below may retire its caller's terminal Return; other boundaries remain present.
 Recompilation need not preserve internal PCs, event/cancellation ordinals or drive
 counts. Required statement/call/loop states, left-to-right once-only evaluation,
 trap order, completed side effects and success-only mutation commits remain intact.
@@ -169,6 +172,46 @@ Boolean or ordered-inverse substitution that would change NaN behavior. Removed
 micro-steps do not require synthetic pending-store/successor phases. Existing
 call/await continuations still own suspension and once-only completion. There is
 no general phase engine, execution charging or cancellation-policy change.
+
+### Scalar self-tail replacement
+
+The interpreter can reuse a frame for a verified
+[self-tail candidate](bytecode.md#execution-model) when the activation's prepared
+ordinary target is that exact executing body. All arguments finish evaluation
+before admission. Their values/domains are checked before destructive writes;
+prepared parallel moves preserve snapshots through permutations and repeated
+sources. The transfer resets scalar initialization to parameter homes and starts
+the selected body at PC zero. It keeps the same stack/source marks and parent
+return destination, so eventual output is published to the parent once.
+
+Replacement allocates no parameter pack, frame or root per iteration. It consumes
+the ordinary Call boundary and retains cancellation, GC and bounded-slice checks
+before the next body instruction. The retired caller's following Return is not
+executed. It does not promise equal drive counts or exhaustion depth between
+optimized and full-history modes. Scalar arithmetic/effects retain their original
+order; this is no transformation of non-tail recursion into an accumulator.
+
+Observation, active Native/Rust-stack reentry, lexical environments and uncommon
+frame cleanup use the retained ordinary Call/Return path. Managed, shared generic,
+mutual, async and compiled tail transfers remain outside this first scope.
+Ordinary current-target selection is bound for the uninterrupted activation.
+After a genuine park/resume, existing call-link refresh recomputes self eligibility.
+If the target differs, the old caller uses an ordinary call to the current body;
+that new body's later eligible self calls can reuse its frame. There is no
+per-iteration publication lookup or version check.
+
+ExecutionFrame::tail_calls_elided, ErrorFrame::tail_calls_elided and
+DebugFrame::tail_calls_elided report that earlier self-tail callers in the active
+chain were replaced. This bounded Boolean does not count or reconstruct them;
+omitted_frames still counts truncated physical trace entries. ErrorTrace display
+marks such frames with `[self-tail callers elided]`. Argument/admission failures
+retain the current caller; failures after replacement show the real surviving
+body/origin. Enabling observation after replacement disables further reuse and
+reports the existing marker. A host needing complete history must observe before
+entry. Supported compiled products retain their existing unsupported-before-entry
+fallback for script-call bodies; no compiled recursion/deoptimization is added.
+
+### Semantic origins
 
 Mandatory semantic origin IDs are separate from final PCs. Interpreter traces select
 the actual origin of the selected instruction; native polls/traps carry their exact
@@ -601,8 +644,8 @@ group exit removes the subscription but never cancels that shared Task.
 Parent-to-branch edges and Task waits share one bounded cycle check. Runtime
 `AsyncLimits.max_groups` and `max_group_depth` bound group count and ancestry;
 exhaustion terminates execution rather than returning a library Err. Branches
-inherit logical parent call depth, deterministic inputs and one shared RNG/host-call
-recording stream. Their admitted bodies and lexical type environments stay exact
+own independent bounded execution storage and inherit deterministic inputs and
+one shared RNG/host-call recording stream. Their admitted bodies and lexical type environments stay exact
 across reload; ordinary calls within those bodies select current implementations. These contracts also apply to source-free artifacts; composition adds no
 bytecode instruction or compiler-recognized Result behavior.
 

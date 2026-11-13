@@ -167,6 +167,7 @@ impl RemapDefinitions for FunctionMetadata {
             return_type: self.return_type,
             slots: self.slots.clone(),
             parameter_slots: self.parameter_slots.clone(),
+            self_tail_calls: self.self_tail_calls.clone(),
             origins: self.origins.clone(),
             instruction_origins: self.instruction_origins.clone(),
             roots: self.roots.clone(),

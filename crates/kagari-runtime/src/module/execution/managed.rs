@@ -13,7 +13,7 @@ pub(crate) enum ManagedOperation {
     Return { value: OperandSlot },
     Field { index: usize },
     Index { index: usize },
-    Native { index: usize },
     Call { index: usize },
+    SelfTailCall { index: usize },
     Upcast { index: usize },
 }

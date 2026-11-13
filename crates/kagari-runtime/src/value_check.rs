@@ -8,10 +8,28 @@ use crate::{
     execution::roots::ExecutionRoots,
     frame::{arguments::FrameArguments, types::arguments::TypeArgument},
     module::ExecutableModule,
-    value::{carriers::RootedValue, view::ValueView},
+    value::{carriers::RootedValue, scalar, view::ValueView},
     value_check::data::DataWalk,
 };
 use kagari_gc::error::GcError;
+use kagari_types::ty::Ty;
+
+/// Check an already protected result without creating conversion scratch. The
+/// matcher admits actual source/type authority; candidate output policy follows
+/// nominal matching, just as it does for a value produced by a converter.
+pub(crate) fn check_protected(
+    runtime: &mut Runtime,
+    owner: &ExecutableModule,
+    expected: &TypeArgument,
+    value: &ValueView<'_>,
+) -> Result<(), RuntimeError> {
+    if !matches_protected(runtime, owner, expected, value)? {
+        return Err(RuntimeError::module_validation(
+            "converted value differs from its declaration",
+        ));
+    }
+    candidate_protected(runtime, &[*value])
+}
 
 /// Candidate entry/result policy is separate from nominal matching. Select its
 /// immutable owner facts without holding control, then walk actual protected data
@@ -105,7 +123,7 @@ pub(crate) fn candidate_arguments(
                 arguments.check_bounds(slots)?;
                 let mut walk = DataWalk::candidate(owner);
                 for index in 0..arguments.len() {
-                    if index.is_multiple_of(1024) {
+                    if index != 0 && index.is_multiple_of(1024) {
                         resources.poll_closed()?;
                     }
                     let value = arguments.get(slots, index)?;
@@ -176,6 +194,16 @@ pub(crate) fn matches_protected(
     value: &ValueView<'_>,
 ) -> Result<bool, RuntimeError> {
     expected.validate(runtime)?;
+    if let (Ty::Builtin(ty), Some(payload)) = (expected.ty(), value.scalar_payload()) {
+        // Neither operand can contain a GC/source capability. Keep exact type
+        // provenance, terminal-heap rejection and the shared domain predicate;
+        // managed or lexical matching still uses paired physical access below.
+        runtime
+            .memory
+            .check_scalar_access()
+            .map_err(|error| runtime.managed_memory_error(error))?;
+        return Ok(scalar::matches_builtin_payload(*ty, payload));
+    }
     let Runtime {
         memory,
         host,

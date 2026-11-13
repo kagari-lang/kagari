@@ -33,7 +33,10 @@ use kagari_bytecode::{
 use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
 
 use kagari_types::declaration::logging;
-use std::sync::{Arc, Mutex};
+use std::{
+    num::NonZeroUsize,
+    sync::{Arc, Mutex},
+};
 
 fn module() -> NativeModule {
     let mut module = ModuleBuilder::new("test::boundary", &Default::default()).unwrap();
@@ -95,14 +98,15 @@ fn assert_clean(vm: &Runtime) {
 }
 
 #[test]
-fn callback_depth_failure_precedes_effects_and_cleans_native_roots() {
+fn callback_native_stack_exhaustion_precedes_effects_and_cleans_roots() {
     for (input, fails) in [("true", true), ("false", false)] {
         let program = compile_test_bytecode(&format!(
             "use test::boundary; use host; fn main() -> i32 {{ boundary::choose({input}, || {{ host::log(\"effect\"); 42 }}) }}"
         ));
         for encoded in [false, true] {
             let mut runtime = runtime(RuntimeLimits {
-                max_call_depth: Some(2),
+                max_native_depth: NonZeroUsize::new(1).unwrap(),
+                ..Default::default()
             });
             let effects = Arc::new(Mutex::new(0));
             let sink = effects.clone();
@@ -122,14 +126,18 @@ fn callback_depth_failure_precedes_effects_and_cleans_native_roots() {
             let result = vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options());
             if fails {
                 assert!(
-                    matches!(result, Err(error) if error.kind() == RuntimeErrorKind::ResourceLimitExceeded)
+                    matches!(result, Err(error) if error.kind() == RuntimeErrorKind::StackOverflow)
                 );
             } else {
                 assert_eq!(result.unwrap().return_value.as_i32(), Some(7));
             }
             assert_eq!(*effects.lock().unwrap(), 0);
             assert_clean(&vm);
+            // Reaching the guarded Native entry can materialize a String
+            // constant. Its revision cache survives execution-root retirement.
+            publish_unused_version(&mut vm, &_loaded_program);
             vm.collect_garbage().unwrap();
+            assert!(vm.validate_executable_module(&loaded).is_err());
             assert_eq!(
                 vm.gc_stats().root_registrations,
                 baseline.root_registrations
@@ -221,7 +229,7 @@ fn callback_trap_preserves_the_public_caller_origin_and_debug_frames() {
             )
         })
         .unwrap();
-    for encoded in [false, true] {
+    for (encoded, observed) in [(false, true), (true, true), (true, false)] {
         let mut runtime = runtime(Default::default());
         let effects = Arc::new(Mutex::new(0));
         let sink = effects.clone();
@@ -237,15 +245,18 @@ fn callback_trap_preserves_the_public_caller_origin_and_debug_frames() {
         let loaded = runtime.select_program(&_loaded_program).unwrap();
         runtime.collect_garbage().unwrap();
         let baseline = runtime.gc_stats();
-        let mut debug = DebugSession::new(&runtime).unwrap();
-        let breakpoint = debug
-            .add_breakpoint(SourceBreakpoint::at_source_offset(
-                "native-control",
-                source.find("n + 1").unwrap(),
-            ))
-            .unwrap();
+        let breakpoint = observed.then(|| {
+            let mut debug = DebugSession::new(&runtime).unwrap();
+            let breakpoint = debug
+                .add_breakpoint(SourceBreakpoint::at_source_offset(
+                    "native-control",
+                    source.find("n + 1").unwrap(),
+                ))
+                .unwrap();
+            runtime.attach_debug_session(debug).unwrap();
+            breakpoint
+        });
         let mut vm = runtime;
-        vm.attach_debug_session(debug).unwrap();
         let error = vm
             .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap_err();
@@ -256,38 +267,37 @@ fn callback_trap_preserves_the_public_caller_origin_and_debug_frames() {
         assert_eq!(trace.frames[2].instruction_offset, caller_offset);
         assert_eq!(trace.frames[2].epoch, loaded.epoch.0);
         assert!(trace.frames[2].source_span.is_some());
-        let debug = vm.debug_session().unwrap();
-        for reason in [
-            DebugPauseReason::Breakpoint(breakpoint),
-            DebugPauseReason::Trap,
-        ] {
-            let pause = debug
-                .pauses()
-                .iter()
-                .find(|pause| {
-                    pause.reason == reason
-                        && pause
-                            .frames
-                            .last()
-                            .is_some_and(|frame| frame.function_name != "main")
-                })
-                .expect("callback pause");
-            assert_eq!(pause.frames.len(), 3);
-            assert_eq!(pause.frames[1].function_name, "choose");
-            assert_eq!(pause.frames[0].function_name, "main");
-            assert_eq!(pause.frames[0].instruction_offset, caller_offset);
-            assert!(
-                pause.frames[2]
-                    .bindings
+        if let Some(breakpoint) = breakpoint {
+            let debug = vm.debug_session().unwrap();
+            for reason in [
+                DebugPauseReason::Breakpoint(breakpoint),
+                DebugPauseReason::Trap,
+            ] {
+                let pause = debug
+                    .pauses()
                     .iter()
-                    .any(|binding| binding.name == "n" && binding.value.as_i32() == Some(i32::MAX))
-            );
+                    .find(|pause| {
+                        pause.reason == reason
+                            && pause
+                                .frames
+                                .last()
+                                .is_some_and(|frame| frame.function_name != "main")
+                    })
+                    .expect("callback pause");
+                assert_eq!(pause.frames.len(), 3);
+                assert_eq!(pause.frames[1].function_name, "choose");
+                assert_eq!(pause.frames[0].function_name, "main");
+                assert_eq!(pause.frames[0].instruction_offset, caller_offset);
+                assert!(pause.frames[2].bindings.iter().any(|binding| {
+                    binding.name == "n" && binding.value.as_i32() == Some(i32::MAX)
+                }));
+            }
+            // Debug snapshots retain values until the session is replaced.
+            drop(debug);
+            let empty_debug = DebugSession::new(&vm).unwrap();
+            vm.attach_debug_session(empty_debug).unwrap();
         }
         assert_eq!(*effects.lock().unwrap(), 1);
-        // Debug snapshots intentionally retain values until the session is replaced.
-        drop(debug);
-        let empty_debug = DebugSession::new(&vm).unwrap();
-        vm.attach_debug_session(empty_debug).unwrap();
         assert_clean(&vm);
         // Current publication owns warmed String constants independently of call
         // locals. Replace it before asserting that execution roots are reclaimed.

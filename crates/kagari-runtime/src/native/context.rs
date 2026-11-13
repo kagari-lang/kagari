@@ -38,6 +38,7 @@ use crate::{
         function_handle::PreparedFunction,
         storage::NativePayload,
     },
+    resource::native_stack::NativeStackMark,
     value::{
         place::{PublishedResult, ResultPlace},
         view::ValueView,
@@ -274,6 +275,7 @@ pub struct NativeCall<'call> {
     pub(crate) _thread: PhantomData<Rc<()>>,
     pub(crate) pending: ReturnSource<'call>,
     locals: Option<LocalMark>,
+    native_stack: Option<NativeStackMark>,
     pub(crate) runtime: &'call mut Runtime,
     pub(crate) owner: &'call ExecutableModule,
     pub(crate) function: &'call LinkedNativeFunction,
@@ -329,6 +331,7 @@ impl<'call> NativeCall<'call> {
             _thread: Default::default(),
             pending: ReturnSource::Owned(pending),
             locals: None,
+            native_stack: None,
             runtime,
             owner,
             function,
@@ -531,6 +534,9 @@ impl<'call> NativeCall<'call> {
 
 impl Drop for NativeCall<'_> {
     fn drop(&mut self) {
+        if let Some(mark) = self.native_stack.take() {
+            self.runtime.resources.leave_native_stack(mark);
+        }
         if let Some(mark) = self.locals.take() {
             self.runtime.retire_execution_locals(mark);
         }

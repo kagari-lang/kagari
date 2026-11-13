@@ -425,6 +425,7 @@ fn method_frame_keeps_its_complete_computation_after_host_sources_retire() {
     let copied = activation
         .with(|runtime, stack| {
             stack.push_interface_method(runtime, &admitted, ArgumentValues::scalars(&[]), None)?;
+            assert_eq!(runtime.resources.uncommon_frames.live(), 1);
             // Both the original interface lease and computation lease are gone. The
             // frame source now owns the actual interface/application/body graph.
             drop(admitted);
@@ -434,7 +435,7 @@ fn method_frame_keeps_its_complete_computation_after_host_sources_retire() {
                 let frame = stack.current(runtime)?;
                 let callee = frame.loaded().execution().callee(frame.target()).unwrap();
                 (
-                    frame.invocation().unwrap().clone(),
+                    frame.invocation(&runtime.resources).unwrap(),
                     frame.slots(),
                     callee
                         .slot_layout
@@ -459,6 +460,7 @@ fn method_frame_keeps_its_complete_computation_after_host_sources_retire() {
             )?;
             assert_eq!(view.return_type(), &Ty::Builtin(BuiltinType::I32));
             stack.pop(runtime)?;
+            assert_eq!(runtime.resources.uncommon_frames.live(), 0);
             Ok(computation)
         })
         .unwrap();

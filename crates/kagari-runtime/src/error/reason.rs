@@ -145,6 +145,12 @@ pub enum ErrorReason {
     ExecutionPhaseViolation(String),
     #[error("resource limit exceeded: {0}")]
     ResourceLimit(String),
+    #[error("execution stack capacity exhausted")]
+    StackOverflow,
+    #[error("Native/Rust stack admission exhausted")]
+    NativeStackOverflow,
+    #[error("allocation failed")]
+    AllocationFailure,
     #[error("metadata conflict: {0}")]
     MetadataConflict(String),
     #[error("expired host borrow: {0}")]
@@ -194,6 +200,8 @@ impl ErrorReason {
             Self::Index(_) => RuntimeErrorKind::IndexOutOfBounds,
             Self::ExecutionPhaseViolation(_) => RuntimeErrorKind::ExecutionPhaseViolation,
             Self::ResourceLimit(_) => RuntimeErrorKind::ResourceLimitExceeded,
+            Self::StackOverflow | Self::NativeStackOverflow => RuntimeErrorKind::StackOverflow,
+            Self::AllocationFailure => RuntimeErrorKind::AllocationFailure,
             Self::MetadataConflict(_) => RuntimeErrorKind::MetadataConflict,
             Self::ExpiredHostBorrow(_) => RuntimeErrorKind::ExpiredHostBorrow,
             Self::HostBorrowConflict(_) => RuntimeErrorKind::HostBorrowConflict,

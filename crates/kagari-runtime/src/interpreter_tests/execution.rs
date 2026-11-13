@@ -45,6 +45,8 @@ use kagari_types::{
 };
 use std::collections::HashMap;
 
+mod tail;
+
 fn test_function(
     id: usize,
     name: &str,

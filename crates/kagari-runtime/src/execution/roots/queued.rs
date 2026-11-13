@@ -82,7 +82,11 @@ impl<'gc> Slots<'_, 'gc> {
             .queue_sequence
             .checked_add(1)
             .ok_or(GcError::Limit("queued argument identity"))?;
-        reserve_bank(values, count)?;
+        reserve_bank(
+            values,
+            count,
+            storage.space.as_deref().expect("admitted execution space"),
+        )?;
         values.resize_with(count, StoredValue::unit);
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::initialized::<StoredValue>(count);

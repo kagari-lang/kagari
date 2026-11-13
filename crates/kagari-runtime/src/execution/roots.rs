@@ -6,9 +6,13 @@ pub(crate) mod frames;
 pub(crate) mod pending;
 pub(crate) mod queued;
 pub(crate) mod returns;
-use crate::value::{
-    carriers::{ScopedValue, StoredValue},
-    view::ValueView,
+mod storage;
+use crate::{
+    execution::space::{self, ExecutionSpace},
+    value::{
+        carriers::{ScopedValue, StoredValue},
+        view::ValueView,
+    },
 };
 use kagari_gc::{
     access::Scope,
@@ -20,15 +24,23 @@ use kagari_gc::{
 use std::{
     array, fmt,
     marker::PhantomData,
-    sync::atomic::{AtomicU64, Ordering},
+    mem,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 /// Preserve the bank's ordinary growth policy; opt-in diagnostics observe only
 /// actual capacity changes. The non-diagnostic build has no counters or snapshots.
-fn reserve_bank<T>(values: &mut Vec<T>, additional: usize) -> Result<(), GcError> {
+fn reserve_bank<T>(
+    values: &mut Vec<T>,
+    additional: usize,
+    space: &ExecutionSpace,
+) -> Result<(), GcError> {
     #[cfg(feature = "execution-diagnostics")]
     let before = values.capacity();
-    values.try_reserve(additional)?;
+    space::reserve(values, additional, space)?;
     #[cfg(feature = "execution-diagnostics")]
     diagnostics::reservation(before, values);
     Ok(())
@@ -155,7 +167,9 @@ impl NativeSourceMark {
     }
 }
 
+#[derive(Default)]
 pub(crate) struct ExecutionStorage {
+    space: Option<Arc<ExecutionSpace>>,
     banks: [Vec<StoredValue>; 4],
     pub scalars: Vec<u64>,
     pub initialized: Vec<bool>,
@@ -169,7 +183,6 @@ pub(crate) struct ExecutionStorage {
 }
 
 impl ExecutionStorage {
-    #[cfg(test)]
     pub fn backing_bytes(&self) -> usize {
         self.banks
             .iter()
@@ -191,6 +204,8 @@ struct Entry {
 pub(crate) struct ExecutionRoots {
     owner: u64,
     entries: Vec<Entry>,
+    // One most-recent retired execution, always edge-free and inaccessible by ID.
+    reusable: ExecutionStorage,
 }
 
 pub(crate) struct Cursor {
@@ -208,6 +223,15 @@ pub(crate) struct Slots<'a, 'gc> {
 }
 
 impl ExecutionRoots {
+    pub(crate) fn inspect_space(&self, id: SessionId) -> Result<Arc<ExecutionSpace>, GcError> {
+        Ok(self
+            .inspect_storage(id)?
+            .space
+            .as_ref()
+            .expect("admitted execution space")
+            .clone())
+    }
+
     fn inspect_storage(&self, id: SessionId) -> Result<&ExecutionStorage, GcError> {
         if self.owner != id.owner {
             return Err(GcError::ForeignHeap);
@@ -279,8 +303,16 @@ impl<'gc> Slots<'_, 'gc> {
         execution: SessionId,
     ) -> Result<NativeSourceMark, GcError> {
         let storage = self.storage(execution)?;
-        storage.native_calls.try_reserve(1)?;
-        reserve_bank(&mut storage.banks[ValueBank::Local.index()], 1)?;
+        space::reserve(
+            &mut storage.native_calls,
+            1,
+            storage.space.as_deref().expect("admitted execution space"),
+        )?;
+        reserve_bank(
+            &mut storage.banks[ValueBank::Local.index()],
+            1,
+            storage.space.as_deref().expect("admitted execution space"),
+        )?;
         let mark = NativeSourceMark {
             execution,
             local_top: storage.banks[ValueBank::Local.index()].len(),
@@ -361,38 +393,21 @@ impl<'gc> Slots<'_, 'gc> {
         Ok(())
     }
 
-    pub fn enter(&mut self, slots: usize) -> Result<SessionId, GcError> {
-        let mut managed = Vec::new();
-        managed.try_reserve_exact(slots)?;
-        #[cfg(feature = "execution-diagnostics")]
-        diagnostics::reservation(0, &managed);
-        managed.resize_with(slots, StoredValue::unit);
-        #[cfg(feature = "execution-diagnostics")]
-        diagnostics::initialized::<StoredValue>(slots);
-        let mut pending = Vec::new();
-        pending.try_reserve_exact(pending::SLOT_COUNT)?;
-        #[cfg(feature = "execution-diagnostics")]
-        diagnostics::reservation(0, &pending);
-        pending.resize_with(pending::SLOT_COUNT, StoredValue::unit);
-        #[cfg(feature = "execution-diagnostics")]
-        diagnostics::initialized::<StoredValue>(pending::SLOT_COUNT);
-        let storage = ExecutionStorage {
-            banks: [managed, Vec::new(), Vec::new(), pending],
-            scalars: Vec::new(),
-            initialized: Vec::new(),
-            native_calls: Vec::new(),
-            dependencies: Vec::new(),
-            frame_depth: 0,
-            returns: Vec::new(),
-            return_sequence: 0,
-            queue_sequence: 0,
-            queue: None,
-        };
+    pub fn enter(&mut self, slots: usize, limit: usize) -> Result<SessionId, GcError> {
         let index = self
             .source
             .entries
             .iter()
             .position(|entry| entry.storage.is_none() && entry.generation != u64::MAX);
+        if index.is_none() {
+            self.source.entries.try_reserve(1)?;
+        }
+        let mut storage = mem::take(&mut self.source.reusable);
+        if let Err(error) = storage.prepare(slots, limit) {
+            storage.clear();
+            self.source.reusable = storage;
+            return Err(error);
+        }
         let index = match index {
             Some(index) => {
                 self.source.entries[index].generation += 1;
@@ -400,7 +415,6 @@ impl<'gc> Slots<'_, 'gc> {
                 index
             }
             None => {
-                self.source.entries.try_reserve(1)?;
                 self.source.entries.push(Entry {
                     generation: 1,
                     storage: Some(storage),
@@ -431,7 +445,12 @@ impl<'gc> Slots<'_, 'gc> {
         if !self.storage(id)?.native_calls.is_empty() {
             return Err(GcError::Storage("execution has an active Native suffix"));
         }
-        self.source.entries[id.index].storage = None;
+        let mut storage = self.source.entries[id.index]
+            .storage
+            .take()
+            .expect("execution identity admitted above");
+        storage.clear();
+        self.source.reusable = storage;
         Ok(())
     }
 
@@ -452,9 +471,11 @@ impl<'gc> Slots<'_, 'gc> {
         execution: SessionId,
         count: usize,
     ) -> Result<(), GcError> {
+        let storage = self.storage(execution)?;
         reserve_bank(
-            &mut self.storage(execution)?.banks[ValueBank::Local.index()],
+            &mut storage.banks[ValueBank::Local.index()],
             count,
+            storage.space.as_deref().expect("admitted execution space"),
         )?;
         Ok(())
     }
@@ -464,8 +485,13 @@ impl<'gc> Slots<'_, 'gc> {
         execution: SessionId,
         value: ScopedValue<'gc>,
     ) -> Result<ValueLocation, GcError> {
-        let values = &mut self.storage(execution)?.banks[ValueBank::Local.index()];
-        reserve_bank(values, 1)?;
+        let storage = self.storage(execution)?;
+        let values = &mut storage.banks[ValueBank::Local.index()];
+        reserve_bank(
+            values,
+            1,
+            storage.space.as_deref().expect("admitted execution space"),
+        )?;
         let slot = values.len();
         // SAFETY: the paired source commits this reserved initialized cell before
         // the scope ends; a failed publication leaves the source length unchanged.
@@ -518,8 +544,7 @@ impl<'gc> Slots<'_, 'gc> {
             self.grow(
                 mark.execution,
                 ValueBank::Local,
-                len.checked_add(1)
-                    .ok_or(GcError::Limit("conversion locals"))?,
+                len.checked_add(1).ok_or(GcError::SourceLimit)?,
             )?;
         }
         self.set(location, value)?;
@@ -576,10 +601,13 @@ impl<'gc> Slots<'_, 'gc> {
         let next = mark
             .dependency_top
             .checked_add(1)
-            .ok_or(GcError::Limit("metadata prefix"))?;
-        storage.dependencies.try_reserve(usize::from(
-            mark.dependency_top == storage.dependencies.len(),
-        ))?;
+            .ok_or(GcError::SourceLimit)?;
+        let additional = usize::from(mark.dependency_top == storage.dependencies.len());
+        space::reserve(
+            &mut storage.dependencies,
+            additional,
+            storage.space.as_deref().expect("admitted execution space"),
+        )?;
         // SAFETY: the preserved target is scope-protected and committed to this
         // paired source before the child suffix can retire. Publish before write.
         let edge = unsafe { self.cx.source_edge(value.erase())? };
@@ -626,7 +654,11 @@ impl<'gc> Slots<'_, 'gc> {
         value: Gc<'gc, T>,
     ) -> Result<DependencyId<T>, GcError> {
         let storage = self.storage(execution)?;
-        storage.dependencies.try_reserve(1)?;
+        space::reserve(
+            &mut storage.dependencies,
+            1,
+            storage.space.as_deref().expect("admitted execution space"),
+        )?;
         let slot = storage.dependencies.len();
         // SAFETY: this paired source owns the reserved destination. The infallible
         // push below publishes the initialized carrier before this scope ends.
@@ -669,9 +701,14 @@ impl<'gc> Slots<'_, 'gc> {
     }
 
     pub fn grow(&mut self, id: SessionId, bank: ValueBank, count: usize) -> Result<(), GcError> {
-        let values = &mut self.storage(id)?.banks[bank.index()];
+        let storage = self.storage(id)?;
+        let values = &mut storage.banks[bank.index()];
         let additional = count.saturating_sub(values.len());
-        reserve_bank(values, additional)?;
+        reserve_bank(
+            values,
+            additional,
+            storage.space.as_deref().expect("admitted execution space"),
+        )?;
         if count > values.len() {
             values.resize_with(count, StoredValue::unit);
             #[cfg(feature = "execution-diagnostics")]
@@ -727,6 +764,7 @@ impl<'gc> Slots<'_, 'gc> {
 // generations, never Vec addresses; changed/new suffixes publish independently.
 // Every value bank and typed-node dependency is scanned. Removing a
 // slot/execution drops inert carriers without dereferencing any managed target.
+// Reusable backing has no initialized carriers/dependencies and is never a root.
 unsafe impl RootSource for ExecutionRoots {
     type Cursor = Cursor;
 
@@ -737,6 +775,7 @@ unsafe impl RootSource for ExecutionRoots {
                 .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
                 .expect("execution source identities"),
             entries: Vec::new(),
+            reusable: ExecutionStorage::default(),
         }
     }
 
@@ -836,11 +875,11 @@ mod tests {
                     generation: u64::MAX - 1,
                     storage: None,
                 });
-                let last = slots.enter(0)?;
+                let last = slots.enter(0, 8 * 1024 * 1024)?;
                 assert_eq!(last.index, 0);
                 assert_eq!(last.generation, u64::MAX);
                 slots.leave(last)?;
-                let next = slots.enter(0)?;
+                let next = slots.enter(0, 8 * 1024 * 1024)?;
                 assert_eq!(next.index, 1);
                 assert_ne!(next, last);
                 assert!(matches!(slots.storage(last), Err(GcError::Index)));

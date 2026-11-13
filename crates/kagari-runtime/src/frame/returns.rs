@@ -90,7 +90,7 @@ impl FrameStack {
             };
             (
                 frame.loaded().clone(),
-                frame.invocation().cloned(),
+                frame.invocation(&runtime.resources),
                 frame.admitted_environment().cloned(),
                 ty,
                 frame.slots(),
@@ -170,8 +170,27 @@ impl FrameStack {
         // Poll before borrowing frames so a terminated initializer keeps a complete trace.
         runtime.resources().poll_execution()?;
         let adapt = {
-            let frame = self.current(runtime)?;
-            frame.environment.is_some() || frame.invocation.is_some()
+            // The control scope was admitted above and polling cannot reenter.
+            // Inspect the actual frame without repeating current's complete
+            // session/scope admission before this same return transaction.
+            let frames = runtime
+                .resources
+                .sessions
+                .frames(self.session)
+                .ok_or_else(|| {
+                    runtime
+                        .resources
+                        .quarantine(EngineFault::FrameStackIsMutablyBorrowed)
+                })?;
+            let frame = frames
+                .last()
+                .filter(|_| frames.len() > self.base)
+                .ok_or_else(|| {
+                    runtime
+                        .resources
+                        .quarantine(EngineFault::MissingExecutionFrame)
+                })?;
+            frame.environment.is_some() || frame.has_invocation(&runtime.resources)
         };
         if adapt {
             packet = self.adapt_return(runtime, packet)?;
@@ -204,7 +223,7 @@ impl FrameStack {
                     .resources()
                     .quarantine(EngineFault::MissingReturnFrame)
             })?;
-        if frame.initializer.is_some() {
+        if frame.initializer(resources).is_some() {
             drop(frames);
             return self.finish_static_return(runtime, packet);
         }
@@ -227,7 +246,10 @@ impl FrameStack {
                 })
             });
             if transferred.is_ok() {
-                frames.pop().expect("checked return frame");
+                frames
+                    .pop()
+                    .expect("checked return frame")
+                    .release_control(resources);
                 resources.leave_call();
             }
             drop(frames);
@@ -268,7 +290,10 @@ impl FrameStack {
             })
         });
         if published.is_ok() {
-            frames.pop().expect("checked return frame");
+            frames
+                .pop()
+                .expect("checked return frame")
+                .release_control(resources);
             resources.leave_call();
             if location.is_some() {
                 let caller = frames.last_mut().expect("retained caller");

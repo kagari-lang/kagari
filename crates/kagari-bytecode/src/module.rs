@@ -93,6 +93,10 @@ pub struct FunctionMetadata {
     pub return_type: ValueType,
     pub slots: TypeLayoutBuffer,
     pub parameter_slots: Vec<Slot>,
+    /// Strictly increasing PCs of scalar synchronous self calls followed by the
+    /// unchanged Return of their result. Verification checks every candidate;
+    /// execution may retain ordinary call/return behavior when reuse is unsafe.
+    pub self_tail_calls: Vec<usize>,
     pub origins: Vec<InstructionOrigin>,
     /// Actual instruction origins for PCs with multiple semantic origins, ordered by PC.
     /// Every ambiguous PC requires exactly one entry; a unique origin needs no override.

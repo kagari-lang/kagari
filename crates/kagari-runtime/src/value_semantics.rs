@@ -64,7 +64,8 @@ fn inspect_pair<R>(
 
 pub(crate) fn storage_error(error: GcError) -> RuntimeError {
     match error {
-        GcError::Allocation => RuntimeError::resource_limit("managed allocation"),
+        GcError::Allocation => RuntimeError::new(ErrorReason::AllocationFailure),
+        GcError::SourceLimit => RuntimeError::new(ErrorReason::StackOverflow),
         GcError::Limit(name) => RuntimeError::resource_limit(name),
         GcError::Closed => CancellationReason::RuntimeIsClosed.into(),
         error => EngineFault::ManagedCollectionFailed(error).into(),

@@ -30,6 +30,388 @@ It includes all 19 original/forms timings and arithmetic machine-code attributio
 [BO13-BO16](#bo13-bo16-scalar-loops-windows-2026-10-27) records the preceding bytecode
 improvement. Earlier i7 measurements below remain revision-specific evidence.
 
+## RR04 internal leaf transitions and Native completion, macOS 2026-11-14
+
+Uncommitted RR04 now keeps eligible scalar leaf calls/returns inside one paired
+execution interval, using actual ExecutionFrame/FrameStorage and the shared
+argument/return transactions. Native result validation no longer opens conversion
+scratch solely for matching. Explicit scalar setters stage inline; managed and
+encoded results retain their source cells. Builtin scalar matching consumes the
+same carrier/domain predicate as scoped matching, preserving type provenance and
+terminal-heap rejection. These are the established protocols, not a second engine.
+
+Environment and frozen workloads match the adjacent admission record: M1 Max
+arm64/32 GiB, macOS 26.6.2 (25G83), Rust 1.99.1 (58cf8f9c3, LLVM 23.1.1),
+workspace release, no Runtime features, default Cargo target/parallelism, warm
+dependencies. Five candidate builds take 31.94/34.15/40.35/37.89/27.72 seconds; build
+costs are excluded and are not compared as compiler speedups. Each candidate is
+copied and run against RR00 in seven fresh-process pairs with alternating order,
+three warmups and eleven measured 10,000-call batches per route. All ten original
+route/value/callback oracles pass (1,540 samples per comparison). No compilation,
+diagnostics, profiler or competing measurement overlaps ordinary timing.
+
+The last comparison, after consolidating duplicate return admission, reports process medians and
+matched median quotients as follows:
+
+| Route | RR00 ns/call | Candidate ns/call | Candidate/RR00 | Pair range |
+| --- | ---: | ---: | ---: | ---: |
+| core/empty | 3038.2 | 3304.3 | 1.088 | 1.070..1.144 |
+| core/script | 3468.8 | 3716.6 | 1.071 | 1.064..1.124 |
+| core/native | 6524.0 | 5202.2 | 0.790 | 0.756..0.826 |
+| internal/script | 412.9 | 296.7 | 0.713 | 0.679..0.740 |
+| internal/raw_empty | 501.3 | 488.8 | 0.970 | 0.941..1.002 |
+| internal/raw_scalar | 521.0 | 566.1 | 1.083 | 1.048..1.103 |
+| internal/typed_empty | 1594.5 | 705.0 | 0.442 | 0.427..0.453 |
+| internal/typed_scalar | 3024.1 | 866.6 | 0.286 | 0.278..0.294 |
+| internal/borrowed | 2435.2 | 1285.2 | 0.527 | 0.525..0.543 |
+| internal/owned | 3217.4 | 1123.6 | 0.350 | 0.348..0.360 |
+
+All ten routes in this one final image meet the unchanged 1.10 paired-median
+gate. Individual pair ranges still exceed 1.10 for some routes; acceptance uses
+the previously frozen median rule, not a worst-pair rule or a significance claim.
+The preceding scalar-matching image failed core/empty at 1.107; do not combine
+denominators from different candidates. The four preceding candidates' ratios for
+core/empty, core/script, internal/script, raw_empty, raw_scalar respectively are:
+
+| Candidate | core/empty | core/script | internal/script | raw_empty | raw_scalar |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Closed leaf transitions | 1.112 | 1.088 | 0.730 | 1.182 | 1.286 |
+| Result validation without conversion scratch | 1.111 | 1.084 | 0.700 | 1.109 | 1.191 |
+| Inline scalar completion | 1.096 | 1.078 | 0.712 | 1.032 | 1.138 |
+| Inline builtin matching | 1.107 | 1.082 | 0.704 | 0.978 | 1.087 |
+
+Each column is a separate paired RR00 comparison; these are not direct paired
+attributions between candidates. Whole Host and internal execution stay separate.
+
+Candidate executable SHA-256 identifiers in the same order as those steps and
+inline matching and final return-admission steps:
+
+- `cb826d41be2408981f3677e72b7966493538167a2f2bac33659f2ec8853fb7db`.
+- `f8fd61df6b723cb06bd07127d19f1f8463da1d4e1e4b055f30fbf02372c8fc99`.
+- `ec5aef5f7effb80d09ad05d39a7c8eacaaca8b78c64add13b22a47092db235a2`.
+- `5f2f046343aba8d4581b3e5e8321382c29daecb9e66069e17ebc3dab51c61dbd`.
+- `6a144de518b46cc49cefb67c19981a503959bd02d2b68cf6d54758853db5817f`.
+
+Use the adjacent core_calls build/copy/seven-pair command and quotient method
+unchanged. RR00 remains `dcad529e99a95332bce33e2883ee909136c3b9f144428bd80afcba985f669b7e`.
+
+Separate diagnostics after inline completion (before scope-free matching) report
+Runtime/ResourceState/SessionState/ExecutionFrame/NativeCall sizes of
+5,040/336/896/320/360 bytes. Contained headers are not independent allocations.
+The Native source mark still reserves its Unit-initialized result cell and owns
+body/application protection, even when inline staging does not write that cell.
+No source-capacity reduction follows from skipping the scalar staging/read scopes.
+Raw empty/scalar and typed-empty whole activations with one versus 10,000 callbacks
+have identical allocator requests/bytes (42 allocations, zero reallocations,
+2,420/2,429/2,420 requested bytes respectively); zero-call entry costs 40 allocations.
+These are whole-entry totals, not zero-allocation Host calls. Each diagnostic run
+records one Host root, zero mapping/descriptor rebuilds and 10,000 real calls plus
+the root admission/return. The script activation's 10,000-call sample additionally
+reports three reallocations/5,111 requested bytes versus zero/2,167 at one call;
+no zero whole-entry script allocation claim is made. RR05 retains whole-cost
+attribution. The isolated existing 1,000-call frame entry/return allocation control
+passes with zero allocations/reallocations/deallocations/requested bytes after
+using instruction slices to preserve its exact entry/publication boundaries.
+
+This closes RR04's local ordinary-call latency gate. CI/platform evidence and
+RR05 whole-cost/GC acceptance are separate obligations.
+
+## RR04 closed-region admission, macOS 2026-11-14
+
+Two separate paired runs measure the ordinary integration executable after scalar
+tail implementation, then after consolidating closed-region admission. The second
+change replaces repeated session/scope/frame checks and a separate source inspection
+with one control admission and the actual paired bank/body admission. It introduces
+no unchecked source accessor, cache or alternate execution protocol.
+
+Environment: Apple M1 Max arm64/32 GiB, macOS 26.6.2 (25G83), Rust 1.99.1
+(58cf8f9c35b355199727627d07ae34a4e2846d67, LLVM 23.1.1), workspace release,
+no Runtime features, default Cargo target/parallelism and warm dependencies.
+Warm builds take 24.59/24.66 seconds respectively, excluded from execution timing.
+For each candidate, run seven fresh-process pairs against the frozen RR00 binary,
+alternating process order. Each process executes the unchanged two ignored
+core_calls owners, three warmups and eleven measured 10,000-call batches for each
+of ten routes. All values/callback counts pass: 1,540 samples per paired run.
+Compilation, diagnostics, profiler and other benchmarks do not overlap timing.
+Preparation/installation/binding stay outside the existing timed intervals.
+
+The following are the second run's median process medians and median paired
+quotients. Quotients need not equal ratios of the displayed medians.
+
+| Route | RR00 ns/call | Region admission ns/call | Candidate/RR00 | Pair range |
+| --- | ---: | ---: | ---: | ---: |
+| core/empty | 3093.7 | 3337.2 | 1.077 | 1.068..1.109 |
+| core/script | 3534.4 | 4127.8 | 1.169 | 1.152..1.189 |
+| core/native | 6654.3 | 5254.0 | 0.790 | 0.787..0.800 |
+| internal/script | 422.5 | 685.1 | 1.622 | 1.554..1.681 |
+| internal/raw_empty | 511.0 | 587.2 | 1.156 | 1.109..1.176 |
+| internal/raw_scalar | 536.0 | 658.8 | 1.239 | 1.206..1.284 |
+| internal/typed_empty | 1622.9 | 778.2 | 0.480 | 0.469..0.492 |
+| internal/typed_scalar | 3085.8 | 962.6 | 0.312 | 0.304..0.318 |
+| internal/borrowed | 2475.4 | 1339.4 | 0.543 | 0.536..0.551 |
+| internal/owned | 3286.0 | 1170.7 | 0.357 | 0.353..0.366 |
+
+The preceding post-tail candidate's paired medians in the same route order are
+1.081, 1.198, 0.812, 1.749, 1.161, 1.260, 0.481, 0.315, 0.544, 0.356.
+Its failed-route pair ranges are core/script 1.189..1.209, internal/script
+1.713..1.766, raw_empty 1.140..1.172 and raw_scalar 1.233..1.270. Both candidates
+fail these four denominators at the frozen paired-median ceiling of 1.10.
+The separate runs are not a direct paired attribution of the consolidation's
+speedup, especially for the smaller Native differences. No phase exit follows.
+
+Executable SHA-256:
+
+- RR00: `dcad529e99a95332bce33e2883ee909136c3b9f144428bd80afcba985f669b7e`.
+- Post-tail: `3efe1e43e9c6e52d28bd6bcafb11e1f3136aa5a5f6b36f6b636897b65637c7f9`.
+- Consolidated region admission: `b52fac2601065229854bf2abb502e5be3732a055768240a7cd51f04a6ae844b2`.
+
+Reproduce by building `cargo test -p kagari-runtime --release --test core_calls
+--no-run --message-format=json`, preserving its emitted executable and alternating
+it with the preserved RR00 executable seven times. Invoke each as
+`core_calls --ignored --nocapture --test-threads=1`. Compute a process median
+from each route's eleven ns/call samples, then the median of seven matched
+candidate/RR00 quotients. Preserve distinct candidate images when rebuilding.
+
+A separate macOS sample of the post-tail internal-call owner observes repeated
+ManagedMemory/RootDriver scopes on the worker. The process covers all internal
+routes and setup; waiting harness samples cannot be attributed to script calls,
+and inlined call/return paths are not separately resolved. This is supporting
+mechanism evidence, not a percentage or causal latency attribution. Source review
+also confirms that same-execution body dependency reuse already exists. Remaining
+diagnosis concerns repeated internal call/return transitions and dynamic admission,
+not a missing body-root cache. Full CI/platform and RR04/RR05 acceptance stay open.
+
+## RR04 uncommon frame pool, macOS 2026-11-14
+
+The next uncommitted RR04 step moves optional method/initializer control from
+every ExecutionFrame to a Runtime-owned reusable pool. A frame is 320 instead of
+592 bytes, with an eight-byte private linear index. Ordinary calls allocate no
+pool slots; explicit control cleanup also survives owned session detachment.
+This remains an intermediate result: VM-space exhaustion, self-tail reuse and the
+frozen latency gates are not complete.
+
+Environment: Apple M1 Max arm64/32 GiB, macOS 26.6.2 (25G83), Rust 1.99.1
+(58cf8f9c3, LLVM 23.1.1), workspace release, no Runtime features, default Cargo
+target/parallelism and warm dependencies. Build the ordinary target once
+(24.13 s, excluded), copy its emitted executable, then run seven fresh-process
+triples against frozen RR00 and the immediately preceding direct-entry binary.
+Rotate the six process orders. Each route has three warmups and eleven measured
+10,000-call batches per process, with actual values/callback counts checked.
+No compiler, diagnostics, profiler or other benchmark overlaps ordinary timing.
+There are 2,310 valid samples. Displayed times summarize seven process medians;
+ratios summarize their matched quotients, not ratios of the displayed totals.
+
+| Route | RR00 ns/call | Direct-entry ns/call | Pool ns/call | Pool/RR00 | Pool/direct | Pool/RR00 pair range |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| core/empty | 3037.5 | 3265.6 | 3246.3 | 1.070 | 0.994 | 1.060..1.103 |
+| core/script | 3467.2 | 4165.6 | 4093.5 | 1.182 | 0.985 | 1.170..1.244 |
+| core/native | 6532.3 | 5365.8 | 5272.2 | 0.807 | 0.984 | 0.801..0.834 |
+| internal/script | 421.3 | 751.5 | 715.4 | 1.702 | 0.952 | 1.670..1.726 |
+| internal/raw_empty | 500.8 | 661.9 | 602.9 | 1.205 | 0.911 | 1.170..1.213 |
+| internal/raw_scalar | 520.4 | 735.5 | 679.7 | 1.306 | 0.924 | 1.258..1.312 |
+| internal/typed_empty | 1595.8 | 864.2 | 803.9 | 0.504 | 0.930 | 0.486..0.506 |
+| internal/typed_scalar | 3022.7 | 1053.2 | 999.5 | 0.331 | 0.949 | 0.330..0.340 |
+| internal/borrowed | 2434.0 | 1426.7 | 1381.1 | 0.568 | 0.970 | 0.567..0.587 |
+| internal/owned | 3215.7 | 1262.7 | 1226.3 | 0.381 | 0.969 | 0.378..0.393 |
+
+The paired-median 1.10 ceiling stays unchanged. Whole-Host script and internal
+script/raw empty/raw scalar still fail it. This comparison measures the complete
+layout/ownership step, not a proven attribution to cache lines or an individual
+instruction. General call/source admission remains an architecture owner; no
+typed-route win waives the remaining denominators.
+
+Separate actual typed-empty diagnostics report 2,923 initialized/6,568 reserved
+execution/source/control bytes, versus the preceding 3,195/7,656. Runtime inline
+size rises from 4,976 to 5,024; ResourceState is 320, SessionState 880 and
+NativeCall 336. These contained sizes are not independent allocations to add
+together. The common callback has one physical 320-byte frame and one logical
+32-byte Native record, with zero uncommon pool capacity.
+
+The real parked-method lifecycle separately retains four 288-byte pool slots
+(1,152 bytes). Its complete snapshot is 2,194 initialized/7,400 reserved bytes
+while parked and 1,464/6,088 after owned retirement, stable across three fresh
+activations. The pool is included even when every method/static owner has retired.
+This is not a memory improvement claim for every uncommon-state workload or RSS.
+Collector metadata, immutable code, managed payloads, allocator overhead and
+external state remain separate. Existing frame-slot allocation controls retain
+unchanged active/retired bank totals and zero-net teardown; they do not allocate
+full ExecutionFrame records and cannot measure this header reduction themselves.
+The scalar/array and script-window allocation contracts still report zero
+allocations/reallocations/deallocations/requested bytes in their warmed boundaries.
+Their incidental elapsed times and diagnostic timings are discarded.
+
+Ordinary executable SHA-256 identifiers:
+
+- RR00: `dcad529e99a95332bce33e2883ee909136c3b9f144428bd80afcba985f669b7e`.
+- Direct-entry: `c34320a384449444200cf1768950349f9b23376d6db9e4be25c9976c8f5bc7bb`.
+- This pool implementation: `c64be31bba95f8200b75789e53aba3e61591a0fa1ff19a981b6a6e62258357da`.
+
+Reproduce with the same core_calls build/copy/process commands in the adjacent
+record, substituting these three ordinary binaries and rotating their order.
+Compilation, installation and binding remain outside timed execution. The
+diagnostic owners are:
+
+```text
+cargo test -p kagari-runtime --release --lib --features execution-diagnostics -- frame_storage_counts parked_method_control_reuses_after_session_detachment closed_observations_count_real_sources_and_do_not_allocate_backing_snapshots --include-ignored --nocapture
+cargo test -p kagari-runtime --release --features execution-diagnostics --test core_calls internal_script_and_native_calls -- --ignored --nocapture --test-threads=1
+```
+
+These are local results, not Windows/Miri/full CI or RR04 final acceptance.
+
+## RR04 direct selected Native calls, macOS 2026-11-14
+
+This intermediate, uncommitted RR04 implementation adds one cleared execution
+storage cache, directly invokes selected closed synchronous Native targets through
+NativeCall, and establishes temporary preparation marks only for semantic
+shared/closure/interface preparation. It removes the dead caller-pinned Native
+table. It does not yet compact ordinary frames, implement VM-space exhaustion or
+optimize self-tail calls, and it does not pass final acceptance.
+
+Environment matches the entry record below: Apple M1 Max arm64/32 GiB,
+macOS 26.6.2 (25G83), Rust 1.99.1 (58cf8f9c3, LLVM 23.1.1), workspace release,
+no Runtime features, default Cargo parallelism/target and warm dependencies.
+Build once (25.31 s, excluded), copy the emitted ordinary core_calls executable,
+then run seven matched fresh-process triples against frozen RR00 and RR03.
+Rotate through the six orders; every process runs three warmups plus eleven
+10,000-call batches per route. Compilation, diagnostics, profiling and other
+benchmarks do not overlap timing. All results/callback counts pass; 2,310 valid
+samples. Each process is summarized by its eleven-batch median; displayed ns
+summarize seven process medians, while ratios summarize the matched quotients.
+
+| Route | RR00 ns/call | RR03 ns/call | RR04 ns/call | RR04/RR00 | RR04/RR03 | RR04/RR00 pair range |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| core/empty | 3040.3 | 3263.3 | 3275.7 | 1.078 | 1.007 | 1.058..1.104 |
+| core/script | 3468.5 | 4151.7 | 4164.4 | 1.202 | 1.004 | 1.191..1.208 |
+| core/native | 6525.1 | 5794.6 | 5356.3 | 0.820 | 0.924 | 0.810..0.834 |
+| internal/script | 414.5 | 791.9 | 751.2 | 1.807 | 0.949 | 1.769..1.835 |
+| internal/raw_empty | 499.4 | 1038.3 | 660.7 | 1.323 | 0.636 | 1.319..1.331 |
+| internal/raw_scalar | 519.6 | 1147.0 | 734.4 | 1.413 | 0.640 | 1.411..1.416 |
+| internal/typed_empty | 1592.9 | 1238.2 | 864.4 | 0.542 | 0.697 | 0.540..0.546 |
+| internal/typed_scalar | 3015.6 | 1461.7 | 1052.8 | 0.349 | 0.720 | 0.347..0.355 |
+| internal/borrowed | 2429.7 | 1867.0 | 1425.8 | 0.587 | 0.763 | 0.582..0.590 |
+| internal/owned | 3216.9 | 1710.6 | 1261.5 | 0.392 | 0.738 | 0.391..0.395 |
+
+The frozen paired-median 1.10 ceiling is unchanged. Whole-Host script and internal
+script/raw empty/raw scalar still fail it. Direct selected Native removes a
+measured cost relative to RR03, but faster typed/borrowed/owned routes do not
+close other denominators. Ordinary frame admission and its uncommon-state storage
+remain architecture work; no attribution of individual remaining cycles is made.
+
+The separate diagnostic internal-call run passes with zero metadata graph
+admissions and Native mapping rebuilds. Empty/scalar routes have one outer Host
+registration, 10,001 admissions/returns and one outer argument transfer per
+10,000 callbacks; internal script retains 10,001 argument transfers. Borrowed
+setup has its distinct three registrations and extra construction call. Ordinary
+raw/typed empty/scalar allocator requests are identical at 1 and 10,000 callbacks
+(41 allocations, zero reallocations per outer execution). Zero callbacks uses
+39 allocations, so the first Native activation still adds two fixed allocations;
+this is no claim of zero whole-Host allocations. Actual owned conversion retains
+its per-value allocation. Diagnostic timing is discarded.
+
+The actual typed-empty callback has one full 592-byte ExecutionFrame and one
+32-byte logical Native entry, versus two full frames before. SessionState grows
+from 848 to 880 bytes; library Runtime stays 4,976 bytes after the earlier cache
+addition (ResourceState 272; NativeCall 336). Execution/source/control initialized
+backing is 3,195 versus entry's 3,691 bytes; reserved backing rises from 7,400 to
+7,656, including four-slot frame capacity, logical control capacity and enlarged
+session directory entries. All are included, not hidden behind the smaller
+occupied frame count. Collector metadata, immutable code, managed payloads,
+allocator overhead and external state remain separate; this is not a total-memory
+or RSS improvement claim.
+
+Ordinary executable SHA-256 identifiers:
+
+- RR00: `dcad529e99a95332bce33e2883ee909136c3b9f144428bd80afcba985f669b7e`.
+- RR03: `a4aa4182a10f9486df698c89e58ed90afb9d44cd60c5c41cc8fd544b11e3f1bb`.
+- This RR04 implementation: `c34320a384449444200cf1768950349f9b23376d6db9e4be25c9976c8f5bc7bb`.
+
+Reproduce by building the ordinary target below, copying its reported executable
+before a feature build, and running each of the three preserved binaries in each
+rotated process order. Compilation/installation/binding costs remain outside each
+timed batch; allocations and snapshots are distinct from ordinary latency.
+
+```text
+cargo test -p kagari-runtime --release --test core_calls --no-run --message-format=json
+<copied ordinary executable> --ignored --nocapture --test-threads=1
+cargo test -p kagari-runtime --release --features execution-diagnostics --test core_calls internal_script_and_native_calls -- --ignored --nocapture --test-threads=1
+```
+
+No Windows, Miri, full CI or RR04 final gate is inferred from this local result.
+
+## RR04 entry paired calls, macOS 2026-11-14
+
+The RR03 production graph cutover at `52ab7b58` now has matched call evidence
+against the unchanged frozen RR00 executable. This is RR04 entry characterization,
+not acceptance of the remaining compact-call/stack/tail work. The ordinary
+core_calls target and script workloads remain the RR00 semantic owners.
+
+Environment: Apple M1 Max arm64, 32 GiB, macOS 26.6.2 (25G83), Rust 1.99.1
+(58cf8f9c3, LLVM 23.1.1), workspace release profile, no Runtime features, default
+Cargo target/parallelism and warm dependencies. Build the ordinary target once,
+copy the exact reported executable, then run seven paired fresh processes with
+alternating RR00/RR03 order. Each of the ten routes has three warmups and eleven
+10,000-call measured batches per process; results and actual callback counts are
+checked. No compiler, profiler, diagnostic run or other benchmark overlaps timing.
+There are 1,540 valid timing samples. Ordinary/diagnostic builds take respectively
+24.43/24.12 s, excluded from execution timings. Diagnostic timings are discarded.
+
+| Route | RR00 median ns/call | RR03 median ns/call | Paired median ratio | Pair ratio range |
+| --- | ---: | ---: | ---: | ---: |
+| core/empty | 3036.0 | 3260.7 | 1.071 | 1.041..1.081 |
+| core/script | 3467.6 | 4155.3 | 1.196 | 1.192..1.202 |
+| core/native | 6513.2 | 5815.1 | 0.894 | 0.881..0.900 |
+| internal/script | 421.1 | 790.8 | 1.902 | 1.866..1.928 |
+| internal/raw_empty | 500.2 | 1037.9 | 2.076 | 2.073..2.130 |
+| internal/raw_scalar | 520.9 | 1144.9 | 2.199 | 2.156..2.269 |
+| internal/typed_empty | 1595.5 | 1239.4 | 0.775 | 0.756..0.803 |
+| internal/typed_scalar | 3021.4 | 1460.5 | 0.483 | 0.483..0.485 |
+| internal/borrowed | 2432.8 | 1870.0 | 0.768 | 0.766..0.770 |
+| internal/owned | 3217.3 | 1709.5 | 0.532 | 0.516..0.539 |
+
+Medians first summarize eleven batches in each process; the displayed time is the
+median of seven process medians and each ratio divides matched pair medians.
+The frozen 1.10 latency ceiling remains unchanged: whole-Host script and internal
+script/raw empty/raw scalar currently fail it. Faster typed/borrowed/owned routes
+do not close those denominators. These are complete workload costs (including
+loop/control and default GC), not isolated instruction or thunk costs.
+
+A separate execution-diagnostics run records zero metadata graph admissions and
+zero Native type-mapping rebuilds in each 10,000-call batch. Empty/scalar routes
+have one outer Host registration and 10,001 call admissions/returns. The actual
+typed-empty callback snapshot still contains two complete 592-byte frames;
+execution/source/control buffers total 3,691 initialized/7,400 reserved bytes,
+excluding separately reported collector metadata, managed/code payloads and
+allocator/external overhead. Library Runtime/ResourceState/SessionState inline
+sizes are 4,704/272/848 bytes and NativeCall is 336 bytes. Inline containment sizes
+must not be added as independent allocations. The frame-slot diagnostic separately
+measures FrameStorage=128 and FrameMark=96 bytes. Its controls do not allocate full
+ExecutionFrame records, so their source-bank sizes are not whole-stack totals.
+
+Source review identifies two different costs: source banks are recreated between
+independent Host entries, while ordinary fallback calls still admit full frames
+and Native pending/argument/result state. The first explains concrete outer-bank
+allocation activity; it cannot by itself account for a roughly twofold internal
+raw-call regression. RR04 must review those common-call responsibilities and
+measure again. No individual cycle attribution or unmeasured speedup is claimed.
+
+Reproduction keeps compilation outside timing:
+
+```text
+cargo test -p kagari-runtime --release --test core_calls --no-run --message-format=json
+<copied RR00 binary> --ignored --nocapture --test-threads=1
+<copied current binary> --ignored --nocapture --test-threads=1
+cargo test -p kagari-runtime --release --features execution-diagnostics --test core_calls internal_script_and_native_calls -- --ignored --nocapture --test-threads=1
+cargo test -p kagari-runtime --release --lib --features execution-diagnostics frame_storage_counts -- --ignored --nocapture
+```
+
+The ignored target/rr04/before images and paired samples are disposable; source,
+method and results above permit reproduction. Frozen ordinary SHA-256 values:
+RR00 `dcad529e99a95332bce33e2883ee909136c3b9f144428bd80afcba985f669b7e`,
+RR03 `a4aa4182a10f9486df698c89e58ed90afb9d44cd60c5c41cc8fd544b11e3f1bb`.
+Current Cargo.lock SHA-256 is `0d0a20ec92a21c137ba955f0bfbc90816bec20fe117b8b52c2940241856749a3`.
+Full CI, standalone/integrated GC denominators and final complete footprint gates
+remain separate; these ten call routes do not substitute for them.
+
 ## RR00 Runtime and Native baseline, macOS 2026-11-12
 
 This freezes the pre-migration implementation at `7b05d2ed` plus RR00's manual
@@ -7763,3 +8145,74 @@ Baseline image SHA-256 is
 candidate is `e53f95037d8dedfd5012e9a6f769c6830e18d29d078fa96fd6435ddcc55684a8`.
 Raw evidence and frozen images under ignored target are disposable; the tracked
 record retains method, results and limits.
+
+## RR04 scalar self-tail execution (macOS, 2026-11-14)
+
+The owning [execution fixture](../crates/kagari-runtime/tests/fixtures/execution/self-tail.kgr)
+and [ordinary timing control](../crates/kagari-runtime/src/interpreter_tests/execution/tail/timings.rs)
+compare positive triangular sums by verified self-tail replacement, an explicit
+loop and ordinary non-tail recursion. Arguments/results are checked independently;
+the fixture's checked-trap and lifecycle tests own preservation outside these
+non-overflowing inputs. This measures the same numeric inputs, not a general
+reassociation of checked arithmetic or an alternative language semantics.
+
+Rust 1.99.1 (58cf8f9c3, LLVM 23.1.1), aarch64-apple-darwin, Apple M1 Max/32 GiB,
+macOS 26.6.2 (25G83); ordinary workspace release profile, default features,
+target and Cargo parallelism, warm dependencies. No compilation, profiler,
+allocation diagnostics or other benchmark overlaps the samples. The unit-test
+binary includes cfg(test) Runtime lifetime probes; these results are internal
+comparisons within that same image, not a comparison with the frozen integration
+core_calls images or a pass of their 1.10 gate.
+
+Seven fresh processes each run three warmups per route and eleven batches per
+input, rotating the three route orders each round. N=16 uses 1,000 invocations
+per batch; N=1,024 uses 100. Each invocation includes exact root admission,
+execution, result handoff and scope cleanup through Executor. Compilation,
+installation/linking and warmups are outside timing. There are 462 batch samples;
+the table is the median of process medians, with median within-process ratios.
+
+| Input N | Tail ns/invocation | Loop ns/invocation | Ordinary recursion ns/invocation | Tail/loop | Tail/ordinary |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 16 | 2,080.6 | 1,312.6 | 12,501.5 | 1.591 | 0.166 |
+| 1,024 | 60,105.8 | 14,993.8 | 722,861.7 | 4.009 | 0.083 |
+
+Tail replacement is faster than this ordinary-recursion control and remains
+slower than the explicit loop. There is no claim of universal speedup or completed
+ordinary-call acceptance. Median source compilation/codec preparation is 7.993 ms;
+preparing three independent runtimes is 5.414/5.961 ms for the two input groups,
+reported separately. The warm-dependency ordinary test-binary build takes 38.72 s.
+Its SHA-256 is
+`e4a90fb2f267a42f65e7ee9716c186793a373eae6e64816c7376c3d1d66949e0`.
+
+Separate source-free correctness runs use a 16 KiB execution account. A 100,000-step
+sum retains one physical frame and 1,453 committed account bytes; permutation of
+two independent argument cycles retains one/1,471, repeated-source fanout
+one/1,453, and a parent awaiting the sum two/1,480. Ordinary N=10 retains eleven
+frames/5,824 account bytes. These include owned frame/source/control capacity under
+the account contract, not fixed Runtime/directories, immutable code, collector
+metadata, payloads, allocator overhead or RSS. Active frames remain 320 bytes.
+ExecutionFunction grows from 152 to 168 bytes for its candidate-plan table header;
+candidate move arrays and boxed Runtime-local tail bindings are additional cold
+metadata, not hidden per-iteration allocation or another managed root source.
+
+The separate release diagnostic control measures only uninterrupted execution
+after root preparation and before scope destruction. Both 10,000 and 100,000
+replacements make zero allocator requests/bytes, have zero net byte change and
+retain the same 1,453-byte account capacity. It counts respectively 10,000/100,000
+actual replacements, 20,000/200,000 parameter assignments and 50,000/500,000
+initialization-byte resets. There are no new physical call admissions, call
+selections, bank reservations, metadata graph admissions or Host registrations
+inside that interval. Setup, result-independent scope teardown and cold plan
+construction are excluded; instrumented timings are discarded.
+
+Reproduction (repeat the ordinary command in seven fresh invocations for the
+table; keep builds and instrumentation outside that interval):
+
+```text
+cargo test -p kagari-runtime --release --lib -- scalar_tail_loop_and_ordinary_recursion_timing --include-ignored --nocapture
+cargo test -p kagari-runtime --release --lib --features execution-diagnostics -- warmed_tail_replacement_allocates_no_iteration_storage_or_roots --include-ignored --nocapture
+```
+
+Full CI/platform measurements remain unrun. The RR04 ordinary empty/Native/script
+gate still uses its original frozen workloads, images and ceiling; this control
+does not replace it.

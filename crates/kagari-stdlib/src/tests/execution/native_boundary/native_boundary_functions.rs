@@ -40,7 +40,6 @@ use kagari_runtime::{
         typed::NativeContext,
         types::Type,
     },
-    resource::RuntimeLimits,
     value::view::ValueView,
 };
 
@@ -81,9 +80,6 @@ fn fixture_program<'a>(
         gc: GcHeapConfig {
             collection_threshold: Some(1),
             ..Default::default()
-        },
-        limits: RuntimeLimits {
-            max_call_depth: Some(16),
         },
         ..Default::default()
     });

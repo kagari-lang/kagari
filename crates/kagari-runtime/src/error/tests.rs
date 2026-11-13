@@ -39,6 +39,7 @@ fn typed_reasons_and_owned_positions_retain_the_first_execution_origin() {
             function_name: "origin".into(),
             source_uri: "mem://origin".into(),
             instruction_offset: 3,
+            tail_calls_elided: false,
             semantic_origin: None,
             source_span: None,
             line: None,

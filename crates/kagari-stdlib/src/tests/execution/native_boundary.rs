@@ -125,7 +125,7 @@ fn compile(text: &str, module: Option<&NativeModule>) -> (Runtime, InstalledProg
 
 // Constant caches belong to a published/pinned program, independently of host
 // value roots. Finish version-specific checks and drop bindings before retiring it.
-fn publish_unused_version(vm: &mut Runtime, active: &InstalledProgram) {
+pub(super) fn publish_unused_version(vm: &mut Runtime, active: &InstalledProgram) {
     let selected = vm.select_program(active).unwrap();
     let candidate = vm
         .stage_reload_verified_program(active, None, selected.verified_program().clone())

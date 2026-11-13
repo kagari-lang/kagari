@@ -13,6 +13,8 @@ use std::mem::size_of;
 /// Execution/root/control backing at a closed diagnostic boundary. Excludes
 /// immutable code, object payloads and allocator overhead. Collector metadata and
 /// root-release channels are reported separately from execution backing.
+/// Includes cleared reusable capacity even though it retains no managed values.
+/// Private execution-space ledgers are counted once through their source owner.
 /// Repeated names describe distinct buffers, not duplicated accounting.
 #[derive(Debug)]
 pub struct ExecutionUsage {
@@ -49,7 +51,8 @@ pub fn execution_usage(runtime: &Runtime) -> ExecutionUsage {
 ///
 /// Runtime inline bytes already include ResourceState and the heap/source control
 /// headers; do not add their individual size descriptions again. Buffer bytes
-/// include active and parked storage, initialized entries versus reserved capacity.
+/// include active, parked and cleared reusable storage, initialized entries versus
+/// reserved capacity.
 /// Managed payload/backing, immutable code, individual Arc allocations, external
 /// Rust state and allocator overhead are separate. This is a snapshot, not a peak.
 #[derive(Debug, Clone, Copy)]
@@ -80,6 +83,7 @@ pub fn execution_backing(runtime: &Runtime) -> ExecutionBacking {
 fn visit_usage(runtime: &Runtime, visit: &mut impl FnMut(BufferUsage)) {
     runtime.memory.visit_usage(visit);
     runtime.resources().sessions.visit_usage(visit);
+    runtime.resources().uncommon_frames.visit_usage(visit);
 }
 
 /// Occupied and reserved backing bytes for one concrete Vec, excluding children.
@@ -185,5 +189,28 @@ mod tests {
         );
         assert!(backing.reserved_buffer_bytes >= backing.initialized_buffer_bytes);
         assert_eq!(backing.inline_runtime_bytes, size_of::<Runtime>());
+        drop(cx);
+        let retired = execution_usage(&runtime);
+        let reusable = retired
+            .buffers
+            .iter()
+            .filter(|buffer| {
+                buffer.name.starts_with("reusable ")
+                    && buffer.name != "reusable execution space ledger"
+            })
+            .collect::<Vec<_>>();
+        assert!(reusable.iter().all(|buffer| buffer.entries == 0));
+        assert!(reusable.iter().any(|buffer| buffer.capacity > 0));
+        assert!(
+            !retired
+                .buffers
+                .iter()
+                .any(|buffer| buffer.name == "execution space ledger")
+        );
+        assert_eq!(
+            execution_backing(&runtime).reserved_buffer_bytes,
+            backing.reserved_buffer_bytes,
+            "retirement retains bank and plain-ledger backing in one cleared cache"
+        );
     }
 }

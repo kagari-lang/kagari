@@ -345,11 +345,6 @@ impl Runtime {
             .ok_or_else(|| RuntimeError::module_validation("group parent"))?;
         state.poll(self.resources())?;
         let options = state.options.clone();
-        let depth = state
-            .depth_base
-            .get()
-            .checked_add(state.parked_depth.get())
-            .ok_or_else(|| RuntimeError::resource_limit("group call depth"))?;
         let nesting = state.group_depth.get() + 1;
         let logical_root = state.logical_root.get();
         drop(state);
@@ -360,7 +355,6 @@ impl Runtime {
             .sessions
             .get(execution.id)
             .expect("reserved branch");
-        state.depth_base.set(depth);
         state.group_depth.set(nesting);
         state.logical_root.set(logical_root);
         state.group_parent.set(Some(parent));
@@ -641,9 +635,10 @@ impl Runtime {
             }
             failed = true;
         }
-        for frame in frames {
+        for mut frame in frames {
             failed |= runtime
-                .retirement_cleanup(|_| {
+                .retirement_cleanup(|runtime| {
+                    frame.release_control(&runtime.resources);
                     drop(frame);
                     Ok(())
                 })

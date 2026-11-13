@@ -41,8 +41,8 @@ fn tagged_transfers_publish_before_releasing_sources_and_survive_cursor_reuse()
     let mut memory = RootDriver::<ExecutionRoots>::new(HeapConfig::default())?;
     let (id, reused) = memory.scope(|cx, roots| {
         ExecutionRoots::with(roots, cx, |slots| {
-            let id = slots.enter(64)?;
-            let reused = slots.enter(1)?;
+            let id = slots.enter(64, 8 * 1024 * 1024)?;
+            let reused = slots.enter(1, 8 * 1024 * 1024)?;
             let a = Object::alloc(slots.scope(), 1, &drops)?;
             let b = Object::alloc(slots.scope(), 2, &drops)?;
             Object::set_next(slots.scope(), a, Some(b));
@@ -63,7 +63,7 @@ fn tagged_transfers_publish_before_releasing_sources_and_survive_cursor_reuse()
             slots.set(location(id, Bank::Managed, 63), ScopedValue::unit())?;
             slots.grow(id, Bank::Managed, 8192)?;
             slots.leave(reused)?;
-            let replacement = slots.enter(1)?;
+            let replacement = slots.enter(1, 8 * 1024 * 1024)?;
             assert_ne!(replacement, reused);
             assert!(matches!(
                 slots.get(location(reused, Bank::Managed, 0)),

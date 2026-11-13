@@ -744,12 +744,15 @@ Owned conversion copies data, bounds recursion/work and rejects unrepresentable
 cycles; identity-preserving adapters retain the original object instead. Input
 and output capabilities are independent, and no borrowed input reference escapes.
 NativeResult is the runtime-failure channel; a nested business Result remains data.
-NativeCall reads protected ArgumentValues and stages one result in its execution
-source. Raw scoped callbacks use set_result or encode_result; encoding commits into
-that pending cell before temporary conversion storage retires. Native invocation
+NativeCall reads protected ArgumentValues and stages one result in its pending
+completion record. Scalar setters keep edge-free payloads inline; managed results
+use the execution source. Raw scoped callbacks use set_result or encode_result;
+encoding commits into a protected pending cell before temporary conversion storage retires. Native invocation
 cannot retry a callback in the same admitted context after failure. The existing
 post-call cancellation check precedes caller publication through ResultPlace, and
-cleanup retires the pending cell and this call's suffix on all exits. Heap services
+cleanup retires the completion and this call's source suffix on all exits. A nested
+temporary view shares the same completion and cannot stage a second result.
+Heap services
 are scoped mutable Runtime operations; NativeCall exposes no collector accessor.
 Conversion does not implicitly install nominal providers or ignore type origins.
 Portable `Ty::Array` carries its element schema; `Type::array` authors that

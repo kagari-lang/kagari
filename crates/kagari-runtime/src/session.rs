@@ -7,6 +7,7 @@ use crate::{
     execution::{
         memory::ManagedMemory,
         roots::{DependencyId, SessionId},
+        space::ExecutionSpace,
     },
     frame::{
         ExecutionFrame,
@@ -35,6 +36,7 @@ use kagari_bytecode::artifact::ArtifactFingerprint;
 
 pub(crate) mod dependencies;
 pub mod group;
+pub(crate) mod native;
 pub mod owned;
 pub(crate) mod store;
 mod tracing;
@@ -171,10 +173,10 @@ pub trait ExecutionObserver: Any + Debug + Send {
 
 #[derive(Debug)]
 pub(crate) struct SessionState {
+    pub(crate) space: Arc<ExecutionSpace>,
     pub id: SessionId,
     pub owner: RefCell<Option<Arc<owned::ExecutionOwner>>>,
     pub parked_depth: Cell<u32>,
-    pub depth_base: Cell<u32>,
     pub group_depth: Cell<usize>,
     pub logical_root: Cell<SessionId>,
     pub group_parent: Cell<Option<SessionId>>,
@@ -186,6 +188,7 @@ pub(crate) struct SessionState {
     pub host_scopes: RefCell<HashSet<HostFrameId>>,
     pub observer_attached: Cell<bool>,
     pub frame_scopes: RefCell<Vec<u64>>,
+    pub(crate) native_calls: RefCell<Vec<native::NativeFrame>>,
     pub next_frame_scope: Cell<u64>,
     pub scopes: Cell<usize>,
     pub peak_call_depth: Cell<u32>,
@@ -209,13 +212,14 @@ impl SessionState {
         baseline: ResourceCounters,
         registration: RetentionRegistration,
         body: DependencyId<RevisionState>,
+        space: Arc<ExecutionSpace>,
     ) -> Self {
         Self {
             id,
+            space,
             body,
             owner: RefCell::new(None),
             parked_depth: Cell::new(0),
-            depth_base: Cell::new(0),
             group_depth: Cell::new(0),
             logical_root: Cell::new(id),
             group_parent: Cell::new(None),
@@ -227,6 +231,7 @@ impl SessionState {
             host_scopes: RefCell::new(HashSet::new()),
             observer_attached: Cell::new(false),
             frame_scopes: RefCell::new(Vec::new()),
+            native_calls: RefCell::new(Vec::new()),
             next_frame_scope: Cell::new(0),
             scopes: Cell::new(0),
             peak_call_depth: Cell::new(baseline.current_call_depth),
@@ -396,7 +401,9 @@ impl SessionScope {
         state.scopes.set(scopes - 1);
         if scopes == 1 {
             if state.owner.borrow().is_some() {
-                if !state.frame_scopes.borrow().is_empty() || !state.host_scopes.borrow().is_empty()
+                if !state.frame_scopes.borrow().is_empty()
+                    || !state.native_calls.borrow().is_empty()
+                    || !state.host_scopes.borrow().is_empty()
                 {
                     resources.quarantine(EngineFault::OwnedActivationEndedWithActiveScopes);
                 }
@@ -409,6 +416,7 @@ impl SessionScope {
                 .frames(self.id)
                 .is_none_or(|frames| !frames.is_empty())
                 || !state.frame_scopes.borrow().is_empty()
+                || !state.native_calls.borrow().is_empty()
                 || !state.host_scopes.borrow().is_empty()
             {
                 resources.quarantine(EngineFault::ExecutionSessionEndedWithActiveResources);
@@ -425,7 +433,9 @@ impl SessionScope {
                 }
                 // The whole-execution owner retired every frame/local suffix.
                 // Detached controls contain no additional managed storage to retire.
-                drop(frames);
+                for mut frame in frames {
+                    frame.release_control(resources);
+                }
             } else {
                 resources.quarantine(EngineFault::SessionRecordsRemainedBorrowedDuringCleanup);
             }

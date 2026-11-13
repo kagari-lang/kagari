@@ -27,6 +27,13 @@ pub(crate) struct PreparedSelection {
     pub(super) mapping: Arc<PublicationMapping>,
 }
 
+impl PreparedSelection {
+    /// Pure identity check while binding or refreshing an immutable activation.
+    pub(crate) fn selects(&self, owner: ModuleKey, target: CallableTarget) -> bool {
+        self.owner == owner && self.target == target
+    }
+}
+
 /// Liveness belongs to actual bindings and the supplying whole program. The
 /// publication registry holds a Weak reference, so saved host bindings survive
 /// code collection without making expired redirect metadata immortal.

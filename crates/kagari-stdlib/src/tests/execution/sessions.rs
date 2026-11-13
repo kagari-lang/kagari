@@ -6,6 +6,7 @@ use crate::tests::{
             compile_logging_test_bytecode, compile_test_bytecode, logging_module,
             round_trip_bytecode, standard_runtime,
         },
+        native_boundary::publish_unused_version,
         native_fixtures,
     },
     support::bytecode::reload_bytecode,
@@ -29,6 +30,7 @@ use kagari_runtime::{
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
 use kagari_types::{language::binding, scalar::BuiltinType, ty::Ty};
+use std::num::NonZeroUsize;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
@@ -205,7 +207,8 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                 let cancellation = token.clone();
                 let mut runtime = standard_runtime(RuntimeConfig {
                     limits: RuntimeLimits {
-                        max_call_depth: if cancel { Some(256) } else { Some(2) },
+                        max_native_depth: NonZeroUsize::new(if cancel { 32 } else { 1 }).unwrap(),
+                        ..Default::default()
                     },
                     ..Default::default()
                 });
@@ -226,7 +229,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                     } else {
                         let arguments = context.retain_temporaries(&[]).unwrap();
                         let error = reenter(context, &root, nested, arguments).expect_err("nested termination");
-                        assert!(matches!(&error, error if error.kind() == if cancel { RuntimeErrorKind::Cancelled } else { RuntimeErrorKind::ResourceLimitExceeded }));
+                        assert!(matches!(&error, error if error.kind() == if cancel { RuntimeErrorKind::Cancelled } else { RuntimeErrorKind::StackOverflow }));
                     }
                     // Even a host deliberately swallowing a nested terminal error cannot resume.
                     Ok(ValueView::unit())
@@ -268,21 +271,18 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                     .iter()
                     .map(|frame| frame.function_name.as_str())
                     .collect::<Vec<_>>();
-                assert_eq!(
-                    names,
-                    if cancel {
-                        vec!["log", "nested", "log", "main"]
-                    } else {
-                        vec!["log", "main"]
-                    }
-                );
+                assert_eq!(names, ["log", "nested", "log", "main"]);
                 assert!(
-                    matches!(&error, error if error.kind() == if cancel { RuntimeErrorKind::Cancelled } else { RuntimeErrorKind::ResourceLimitExceeded })
+                    matches!(&error, error if error.kind() == if cancel { RuntimeErrorKind::Cancelled } else { RuntimeErrorKind::StackOverflow })
                 );
                 assert_eq!(scope.runtime().resources().counters().current_call_depth, 0);
                 assert_eq!(scope.host_scope_count(), 0);
                 drop(scope);
+                // Both log literals belong to the selected revision cache.
+                // Retire it before checking exact execution-temporary release.
+                publish_unused_version(&mut vm, &_loaded_program);
                 vm.collect_garbage().unwrap();
+                assert!(vm.validate_executable_module(&loaded).is_err());
                 assert_eq!(
                     vm.gc_stats().root_registrations,
                     baseline.root_registrations

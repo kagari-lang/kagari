@@ -12,6 +12,7 @@ use crate::{
         retention::{ProgramLease, RetentionOrigin},
     },
     native::conversion::arguments::ArgumentValues,
+    resource::native_stack::NativeStackMark,
     value::carriers::RootedValue,
 };
 use kagari_types::{arithmetic::ArithmeticError, scalar::error::ScalarError};
@@ -61,6 +62,19 @@ pub struct NativeInvocationFailure {
     #[source]
     pub error: BackendInvocationError,
     pub trace: Arc<ErrorTrace>,
+}
+
+struct NativeStackInvocation<'runtime> {
+    runtime: &'runtime mut Runtime,
+    mark: Option<NativeStackMark>,
+}
+
+impl Drop for NativeStackInvocation<'_> {
+    fn drop(&mut self) {
+        if let Some(mark) = self.mark.take() {
+            self.runtime.resources.leave_native_stack(mark);
+        }
+    }
 }
 
 impl Runtime {
@@ -202,19 +216,30 @@ impl Runtime {
         // SAFETY: installation establishes code lifetime and ABI; the sealed handle
         // retains the product and versions, and the active frame supplies context.
         let function = unsafe { mem::transmute::<usize, JitCompiledFunction>(address) };
+        let mark = self
+            .resources
+            .enter_native_stack()
+            .map_err(runtime_failure)?;
+        let invocation = NativeStackInvocation {
+            runtime: self,
+            mark: Some(mark),
+        };
+        let runtime = &mut *invocation.runtime;
         let mut result = JitValue::default();
         let context = NativeInvocationContext {
-            runtime: (self as *mut Self).cast_const().cast(),
+            runtime: (runtime as *mut Self).cast_const().cast(),
             helpers: &NATIVE_HELPERS,
         };
         let status = unsafe { function(&context, &mut result) };
-        self.resources()
+        runtime
+            .resources()
             .ensure_execution_allowed()
             .map_err(runtime_failure)?;
-        check_status(self, status)?;
+        check_status(runtime, status)?;
         let (representation, value) = decode_native_value(result).ok_or_else(|| {
             runtime_failure(
-                self.resources()
+                runtime
+                    .resources()
                     .quarantine(EngineFault::CompiledFunctionReturnedAnInvalidValue),
             )
         })?;
@@ -222,7 +247,7 @@ impl Runtime {
             .metadata
             .return_type;
         if representation != expected {
-            return Err(runtime_failure(self.resources().quarantine(
+            return Err(runtime_failure(runtime.resources().quarantine(
                 EngineFault::CompiledFunctionReturnedTheWrongRepresentation,
             )));
         }

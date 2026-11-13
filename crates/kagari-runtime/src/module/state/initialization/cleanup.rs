@@ -54,7 +54,7 @@ impl Runtime {
                 .inspect_frame_stacks(|stacks| {
                     let mut pending = Vec::new();
                     for frame in stacks.iter().flatten() {
-                        if let Some(failure) = frame.pending_static_failure() {
+                        if let Some(failure) = frame.pending_static_failure(&self.resources) {
                             pending.try_reserve(1)?;
                             pending.push(failure);
                         }

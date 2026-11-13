@@ -1,4 +1,5 @@
 //! Opaque return packets authenticate one execution-owned local snapshot.
+use crate::execution::space;
 use crate::{
     execution::roots::{SessionId, Slots, ValueBank, ValueLocation, frames::FrameMark},
     value::carriers::ScopedValue,
@@ -36,17 +37,14 @@ impl<'gc> Slots<'_, 'gc> {
             .return_sequence
             .checked_add(1)
             .ok_or(GcError::Limit("return snapshot identity"))?;
-        let local_top = mark
-            .local_top
-            .checked_add(1)
-            .ok_or(GcError::Limit("return local prefix"))?;
-        let return_top = mark
-            .return_top
-            .checked_add(1)
-            .ok_or(GcError::Limit("return record prefix"))?;
-        storage
-            .returns
-            .try_reserve(usize::from(mark.return_top == storage.returns.len()))?;
+        let local_top = mark.local_top.checked_add(1).ok_or(GcError::SourceLimit)?;
+        let return_top = mark.return_top.checked_add(1).ok_or(GcError::SourceLimit)?;
+        let additional = usize::from(mark.return_top == storage.returns.len());
+        space::reserve(
+            &mut storage.returns,
+            additional,
+            storage.space.as_deref().expect("admitted execution space"),
+        )?;
         let location = ValueLocation {
             execution,
             bank: ValueBank::Local,
@@ -94,7 +92,11 @@ impl<'gc> Slots<'_, 'gc> {
             .checked_add(1)
             .ok_or(GcError::Limit("return snapshot identity"))?;
         let record = storage.returns.len();
-        storage.returns.try_reserve(1)?;
+        space::reserve(
+            &mut storage.returns,
+            1,
+            storage.space.as_deref().expect("admitted execution space"),
+        )?;
         // Both buffers are reserved before publication. A failed edge import
         // creates neither a record nor a visible partially initialized result.
         let location = self.push_local(execution, value)?;

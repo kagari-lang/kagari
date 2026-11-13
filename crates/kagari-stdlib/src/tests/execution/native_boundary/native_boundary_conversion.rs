@@ -502,9 +502,14 @@ fn failed_output_preserves_callback_effects_and_traps_release_conversion_roots()
     let loaded = vm.select_program(&_loaded_program).unwrap();
     vm.collect_garbage().unwrap();
     let baseline = vm.gc_stats();
+    let error = vm
+        .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
+        .unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
     assert!(
-        vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
-            .is_err()
+        error
+            .to_string()
+            .contains("converted value differs from its declaration")
     );
     assert_eq!(effects.load(Ordering::SeqCst), 1);
     assert!(

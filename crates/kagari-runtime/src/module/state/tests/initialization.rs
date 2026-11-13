@@ -18,7 +18,7 @@ use crate::{
     value::carriers::RootedValue,
 };
 
-use std::sync::Arc;
+use std::{num::NonZeroUsize, sync::Arc};
 
 fn access_program() -> DefinitionMetadata<BytecodeProgram> {
     let (definitions, mut code) = program(scalar(), false).into_parts();
@@ -97,6 +97,7 @@ fn initializer_frame_drop_poison_survives_termination_and_releases_recipe_edges(
                 );
                 assert_eq!(stack.current(runtime).unwrap().loaded().key(), old.key());
                 assert!(runtime.static_initialization_active());
+                assert_eq!(runtime.resources.uncommon_frames.live(), 1);
                 assert!(!stack.can_park(runtime).unwrap());
                 assert_eq!(
                     runtime
@@ -150,6 +151,7 @@ fn initializer_frame_drop_poison_survives_termination_and_releases_recipe_edges(
             })
             .unwrap();
         drop(stack_activation);
+        assert_eq!(runtime.resources.uncommon_frames.live(), 0);
         assert!(!runtime.static_initialization_active());
         assert_eq!(physical_phase(&mut runtime, &current), StaticPhase::Failed);
         assert_eq!(runtime.resources().counters().current_call_depth, 0);
@@ -167,10 +169,11 @@ fn initializer_frame_drop_poison_survives_termination_and_releases_recipe_edges(
 }
 
 #[test]
-fn pre_attempt_depth_rejection_leaves_cell_uninitialized() {
+fn pre_attempt_space_rejection_leaves_cell_uninitialized() {
     let mut runtime = Runtime::new(RuntimeConfig {
         limits: RuntimeLimits {
-            max_call_depth: Some(1),
+            max_stack_bytes: NonZeroUsize::new(1024).unwrap(),
+            ..Default::default()
         },
         ..Default::default()
     });
@@ -188,10 +191,12 @@ fn pre_attempt_depth_rejection_leaves_cell_uninitialized() {
                 .unwrap()
                 .next_instruction()
                 .unwrap();
-            assert!(
+            assert_eq!(
                 stack
                     .ensure_static_ready(runtime, ModuleSlot::new(0))
-                    .is_err()
+                    .unwrap_err()
+                    .kind(),
+                RuntimeErrorKind::StackOverflow
             );
 
             Ok(())

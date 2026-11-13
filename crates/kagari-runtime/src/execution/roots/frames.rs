@@ -73,20 +73,29 @@ impl Slots<'_, '_> {
         }
         let managed_end = managed
             .checked_add(managed_count)
-            .ok_or(GcError::Limit("frame managed bank"))?;
+            .ok_or(GcError::SourceLimit)?;
         let scalar_end = scalars
             .checked_add(scalar_count)
-            .ok_or(GcError::Limit("frame scalar bank"))?;
+            .ok_or(GcError::SourceLimit)?;
         let frame_depth = storage
             .frame_depth
             .checked_add(1)
-            .ok_or(GcError::Limit("frame depth"))?;
+            .ok_or(GcError::SourceLimit)?;
         reserve_bank(
             &mut storage.banks[ValueBank::Managed.index()],
             managed_count,
+            storage.space.as_deref().expect("admitted execution space"),
         )?;
-        reserve_bank(&mut storage.scalars, scalar_count)?;
-        reserve_bank(&mut storage.initialized, scalar_count)?;
+        reserve_bank(
+            &mut storage.scalars,
+            scalar_count,
+            storage.space.as_deref().expect("admitted execution space"),
+        )?;
+        reserve_bank(
+            &mut storage.initialized,
+            scalar_count,
+            storage.space.as_deref().expect("admitted execution space"),
+        )?;
         let mark = FrameMark {
             banks: FrameBanks {
                 execution,

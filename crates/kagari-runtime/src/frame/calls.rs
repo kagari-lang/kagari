@@ -4,19 +4,20 @@ use crate::diagnostics::{self, Event};
 use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault},
-    execution::roots::ExecutionRoots,
+    execution::roots::{ExecutionRoots, LocalMark},
     execution_metadata::{call_contracts::InterfaceCallSite, managed::sources::MetadataSource},
     frame::{
         FrameDispatch, FrameEntry, FrameEnvironment, FrameStack,
         arguments::FrameArguments,
         driver::ExecutionAction,
+        native::NativeCallSite,
         types::{bindings::TypeBindings, compatibility::TypeView},
     },
     module::{
         ExecutableModule, execution::calls::PreparedCallTarget,
         linked_execution::calls::LinkedCall, managed::source::RevisionSource,
     },
-    native::conversion::context::ConversionContext,
+    native::{context::ScriptInvoker, conversion::context::ConversionContext},
     value::{EphemeralValue, host_values::EphemeralObject, kind::ObjectKind},
     value_check::scoped::{self, CheckError},
 };
@@ -25,25 +26,26 @@ use kagari_bytecode::module::CallableTarget;
 use kagari_contract::callable::shared::SharedCall;
 use kagari_gc::error::GcError;
 
+pub(super) enum PreparedCallOutcome {
+    Frame(ExecutionAction),
+    NativeComplete,
+}
+
 impl FrameStack {
     /// Only the executing sealed instruction selects a call record; external
     /// callers cannot supply a transfer plan or substitute a target generation.
-    pub(super) fn push_prepared_call(
+    pub(super) fn execute_prepared_call(
         &self,
         runtime: &mut Runtime,
         index: usize,
-    ) -> Result<ExecutionAction, RuntimeError> {
+        invoke_script: ScriptInvoker,
+    ) -> Result<PreparedCallOutcome, RuntimeError> {
         self.validate_top(runtime)?;
-        let prepared = runtime
-            .memory
-            .scope(&runtime.resources, |cx, roots| {
-                ExecutionRoots::with(roots, cx, |slots| slots.mark_locals(self.session))
-            })
-            .map_err(|error| runtime.managed_memory_error(error))?;
-        let mut preparation = Some(prepared);
-        let result = self.push_prepared_call_inner(runtime, index);
+        let mut preparation = None;
+        let result =
+            self.execute_prepared_call_inner(runtime, index, invoke_script, &mut preparation);
         let result = match result {
-            Ok(action) => {
+            Ok(PreparedCallOutcome::Frame(action)) if preparation.is_some() => {
                 let Runtime {
                     memory, resources, ..
                 } = &mut *runtime;
@@ -66,13 +68,14 @@ impl FrameStack {
                     })
                 })();
                 match adopted {
-                    Ok(()) => Ok(action),
+                    Ok(()) => Ok(PreparedCallOutcome::Frame(action)),
                     Err(error) => {
                         self.pop(runtime)?;
                         Err(runtime.managed_memory_error(error))
                     }
                 }
             }
+            Ok(outcome) => Ok(outcome),
             Err(error) => Err(error),
         };
         if let Some(prepared) = preparation {
@@ -90,11 +93,32 @@ impl FrameStack {
         result
     }
 
-    fn push_prepared_call_inner(
+    /// Only semantic preparation can append a temporary source prefix. Ordinary
+    /// static calls lend their caller banks directly; their callee/Native protocol
+    /// owns all new storage, so they need no additional local mark or adoption.
+    fn begin_call_preparation(
+        &self,
+        runtime: &mut Runtime,
+        preparation: &mut Option<LocalMark>,
+    ) -> Result<(), RuntimeError> {
+        debug_assert!(preparation.is_none());
+        let mark = runtime
+            .memory
+            .scope(&runtime.resources, |cx, roots| {
+                ExecutionRoots::with(roots, cx, |slots| slots.mark_locals(self.session))
+            })
+            .map_err(|error| runtime.managed_memory_error(error))?;
+        *preparation = Some(mark);
+        Ok(())
+    }
+
+    fn execute_prepared_call_inner(
         &self,
         runtime: &mut Runtime,
         index: usize,
-    ) -> Result<ExecutionAction, RuntimeError> {
+        invoke_script: ScriptInvoker,
+        preparation: &mut Option<LocalMark>,
+    ) -> Result<PreparedCallOutcome, RuntimeError> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::CallSelection);
         // execute_region admitted this runtime/session and selected the ordinal.
@@ -134,8 +158,10 @@ impl FrameStack {
             })?;
         let (route, shared) = match &call.target {
             PreparedCallTarget::Static { .. } => {
-                let Some(LinkedCall::Direct(route)) =
-                    links.as_ref().and_then(|links| links.call_contract(index))
+                let Some(route) = links
+                    .as_ref()
+                    .and_then(|links| links.call_contract(index))
+                    .and_then(LinkedCall::direct)
                 else {
                     return Err(runtime
                         .resources()
@@ -144,6 +170,7 @@ impl FrameStack {
                 (route, None)
             }
             PreparedCallTarget::Shared { .. } => {
+                self.begin_call_preparation(runtime, preparation)?;
                 let Some(LinkedCall::Shared { route, contract }) =
                     links.as_ref().and_then(|links| links.call_contract(index))
                 else {
@@ -154,6 +181,7 @@ impl FrameStack {
                 (route, Some(contract.as_ref()))
             }
             PreparedCallTarget::Closure(contract) => {
+                self.begin_call_preparation(runtime, preparation)?;
                 let location = self.current(runtime)?.slot_location(
                     runtime.resources(),
                     contract.register,
@@ -169,17 +197,20 @@ impl FrameStack {
                     links.as_ref().and_then(|links| links.call_contract(index)),
                 )?;
                 let selected = runtime.select_closure_call(self.session, &value)?;
-                return self.push_selected_closure(
-                    runtime,
-                    &selected,
-                    FrameArguments::frame(slots, &call.arguments),
-                    None,
-                    Some(call),
-                );
+                return self
+                    .push_selected_closure(
+                        runtime,
+                        &selected,
+                        FrameArguments::frame(slots, &call.arguments),
+                        None,
+                        Some(call),
+                    )
+                    .map(PreparedCallOutcome::Frame);
             }
             PreparedCallTarget::Interface {
                 receiver, closed, ..
             } => {
+                self.begin_call_preparation(runtime, preparation)?;
                 let receiver = receiver
                     .map(|register| {
                         let location = self.current(runtime)?.slot_location(
@@ -273,21 +304,23 @@ impl FrameStack {
                     facts: facts.clone(),
                     source: metadata,
                 });
-                return self.push_admitted_arguments(
-                    runtime,
-                    loaded,
-                    target,
-                    arguments,
-                    None,
-                    FrameDispatch {
-                        origin: RevisionSource::Application(computation.source()),
-                        metadata: Some(metadata),
-                        prepared: Some(call),
-                        entry: FrameEntry::Call,
-                        invocation: Some(invocation.clone()),
-                        environment,
-                    },
-                );
+                return self
+                    .push_admitted_arguments(
+                        runtime,
+                        loaded,
+                        target,
+                        arguments,
+                        None,
+                        FrameDispatch {
+                            origin: RevisionSource::Application(computation.source()),
+                            metadata: Some(metadata),
+                            prepared: Some(call),
+                            entry: FrameEntry::Call,
+                            invocation: Some(invocation.clone()),
+                            environment,
+                        },
+                    )
+                    .map(PreparedCallOutcome::Frame);
             }
         };
         let arguments = FrameArguments::frame(slots, &call.arguments);
@@ -337,6 +370,27 @@ impl FrameStack {
             (loaded, target, None)
         };
         let origin = runtime.selection_origin(&loaded)?;
+        if let CallableTarget::Native(import) = target
+            && environment.is_none()
+            && !self.session_state(runtime).observer_attached.get()
+            && loaded
+                .execution()
+                .callee(target)
+                .is_some_and(|callee| !callee.generic && !callee.may_suspend)
+        {
+            self.invoke_selected_native(
+                runtime,
+                NativeCallSite {
+                    owner: &loaded,
+                    import,
+                    caller: slots,
+                    call,
+                    origin,
+                },
+                invoke_script,
+            )?;
+            return Ok(PreparedCallOutcome::NativeComplete);
+        }
         self.push_admitted_arguments(
             runtime,
             loaded,
@@ -352,6 +406,7 @@ impl FrameStack {
                 environment: environment.map(FrameEnvironment::admitted),
             },
         )
+        .map(PreparedCallOutcome::Frame)
     }
 }
 

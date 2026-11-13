@@ -102,6 +102,8 @@ pub(in crate::artifact) struct FunctionMetadataRecord {
     slots: TypeLayoutBuffer,
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     parameter_slots: Vec<Slot>,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::instructions")]
+    self_tail_calls: Vec<usize>,
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     origins: Vec<InstructionOrigin>,
     #[serde(deserialize_with = "kagari_contract::decode_limits::instructions")]
@@ -131,6 +133,7 @@ impl FunctionMetadataRecord {
             return_type: value.return_type,
             slots: value.slots.clone(),
             parameter_slots: value.parameter_slots.clone(),
+            self_tail_calls: value.self_tail_calls.clone(),
             origins: value.origins.clone(),
             instruction_origins: value.instruction_origins.clone(),
             roots: value.roots.clone(),
@@ -154,6 +157,7 @@ impl FunctionMetadataRecord {
             return_type: self.return_type,
             slots: self.slots,
             parameter_slots: self.parameter_slots,
+            self_tail_calls: self.self_tail_calls,
             origins: self.origins,
             instruction_origins: self.instruction_origins,
             roots: self.roots,

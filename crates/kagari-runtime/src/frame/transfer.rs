@@ -82,6 +82,10 @@ impl ReturnValue {
         })
     }
 
+    pub(super) fn is_scalar(&self) -> bool {
+        matches!(self.0, Contents::Scalar { .. })
+    }
+
     /// Snapshot before result adaptation can execute or overwrite another slot.
     /// The frame's mark owns this local cell through commit/trap/unwind cleanup.
     pub(crate) fn protect<'gc>(

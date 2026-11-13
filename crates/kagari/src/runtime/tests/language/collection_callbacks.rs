@@ -31,7 +31,6 @@ fn content_callbacks_preserve_effects_and_release_roots_on_all_exits() {
         DefinitionMetadata::checked(definitions, artifact.program, &Default::default()).unwrap();
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
-    config.limits.max_call_depth = Some(32);
     let mut runtime = Runtime::new(config);
     NativeModule::install_all(&stdlib::modules().unwrap(), &mut runtime).unwrap();
     let loaded = load_bytecode(&mut runtime, "collection-callbacks", program).unwrap();

@@ -8,6 +8,7 @@ use crate::{
     execution_metadata::{environments::AdmittedEnvironment, managed::sources::MetadataSource},
     frame::{
         types::TypeEnvironment,
+        uncommon::UncommonId,
         values::{FrameSlots, FrameStorage},
     },
     module::{
@@ -34,6 +35,7 @@ use kagari_bytecode::{
 };
 use kagari_gc::{error::GcError, heap::Phase};
 use std::{
+    cell::Ref,
     fmt,
     fmt::{Debug, Formatter},
     marker::PhantomData,
@@ -69,6 +71,7 @@ mod stack;
 mod statics;
 pub mod transfer;
 pub mod types;
+pub(crate) mod uncommon;
 pub(crate) mod values;
 pub(crate) mod waiting;
 
@@ -110,6 +113,7 @@ pub struct ExecutionFrame {
     loaded: ExecutableModule,
     target: CallableTarget,
     native_entry: NativeEntryState,
+    tail_elided: bool,
     ip: usize,
     executing: Option<usize>,
     // Published at closed-region/result boundaries, never charged per scalar instruction.
@@ -119,8 +123,7 @@ pub struct ExecutionFrame {
     slot_count: usize,
     slot_layout: Option<Arc<FrameLayout>>,
     return_to: ReturnDestination,
-    invocation: Option<MethodInvocation>,
-    initializer: Option<StaticInitialization>,
+    uncommon: Option<UncommonId>,
 }
 
 impl Debug for ExecutionFrame {
@@ -130,6 +133,44 @@ impl Debug for ExecutionFrame {
             .field("target", &self.target)
             .field("ip", &self.ip)
             .finish_non_exhaustive()
+    }
+}
+
+impl ExecutionFrame {
+    /// Construct control only after the shared storage transaction has admitted
+    /// the exact callee. Optional semantic state is installed by its owner.
+    fn from_storage(
+        loaded: ExecutableModule,
+        target: CallableTarget,
+        storage: FrameStorage,
+        return_to: ReturnDestination,
+    ) -> Self {
+        let slot_layout = loaded
+            .execution()
+            .callee(target)
+            .expect("admitted callee storage")
+            .slot_layout
+            .clone();
+        Self {
+            slot_count: slot_layout.locations.len(),
+            slot_layout: Some(slot_layout),
+            loaded,
+            target,
+            storage: Some(storage),
+            return_to,
+            native_entry: match target {
+                CallableTarget::Script(_) => NativeEntryState::Script,
+                CallableTarget::Native(_) => NativeEntryState::Pending,
+            },
+            links: None,
+            environment: None,
+            tail_elided: false,
+            ip: 0,
+            executing: None,
+            completed: None,
+            native_origin: None,
+            uncommon: None,
+        }
     }
 }
 
@@ -166,14 +207,15 @@ struct FrameDispatch<'call> {
 
 impl ExecutionFrame {
     pub(crate) fn release_values(&mut self, memory: &mut ManagedMemory, resources: &ResourceState) {
-        if let Some(initializer) = &self.initializer {
+        let failure = self.initializer(resources).and_then(|initializer| {
             initializer.fail("static initializer execution abandoned");
-            if let Some(failure) = initializer.pending_failure()
-                && !matches!(memory.stats().phase, Phase::Closed | Phase::Faulted)
-                && let Err(error) = failure.settle(memory, resources)
-            {
-                resources.quarantine(EngineFault::ExecutionStorageRetirementFailed(error));
-            }
+            initializer.pending_failure()
+        });
+        if let Some(failure) = failure
+            && !matches!(memory.stats().phase, Phase::Closed | Phase::Faulted)
+            && let Err(error) = failure.settle(memory, resources)
+        {
+            resources.quarantine(EngineFault::ExecutionStorageRetirementFailed(error));
         }
         let Some(storage) = self.storage.take() else {
             return;
@@ -290,8 +332,37 @@ impl ExecutionFrame {
         &self.loaded
     }
 
-    pub(crate) fn invocation(&self) -> Option<&MethodInvocation> {
-        self.invocation.as_ref()
+    pub(crate) fn invocation(&self, resources: &ResourceState) -> Option<MethodInvocation> {
+        resources
+            .uncommon_frames
+            .get(self.uncommon.as_ref()?)
+            .invocation
+            .clone()
+    }
+
+    fn has_invocation(&self, resources: &ResourceState) -> bool {
+        self.uncommon
+            .as_ref()
+            .is_some_and(|id| resources.uncommon_frames.get(id).invocation.is_some())
+    }
+
+    fn initializer<'resources>(
+        &self,
+        resources: &'resources ResourceState,
+    ) -> Option<Ref<'resources, StaticInitialization>> {
+        Ref::filter_map(
+            resources.uncommon_frames.get(self.uncommon.as_ref()?),
+            |state| state.initializer.as_ref(),
+        )
+        .ok()
+    }
+
+    /// Retire Rust control only after its source suffix (or whole execution)
+    /// has retired. Detached owned execution cleanup releases all sources first.
+    pub(crate) fn release_control(&mut self, resources: &ResourceState) {
+        if let Some(id) = self.uncommon.take() {
+            drop(resources.uncommon_frames.take(id));
+        }
     }
 
     pub(crate) fn set_native_instruction(
@@ -316,6 +387,12 @@ impl ExecutionFrame {
     /// Semantic origin emitted by native code, distinct from the executable PC.
     pub fn native_origin(&self) -> Option<usize> {
         self.native_origin
+    }
+
+    /// Earlier self-tail callers were replaced within this active chain.
+    /// The flag does not reconstruct their history or count eliminated frames.
+    pub fn tail_calls_elided(&self) -> bool {
+        self.tail_elided
     }
 
     pub fn instruction_offset(&self) -> usize {

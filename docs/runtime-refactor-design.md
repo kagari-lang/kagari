@@ -10,8 +10,9 @@ Exclusive Runtime/Host services and prepared Native/Host mappings are implemente
 through RR02. RR03's production collector/storage cutover and selected actual
 Runtime proofs are complete locally. Default workspace all-target Clippy and the
 selected diagnostic/AOT/serde/JIT consumers build/lint. Committed heap/session
-attribution and diagnostic events/backing observations use actual storage. RR04
-call/space/tail work, measured acceptance and required CI remain open. The
+attribution and diagnostic events/backing observations use actual storage. RR04's
+call/space/tail work and frozen ordinary-call gate are complete locally. RR05
+whole-cost/GC acceptance and required CI remain open. The
 [execution plan](runtime-refactor-plan.md) owns the selected RR00-RR06 sequence;
 this document owns its design inputs. The
 [roadmap](implementation-roadmap.md#runtime-execution-model-review) locates that
@@ -1369,8 +1370,11 @@ Lifetime-dependent object results use the scoped entry's explicit result setter,
 which stages a call-local reference. Do not force that case through an owned
 R: 'static callback shape or register a Host Root solely to make Rust's generic
 return type expressible. Typed scalar/owned callbacks remain convenient adapter
-forms; all forms publish into the same pending result place. Exact builder names
-can change without creating a second runtime protocol.
+forms; all forms use the same pending completion protocol. Scalar setters stage
+edge-free inline payloads; source places retain managed/encoded results before
+converter scratch retires. Both states receive the same final type/candidate and
+post-call cancellation checks before caller publication. Exact builder names can
+change without creating a second runtime protocol.
 
 NativeStatus returns no language value through a large success union. The generated
 adapter stages its result in the prepared call context. Successful Unit calls need
@@ -3162,10 +3166,12 @@ changes. No unmeasured 32/64-byte frame target or predicted speedup is accepted 
 
 ### Tail recursion through frame replacement
 
-Proposal requested on 2026-11-11, within the compact-frame Runtime refactor.
-No optimization, new syntax, executable fact or diagnostic behavior is implemented
-by this design record. Treat this initially as an optional optimization of eligible
-calls, not a promise of proper tail calls for every source form/backend/debug mode.
+Proposal requested on 2026-11-11, implemented in the RR04 working tree as optional
+verified scalar self-tail replacement. The
+[execution contract](spec/execution.md#scalar-self-tail-replacement) owns current
+scope, ordinary fallback and bounded diagnostic elision. The broader transfer
+model below remains design context, not a promise of proper tail calls for every
+source form/backend/debug mode or implemented managed/general/compiled transfers.
 
 #### Operation and first scope
 
@@ -3282,20 +3288,22 @@ to the host, then resumes after publication. This can happen at async waits or
 owned-driver slice exits; the executed function need not itself contain await.
 A retained old invocation/body can also enter a newer activation. In these cases,
 the existing entry/resume link refresh selects the current ordinary-call target.
-A resumed v1 frame must tail-transfer to v2 when v2 is current, retaining v2 before
-releasing v1. Subsequent steps in that same activation can use v2's entry directly.
+A resumed v1 frame must select v2 when v2 is current. The first scalar self-only
+implementation uses an ordinary call for this differing target, keeping v1's
+return continuation until v2 completes. V2's subsequent eligible self calls can
+reuse its own frame. General cross-body replacement would instead retain v2
+before releasing v1 and requires its own transfer proof.
 A jump to the retained v1 entry is invalid only when its selected current target
 differs. Preserve cancellation polls and actual slice exits in either path;
 refresh after a real resume, not merely at every poll or synchronous callback.
 
 Physical frame elimination makes former callers unavailable to stack inspection.
-Propose optimized traces show surviving frames with a bounded per-active-chain
-elision marker, not a fabricated complete stack or an unbounded history list.
-The marker belongs in the compact frame's status/layout budget and disappears when
-that active chain returns. Argument/admission traps still show the intact caller;
-traps after replacement show the selected callee's real source origin. This is a
-proposed observable trace change, requiring execution/debug specifications and tests
-at activation. Current trace semantics are unchanged by this document.
+The first scalar implementation reports a Boolean elision marker on each surviving
+active chain, not a fabricated complete stack or an unbounded history list. The
+marker fits the compact frame's existing layout budget and disappears when that
+chain returns. Argument/admission traps still show the intact caller; traps after
+replacement show the selected callee's real source origin. Execution/debug
+specifications and actual optimized/full-history tests own this observable behavior.
 
 Full-stack debugging/observation initially uses the retained ordinary Call/Return
 path. Attaching later cannot recover already eliminated callers; report that limit
@@ -3316,10 +3324,9 @@ active computations without authorizing future ordinary calls to choose old bodi
 
 #### Sequencing and acceptance
 
-Implement after the compact frame/slot entry-return baseline is working; activate
-with the planned stack-space exhaustion model. The present logical-depth quota
-must not be accidentally bypassed by frame reuse before its API/spec/test migration.
-First add verified candidate facts and the ordinary fallback, then scalar self-tail
+The first implementation follows compact frame/slot entry-return and the
+coordinated byte-space API/spec/test migration. First add verified candidate facts
+and the ordinary fallback, then scalar self-tail
 replacement, then optional managed/general-tail and native implementations. Keep
 the first pass independently reviewable; no GC/stdlib rewrite is needed for it.
 
@@ -3346,18 +3353,21 @@ selection require the explicit handoff and narrower first scope above.
 ### Stack exhaustion and Native reentry
 
 Decision accepted on 2026-11-09: ordinary script recursion is bounded by VM stack
-space, without a separate logical call-depth quota such as the current default of
-256. This is the target model; current Runtime limits and the
-[execution specification](spec/execution.md) remain implemented contracts until
-the migration updates the APIs, specification and affected tests together.
+space, without a separate logical call-depth quota. RR04 replaces the old quota
+with RuntimeLimits::max_stack_bytes (nonzero, default 8 MiB) and a separate
+max_native_depth (nonzero, default 32). The
+[execution control contract](spec/security.md#execution-control) defines current
+capacity accounting and Native stack-query/platform limits. Logical depth
+remains diagnostic state in the current implementation; removing its hot-path
+maintenance remains subject to the RR04 measurement gate.
 
 The interpreter continues in its dispatch loop with explicit frames and slots.
 Each checked body supplies its frame/slot requirements. Execution owns the used
 positions, backing capacities and stack-space ceiling. The ordinary call path
 checks available frame and slot capacity, publishes arguments and pushes a frame;
-return restores saved positions. Do not increment/decrement an independent script
-depth counter or update peak-depth statistics on this path. Optional diagnostics
-must have an explicit collection mode rather than an unconditional call cost.
+return restores saved positions. An independent script-depth counter must not
+enforce an additional quota. The target hot path also avoids unconditional
+peak-depth maintenance; optional diagnostics need an explicit collection mode.
 
 Insufficient backing capacity enters a fallible growth path. Grow geometrically
 within the VM stack-space ceiling; exceeding that ceiling reports the proposed
@@ -3673,7 +3683,12 @@ checks, remaining consumers and unclaimed integration/performance/CI acceptance.
 
 ### Native temporary regions and retained object data access
 
-A Native call owns one pending-result/source record. A short nested call view
+A Native call owns one pending-result/source record. Its explicit completion state
+is unset, inline scalar or source-backed; only the source-backed state can carry
+managed edges. The existing Native source mark still owns body/application edges
+and a reserved pending cell, even when scalar staging leaves that cell unused.
+Scalar staging is not a claim that the entire Native source needs no storage.
+A short nested call view
 borrows that same record, prepared function and original arguments; only the
 admitting owner retires it. Each nested view has a higher-ranked lifetime and a
 linear temporary suffix. Ordinary nonescaping work discards the suffix on every

@@ -423,7 +423,6 @@ fn retained_local_function_values_call_current_bodies_and_clean_up_all_exits() {
     );
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
-    config.limits.max_call_depth = Some(32);
     let mut runtime = CoreRuntime::new(config);
     NativeModule::install_all(&stdlib::modules().unwrap(), &mut runtime).unwrap();
     let old = load_bytecode(&mut runtime, "local-reload", program).unwrap();

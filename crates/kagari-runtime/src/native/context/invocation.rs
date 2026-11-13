@@ -7,6 +7,7 @@ use crate::{
         conversion::context::ConversionContext,
     },
     value::place::{PublishedResult, ResultPlace},
+    value_check,
 };
 
 impl NativeCall<'_> {
@@ -22,7 +23,7 @@ impl NativeCall<'_> {
                 "native invocation argument count",
             ));
         }
-        self.poll()?;
+        self.native_stack = Some(self.runtime.resources.enter_native_stack()?);
         let result = self
             .narrow_arguments()
             .and_then(|()| self.invoke_narrowed(destination));
@@ -51,8 +52,7 @@ impl NativeCall<'_> {
         result?;
         let value = self.result()?;
         if !function.binding.converted_result || function.result_adapter.is_some() {
-            let mut conversion = ConversionContext::in_native_call(self)?;
-            conversion.check_value(&signature.result, &value)?;
+            value_check::check_protected(self.runtime, self.owner, &signature.result, &value)?;
         }
         match &function.result_adapter {
             Some(adapter) => {

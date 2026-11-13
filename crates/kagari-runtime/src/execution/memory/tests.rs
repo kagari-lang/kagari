@@ -3,7 +3,7 @@ use crate::{
         memory::{GcHeapConfig, ManagedMemory},
         roots::{
             DependencyId, ExecutionRoots, ExecutionStorage, NativeSourceMark, SessionId, Slots,
-            ValueBank, ValueLocation,
+            ValueBank, ValueLocation, pending::PendingSlots,
         },
     },
     resource::ResourceState,
@@ -21,6 +21,112 @@ use kagari_abi::representation::ValueType;
 use kagari_gc::{error::GcError, heap::Phase};
 
 #[test]
+fn retired_execution_capacity_reuses_without_edges_or_revived_coordinates() -> Result<(), GcError> {
+    let resources = &ResourceState::default();
+    let mut memory = ManagedMemory::new(GcHeapConfig {
+        collection_threshold: Some(1),
+        ..GcHeapConfig::default()
+    });
+    let old = memory.enter_execution(resources)?;
+    let (backing, queued, returned, dependency) = memory.scope(resources, |cx, roots| {
+        ExecutionRoots::with(roots, cx, |slots| {
+            let object = StringObject::alloc(slots.scope(), "old graph".into())?;
+            let value = ScopedValue::managed(object);
+            slots.grow(old, ValueBank::Managed, 4096)?;
+            slots.set(
+                ValueLocation {
+                    execution: old,
+                    bank: ValueBank::Managed,
+                    slot: 4095,
+                },
+                value,
+            )?;
+            let queued = slots.begin_queue(old, 1)?;
+            slots.set_queued(&queued, 0, value)?;
+            let returned = slots.snapshot_return(old, value)?;
+            let dependency = slots.push_dependency(old, object)?;
+            slots.set(PendingSlots::new(old).output(), value)?;
+            let native = slots.enter_native(old)?;
+            slots.set(native.result_location(), value)?;
+            slots.retire_native(native)?;
+            // Whole-execution retirement also owns this frame's scalar suffix.
+            let _frame = slots.enter_frame::<GcError>(old, 0, 64, || Ok(()))?;
+            let storage = slots.storage(old)?;
+            storage.scalars.fill(7);
+            storage.initialized.fill(true);
+            Ok((storage.backing_bytes(), queued, returned, dependency))
+        })
+    })?;
+    memory.safepoint(resources)?;
+    assert_eq!(memory.stats().phase, Phase::Roots);
+    memory.retire_execution(resources, old)?;
+    memory.scope(resources, |cx, roots| {
+        ExecutionRoots::with(roots, cx, |slots| {
+            assert_eq!(
+                slots.enter(usize::MAX, 8 * 1024 * 1024),
+                Err(GcError::SourceLimit)
+            );
+            Ok(())
+        })
+    })?;
+    let replacement = memory.enter_execution(resources)?;
+    assert_eq!(replacement.index(), old.index());
+    assert_ne!(replacement, old);
+    memory.scope(resources, |cx, roots| {
+        ExecutionRoots::with(roots, cx, |slots| {
+            assert_eq!(slots.storage(replacement)?.backing_bytes(), backing);
+            assert!(matches!(slots.storage(old), Err(GcError::Index)));
+            assert!(matches!(slots.dependency(dependency), Err(GcError::Index)));
+            assert!(slots.storage(replacement)?.scalars.is_empty());
+            assert!(slots.storage(replacement)?.initialized.is_empty());
+            for bank in [ValueBank::Managed, ValueBank::Local, ValueBank::Queued] {
+                assert_eq!(slots.len(replacement, bank)?, 0);
+            }
+            let pending = PendingSlots::new(replacement);
+            assert!(slots.get(pending.output())?.is_unit());
+            assert!(slots.get(pending.awaitable())?.is_unit());
+            // Repopulate coordinates below the old root cursor. Old tokens must
+            // still reject even when per-execution sequences and positions match.
+            let object = StringObject::alloc(slots.scope(), "new graph".into())?;
+            let value = ScopedValue::managed(object);
+            let new_queue = slots.begin_queue(replacement, 1)?;
+            slots.set_queued(&new_queue, 0, value)?;
+            let _new_return = slots.snapshot_return(replacement, value)?;
+            assert!(matches!(queued.check_bounds(slots), Err(GcError::Index)));
+            assert!(matches!(
+                slots.return_location(returned, replacement),
+                Err(GcError::Representation)
+            ));
+            Ok(())
+        })
+    })?;
+    memory.collect(resources)?;
+    assert_eq!(
+        memory.stats().objects,
+        1,
+        "only the replacement graph survives"
+    );
+    assert_eq!(memory.stats().provider_units, "new graph".len() as u128);
+    assert_eq!(memory.stats().root_registrations, 0);
+    memory.scope(resources, |cx, roots| {
+        ExecutionRoots::with(roots, cx, |slots| {
+            let location = ValueLocation {
+                execution: replacement,
+                bank: ValueBank::Local,
+                slot: 0,
+            };
+            let value = slots.get(location)?;
+            StringObject::read(slots.scope(), value, |text| assert_eq!(text, "new graph"))
+        })
+    })?;
+    memory.retire_execution(resources, replacement)?;
+    memory.collect(resources)?;
+    assert_eq!(memory.stats().objects, 0);
+    assert_eq!(memory.stats().provider_units, 0);
+    Ok(())
+}
+
+#[test]
 fn execution_source_survives_pressure_and_pending_steps_without_new_allocation()
 -> Result<(), GcError> {
     let resources = &ResourceState::default();
@@ -29,6 +135,7 @@ fn execution_source_survives_pressure_and_pending_steps_without_new_allocation()
         ..GcHeapConfig::default()
     });
     assert!(!memory.service_requested(false));
+    memory.check_scalar_access()?;
     const COUNT: usize = 4096;
     const TEXT: &str = "protected UTF-8 🙂";
     let execution = memory.enter_execution(resources)?;
@@ -126,7 +233,7 @@ fn execution_source_survives_pressure_and_pending_steps_without_new_allocation()
                 let text = slots
                     .scope()
                     .downcast::<StringObject>(value.object().unwrap())?;
-                let independent = slots.enter(0)?;
+                let independent = slots.enter(0, 8 * 1024 * 1024)?;
                 let body = slots.push_dependency(independent, text)?;
                 slots.set(source, ScopedValue::unit())?;
                 Ok((
@@ -250,6 +357,9 @@ fn execution_source_survives_pressure_and_pending_steps_without_new_allocation()
         size_of::<NativeSourceMark>(),
         size_of::<ExecutionStorage>(),
     );
+    memory.driver.shutdown();
+    assert_eq!(memory.check_scalar_access(), Err(GcError::Closed));
+    assert_eq!(memory.scope(resources, |_, _| Ok(())), Err(GcError::Closed));
     Ok(())
 }
 

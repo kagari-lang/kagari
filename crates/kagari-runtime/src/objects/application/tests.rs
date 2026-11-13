@@ -712,7 +712,7 @@ fn bounded_application_indexes_do_not_retain_nodes_and_active_frames_keep_their_
             let computation = stack
                 .current(runtime)
                 .unwrap()
-                .invocation()
+                .invocation(&runtime.resources)
                 .unwrap()
                 .computation()
                 .unwrap()

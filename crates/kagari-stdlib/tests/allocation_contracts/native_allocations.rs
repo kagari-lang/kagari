@@ -7,10 +7,7 @@ use kagari_contract::ids::FunctionRef;
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::{
     Runtime,
-    frame::{
-        cursor::kernel::RegionExit,
-        driver::{ExecutionAction, ReturnAction},
-    },
+    frame::cursor::kernel::RegionExit,
     module::ExecutableModule,
     native::{
         binding::NativeResult,
@@ -208,17 +205,7 @@ fn sample(
                     stack
                         .execute_region(runtime, &mut Some(1), unexpected_callback)
                         .unwrap(),
-                    RegionExit::Call(ExecutionAction::NativeEntry)
-                ));
-                assert_eq!(
-                    stack
-                        .start_native_entry(runtime, unexpected_callback)
-                        .unwrap(),
-                    ExecutionAction::NativeReturn
-                );
-                assert!(matches!(
-                    stack.finish_native_return(runtime).unwrap(),
-                    ReturnAction::Continue(ExecutionAction::Script)
+                    RegionExit::Safepoint
                 ));
             };
             // Warm the boundary and initialize every thread-local/cache outside accounting.
@@ -344,14 +331,15 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
                 .unwrap();
             assert!(matches!(
                 stack
-                    .execute_region(runtime, &mut None, unexpected_callback)
+                    .execute_region(runtime, &mut Some(pc + 1), unexpected_callback)
                     .unwrap(),
-                RegionExit::Call(ExecutionAction::Script)
+                RegionExit::Slice
             ));
             let callee_owner = loaded.member(module).unwrap();
-            let parameters = &callee_owner.bytecode.functions[callee.index()]
-                .metadata
-                .parameter_slots;
+            let callee_function = &callee_owner.bytecode.functions[callee.index()];
+            let parameters = &callee_function.metadata.parameter_slots;
+            let return_steps = callee_function.instructions.len();
+            assert_eq!(stack.frames(runtime).unwrap().len(), 2);
             for (&parameter, expected) in parameters.iter().zip([11, 20, 11]) {
                 assert_eq!(
                     stack
@@ -363,13 +351,16 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
                     Some(expected)
                 );
             }
-            let RegionExit::Return(value) = stack
-                .execute_region(runtime, &mut None, unexpected_callback)
-                .unwrap()
-            else {
-                panic!("concrete scalar callee must remain in its prepared region");
-            };
-            stack.finish_return(runtime, value).unwrap();
+            // The straight-line scalar leaf returns and publishes within this
+            // region. Stop before its caller's next instruction, retaining the
+            // same independently observable entry/return allocation intervals.
+            assert!(matches!(
+                stack
+                    .execute_region(runtime, &mut Some(return_steps), unexpected_callback)
+                    .unwrap(),
+                RegionExit::Slice
+            ));
+            assert_eq!(stack.frames(runtime).unwrap().len(), 1);
             let external = [
                 ValueView::from(11),
                 ValueView::from(20),
@@ -387,9 +378,9 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
                     .unwrap();
                 assert!(matches!(
                     stack
-                        .execute_region(black_box(runtime), &mut None, unexpected_callback)
+                        .execute_region(black_box(runtime), &mut Some(1), unexpected_callback)
                         .unwrap(),
-                    RegionExit::Call(ExecutionAction::Script)
+                    RegionExit::Slice
                 ));
             };
             let (window, _) = measured(|| {
@@ -404,16 +395,13 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
                         stack.write_slot(runtime, *register, value).unwrap();
                     }
                     enter(runtime);
-                    let RegionExit::Return(value) = stack
-                        .execute_region(runtime, &mut None, unexpected_callback)
-                        .unwrap()
-                    else {
-                        panic!("scalar return");
-                    };
                     assert!(matches!(
-                        stack.finish_return(runtime, value).unwrap(),
-                        ReturnAction::Continue(ExecutionAction::Script)
+                        stack
+                            .execute_region(runtime, &mut Some(return_steps), unexpected_callback)
+                            .unwrap(),
+                        RegionExit::Slice
                     ));
+                    assert_eq!(stack.frames(runtime).unwrap().len(), 1);
                     assert_eq!(
                         stack
                             .current(runtime)

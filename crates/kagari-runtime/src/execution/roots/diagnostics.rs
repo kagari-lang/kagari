@@ -1,7 +1,8 @@
 //! Cold owned snapshots account every source buffer, including parked executions.
 use crate::{
     diagnostics::{self, Event, storage::BufferUsage},
-    execution::roots::ExecutionRoots,
+    execution::roots::{ExecutionRoots, ExecutionStorage},
+    execution::space::ExecutionSpace,
 };
 use std::mem::size_of;
 
@@ -34,26 +35,64 @@ impl ExecutionRoots {
             .iter()
             .filter_map(|entry| entry.storage.as_ref())
         {
-            for (name, bank) in [
+            storage.visit_usage(false, visit);
+        }
+        self.reusable.visit_usage(true, visit);
+    }
+}
+
+impl ExecutionStorage {
+    fn visit_usage(&self, reusable: bool, visit: &mut impl FnMut(BufferUsage)) {
+        if self.space.is_some() {
+            // Current Rust Arc control has strong/weak usize counters. This
+            // ledger is counted once here, not again through SessionState.
+            visit(BufferUsage {
+                name: if reusable {
+                    "reusable execution space ledger"
+                } else {
+                    "execution space ledger"
+                },
+                entries: 1,
+                capacity: 1,
+                entry_bytes: size_of::<ExecutionSpace>() + 2 * size_of::<usize>(),
+            });
+        }
+        let names = if reusable {
+            [
+                "reusable managed values",
+                "reusable local temporaries",
+                "reusable queued factory values",
+                "reusable pending values",
+                "reusable scalar values",
+                "reusable scalar initialization",
+                "reusable Native source records",
+                "reusable typed dependencies",
+                "reusable frame return records",
+            ]
+        } else {
+            [
                 "managed values",
                 "local temporaries",
                 "queued factory values",
                 "pending values",
+                "scalar values",
+                "scalar initialization",
+                "Native source records",
+                "typed dependencies",
+                "frame return records",
             ]
-            .into_iter()
-            .zip(&storage.banks)
-            {
-                visit(BufferUsage::new(name, bank));
-            }
-            for buffer in [
-                BufferUsage::new("scalar values", &storage.scalars),
-                BufferUsage::new("scalar initialization", &storage.initialized),
-                BufferUsage::new("Native source records", &storage.native_calls),
-                BufferUsage::new("typed dependencies", &storage.dependencies),
-                BufferUsage::new("frame return records", &storage.returns),
-            ] {
-                visit(buffer);
-            }
+        };
+        for (name, bank) in names[..4].iter().zip(&self.banks) {
+            visit(BufferUsage::new(name, bank));
+        }
+        for buffer in [
+            BufferUsage::new(names[4], &self.scalars),
+            BufferUsage::new(names[5], &self.initialized),
+            BufferUsage::new(names[6], &self.native_calls),
+            BufferUsage::new(names[7], &self.dependencies),
+            BufferUsage::new(names[8], &self.returns),
+        ] {
+            visit(buffer);
         }
     }
 }

@@ -24,6 +24,10 @@ pub enum GcError {
     Closed,
     #[error("resource limit: {0}")]
     Limit(&'static str),
+    /// The external root-source owner rejected storage growth at its own bound.
+    /// This is not a collector fault or an allocator failure.
+    #[error("root source capacity limit exceeded")]
+    SourceLimit,
     #[error("allocation failed")]
     Allocation,
     #[error("provider contract failed: {0}")]

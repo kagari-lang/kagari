@@ -6,15 +6,20 @@ use crate::module::{entry::ProgramEntry, retention::RetentionOrigin};
 #[cfg(test)]
 use crate::test_support::bytecode::load_bytecode;
 use crate::{
-    execution::fixtures::FixtureExecution, interpreter_tests::common::test_runtime,
-    native::conversion::context::ConversionContext, test_support::native::program::ProgramFixture,
+    execution::fixtures::FixtureExecution,
+    execution::owned::DriveResult,
+    frame::ExecutionFrame,
+    interpreter_tests::common::{round_trip_bytecode, test_runtime},
+    native::conversion::context::ConversionContext,
+    test_support::native::program::ProgramFixture,
     value::carriers::RootedValue,
 };
 use kagari_bytecode::{
-    instruction::{ConstantId, StructId},
+    instruction::{BytecodeInstruction, ConstantId, StructId},
     program::{ModuleRef, verify_program},
 };
 use kagari_contract::ids::FunctionRef;
+use std::{mem::size_of, num::NonZeroUsize};
 
 #[test]
 fn foreign_loaded_module_is_rejected_before_execution() {
@@ -204,52 +209,151 @@ fn main() -> i32 { callee() }
 
 #[test]
 fn deterministic_frames_keep_caller_and_callee_storage_isolated() {
-    let (runtime, loaded) = load_test_module(include_str!(
-        "../../../tests/fixtures/execution/isolated-call-frames.kgr"
-    ));
-    let _loaded_program = loaded;
-    let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let mut vm = runtime;
+    let mut vm = test_runtime(Default::default());
+    let program = load_bytecode(
+        &mut vm,
+        "isolated-frames",
+        round_trip_bytecode(compile_test_bytecode(include_str!(
+            "../../../tests/fixtures/execution/isolated-call-frames.kgr"
+        ))),
+    )
+    .unwrap();
+    let loaded = vm.select_program(&program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
 
     assert_eq!(report.return_value.as_i32(), Some(12));
     assert_eq!(vm.resources().counters().current_call_depth, 0);
+
+    // A one-instruction slice must preserve both the entered callee's original
+    // argument and the completed Call's published result, without observation
+    // forcing an ordinary outer-driver transition.
+    let execution = vm
+        .start(&loaded, ProgramEntry::Main, &[], vm.execution_options())
+        .unwrap();
+    let mut entered = false;
+    let mut published = false;
+    let mut result = None;
+    for _ in 0..32 {
+        match vm.drive(&execution, NonZeroUsize::new(1).unwrap()).unwrap() {
+            DriveResult::Complete(value) => {
+                result = value.unwrap().as_i32();
+                break;
+            }
+            DriveResult::Waiting => panic!("synchronous scalar frames cannot wait"),
+            DriveResult::Runnable => {
+                let frames = vm.resources.sessions.frames(execution.id).unwrap();
+                assert!(frames.iter().all(|frame| !frame.tail_calls_elided()));
+                if frames.len() == 2 {
+                    let callee = &frames[1];
+                    let function = callee.function().unwrap();
+                    assert_eq!(frames[0].function().unwrap().name, "main");
+                    assert_eq!(function.name, "callee");
+                    if callee.instruction_offset() == 0 {
+                        let input = function.metadata.parameter_slots[0];
+                        assert_eq!(callee.read_slot(&vm, input).unwrap().as_i32(), Some(1));
+                        entered = true;
+                    }
+                } else {
+                    assert_eq!(frames.len(), 1);
+                    let caller = &frames[0];
+                    if let BytecodeInstruction::Call { dst: Some(dst), .. } =
+                        caller.function().unwrap().instructions[caller.instruction_offset()]
+                    {
+                        assert_eq!(caller.read_slot(&vm, dst).unwrap().as_i32(), Some(2));
+                        published = true;
+                    }
+                }
+                drop(frames);
+                vm.collect_garbage().unwrap();
+            }
+        }
+    }
+    assert_eq!(result, Some(12));
+    assert!(entered && published);
+    assert_eq!(vm.resources().counters().peak_call_depth, 2);
+    assert_eq!(vm.resources().counters().current_call_depth, 0);
+    assert!(vm.execution_root().is_none());
+    assert!(!vm.is_quarantined());
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
-fn deterministic_frames_account_call_depth_and_unwind_on_failure() {
-    let bytecode = compile_test_bytecode(
-        r#"
-fn leaf() -> i32 { 1 }
-fn middle() -> i32 { leaf() }
-fn main() -> i32 { middle() }
-"#,
+fn vm_space_bounds_empty_and_wider_frames_and_unwinds_failure() {
+    let code = round_trip_bytecode(compile_test_bytecode(include_str!(
+        "../../../tests/fixtures/execution/stack-space.kgr"
+    )));
+    let mut peaks = Vec::new();
+    for entry in ["empty", "larger"] {
+        let limit = 16 * 1024;
+        let mut vm = test_runtime(RuntimeConfig {
+            limits: RuntimeLimits {
+                max_stack_bytes: NonZeroUsize::new(limit).unwrap(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        let program = load_bytecode(&mut vm, "stack-space", code.clone()).unwrap();
+        let owner = vm.select_program(&program).unwrap();
+        let layout = |name: &str| {
+            let function = owner
+                .bytecode
+                .functions
+                .iter()
+                .find(|function| function.name == name)
+                .unwrap();
+            &owner.execution().functions[function.id.index()]
+                .frame
+                .slot_layout
+        };
+        assert_eq!(
+            layout("empty").scalar_count + layout("empty").managed_count,
+            0
+        );
+        assert!(layout("wide").scalar_count >= 8);
+        vm.collect_garbage().unwrap();
+        let baseline = vm.gc_stats();
+        let error = vm
+            .execute_module(&owner, ProgramEntry::Export(entry), vm.execution_options())
+            .unwrap_err();
+        assert_eq!(error.reason(), &ErrorReason::StackOverflow);
+        let peak = vm.resources().counters().peak_call_depth;
+        assert!(peak > 1);
+        assert!(peak as usize * size_of::<ExecutionFrame>() <= limit);
+        assert_eq!(error.trace().unwrap().frames.len(), peak as usize);
+        assert_eq!(vm.resources().counters().current_call_depth, 0);
+        assert!(!vm.is_quarantined());
+        vm.collect_garbage().unwrap();
+        assert_eq!(
+            vm.gc_stats().root_registrations,
+            baseline.root_registrations
+        );
+        assert_eq!(vm.gc_stats().objects, baseline.objects);
+        assert_eq!(
+            vm.execute_module(
+                &owner,
+                ProgramEntry::Export("healthy"),
+                vm.execution_options()
+            )
+            .unwrap()
+            .return_value
+            .as_i32(),
+            Some(9)
+        );
+        peaks.push(peak);
+    }
+    assert!(
+        peaks[1] < peaks[0],
+        "live scalar/outgoing capacity consumes space independently of frame count"
     );
-    let mut runtime = test_runtime(RuntimeConfig {
-        limits: RuntimeLimits {
-            max_call_depth: Some(2),
-        },
-        ..RuntimeConfig::default()
-    });
-    let loaded =
-        load_bytecode(&mut runtime, "call_depth.kgr", bytecode).expect("module should load");
-    let _loaded_program = loaded;
-    let loaded = runtime.select_program(&_loaded_program).unwrap();
-
-    let mut vm = runtime;
-    let error = vm
-        .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
-        .expect_err("third frame should exceed call depth");
-
-    assert!(matches!(
-        error,
-        ref err
-            if err.kind() == RuntimeErrorKind::ResourceLimitExceeded
-    ));
-    assert_eq!(vm.resources().counters().current_call_depth, 0);
-    assert_eq!(vm.resources().counters().peak_call_depth, 2);
 }
 
 #[test]

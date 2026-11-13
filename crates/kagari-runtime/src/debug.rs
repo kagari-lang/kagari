@@ -123,6 +123,8 @@ pub struct DebugFrame {
     pub target: CallableTarget,
     pub function_name: String,
     pub instruction_offset: usize,
+    /// Earlier tail callers cannot be reconstructed after enabling observation.
+    pub tail_calls_elided: bool,
     pub source_span: Option<Span>,
     pub source_uri: String,
     pub bindings: Vec<DebugBinding>,
@@ -489,6 +491,7 @@ impl DebugSession {
             module_id,
             epoch,
             target: frame.target(),
+            tail_calls_elided: frame.tail_calls_elided(),
             function_name: match frame.function() {
                 Some(function) => function.name.clone(),
                 None => {

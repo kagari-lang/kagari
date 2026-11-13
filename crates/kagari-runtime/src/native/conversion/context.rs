@@ -644,12 +644,7 @@ impl<'runtime> ConversionContext<'runtime> {
         expected: &TypeArgument,
         value: &ValueView<'_>,
     ) -> NativeResult<()> {
-        if !self.matches_value(expected, value)? {
-            return Err(RuntimeError::module_validation(
-                "converted value differs from its declaration",
-            ));
-        }
-        value_check::candidate_protected(self.runtime, &[*value])
+        value_check::check_protected(self.runtime, self.owner, expected, value)
     }
 
     /// Keep a logical mismatch distinct from failed admission. Native receiver

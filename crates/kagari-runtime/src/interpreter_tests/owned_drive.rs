@@ -59,6 +59,8 @@ fn submitted_arguments_and_resumed_frames_preserve_retained_and_current_calls() 
             &[RootedValue::from(0i32)],
         )
         .unwrap();
+    // Retire construction leases before comparing live submission ownership.
+    vm.collect_garbage().unwrap();
     let roots = vm.gc_stats().root_registrations;
     let execution = vm
         .start(

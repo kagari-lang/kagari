@@ -1,7 +1,5 @@
 //! Actual frame admission controls, distinct from full owned-session workloads.
 use super::{allocate, module};
-#[cfg(feature = "execution-diagnostics")]
-use crate::diagnostics::{self, allocations};
 use crate::{
     Runtime,
     execution::roots::{ExecutionRoots, SessionId},
@@ -15,7 +13,24 @@ use crate::{
     },
     value::carriers::RootedValue,
 };
+#[cfg(feature = "execution-diagnostics")]
+use crate::{
+    diagnostics::{self, allocations, storage::execution_backing},
+    execution::roots::{ExecutionStorage, LocalMark, NativeSourceMark, frames::FrameMark},
+    execution_metadata::environments::AdmittedEnvironment,
+    frame::{
+        ExecutionFrame,
+        types::TypeEnvironment,
+        uncommon::{FrameUncommon, UncommonId},
+    },
+    module::state::initialization::StaticInitialization,
+    objects::invocation::MethodInvocation,
+    resource::ResourceState,
+    session::SessionState,
+};
 use kagari_abi::representation::ValueType;
+#[cfg(feature = "execution-diagnostics")]
+use std::mem::size_of;
 #[cfg(not(feature = "execution-diagnostics"))]
 use std::{hint::black_box, time::Instant};
 
@@ -201,23 +216,48 @@ fn frame_storage_timing() {
 #[ignore = "manual allocation/transition counts, not throughput"]
 #[cfg(feature = "execution-diagnostics")]
 fn frame_storage_counts() {
+    println!(
+        "FRAME_STORAGE_LAYOUT,frame={},storage_mark={},frame_mark={},local_mark={},native_mark={},execution_source={},execution_storage={},session={},resources={}",
+        size_of::<ExecutionFrame>(),
+        size_of::<FrameStorage>(),
+        size_of::<FrameMark>(),
+        size_of::<LocalMark>(),
+        size_of::<NativeSourceMark>(),
+        size_of::<ExecutionRoots>(),
+        size_of::<ExecutionStorage>(),
+        size_of::<SessionState>(),
+        size_of::<ResourceState>(),
+    );
+    println!(
+        "FRAME_COMPONENT_LAYOUT,body={},environment={},environment_facts={},invocation={},initializer={},uncommon={},uncommon_index={}",
+        size_of::<ExecutableModule>(),
+        size_of::<Option<AdmittedEnvironment>>(),
+        size_of::<TypeEnvironment>(),
+        size_of::<Option<MethodInvocation>>(),
+        size_of::<Option<StaticInitialization>>(),
+        size_of::<FrameUncommon>(),
+        size_of::<Option<UncommonId>>(),
+    );
     for (depth, width, ownership) in CASES {
         let mut control = Control::new(depth, width, ownership);
-        let ((phases, counts), total) = allocations::measure(|| {
+        let (((phases, backing), counts), total) = allocations::measure(|| {
             diagnostics::measure(|| {
                 let (mut runtime, _program, owner) = module();
                 let mut phases = [(
                     allocations::Counts::default(),
                     allocations::Counts::default(),
                 ); 3];
-                for phase in &mut phases {
+                let mut backing = [None; 3];
+                for (phase, backing) in phases.iter_mut().zip(&mut backing) {
                     phase.0 = allocations::current().unwrap();
                     control.fill(&mut runtime, &owner);
+                    let active = execution_backing(&runtime);
                     control.replace(&mut runtime, &owner);
                     control.retire(&mut runtime);
+                    *backing = Some((active, execution_backing(&runtime)));
                     phase.1 = allocations::current().unwrap();
                 }
-                phases
+                (phases, backing)
             })
         });
         assert_eq!(
@@ -235,8 +275,12 @@ fn frame_storage_counts() {
         if matches!(ownership, Ownership::Nested) {
             assert!(counts.bank_bytes_reallocated > 0);
         }
+        assert_eq!(
+            total.net_bytes, 0,
+            "Runtime teardown releases retained backing"
+        );
         println!(
-            "FRAME_STORAGE_COUNTS,{ownership:?},{depth},{width},phases={phases:?},counts={counts:?},total={total:?}"
+            "FRAME_STORAGE_COUNTS,{ownership:?},{depth},{width},phases={phases:?},counts={counts:?},total={total:?},backing={backing:?}"
         );
     }
 }

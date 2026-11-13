@@ -54,6 +54,7 @@ pub(crate) mod flow;
 mod operation;
 mod scalar;
 mod statics;
+mod tail;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum BytecodeVerificationError {
@@ -476,6 +477,7 @@ pub(super) fn verify_module_with_program(
             definitions,
         )?);
     }
+    tail::verify(module, program, &cancel)?;
     verify_interface_tables(module, definitions, &cancel)?;
     Ok(suspensions)
 }

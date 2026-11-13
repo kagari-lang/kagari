@@ -24,6 +24,7 @@ pub mod native;
 pub mod owned;
 pub mod reentry;
 mod scheduler;
+pub(crate) mod space;
 mod tasks;
 mod typed;
 

@@ -1,10 +1,14 @@
 # Runtime, Host and GC Execution Plan
 
-Status: RR00-RR03 completed locally; RR03 exits on 2026-11-14 after its
-coordinated graph/consumer cutover and actual production-proof audit. RR04 is next;
-RR05-RR06 remain pending. Phase completion is not a passing CI or final performance
-claim. The [RR03 exit audit](#rr03-production-proofs-and-local-phase-exit) supersedes
-historical intermediate build errors and open-gate statements in the ledger below.
+Status: RR00-RR04 completed locally. RR04 exits on 2026-11-14 with compact actual
+frame/source reuse, one Native protocol, VM-byte/Native-stack limits and verified
+scalar self-tail replacement. One final ordinary image meets all ten frozen
+paired-median latency gates, with selected lifecycle and local checkpoint checks
+passing. RR05 is next; RR06 remains pending. Phase completion is not a passing CI
+or final whole-cost/GC acceptance claim. The
+[RR03 exit audit](#rr03-production-proofs-and-local-phase-exit) and
+[RR04 exit audit](#rr04-local-phase-exit-and-rr05-entry) supersede historical
+intermediate errors and open-gate statements in the ledger below.
 
 Runtime owns one ManagedMemory/RootDriver<ExecutionRoots> and separate
 ResourceState. Actual managed providers, active/parked slots, Native pending/local
@@ -14,7 +18,7 @@ Native extraction APIs are removed. Exclusive mutable services and prepared
 Native/Host bindings remain the RR02 protocol. Resource/session attribution and
 opt-in diagnostics observe actual commits and storage operations. Default workspace
 all-target Clippy and selected diagnostic/AOT/serde/JIT consumer checks pass.
-Inherited NC provider gaps, R13, full CI/Miri and RR04/RR05 performance work remain
+Inherited NC provider gaps, R13, full CI/Miri and RR05 whole-cost performance work remain
 explicit; no standard-library reconstruction is part of this cutover.
 
 This is the single execution plan for the coordinated Runtime/Host/GC refactor.
@@ -8981,3 +8985,1209 @@ matched RR00 loop/ordinary/tail workloads and required local structure/fmt/works
 Clippy/diff checks. Full CI remains distinct.
 Known intermediate errors: none in the completed RR03 local build scope; inherited
 NC source-analysis failures and unrun Windows/full CI are recorded above.
+
+### RR04 entry: storage lifetime and space-measurement boundary
+
+RR03 phase commit is `52ab7b58`; the worktree was clean at RR04 entry. The
+single-source ownership model remains fixed. Existing design references for
+compact control/value stacks and capacity reuse remain the pinned Lua 5.4.9,
+Wasmi v0.51.1 and Rust 1.99.1 mechanisms in the design; no second frame/source
+representation or alternate call semantics is selected.
+
+The first source review identifies a concrete whole-Host entry cost, consistent
+with the preceding arithmetic diagnostic's four warm bank reservations:
+`ExecutionRoots::enter` constructs fresh bank Vecs before choosing a vacant row,
+and `Slots::leave` removes/drops that row's complete ExecutionStorage. Ordinary
+SessionStore cleanup preserves an already-empty frame Vec, while forced cleanup
+detaches nonempty frames for destruction. Common frame bank push/pop already uses
+suffix marks and preserves backing within an execution. Therefore inner-call reuse
+and whole-entry reuse are different lifetimes; improving only FrameSlots cannot
+remove source-bank recreation between independent Host invocations.
+
+Before implementation, measure current actual frame/mark/control sizes and
+initialized/reserved source/control capacity at the existing frame/real-call
+measurement owners. Freeze stack ceiling/configuration/error shape from those
+observations; old Windows 392-byte frame figures are historical, not this arm64
+entry baseline. Count empty frames, arguments and alignment as well as managed/
+scalar cells. Native Rust-stack reentry and compiled entry protection remain
+separate. No stack ceiling or new layout is implemented by this entry record.
+
+A candidate first storage refinement is reusing cleared bank capacity under the
+same vacant execution-row owner. Its lifetime contract must clear every traced
+edge/pending/dependency and retire the complete old generation before reuse;
+capacity retention must be included in diagnostics and the final memory gate.
+It must not retain an old body/application merely to make a cache hit. This
+concrete candidate still needs measured footprint, source-cursor and stale-handle
+review before implementation; it is not a zero-allocation or performance claim.
+RR04 remains uncommitted; no new implementation failure or external blocker.
+
+#### RR04 entry measurements and selected space contract
+
+Rust 1.99.1 (58cf8f9c3/LLVM 23.1.1), Apple M1 Max arm64/32 GiB,
+macOS 26.6.2 (25G83), workspace profiles and default Cargo target/parallelism:
+the existing release frame diagnostic now returns nonallocating active/retired
+backing snapshots outside its allocation-counter outputs. Actual inline sizes are
+ExecutionFrame 592, FrameStorage 128, FrameMark 96, LocalMark/NativeSourceMark 64,
+ExecutionRoots 32, ExecutionStorage 264, SessionState 848 and test ResourceState
+288 bytes. Library diagnostic ResourceState is 272 and Runtime 4,704 bytes; the
+test lifetime probe accounts for the extra 16 bytes, not another production owner.
+Nested 32x8 and 256x128 frame-slot controls retain respectively 4,576 and 412,768
+reserved buffer bytes while active, then 1,088 after retirement. Independent
+256x128 controls retain 495,616 active and 69,632 retired bytes. These controls
+admit actual FrameStorage, not complete ExecutionFrame records; their harness Vec
+is outside Runtime. The actual typed-empty Native callback snapshot contains two
+complete frames and 3,691 initialized/7,400 reserved execution/control buffer bytes,
+plus separately described collector metadata, code/payloads and external overhead.
+
+Freeze the VM-space contract before storage implementation: replace
+max_call_depth with max_stack_bytes: NonZeroUsize, default 8 MiB per independently
+owned execution. The cap admits concrete frame/control/rare-state and scalar/
+managed/init/local/dependency/return/queued/pending buffer capacity, including empty
+frames, outgoing arguments and alignment. Fixed Runtime/session directory headers,
+managed payloads and immutable code are separately reported memory, not VM stack
+capacity. Fallible geometric growth must stay inside the admitted cap; overflow or
+an entry that cannot fit reports RuntimeErrorKind::StackOverflow, while allocator
+failure reports RuntimeErrorKind::AllocationFailure. These must be distinct from
+each other and cancellation, with cleanup and completed effects preserved. The
+8-MiB default is a finite host policy (roughly 14,000 current empty frame headers
+before other storage), not a copied Lua limit or Rust-stack guarantee. Separate
+Native/Rust-stack protection still requires its own boundary proof before activation.
+The old public quota remains implemented until the cohesive API/spec/test change.
+
+The first cache will be one cleared ExecutionStorage owned by ExecutionRoots,
+reused by the next independent admission. Retaining every retired row's largest
+banks would multiply spare memory by historical peak concurrency (the 256-owner
+control makes that cost concrete). One most-recent cache bounds idle retained
+storage to one prior execution, preserves one physical root-source owner, and is
+included in backing snapshots. Retirement clears every edge/cell/dependency/queue/
+return/native/scalar state in the same closed retirement that invalidates the old ID; new admission
+mints a fresh generation. This changes allocation lifetime, never managed liveness.
+The source lifecycle reproduction currently fails as intended: replacement backing
+is 32 bytes versus the prior 66,624, exposing bank recreation. It also checks reuse
+below a paused root cursor, old queue/return/dependency rejection and exact final
+heap reclamation. A temporary missing return_location argument was repaired before
+that runtime failure was obtained.
+
+Primary mechanisms were rechecked at the pinned Wasmi v0.51.1
+[ValueStack](https://github.com/wasmi-labs/wasmi/blob/v0.51.1/crates/wasmi/src/engine/executor/stack/values.rs)
+and Lua 5.4.9 [stack growth](https://www.lua.org/source/5.4/ldo.c.html#luaD_growstack):
+reuse retained stack capacity, separate used positions from admission/growth, and
+distinguish managed VM space from native call-stack protection. Kagari's cleared
+cache has no raw pointer/upvalue semantics and retains no code or managed edges;
+its generational source publication/cursor rules remain the existing GC protocol.
+No custom collector, second stack representation or reusable Host-root pack is added.
+
+Seven alternating paired ordinary processes compare the frozen RR00 image (SHA-256
+dcad529e99a95332bce33e2883ee909136c3b9f144428bd80afcba985f669b7e) with RR03's
+fresh default-feature release core_calls image (a4aa4182a10f9486df698c89e58ed90afb9d44cd60c5c41cc8fd544b11e3f1bb).
+Each route has three warmups and eleven 10,000-call samples; all 1,540 timing
+samples and callback/result oracles pass, with no compiler/profiler/other benchmark
+overlap. Builds take 24.43 s ordinary and 24.12 s diagnostic, separate from samples.
+The frozen paired median latency ceiling stays 1.10. RR03/RR00 paired median ratios
+are 1.071 whole-Host empty, 1.196 script, 0.894 Native; internal script 1.902, raw
+empty 2.076, raw scalar 2.199, typed empty 0.775, typed scalar 0.483, borrowed 0.768
+and owned 0.532. Thus script/raw gates currently fail; typed wins do not close them.
+
+The separate diagnostic run discards instrumented timings. Per 10,000 internal
+calls it observes no metadata graph admissions or Native type-mapping rebuilds,
+one outer Host registration (three for the borrowed setup), and 10,001 call
+admissions/returns for scalar/empty routes. Native typed-empty still has two full
+frames. The source review finds generic frame admission plus Native pending/loan/
+result preparation on ordinary fallback calls; these are architectural review
+targets, not measured individual cycle attributions. Cross-entry cache reuse can
+remove repeated outer-bank preparation, but cannot by itself explain or fix a
+twofold internal raw-call regression. RR04 must refine admitted common calls and
+measure all denominators again; no threshold, workload or result oracle is relaxed.
+The [paired entry record](performance-baseline.md#rr04-entry-paired-calls-macos-2026-11-14)
+retains the matched method, full table, hashes and attribution limits.
+
+#### RR04 cleared execution capacity reuse
+
+ExecutionRoots now owns one reusable ExecutionStorage. Admission takes its cleared
+capacity, reserves fallibly before initializing pending/managed cells and publishes
+a new full execution identity. Failed preflight restores the still-empty cache.
+Whole retirement refuses an active Native suffix, removes the old directory entry,
+clears every bank, scalar/init/Native/dependency/return/queue state and replaces
+the one cache. No object/code/application/Host lease is retained by that cache.
+The new private storage child owns initialization/clearing; the RootSource scanner
+and checked coordinate rules are unchanged. Diagnostics explicitly enumerate the
+cleared reusable buffers rather than dropping their retained capacity from totals.
+
+The lifecycle reproduction now passes, including capacity-overflow preflight
+failure followed by successful reuse, row reuse below a paused root frontier,
+expired queue/return/dependency coordinates, cleared scalar/init/pending values,
+survival of only the new String and final zero heap occupancy. Separate source
+pressure, exhausted generations, active Native application after original-source
+retirement and machine-code reentry controls pass. The existing backing observer
+also verifies zero initialized reusable entries, positive retained capacity,
+unchanged reported reserved bytes across retirement and nonallocating summaries.
+No new Kgr program or test binary is introduced; the new owner case covers this
+previously absent capacity/cache/generation lifecycle, not just a new API spelling.
+
+Measured release frame-slot controls retain the same active buffer capacities.
+For nested 32x8 and 256x128 workloads, warm and repeated admission/replacement/
+retirement phases add zero allocator requests and zero net bytes; teardown is
+explicitly asserted zero-net. Retired reserved bytes now remain 4,576 and 412,768,
+versus the previous 1,088, and are honestly reported. Independent 256x128 controls
+retain 71,296 retired bytes versus 69,632: one 1,664-byte spare rather than 256
+spares; warm/repeated phases each make 1,275 requests. Active capacity stays
+495,616. ExecutionRoots grows from 32 to 296 inline bytes; the test Runtime grows
+from 4,720 to 4,992 (including containment/alignment), with no extra payload box.
+This exchanges bounded cache count/retained backing for repeated reservation; it
+does not establish lower total memory or RSS.
+
+Actual arithmetic diagnostics run successfully after the change. Warm whole-Host
+entry now reports five requests/122 requested bytes, zero bank reservations and
+zero reallocated-capacity bytes, compared with ten/290/four/32 before. Required
+initialization remains 86 bytes; the live returned report still accounts for 62
+net bytes at sample end. Whole-Host zero allocation and any latency improvement
+remain unclaimed. No new matched ordinary timing set is inferred from these
+instrumented allocation counts.
+
+The submitted-arguments/owned-reload regression initially fails at its first root
+snapshot (2 versus 3), before executing the reload assertions. Repeating that
+single test with the RR03 roots implementation reproduces exactly the same failure;
+the current file is restored afterwards. The snapshot counted unserviced dropped
+construction leases, which start's automatic collection drained. Collecting before
+the baseline fixes that oracle without changing the submission/root-release
+assertions. The test then passes its retained-body/current-inner-call result 145,
+three exactly-once Native effects and cleanup assertions. No production guard is
+weakened to accommodate the old snapshot.
+
+Local verification at this implementation checkpoint:
+
+```text
+cargo test -p kagari-runtime --lib -- retired_execution_capacity_reuses_without_edges_or_revived_coordinates execution_source_survives_pressure_and_pending_steps_without_new_allocation exhausted_generations_retire_session_slots --nocapture
+cargo test -p kagari-runtime --lib -- retired_execution_capacity_reuses_without_edges_or_revived_coordinates active_native_application_outlives_its_original_execution_without_host_roots native_reentry_preserves_the_callers_frame_and_shared_execution submitted_arguments_and_resumed_frames_preserve_retained_and_current_calls --nocapture
+cargo test -p kagari-runtime --lib submitted_arguments_and_resumed_frames_preserve_retained_and_current_calls -- --nocapture
+cargo test -p kagari-runtime --release --lib --features execution-diagnostics -- retired_execution_capacity_reuses_without_edges_or_revived_coordinates closed_observations_count_real_sources_and_do_not_allocate_backing_snapshots frame_storage_counts --include-ignored --nocapture
+cargo test -p kagari-runtime --release --lib --features execution-diagnostics -- frame_storage_counts closed_observations_count_real_sources_and_do_not_allocate_backing_snapshots --include-ignored --nocapture
+cargo test -p kagari-stdlib --lib --test allocation_contracts --no-fail-fast -- function_arguments_call_captured_script_closures_synchronously warmed_scalar_and_array_read_boundaries_add_no_allocations warmed_script_argument_windows_match_borrowed_slice_allocation_cost --nocapture
+cargo run -p kagari-lua-benchmark --features diagnostics -- --check --diagnostics --workload=arithmetic
+cargo clippy -p kagari-runtime --all-targets --features execution-diagnostics -- -D warnings
+```
+
+All selected cases pass after the root-baseline correction: six distinct Runtime
+source/generation/application/reentry/owned tests, two existing diagnostic owner
+tests, one actual stdlib Native/script/Native GC scenario and two ordinary allocation
+contracts. The final release diagnostic rerun includes the new zero-net teardown
+assertion and component sizes; unchanged passing source/Native evidence is reused.
+Scalar 100,000-call, array 0/16/16,384-element and script/permuted argument-window
+contracts remain zero allocation/reallocation/deallocation/requested bytes. Required
+workspace all-target Clippy, structure (1,953 Rust files, zero violations, six
+unchanged exceptions), fmt and diff checks pass; scoped diagnostic Clippy passes.
+No Miri, Windows/full CI or final paired latency gate is claimed for this change.
+
+The next architecture refinement has a concrete owner/cause. Current
+ExecutionModule::prepare_calls deliberately rewrites Native imports into the
+unified ordinary-call path and sets native_calls=0 to avoid pinning an old callback
+in the supplying caller. Do not re-enable that old physical fast path: ordinary
+calls must still select current implementations. Refine the unified selected-call
+path instead, preserving dynamic value/loan/candidate checks and one post-call
+result/cleanup sequence. The component measurement also shows 176 bytes for
+Option<MethodInvocation> and 104 for Option<StaticInitialization> in each 592-byte
+frame; body is 16 and admitted environment 56 (24 bytes of facts). Review rare-state
+pool ownership together with forced frame/session detachment, so cleanup survives
+termination without a new hidden allocation/retention table. Actual size reduction,
+the VM-stack API/spec/test migration, Native-stack protection and self-tail proof/
+reuse are still required before RR04 exit. RR04 stays open and uncommitted; the
+1.10 script/raw latency gates still fail at the recorded entry baseline.
+
+#### RR04 selected Native calls and lazy source preparation
+
+The unified ordinary-call transition now executes closed synchronous Native
+targets directly after current-route selection. For a script loop calling a raw
+scalar Native 10,000 times, the previous transition admitted/copied into/returned
+from a complete 592-byte Native ExecutionFrame on every iteration. The selected
+path instead lends the caller's existing banks, validates the same original
+parameter domains before callback effects, and publishes through the existing
+NativeCall/result protocol into the same caller destination. NativeCall still
+owns its real traced pending/local/dependency suffix; no copied argument pack or
+additional Host root is introduced. Pre-Native GC service remains conditional on
+the existing collector service request, after source/control loans end.
+
+SessionState owns a reusable Vec of 32-byte logical Native control entries
+(immutable exact owner/import plus physical insertion depth). These contain no
+managed references and do not replace the authoritative GC Native source record.
+NativeActivation owns depth admission and linear removal across success, error
+and unwind; it captures failures before removing the logical entry. ErrorTrace
+merges logical entries with physical frames without allocating an intermediate
+ordering array, preserving nested Native-to-script trace order. Session cleanup
+also rejects live logical Native entries. The existing logical depth policy stays
+in force until the single VM-space API/spec/test migration; this step does not
+claim the new Native/Rust-stack guard.
+
+An attached observer, an applied/generic environment or a suspending target keeps
+the established physical admission/observation path, still using NativeCall.
+DebugSession is the execution observer, so debug binding snapshots retain their
+physical Native frame. This is one invocation protocol with explicit observation/
+semantic requirements, not an old API or collector compatibility mode. The dead
+caller-pinned LinkedNativeCall table, callback transition, closed-region dispatch
+and physical Native preparation ordinal are removed. Actual fixed primitive
+bindings still execute through the selected Native protocol; they are never
+inferred from a name/signature. Reintroducing a caller-pinned shortcut would break
+ordinary current-target semantics after reload.
+
+Ordinary static script/Native calls no longer establish, adopt and retire an
+extra LocalMark. They lend original caller arguments and let the callee/Native
+protocol own new storage. Shared, closure and interface selection retain the
+preparation mark because their semantic preparation can append dependencies or
+temporary relationships; the immediately admitted frame adopts that prefix.
+Physical argument checks and candidate/loan/type/result checks are preserved.
+
+The strengthened existing Native completion test first fails with two physical
+frames versus the required one. It now checks one physical caller, logical depth
+two, complete Native/caller error frames, exact failed-result nonpublication,
+once-only completion/discard and cleanup. The existing callback-trap owner retains
+both decoded/encoded observed routes and adds only one source-free unobserved
+route: a distinct merged-logical-trace mechanism, not an exhaustive format matrix.
+Its three-frame trace still identifies choose/main, caller PC/epoch/span and the
+completed effect. Observed routes retain breakpoint/trap bindings. Existing
+shared/interface provenance, actual primitive, managed nested Native/script/GC,
+retained closure, cancellation, Host reentry and caught callback-unwind owners
+supply the remaining selected evidence; no new test binary or source fixture.
+
+Local selected tests: six Runtime and ten stdlib tests pass, including the
+expected caught panic witness (result 84, cleanup and no quarantine). Commands:
+
+```text
+cargo test -p kagari-runtime -p kagari-stdlib --lib --no-fail-fast -- native_publication_exposes_first_definitions_only_after_success native_without_destination_finishes_once_before_the_successor submitted_arguments_and_resumed_frames_preserve_retained_and_current_calls native_poll_observes_cancellation_and_return_cannot_swallow_it callback_depth_failure_precedes_effects_and_cleans_native_roots cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session callback_trap_preserves_the_public_caller_origin_and_debug_frames host_reentry_returns_to_the_synchronous_native_caller native_callbacks_invoke_the_retained_closure_generation_after_replacement function_arguments_call_captured_script_closures_synchronously cancellation_at_observed_boundaries_cleans_callback_scopes runtime_primitives_follow_installed_bodies_and_exact_signatures selected_primitive_operations_use_checked_typed_arguments generic_interface_and_retained_closure_keep_their_environment_after_reload shared_calls_retain_the_callers_nominal_layout_generation native_operation_guards_release_on_unwind --nocapture
+cargo test -p kagari-runtime --release --test core_calls --no-run --message-format=json
+cargo test -p kagari-runtime --release --features execution-diagnostics --test core_calls internal_script_and_native_calls -- --ignored --nocapture --test-threads=1
+cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy -p kagari-runtime --all-targets --features execution-diagnostics -- -D warnings
+```
+
+Structure (1,952 Rust files, zero violations, six unchanged exceptions), fmt,
+diff, workspace all-target Clippy and diagnostic-feature Clippy pass. The ordinary
+release build takes 25.31 s, excluded from timings. Seven rotated fresh-process
+RR00/RR03/current triples produce 2,310 valid timing samples without overlapping
+builds, profilers, diagnostics or another benchmark. Actual callback counts and
+results pass; the full hashes/method/table are retained at the
+[performance owner](performance-baseline.md#rr04-direct-selected-native-calls-macos-2026-11-14).
+The current ordinary binary hash is
+`c34320a384449444200cf1768950349f9b23376d6db9e4be25c9976c8f5bc7bb`.
+It measures this uncommitted RR04 implementation, not the RR03 commit alone.
+
+Relative to paired RR03, raw empty/scalar costs fall to 0.636/0.640 and typed
+empty/scalar to 0.697/0.720. Relative to paired RR00, raw empty/scalar remain
+1.323/1.413, internal script 1.807 and whole-Host script 1.202. The frozen 1.10
+ceiling is unchanged and these rows still fail. Source-cache improvements and
+typed wins do not waive them. Diagnostics show zero metadata graph admissions/
+Native mapping rebuilds; empty/scalar batches have one outer Host registration
+and 10,001 admissions/returns per 10,000 calls. The borrowed setup retains its
+distinct three registrations and extra construction call. Native argument transfers fall to one outer transfer;
+script retains 10,001. Ordinary raw/typed empty/scalar allocator requests match
+between 1 and 10,000 callbacks (41 allocations, zero reallocations); two fixed
+first-Native activation allocations remain compared with zero callbacks. Owned
+conversion retains its real per-value allocation.
+
+The actual typed-empty active snapshot now has one complete ExecutionFrame and
+one 32-byte logical entry. SessionState grows from 848 to 880 bytes; library
+Runtime remains 4,976 after the earlier cache addition. Initialized execution/
+source/control backing is 3,195 bytes versus entry's 3,691; reserved backing is
+7,656 versus 7,400 because four-slot frame capacity remains retained and the
+session/logical directories are honestly counted. This is not a total-memory or
+RSS reduction claim. No Miri, Windows/full CI or final performance acceptance is
+claimed.
+
+The missed gates still require architecture work. Eliminating a full Native
+callee and its transfers measurably removes a large cost, while the ordinary
+script path retains full general frame admission and its 280-byte uncommon
+method/initializer fields. Prepared mappings are already stable; rebuilding them
+is not the measured remaining cause. Next review the frame/rare-state pool with
+forced detach cleanup, caller-protected same-body admission and source/return
+transactions at their owners before another local shortcut. Individual remaining
+cycles are not attributed without measurement. VM-space/error/API migration,
+separate Native-stack proof and verified scalar self-tail replacement remain
+required. RR04 stays open and uncommitted, with no external blocker.
+
+The affected allocation-owner check initially fails because its manual driver
+still expects execute_region to return NativeEntry and separately starts/finishes
+the physical callee. It now expects the completed Safepoint transition; all value,
+zero-allocation/reallocation/deallocation/requested-byte, provider-unit and root
+assertions remain. The script-window comparison passes unchanged. Rerunning only
+the failed scalar/array owner passes its 100,000 scalar and 1,000 array reads at
+0/16/16,384 elements, all with zero counted allocator activity. These are selected
+boundary costs, not whole-Host latency or a new performance-gate claim:
+
+```text
+cargo test -p kagari-stdlib --test allocation_contracts -- warmed_scalar_and_array_read_boundaries_add_no_allocations warmed_script_argument_windows_match_borrowed_slice_allocation_cost --nocapture
+cargo test -p kagari-stdlib --test allocation_contracts warmed_scalar_and_array_read_boundaries_add_no_allocations -- --nocapture
+```
+
+Required workspace all-target Clippy passes again after the driver correction;
+unchanged selected passing evidence is reused. No implementation failure remains
+at this local checkpoint. RR04 exit work and failed frozen latency gates remain
+as stated above; no phase commit is made prematurely.
+
+#### RR04 compact frames and Runtime-owned uncommon control
+
+ExecutionFrame now owns an optional eight-byte linear UncommonId instead of
+280 inline bytes of optional MethodInvocation/StaticInitialization. On this
+toolchain the complete frame falls from 592 to 320 bytes; the existing physical
+instruction/frame budget owner asserts a 320-byte frame ceiling. Ordinary calls
+allocate no uncommon pool entries. The pool is owned by ResourceState, outside
+the managed graph, and contains the same pure method facts/static cleanup
+authority as the former inline fields. All actual managed dependencies remain in
+the frame source. UncommonId is private and non-Clone, with ownership consumed at
+retirement; borrowed inspection cannot mint stale tokens. Existing complete
+execution generations and capability/graph checks remain in place.
+
+Ownership was chosen from the real forced-exit path: owned retirement removes
+SessionState/frame-directory membership before releasing its detached frames.
+Putting the pool in SessionState would lose access to method/static cleanup at
+that point. The Runtime-owned pool survives that handoff. Normal root/nested
+returns, static return, explicit pop, scope unwind, detached owned cleanup and
+final session cleanup now retire uncommon control explicitly. Owned teardown
+still releases every source before dropping any detached Rust control owner.
+Static failure is materialized while the source is valid, and successful static
+completion still retires the active marker. No pool/control/source loan crosses
+Native callbacks, collection or reentry. Free entries keep backing only, not
+method/static Rust owners or graph access.
+
+The concrete mature reference is
+[Lua 5.4.9 lstate.c](https://www.lua.org/source/5.4/lstate.c.html), whose CallInfo
+storage retains and later frees unused control capacity. Kagari instead uses
+one Runtime-owned indexed pool to handle independent parked executions and Rust
+cleanup after detachment; it does not copy Lua's linked records, dynamic value
+model or C-stack limit. Source ownership and retirement order above justify the
+different pool owner. The pool has a free list and grows to concurrent uncommon
+state demand, not ordinary frame depth or total historical calls.
+
+The existing complete-computation method test now checks that its uncommon state
+is live after Host sources retire and gone after pop; its graph-retirement
+assertions are unchanged. The existing initializer drop/poison test checks live
+state across normal abandonment, cancellation, quarantine and observer failure,
+then zero live state with the original failed-cell/recipe/root assertions.
+One focused new owner scenario uses the existing interface-parents fixture:
+three real method activations survive GC, park, lose their Host leases, and are
+destroyed through the owned drain that first detaches SessionState. Capacity is
+reused without growth, live state becomes zero, copied application facts cannot
+reopen retired source coordinates, root counts/depth restore and Runtime stays
+usable. This covers previously absent detached pool cleanup, not another syntax
+or success-only spelling. A test-only retained activation Option initially fails
+Rust borrowing until it is explicitly dropped after successful parking; that
+compile error is resolved, with no lifetime widening in production.
+
+Selected local evidence after the implementation:
+
+```text
+cargo test -p kagari-runtime --lib -- parked_method_control_reuses_after_session_detachment method_frame_keeps_its_complete_computation_after_host_sources_retire initializer_frame_drop_poison_survives_termination_and_releases_recipe_edges initializer_return_checks_semantic_type_before_ready_and_retries_access_pc physical_instruction_budget --nocapture
+cargo test -p kagari-runtime -p kagari-stdlib --lib --no-fail-fast -- bounded_application_indexes_do_not_retain_nodes_and_active_frames_keep_their_computation retained_method_transports_binders_witnesses_and_constructions_after_impl_reordering generic_interface_and_retained_closure_keep_their_environment_after_reload owned_retirement_drains_all_parked_roots_after_payload_drop_fault owned_retirement_drains_all_parked_roots_after_control_waker_drop_fault interface_method_results_use_existing_native_and_inherited_adapters interface_dispatch_collects_during_reentry_and_selects_current_default_code native_publication_exposes_first_definitions_only_after_success --nocapture
+cargo test -p kagari-stdlib --lib -- interface_calls_preserve_associated_object_outputs_and_public_access inherited_generic_interface_bindings_require_checked_applications_and_keep_returns_alive --nocapture
+cargo test -p kagari-stdlib --test allocation_contracts -- warmed_scalar_and_array_read_boundaries_add_no_allocations warmed_script_argument_windows_match_borrowed_slice_allocation_cost --nocapture
+cargo test -p kagari-runtime --release --lib --features execution-diagnostics -- frame_storage_counts parked_method_control_reuses_after_session_detachment closed_observations_count_real_sources_and_do_not_allocate_backing_snapshots --include-ignored --nocapture
+cargo test -p kagari-runtime --release --features execution-diagnostics --test core_calls internal_script_and_native_calls -- --ignored --nocapture --test-threads=1
+cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy -p kagari-runtime --all-targets --features execution-diagnostics -- -D warnings
+```
+
+Five focused Runtime owners pass. The cross-boundary selection has six passing
+Runtime owners (including contained payload/waker destructor faults) and the
+passing real interface/GC/reload case. Its other stdlib test
+interface_method_results_use_existing_native_and_inherited_adapters fails before
+Runtime creation on UnknownName Vec::from at source bytes 62..71. This is the same
+NC gap already recorded in the RR03 consumer ledger, selected again by mistake;
+its fixture/provider/assertions remain unchanged and it is not rerun. Two
+provider-independent interface associated-output/inherited-generic return owners
+pass; they sample return adaptation without claiming coverage of the missing Vec
+adapter. The two allocation owners pass unchanged: 100,000 scalar operations,
+1,000 array operations at 0/16/16,384 elements and 1,000 script/permuted argument
+windows retain zero counted allocator activity. Three release diagnostic owners
+and the actual internal-call diagnostic pass. Workspace all-target/diagnostic
+Clippy, fmt, diff and structure (1,954 Rust files, zero violations, six unchanged
+exceptions) pass. Full CI/Miri/Windows remain unrun; inherited NC remains deferred.
+
+Measured actual common Native backing is 2,923 initialized/6,568 reserved bytes,
+versus 3,195/7,656 before this step. Runtime is 5,024 inline bytes versus 4,976;
+ResourceState is 320, SessionState 880 and NativeCall 336. The common snapshot has
+one 320-byte physical frame, one 32-byte logical Native entry and zero pool
+capacity. Inline contained sizes must not be added twice. The new parked-method
+owner actually retains four 288-byte pool slots (1,152 bytes), with two frames;
+its complete execution/control snapshot is 2,194 initialized/7,400 reserved bytes
+while parked and 1,464/6,088 after detached retirement, stable across three
+iterations. Pool backing remains visible after all its Rust owners have retired.
+This does not establish lower memory for every rare-heavy workload or RSS.
+Frame-slot controls retain their previous backing/zero-net teardown results;
+they admit FrameStorage, not full ExecutionFrames, so frame compaction is not
+misattributed to their unchanged bank totals.
+
+A separate ordinary build (24.13 s, excluded) and seven rotated fresh-process
+RR00/direct-entry/pool triples produce 2,310 valid timing samples, with results
+and callback counts checked and no overlapping compiler/diagnostic/profiler run.
+Current hash is
+`c64be31bba95f8200b75789e53aba3e61591a0fa1ff19a981b6a6e62258357da`;
+the [performance owner](performance-baseline.md#rr04-uncommon-frame-pool-macos-2026-11-14)
+retains full hashes/method/table. Internal script is 715.4 ns/call (0.952 of the
+paired direct-entry binary), raw empty/scalar 602.9/679.7 (0.911/0.924).
+Against RR00 these are still 1.702/1.205/1.306, and whole-Host script is 1.182.
+The unchanged 1.10 gate still fails these four routes. The comparison measures
+this complete layout/ownership change, not an isolated cache-line/cycle cause.
+No fresh timing claim is inferred from instrumented diagnostic samples.
+
+Next keep the frozen 8-MiB ceiling and perform the cohesive VM-space API/spec/
+test/error migration, including empty frames, aligned/outgoing capacity, typed
+StackOverflow versus allocator failure and separate Native/Rust-stack protection.
+Shared uncommon slots need explicit execution attribution; unassigned retained
+pool capacity is Runtime cache and must remain included in global diagnostics,
+as for cleared source backing. Do not infer typed exhaustion by parsing GcError
+display text or add a sticky side channel. Current max_call_depth remains in
+force until that complete change. Current-call/caller-source admission remains a
+concrete performance owner; smaller records do not eliminate its general work.
+Verified scalar self-tail reuse and final latency acceptance remain required.
+RR04 stays open/uncommitted with no external blocker; RR05/RR06 have not started.
+
+#### RR04 bounded source/control space proof; public quota cutover pending
+
+Task: prove and integrate committed-capacity accounting at every authoritative
+bank and ordinary control-buffer growth owner before removing the old quota.
+The public max_call_depth model and its Native/reentry protection remain in
+force in this intermediate worktree. DEFAULT_STACK_BYTES applies the previously
+selected 8-MiB source-space ceiling internally; the configured NonZeroUsize API,
+script exhaustion tests and separate Native/Rust-stack guard are not yet complete.
+This is part of RR04's uncommitted coordinated change, not a compatibility API or
+a separate completed replacement model. Remove the old quota within RR04 once
+the complete API/spec/consumer/test/guard change is proved.
+
+Each actual execution source has one ExecutionSpace byte account shared with
+its SessionState and any uncommon-state cleanup lease. The account contains only
+a limit and atomic committed-byte count: no Runtime, heap, graph edge, ID lookup
+or service capability. A private Arc permits those Rust owners to share the
+account after session-directory removal without making Runtime non-Send; this
+does not share the resource/session graph or restore shared Runtime services.
+There is no per-common-frame Arc clone. SessionStorage groups admitted body and
+its actual account during insertion, preserving complete source-ID checks.
+
+Managed/scalar/initialization/local/pending/queued/dependency/Native/return bank
+capacities, actual ExecutionFrame Vec capacity, frame-scope Vec capacity and
+logical Native trace capacity now use the same checked account. Uncommon control
+holds a linear SpaceLease charging its physical pool-entry size; it releases that
+charge even after the source/session directory has retired. Shared unassigned
+pool slots and the single cleared source cache remain Runtime cache, fully
+reported rather than billed repeatedly to unrelated active executions. Fixed
+source/session directory headers and optional diagnostic trace/snapshot data
+remain separately described storage. This is not a process or managed-heap quota.
+
+Warm sufficient-capacity reservations return before budget updates, allocations
+or Arc cloning. Growth selects a bounded geometric capacity, falls back to the
+exact required capacity near the ceiling, and allocates fallibly. A replacement
+buffer's actual capacity is checked before moving original values or committing
+the byte claim; failed growth preserves their values and graph. The previous
+empty buffer drops only after the closed handoff. Temporary replacement backing
+can coexist with old backing during allocation, as with a moving reallocation;
+the ceiling bounds committed execution storage, not transient allocator peak or
+RSS. No source/control loan or managed payload destructor crosses that handoff.
+
+The direct primary references are Rust std 1.100.0 documentation
+(0ef1bc386, 2026-11-09), read for stable mechanisms and tested here on 1.99.1:
+[Vec::try_reserve_exact](https://doc.rust-lang.org/std/vec/struct.Vec.html#method.try_reserve_exact)
+allows allocator overcapacity, so requested length alone cannot enforce a physical
+capacity ceiling; [Arc thread safety](https://doc.rust-lang.org/std/sync/struct.Arc.html#thread-safety)
+requires thread-safe contents for Send/Sync. Kagari uses the small atomic account
+rather than Rc/RefCell or an Arc containing Runtime/GC state. The attempted Wasmi
+0.51.1 source-page reopen is unavailable in the web tool; no new read or new
+Wasmi implementation claim is inferred from it. Earlier recorded references
+remain their own evidence.
+
+GcError::SourceLimit is the language-independent report that an external source
+owner refused capacity, distinct from allocator failure and collector fault.
+Runtime maps it to RuntimeErrorKind::StackOverflow and GcError::Allocation to
+AllocationFailure, with stable KG_RUNTIME_STACK_OVERFLOW/
+KG_RUNTIME_ALLOCATION_FAILURE codes. Source size arithmetic uses the same typed
+exhaustion report. Both kinds enter sticky session termination, propagate through
+capability/group checks and retain the existing JIT resource-status transport;
+no ABI identifier changes or error-display parsing are used. The existing
+post-call poll/publication sequence remains the Native protocol.
+
+The account's measured allocation is 32 bytes on this toolchain, including Arc
+control; an allocator-counter assertion independently checks the diagnostic
+size description. Diagnostics count it once through the source, including its
+retired-cache form, not again through SessionState. Cleared source reuse keeps
+the plain account too. Only Arc::get_mut on a uniquely owned retired account may
+reset its limit/count; a still-held detached account forces a new account and
+its old count stays unchanged. No managed graph is retained by this cache.
+This preserves zero warm allocations in the nested frame-slot controls instead
+of allocating an account on every independent admission that can reuse the cache.
+The many-independent-owner control honestly pays for genuinely distinct accounts.
+
+Four bounded owner tests cover: capacity rejection preserving values and lease
+cleanup; deterministic allocator-capacity failure before real OOM with distinct
+Runtime kinds; an actual RootDriver graph surviving failed dependency/bank growth,
+uncaught source-error propagation and collection, then smaller-cache admission/
+old-coordinate rejection/exact collection; and sticky exhaustion isolated to its
+session with a usable fresh root. The detached-account witness prevents cache
+reset while an old control owner still holds it. These are source/control proofs,
+not claims that the final public script/Native limits or tail path exist.
+The earlier cache lifecycle now reserves its scalar suffix through enter_frame
+before filling the same 7/initialized witness, rather than bypassing the new
+account with a direct Vec resize. Its astronomical request is now correctly a
+SourceLimit; allocator failure has the independent deterministic Vec oracle.
+
+Local selected verification:
+
+```text
+cargo test -p kagari-runtime --lib -- exhausted_capacity_preserves_values_and_detached_leases allocator_capacity_failure_has_a_distinct_runtime_kind source_capacity_failure_keeps_its_graph_and_retires_cached_capacity source_exhaustion_is_sticky_only_in_the_current_session retired_execution_capacity_reuses_without_edges_or_revived_coordinates parked_method_control_reuses_after_session_detachment initializer_frame_drop_poison_survives_termination_and_releases_recipe_edges --nocapture
+cargo test -p kagari-runtime -p kagari-stdlib --lib --no-fail-fast -- source_exhaustion_is_sticky_only_in_the_current_session retired_execution_capacity_reuses_without_edges_or_revived_coordinates native_publication_exposes_first_definitions_only_after_success submitted_arguments_and_resumed_frames_preserve_retained_and_current_calls function_arguments_call_captured_script_closures_synchronously cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session host_reentry_returns_to_the_synchronous_native_caller --nocapture
+cargo test -p kagari-runtime --release --lib --features execution-diagnostics -- exhausted_capacity_preserves_values_and_detached_leases closed_observations_count_real_sources_and_do_not_allocate_backing_snapshots frame_storage_counts --include-ignored --nocapture
+cargo test -p kagari-stdlib --test allocation_contracts -- warmed_scalar_and_array_read_boundaries_add_no_allocations warmed_script_argument_windows_match_borrowed_slice_allocation_cost --nocapture
+cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy -p kagari-runtime --all-targets --features execution-diagnostics -- -D warnings
+```
+
+Seven final focused Runtime cases pass. The additional selected boundary command
+passes four Runtime and three actual stdlib Native/GC/cancellation/reentry cases;
+unchanged passing cases are reused rather than described as another full suite.
+Both allocation contracts pass unchanged, retaining zero counted activity for
+100,000 scalar operations, array reads at 0/16/16,384 elements and script/permuted
+argument windows. Three release diagnostic owners pass, including the 32-byte
+account oracle and zero-net teardown. Nested 32x8 and 256x128 frame-slot controls
+retain zero warm/repeated requests, with active/retired reserved totals of 4,672
+and 412,864 bytes. Independent 256x128 totals are 514,048 active/73,408 retired;
+warm/repeated requests are now 1,530 versus the preceding 1,275 because 255 extra
+concurrent accounts cannot use the single cache. These are measured costs, not
+hidden by the frame-header improvement. ExecutionRoots/ExecutionStorage become
+304/272 bytes, SessionState 896; frame stays 320 and test ResourceState 320.
+The measured test Runtime remains 5,024 inline bytes. No fresh ordinary latency,
+RSS or performance-gate acceptance is inferred from instrumented samples.
+
+Workspace all-target Clippy, diagnostic-feature Clippy, fmt, diff and structure
+(1,956 Rust files, zero violations, six unchanged exceptions) pass. Intermediate
+test constructor/signature, borrow-scope and diagnostic integer-type compile
+errors are repaired; the enlarged insertion arguments are grouped instead of
+allowing Clippy, and the missing definition blank is fixed without an exception.
+No implementation build failure remains at this checkpoint. Full CI, Miri,
+Windows and inherited NC routes remain separately pending; no unrelated standard
+providers were changed or known NC failures rerun.
+
+Next complete the public byte-limit API/spec/test migration and actual
+Native/Rust-stack guard together, then remove max_call_depth. Validate real
+zero-slot/wider script exhaustion, sticky failure/cleanup and supported compiled
+entry, including intended admission layers. Then implement verified scalar
+self-tail replacement and rerun the frozen ordinary latency gate. Do not mark
+RR04 complete merely because these bounded proofs/selected checks pass. RR04
+remains uncommitted and active, with no external blocker; RR05/RR06 stay pending.
+
+#### RR04 public byte limits and separate Native stack admission
+
+RuntimeLimits now directly replaces max_call_depth with nonzero max_stack_bytes
+(default 8 MiB) and max_native_depth (default 32). No old field, alias or depth
+quota remains in Rust consumers. Root admission supplies the configured byte cap
+to the authoritative source account; synchronous reentry shares it and parked
+independent/group executions keep their own accounts. Group ancestry limits stay
+independent. Removed the obsolete inherited-script-depth rejection scenario and
+its now-unused async recursion fixture; the same owner retains cancellation,
+atomic input claims and group-capacity coverage. This is removal of an obsolete
+quota contract, not a claim that group execution was newly exercised locally.
+Logical call-depth counters still describe frames/Native logical entries; their
+hot-path maintenance remains an RR04 performance diagnosis item.
+
+The public [execution control](spec/security.md#execution-control),
+[runtime accounting](spec/runtime.md#execution-control-and-lifecycle-accounting)
+and [execution](spec/execution.md#native-standard-calls) contracts now describe
+the byte account, typed sticky StackOverflow/AllocationFailure, independent
+Native guard and nonexecuting conversion boundary. Fixed Runtime/session directory
+headers, global spare control capacity, managed payloads, immutable code and
+transient replacement allocations are separately described storage. Active
+uncommon entries lease their actual entry footprint; retained Runtime pool spare
+capacity is not assigned repeatedly to individual executions. This is no RSS or
+general heap quota. Nonexecuting Host/metadata preparation uses its own default
+8 MiB account, while an active conversion uses that execution's account.
+
+NativeCall owns a linear NativeStackMark during actual invocation; Drop releases
+it on every Rust exit. The supported compiled-entry boundary has its own RAII
+owner consuming the same mark. Neither holds a ResourceState/source/frame loan
+across callbacks or the machine entry. Admission preserves the previous pre-call
+cancellation poll, rejects the configured nested-entry ceiling, then uses
+stacker 0.1.25 remaining_stack on native non-Miri targets to reserve 128 KiB for
+error capture/cleanup. There is no grow/maybe_grow call or stack switching.
+NativeStackOverflow has its own reason under RuntimeErrorKind::StackOverflow;
+the existing sticky termination/result publication protocol remains authoritative.
+
+Primary reference:
+[stacker 0.1.25 remaining_stack](https://docs.rs/stacker/0.1.25/stacker/fn.remaining_stack.html)
+and its [versioned source](https://docs.rs/crate/stacker/0.1.25/source/src/lib.rs).
+The resolved crate source computes current stack pointer minus a lazily cached
+thread-local OS stack limit and returns Option. Kagari uses this query mechanism,
+not the crate's segmented-stack execution model. Unsupported/unknown-stack hosts,
+Wasm and Miri retain count protection only. Arbitrarily tiny host stacks and
+unbounded recursion inside a Rust callback remain host-owned; admission cannot
+recover an already exhausted thread stack. Only the current supported scalar
+compiled subset is covered, not general compiled calls/recursion or deoptimization.
+Cargo.lock records stacker/psm and their build dependencies. No ABI identifier
+or standard provider was changed.
+
+New source-free execution fixtures prove actual mutually recursive zero-slot
+frames and wider frames with eight live i64 arguments exhaust the same 16 KiB
+budget at different physical depths. Both assert exact StackOverflow, trace/depth
+agreement, complete root/object/depth cleanup, no quarantine and successful fresh
+execution. The mutual empty route remains ineligible for the planned self-tail
+path. Existing initializer coverage now configures byte space and asserts exact
+StackOverflow before the initialization cell starts. Argument-admission cases
+retain candidate/cancellation/space/arity/foreign-heap precedence and atomicity.
+
+Reselecting candidate-before-cancel exposed an existing owner defect: argument
+validation polled at index zero and DataWalk polled before checking the current
+object's candidate birth identity. The unchanged HEAD owner had both operations.
+The candidate argument walk now polls each subsequent 1,024-argument boundary;
+the per-object candidate ownership check precedes its poll. Long graph scans and
+edge batches remain cooperatively polled, and normal executing/parking policies
+are unchanged. The existing failing precedence oracle now passes; the existing
+private mutable-alias/cycle candidate oracle and actual Native cancellation owner
+also pass. This does not promise an unbounded whole-graph traversal before any
+cancellation checkpoint.
+
+The actual Native -> closure -> script -> Native fixture reaches the configured
+four-entry ceiling, then proves Native/logical depths zero, exact object/root
+recovery and fresh Native execution. A second fixture is compiled before moving
+the Runtime into a 256 KiB host thread, with a deliberately high 1,024-entry cap
+so the OS-space branch is independently observable. The earlier dev sample with
+cap 32 stops at peak 10 on this machine; the final profile-specific samples are
+recorded below. Unknown-stack platforms skip only this OS-specific witness, not
+the count/reentry test. The existing actual machine-entry test holds one outer
+guard with max_native_depth=1, rejects compiled entry with exact
+NativeStackOverflow, releases the outer mark and successfully returns 7 through
+the installed C-ABI product. It checks frame/depth cleanup between attempts.
+
+Two existing stdlib callback/reentry tests now select Native limits rather than
+removed script depth. Reaching the new boundary materializes one/two log String
+constants before rejecting Native entry. The first run's exact object assertions
+failed (4/5 versus baseline 3), while root registrations were restored. These
+constants belong to RevisionState, not execution locals. The tests reuse the
+existing publish_unused_version helper before exact collection checks, assert
+the old module is invalid, and retain effects/borrow/sticky-termination oracles.
+The test-only helper is visible to its execution-test parent for this actual
+sibling consumer; no production visibility or re-export was added. Both tests
+now pass across their existing encoded/interpreter/fallback selections.
+
+Selected local commands (ordinary workspace profiles/default target/parallelism):
+
+```text
+cargo test -p kagari-runtime --lib -- native_guard call_argument_admission_preserves_failure_precedence_and_atomicity vm_space_bounds_empty_and_wider_frames_and_unwinds_failure pre_attempt_space_rejection_leaves_cell_uninitialized --nocapture
+cargo test -p kagari-runtime -p kagari-stdlib --lib --no-fail-fast -- native_guard call_argument_admission_preserves_failure_precedence_and_atomicity jit_native_execution_reports_installed_artifact pre_attempt_space_rejection_leaves_cell_uninitialized callback_native_stack_exhaustion_precedes_effects_and_cleans_roots host_reentry_cannot_swallow_root_termination_and_releases_borrows --nocapture
+cargo test -p kagari-stdlib --lib -- callback_native_stack_exhaustion_precedes_effects_and_cleans_roots host_reentry_cannot_swallow_root_termination_and_releases_borrows --nocapture
+cargo test -p kagari-runtime --lib -- candidate_walk_checks_birth_identity_and_rechecks_private_mutable_aliases native_poll_observes_cancellation_and_return_cannot_swallow_it --nocapture
+cargo test -p kagari-stdlib --test allocation_contracts -- warmed_scalar_and_array_read_boundaries_add_no_allocations warmed_script_argument_windows_match_borrowed_slice_allocation_cost --nocapture
+cargo test -p kagari-runtime --release --lib --features execution-diagnostics -- frame_storage_counts --include-ignored --nocapture
+```
+
+The initial selected command had the candidate precedence failure; the repaired
+combined command passes ten Runtime cases. Its two stdlib object assertions were
+then repaired and their focused rerun passes both. Two additional owner regressions
+pass. The new fixture initially required an unavailable PartialOrd provider for a
+needless comparison; replacing it with unconditional recursion reaches the same
+Native guard without rebuilding standard providers. The three changed ordinary
+Kgr fixtures individually pass the preserved kg fmt and fmt --check. An initial
+multi-path formatter invocation was rejected and replaced by individual calls.
+
+Both allocation contracts retain zero allocation/reallocation/deallocation counts
+for warmed scalar calls, array reads at 0/16/16,384 elements and script/permuted
+argument windows. These instrumented timings overlap builds and are discarded as
+latency evidence. The release frame-slot control passes with frame 320,
+ExecutionRoots 304, ExecutionStorage 272, SessionState 896 and test ResourceState
+336 bytes; its test Runtime is 5,040 bytes (+16 from the preceding checkpoint).
+Nested active/retired reserved capacity remains 4,672 and 412,864 bytes for 32x8
+and 256x128; warm/repeated growth requests stay zero. Independent-owner backing
+and teardown retain the preceding account costs and zero-net invariant. No new
+ordinary paired latency or regression-gate pass is inferred.
+
+Workspace all-target Clippy passes after replacing a test's Option guard with ?;
+structure checks 1,958 Rust files with zero violations and six unchanged
+exceptions; fmt and diff checks pass. No implementation build failure remains.
+The release diagnostic-feature Native guard command also passes both cases:
+`cargo test -p kagari-runtime --release --lib --features execution-diagnostics -- native_guard --nocapture`.
+The 256 KiB thread with the deliberately high 1,024-entry limit stops at peak 11,
+establishing OS-space admission independently of the count ceiling in this
+optimized profile. The four-entry witness still stops exactly at four and
+recovers. These are M1 Max/macOS results under the previously recorded 1.99.1
+toolchain, not cross-platform stack-consumption guarantees. Full CI, Windows,
+Wasm and Miri remain unrun; inherited NC
+provider gaps and R13 remain deferred. Scalar self-tail replacement, common-call
+performance diagnosis and the unchanged frozen latency gate still prevent RR04
+exit. No phase commit, RR05 entry or goal completion is claimed.
+
+Final source review keeps NativeStackMark construction private and the token
+non-Clone, so another module cannot forge successful admission. Changed production
+imports remain explicit and module-scoped; new modules have no re-exports,
+handwritten include or path attributes. The test helper's parent visibility is
+limited to its demonstrated sibling consumer. Diagnostic-feature all-target
+Clippy and the final default workspace all-target Clippy pass; structure/fmt/diff
+checks pass for the current source. No additional latency claim is made.
+
+#### RR04 verified scalar self-tail candidates; frame reuse pending
+
+FunctionMetadata now carries optional strictly increasing self_tail_calls PCs.
+Compiler bytecode lowering derives them from checked MIR terminal pairs whose
+last Call directly selects the same concrete function and whose Return uses that
+exact result. Shared generic/protocol bodies, suspension and nonscalar frame/result
+layouts are excluded. Module preparation removes candidates on closure/resume and
+static-initializer entries. Placement remaps the original PCs once and retains a
+candidate only when the unchanged final Call/Return pair survives; it cannot
+invent eligibility by removing an unrelated operation. The original instructions,
+source origins, debug metadata and fallback stay present.
+
+Bytecode verification independently checks every candidate after ordinary
+instruction/type/flow/access admission. It checks strict ordering/uniqueness,
+bounds, direct same-module/same-function target, unchanged matching Return,
+scalar-only storage/result and excluded entry protocols. It builds actual jump
+targets from instructions rather than trusting the optional control-flow summary;
+an independently entered following Return is rejected. Candidate validation makes
+bounded linear scans of already limited module/function input and polls cancellation.
+No analysis/source dependency enters Runtime. The
+[bytecode contract](spec/bytecode.md#execution-model) owns the lasting metadata rule.
+
+The KBC metadata record encoder/decoder, definition remapping and artifact record
+limits retain the new table. Existing format/runtime ABI identifiers stay unchanged
+under the unpublished-development policy; affected serialized products/caches are
+disposable and must be rebuilt from their sources. Current artifact construction
+and round trips create the new contract. There is no old-layout reader or alias.
+Runtime currently executes the retained ordinary pair; this checkpoint does not
+claim frame reuse or change trace/elision, cancellation/slice or debug behavior.
+
+The new owning compiler fixture includes strict scalar self recursion, a scalar
+loop and ordinary recursion control, a result adaptation, a merged-expression
+tail position, a same-signature peer and a managed-argument/result route. Its
+strict recursive body uses an early Return for the base case and ends with the
+direct Call/Return pair. The original if-expression probe lowered to Call, Move
+into a join slot, then Return and correctly produced zero candidates. That
+merged-result route remains an explicit ineligible control, as allowed by the
+design's first strict-pair recognition scope; no CFG merge/copy chasing or source
+lowering rewrite is added here. This is not a language-wide tail-call guarantee.
+
+Two new contract owners prove the candidate and its KBC loader round trip, and
+seven distinct forgeries: out-of-bounds PC, duplicate PC, non-Call PC, same-signature
+non-self target, a different returned slot, an independently entered Return and
+managed storage. Each modified instruction stream first independently passes the
+ordinary verifier with its candidate table removed; then the candidate is restored
+and both direct verification and encoded source-free loading reject the exact
+candidate error. The actual-edge witness deliberately leaves the optional jump
+summary unchanged. An initial ordinary-verification probe failed publication
+UpdateEvidence admission after intentional instruction edits; it now uses the
+existing project_bytecode helper before that independent oracle. No verification
+is disabled and no unrelated provider is installed to reach these failures.
+
+Selected local validation:
+
+```text
+cargo check -p kagari-compiler --all-targets
+cargo test -p kagari-compiler --lib -- scalar_self_tail_candidates_keep_the_verified_terminal_pair forged_tail_candidates_reach_source_free_validation --nocapture
+cargo test -p kagari-bytecode -p kagari-compiler --lib --no-fail-fast -- scalar_self_tail_candidates_keep_the_verified_terminal_pair forged_tail_candidates_reach_source_free_validation ambiguous_origins builds_versioned_kbc_artifact_metadata scalar_recurrence_commits_to_homes_without_transport_instructions --nocapture
+cargo test -p kagari-bytecode -p kagari-compiler --lib --no-fail-fast -- source_free_wire_rejects_missing_and_forged_instruction_origin_choices portable_program_codec_rebuilds_seals_and_preserves_canonical_lowering --nocapture
+cargo test -p kagari-runtime --lib -- submitted_arguments_and_resumed_frames_preserve_retained_and_current_calls vm_space_bounds_empty_and_wider_frames_and_unwinds_failure --nocapture
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+Compiler all-target check passes. The combined contract selection passes five
+compiler cases (two scalar-placement controls, artifact construction and both
+new candidate owners); its ambiguous_origins filter selected zero bytecode tests,
+so the subsequent exact-name codec selection runs and passes one actual bytecode
+wire test and one portable-MIR/canonical-bytecode codec owner. Both Runtime
+regressions pass, sampling actual zero/wider space exhaustion and source-free
+parked/current/retained call selection across publication. The new fixture passes
+kg fmt; workspace all-target Clippy passes, as do structure (1,961 Rust files,
+zero violations, six unchanged exceptions), fmt and diff checks. No performance,
+allocation, optimized trace or bounded-tail-depth result is inferred. Full CI and
+the inherited NC/R13/platform limits remain separately pending.
+
+Next consume these facts once during Runtime preparation, prepare overlap-safe
+scalar argument moves, and reuse the actual frame/slot suffix while retaining its
+parent return destination. Bind current-self eligibility to the existing immutable
+activation links and refresh it at genuine resume; different selected targets
+must use ordinary current-target behavior. Exclude observation and uncommon cleanup,
+preserve cancellation/slice boundaries, and add the bounded trace-elision marker.
+Then prove actual deep/permuted/nested-return/trap/cancel/fallback behavior and
+compare loop/ordinary recursion/replacement with measured storage and warmed costs.
+The earlier ordinary call latency gate still needs architectural work and fresh
+paired measurements. RR04 remains active/uncommitted; no RR05 entry or phase/goal
+completion is claimed.
+
+#### RR04 actual scalar frame replacement and local execution evidence
+
+Runtime now consumes verified candidates once when preparing its internal
+operations and scalar argument move plans. The canonical Call/Return pair remains
+available. Tail sites own a plan table; a boxed TailLink carries current-self
+eligibility only for candidate bindings, keeping ordinary direct bindings on
+their existing representation. Binding and existing publication/resume rebinding
+compare exact module/function identities once. The uninterrupted loop reads the
+prepared Boolean, with no declaration lookup, lock or publication/version test.
+Different selected bodies use the ordinary current-target call; new-body self
+steps can then reuse their own frame. The broader cross-body replacement design
+is explicitly distinguished from this plan's permitted ordinary fallback.
+
+The closed cursor validates original scalar argument values/domains before any
+destructive write, then executes a prepared parallel-move schedule. Unique
+destinations permit a linear leaf-drain/cycle algorithm with one u64 scratch;
+identity moves need no copy, duplicate sources and independent cycles remain
+snapshots. It resets initialization to parameter homes, retains the current
+frame's source/return marks, exact body/links and parent destination, and enters
+PC zero. No frame, parameter Vec, LocalMark, independent root or uncommon-state
+box is created per replacement. Polling stays at the logical Call and the next
+body instruction; the retired terminal Return is skipped under the explicit
+[execution exception](spec/execution.md#scalar-self-tail-replacement).
+
+Primary reference: regalloc2 0.13.2
+[parallel-move resolver design](https://docs.rs/crate/regalloc2/0.13.2/source/doc/ION.md).
+It models overlap as dependencies, uses the unique-destination property to keep
+cycles simple, and breaks cycles with scratch storage. Kagari uses a bounded
+slot-to-slot schedule with leaf counts rather than machine register classes,
+spilling or a general allocator. Prepared indices refer to this exact verified
+scalar layout; no managed payloads or raw Rust references pass through the scratch.
+The existing Lua 5.4.9 tail-call reference remains the frame/argument-reuse
+mechanism, with Kagari's stricter typed/source/cleanup and current-target rules.
+
+Observation, active Native-stack reentry, lexical environments and uncommon
+cleanup retain ordinary call/return execution. A Boolean tail_calls_elided fits
+ExecutionFrame's existing 320-byte budget and is copied to ErrorFrame/DebugFrame.
+It records bounded lost history, not an eliminated-frame counter or fabricated
+call chain. ErrorTrace display marks it; physical omitted_frames keeps its prior
+meaning. Late observation reports existing elision and disables later replacement.
+[Error reporting](spec/error-reporting.md#bounds-versions-and-source-positions)
+and execution specifications own these contracts. ExecutionFunction is now 168
+bytes versus 152, adding a cold plan-table header; candidate move arrays and
+boxed tail bindings are additional cold metadata. Full code/Runtime footprint
+acceptance remains RR05, not an inference from the unchanged frame header.
+
+Actual source-free lifecycle evidence:
+
+- A 100,000-step triangular sum retains one physical frame and 1,453 committed
+  execution-account bytes. The explicit loop returns the same result. Two
+  independent argument cycles return 2143 at 20,001 replacements with one/1,471;
+  duplicated-source fanout returns 22 with one/1,453. A parent awaiting the deep
+  sum receives exactly 5,000,050,017 through the inherited destination with
+  two/1,480. Ordinary N=10 returns 55 with eleven frames/5,824 bytes. Active
+  capacity stays fixed after replacement, with actual collection while parked.
+- Exact overflow before replacement, overflow after a completed replacement,
+  division by zero after a chain and ordinary-recursion StackOverflow retain
+  real origins and the appropriate marker. Roots/objects/depth clean up and a
+  fresh root returns 9. Ordinary exhaustion uses observed frames, not the peak
+  admission counter: allocation can fail after entering the next depth guard
+  but before publishing that frame (32 trace frames versus a peak guard count 33).
+- Observation before entry keeps 31 frames for N=30; attaching just after the
+  first replacement keeps 30 surviving/ordinary frames. The debug snapshot
+  reports one real frame, marker false/true and parameter n=30/29 respectively.
+  Attaching cannot reconstruct the eliminated caller and performs no further reuse.
+- Cancelling a parked optimized chain retires its one frame/source with the
+  original trace marker and permits a fresh root. A distinct actual Native
+  callback collects on every iteration, commits ten effects, then cancels;
+  post-call polling preserves ten effects, the [step, counted] trace and the
+  surviving script marker. A fresh root completes and commits effect eleven.
+- Publishing v2 while an elided v1 chain is parked refreshes its next ordinary
+  call to v2. Both exact bodies are observed simultaneously; v2 then reuses
+  itself and returns 5,000,051,000 (one +1000 contribution), with at most two
+  frames. After completion/collection the old module no longer grants entry.
+
+Selected commands:
+
+```text
+cargo check -p kagari-runtime --all-targets
+cargo test -p kagari-runtime --lib -- execution::tail --nocapture
+cargo test -p kagari-runtime --lib -- tail_failure_keeps_the_real_origin_elision_and_complete_cleanup --nocapture
+cargo test -p kagari-runtime --lib -- submitted_arguments_and_resumed_frames_preserve_retained_and_current_calls physical_instruction_budget parked_method_control_reuses_after_session_detachment initializer_frame_drop_poison_survives_termination_and_releases_recipe_edges native_guard_bounds_reentry_and_releases_on_failure --nocapture
+cargo test -p kagari-stdlib --test allocation_contracts -- warmed_scalar_and_array_read_boundaries_add_no_allocations warmed_script_argument_windows_match_borrowed_slice_allocation_cost --nocapture
+cargo test -p kagari-runtime --release --lib --features execution-diagnostics -- warmed_tail_replacement_allocates_no_iteration_storage_or_roots --include-ignored --nocapture
+cargo test -p kagari-runtime --release --lib -- scalar_tail_loop_and_ordinary_recursion_timing --include-ignored --nocapture
+cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy -p kagari-runtime --all-targets --features execution-diagnostics -- -D warnings
+```
+
+All six tail lifecycle owners pass using the five unchanged successes plus the
+focused failure-owner rerun; five directly impacted prior regression owners pass.
+The physical instruction/frame budgets remain 24/320 bytes. Both existing stdlib
+allocation controls retain zero counted activity. The initial test setup had
+three oracle mistakes, repaired without changing production semantics: it used
+RuntimeError display instead of ErrorTrace display for the marker; it required
+stable capacity even after deliberately enabling full-history growth; and it
+equated peak admission guards with published physical frames on allocation failure.
+The allocation probe initially expected a root frame at completion, but normal
+return has already retired it. It now asserts the actual empty completion stack;
+the separate parked-frame proof owns active-frame bounds. Its focused rerun passes.
+
+The release diagnostic interval, after preparation and before activation teardown,
+performs 10,000/100,000 replacements with zero allocator requests/bytes/net change,
+new physical admissions/selections, bank reservations, metadata graph admissions
+or Host roots. Capacity is 1,453 in both. Diagnostics explicitly count replacements,
+parameter assignments and five initialization-byte resets per step; no copying
+or reset cost is hidden as zero. Instrumented timings are discarded.
+
+Seven fresh ordinary release processes compare loop, ordinary recursion and
+replacement at identical positive inputs, 3 warmups and 11 rotated batches per
+route/input (462 samples). Median process medians at N=16 are tail/loop/ordinary
+2,080.6/1,312.6/12,501.5 ns; at N=1,024 they are
+60,105.8/14,993.8/722,861.7 ns. Median within-process Tail/loop is 1.591/4.009 and
+Tail/ordinary 0.166/0.083. Replacement improves this recursion control but remains
+slower than the explicit loop. The
+[tracked performance record](performance-baseline.md#rr04-scalar-self-tail-execution-macos-2026-11-14)
+retains machine/toolchain/profile, image hash, preparation/build separation and
+reproduction. This cfg(test) unit image is not the frozen core_calls integration
+image, so these results cannot close the ordinary 1.10 regression gate.
+
+Final default workspace and diagnostic-feature all-target Clippy pass. Three
+new ordinary fixtures pass kg fmt/fmt --check. Structure checks 1,968 Rust files
+with zero violations/six unchanged exceptions; fmt and diff checks pass. Changed
+production imports are explicit/module-scoped, new modules use ordinary children,
+and no re-export, handwritten include, path attribute, compatibility protocol or
+collector was added. Tail state contains only code facts/scalar indices; GC/source
+and parent-return ownership stay with the existing frame. CI, Miri/Windows/Wasm,
+inherited NC provider gaps and R13 remain separately pending.
+
+Next diagnose and repair the remaining ordinary-script/raw-call regressions on
+this established model, then rerun the unchanged frozen paired latency gate.
+Tail improvements cannot substitute for it. RR04 remains active and uncommitted;
+RR05/RR06 remain pending, with no external blocker or goal/phase completion claim.
+
+#### RR04 ordinary-call diagnosis and scoped admission consolidation
+
+The ordinary post-tail integration image, independently rebuilt from the unit
+tail probe, still fails four frozen routes: paired median candidate/RR00 is
+1.198 for core/script, 1.749 for internal/script, 1.161 for raw_empty and 1.260
+for raw_scalar. The unchanged ceiling is 1.10. Seven alternating fresh-process
+pairs cover all ten routes with the original workload/value/callback oracles.
+The [performance record](performance-baseline.md#rr04-closed-region-admission-macos-2026-11-14)
+retains hashes, environment, timing scope, results and reproduction. This directly
+confirms the remaining regression; tail-loop timing cannot substitute for it.
+
+Architecture review corrects a possible misleading diagnosis: FrameMetadata's
+inherited_body and FrameSlots::allocate already reuse a checked same-execution
+body dependency. Runtime selection_origin can return that source for the current
+program. Do not add a second body-root cache or report that existing reuse as
+new work. A separate sampling run supports repeated physical scopes, but mixes
+internal routes/setup and does not provide exact per-script attribution.
+
+For `helper()` inside a script loop, execute_admitted_region previously called
+validate_top, then current (which repeats validate_top), then validate_runtime's
+separate source/bank inspection, before opening the paired scope whose operand
+window checks those banks again. No callback or collector step separates these
+checks. It now owns one checked SessionState loan, compares active session/scope,
+borrows the actual top frame, and obtains its body and operand window together
+under paired source access. The window retains that source loan for the closed
+region. All full source generation, bank bounds, typed dependency and exact
+program checks remain. Completed-point mutation follows successful bank/body
+admission. Every callback, collector service and later region ends/reopens this
+authority; public cold frame operations keep independent admission.
+
+Primary mechanism references are Lua 5.4.9
+[luaV_execute](https://www.lua.org/source/5.4/lvm.c.html), which carries interpreter
+frame/PC state through internal transitions, and Wasmi v0.51.1
+[call dispatch](https://raw.githubusercontent.com/wasmi-labs/wasmi/v0.51.1/crates/wasmi/src/engine/executor/instrs/call.rs),
+which allocates a call frame and reinstantiates register access after possible
+value-stack growth. Their internal execution differs from Host dispatch. Kagari
+uses bounded Rust control/source loans, not persistent raw stack pointers;
+managed publication, current-target selection and fallible quota admission retain
+their own existing owners. This change consolidates one proven closed interval;
+it does not yet move call/return storage transitions into that interval.
+
+The existing foreign-Runtime frame witness now also invokes actual execute_region
+and asserts the same rejection/state preservation. A focused scope witness invokes
+the parent region while a nested same-session scope is active: it checks the exact
+ExecutionUsedASuspendedFrameScope reason, unchanged parent PC, quarantine and final
+root/depth cleanup. Its first run used invariant_reason, a deliberately selective
+classification helper that excludes this fault, rather than inspecting ErrorReason.
+The corrected independent oracle passes; production rejection was unchanged.
+
+Selected validation:
+
+```text
+cargo check -p kagari-runtime --all-targets
+cargo test -p kagari-runtime --lib -- native_publication_exposes_first_definitions_only_after_success native_without_destination_finishes_once_before_the_successor selected_fault_origin_survives_stripped_source_free_execution frame_access_rejects_a_foreign_context_before_changing_slots_or_program_point region_rejects_a_suspended_scope_before_advancing_its_parent suspended_session_frames_cannot_be_used_during_candidate_initialization owned_observer_initialization_and_replacement_obey_session_and_borrow_scopes execution::tail submitted_arguments_and_resumed_frames_preserve_retained_and_current_calls --nocapture
+cargo test -p kagari-runtime --lib -- region_rejects_a_suspended_scope_before_advancing_its_parent frame_access_rejects_a_foreign_context_before_changing_slots_or_program_point --nocapture
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+The combined selection passes thirteen owners, fails only that test oracle and
+leaves one intentional manual timing owner ignored. The two negative-boundary
+owners then pass their focused rerun, including the final placement of the
+completed-point reset. Workspace all-target Clippy passes. Structure checks 1,968
+Rust files with zero violations and six unchanged exceptions; fmt/diff checks
+pass. Changed imports remain explicit/module-scoped, with no new re-export,
+unsafe source API or additional execution representation. The paired bank/body
+helper remains owned by FrameSlots and exposes only a branded operand window.
+
+The consolidated candidate still fails four routes: 1.169 core/script, 1.622
+internal/script, 1.156 raw_empty and 1.239 raw_scalar. Six other paired medians meet
+the frozen ceiling. These are two separate comparisons against RR00, not a direct
+paired pre/post attribution. This local consolidation is insufficient to close
+RR04. Source review shows internal calls/returns still cross cursor, cold frame
+admission/retirement, paired memory scopes and the outer driver, even for a scalar
+helper. Next review that transition ownership and dynamic checks together, keeping
+all loans closed before actual Native callbacks, GC, adaptation or suspension.
+Do not replace missing architectural work with unchecked access, relaxed workload
+oracles or a changed denominator. RR04 stays active/uncommitted; RR05/RR06, full
+CI/Miri/platform evidence and the inherited NC/R13 obligations remain separate.
+
+#### RR04 internal leaf transitions and edge-free Native completion
+
+The closed executor can now enter/return from an ordinary scalar leaf without
+round-tripping through the outer driver and reopening its physical source. This
+uses the existing ExecutionFrame, FrameSlots::allocate, ReturnValue publication
+and FrameStorage retirement. One shared from_storage constructor creates ordinary
+control for both general and closed admission. No second frame representation,
+unchecked source accessor, per-site cache or alternate return semantics is added.
+
+Eligibility is finite: an ordinary session with no observer or active Native-stack
+entry, a local static binding selecting the caller's exact module/version, live
+module registration, and a non-generic, synchronous scalar-only callee requiring
+no runtime links. Hidden initializers and Native semantic origins use ordinary
+admission. The callee owns its real suffix/depth count; this is not inlining or
+tail elimination. Links refreshed on real resume decide eligibility, so an old
+body calling a new implementation uses the existing current-target path. Only an
+accepted leaf acquires a Program clone across fallible control growth; Native and
+semantic fallback do not pin another Program merely to classify the call.
+
+Argument source/domain checks, quota growth and publication use the shared storage
+transaction. Failure unwinds its depth entry, then admits the error after all
+loans end. Return requires a scalar packet, the prepared parent destination, no
+callee environment/uncommon state/links, and the same retained Program. That
+Program pins code/layout while the edge-free control record drops. The caller's
+return slot is published before callee storage retirement. Polling precedes slice
+parking; the completed caller Call remains observable until preparing its next
+instruction. Collection requests end the closed interval. The Lua 5.4.9/Wasmi
+v0.51.1 references above explain the internal-transition mechanism; Kagari keeps
+its Rust loans and checked fallible storage rather than their raw register model.
+
+The existing source-free isolated-frame owner now additionally drives one
+instruction at a time. It observes the real [main, callee] stack and original
+argument 1, then the caller's completed Call with result 2, then final result 12.
+Collection occurs while parked; depth/roots/objects clean up without tail elision.
+The actual Native completion owner now stages before nested scratch/GC, rejects
+a second setter while retaining result 7, and stages before its deliberate
+second-callback error. It proves the caller's destination remains unavailable on
+failure and effects remain once-only. This strengthens existing semantic owners
+instead of adding duplicate fixtures.
+
+Native result validation previously created a ConversionContext solely to call
+check_value on an already protected pending result. Policy now belongs to
+value_check::check_protected, shared by actual conversion and Native completion;
+real conversion/adaptation still owns its required scratch. Scalar set_result
+uses an explicit Unset/Scalar/Source state: only edge-free bits are inline, while
+managed/encoded results retain the existing source cell. Nested temporary views
+share that state. Final type/candidate checks and post-call cancellation still
+precede caller publication. The reserved Native source cell/body/application
+mark remains, so no hidden source-capacity reduction is claimed. The
+[embedding contract](spec/embedding-api.md) and Native design describe this split.
+
+The remaining raw-scalar cost exposed another misplaced physical interval:
+matching two inline builtin facts required a paired heap/source scope. Both
+scoped and scope-free builtin matching now use scalar::matches_builtin_payload,
+including exact signed/unsigned carrier, narrow integer, Bool/Char and full-width
+payload checks. Only a concrete builtin TypeArgument plus an inline ValueView
+uses this path. Type provenance is validated and terminal collector phases are
+rejected; managed, lexical and nominal matching still opens paired access.
+The pressure/collection owner additionally compares scalar-access and actual
+paired-access rejection after shutdown. The existing invalid converter witness
+now asserts ModuleValidation and the precise declaration-mismatch diagnostic,
+alongside its completed effect, healthy next root and GC cleanup checks.
+
+Measured ordinary calls now pass nine of ten frozen denominators; core/empty
+remains 1.107 against the unchanged 1.10 ceiling. Internal/script is 0.704 and raw
+empty/scalar are 0.978/1.087. Four separate seven-pair comparisons, image hashes,
+machine/toolchain/profile/setup separation and diagnostic limitations live in the
+[performance record](performance-baseline.md#rr04-internal-leaf-transitions-and-native-completion-macos-2026-11-14).
+Never combine passing denominators from different candidate images. The last
+implementation change consolidates finish_return's duplicate current/validate_top
+check within its already admitted, non-reentrant return interval; a fresh final
+image and paired gate are still required before phase exit.
+
+Selected local evidence so far:
+
+```text
+cargo test -p kagari-runtime --lib -- deterministic_frames_keep_caller_and_callee_storage_isolated vm_space_bounds_empty_and_wider_frames_and_unwinds_failure executes_direct_function_calls reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch interpreter_debug_conformance_covers_stepping_and_run_to_cursor submitted_arguments_and_resumed_frames_preserve_retained_and_current_calls physical_instruction_budget execution::tail frame::cursor::tests native_guard_bounds_reentry_and_releases_on_failure --nocapture
+cargo test -p kagari-runtime --lib -- native_publication_exposes_first_definitions_only_after_success native_without_destination_finishes_once_before_the_successor stored_selections_select_current_with_frame_roots_and_checked_calls candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocations native_poll_observes_cancellation_and_return_cannot_swallow_it --nocapture
+cargo test -p kagari-runtime --lib -- execution_source_survives_pressure_and_pending_steps_without_new_allocation native_publication_exposes_first_definitions_only_after_success deterministic_frames_keep_caller_and_callee_storage_isolated native_poll_observes_cancellation_and_return_cannot_swallow_it root_depth_peaks_follow_actual_frames_and_reset_between_roots physical_instruction_budget --nocapture
+cargo test -p kagari-stdlib --lib -- failed_output_preserves_callback_effects_and_traps_release_conversion_roots typed_concrete_result_uses_the_compiler_selected_interface_adapter callback_trap_preserves_the_public_caller_origin_and_debug_frames --nocapture
+cargo test -p kagari-stdlib --test allocation_contracts -- warmed_script_argument_windows_match_borrowed_slice_allocation_cost --nocapture
+cargo test -p kagari-runtime --release --features execution-diagnostics --test core_calls -- internal_script_and_native_calls --ignored --nocapture --test-threads=1
+```
+
+The first selection passes seventeen owners (one manual timing test remains
+intentionally ignored). The strengthened sliced frame owner and staged-Native
+owner pass focused reruns. Five Native/candidate/cancellation owners pass; six
+final return/pressure/frame owners pass. An additional nine-owner selection covers
+six existing admission-precedence cases, actual candidate result traversal, sliced
+frames and post-call cancellation. Three stdlib actual conversion/adapter/trace
+owners pass; the two affected conversion owners pass again with the strengthened
+negative oracle and shared scalar predicate. No unchanged broad suite is rerun.
+
+The scalar/array allocation owner passes. The script-window allocation owner
+initially failed because it expected every leaf call to yield a Call event. It
+now slices immediately after the actual Call, checks three original parameters,
+then slices after the straight-line callee Return to inspect result 42 and the
+retired frame. Its separate entry and complete-return intervals still measure
+1,000 real calls, compare borrowed-slice costs and require every allocation count
+to be zero. The focused rerun passes. No observer disables the closed path and no
+value/count/allocation oracle is removed. Whole-activation script reallocation
+attribution remains RR05 work, distinct from this warmed internal interval.
+
+Default workspace all-target Clippy passes after these changes; the final narrow
+module-borrow fault mapping and return-admission image are being rechecked.
+Structure checks 1,969 files with zero violations/six unchanged exceptions. No
+production import glob, deep traversal, re-export, handwritten include or path
+attribute is introduced. The new calls child owns closed-transition eligibility
+and orchestration; generic slot-copy and return publication policies stay at their
+existing owners. RR04 remains active/uncommitted until fresh gates and the final
+local checkpoint pass. RR05/RR06 and required CI/platform scope remain pending.
+
+#### RR04 local phase exit and RR05 entry
+
+The final ordinary image SHA-256 is
+`6a144de518b46cc49cefb67c19981a503959bd02d2b68cf6d54758853db5817f`.
+Seven alternating fresh-process pairs against frozen RR00 yield paired median
+ratios of 1.088 core/empty, 1.071 core/script, 0.790 core/native, 0.713
+internal/script, 0.970 raw_empty, 1.083 raw_scalar, 0.442 typed_empty, 0.286
+typed_scalar, 0.527 borrowed and 0.350 owned. All ten original denominators in
+this one image meet the frozen 1.10 ceiling. Individual ranges can exceed 1.10;
+the original rule is a paired median, not a worst-pair rule or significance claim.
+The [performance record](performance-baseline.md#rr04-internal-leaf-transitions-and-native-completion-macos-2026-11-14)
+retains the full environment, image identities, workload/oracles, sample method,
+preparation/build separation and measured limits. No passing result is assembled
+from different candidates. Logical depth is retained as the existing observable
+diagnostic counter, without a script-depth quota; its cost is included here.
+
+Exit review against RR04's finite requirements:
+
+| Requirement | Authoritative local evidence |
+| --- | --- |
+| Ordinary empty/Native calls | Final ten-route same-image paired gate above; original values/callback counts pass. |
+| Compact real storage and uncommon cleanup | ExecutionFrame remains 320 bytes; source/frame capacity and uncommon leases are counted; existing parked/detached method and initializer cleanup proofs remain applicable. |
+| VM-byte exhaustion and typed cleanup | Actual zero/wider recursion and fallible source/control growth proofs pass; max_call_depth is removed and StackOverflow/AllocationFailure remain distinct and sticky. |
+| Independent Native/Rust-stack protection | Counted/small-OS-stack actual reentry and supported compiled C-ABI entry proofs pass; scalar completion changes retain the same guard. |
+| Actual tail replacement and fallback | Source-free 100,000-step sum remains one frame/1,453 committed bytes; permutations, duplicated sources, parent result, checked traps, parked cancellation, observation and current-target reload have passing owners. |
+| Verified candidates | Checked lowering/placement, artifact round-trip and seven independently ordinary-valid forged-marker rejections pass at the source-free verifier owner. |
+| Whole scope and cost honesty | Loop/ordinary/tail comparison, initialized/reserved capacity and warm actual Native/script allocation intervals are measured. General whole-entry/GC attribution remains assigned to RR05, not waived by these results. |
+
+The final five-owner regression selection passes actual compiled Native
+entry/cleanup, synchronous reentry, Native-effect tail cancellation, bounded deep
+tail storage/permutation/parent return and parked v1-to-v2 current-target fallback:
+
+```text
+cargo test -p kagari-runtime --lib -- cancellation_after_native_effect_preserves_the_reused_chain_and_commits scalar_tail_replacement_bounds_real_frames_and_preserves_parallel_arguments parked_self_tail_chain_falls_back_to_the_current_body_after_publication native_calls_use_checked_frames_and_release_them_on_return native_reentry_preserves_the_callers_frame_and_shared_execution --nocapture
+cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy -p kagari-runtime --all-targets --features execution-diagnostics -- -D warnings
+uv run --locked scripts/check_structure.py
+cargo fmt --all -- --check
+git diff --check
+```
+
+These pass for the final production source; structure checks 1,969 Rust files,
+zero violations and six unchanged narrow exceptions. Prior unchanged compiler,
+tail trap/debug, quota/OS-stack, Native conversion/borrowing, candidate/GC and
+allocation evidence is reused with its explicit scope. Handwritten production
+imports, visibility, ordinary module children, uncommon/linear state ownership,
+generated scalar dispatch and changed responsibilities were reviewed. No public
+re-export, broad exception, compatibility collector/protocol, disabled verifier,
+fixture provider replacement or stdlib reconstruction is added. There is no
+remaining RR04 build/test failure or external blocker. The phase is ready for its
+authorized Conventional Commit with Plan-Phase: RR04.
+
+Required full-workspace/backend/platform CI and integrated Miri remain unrun;
+this local exit does not claim them. RR05 owns final actual public external
+provider integration, complete call/memory/GC denominator attribution, active and
+sustained collection evidence and reconciliation of the existing GCR acceptance
+register. R13, NC reconstruction, broader tails and backend deoptimization retain
+their explicit deferred scope.
+
+Task: close integrated correctness and measured whole-cost/GC acceptance.
+Context: RR05; actual Runtime/Host/GC consumers and the existing GC acceptance register.
+Expected behavior: original semantic, borrowing, cancellation, current/retained reload and destruction contracts hold on migrated routes with measured agreed costs.
+Scope: public application-owned provider/callback/managed-edge proof; remaining representative boundaries and RR00/GCR workloads; no NC library rebuild or R13 migration.
+Validation: reuse unchanged passing evidence; run only missing/affected local contracts, required workspace Clippy and matched whole-cost measurements; record CI separately.
+Known intermediate errors: none carried from RR04; inherited provider gaps and missing whole-entry/GC measurements remain explicitly owned by RR05 or their deferred plan.

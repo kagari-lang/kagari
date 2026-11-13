@@ -2,6 +2,7 @@
 //! Logical PCs remain one-to-one with canonical code. Caller ordinals and physical
 //! operands are shared across definition scopes. Runtime links own identity-bearing
 //! call contracts; other cold boundary operands remain in canonical code.
+//! Verified self-tail transfers retain the terminal Return for ordinary fallback.
 pub(crate) mod aggregates;
 pub(crate) mod allocation;
 pub(crate) mod calls;
@@ -14,6 +15,7 @@ pub(crate) mod layout;
 pub mod managed;
 pub mod operands;
 pub(crate) mod scalar;
+pub(crate) mod tail;
 
 use crate::{
     module::execution::{
@@ -26,12 +28,13 @@ use crate::{
         interfaces::PreparedUpcast,
         layout::{FrameLayout, Location},
         managed::{ManagedOperation, PreparedManagedOperation},
+        tail::TailCall,
     },
     value::{carriers::ScopedValue, scalar as scalar_value},
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
-    instruction::{BytecodeInstruction, CallTarget, ConstantOperand, Slot},
+    instruction::{BytecodeInstruction, ConstantOperand, Slot},
     module::{BytecodeModule, CallableTarget},
     suspension::AwaitLiveness,
 };
@@ -52,10 +55,10 @@ pub(crate) struct ExecutionFunction {
     /// coalescing may share a location: any live logical alias keeps it alive.
     pub awaits: BTreeMap<usize, Box<[u64]>>,
     pub calls: Box<[PreparedCall]>,
+    pub self_tail_calls: Box<[TailCall]>,
     pub fields: Box<[PreparedFieldOperation]>,
     pub indices: Box<[PreparedIndexOperation]>,
     pub upcasts: Box<[PreparedUpcast]>,
-    pub native_calls: usize,
     pub has_call_contracts: bool,
     has_linked_constants: bool,
     pub(crate) has_layout_operands: bool,
@@ -66,7 +69,6 @@ impl ExecutionFunction {
         self.has_call_contracts
             || self.has_linked_constants
             || self.has_layout_operands
-            || self.native_calls != 0
             || !self.upcasts.is_empty()
     }
 }
@@ -76,7 +78,6 @@ struct OperationTables {
     fields: Vec<PreparedFieldOperation>,
     indices: Vec<PreparedIndexOperation>,
     upcasts: Vec<PreparedUpcast>,
-    native_calls: usize,
 }
 
 impl ExecutionModule {
@@ -160,10 +161,10 @@ impl ExecutionModule {
                         frame,
                         awaits,
                         calls: Box::default(),
+                        self_tail_calls: Box::default(),
                         has_layout_operands: layout_sites != 0,
                         fields: sites.fields.into_boxed_slice(),
                         indices: sites.indices.into_boxed_slice(),
-                        native_calls: sites.native_calls,
                         upcasts: sites.upcasts.into_boxed_slice(),
                         has_call_contracts: false,
                     }
@@ -185,7 +186,6 @@ impl ExecutionInstruction {
             fields,
             indices,
             upcasts,
-            native_calls,
         } = tables;
         let location = |register: Slot| {
             slot_layout
@@ -209,14 +209,6 @@ impl ExecutionInstruction {
                     target: Ty::Trait(target.clone()),
                 });
                 Self::managed(ManagedOperation::Upcast { index })
-            }
-            BytecodeInstruction::Call {
-                callee: CallTarget::Native(_),
-                ..
-            } => {
-                let index = *native_calls;
-                *native_calls += 1;
-                Self::managed(ManagedOperation::Native { index })
             }
             BytecodeInstruction::LoadConst { dst, constant } => {
                 if slot(dst).is_unit() {
@@ -340,7 +332,7 @@ mod tests {
             cursor::kernel::{RegionError, RegionExit},
         },
         module::linked_execution::{
-            LinkedFunction, LinkedNativeCall,
+            LinkedFunction,
             layouts::{AggregateLayout, AppliedLayouts, FunctionLayouts},
         },
         value::{carriers::StoredValue, place::PublishedResult},
@@ -350,6 +342,7 @@ mod tests {
     #[test]
     fn physical_instruction_budget() {
         assert!(size_of::<ExecutionInstruction>() <= 24);
+        assert!(size_of::<ExecutionFrame>() <= 320);
         eprintln!(
             "layout metadata bytes: function={}, application={}, operand={}, application_cell={}",
             size_of::<FunctionLayouts>(),
@@ -358,8 +351,7 @@ mod tests {
             size_of::<OnceLock<AggregateLayout>>()
         );
         eprintln!(
-            "linked native bytes: slot={}, operand={}, result={}",
-            size_of::<LinkedNativeCall>(),
+            "call publication bytes: operand={}, result={}",
             size_of::<Location>(),
             size_of::<PublishedResult<'static>>()
         );

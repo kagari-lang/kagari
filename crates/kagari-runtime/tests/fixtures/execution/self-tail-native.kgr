@@ -1,0 +1,9 @@
+use test::tail_control;
+
+pub fn counted(n: i64) -> i64 {
+    tail_control::step();
+    if n == 0 {
+        return 0;
+    }
+    counted(n - 1)
+}

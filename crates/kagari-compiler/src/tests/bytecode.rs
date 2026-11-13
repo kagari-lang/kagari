@@ -24,4 +24,5 @@ mod interfaces;
 mod lowering;
 mod path_fixtures;
 mod placement;
+mod tail_calls;
 mod validation;

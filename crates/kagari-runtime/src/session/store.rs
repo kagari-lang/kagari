@@ -5,7 +5,10 @@ use crate::diagnostics::storage::BufferUsage;
 use crate::test_support::bytecode::load_bytecode;
 use crate::{
     error::RuntimeError,
-    execution::roots::{DependencyId, SessionId},
+    execution::{
+        roots::{DependencyId, SessionId},
+        space::ExecutionSpace,
+    },
     frame::ExecutionFrame,
     module::{
         ExecutableModule, managed::revision::RevisionState, retention::RetentionRegistration,
@@ -16,11 +19,18 @@ use crate::{
 use std::{
     cell::{Ref, RefCell, RefMut},
     mem,
+    sync::Arc,
 };
 
 #[derive(Debug, Default)]
 struct Records {
     slots: Vec<Option<SessionState>>,
+}
+
+/// Actual source admission and its byte account move into control together.
+pub(crate) struct SessionStorage {
+    pub(crate) body: DependencyId<RevisionState>,
+    pub(crate) space: Arc<ExecutionSpace>,
 }
 
 /// Control records keyed by identities minted and reused by ExecutionRoots.
@@ -49,6 +59,10 @@ impl SessionStore {
             visit(BufferUsage::new(
                 "frame scopes",
                 &state.frame_scopes.borrow(),
+            ));
+            visit(BufferUsage::new(
+                "logical Native calls",
+                &state.native_calls.borrow(),
             ));
             visit(BufferUsage::new(
                 "host call traces",
@@ -97,8 +111,9 @@ impl SessionStore {
         options: ExecutionOptions,
         baseline: ResourceCounters,
         registration: RetentionRegistration,
-        body: DependencyId<RevisionState>,
+        storage: SessionStorage,
     ) -> Result<SessionId, RuntimeError> {
+        let SessionStorage { body, space } = storage;
         if body.execution() != id {
             return Err(RuntimeError::module_validation(
                 "session body belongs to another execution",
@@ -131,6 +146,7 @@ impl SessionStore {
         records.slots.resize_with(count.max(record_len), || None);
         frames.resize_with(count.max(frame_len), Vec::new);
         debug_assert!(frames[index].is_empty());
+        space.adopt(&mut frames[index]);
         records.slots[index] = Some(SessionState::new(
             id,
             root,
@@ -138,6 +154,7 @@ impl SessionStore {
             baseline,
             registration,
             body,
+            space,
         ));
         Ok(id)
     }
@@ -247,7 +264,10 @@ mod tests {
                 ExecutionOptions::default(),
                 ResourceCounters::default(),
                 runtime.modules.register_execution(module).unwrap(),
-                body,
+                SessionStorage {
+                    body,
+                    space: runtime.memory.execution_space(id).unwrap(),
+                },
             )
             .unwrap()
     }
@@ -302,7 +322,10 @@ mod tests {
                     ExecutionOptions::default(),
                     ResourceCounters::default(),
                     runtime.modules.register_execution(&module).unwrap(),
-                    rejected_body,
+                    SessionStorage {
+                        body: rejected_body,
+                        space: runtime.memory.execution_space(rejected).unwrap()
+                    },
                 )
                 .is_err()
         );

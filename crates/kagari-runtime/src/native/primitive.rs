@@ -4,7 +4,7 @@ use crate::{
     error::RuntimeError,
     execution::roots::ExecutionRoots,
     native::{
-        binding::{BindingEntry, Codec, LinkedNativeFunction, NativeBinding},
+        binding::{BindingEntry, Codec, NativeBinding},
         conversion::arguments::ArgumentValues,
         types::Type,
     },
@@ -43,23 +43,6 @@ impl NativeBinding {
     }
 }
 
-impl LinkedNativeFunction {
-    /// Selected operations and result adapters retain their ordinary boundary.
-    /// Names, source syntax and host callback bodies do not confer this authority.
-    pub(crate) fn closed_primitive(&self) -> Option<NativePrimitive> {
-        self.prepared_signature.get()?;
-        let BindingEntry::Primitive(primitive) = self.binding.entry else {
-            return None;
-        };
-        if !self.selected.is_empty() || self.result_adapter.is_some() {
-            return None;
-        }
-        primitive
-            .accepts_signature(&self.signature)
-            .then_some(primitive)
-    }
-}
-
 impl NativePrimitive {
     /// The relationship between element, value and result types is part of the
     /// body contract, including in generic declarations before specialization.
@@ -73,8 +56,8 @@ impl NativePrimitive {
         }
     }
 
-    /// Shared by scoped native calls and prepared interpreter operations. The
-    /// caller owns roots and cancellation polls before/after this bounded operation.
+    /// Execute the selected fixed implementation within the Native protocol.
+    /// The caller owns roots and cancellation polls before/after this operation.
     pub(crate) fn execute<'call>(
         self,
         runtime: &mut Runtime,
@@ -103,7 +86,7 @@ impl NativePrimitive {
 
 /// This closed scalar result needs no element-type signature or argument table.
 #[inline(always)]
-pub(crate) fn string_byte_length<'gc>(
+fn string_byte_length<'gc>(
     cx: &Scope<'gc>,
     value: ScopedValue<'gc>,
 ) -> Result<ScopedValue<'gc>, GcError> {

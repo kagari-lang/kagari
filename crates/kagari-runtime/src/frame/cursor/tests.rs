@@ -3,17 +3,25 @@
 use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind, trap::TrapReason},
+    error::{
+        RuntimeError, RuntimeErrorKind, fault::EngineFault, reason::ErrorReason, trap::TrapReason,
+    },
+    executor::native,
     frame::{
         FrameStack,
         cursor::kernel::{RegionError, RegionExit},
-        driver::{ExecutionAction, ReturnAction},
+        execution_frames::loaded,
     },
     module::ExecutableModule,
     native::{
-        binding::NativeResult, builder::ModuleBuilder, catalog::DeclarationCatalog,
-        context::NativeCall, declarations::FunctionDecl, types::Type,
+        binding::{Codec, NativeBinding, NativeResult},
+        builder::ModuleBuilder,
+        catalog::DeclarationCatalog,
+        context::NativeCall,
+        declarations::FunctionDecl,
+        types::Type,
     },
+    value::view::ValueView,
 };
 
 use kagari_abi::representation::ValueType;
@@ -23,12 +31,58 @@ use kagari_bytecode::{
 };
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_contract::ids::FunctionRef;
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
+
+#[test]
+fn region_rejects_a_suspended_scope_before_advancing_its_parent() {
+    let mut runtime = Runtime::default();
+    let (_program, owner) = loaded(&mut runtime);
+    let mut outer = runtime.enter_execution_stack(&owner).unwrap();
+    outer
+        .with(|runtime, parent| {
+            parent.push(runtime, owner.slot(), FunctionRef::new(0), &[], None)?;
+            let mut inner = runtime.enter_execution_stack(&owner)?;
+            inner.with(|runtime, _| {
+                let error = parent
+                    .execute_region(runtime, &mut None, native::invoke_script)
+                    .map(|_| ())
+                    .unwrap_err();
+                let error = RuntimeError::from(error);
+                assert!(matches!(
+                    error.reason(),
+                    ErrorReason::EngineFault(EngineFault::ExecutionUsedASuspendedFrameScope)
+                ));
+                assert_eq!(parent.frames(runtime)?[0].instruction_offset(), 0);
+                assert!(runtime.is_quarantined());
+                Ok(())
+            })?;
+            Ok(())
+        })
+        .unwrap();
+    drop(outer);
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    assert!(runtime.execution_root().is_none());
+}
+
+fn assert_logical_native_entry(runtime: &Runtime) {
+    let session = runtime.resources().active_session().unwrap().id;
+    assert_eq!(
+        runtime.resources().sessions.frames(session).unwrap().len(),
+        1
+    );
+    assert_eq!(runtime.resources().counters().current_call_depth, 2);
+    let trace = runtime.capture_error_trace();
+    assert!(!trace.incomplete);
+    assert_eq!(trace.frames.len(), 2);
+    assert_eq!(trace.frames[0].function_name, "value");
+    assert_eq!(trace.frames[1].function_name, "main");
+}
 
 fn native_completion_fixture(
     fail_second: bool,
@@ -48,7 +102,7 @@ fn native_completion_fixture(
     if discard {
         native
             .bind(value, move |cx: &mut NativeCall<'_>| -> NativeResult<()> {
-                assert!(!cx.runtime.capture_error_trace().incomplete);
+                assert_logical_native_entry(cx.runtime);
                 cx.runtime.collect_garbage()?;
                 invoked.fetch_add(1, Ordering::Relaxed);
                 Ok(())
@@ -56,17 +110,32 @@ fn native_completion_fixture(
             .unwrap();
     } else {
         native
-            .bind(value, move |cx: &mut NativeCall<'_>| -> NativeResult<i32> {
-                assert!(!cx.runtime.capture_error_trace().incomplete);
-                cx.runtime.collect_garbage()?;
-                if invoked.fetch_add(1, Ordering::Relaxed) == 1 && fail_second {
-                    Err(RuntimeError::from(TrapReason::Provider(
-                        "native failure".into(),
-                    )))
-                } else {
-                    Ok(7)
-                }
-            })
+            .bind(
+                value,
+                NativeBinding::scoped([], Codec::Exact(Type::i32()), move |cx| {
+                    assert_logical_native_entry(cx.runtime);
+                    cx.runtime.collect_garbage()?;
+                    let fail = invoked.fetch_add(1, Ordering::Relaxed) == 1 && fail_second;
+                    cx.set_result(ValueView::from(7i32))?;
+                    // Scratch shares the enclosing completion. Collection and a
+                    // rejected second setter cannot replace that staged value.
+                    cx.with_temporaries(|temporary| {
+                        temporary.collect_garbage()?;
+                        let error = temporary.set_result(ValueView::unit()).unwrap_err();
+                        assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+                        assert!(error.to_string().contains("native result already staged"));
+                        assert_eq!(temporary.result()?.as_i32(), Some(7));
+                        Ok(())
+                    })?;
+                    if fail {
+                        Err(RuntimeError::from(TrapReason::Provider(
+                            "native failure".into(),
+                        )))
+                    } else {
+                        Ok(())
+                    }
+                }),
+            )
             .unwrap();
     }
     let native = native.finish().unwrap();
@@ -125,6 +194,7 @@ fn native_completion_fixture(
     native.install(&mut runtime).unwrap();
     let loaded_program = load_bytecode(&mut runtime, "completion", code).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
+    runtime.collect_garbage().unwrap();
     (runtime, loaded, calls)
 }
 
@@ -178,6 +248,11 @@ fn native_publication_exposes_first_definitions_only_after_success() {
                             frame.read_slot(runtime, dst).unwrap_err().kind(),
                             RuntimeErrorKind::ModuleValidation
                         );
+                        let Err(RegionError::Runtime(error)) = &result else {
+                            unreachable!()
+                        };
+                        assert_eq!(error.trace().unwrap().frames[0].function_name, "value");
+                        assert_eq!(error.trace().unwrap().frames[1].function_name, "main");
                     } else {
                         assert!(matches!(result, Ok(RegionExit::Safepoint)));
                         assert_eq!(frame.read_slot(runtime, dst).unwrap().as_i32(), Some(7));
@@ -252,17 +327,5 @@ fn complete_native_call(
     stack: &FrameStack,
     runtime: &mut Runtime,
 ) -> Result<RegionExit, RegionError> {
-    assert!(matches!(
-        stack.execute_region(runtime, &mut None, |_, _, _, _, _| unreachable!())?,
-        RegionExit::Call(ExecutionAction::NativeEntry)
-    ));
-    if let Err(error) = stack.start_native_entry(runtime, |_, _, _, _, _| unreachable!()) {
-        stack.pop(runtime)?;
-        return Err(error.into());
-    }
-    assert!(matches!(
-        stack.finish_native_return(runtime)?,
-        ReturnAction::Continue(ExecutionAction::Script)
-    ));
-    Ok(RegionExit::Safepoint)
+    stack.execute_region(runtime, &mut None, |_, _, _, _, _| unreachable!())
 }

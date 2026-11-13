@@ -3,12 +3,13 @@
 use crate::diagnostics::{self, Event};
 
 use crate::{
-    error::{RuntimeError, fault::EngineFault, reason::CancellationReason},
+    error::{
+        RuntimeError,
+        fault::EngineFault,
+        reason::{CancellationReason, ErrorReason},
+    },
     frame::{
-        cursor::{
-            ExecutionCursor, objects::FieldContinuation, primitives::NativeContinuation,
-            scalars::ScalarExit,
-        },
+        cursor::{ExecutionCursor, objects::FieldContinuation, scalars::ScalarExit},
         driver::ExecutionAction,
         transfer::ReturnValue,
     },
@@ -62,7 +63,8 @@ impl RegionError {
     /// Defer Runtime mutation/trace capture until the closed source loan ends.
     pub(in crate::frame) fn storage(error: GcError) -> Self {
         match error {
-            GcError::Allocation => RuntimeError::resource_limit("managed allocation"),
+            GcError::Allocation => RuntimeError::new(ErrorReason::AllocationFailure),
+            GcError::SourceLimit => RuntimeError::new(ErrorReason::StackOverflow),
             GcError::Limit(name) => RuntimeError::resource_limit(name),
             GcError::Closed => RuntimeError::from(CancellationReason::RuntimeIsClosed),
             error => RuntimeError::from(EngineFault::ManagedCollectionFailed(error)),
@@ -79,7 +81,6 @@ pub(super) enum CursorExit {
 pub(super) enum PreparedTransition {
     Call { index: usize },
     Upcast { index: usize },
-    Native { index: usize },
     Constant { dst: Location, constant: ConstantId },
     Field { index: usize },
     TupleWrite { operation: usize, index: u64 },
@@ -111,6 +112,13 @@ impl ExecutionCursor<'_, '_, '_, '_> {
                 }
                 ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Call { index })) => {
                     return Ok(CursorExit::Transition(PreparedTransition::Call { index }));
+                }
+                ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::SelfTailCall {
+                    index,
+                })) => {
+                    if let Some(index) = self.reuse_self_tail(index)? {
+                        return Ok(CursorExit::Transition(PreparedTransition::Call { index }));
+                    }
                 }
                 ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Upcast {
                     index,
@@ -185,13 +193,6 @@ impl ExecutionCursor<'_, '_, '_, '_> {
                 })) => {
                     if let Some(exit) = self.execute_index(index)? {
                         return Ok(exit);
-                    }
-                }
-                ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Native {
-                    index,
-                })) => {
-                    if let NativeContinuation::Callback = self.execute_native(index)? {
-                        return Ok(CursorExit::Transition(PreparedTransition::Native { index }));
                     }
                 }
             }

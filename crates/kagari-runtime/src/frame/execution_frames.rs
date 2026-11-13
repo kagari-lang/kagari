@@ -2,8 +2,12 @@
 use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime, RuntimeConfig,
-    error::{RuntimeError, RuntimeErrorKind, reason::CancellationReason},
+    error::{
+        RuntimeError, RuntimeErrorKind,
+        reason::{CancellationReason, ErrorReason},
+    },
     execution::roots::ExecutionRoots,
+    executor::native,
     frame::{ExecutionFrame, FrameDispatch, FrameEntry, FrameStack, arguments::FrameArguments},
     jit_abi::jit_poll_execution,
     module::{
@@ -17,6 +21,7 @@ use crate::{
     test_support::native::program::ProgramFixture,
     value::{arrays::ArrayObject, carriers::RootedValue, scalar, view::ValueView},
 };
+use std::num::NonZeroUsize;
 
 use kagari_abi::{
     native_call::{JIT_STATUS_CANCELLED, JIT_STATUS_ENGINE_FAULT, JIT_STATUS_OK},
@@ -157,7 +162,13 @@ fn loaded_function(
     2,
     RuntimeError::from(CancellationReason::ExecutionCancelled)
 )]
-#[case::depth_before_heap(false, false, Some(0), 2, RuntimeError::resource_limit("call depth"))]
+#[case::space_before_heap(
+    false,
+    false,
+    Some(256),
+    2,
+    RuntimeError::new(ErrorReason::StackOverflow)
+)]
 #[case::candidate_before_cancel(
     true,
     true,
@@ -165,17 +176,17 @@ fn loaded_function(
     2,
     RuntimeError::execution_phase_violation("external object in candidate call arguments")
 )]
-#[case::candidate_before_depth(
+#[case::candidate_before_space(
     true,
     false,
-    Some(0),
+    Some(256),
     2,
     RuntimeError::execution_phase_violation("external object in candidate call arguments")
 )]
 fn call_argument_admission_preserves_failure_precedence_and_atomicity(
     #[case] candidate_phase: bool,
     #[case] cancel: bool,
-    #[case] max_depth: Option<u32>,
+    #[case] stack_bytes: Option<usize>,
     #[case] argument_count: usize,
     #[case] expected: RuntimeError,
 ) {
@@ -187,7 +198,8 @@ fn call_argument_admission_preserves_failure_precedence_and_atomicity(
 
     let mut runtime = Runtime::new(RuntimeConfig {
         limits: RuntimeLimits {
-            max_call_depth: max_depth,
+            max_stack_bytes: NonZeroUsize::new(stack_bytes.unwrap_or(8 * 1024 * 1024)).unwrap(),
+            ..Default::default()
         },
         ..Default::default()
     });
@@ -1023,6 +1035,12 @@ fn frame_access_rejects_a_foreign_context_before_changing_slots_or_program_point
                 stack.current(&foreign).unwrap_err(),
                 stack.current_mut(&foreign).unwrap_err(),
                 stack.frames(&foreign).unwrap_err(),
+                RuntimeError::from(
+                    stack
+                        .execute_region(&mut foreign, &mut None, native::invoke_script)
+                        .map(|_| ())
+                        .unwrap_err(),
+                ),
                 stack
                     .write_slot(&mut foreign, Slot::new(0), &ValueView::unit())
                     .unwrap_err(),

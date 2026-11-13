@@ -40,7 +40,9 @@ pub unsafe extern "C" fn jit_poll_execution(runtime: *mut Runtime, offset: u64) 
         return match error.kind() {
             RuntimeErrorKind::EngineFault => JIT_STATUS_ENGINE_FAULT,
             RuntimeErrorKind::Cancelled => JIT_STATUS_CANCELLED,
-            RuntimeErrorKind::ResourceLimitExceeded => JIT_STATUS_RESOURCE_LIMIT,
+            RuntimeErrorKind::ResourceLimitExceeded
+            | RuntimeErrorKind::StackOverflow
+            | RuntimeErrorKind::AllocationFailure => JIT_STATUS_RESOURCE_LIMIT,
             _ => JIT_STATUS_INVALID_HEAP_REFERENCE,
         };
     }
