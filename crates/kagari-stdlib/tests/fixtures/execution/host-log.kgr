@@ -1,0 +1,5 @@
+use host::log;
+
+fn main() {
+    log("hello");
+}

@@ -1,0 +1,16 @@
+trait Tag {}
+
+impl Tag for i32 {}
+
+fn make() -> Tag {
+    7
+}
+
+fn accept(value: Tag) -> i32 {
+    42
+}
+
+fn main() -> i32 {
+    val value: Tag = make();
+    accept(value)
+}

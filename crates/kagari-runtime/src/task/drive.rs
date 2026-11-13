@@ -4,11 +4,10 @@ use crate::{
     error::{RuntimeError, reason::CancellationReason},
     error_trace::ErrorTrace,
     execution::owned::DriveResult,
-    gc::roots::RootedValue,
     native::binding::NativeResult,
     session::owned::OwnedExecution,
     task::{CancellationCause, ScopeId, TaskId, control::TaskScopeOwner, store::TaskState},
-    value::Value,
+    value::carriers::RootedValue,
 };
 
 use std::{
@@ -120,8 +119,8 @@ impl Drop for TaskActivation<'_> {
 }
 
 impl Runtime {
-    pub fn task_id(&self, value: &Value) -> NativeResult<TaskId> {
-        self.gc().task_snapshot(value).map(|(id, _)| id)
+    pub fn task_id(&mut self, value: &RootedValue) -> NativeResult<TaskId> {
+        self.task_state(value).map(|(id, _)| id)
     }
 
     /// Readiness remains available even when a dispatcher drops a notification.
@@ -146,7 +145,6 @@ impl Runtime {
         task: TaskId,
     ) -> NativeResult<TaskAcquisition<'_>> {
         self.require_idle_driver()?;
-        self.gc().ensure_no_native_borrow()?;
         self.validate_scope_owner(scope)?;
         if scope.control.scheduler.is_some() {
             return Err(RuntimeError::module_validation(
@@ -162,7 +160,6 @@ impl Runtime {
         task: TaskId,
     ) -> NativeResult<TaskAcquisition<'_>> {
         self.require_idle_driver()?;
-        self.gc().ensure_no_native_borrow()?;
         let (state, signal, options) = {
             let tasks = &mut self.tasks;
             let Some(record) = tasks.tasks.get_mut(task.0) else {

@@ -1,0 +1,6 @@
+static var count: i32 = 0;
+
+fn main() -> i32 {
+    count += 1;
+    count
+}

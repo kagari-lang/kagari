@@ -22,7 +22,6 @@ use kagari_contract::native::NativeCompilationProduct;
 use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_mir::{ids::InstanceId, verify::verify_mir};
 use kagari_runtime::execution::JitExecutionStatus;
-use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
 use memory::{CountingAllocator, live_bytes};
 use std::{hint::black_box, time::Instant};
@@ -273,20 +272,9 @@ fn main() {
                 if use_native {
                     assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
                 }
-                assert_eq!(
-                    report
-                        .return_value
-                        .value(runtime.gc())
-                        .expect("retained execution result"),
-                    Value::I32(42)
-                );
+                assert_eq!(report.return_value.as_i32(), Some(42));
                 checksum += 42;
-                black_box(
-                    report
-                        .return_value
-                        .value(runtime.gc())
-                        .expect("retained execution result"),
-                );
+                black_box(report.return_value.as_i32());
             },
             if use_native {
                 "sdk_native_call"

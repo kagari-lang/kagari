@@ -5,8 +5,8 @@ use crate::{
     Runtime, RuntimeConfig,
     host::{HostCallContext, HostError},
     module::{InstalledProgram, VerifiedProgram},
-    native::{builder::ModuleBuilder, module::NativeModule},
-    value::Value,
+    native::{builder::ModuleBuilder, host, module::NativeModule},
+    value::view::ValueView,
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
@@ -115,7 +115,10 @@ pub fn load_test_module(source_text: &str) -> (Runtime, InstalledProgram) {
 
 /// Bind the fixed print service through ordinary common native registration.
 pub fn logging_module(
-    entry: impl for<'call> Fn(&mut HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+    entry: impl for<'call> Fn(
+        &mut HostCallContext<'call>,
+        &[ValueView<'call>],
+    ) -> Result<ValueView<'call>, HostError>
     + Send
     + Sync
     + 'static,
@@ -127,7 +130,7 @@ pub fn logging_module(
     )
     .unwrap();
     let log = builder.declared_function("log").unwrap();
-    builder.bind(log, entry).unwrap();
+    builder.bind(log, host::callback(entry)).unwrap();
     builder.finish().unwrap()
 }
 

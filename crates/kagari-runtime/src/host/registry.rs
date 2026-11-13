@@ -1,15 +1,13 @@
 use crate::{
     error::RuntimeError,
-    gc::GcHeap,
     host::{
-        DynamicPathArgSlot, DynamicPathArguments, HostObjectId, HostPathAdapter, HostPathContext,
-        HostPathDescriptor, HostPathDescriptorId, HostPathDescriptorRegistration,
-        HostPathMutationRecord, HostPathOperation, HostPathSegment, HostPathViewHandle,
-        HostRegistry, HostRegistryId, HostRootHandle, HostSchemaEpoch, dynamic_args_for_descriptor,
-        path_access_allows, validate_dynamic_arguments, validate_path_access,
+        DynamicPathArgSlot, HostObjectId, HostPathAdapter, HostPathDescriptor,
+        HostPathDescriptorId, HostPathDescriptorRegistration, HostPathMutationRecord,
+        HostPathSegment, HostRegistry, HostRegistryId, HostRootHandle, HostSchemaEpoch,
+        path_access_allows, validate_path_access,
     },
     metadata::{TypeId, TypeRegistry},
-    value::Value,
+    value::carriers::RootedValue,
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -23,7 +21,7 @@ use kagari_common::{
 
 use kagari_types::{
     declaration::{
-        host::{HostTypeOwnership, PathAccess},
+        host::HostTypeOwnership,
         path::{HostPathDeclaration, HostPathSegmentDeclaration},
     },
     ty::Ty,
@@ -42,19 +40,6 @@ impl Default for HostRegistry {
 impl HostRegistry {
     pub fn definitions(&self) -> DefinitionTable {
         self.definitions.snapshot()
-    }
-
-    pub(crate) fn gc_roots(&self) -> Vec<Value> {
-        let mut roots = Vec::new();
-        for record in self.dirty_paths.iter() {
-            roots.extend(record.old_value.iter().cloned());
-            roots.push(record.new_value);
-            roots.extend(record.dynamic_args.as_slice().iter().map(|arg| arg.value));
-            if let Some(view) = &record.base_view {
-                roots.extend(view.retained_values().copied());
-            }
-        }
-        roots
     }
 
     pub(crate) fn owner(&self) -> HostRegistryId {
@@ -333,155 +318,13 @@ impl HostRegistry {
         self.path_descriptors.values()
     }
 
-    pub fn make_path_view(
-        &self,
-        gc: &GcHeap,
-        root: HostRootHandle,
-        descriptor_id: HostPathDescriptorId,
-        dynamic_args: DynamicPathArguments,
-    ) -> Result<HostPathViewHandle, RuntimeError> {
-        let registered_root = self
-            .roots
-            .get(&root.object_id)
-            .ok_or_else(|| RuntimeError::typed_path_validation("host root is not registered"))?;
-        if *registered_root != root {
-            return Err(RuntimeError::typed_path_validation(
-                "host root handle does not match registered root metadata",
-            ));
-        }
-        let descriptor = self.path_descriptors.get(&descriptor_id).ok_or_else(|| {
-            RuntimeError::typed_path_validation("path descriptor is not registered")
-        })?;
-        if descriptor.root_type != root.type_id {
-            return Err(RuntimeError::typed_path_validation(
-                "path descriptor root type does not match host root type",
-            ));
-        }
-        if descriptor.schema_epoch != root.schema_epoch {
-            return Err(RuntimeError::typed_path_validation(
-                "path descriptor schema epoch does not match host root epoch",
-            ));
-        }
-        validate_dynamic_arguments(gc, descriptor, &dynamic_args)?;
-        Ok(HostPathViewHandle::new(
-            root,
-            None,
-            descriptor,
-            dynamic_args,
-        ))
-    }
-
-    pub fn make_path_view_from_value(
-        &self,
-        gc: &GcHeap,
-        root_or_view: &Value,
-        descriptor_id: HostPathDescriptorId,
-        dynamic_args: Vec<Value>,
-    ) -> Result<HostPathViewHandle, RuntimeError> {
-        let context = self.resolve_path_context(
-            gc,
-            root_or_view,
-            descriptor_id,
-            dynamic_args,
-            HostPathOperation::MakeView,
-        )?;
-        Ok(HostPathViewHandle::new(
-            context.root,
-            context.base_view,
-            &context.descriptor,
-            context.dynamic_args,
-        ))
-    }
-
-    pub fn dirty_paths(&self) -> Vec<HostPathMutationRecord> {
+    /// Detached records share their genuine root registrations with this ledger.
+    pub fn dirty_paths(&self) -> Vec<HostPathMutationRecord<RootedValue>> {
         self.dirty_paths.clone()
     }
 
     pub fn clear_dirty_paths(&mut self) {
         self.dirty_paths.clear();
-    }
-
-    pub(super) fn resolve_path_context(
-        &self,
-        gc: &GcHeap,
-        root_or_view: &Value,
-        descriptor_id: HostPathDescriptorId,
-        dynamic_args: Vec<Value>,
-        operation: HostPathOperation,
-    ) -> Result<HostPathContext, RuntimeError> {
-        let descriptor = self
-            .path_descriptors
-            .get(&descriptor_id)
-            .cloned()
-            .ok_or_else(|| {
-                RuntimeError::typed_path_validation("path descriptor is not registered")
-            })?;
-        if operation.writes() && descriptor.access != PathAccess::ReadWrite {
-            return Err(RuntimeError::typed_path_validation(
-                "path descriptor is not writable",
-            ));
-        }
-        let dynamic_args = dynamic_args_for_descriptor(&descriptor, dynamic_args)?;
-        validate_dynamic_arguments(gc, &descriptor, &dynamic_args)?;
-        let (root, base_view) = match root_or_view {
-            Value::HostRoot(id) => {
-                let root = gc.host_root(*id).ok_or_else(|| {
-                    RuntimeError::typed_path_validation("invalid host root descriptor")
-                })?;
-                let registered_root = self.roots.get(&root.object_id).ok_or_else(|| {
-                    RuntimeError::typed_path_validation("host root is not registered")
-                })?;
-                if registered_root != &root {
-                    return Err(RuntimeError::typed_path_validation(
-                        "host root handle does not match registered root metadata",
-                    ));
-                }
-                if descriptor.root_type != root.type_id {
-                    return Err(RuntimeError::typed_path_validation(
-                        "path descriptor root type does not match host root type",
-                    ));
-                }
-                if descriptor.schema_epoch != root.schema_epoch {
-                    return Err(RuntimeError::typed_path_validation(
-                        "path descriptor schema epoch does not match host root epoch",
-                    ));
-                }
-                (root, None)
-            }
-            Value::HostPathView(id) => {
-                let view = gc.host_path(*id).ok_or_else(|| {
-                    RuntimeError::typed_path_validation("invalid host path descriptor")
-                })?;
-                self.validate_view(gc, &view)?;
-                if operation.writes() && view.access != PathAccess::ReadWrite {
-                    return Err(RuntimeError::typed_path_validation(
-                        "host path view is not writable",
-                    ));
-                }
-                if descriptor.root_type != view.result_type {
-                    return Err(RuntimeError::typed_path_validation(
-                        "path descriptor root type does not match host path view result type",
-                    ));
-                }
-                if descriptor.schema_epoch != view.schema_epoch {
-                    return Err(RuntimeError::typed_path_validation(
-                        "path descriptor schema epoch does not match host path view epoch",
-                    ));
-                }
-                (view.root, Some(view.clone()))
-            }
-            _ => {
-                return Err(RuntimeError::typed_path_validation(
-                    "path operation expects host root or host path view",
-                ));
-            }
-        };
-        Ok(HostPathContext {
-            root,
-            base_view,
-            descriptor,
-            dynamic_args,
-        })
     }
 
     pub(super) fn path_adapter(

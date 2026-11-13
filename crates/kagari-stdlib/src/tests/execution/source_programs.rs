@@ -6,7 +6,6 @@ use kagari_runtime::{
     error::RuntimeErrorKind,
     execution::JitExecutionStatus,
     module::entry::ProgramEntry,
-    value::Value,
 };
 
 use crate::tests::execution::{
@@ -27,7 +26,7 @@ fn fixture(dependency_source: &str) -> DefinitionMetadata<BytecodeProgram> {
         ("dependency", dependency_source),
         (
             "root",
-            "use pkg::dependency::answer; fn main() -> i32 { answer() }",
+            include_str!("../../../tests/fixtures/execution/dependency-root.kgr"),
         ),
     ] {
         let uri = format!("mem://{name}");
@@ -62,9 +61,9 @@ fn fixture(dependency_source: &str) -> DefinitionMetadata<BytecodeProgram> {
 fn source_and_artifact_cross_module_calls_match_interpreter_and_jit_fallback() {
     for overflow in [false, true] {
         let source = fixture(if overflow {
-            "pub fn answer() -> i32 { 2147483647 + 1 }"
+            include_str!("../../../tests/fixtures/execution/dependency-overflow.kgr")
         } else {
-            "pub fn answer() -> i32 { 40 + 2 }"
+            include_str!("../../../tests/fixtures/execution/dependency-answer.kgr")
         });
         let decoded = round_trip_bytecode(source.clone());
         for program in [source, decoded] {
@@ -93,13 +92,7 @@ fn source_and_artifact_cross_module_calls_match_interpreter_and_jit_fallback() {
                     continue;
                 }
                 let report = report.unwrap();
-                assert_eq!(
-                    report
-                        .return_value
-                        .value(vm.gc())
-                        .expect("retained execution result"),
-                    Value::I32(42)
-                );
+                assert_eq!(report.return_value.as_i32(), Some(42));
                 if jit {
                     assert_eq!(
                         report.jit.unwrap().status,
@@ -119,7 +112,9 @@ fn cross_module_debug_frames_keep_their_member_identity() {
     let loaded = load_bytecode(
         &mut runtime,
         "root",
-        fixture("pub fn answer() -> i32 { 40 + 2 }"),
+        fixture(include_str!(
+            "../../../tests/fixtures/execution/dependency-answer.kgr"
+        )),
     )
     .unwrap();
     let _loaded_program = loaded;
@@ -132,7 +127,9 @@ fn cross_module_debug_frames_keep_their_member_identity() {
     session
         .add_breakpoint(SourceBreakpoint::at_source_offset(
             &dependency.name,
-            "pub fn answer() -> i32 { ".len(),
+            include_str!("../../../tests/fixtures/execution/dependency-answer.kgr")
+                .find("40 + 2")
+                .unwrap(),
         ))
         .unwrap();
     let mut vm = runtime;
@@ -141,9 +138,8 @@ fn cross_module_debug_frames_keep_their_member_identity() {
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
     let session = vm.debug_session().unwrap();
     let pause = session

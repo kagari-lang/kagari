@@ -7,7 +7,7 @@ use crate::{
     program::Compilation,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
 use rstest::rstest;
@@ -47,6 +47,8 @@ fn execute_entries(source: &str, entries: &[(ProgramEntry<'_>, i32)]) {
         let loaded = runtime
             .load_program(prepared.program(), Default::default())
             .unwrap();
+        runtime.collect_garbage().unwrap();
+        let roots = runtime.gc_stats().root_registrations;
         for &(entry, expected) in entries {
             let result = if jit {
                 let mut backend = CraneliftBackend::for_host().unwrap();
@@ -66,16 +68,14 @@ fn execute_entries(source: &str, entries: &[(ProgramEntry<'_>, i32)]) {
             }
             .unwrap();
             assert_eq!(
-                result
-                    .return_value
-                    .value(runtime.gc())
-                    .expect("retained execution result"),
-                Value::I32(expected),
+                result.return_value.as_i32().unwrap(),
+                expected,
                 "{entry:?}, encoded={encoded}, jit={jit}"
             );
             drop(result);
-            assert_eq!(runtime.gc().active_roots(), 0);
             assert_eq!(runtime.resources().counters().current_call_depth, 0);
+            runtime.collect_garbage().unwrap();
+            assert_eq!(runtime.gc_stats().root_registrations, roots);
         }
     }
 }

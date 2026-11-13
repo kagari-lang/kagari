@@ -1,6 +1,7 @@
 //! Retain the checked relationship selected for a registered native requirement.
 use crate::{
     error::RuntimeError,
+    execution_metadata::managed::sources::MetadataSource,
     module::dispatch::CallRoute,
     native::{
         binding::NativeResult,
@@ -15,6 +16,7 @@ use crate::{
     },
     session::ExecutionOptions,
 };
+use std::slice;
 
 /// A checked native requirement whose calls use the current implementation.
 /// Instance methods include their receiver as the first tuple element; static
@@ -40,7 +42,7 @@ impl NativeContext<'_> {
         &mut self,
         required: &SelectedCall,
     ) -> NativeResult<SelectedMethod<A, R>> {
-        self.runtime().gc().ensure_no_native_borrow()?;
+        self.poll()?;
         let function = self.function.ok_or_else(|| {
             RuntimeError::module_validation("context has no native callable requirements")
         })?;
@@ -53,8 +55,34 @@ impl NativeContext<'_> {
             .ok_or_else(|| {
                 RuntimeError::module_validation("native callable requirement is not ready")
             })?;
+        let mut scratch = self.conversion.scratch()?;
+        let environment = match &target.environment {
+            Some(facts) => {
+                let revision = MetadataSource::Revision {
+                    owner,
+                    source: scratch.owner_origin(),
+                };
+                let pair = scratch
+                    .owner_metadata()
+                    .map(|metadata| [revision, metadata]);
+                let sources = pair
+                    .as_ref()
+                    .map_or(slice::from_ref(&revision), |pair| pair.as_slice());
+                let execution = scratch.execution_id()?;
+                let environment = scratch
+                    .runtime_mut()
+                    .copy_environment_in(execution, facts, sources)?
+                    .ok_or_else(|| {
+                        RuntimeError::module_validation(
+                            "selected method environment is not protected",
+                        )
+                    })?;
+                Some(scratch.runtime_mut().retain_environment(&environment)?)
+            }
+            None => None,
+        };
         Ok(SelectedMethod {
-            function: Function::from_selected(self.runtime_mut(), owner, target)?,
+            function: Function::from_selected(scratch.runtime_mut(), owner, target, environment)?,
         })
     }
 }

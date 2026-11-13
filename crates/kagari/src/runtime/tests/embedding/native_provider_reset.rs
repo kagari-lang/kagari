@@ -3,7 +3,6 @@ use kagari_stdlib as stdlib;
 #[path = "../../../../tests/support/provider_contracts.rs"]
 mod contracts;
 mod external;
-mod results;
 // The source emitter and standalone artifact consumer share the reviewed provider.
 mod library;
 #[path = "../../../../tests/support/native_provider.rs"]
@@ -20,13 +19,14 @@ use kagari_common::identity::{
     DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata, table::DefinitionId,
 };
 use kagari_contract::types::{PublicItem, named::NamedContract};
+use kagari_gc::heap::HeapStats;
 use kagari_runtime::{
-    module::entry::ProgramEntry,
+    Runtime,
+    module::{InstalledProgram, entry::ProgramEntry},
     native::{
         binding::NativeResult, builder::ModuleBuilder, context::NativeCall,
         declarations::FunctionDecl, types::Type,
     },
-    value::Value,
 };
 use kagari_source::source::SourceFile;
 use kagari_types::{declaration::FnDecl, scalar::BuiltinType, ty::Ty};
@@ -55,6 +55,35 @@ fn artifact(source: &str) -> DefinitionMetadata<KbcArtifact> {
         .unwrap()
 }
 
+/// Retire warmed publication preparation before comparing the cold provider graph.
+fn assert_provider_released(
+    runtime: &mut Runtime,
+    program: &Program,
+    loaded: &InstalledProgram,
+    baseline: HeapStats,
+) {
+    runtime.collect_garbage().unwrap();
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    let replacement = runtime
+        .program(loaded)
+        .unwrap()
+        .prepare_replacement(program, &Default::default())
+        .unwrap();
+    runtime
+        .replace_program(loaded, &replacement, Default::default())
+        .unwrap();
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
+    assert_eq!(runtime.gc_stats().provider_units, baseline.provider_units);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+}
+
 fn execute(source: &str) {
     let artifact = artifact(source);
     let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
@@ -69,20 +98,20 @@ fn execute(source: &str) {
     config.default_runtime.gc.collection_threshold = Some(1);
     let mut runtime = engine(config).runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     for _ in 0..3 {
         assert_eq!(
             runtime
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+                .as_i32()
+                .unwrap(),
+            42
         );
-        assert_eq!(runtime.gc().active_roots(), 0);
         assert_eq!(runtime.resources().counters().current_call_depth, 0);
-        runtime.collect_garbage().unwrap();
-        assert_eq!(runtime.gc().allocated_objects(), 0);
+        assert_provider_released(&mut runtime, &program, &loaded, baseline);
     }
 }
 
@@ -170,7 +199,8 @@ fn structural_agreement_does_not_authorize_an_unknown_or_wrong_native_entry() {
         let context = ExecutionContext::default();
         let mut runtime = engine(EngineConfig::default()).runtime(context);
         assert!(runtime.load_program(&program, Default::default()).is_err());
-        assert_eq!(runtime.gc().active_roots(), 0);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc_stats().root_registrations, 0);
         assert_eq!(runtime.resources().counters().current_call_depth, 0);
     }
 }
@@ -315,7 +345,8 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
     .unwrap();
     let mut runtime = engine.runtime(Default::default());
     assert!(runtime.load_program(&program, Default::default()).is_err());
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, 0);
 }
 
 #[test]
@@ -328,15 +359,15 @@ fn callbacks_abort_without_retaining_native_state_or_partial_arrays() {
     let context = ExecutionContext::default();
     let mut runtime = engine(EngineConfig::default()).runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     assert!(
         runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .is_err()
     );
-    assert_eq!(runtime.gc().active_roots(), 0);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
-    runtime.collect_garbage().unwrap();
-    assert_eq!(runtime.gc().allocated_objects(), 0);
+    assert_provider_released(&mut runtime, &program, &loaded, baseline);
     assert!(!runtime.is_quarantined());
 }
 
@@ -357,6 +388,8 @@ fn cancellation_boundaries_unwind_nested_provider_callbacks() {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
+        runtime.collect_garbage().unwrap();
+        let baseline = runtime.gc_stats();
         let _selected_loaded = runtime.select_program(&loaded).unwrap();
         let options = kagari_runtime::session::ExecutionOptions {
             cancellation: context.cancellation.clone(),
@@ -376,13 +409,7 @@ fn cancellation_boundaries_unwind_nested_provider_callbacks() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
         {
             Ok(report) => {
-                assert_eq!(
-                    report
-                        .return_value
-                        .value(session.runtime().gc())
-                        .expect("retained execution result"),
-                    Value::I32(42)
-                );
+                assert_eq!(report.return_value.as_i32().unwrap(), 42);
                 finished = true;
             }
             Err(error) => {
@@ -390,14 +417,12 @@ fn cancellation_boundaries_unwind_nested_provider_callbacks() {
                 cancelled += 1;
             }
         }
-        assert_eq!(session.runtime().gc().active_roots(), 0);
         assert_eq!(
             session.runtime().resources().counters().current_call_depth,
             0
         );
         drop(session);
-        runtime.collect_garbage().unwrap();
-        assert_eq!(runtime.gc().allocated_objects(), 0);
+        assert_provider_released(&mut runtime, &program, &loaded, baseline);
         assert!(!runtime.is_quarantined());
         if finished {
             break;

@@ -8,8 +8,10 @@ mod layouts;
 use crate::{
     Runtime,
     diagnostics::allocations::{self, Counts},
-    execution_metadata::MetadataRoot,
+    execution::roots::{ExecutionRoots, SessionId},
+    execution_metadata::managed::sources::MetadataSource,
     frame::types::EnvironmentRecord,
+    module::managed::source::RevisionSource,
     native::{
         binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
@@ -18,11 +20,12 @@ use crate::{
         module::NativeModule,
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_bytecode::{instruction::NativeImportId, program::BytecodeProgram};
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_gc::heap::HeapStats;
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
@@ -59,7 +62,9 @@ fn provider() -> NativeModule {
     builder
         .bind(
             read,
-            NativeBinding::new(vec![], Codec::Value, |_| Ok(Value::I32(3))),
+            NativeBinding::scoped(vec![], Codec::Exact(Type::i32()), |call| {
+                call.set_result(ValueView::from(3_i32))
+            }),
         )
         .unwrap();
     let pass = builder.define_function(FunctionDecl::new("pass")).unwrap();
@@ -74,7 +79,10 @@ fn provider() -> NativeModule {
     builder
         .bind(
             pass,
-            NativeBinding::new(vec![Codec::Value], Codec::Value, |cx| cx.argument(0)),
+            NativeBinding::scoped(vec![Codec::Value], Codec::Value, |call| {
+                let value = call.argument(0)?;
+                call.set_result(value)
+            }),
         )
         .unwrap();
     builder.finish().unwrap()
@@ -113,22 +121,76 @@ fn compare(label: &str, mut lifecycle: impl FnMut(bool) -> (Phases, Counts)) {
     assert_eq!(prepared_total.net_bytes, 0, "prepared runtime teardown");
 }
 
-fn preparation(runtime: &Runtime, mut prepare: impl FnMut()) -> (Counts, Counts, Counts, Counts) {
+fn preparation(
+    runtime: &mut Runtime,
+    mut prepare: impl FnMut(&mut Runtime),
+) -> (Counts, Counts, Counts, Counts) {
     runtime.collect_garbage().unwrap();
     let setup = snapshot();
-    prepare();
+    prepare(runtime);
     runtime.collect_garbage().unwrap();
     let cold = snapshot();
     for _ in 0..2 {
-        prepare();
+        prepare(runtime);
         runtime.collect_garbage().unwrap();
     }
     let warm = snapshot();
     for _ in 0..30 {
-        prepare();
+        prepare(runtime);
         runtime.collect_garbage().unwrap();
     }
     (setup, cold, warm, snapshot())
+}
+
+/// The caller retains cold prepared products while each repeated request owns
+/// only a temporary suffix. No detached metadata ID or per-copy Host root pack
+/// can retain or reopen these actual providers.
+struct PreparationSource {
+    execution: SessionId,
+    prepared: bool,
+}
+
+impl PreparationSource {
+    fn new(runtime: &mut Runtime) -> Self {
+        Self {
+            execution: runtime.memory.enter_execution(&runtime.resources).unwrap(),
+            prepared: false,
+        }
+    }
+
+    fn run(&mut self, runtime: &mut Runtime, prepare: impl FnOnce(&mut Runtime, SessionId, bool)) {
+        let mark = runtime
+            .memory
+            .scope(&runtime.resources, |cx, roots| {
+                ExecutionRoots::with(roots, cx, |slots| slots.mark_locals(self.execution))
+            })
+            .unwrap();
+        prepare(runtime, self.execution, !self.prepared);
+        if self.prepared {
+            runtime
+                .memory
+                .scope(&runtime.resources, |cx, roots| {
+                    ExecutionRoots::with(roots, cx, |slots| slots.retire_locals(mark))
+                })
+                .unwrap();
+        }
+        self.prepared = true;
+    }
+
+    fn retire(self, runtime: &mut Runtime) {
+        runtime
+            .memory
+            .retire_execution(&runtime.resources, self.execution)
+            .unwrap();
+    }
+}
+
+fn assert_reclaimed(runtime: &mut Runtime, baseline: HeapStats) {
+    runtime.collect_garbage().unwrap();
+    let after = runtime.gc_stats();
+    assert_eq!(after.objects, baseline.objects);
+    assert_eq!(after.provider_units, baseline.provider_units);
+    assert_eq!(after.root_registrations, baseline.root_registrations);
 }
 
 fn native_lifecycle(
@@ -162,72 +224,73 @@ fn native_lifecycle(
             .generic
             .as_ref()
             .unwrap();
+        runtime.collect_garbage().unwrap();
+        let baseline = runtime.gc_stats();
+        let input_source = PreparationSource::new(&mut runtime);
+        let mut prepared_source = PreparationSource::new(&mut runtime);
         let environments = (0..applications)
             .map(|index| {
                 let ty: Ty = Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); index + 1]);
                 let arguments = runtime.resolve_type_arguments(&owner, &[ty]).unwrap();
                 runtime
                     .alloc_environment(
+                        input_source.execution,
                         EnvironmentRecord::new(
                             &runtime.definition_context().snapshot(),
                             body.parameters.clone(),
                             arguments,
                         )
                         .unwrap(),
+                        &[MetadataSource::Revision {
+                            owner: &owner,
+                            source: RevisionSource::Current,
+                        }],
                     )
                     .unwrap()
             })
             .collect::<Vec<_>>();
-        let roots = runtime
-            .root_metadata(
-                environments
-                    .iter()
-                    .map(|environment| MetadataRoot::Environment(environment.id))
-                    .collect(),
-            )
-            .unwrap();
-        runtime.collect_garbage().unwrap();
-        let setup = snapshot();
-        let prepare_all = || {
-            if prepare {
-                if applications == 0 {
-                    runtime
-                        .modules
-                        .native_binding(&owner, NativeImportId::new(closed))
-                        .unwrap()
-                        .type_signature()
-                        .unwrap();
+        let (setup, cold, warm, repeated) = preparation(&mut runtime, |runtime| {
+            prepared_source.run(runtime, |runtime, execution, _first| {
+                if prepare {
+                    if applications == 0 {
+                        runtime
+                            .modules
+                            .native_binding(&owner, NativeImportId::new(closed))
+                            .unwrap()
+                            .type_signature()
+                            .unwrap();
+                    }
+                    for environment in &environments {
+                        let mut protected = vec![
+                            MetadataSource::Revision {
+                                owner: &owner,
+                                source: RevisionSource::Current,
+                            },
+                            MetadataSource::Environment(environment.source()),
+                        ];
+                        runtime
+                            .prepare_native_application(
+                                execution,
+                                &owner,
+                                NativeImportId::new(generic),
+                                environment.facts().clone(),
+                                &mut protected,
+                            )
+                            .unwrap();
+                    }
                 }
-                for environment in &environments {
-                    runtime
-                        .prepare_native_application(
-                            &owner,
-                            NativeImportId::new(generic),
-                            environment.clone(),
-                        )
-                        .unwrap();
-                }
-            }
-            runtime.collect_garbage().unwrap();
-        };
-        prepare_all();
-        let cold = snapshot();
-        prepare_all();
-        prepare_all();
-        let warm = snapshot();
-        for _ in 0..30 {
-            prepare_all();
-        }
-        let repeated = snapshot();
+            });
+        });
         let staged = runtime
             .stage_reload_program(&program, None, code.clone())
             .unwrap();
         runtime.publish_staged_reload(staged).unwrap();
-        drop(roots);
+        prepared_source.retire(&mut runtime);
+        input_source.retire(&mut runtime);
         drop(environments);
         drop(owner);
         drop(loaded);
-        runtime.collect_garbage().unwrap();
+        assert_reclaimed(&mut runtime, baseline);
         let retired = snapshot();
         // Runtime and all measured inputs drop before the allocator's final snapshot.
         Phases {

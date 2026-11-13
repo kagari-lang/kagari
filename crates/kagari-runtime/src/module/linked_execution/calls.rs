@@ -2,7 +2,8 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    execution_metadata::{MetadataEdge, call_contracts::ScopedInterfaceCall},
+    execution::roots::SessionId,
+    execution_metadata::{call_contracts::ScopedInterfaceCall, managed::sources::MetadataSource},
     module::{
         ExecutableModule,
         dispatch::{
@@ -74,10 +75,12 @@ impl LinkedCall {
 
 impl Runtime {
     pub(super) fn link_calls(
-        &self,
+        &mut self,
+        execution: SessionId,
         owner: &ExecutableModule,
         function: &BytecodeFunction,
         prepared: &ExecutionFunction,
+        protected: &mut Vec<MetadataSource<'_>>,
     ) -> Result<Arc<[LinkedCall]>, RuntimeError> {
         prepared
             .calls
@@ -107,16 +110,9 @@ impl Runtime {
                         CallTarget::InterfaceMethod { contract, .. },
                     ) => {
                         let prepared = if *closed {
-                            let call = self.build_interface_call(owner, None, contract)?;
-                            let dependencies =
-                                self.metadata_dependencies(MetadataEdge::InterfaceCall(&call))?;
-                            if dependencies.iter().any(|dependency| {
-                                dependency.program_identity() != owner.program_identity()
-                            }) {
-                                return Err(RuntimeError::module_validation(
-                                    "foreign closed call dependency",
-                                ));
-                            }
+                            let call = self.build_interface_call(
+                                execution, owner, None, contract, protected,
+                            )?;
                             Some(call)
                         } else {
                             None

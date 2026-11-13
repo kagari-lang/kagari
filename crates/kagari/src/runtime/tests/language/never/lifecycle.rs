@@ -3,8 +3,10 @@ use crate::{
     test_support::cancellation as support,
 };
 use kagari_runtime::{
-    host::HostCallContext, module::entry::ProgramEntry, native::builder::ModuleBuilder,
-    value::Value,
+    host::HostError,
+    module::entry::ProgramEntry,
+    native::{builder::ModuleBuilder, host},
+    value::view::ValueView,
 };
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
@@ -44,16 +46,19 @@ pub fn healthy() -> i32 { 42 }
     .unwrap();
     let log = builder.declared_function("log").unwrap();
     builder
-        .bind(log, move |cx: &mut HostCallContext<'_>, args: &[Value]| {
-            let [Value::Str(id)] = args else {
-                panic!("log string")
-            };
-            captured
-                .lock()
-                .unwrap()
-                .push(cx.runtime().gc().string(*id).unwrap().to_owned());
-            Ok(Value::Unit)
-        })
+        .bind(
+            log,
+            host::callback(move |cx, args| {
+                let [message] = args else {
+                    panic!("log string")
+                };
+                captured.lock().unwrap().push(
+                    cx.read_string(message, str::to_owned)
+                        .map_err(|error| HostError::new(error.to_string()))?,
+                );
+                Ok(ValueView::unit())
+            }),
+        )
         .unwrap();
     let installed = KagariEngine::with_native_modules(
         Default::default(),
@@ -82,13 +87,16 @@ pub fn healthy() -> i32 { 42 }
         effects.lock().unwrap().clear();
         let mut runtime = installed.runtime(context.clone());
         let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
+        runtime.collect_garbage().unwrap();
+        let roots = runtime.gc_stats().root_registrations;
         let error = runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap_err();
         assert_eq!(error.code(), "KG_RUNTIME_SCRIPT_TRAP");
         assert_eq!(*effects.lock().unwrap(), vec!["before"]);
-        assert_eq!(runtime.gc().active_roots(), 0);
         assert!(runtime.execution_root().is_none());
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc_stats().root_registrations, roots);
         let limited = context.clone();
 
         let selected = runtime.select_program(&loaded).unwrap();
@@ -99,17 +107,18 @@ pub fn healthy() -> i32 { 42 }
             .unwrap_err();
         assert_eq!(error.code(), "KG_RUNTIME_CANCELLED");
         drop(cancellation);
-        assert_eq!(runtime.gc().active_roots(), 0);
         assert!(runtime.execution_root().is_none());
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc_stats().root_registrations, roots);
 
         assert_eq!(
             runtime
                 .execute(&loaded, "healthy", &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+                .as_i32()
+                .unwrap(),
+            42
         );
     }
 }

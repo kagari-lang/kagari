@@ -12,8 +12,10 @@ use crate::{
         HostCallContext, HostError, HostObjectId, HostPathAdapter, HostPathDescriptorRegistration,
         HostSchemaEpoch, PreparedHostPathWrite,
     },
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, module::NativeModule},
-    value::Value,
+    native::{
+        builder::ModuleBuilder, declarations::FunctionDecl, host::callback, module::NativeModule,
+    },
+    value::view::ValueView,
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
@@ -90,10 +92,14 @@ fn player_module() -> NativeModule {
         )
         .unwrap();
     module
-        .bind(entry, |cx: &mut HostCallContext<'_>, _: &[Value]| {
-            let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
-            Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
-        })
+        .bind(
+            entry,
+            callback(|cx: &mut HostCallContext<'_>, _| {
+                let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
+                let value = cx.runtime_mut().host_root_value(root).unwrap();
+                Ok(cx.import(&value).unwrap())
+            }),
+        )
         .unwrap();
     module.finish().unwrap()
 }
@@ -138,9 +144,9 @@ fn register_vm_host_path_runtime(access: PathAccess) -> (Runtime, Arc<Mutex<i32>
         .register_host_path_adapter(
             descriptor_id,
             HostPathAdapter::new()
-                .with_read(move |_, _| Ok(Value::I32(*read_hp.lock().unwrap())))
+                .with_read(move |_, _| Ok(ValueView::from(*read_hp.lock().unwrap())))
                 .with_prepare_write(move |_, _, record| {
-                    let Value::I32(value) = record.new_value else {
+                    let Some(value) = record.new_value.as_i32() else {
                         return Err(HostError::new("hp expects i32"));
                     };
                     let write_hp = write_hp.clone();

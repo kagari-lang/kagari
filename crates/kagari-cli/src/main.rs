@@ -35,8 +35,8 @@ use kagari_runtime::{
     error::RuntimeError,
     host::{HostCallContext, HostError},
     module::{InstalledProgram, entry::ProgramEntry},
-    native::builder::ModuleBuilder,
-    value::Value,
+    native::{builder::ModuleBuilder, host},
+    value::view::ValueView,
 };
 use kagari_source::{
     diagnostic::Diagnostic, presentation::DiagnosticRecord, source::SourceFile,
@@ -284,18 +284,17 @@ fn engine_builder() -> Result<KagariEngineBuilder, CliError> {
     .map_err(registration)?;
     let log = module.declared_function("log").map_err(registration)?;
     module
-        .bind(log, |cx: &mut HostCallContext<'_>, args: &[Value]| {
-            let [Value::Str(message)] = args else {
-                return Err(HostError::new("host.log expects one string argument"));
-            };
-            let message = cx
-                .runtime()
-                .gc()
-                .string(*message)
-                .ok_or_else(|| HostError::new("invalid host.log string"))?;
-            println!("{}", &*message);
-            Ok(Value::Unit)
-        })
+        .bind(
+            log,
+            host::callback(|cx: &mut HostCallContext<'_>, args: &[ValueView<'_>]| {
+                let [message] = args else {
+                    return Err(HostError::new("host.log expects one string argument"));
+                };
+                cx.read_string(message, |message| println!("{message}"))
+                    .map_err(|error| HostError::new(error.to_string()))?;
+                Ok(ValueView::unit())
+            }),
+        )
         .map_err(registration)?;
     engine
         .install(module.finish().map_err(registration)?)

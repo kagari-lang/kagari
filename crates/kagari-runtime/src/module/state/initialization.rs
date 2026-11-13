@@ -1,53 +1,75 @@
-//! Frame-owned initialization attempts. Completion is detached from storage borrows
-//! so a cycle or dropped/terminated frame can poison immediately, including reentry.
+//! Initializer authority uses actual caller sources and detached completion facts.
+mod cleanup;
 use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault},
+    execution::roots::ExecutionRoots,
     module::{
-        ExecutableModule,
-        state::{StaticFailure, StaticRecipe, StaticState},
+        managed::{cell::StaticCellObject, source::RevisionSource},
+        state::{
+            StaticFailure, StaticRecipe,
+            access::{Observation, StaticAccess, check_input},
+        },
     },
-    value::Value,
+    value::view::ValueView,
+    value_check::scoped::CheckError,
 };
-
-use kagari_bytecode::instruction::ModuleSlot;
 use kagari_common::span::Span;
-use std::{
-    slice,
-    sync::{
-        Arc, OnceLock,
-        atomic::{AtomicUsize, Ordering},
-    },
+use std::sync::{
+    Arc, OnceLock,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
-#[derive(Debug, Default)]
+/// Shared completion contains no script value, body or cell edge. Failure merely
+/// requests materialization; the provider continues scanning all physical fields.
+#[derive(Debug)]
 pub(crate) struct InitializationAttempt {
     completion: OnceLock<Result<(), StaticFailure>>,
+    dirty: Arc<AtomicBool>,
+    origin: Option<Span>,
 }
 
 impl InitializationAttempt {
+    pub(in crate::module) fn new(dirty: Arc<AtomicBool>, origin: Option<Span>) -> Self {
+        Self {
+            completion: OnceLock::new(),
+            dirty,
+            origin,
+        }
+    }
+
     pub(in crate::module) fn failure(&self) -> Option<&StaticFailure> {
         self.completion
             .get()
             .and_then(|result| result.as_ref().err())
     }
 
-    fn fail(&self, cause: &str, origin: Option<Span>) {
-        let _ = self.completion.set(Err(StaticFailure::new(cause, origin)));
+    pub(in crate::module) fn fail(&self, cause: &str, origin: Option<Span>) {
+        if self
+            .completion
+            .set(Err(StaticFailure::new(cause, origin.or(self.origin))))
+            .is_ok()
+        {
+            self.dirty.store(true, Ordering::Release);
+        }
     }
 }
 
-/// Private authority attached only to an admitted initializer frame. The cell and
-/// frame share completion, not mutable values or a lease on every historical program.
 #[derive(Debug)]
 pub(crate) struct StaticInitialization {
-    owner: ExecutableModule,
-    slot: ModuleSlot,
+    access: StaticAccess,
     recipe: StaticRecipe,
     attempt: Arc<InitializationAttempt>,
     active: Arc<AtomicUsize>,
     started: bool,
-    origin: Option<Span>,
+}
+
+/// A nonowning sealed commit witness, copied out of control before a source loan.
+/// Its source prefix and callee result remain protected until the real frame exits.
+#[derive(Debug, Clone)]
+pub(crate) struct StaticCommit {
+    access: StaticAccess,
+    attempt: Arc<InitializationAttempt>,
 }
 
 impl StaticInitialization {
@@ -55,92 +77,108 @@ impl StaticInitialization {
         &self.recipe
     }
 
-    pub(crate) fn begin(&mut self, runtime: &Runtime) -> Result<(), RuntimeError> {
-        let mut store = runtime.modules.inner.try_borrow_mut().map_err(|_| {
-            runtime
-                .resources()
-                .quarantine(EngineFault::StaticStoreBorrowedDuringInitialization)
-        })?;
-        let record = store
-            .resolve(&self.owner)
-            .ok_or_else(|| RuntimeError::module_validation("static initializer owner retired"))?;
-        store.bound_cell(record, self.slot.index()).ok_or_else(|| {
-            runtime
-                .resources()
-                .quarantine(EngineFault::InvalidStaticInitializerBinding)
-        })?;
-        let id = record.bindings[self.slot.index()];
-        let cell = store.cells.get_mut(&id).expect("checked cell");
-        if !matches!(cell.state, StaticState::Uninitialized(_)) || cell.attempt.is_some() {
-            return Err(RuntimeError::module_validation(
-                "static attempt already started",
-            ));
+    pub(crate) fn origin(&self) -> RevisionSource<'static> {
+        RevisionSource::StaticRecipe {
+            body: self.access.body,
+            module: self.access.owner.slot(),
+            slot: self.access.slot,
         }
+    }
+
+    pub(crate) fn commit_target(&self) -> StaticCommit {
+        StaticCommit {
+            access: self.access.clone(),
+            attempt: self.attempt.clone(),
+        }
+    }
+
+    pub(crate) fn begin(&mut self, runtime: &mut Runtime) -> Result<(), RuntimeError> {
         let count = self
             .active
             .load(Ordering::Relaxed)
             .checked_add(1)
             .ok_or_else(|| RuntimeError::resource_limit("static initialization depth"))?;
-        cell.state = StaticState::Initializing(self.recipe.clone());
-        cell.attempt = Some(self.attempt.clone());
+        if self.started {
+            return Err(RuntimeError::module_validation(
+                "static attempt already started",
+            ));
+        }
+        self.access.with(runtime, |slots, cell| {
+            StaticCellObject::begin(slots.scope(), cell, self.attempt.clone())?;
+            Ok(())
+        })?;
         self.active.store(count, Ordering::Relaxed);
         self.started = true;
         Ok(())
     }
 
-    /// Validation cannot execute callbacks or collect. The return transition retains
-    /// an explicit result root across retirement, admission and this closed commit.
-    pub(crate) fn commit(&self, runtime: &Runtime, value: Value) -> Result<(), RuntimeError> {
+    pub(crate) fn fail(&self, cause: &str) {
+        if self.started {
+            self.attempt.fail(cause, None);
+        }
+    }
+
+    pub(crate) fn pending_failure(&self) -> Option<StaticCommit> {
+        (self.started && self.attempt.failure().is_some()).then(|| self.commit_target())
+    }
+}
+
+impl StaticCommit {
+    pub(crate) fn commit(
+        &self,
+        runtime: &mut Runtime,
+        value: &ValueView<'_>,
+    ) -> Result<(), RuntimeError> {
         if let Some(failure) = self.attempt.failure() {
             return Err(RuntimeError::module_validation(format!(
                 "static initialization failed: {failure}"
             )));
         }
-        let contract = &self.owner.bytecode.module_slots[self.slot.index()].contract;
-        runtime.validate_heap_payloads(slice::from_ref(&value))?;
-        if !runtime.matches_type_in(&value, &contract.ty, &self.owner, None) {
-            return Err(RuntimeError::module_validation(
-                "static initializer semantic type mismatch",
-            ));
-        }
-        let mut store = runtime.modules.inner.try_borrow_mut().map_err(|_| {
+        let Runtime {
+            memory,
+            resources,
+            host,
+            host_borrows,
+            ..
+        } = runtime;
+        let result = memory.scope(resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                Ok((|| {
+                    let cell = self.access.resolve(slots)?;
+                    let value = value.get(slots)?;
+                    check_input(
+                        slots.scope(),
+                        value,
+                        &self.access.owner,
+                        self.access.slot,
+                        host,
+                        host_borrows,
+                        resources,
+                    )?;
+                    resources.poll_closed()?;
+                    StaticCellObject::complete(slots.scope(), cell, value, &self.attempt)?;
+                    Ok::<_, CheckError>(())
+                })())
+            })
+        });
+        result
+            .map_err(|error| runtime.managed_memory_error(error))?
+            .map_err(|error| {
+                runtime
+                    .resources
+                    .admit_execution_error(error.into_runtime(runtime))
+            })?;
+        // Runtime access is exclusive, completion has been checked and no callback
+        // intervenes. A concurrent/duplicate completion is an internal invariant.
+        self.attempt.completion.set(Ok(())).map_err(|_| {
             runtime
-                .resources()
-                .quarantine(EngineFault::StaticStoreBorrowedDuringInitializerReturn)
-        })?;
-        let record = store
-            .resolve(&self.owner)
-            .ok_or_else(|| RuntimeError::module_validation("static owner retired"))?;
-        store.bound_cell(record, self.slot.index()).ok_or_else(|| {
-            runtime
-                .resources()
-                .quarantine(EngineFault::InvalidStaticReturnBinding)
-        })?;
-        let id = record.bindings[self.slot.index()];
-        let cell = store.cells.get_mut(&id).expect("checked cell");
-        if !matches!(cell.state, StaticState::Initializing(_))
-            || !cell
-                .attempt
-                .as_ref()
-                .is_some_and(|attempt| Arc::ptr_eq(attempt, &self.attempt))
-        {
-            return Err(runtime
-                .resources()
-                .quarantine(EngineFault::StaticReturnLostAttemptAuthority));
-        }
-        self.attempt
-            .completion
-            .set(Ok(()))
-            .map_err(|_| RuntimeError::module_validation("static initialization already failed"))?;
-        cell.state = StaticState::Ready(value);
-        cell.attempt = None;
-        Ok(())
+                .resources
+                .quarantine(EngineFault::StaticReturnLostAttemptAuthority)
+        })
     }
 
     pub(crate) fn fail(&self, cause: &str) {
-        if self.started {
-            self.attempt.fail(cause, self.origin);
-        }
+        self.attempt.fail(cause, None);
     }
 }
 
@@ -155,7 +193,7 @@ impl Drop for StaticInitialization {
 
 impl Runtime {
     pub(crate) fn static_initialization_active(&self) -> bool {
-        self.resources()
+        self.resources
             .active_session()
             .is_some_and(|session| session.static_initializers.load(Ordering::Relaxed) != 0)
     }
@@ -170,29 +208,25 @@ impl Runtime {
     }
 
     pub(crate) fn prepare_static_initialization(
-        &self,
-        owner: &ExecutableModule,
-        slot: ModuleSlot,
+        &mut self,
+        access: StaticAccess,
     ) -> Result<Option<StaticInitialization>, RuntimeError> {
-        self.validate_module_state_access(owner)?;
-        let state = self
-            .modules
-            .static_state(owner, slot)
-            .ok_or_else(|| RuntimeError::module_validation("invalid static binding"))?;
-        match state {
-            StaticState::Ready(_) => Ok(None),
-            StaticState::Failed(failure) => Err(RuntimeError::module_validation(format!(
+        self.validate_module_state_access(&access.owner)?;
+        match self.observe_static(&access)? {
+            Observation::Ready => Ok(None),
+            Observation::Failed(failure) => Err(RuntimeError::module_validation(format!(
                 "static initialization failed: {failure}"
             ))),
-            StaticState::Initializing(_) => {
-                self.poison_static_cycle(owner, slot)?;
+            Observation::Initializing(attempt) => {
+                attempt.fail("recursive static initialization", None);
+                self.flush_static_failures()?;
                 Err(RuntimeError::module_validation(
                     "recursive static initialization",
                 ))
             }
-            StaticState::Uninitialized(recipe) => {
+            Observation::Uninitialized(recipe) => {
                 let active = self
-                    .resources()
+                    .resources
                     .active_session()
                     .ok_or_else(|| {
                         RuntimeError::module_validation(
@@ -201,51 +235,23 @@ impl Runtime {
                     })?
                     .static_initializers
                     .clone();
-                let origin = recipe.module.bytecode.functions[recipe.function.index()]
+                let span = recipe.module.bytecode.functions[recipe.function.index()]
                     .metadata
                     .origins
                     .first()
                     .map(|origin| origin.span);
+                let attempt = Arc::new(InitializationAttempt::new(
+                    self.resources.static_failure_signal(),
+                    span,
+                ));
                 Ok(Some(StaticInitialization {
-                    owner: owner.clone(),
-                    slot,
+                    access,
                     recipe,
+                    attempt,
                     active,
-                    origin,
-                    attempt: Arc::new(InitializationAttempt::default()),
                     started: false,
                 }))
             }
         }
-    }
-
-    pub(in crate::module) fn poison_static_cycle(
-        &self,
-        owner: &ExecutableModule,
-        slot: ModuleSlot,
-    ) -> Result<(), RuntimeError> {
-        let store = self.modules.inner.try_borrow().map_err(|_| {
-            self.resources()
-                .quarantine(EngineFault::StaticStoreBorrowedDuringCycleDetection)
-        })?;
-        let record = store
-            .resolve(owner)
-            .ok_or_else(|| RuntimeError::module_validation("static owner retired"))?;
-        let cell = store
-            .bound_cell(record, slot.index())
-            .ok_or_else(|| RuntimeError::module_validation("invalid static binding"))?;
-        if let Some(attempt) = &cell.attempt {
-            let origin = match &cell.state {
-                StaticState::Initializing(recipe) => recipe.module.bytecode.functions
-                    [recipe.function.index()]
-                .metadata
-                .origins
-                .first()
-                .map(|origin| origin.span),
-                _ => None,
-            };
-            attempt.fail("recursive static initialization", origin);
-        }
-        Ok(())
     }
 }

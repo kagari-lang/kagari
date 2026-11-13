@@ -1,8 +1,9 @@
-use crate::{Runtime, error::RuntimeErrorKind, value::Value};
+pub(crate) mod scalars;
+
+use crate::{Runtime, error::RuntimeErrorKind};
 use kagari_abi::native_call::{
     JIT_STATUS_CANCELLED, JIT_STATUS_ENGINE_FAULT, JIT_STATUS_INVALID_HEAP_REFERENCE,
-    JIT_STATUS_INVALID_RUNTIME, JIT_STATUS_OK, JIT_STATUS_RESOURCE_LIMIT, JIT_VALUE_TAG_BOOL,
-    JIT_VALUE_TAG_I32, JIT_VALUE_TAG_UNIT, JitValue, NativeHelperTable,
+    JIT_STATUS_INVALID_RUNTIME, JIT_STATUS_OK, JIT_STATUS_RESOURCE_LIMIT, NativeHelperTable,
 };
 use std::ffi::c_void;
 
@@ -44,13 +45,4 @@ pub unsafe extern "C" fn jit_poll_execution(runtime: *mut Runtime, offset: u64) 
         };
     }
     JIT_STATUS_OK
-}
-
-pub fn decode_native_value(value: JitValue) -> Option<Value> {
-    match value.tag {
-        JIT_VALUE_TAG_UNIT => Some(Value::Unit),
-        JIT_VALUE_TAG_BOOL => Some(Value::Bool(value.payload != 0)),
-        JIT_VALUE_TAG_I32 => i32::try_from(value.payload).ok().map(Value::I32),
-        _ => None,
-    }
 }

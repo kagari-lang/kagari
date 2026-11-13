@@ -9,7 +9,8 @@ use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedComp
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     module::{ExecutableModule, InstalledProgram},
-    value::Value,
+    native::module::NativeModule,
+    value::carriers::RootedValue,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib as foundation;
@@ -61,11 +62,7 @@ fn unused_interface_methods_do_not_increase_repeated_dispatch_allocations() {
             }
         )));
         let mut runtime = dispatch_runtime();
-        kagari_runtime::native::module::NativeModule::install_all(
-            &kagari_stdlib::modules().unwrap(),
-            &mut runtime,
-        )
-        .unwrap();
+        NativeModule::install_all(&foundation::modules().unwrap(), &mut runtime).unwrap();
         let loaded = load_bytecode(&mut runtime, "interface-width", program).unwrap();
         let _loaded_program = loaded;
         let installed = _loaded_program.clone();
@@ -81,24 +78,29 @@ fn unused_interface_methods_do_not_increase_repeated_dispatch_allocations() {
             .lookup_child(contract.declaration, DefinitionKind::Method, "m0", 0)
             .unwrap();
         let mut vm = runtime;
+        vm.collect_garbage().unwrap();
+        let published = vm.gc_stats();
         let receiver = vm
             .execute(&installed, "make", &[], &Default::default())
             .unwrap()
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result");
-        let root = vm.root_value(receiver).unwrap();
+            .return_value;
         for _ in 0..5 {
             assert_eq!(
-                vm.invoke_interface_method(&receiver, &method, &[]).unwrap(),
-                Value::I32(1)
+                vm.invoke_interface_method(&receiver, &method, &[])
+                    .unwrap()
+                    .as_i32(),
+                Some(1)
             );
         }
         let (counts, elapsed) = measured(|| {
             for _ in 0..1000 {
                 assert_eq!(
-                    black_box(vm.invoke_interface_method(&receiver, &method, &[]).unwrap()),
-                    Value::I32(1)
+                    black_box(
+                        vm.invoke_interface_method(&receiver, &method, &[])
+                            .unwrap()
+                            .as_i32()
+                    ),
+                    Some(1)
                 );
             }
         });
@@ -112,14 +114,19 @@ fn unused_interface_methods_do_not_increase_repeated_dispatch_allocations() {
         } else {
             baseline = Some(allocation_shape);
         }
-        drop(root);
-        assert_eq!(vm.gc().active_roots(), 0);
-        assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+        drop(receiver);
+        retire_preparation(&mut vm, &installed);
+        assert_eq!(
+            vm.gc_stats().root_registrations,
+            published.root_registrations
+        );
+        vm.collect_garbage().unwrap();
+        assert_eq!(vm.gc_stats().objects, published.objects);
     }
 }
 
 #[test]
-fn inherited_closed_dispatch_does_not_allocate_parent_wrappers_or_copy_unused_methods() {
+fn inherited_closed_dispatch_cost_does_not_scale_with_unused_methods() {
     verify_counter();
     let mut baseline = None;
     for width in [1, 8, 32] {
@@ -136,6 +143,8 @@ fn inherited_closed_dispatch_does_not_allocate_parent_wrappers_or_copy_unused_me
         }
         source.push_str("} pub fn make() -> Child { Worker {} }");
         let (mut vm, installed, loaded) = load(&source);
+        vm.collect_garbage().unwrap();
+        let published = vm.gc_stats();
         let declaration = loaded
             .bytecode
             .trait_contracts
@@ -154,25 +163,23 @@ fn inherited_closed_dispatch_does_not_allocate_parent_wrappers_or_copy_unused_me
         let receiver = vm
             .execute(&installed, "make", &[], &Default::default())
             .unwrap()
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result");
-        let root = vm.root_value(receiver).unwrap();
+            .return_value;
         for _ in 0..5 {
             assert_eq!(
-                vm.invoke_interface_method(&receiver, &method, &[Value::I32(42)])
-                    .unwrap(),
-                Value::I32(42)
+                vm.invoke_interface_method(&receiver, &method, &[RootedValue::from(42i32)])
+                    .unwrap()
+                    .as_i32(),
+                Some(42)
             );
         }
-        let live = vm.collect_garbage().unwrap().live_objects;
-        let before = vm.gc().stats();
+        vm.collect_garbage().unwrap();
         let (counts, _) = measured(|| {
             for _ in 0..1000 {
                 assert_eq!(
-                    vm.invoke_interface_method(&receiver, &method, &[Value::I32(42)])
-                        .unwrap(),
-                    Value::I32(42)
+                    vm.invoke_interface_method(&receiver, &method, &[RootedValue::from(42i32)])
+                        .unwrap()
+                        .as_i32(),
+                    Some(42)
                 );
             }
         });
@@ -183,17 +190,17 @@ fn inherited_closed_dispatch_does_not_allocate_parent_wrappers_or_copy_unused_me
         } else {
             baseline = Some(shape);
         }
-        // Include reclaimed objects: automatic collection must not hide wrappers.
-        let after = vm.gc().stats();
+        // Complete-graph collection also counts per-call admitted computation
+        // objects. Exact parent-provider reuse is checked at Runtime's private
+        // owner; this consumer measures width and eventual publication cleanup.
+        drop(receiver);
+        retire_preparation(&mut vm, &installed);
         assert_eq!(
-            after.allocated_objects + after.reclaimed_objects,
-            before.allocated_objects + before.reclaimed_objects
+            vm.gc_stats().root_registrations,
+            published.root_registrations
         );
-        // Virtual parent dispatch must not publish additional GC interface values.
-        assert_eq!(vm.collect_garbage().unwrap().live_objects, live);
-        drop(root);
-        assert_eq!(vm.gc().active_roots(), 0);
-        assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+        vm.collect_garbage().unwrap();
+        assert_eq!(vm.gc_stats().objects, published.objects);
         assert_eq!(
             vm.modules().retention_counts(loaded.key()).runtime_values,
             0
@@ -203,29 +210,11 @@ fn inherited_closed_dispatch_does_not_allocate_parent_wrappers_or_copy_unused_me
 
 #[test]
 fn cached_native_receiver_defaults_release_their_program_and_gc_values() {
-    let (mut vm, installed, loaded) = load(
-        r#"use std::collections::{List};
-use std::iter::{CollectionCursor};
-use std::ops::{Index};
-
-struct Sequence { val items: Vec<i32> }
-impl Index<u64> for Sequence {
-    type Output = i32;
-    fn index(self, index: u64) -> i32 { self.items[index] }
-}
-impl Iterable for Sequence {
-    type Item = i32;
-    type Iter = CollectionCursor<i32>;
-    fn iter(self) -> CollectionCursor<i32> { self.items.iter() }
-}
-impl List<i32> for Sequence {
-    fn len(self) -> u64 { self.items.len() }
-    fn is_empty(self) -> bool { self.items.is_empty() }
-    fn get(self, index: u64) -> Option<i32> { self.items.get(index) }
-}
-pub fn make() -> List<i32> { Sequence { items: Vec::from([3, 1, 2]) } }
-"#,
-    );
+    let (mut vm, installed, loaded) = load(include_str!(
+        "../fixtures/native/allocation-native-receiver-default.kgr"
+    ));
+    vm.collect_garbage().unwrap();
+    let published = vm.gc_stats();
     let methods = ["reversed", "len"].map(|name| {
         loaded
             .members()
@@ -256,29 +245,41 @@ pub fn make() -> List<i32> { Sequence { items: Vec::from([3, 1, 2]) } }
     let receiver = vm
         .execute(&installed, "make", &[], &Default::default())
         .unwrap()
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result");
-    let root = vm.root_value(receiver).unwrap();
+        .return_value;
     for _ in 0..3 {
         let reversed = vm
             .invoke_interface_method(&receiver, &methods[0], &[])
             .unwrap();
-        let result_root = vm.root_value(reversed).unwrap();
         vm.collect_garbage().unwrap();
         assert_eq!(
             vm.invoke_interface_method(&reversed, &methods[1], &[])
-                .unwrap(),
-            Value::U64(3)
+                .unwrap()
+                .as_u64(),
+            Some(3)
         );
-        drop(result_root);
+        drop(reversed);
     }
-    drop(root);
-    assert_eq!(vm.gc().active_roots(), 0);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    drop(receiver);
+    retire_preparation(&mut vm, &installed);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        published.root_registrations
+    );
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, published.objects);
     for generation in generations {
         assert_eq!(vm.modules().retention_counts(generation).runtime_values, 0);
     }
+}
+
+fn retire_preparation(runtime: &mut Runtime, installed: &InstalledProgram) {
+    let selected = runtime.select_program(installed).unwrap();
+    let replacement = runtime
+        .stage_reload_verified_program(installed, None, selected.verified_program().clone())
+        .unwrap();
+    runtime.publish_staged_reload(replacement).unwrap();
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.validate_executable_module(&selected).is_err());
 }
 
 fn load(source: &str) -> (Runtime, InstalledProgram, ExecutableModule) {
@@ -307,11 +308,7 @@ fn load(source: &str) -> (Runtime, InstalledProgram, ExecutableModule) {
         .map(|program| program.into_unverified())
         .unwrap();
     let mut runtime = dispatch_runtime();
-    kagari_runtime::native::module::NativeModule::install_all(
-        &kagari_stdlib::modules().unwrap(),
-        &mut runtime,
-    )
-    .unwrap();
+    NativeModule::install_all(&foundation::modules().unwrap(), &mut runtime).unwrap();
     let loaded = load_bytecode(&mut runtime, "interface-cache", program).unwrap();
     let _loaded_program = loaded;
     let _installed = _loaded_program.clone();

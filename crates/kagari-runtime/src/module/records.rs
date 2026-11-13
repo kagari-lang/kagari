@@ -2,7 +2,6 @@
 use crate::{
     module::{
         ExecutableModule, InstallationId, ModuleKey, ModuleStore, ModuleStoreInner,
-        constants::ConstantPool,
         descriptors::LinkedDescriptors,
         layouts::{LayoutCache, ProgramLayoutCache},
         linked_execution::LinkedExecution,
@@ -20,10 +19,10 @@ use std::{
 #[derive(Debug)]
 pub(super) struct ModuleRecord {
     pub(super) module: ExecutableModule,
+    pub(super) managed_owner: bool,
     pub(super) bindings: Vec<CellId>,
     pub(super) static_lineage: InstallationId,
     pub(super) layouts: LayoutCache,
-    pub(super) constants: Arc<ConstantPool>,
     pub(super) descriptors: LinkedDescriptors,
     pub(super) execution: Option<LinkedExecution>,
     native: Vec<Arc<LinkedNativeFunction>>,
@@ -33,9 +32,9 @@ pub(super) struct ModuleRecord {
 impl ModuleRecord {
     pub(super) fn new(module: ExecutableModule, native: Vec<Arc<LinkedNativeFunction>>) -> Self {
         Self {
+            managed_owner: false,
             bindings: Vec::new(),
             static_lineage: module.installation_id(),
-            constants: Arc::new(ConstantPool::new(module.bytecode.constants.len())),
             layouts: LayoutCache::default(),
             program_layouts: None,
             module,

@@ -6,10 +6,9 @@ use crate::{
     backend::{BackendInvocationError, native::InstalledNativeFunction},
     error::RuntimeErrorKind,
     jit_abi::jit_poll_execution,
-    module::VerifiedProgram,
+    module::{VerifiedProgram, retention::RetentionOrigin},
     reload::ReloadValidationError,
     resource::RuntimeLimits,
-    value::Value,
 };
 use kagari_abi::{
     native::{BackendId, BackendTarget, ExecutableEntryPoint, NativeCodeOwner},
@@ -172,30 +171,48 @@ fn install(runtime: &mut Runtime, entry: JitCompiledFunction) -> InstalledNative
     let module = runtime.select_program(&module_program).unwrap();
     // Static fixtures implement the current ABI; fault probes intentionally test
     // malformed status/results without violating Rust memory safety.
-    unsafe { runtime.install_native_function(&module, product(entry, Arc::default())) }.unwrap()
+    unsafe {
+        runtime.install_native_function(
+            &module,
+            product(entry, Arc::default()),
+            RetentionOrigin::Current,
+        )
+    }
+    .unwrap()
 }
 
-fn assert_clean(runtime: &Runtime) {
+fn assert_clean(runtime: &Runtime, roots: usize) {
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
     assert!(runtime.execution_root().is_none());
+}
+
+fn assert_unit(runtime: &mut Runtime, installed: &InstalledNativeFunction) {
+    let roots = runtime.gc_stats().root_registrations;
+    let value = runtime.invoke_native_function(installed).unwrap();
+    assert!(
+        runtime
+            .memory
+            .scope(&runtime.resources, |cx, _| Ok(value.get(cx)?.is_unit()))
+            .unwrap()
+    );
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
 }
 
 #[test]
 fn native_calls_use_checked_frames_and_release_them_on_return() {
     let mut runtime = runtime();
     let installed = install(&mut runtime, execute);
-    assert_eq!(
-        runtime.invoke_native_function(&installed).unwrap(),
-        Value::Unit
-    );
-    assert_clean(&runtime);
+    let roots = runtime.gc_stats().root_registrations;
+    assert_unit(&mut runtime, &installed);
+    assert_clean(&runtime, roots);
 }
 
 #[test]
 fn native_traps_capture_the_frame_before_cleanup_and_never_request_fallback() {
     let mut runtime = runtime();
     let installed = install(&mut runtime, trap);
+    let roots = runtime.gc_stats().root_registrations;
     let failure = runtime.invoke_native_function(&installed).unwrap_err();
     assert!(
         matches!(failure.error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::ScriptTrap)
@@ -203,7 +220,7 @@ fn native_traps_capture_the_frame_before_cleanup_and_never_request_fallback() {
     assert_eq!(failure.trace.frames[0].function_name, "main");
     assert_eq!(failure.trace.frames[0].instruction_offset, 0);
 
-    assert_clean(&runtime);
+    assert_clean(&runtime, roots);
 }
 
 #[test]
@@ -213,7 +230,9 @@ fn installed_handles_retain_code_and_old_versions_until_the_last_clone_drops() {
     let module = runtime.select_program(&module_program).unwrap();
     let dropped = Arc::new(AtomicUsize::new(0));
     let code = product(execute, dropped.clone());
-    let installed = unsafe { runtime.install_native_function(&module, code.clone()) }.unwrap();
+    let installed =
+        unsafe { runtime.install_native_function(&module, code.clone(), RetentionOrigin::Current) }
+            .unwrap();
     let clone = installed.clone();
     drop(code);
     let candidate = runtime
@@ -257,27 +276,27 @@ fn invocation_checks_runtime_ownership_without_permission_flags() {
     let mut first = runtime();
     let installed = install(&mut first, execute);
     let mut second = runtime();
+    let first_roots = first.gc_stats().root_registrations;
+    let second_roots = second.gc_stats().root_registrations;
     assert!(
         matches!(second.invoke_native_function(&installed).unwrap_err().error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::StaleHandle)
     );
-    assert_eq!(
-        first.invoke_native_function(&installed).unwrap(),
-        Value::Unit
-    );
-    assert_clean(&first);
-    assert_clean(&second);
+    assert_unit(&mut first, &installed);
+    assert_clean(&first, first_roots);
+    assert_clean(&second, second_roots);
 }
 
 #[test]
 fn malformed_native_results_quarantine_and_clean_up() {
     let mut runtime = runtime();
     let installed = install(&mut runtime, bad_result);
+    let roots = runtime.gc_stats().root_registrations;
     let failure = runtime.invoke_native_function(&installed).unwrap_err();
     assert!(
         matches!(failure.error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::EngineFault)
     );
     assert!(runtime.is_quarantined());
-    assert_clean(&runtime);
+    assert_clean(&runtime, roots);
 }
 
 #[test]
@@ -288,7 +307,7 @@ fn unresolved_entries_are_rejected_before_retaining_versions_or_running_code() {
     let mut code = product(execute, Arc::default());
     Arc::get_mut(&mut code).unwrap().artifact.code.entry = ExecutableEntryPoint::Unresolved;
     assert!(matches!(
-        unsafe { runtime.install_native_function(&module, code) },
+        unsafe { runtime.install_native_function(&module, code, RetentionOrigin::Current) },
         Err(BackendInvocationError::UnsupportedArtifact(_))
     ));
     assert_eq!(
@@ -320,7 +339,9 @@ fn installation_retains_descriptors_and_rejects_unknown_functions_without_leakin
         });
     let expected = code.artifact.clone();
     // The static unit-returning fixture implements this program's native ABI.
-    let installed = unsafe { runtime.install_native_function(&module, code) }.unwrap();
+    let installed =
+        unsafe { runtime.install_native_function(&module, code, RetentionOrigin::Current) }
+            .unwrap();
     assert_eq!(installed.module().key(), module.key());
     assert_eq!(installed.artifact(), &expected);
     assert_eq!(
@@ -331,11 +352,12 @@ fn installation_retains_descriptors_and_rejects_unknown_functions_without_leakin
         1
     );
 
+    let roots = runtime.gc_stats().root_registrations;
     let mut invalid = product(execute, dropped.clone());
     Arc::get_mut(&mut invalid).unwrap().artifact.function = FunctionRef::new(99);
     // Invalid metadata is rejected before the otherwise valid static entry can run.
     assert!(matches!(
-        unsafe { runtime.install_native_function(&module, invalid) },
+        unsafe { runtime.install_native_function(&module, invalid, RetentionOrigin::Current) },
         Err(BackendInvocationError::UnsupportedArtifact(_))
     ));
     assert_eq!(dropped.load(Ordering::SeqCst), 1);
@@ -347,10 +369,7 @@ fn installation_retains_descriptors_and_rejects_unknown_functions_without_leakin
         1
     );
 
-    assert_eq!(
-        runtime.invoke_native_function(&installed).unwrap(),
-        Value::Unit
-    );
+    assert_unit(&mut runtime, &installed);
     drop(installed);
     assert_eq!(dropped.load(Ordering::SeqCst), 2);
     assert_eq!(
@@ -360,7 +379,7 @@ fn installation_retains_descriptors_and_rejects_unknown_functions_without_leakin
             .compiled_artifacts,
         0
     );
-    assert_clean(&runtime);
+    assert_clean(&runtime, roots - 1);
 }
 
 #[test]
@@ -369,9 +388,15 @@ fn failed_reload_keeps_installed_code_callable_and_its_version_retained() {
     let module_program = load_bytecode(&mut runtime, "native", program()).unwrap();
     let module = runtime.select_program(&module_program).unwrap();
     let dropped = Arc::new(AtomicUsize::new(0));
-    let installed =
-        unsafe { runtime.install_native_function(&module, product(execute, dropped.clone())) }
-            .unwrap();
+    let installed = unsafe {
+        runtime.install_native_function(
+            &module,
+            product(execute, dropped.clone()),
+            RetentionOrigin::Current,
+        )
+    }
+    .unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     let definitions = DefinitionContext::new().unwrap();
     let mut candidate = KbcArtifact::from_program(
         program()
@@ -403,10 +428,7 @@ fn failed_reload_keeps_installed_code_callable_and_its_version_retained() {
         1
     );
     assert_eq!(dropped.load(Ordering::SeqCst), 0);
-    assert_eq!(
-        runtime.invoke_native_function(&installed).unwrap(),
-        Value::Unit
-    );
+    assert_unit(&mut runtime, &installed);
     drop(installed);
     assert_eq!(dropped.load(Ordering::SeqCst), 1);
     assert_eq!(
@@ -416,13 +438,14 @@ fn failed_reload_keeps_installed_code_callable_and_its_version_retained() {
             .compiled_artifacts,
         0
     );
-    assert_clean(&runtime);
+    assert_clean(&runtime, roots - 1);
 }
 
 #[test]
 fn native_reentry_preserves_the_callers_frame_and_shared_execution() {
     let mut runtime = runtime();
     let installed = install(&mut runtime, execute);
+    let roots = runtime.gc_stats().root_registrations;
     let mut outer_activation = runtime.enter_execution_stack(installed.module()).unwrap();
     outer_activation
         .with(|runtime, outer| {
@@ -435,10 +458,7 @@ fn native_reentry_preserves_the_callers_frame_and_shared_execution() {
                     None,
                 )
                 .unwrap();
-            assert_eq!(
-                runtime.invoke_native_function(&installed).unwrap(),
-                Value::Unit
-            );
+            assert_unit(runtime, &installed);
             assert_eq!(outer.frames(runtime).unwrap().len(), 1);
             assert_eq!(runtime.resources().counters().current_call_depth, 1);
 
@@ -446,13 +466,14 @@ fn native_reentry_preserves_the_callers_frame_and_shared_execution() {
         })
         .unwrap();
     drop(outer_activation);
-    assert_clean(&runtime);
+    assert_clean(&runtime, roots);
 }
 
 #[test]
 fn cancellation_of_an_active_session_prevents_native_progress() {
     let mut runtime = runtime();
     let installed = install(&mut runtime, execute);
+    let roots = runtime.gc_stats().root_registrations;
     let options = runtime.execution_options();
     let cancel = options.cancellation.clone();
     let mut session = runtime
@@ -468,7 +489,7 @@ fn cancellation_of_an_active_session_prevents_native_progress() {
     );
 
     drop(session);
-    assert_clean(&runtime);
+    assert_clean(&runtime, roots);
 }
 
 #[test]
@@ -481,15 +502,17 @@ fn executable_memory_can_be_shared_without_sharing_runtime_instances() {
     let b = second.select_program(&b_program).unwrap();
     let dropped = Arc::new(AtomicUsize::new(0));
     let code = product(execute, dropped.clone());
-    let x = unsafe { first.install_native_function(&a, code.clone()) }.unwrap();
-    let y = unsafe { second.install_native_function(&b, code.clone()) }.unwrap();
+    let x = unsafe { first.install_native_function(&a, code.clone(), RetentionOrigin::Current) }
+        .unwrap();
+    let y = unsafe { second.install_native_function(&b, code.clone(), RetentionOrigin::Current) }
+        .unwrap();
     drop(code);
-    assert_eq!(first.invoke_native_function(&x).unwrap(), Value::Unit);
+    assert_unit(&mut first, &x);
 
     drop(x);
     drop(first);
     assert_eq!(dropped.load(Ordering::SeqCst), 0);
-    assert_eq!(second.invoke_native_function(&y).unwrap(), Value::Unit);
+    assert_unit(&mut second, &y);
     drop(y);
     assert_eq!(dropped.load(Ordering::SeqCst), 1);
 }
@@ -509,7 +532,7 @@ fn incompatible_native_abis_are_rejected_before_installation(#[case] helper: boo
         artifact.code.runtime_abi_version = "previous-runtime".into();
     }
     assert!(matches!(
-        unsafe { runtime.install_native_function(&module, code) },
+        unsafe { runtime.install_native_function(&module, code, RetentionOrigin::Current) },
         Err(BackendInvocationError::UnsupportedArtifact(_))
     ));
     assert_eq!(
@@ -540,9 +563,14 @@ fn native_handles_pin_the_entire_dependency_program_across_reload() {
     let module_program = load_bytecode(&mut runtime, "native", graph.clone()).unwrap();
     let module = runtime.select_program(&module_program).unwrap();
     let old_dependency = module.member(ModuleRef::new(0)).unwrap();
-    let installed =
-        unsafe { runtime.install_native_function(&module, product(execute, Arc::default())) }
-            .unwrap();
+    let installed = unsafe {
+        runtime.install_native_function(
+            &module,
+            product(execute, Arc::default()),
+            RetentionOrigin::Current,
+        )
+    }
+    .unwrap();
     let candidate = runtime
         .stage_reload_program(&module_program, None, graph)
         .unwrap();
@@ -596,6 +624,7 @@ fn execution_observers_prevent_native_entry_without_debug_callbacks() {
     let mut runtime = runtime();
     let installed = install(&mut runtime, execute);
     runtime.set_execution_observer(Observer).unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     let mut session = runtime
         .begin_execution(installed.module(), runtime.execution_options())
         .unwrap();
@@ -614,7 +643,7 @@ fn execution_observers_prevent_native_entry_without_debug_callbacks() {
         0
     );
     drop(session);
-    assert_clean(&runtime);
+    assert_clean(&runtime, roots);
 }
 
 #[test]

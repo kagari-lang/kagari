@@ -25,7 +25,7 @@ use kagari_runtime::{
         typed::NativeContext,
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 
 #[cfg(test)]
@@ -113,25 +113,17 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
             through,
             NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::i32()), |cx| {
                 let callback = cx.callable(0)?;
-                callback.call_values(cx, &[Value::I32(20), Value::I32(22)])
+                callback.call_values(cx, &[ValueView::from(20i32), ValueView::from(22i32)])
             }),
         )
         .unwrap();
     let module = module.finish().unwrap();
-    let source = r#"
-        use example::boxed::{add, text, through};
-        pub fn evidence() -> i32 { add(20, 22) }
-        pub fn invoke(f: fn(i32, i32) -> i32, left: i32, right: i32) -> i32 { f(left, right) }
-        pub fn echo(f: fn(i32, i32) -> i32) -> fn(i32, i32) -> i32 { f }
-        pub fn capture(f: fn(i32, i32) -> i32) -> fn() -> i32 { || f(20, 22) }
-        pub fn wrong(f: fn(i32) -> i32) -> i32 { f(42) }
-        pub fn native(f: fn(i32, i32) -> i32) -> i32 { through(f) }
-        pub fn text_evidence() -> String { text() }
-        pub fn owned(callback: fn() -> String) -> String { callback() }
-    "#;
+    let source = include_str!("../../../../../tests/fixtures/native/boxed-native-callbacks.kgr");
     let (mut vm, old) = fixture(source, Some(&module));
     let _old_program = old;
     let old = vm.select_program(&_old_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     // Native completion can park before returning to its script caller. Its
     // frame must retain the result without repeating the callback on resume.
     let callback = vm
@@ -148,7 +140,7 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
         .start(
             &old,
             "owned",
-            &[callback.value(vm.gc()).unwrap()],
+            slice::from_ref(&callback),
             Default::default(),
         )
         .unwrap();
@@ -165,10 +157,13 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
             DriveResult::Waiting => panic!("synchronous native entry cannot wait"),
             DriveResult::Complete(result) => {
                 let result = result.unwrap();
-                let Some(Value::Str(id)) = result.value(vm.gc()) else {
-                    panic!("native string result")
-                };
-                assert_eq!(&*vm.gc().string(id).unwrap(), "retained native result");
+                assert_eq!(
+                    ConversionContext::new(&mut vm, &old)
+                        .unwrap()
+                        .decode::<String>(&result)
+                        .unwrap(),
+                    "retained native result"
+                );
                 completed = true;
                 break;
             }
@@ -278,10 +273,13 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
 
     assert!(foreign.call(&returned, (20, 22)).is_err());
     drop((returned, callback));
-    let collected = vm.collect_garbage().unwrap();
-    assert_eq!(collected.live_objects, 0);
-    assert!(collected.reclaimed_modules.contains(&old.key()));
-    assert_eq!(vm.gc().active_roots(), 0);
+    vm.collect_garbage().unwrap();
+    assert!(vm.validate_executable_module(&old).is_err());
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -289,16 +287,12 @@ fn generic_native_function_values_retain_applied_nominal_scopes() {
     type Identity = Function<(Object,), Object>;
     let module = generic_identity_module();
     let declaration = declaration_query(&module, DefinitionKind::Function, "identity");
-    let source = r#"
-        use example::generic_helper::identity;
-        pub struct Item { pub var value: i32 }
-        pub fn item() -> Item { identity(Item { value: 42 }) }
-        pub fn invoke(f: fn(Item) -> Item, item: Item) -> Item { f(item) }
-        pub fn echo(f: fn(Item) -> Item) -> fn(Item) -> Item { f }
-    "#;
+    let source = include_str!("../../../../../tests/fixtures/native/boxed-native-nominal.kgr");
     let (mut vm, old) = fixture(source, Some(&module));
     let _old_program = old;
     let old = vm.select_program(&_old_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let item_type = vm.bind_type(&_old_program.root(), "Item", &[]).unwrap();
     let identity = vm
         .bind_function_application_declaration::<(Object,), Object>(
@@ -329,6 +323,8 @@ fn generic_native_function_values_retain_applied_nominal_scopes() {
         item.get(&mut vm.context(&old).unwrap(), &value).unwrap(),
         43
     );
+    vm.collect_garbage().unwrap();
+    let before_independent = vm.gc_stats();
     let new = load_bytecode(
         &mut vm,
         "independent",
@@ -337,6 +333,10 @@ fn generic_native_function_values_retain_applied_nominal_scopes() {
     .unwrap();
     let _new_program = new;
     let _new = vm.select_program(&_new_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let publication_objects = vm.gc_stats().objects - before_independent.objects;
+    let publication_roots =
+        vm.gc_stats().root_registrations - before_independent.root_registrations;
     let other: Object = vm
         .execute_typed(&_new_program, "item", (), &Default::default())
         .unwrap();
@@ -351,8 +351,16 @@ fn generic_native_function_values_retain_applied_nominal_scopes() {
     );
     assert!(vm.call(&echoed, (other,)).is_err());
     assert!(vm.call(&echoed, (item.clone(),)).is_ok());
-    drop((echoed, item, returned));
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    drop((echoed, item, returned, value, item_type));
+    vm.collect_garbage().unwrap();
+    assert_eq!(
+        vm.gc_stats().objects,
+        baseline.objects + publication_objects
+    );
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations + publication_roots
+    );
 }
 
 #[test]
@@ -360,14 +368,7 @@ fn native_function_values_cannot_invent_a_missing_nested_application() {
     let module = generic_identity_module();
     let declaration = declaration_query(&module, DefinitionKind::Function, "identity");
     let (mut vm, owner) = fixture(
-        r#"
-        use example::generic_helper::identity;
-        trait Relay { fn relay<T>(self, value: T) -> T { identity(value) } }
-        impl Relay for i32 {}
-        pub fn evidence() -> i32 { val relay: Relay = 0; relay.relay(42) }
-        pub fn invoke(f: fn(i32) -> i32) -> i32 { f(42) }
-        pub fn echo(f: fn(i32) -> i32) -> fn(i32) -> i32 { f }
-    "#,
+        include_str!("../../../../../tests/fixtures/native/boxed-native-nested-evidence.kgr"),
         Some(&module),
     );
     let _owner_program = owner;
@@ -415,7 +416,7 @@ fn a_boxed_named_native_entry_does_not_retain_its_obsolete_program() {
     .unwrap();
     let module = module.finish().unwrap();
     let program = compile_program(
-        "use example::boxed::add; pub fn evidence() -> i32 { add(20, 22) }",
+        include_str!("../../../../../tests/fixtures/native/boxed-native-entry.kgr"),
         Some(&module),
     );
     let program = round_trip_program(program);
@@ -426,6 +427,8 @@ fn a_boxed_named_native_entry_does_not_retain_its_obsolete_program() {
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
     let mut vm = runtime;
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let native = vm
         .bind_function_declaration::<(i32, i32), i32>(
             &_old_program.root(),
@@ -436,20 +439,20 @@ fn a_boxed_named_native_entry_does_not_retain_its_obsolete_program() {
         .unwrap()
         .encode(native)
         .unwrap();
-    let value = root.value(vm.gc()).unwrap();
-    assert!(
-        vm.resolve_closure(&value)
-            .unwrap()
-            .script_function()
-            .is_none()
-    );
+    {
+        let mut cx = ConversionContext::new(&mut vm, &old).unwrap();
+        let value = cx.import(&root).unwrap();
+        assert!(
+            cx.runtime_mut()
+                .resolve_closure(&value)
+                .unwrap()
+                .script_function()
+                .is_none()
+        );
+    }
     reload_bytecode(&mut vm, &_old_program, Some("cycle".into()), program).unwrap();
-    assert!(
-        vm.collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&old.key())
-    );
+    vm.collect_garbage().unwrap();
+    assert!(vm.validate_executable_module(&old).is_err());
     let current = vm.select_program(&_old_program).unwrap();
     let callback: Add = ConversionContext::new(&mut vm, &current)
         .unwrap()
@@ -457,7 +460,11 @@ fn a_boxed_named_native_entry_does_not_retain_its_obsolete_program() {
         .unwrap();
     assert_eq!(vm.call(&callback, (20, 22)).unwrap(), 42);
     drop((callback, root));
-    let collected = vm.collect_garbage().unwrap();
-    assert_eq!(collected.live_objects, 0);
-    assert!(collected.reclaimed_modules.is_empty());
+    vm.collect_garbage().unwrap();
+    assert!(vm.validate_executable_module(&current).is_ok());
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }

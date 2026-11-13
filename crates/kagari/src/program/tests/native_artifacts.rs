@@ -18,7 +18,6 @@ use kagari_compiler::{
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::reload::ReloadValidationError;
-use kagari_runtime::value::Value;
 use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
@@ -87,9 +86,9 @@ fn source_exports_matching_native_input_or_explicit_bytecode_only_artifacts() {
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+                .as_i32()
+                .unwrap(),
+            42
         );
     }
 }
@@ -183,17 +182,17 @@ fn prepared_reload_preserves_abi_validation_and_the_previous_version_on_failure(
             .execute(&old, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(2)
+            .as_i32()
+            .unwrap(),
+        2
     );
     assert_eq!(
         runtime
             .execute(&current, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(2)
+            .as_i32()
+            .unwrap(),
+        2
     );
 }

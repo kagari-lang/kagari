@@ -23,11 +23,15 @@ use kagari_runtime::{
         types::Type,
         views::ValueHandle,
     },
-    resource::HeapCharge,
     session::{ExecutionEvent, ExecutionObserver},
-    value::Value,
+    value::view::ValueView,
 };
 
+use kagari_gc::{
+    error::GcError,
+    object::{GcObject, ObjectCharge},
+    scan::{EdgeVisitor, ScanBudget, ScanKind, ScanStatus},
+};
 use std::{
     cell::Cell,
     panic::{AssertUnwindSafe, catch_unwind},
@@ -45,10 +49,30 @@ struct Counter {
 }
 
 impl NativePayload for Counter {
-    fn trace<'payload>(&'payload self, _: &mut dyn FnMut(&'payload Value)) {}
+    fn registration_storage() -> NativeStorage {
+        NativeStorage::payload::<Self>()
+    }
+}
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(0, 0))
+// SAFETY: count is inline scalar state; the channel carries only Rust thread
+// identities and cannot retain managed storage. Drop reads no managed peer.
+unsafe impl GcObject for Counter {
+    type ScanState = ();
+    const SCAN_KIND: ScanKind = ScanKind::EdgeFree;
+
+    fn begin_scan(&self) {}
+
+    fn scan(
+        &self,
+        _: &mut (),
+        _: &mut ScanBudget,
+        _: &mut EdgeVisitor<'_>,
+    ) -> Result<ScanStatus, GcError> {
+        Ok(ScanStatus::Complete)
+    }
+
+    fn charge(&self) -> ObjectCharge {
+        ObjectCharge { units: 0, bytes: 0 }
     }
 }
 
@@ -92,12 +116,7 @@ fn module(held: &Arc<Mutex<Option<Callback>>>, drops: Sender<ThreadId>) -> Nativ
     .unwrap();
     let mut declaration = builder.define_type("Counter").unwrap();
     declaration
-        .native_storage(NativeStorage::new(move |_| {
-            Ok(Counter {
-                count: Cell::new(0),
-                drops: drops.clone(),
-            })
-        }))
+        .native_storage(NativeStorage::payload::<Counter>())
         .unwrap();
     let counter = declaration.finish().unwrap();
     let new = builder
@@ -106,8 +125,13 @@ fn module(held: &Arc<Mutex<Option<Callback>>>, drops: Sender<ThreadId>) -> Nativ
     builder
         .bind(
             new,
-            NativeBinding::new(Vec::<Codec>::new(), counter.codec(), |cx| {
-                cx.allocate_result()
+            NativeBinding::new(Vec::<Codec>::new(), counter.codec(), move |cx| {
+                cx.allocate_result_with(&[], |native| {
+                    native.scope().alloc_leaf(Counter {
+                        count: Cell::new(0),
+                        drops: drops.clone(),
+                    })
+                })
             }),
         )
         .unwrap();
@@ -125,7 +149,7 @@ fn module(held: &Arc<Mutex<Option<Callback>>>, drops: Sender<ThreadId>) -> Nativ
                 cx.with_payload::<Counter, _>(0, |counter| {
                     let next = counter.count.get() + 1;
                     counter.count.set(next);
-                    Ok(Value::I32(next))
+                    Ok(ValueView::from(next))
                 })
             }),
         )
@@ -202,20 +226,26 @@ fn native_operation_guards_release_on_unwind() {
     let (drops, dropped) = mpsc::channel();
     let native = module(&Arc::new(Mutex::new(None)), drops);
     let (mut vm, loaded) = compile(
-        "use fixture::transfer::{new, guarded}; fn main() -> i32 { val counter = new(); guarded(counter) + guarded(counter) }",
+        include_str!("../../../../tests/fixtures/native/operation-unwind.kgr"),
         Some(&native),
     );
     let _loaded_program = loaded;
     let loaded = vm.select_program(&_loaded_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     assert_eq!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(84)
+            .as_i32(),
+        Some(84)
     );
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
     assert_eq!(dropped.recv().unwrap(), thread::current().id());
     assert!(!vm.is_quarantined());
 }
@@ -227,14 +257,7 @@ fn live_runtime_moves_with_send_only_payloads_observer_and_pinned_closure() {
     let (payload_drops, dropped_payloads) = mpsc::channel();
     let (observer_drops, dropped_observers) = mpsc::channel();
     let native = module(&held, payload_drops);
-    let source = r#"
-        use fixture::transfer::{new, bump, remember, invoke};
-        fn main() -> i32 {
-            val counter = new(); val offset = [40];
-            remember(|value| value + offset[0] + bump(counter)); invoke(1)
-        }
-        pub fn run() -> i32 { invoke(1) }
-    "#;
+    let source = include_str!("../../../../tests/fixtures/native/thread-transfer.kgr");
     let (mut vm, loaded) = compile(source, Some(&native));
     let _loaded_program = loaded;
     let loaded = vm.select_program(&_loaded_program).unwrap();
@@ -247,9 +270,8 @@ fn live_runtime_moves_with_send_only_payloads_observer_and_pinned_closure() {
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
     let old_key = loaded.key();
     reload_bytecode(
@@ -276,9 +298,8 @@ fn live_runtime_moves_with_send_only_payloads_observer_and_pinned_closure() {
                 .execute_module(&replacement, "run", session_options.clone())
                 .unwrap()
                 .return_value
-                .value(session.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(43)
+                .as_i32(),
+            Some(43)
         );
         assert!(session.runtime().modules().loaded(old_key).is_some());
         assert!(
@@ -304,17 +325,15 @@ fn live_runtime_moves_with_send_only_payloads_observer_and_pinned_closure() {
             vm.execute_module(&replacement, "run", vm.execution_options())
                 .unwrap()
                 .return_value
-                .value(vm.gc())
-                .expect("retained execution result"),
-            Value::I32(44)
+                .as_i32(),
+            Some(44)
         );
         assert_eq!(
             vm.execute_module(&replacement, ProgramEntry::Main, vm.execution_options())
                 .unwrap()
                 .return_value
-                .value(vm.gc())
-                .expect("retained execution result"),
-            Value::I32(101)
+                .as_i32(),
+            Some(101)
         );
         vm.collect_garbage().unwrap();
         assert!(vm.modules().loaded(old_key).is_none());

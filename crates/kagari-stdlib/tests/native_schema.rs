@@ -14,8 +14,8 @@ use kagari_hir::{analysis::AnalysisDatabase, native::render::declaration_source}
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::context::ErrorLocation,
+    execution::memory::GcHeapConfig,
     frame::types::arguments::TypeArgument,
-    gc::{GcHeapConfig, HeapObjectId},
     native::{
         binding::NativeResult,
         builder::ModuleBuilder,
@@ -28,7 +28,7 @@ use kagari_runtime::{
         schema::{TypeRegistration, ValueField},
         types::Type,
     },
-    value::Value,
+    value::{carriers::RootedValue, view::ValueView},
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::ty::Ty;
@@ -37,7 +37,7 @@ mod leaf;
 use leaf::Leaf;
 
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
     collections::BTreeMap,
     panic::{AssertUnwindSafe, catch_unwind},
     sync::Arc,
@@ -109,10 +109,7 @@ fn catalog_local_rust_identity_rejects_duplicate_module_install_atomically() {
 }
 
 fn program(module: &NativeModule) -> DefinitionMetadata<BytecodeProgram> {
-    program_for_source(
-        module,
-        "use game::data::Tree; pub fn inspect(tree: Tree) -> i32 { tree.leaf.value }",
-    )
+    program_for_source(module, include_str!("fixtures/native/schema_tree.kgr"))
 }
 
 fn program_for_source(module: &NativeModule, text: &str) -> DefinitionMetadata<BytecodeProgram> {
@@ -203,11 +200,11 @@ fn source_free_loading_checks_registered_schema_without_native_calls() {
 }
 
 impl IntoKagari for Leaf {
-    fn into_kagari(
+    fn into_kagari<'call>(
         self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ValueView<'call>> {
         let mut fields = cx.write_struct(expected)?;
         fields.field("value", self.value)?;
         fields.finish()
@@ -215,7 +212,7 @@ impl IntoKagari for Leaf {
 }
 
 thread_local! {
-    static REWRITE_PARENT: Cell<Option<HeapObjectId>> = const { Cell::new(None) };
+    static REWRITE_PARENT: RefCell<Option<RootedValue>> = const { RefCell::new(None) };
     static PANIC_IN_LEAF: Cell<bool> = const { Cell::new(false) };
 }
 
@@ -223,17 +220,13 @@ impl FromKagari for Leaf {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
-        if let Some(parent) = REWRITE_PARENT.take() {
+        if let Some(parent) = REWRITE_PARENT.with(|slot| slot.borrow_mut().take()) {
             let empty = cx.encode(None::<Box<Tree>>)?;
-            let layout = cx.runtime().gc().struct_layout(parent).unwrap();
-            cx.runtime().gc().struct_set_slot(
-                parent,
-                &layout,
-                1,
-                empty.value(cx.runtime().gc()).unwrap(),
-            )?;
+            let _ = cx
+                .runtime_mut()
+                .reflect_set_field(&parent, "children", &empty)?;
             cx.runtime_mut().collect_garbage()?;
         }
         assert!(!PANIC_IN_LEAF.replace(false), "DTO child conversion unwind");
@@ -259,6 +252,7 @@ fn conversion_fixture() -> (Runtime, kagari_runtime::module::ExecutableModule) {
     NativeModule::install_all(&modules, &mut runtime).unwrap();
     let owner_program = load_bytecode(&mut runtime, "dto", program).unwrap();
     let owner = runtime.select_program(&owner_program).unwrap();
+    runtime.collect_garbage().unwrap();
     (runtime, owner)
 }
 
@@ -268,7 +262,7 @@ fn char_host_conversions_preserve_domains_in_scalars_and_generic_containers() {
     let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
     for ch in ['\0', 'é', '🙂', char::MAX] {
         let root = cx.encode(ch).unwrap();
-        assert_eq!(root.value(cx.runtime().gc()), Some(Value::Char(ch)));
+        assert_eq!(root.as_char(), Some(ch));
         assert_eq!(cx.decode::<char>(&root).unwrap(), ch);
         assert!(cx.decode::<u32>(&root).is_err());
         let integer = cx.encode(u32::from(ch)).unwrap();
@@ -291,6 +285,7 @@ fn char_host_conversions_preserve_domains_in_scalars_and_generic_containers() {
 #[test]
 fn nested_dtos_and_enum_payloads_round_trip_with_owned_isolation_and_collection() {
     let (mut runtime, owner) = conversion_fixture();
+    let baseline = runtime.gc_stats();
     let input = Tree {
         leaf: Leaf { value: 42 },
         children: Some(Box::new(Tree {
@@ -303,18 +298,12 @@ fn nested_dtos_and_enum_payloads_round_trip_with_owned_isolation_and_collection(
     let mut decoded: Tree = cx.decode(&root).unwrap();
     decoded.leaf.value = 99;
     assert_eq!(cx.decode::<Tree>(&root).unwrap(), input);
-    let Value::Struct(id) = root.value(cx.runtime().gc()).unwrap() else {
-        panic!("DTO struct")
-    };
-    let layout = cx.runtime().gc().struct_layout(id).unwrap();
-    let Value::Struct(leaf) = cx.runtime().gc().struct_get_slot(id, &layout, 0).unwrap() else {
-        panic!("nested DTO")
-    };
-    let leaf_layout = cx.runtime().gc().struct_layout(leaf).unwrap();
-    cx.runtime()
-        .gc()
-        .struct_set_slot(leaf, &leaf_layout, 0, Value::I32(12))
+    let leaf = cx.runtime_mut().reflect_get_field(&root, "leaf").unwrap();
+    let _ = cx
+        .runtime_mut()
+        .reflect_set_field(&leaf, "value", &RootedValue::from(12i32))
         .unwrap();
+    drop(leaf);
     assert_eq!(decoded.leaf.value, 99);
     assert_eq!(cx.decode::<Tree>(&root).unwrap().leaf.value, 12);
     for input in [Choice::Empty, Choice::Leaf(Leaf { value: 23 })] {
@@ -322,15 +311,20 @@ fn nested_dtos_and_enum_payloads_round_trip_with_owned_isolation_and_collection(
         cx.runtime_mut().collect_garbage().unwrap();
         assert_eq!(cx.decode::<Choice>(&root).unwrap(), input);
     }
-    assert!(cx.runtime().gc().stats().collections > 0);
+    assert!(cx.runtime().gc_stats().completed_cycles > 0);
     drop(root);
-    assert_eq!(cx.runtime().gc().active_roots(), 0);
-    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert_eq!(cx.runtime().gc_stats().objects, baseline.objects);
 }
 
 #[test]
 fn dto_limits_and_incomplete_initializers_release_unpublished_roots() {
     let (mut runtime, owner) = conversion_fixture();
+    let baseline = runtime.gc_stats();
     let input = Tree {
         leaf: Leaf { value: 42 },
         children: Some(Box::new(Tree {
@@ -355,14 +349,24 @@ fn dto_limits_and_incomplete_initializers_release_unpublished_roots() {
             .iter()
             .any(|position| matches!(position, ErrorLocation::Field(name) if name == "leaf"))
     );
-    assert_eq!(cx.runtime().gc().active_roots(), 0);
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(cx.runtime().gc_stats().objects, baseline.objects);
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        baseline.root_registrations
+    );
     drop(cx);
     let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
     let expected = cx.type_for::<Tree>().unwrap();
     let mut fields = cx.write_struct(&expected).unwrap();
     fields.field("leaf", Leaf { value: 1 }).unwrap();
     assert!(fields.finish().unwrap_err().to_string().contains("missing"));
-    assert_eq!(cx.runtime().gc().active_roots(), 0);
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(cx.runtime().gc_stats().objects, baseline.objects);
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        baseline.root_registrations
+    );
     let mut fields = cx.write_struct(&expected).unwrap();
     fields.field("leaf", Leaf { value: 1 }).unwrap();
     assert!(
@@ -384,21 +388,25 @@ fn dto_limits_and_incomplete_initializers_release_unpublished_roots() {
     )
     .unwrap();
     assert!(restricted.decode::<Tree>(&root).is_err());
-    assert_eq!(restricted.runtime().gc().active_roots(), 1);
-    drop(root);
+    restricted.runtime_mut().collect_garbage().unwrap();
     assert_eq!(
-        restricted
-            .runtime_mut()
-            .collect_garbage()
-            .unwrap()
-            .live_objects,
-        0
+        restricted.runtime().gc_stats().root_registrations,
+        baseline.root_registrations + 1
+    );
+    drop(root);
+    restricted.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(restricted.runtime().gc_stats().objects, baseline.objects);
+    restricted.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(
+        restricted.runtime().gc_stats().root_registrations,
+        baseline.root_registrations
     );
 }
 
 #[test]
 fn dto_snapshot_survives_alias_mutation_collection_and_child_unwind() {
     let (mut runtime, owner) = conversion_fixture();
+    let baseline = runtime.gc_stats();
     let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
     let input = Tree {
         leaf: Leaf { value: 1 },
@@ -408,16 +416,22 @@ fn dto_snapshot_survives_alias_mutation_collection_and_child_unwind() {
         })),
     };
     let root = cx.encode(input.clone()).unwrap();
-    let Value::Struct(parent) = root.value(cx.runtime().gc()).unwrap() else {
-        panic!("Tree")
-    };
-    REWRITE_PARENT.set(Some(parent));
+    REWRITE_PARENT.with(|slot| *slot.borrow_mut() = Some(root.clone()));
     assert_eq!(cx.decode::<Tree>(&root).unwrap(), input);
     assert!(cx.decode::<Tree>(&root).unwrap().children.is_none());
     PANIC_IN_LEAF.set(true);
     assert!(catch_unwind(AssertUnwindSafe(|| cx.decode::<Tree>(&root))).is_err());
-    assert_eq!(cx.runtime().gc().active_roots(), 1);
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        baseline.root_registrations + 1
+    );
     assert!(cx.decode::<Tree>(&root).unwrap().children.is_none());
     drop(root);
-    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(cx.runtime().gc_stats().objects, baseline.objects);
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }

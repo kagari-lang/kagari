@@ -2,13 +2,18 @@
 use crate::tests::support::bytecode::load_bytecode;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
-    gc::roots::RootedValue,
     module::{ExecutableModule, entry::ProgramEntry},
     native::{
-        binding::NativeResult, builder::ModuleBuilder, context::NativeCall,
-        declarations::FunctionDecl, module::NativeModule, types::Type, views::ValueHandle,
+        binding::NativeResult,
+        builder::ModuleBuilder,
+        context::NativeCall,
+        conversion::{FromKagari, context::ConversionContext},
+        declarations::FunctionDecl,
+        module::NativeModule,
+        types::Type,
+        views::ValueHandle,
     },
-    value::Value,
+    value::carriers::RootedValue,
 };
 
 use crate as foundation;
@@ -77,18 +82,25 @@ fn after_failure_source(element: &str, count: usize) -> String {
 }
 
 fn inspect_retained(vm: &mut Runtime, owner: &ExecutableModule, probe: &Probe) -> RootedValue {
-    let value = probe
-        .retained
-        .lock()
-        .unwrap()
-        .as_ref()
-        .unwrap()
-        .value(vm.gc())
-        .unwrap();
+    let value = probe.retained.lock().unwrap().as_ref().unwrap().clone();
     crate::tests::support::invoke(vm, owner, "after_failure", &[value])
 }
 
-fn run(text: &str) -> Value {
+fn array_i32(vm: &mut Runtime, owner: &ExecutableModule, root: &RootedValue) -> Vec<i32> {
+    let mut cx = ConversionContext::new(vm, owner).unwrap();
+    let array = cx.import(root).unwrap();
+    (0..cx.array_len(&array).unwrap())
+        .map(|index| {
+            cx.array_element(&array, index)
+                .unwrap()
+                .unwrap()
+                .as_i32()
+                .expect("i32 element")
+        })
+        .collect()
+}
+
+fn run<T: FromKagari>(text: &str) -> T {
     let library = foundation::modules()
         .unwrap()
         .into_iter()
@@ -104,38 +116,28 @@ fn run(text: &str) -> Value {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = runtime;
-    vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
+    let result = vm
+        .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .unwrap()
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result")
+        .return_value;
+    ConversionContext::new(&mut vm, &loaded)
+        .unwrap()
+        .decode(&result)
+        .unwrap()
 }
 
 #[test]
 fn primitive_sort_and_supplied_comparator_preserve_shared_identity() {
-    assert_eq!(
-        run(r#"
-        fn main() -> bool {
-            val empty: Vec<i32> = Vec::from([]); empty.sort();
-            val values = Vec::from([3, 1, 2, 1]); val alias = values;
-            values.sort();
-            if alias[0] != 1 || alias[1] != 1 || alias[2] != 2 || alias[3] != 3 { return false; }
-            values.sort_by(|a, b| b.cmp(a));
-            alias[0] == 3 && alias[1] == 2 && alias[2] == 1 && alias[3] == 1
-        }
-    "#),
-        Value::Bool(true)
-    );
+    assert!(run::<bool>(include_str!(
+        "../../../tests/fixtures/collections/sort-aliases.kgr"
+    )));
 }
 
 #[test]
 fn script_ord_is_selected_and_equal_elements_remain_stable() {
-    assert_eq!(
-        run(include_str!(
-            "../../../tests/fixtures/collections/selected-stable-order.kgr"
-        )),
-        Value::Bool(true)
-    );
+    assert!(run::<bool>(include_str!(
+        "../../../tests/fixtures/collections/selected-stable-order.kgr"
+    )));
 }
 
 struct Probe {
@@ -205,14 +207,7 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
             module.declaration().identity == crate::namespaces::module("std", "collections")
         })
         .unwrap();
-    let source = r#"
-        use test::probe::{keep, tick};
-        struct Item { val key: i32, var visits: i32 }
-        fn main() {
-            val values = Vec::from([Item { key: 3, visits: 0 }, Item { key: 1, visits: 0 }, Item { key: 2, visits: 0 }, Item { key: 0, visits: 0 }]); keep(values);
-            values.sort_by(|a,b| { a.visits += 1; val count = tick(); if count == 3u64 { val fail = 1 / 0; }; a.key.cmp(b.key) });
-        }
-    "#;
+    let source = include_str!("../../../tests/fixtures/collections/sort-comparator-failure.kgr");
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = Runtime::new(config);
@@ -230,41 +225,37 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = runtime;
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     assert!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .is_err()
     );
     assert_eq!(probe.calls.load(Ordering::SeqCst), 3);
     let snapshot = inspect_retained(&mut vm, &loaded, &probe);
-    let Value::Array(array) = snapshot.value(vm.gc()).unwrap() else {
-        panic!("snapshot")
-    };
-    let values = vm.gc().array_snapshot(array).unwrap();
     let mut keys = Vec::new();
     let mut visits = 0;
-    for value in &values {
-        let Value::Struct(id) = value else {
-            panic!("item");
-        };
-        let (_, fields) = vm.gc().struct_snapshot(*id).unwrap();
-        for field in fields {
-            if field.name == "key" {
-                keys.push(field.value);
-            } else if field.name == "visits" {
-                let Value::I32(count) = field.value else {
-                    panic!("visit count");
-                };
-                visits += count;
-            }
+    {
+        let mut cx = ConversionContext::new(&mut vm, &loaded).unwrap();
+        let array = cx.import(&snapshot).unwrap();
+        for index in 0..cx.array_len(&array).unwrap() {
+            let value = cx.array_element(&array, index).unwrap().unwrap();
+            let value = cx.retain(&value).unwrap();
+            keys.push(
+                cx.runtime_mut()
+                    .reflect_get_field(&value, "key")
+                    .unwrap()
+                    .as_i32()
+                    .unwrap(),
+            );
+            visits += cx
+                .runtime_mut()
+                .reflect_get_field(&value, "visits")
+                .unwrap()
+                .as_i32()
+                .unwrap();
         }
     }
-    let mut keys: Vec<_> = keys
-        .into_iter()
-        .map(|value| match value {
-            Value::I32(value) => value,
-            _ => panic!("key"),
-        })
-        .collect();
     keys.sort();
     assert_eq!(keys, vec![0, 1, 2, 3]);
     assert_eq!(
@@ -273,13 +264,21 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
     );
     drop(snapshot);
     probe.retained.lock().unwrap().take();
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(vm.gc().active_roots(), 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
 fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() {
-    for mutation in ["values[0] = 9;", "values.push(9);", "values.sort();"] {
+    for source in [
+        include_str!("../../../tests/fixtures/collections/sort-guard-write.kgr"),
+        include_str!("../../../tests/fixtures/collections/sort-guard-push.kgr"),
+        include_str!("../../../tests/fixtures/collections/sort-guard-nested.kgr"),
+    ] {
         let probe = Probe::new();
         let library = foundation::modules()
             .unwrap()
@@ -288,15 +287,6 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
                 module.declaration().identity == crate::namespaces::module("std", "collections")
             })
             .unwrap();
-        let source = format!(
-            r#"
-            use test::probe::keep;
-            fn main() {{
-                val values = Vec::from([3,1,2]); keep(values);
-                values.sort_by(|a,b| {{ {mutation} a.cmp(b) }});
-            }}
-        "#
-        );
         let mut runtime = Runtime::default();
         NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
         probe.module.install(&mut runtime).unwrap();
@@ -312,6 +302,8 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
         let mut vm = runtime;
+        vm.collect_garbage().unwrap();
+        let baseline = vm.gc_stats();
         let error = vm
             .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap_err();
@@ -320,32 +312,23 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
             "{error:?}"
         );
         let snapshot = inspect_retained(&mut vm, &loaded, &probe);
-        let Value::Array(array) = snapshot.value(vm.gc()).unwrap() else {
-            panic!("snapshot")
-        };
-        assert_eq!(
-            vm.gc().array_snapshot(array),
-            Some(vec![Value::I32(3), Value::I32(1), Value::I32(2)])
-        );
+        assert_eq!(array_i32(&mut vm, &loaded, &snapshot), [3, 1, 2]);
         drop(snapshot);
+        probe.retained.lock().unwrap().take();
+        vm.collect_garbage().unwrap();
+        assert_eq!(vm.gc_stats().objects, baseline.objects);
+        assert_eq!(
+            vm.gc_stats().root_registrations,
+            baseline.root_registrations
+        );
     }
 }
 
 #[test]
 fn primitive_selection_covers_unsigned_bounds_and_string_ordering() {
-    assert_eq!(
-        run(r#"
-        fn main() -> bool {
-            val values: Vec<u64> = Vec::from([18446744073709551615u64, 0u64, 9223372036854775808u64]);
-            values.sort();
-            if values[0] != 0u64 || values[2] != 18446744073709551615u64 { return false; }
-            values.sort_by(|a,b| b.cmp(a));
-            val text = Vec::from(["z", "a", "a", "b"]); text.sort();
-            values[0] == 18446744073709551615u64 && text[0] == "a" && text[3] == "z"
-        }
-    "#),
-        Value::Bool(true)
-    );
+    assert!(run::<bool>(include_str!(
+        "../../../tests/fixtures/collections/sort-scalars.kgr"
+    )));
 }
 
 #[test]
@@ -361,12 +344,7 @@ fn scalar_ord_overrides_are_rejected_before_native_selection() {
     let file = sources
         .set(
             "invalid.kgr",
-            r#"use std::cmp::{Ordering};
-
-        impl Ord for i32 { fn cmp(self, other: Self) -> Ordering { Ordering::Equal } }
-        fn main() { Vec::from([1,3,2]).sort(); }
-    "#
-            .into(),
+            include_str!("../../../tests/fixtures/collections/invalid-scalar-ord.kgr").into(),
             SourceLayer::Base,
         )
         .unwrap();
@@ -400,7 +378,7 @@ fn generated_library_declarations_supply_navigation_docs_and_exported_signatures
         &foundation_catalog::shared().unwrap(),
     )
     .unwrap();
-    let text = " fn main() { val values = Vec::from([2,1]).map(|value| value); }";
+    let text = include_str!("../../../tests/fixtures/collections/mapped-navigation.kgr");
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("tooling.kgr", text.into(), SourceLayer::Base)

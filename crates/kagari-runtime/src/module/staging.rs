@@ -1,9 +1,17 @@
-//! Candidate leases invalidate access without owning or borrowing module storage.
+//! Candidates own exact managed revisions; leases separately control admission.
+mod managed;
 use crate::{
     error::{RuntimeError, reason::StaleHandleReason},
-    module::{ExecutableModule, Installation, ModuleKey, ModuleStore},
+    execution::{memory::ManagedMemory, roots::ExecutionRoots},
+    module::{
+        ExecutableModule, Installation, ModuleKey, ModuleStore,
+        installation::CurrentPublication,
+        managed::{InstallationState, revision::RevisionState, source::RevisionSource},
+    },
+    resource::ResourceState,
 };
 
+use kagari_gc::{error::GcError, root::Root};
 use std::{
     collections::hash_map::Entry,
     mem,
@@ -40,10 +48,39 @@ impl Drop for CandidateLease {
     }
 }
 
-/// Authorizes an unpublished program without owning its mutable storage.
+/// Metadata preparation has an abandonment lease before any fallible heap work.
+/// This private intermediate never reaches an execution/publication entrypoint.
+#[derive(Debug)]
+pub(crate) struct PreparedProgramMetadata {
+    pub(super) installation: Arc<Installation>,
+    pub(super) module: ExecutableModule,
+    pub(super) lease: Arc<CandidateLease>,
+    pub(super) expected_base: Option<ModuleKey>,
+}
+
+#[derive(Debug)]
+pub(crate) enum ManagedProgramError {
+    Validation(RuntimeError),
+    Memory(GcError),
+}
+
+impl From<RuntimeError> for ManagedProgramError {
+    fn from(error: RuntimeError) -> Self {
+        Self::Validation(error)
+    }
+}
+
+impl From<GcError> for ManagedProgramError {
+    fn from(error: GcError) -> Self {
+        Self::Memory(error)
+    }
+}
+
+/// Owns one unpublished revision root, independently of metadata-only leases.
 /// Last-drop invalidates candidate access; collection retires its physical records.
 #[derive(Debug)]
 pub(crate) struct StagedProgram {
+    pub(super) revision: Root<RevisionState>,
     pub(super) installation: Arc<Installation>,
     pub(super) module: ExecutableModule,
     pub(super) lease: Arc<CandidateLease>,
@@ -59,19 +96,28 @@ impl StagedProgram {
         self,
         store: &ModuleStore,
         baseline: &ExecutableModule,
-    ) -> Result<Self, RuntimeError> {
+        memory: &mut ManagedMemory,
+        resources: &ResourceState,
+    ) -> Result<Self, ManagedProgramError> {
         if self.expected_base != Some(baseline.key())
             || self.module.installation_id() != baseline.installation_id()
         {
             return Err(RuntimeError::module_validation(
                 "reload demand history belongs to a different baseline",
-            ));
+            )
+            .into());
         }
         store.bind_static_reload(baseline, &self.module)?;
+        self.finish_bindings(store, memory, resources)?;
         Ok(self)
     }
 
-    pub(crate) fn publish(self, store: &ModuleStore) -> Result<ExecutableModule, RuntimeError> {
+    pub(crate) fn publish(
+        self,
+        store: &ModuleStore,
+        memory: &mut ManagedMemory,
+        resources: &ResourceState,
+    ) -> Result<ExecutableModule, ManagedProgramError> {
         store.validate_installation(&self.installation, self.module.registry_owner)?;
         let replacement = self.module.program.clone();
         let mut inner = store.inner.try_borrow_mut().map_err(|_| {
@@ -84,9 +130,9 @@ impl StagedProgram {
                 .get(&key)
                 .is_some_and(|lease| Weak::ptr_eq(lease, &Arc::downgrade(&self.lease)));
         if !valid || self.module.installation_id() != self.installation.id {
-            return Err(RuntimeError::module_validation(
-                "invalid staged program publication",
-            ));
+            return Err(
+                RuntimeError::module_validation("invalid staged program publication").into(),
+            );
         }
         // All correspondence, table allocations and environment-view replacement
         // happen before visibility changes. Parked frames hold no active views.
@@ -109,9 +155,7 @@ impl StagedProgram {
         let entry = match inner.staged.entry(key) {
             Entry::Occupied(entry) => entry,
             Entry::Vacant(_) => {
-                return Err(RuntimeError::module_validation(
-                    "missing staged publication",
-                ));
+                return Err(RuntimeError::module_validation("missing staged publication").into());
             }
         };
         let mut current = store.current.try_borrow_mut().map_err(|_| {
@@ -120,7 +164,8 @@ impl StagedProgram {
         current
             .try_reserve(1)
             .map_err(|_| RuntimeError::resource_limit("current programs"))?;
-        let current_key = current.get(&self.installation.id).map(|program| {
+        let current_key = current.get(&self.installation.id).map(|publication| {
+            let program = &publication.program;
             let root = &program.modules[program.root.index()];
             ModuleKey {
                 id: root.id,
@@ -130,8 +175,34 @@ impl StagedProgram {
         if current_key != self.expected_base {
             return Err(RuntimeError::from(
                 StaleHandleReason::InstallationPublicationBaselineChangedOrClosed,
-            ));
+            )
+            .into());
         }
+        // Prepare ownership before the physical commit. Compatible publication
+        // shares the existing installation lease; a fresh load creates one root.
+        let root = memory.scope(resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                let revision =
+                    RevisionSource::Host(&self.revision).resolve(store, slots, &self.module)?;
+                let installation = RevisionState::installation(slots.scope(), revision);
+                let root = match current.get(&self.installation.id) {
+                    Some(publication) => {
+                        let existing = slots.scope().get(&publication.root)?;
+                        if !existing.ptr_eq(installation) {
+                            return Err(GcError::Representation);
+                        }
+                        publication.root.clone()
+                    }
+                    None => slots.scope().retain(installation)?,
+                };
+                InstallationState::publish(slots.scope(), installation, revision)?;
+                Ok(root)
+            })
+        })?;
+        let replacement = CurrentPublication {
+            program: replacement,
+            root,
+        };
         // Everything below is non-failing; no destruction of the old descriptor
         // occurs until both guards have been released.
         self.module.program.dispatch.scope.mark_published();

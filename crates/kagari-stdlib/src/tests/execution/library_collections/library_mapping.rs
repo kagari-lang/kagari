@@ -1,6 +1,9 @@
 use super::{Probe, program, run};
-use super::{after_failure_source, inspect_retained};
-use kagari_runtime::{Runtime, RuntimeConfig, module::entry::ProgramEntry, value::Value};
+use super::{after_failure_source, array_i32, inspect_retained};
+use kagari_runtime::{
+    Runtime, RuntimeConfig, module::entry::ProgramEntry,
+    native::conversion::context::ConversionContext,
+};
 
 #[cfg(test)]
 use crate::tests::support::bytecode::load_bytecode;
@@ -15,45 +18,18 @@ use std::sync::atomic::Ordering;
 
 #[test]
 fn map_is_lazy_and_aliases_share_cursor_progress_and_gc_captures() {
-    assert_eq!(
-        run(r#"
-
-        fn main() -> bool {
-            val calls = Vec::from([0]); val offset = Vec::from([1]);
-            val mapped = Vec::from([10,20,30]).map(|item| { calls[0] += 1; Vec::from([item + offset[0]]) });
-            if calls[0] != 0 { return false; }
-            val alias = mapped;
-            val first = match mapped.next() { Some(value) => value[0], None => -1 };
-            val second = match alias.next() { Some(value) => value[0], None => -1 };
-            var rest = 0; for item in mapped { rest += item[0]; }
-            val ended = match alias.next() { Some(_) => false, None => true };
-            first == 11 && second == 21 && rest == 31 && calls[0] == 3 && ended
-        }
-    "#),
-        Value::Bool(true)
-    );
+    assert!(run::<bool>(include_str!(
+        "../../../../tests/fixtures/collections/map-aliases.kgr"
+    )));
 }
 
 #[test]
 fn break_allows_source_writes_and_dynamic_views_preserve_shared_progress() {
-    for erased in [false, true] {
-        let annotation = if erased { ": Iterator<Item = i32>" } else { "" };
-        assert_eq!(
-            run(&format!(
-                r#"
-
-            fn main() -> i32 {{
-                val values = Vec::from([10,20,30]); val mapped{annotation} = values.map(|item| item + 1);
-                var first = 0; for item in mapped {{ first = item; break; }}
-                val second = match mapped.next() {{ Some(item) => item, None => -1 }};
-                for item in mapped {{ break; }}
-                values.push(40);
-                first + second + values[3]
-            }}
-        "#
-            )),
-            Value::I32(72)
-        );
+    for source in [
+        include_str!("../../../../tests/fixtures/collections/mapped-break-static.kgr"),
+        include_str!("../../../../tests/fixtures/collections/mapped-break-dynamic.kgr"),
+    ] {
+        assert_eq!(run::<i32>(source), 72);
     }
 }
 
@@ -65,10 +41,7 @@ fn wrapped_sources_commit_edits_then_fail_before_the_next_read() {
         .find(|module| module.declaration().identity == crate::namespaces::module("core", "iter"))
         .unwrap();
     let probe = Probe::new();
-    let source = r#"
-         use test::probe::keep;
-        fn main() { val values = Vec::from([1,2]); keep(values); for item in [4,5].map(|item| item).zip(values.filter(|item| item > 0)).enumerate() { values.push(item[0] as i32); } }
-    "#;
+    let source = include_str!("../../../../tests/fixtures/collections/wrapped-source-failure.kgr");
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
         &crate::modules().unwrap(),
@@ -88,18 +61,22 @@ fn wrapped_sources_commit_edits_then_fail_before_the_next_read() {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = runtime;
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let error = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .unwrap_err();
     assert!(format!("{error:?}").contains("invalid or structurally modified iterator"));
     let snapshot = inspect_retained(&mut vm, &loaded, &probe);
-    let Value::Array(array) = snapshot.value(vm.gc()).unwrap() else {
-        panic!("snapshot")
-    };
-    assert_eq!(vm.gc().array_len(array), Some(3));
+    assert_eq!(array_i32(&mut vm, &loaded, &snapshot).len(), 3);
     drop(snapshot);
     probe.retained.lock().unwrap().take();
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -110,12 +87,7 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
         .find(|module| module.declaration().identity == crate::namespaces::module("core", "iter"))
         .unwrap();
     let probe = Probe::new();
-    let source = r#"
-         use test::probe::tick;
-        pub fn make() -> Iterator<Item = (i32,i32)> {
-            Vec::from([100,200]).map(|item| item).zip(Vec::from([10,20]).map(|item| { if tick() == 1u64 { val fail = 1 / 0; }; item + 1 }))
-        }
-    "#;
+    let source = include_str!("../../../../tests/fixtures/collections/mapped-callback-failure.kgr");
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
         &crate::modules().unwrap(),
@@ -132,13 +104,12 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = runtime;
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let iterator = vm
         .execute_module(&loaded, "make", vm.execution_options())
         .unwrap()
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result");
-    let root = vm.root_value(iterator).unwrap();
+        .return_value;
     let definitions = vm.host().definitions();
     let next = ModuleDecl::method_id(
         Protocol::Iterator.definition(&definitions).unwrap(),
@@ -148,23 +119,22 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
     .unwrap();
     assert!(vm.invoke_interface_method(&iterator, &next, &[]).is_err());
     assert_eq!(probe.calls.load(Ordering::SeqCst), 1);
-    let result = vm.invoke_interface_method(&iterator, &next, &[]).unwrap();
-    let Value::Enum(id) = result else {
-        panic!("Option");
+    let observed = {
+        let result = vm.invoke_interface_method(&iterator, &next, &[]).unwrap();
+        ConversionContext::new(&mut vm, &loaded)
+            .unwrap()
+            .decode::<Option<(i32, i32)>>(&result)
+            .unwrap()
     };
-    let result = vm.gc().enum_snapshot(id).unwrap();
-    assert_eq!(result.tag.variant_name(), "Some");
-    let Value::Tuple(pair) = result.fields[0] else {
-        panic!("pair");
-    };
-    assert_eq!(
-        &*vm.gc().tuple(pair).unwrap(),
-        &[Value::I32(200), Value::I32(21)]
-    );
+    assert_eq!(observed, Some((200, 21)));
     assert_eq!(probe.calls.load(Ordering::SeqCst), 2);
-    drop(root);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(vm.gc().active_roots(), 0);
+    drop(iterator);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -182,17 +152,24 @@ fn map_invokes_the_selected_custom_source_and_releases_its_roots() {
         &mut runtime,
     )
     .unwrap();
-    let loaded = load_bytecode(&mut runtime, "map", program(r#"struct Source { var done: bool } impl Iterator for Source { type Item=i32; fn next(self)->Option<i32> { if self.done { None } else { self.done=true; Some(42) } } } pub fn make()->Iterator<Item=i32> { Source { done:false }.map(|item|item) }"#, &[&library])).unwrap();
+    let loaded = load_bytecode(
+        &mut runtime,
+        "map",
+        program(
+            include_str!("../../../../tests/fixtures/collections/mapped-custom-source.kgr"),
+            &[&library],
+        ),
+    )
+    .unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = runtime;
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let iterator = vm
         .execute_module(&loaded, "make", vm.execution_options())
         .unwrap()
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result");
-    let root = vm.root_value(iterator).unwrap();
+        .return_value;
     let definitions = vm.host().definitions();
     let next = ModuleDecl::method_id(
         Protocol::Iterator.definition(&definitions).unwrap(),
@@ -200,18 +177,21 @@ fn map_invokes_the_selected_custom_source_and_releases_its_roots() {
         &definitions,
     )
     .unwrap();
-    let result = vm.invoke_interface_method(&iterator, &next, &[]).unwrap();
-
-    let Value::Enum(id) = result else {
-        panic!("Option");
+    let observed = {
+        let result = vm.invoke_interface_method(&iterator, &next, &[]).unwrap();
+        ConversionContext::new(&mut vm, &loaded)
+            .unwrap()
+            .decode::<Option<i32>>(&result)
+            .unwrap()
     };
+    assert_eq!(observed, Some(42));
+    drop(iterator);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
     assert_eq!(
-        vm.gc().enum_snapshot(id).unwrap().fields,
-        vec![Value::I32(42)]
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
     );
-    drop(root);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(vm.gc().active_roots(), 0);
 }
 
 #[test]
@@ -221,15 +201,7 @@ fn recursive_next_is_rejected_and_unreachable_capture_cycles_are_collected() {
         .into_iter()
         .find(|module| module.declaration().identity == crate::namespaces::module("core", "iter"))
         .unwrap();
-    let source = r#"
-        use core::iter::MapIterator;
-        struct Holder { var cursor: Option<MapIterator<i32,i32>> }
-        fn main() {
-            val holder = Holder { cursor: None };
-            val mapped = Vec::from([1,2]).map(|item| { match holder.cursor { Some(cursor) => { cursor.next(); }, None => {} }; item });
-            holder.cursor = Some(mapped); mapped.next();
-        }
-    "#;
+    let source = include_str!("../../../../tests/fixtures/collections/mapped-recursive-next.kgr");
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
         &crate::modules().unwrap(),
@@ -240,6 +212,8 @@ fn recursive_next_is_rejected_and_unreachable_capture_cycles_are_collected() {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = runtime;
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let error = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .unwrap_err();
@@ -247,8 +221,12 @@ fn recursive_next_is_rejected_and_unreachable_capture_cycles_are_collected() {
         format!("{error:?}").contains("recursive next on the same lazy iterator"),
         "{error:?}"
     );
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(vm.gc().active_roots(), 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -270,13 +248,12 @@ fn retained_zip_keeps_sources_and_closures_but_calls_current_methods() {
     let old = runtime.select_program(&_old_program).unwrap();
     let old_key = old.key();
     let mut vm = runtime;
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let iterator = vm
         .execute_module(&old, "make", vm.execution_options())
         .unwrap()
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result");
-    let root = vm.root_value(iterator).unwrap();
+        .return_value;
     let bias = "fn bias() -> i32 {\n    0\n}";
     assert_eq!(source.matches("[1]").count(), 1);
     assert_eq!(source.matches(bias).count(), 1);
@@ -301,36 +278,33 @@ fn retained_zip_keeps_sources_and_closures_but_calls_current_methods() {
         &definitions,
     )
     .unwrap();
-    let Value::Enum(id) = vm.invoke_interface_method(&iterator, &next, &[]).unwrap() else {
-        panic!("Option");
+    let observed = {
+        let result = vm.invoke_interface_method(&iterator, &next, &[]).unwrap();
+        ConversionContext::new(&mut vm, &replacement)
+            .unwrap()
+            .decode::<Option<(i32, i32)>>(&result)
+            .unwrap()
     };
-    let Value::Tuple(pair) = vm.gc().enum_snapshot(id).unwrap().fields[0] else {
-        panic!("pair");
-    };
-    assert_eq!(
-        &*vm.gc().tuple(pair).unwrap(),
-        &[Value::I32(111), Value::I32(131)]
-    );
+    assert_eq!(observed, Some((111, 131)));
     let fresh = vm
         .execute_module(&replacement, "make", vm.execution_options())
         .unwrap()
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result");
-    let Value::Enum(id) = vm.invoke_interface_method(&fresh, &next, &[]).unwrap() else {
-        panic!("Option");
+        .return_value;
+    let observed = {
+        let result = vm.invoke_interface_method(&fresh, &next, &[]).unwrap();
+        ConversionContext::new(&mut vm, &replacement)
+            .unwrap()
+            .decode::<Option<(i32, i32)>>(&result)
+            .unwrap()
     };
-    let Value::Tuple(pair) = vm.gc().enum_snapshot(id).unwrap().fields[0] else {
-        panic!("pair");
-    };
+    assert_eq!(observed, Some((210, 230)));
+    drop((iterator, fresh));
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
     assert_eq!(
-        &*vm.gc().tuple(pair).unwrap(),
-        &[Value::I32(210), Value::I32(230)]
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
     );
-    drop(root);
-    let collected = vm.collect_garbage().unwrap();
-    assert_eq!(collected.live_objects, 0);
-    assert!(collected.reclaimed_modules.contains(&old_key));
     assert!(vm.modules().loaded(old_key).is_none());
 }
 

@@ -1,0 +1,5 @@
+fn main() -> i32 {
+    val first = 1;
+    val second = first + 1;
+    second
+}

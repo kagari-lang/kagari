@@ -1,8 +1,11 @@
 //! Async blocks share decoded Future execution, capture roots and one-shot state.
-use super::{Fixture, Value, slice};
+use super::{Fixture, slice};
 use kagari_runtime::error::RuntimeErrorKind;
 use kagari_runtime::execution::owned::DriveResult;
-use kagari_runtime::native::completion::CompletionStatus;
+use kagari_runtime::native::{
+    completion::CompletionStatus, conversion::context::ConversionContext,
+};
+use std::slice as slices;
 use std::sync::atomic::Ordering;
 
 #[test]
@@ -12,35 +15,31 @@ fn sdk_async_block_capture_and_control_flow_contract() {
     ));
     for (entry, expected) in [("captures", 155), ("boundaries", 339), ("propagation", 72)] {
         let future = f.invoke(entry, &[]);
-        assert_eq!(
-            f.run_future(&future).value(f.runtime.gc()).unwrap(),
-            Value::I32(expected)
-        );
+        assert_eq!(f.run_future(&future).as_i32().unwrap(), expected);
     }
     let unit = f.invoke("unit", &[]);
-    assert_eq!(
-        f.run_future(&unit).value(f.runtime.gc()).unwrap(),
-        Value::Unit
-    );
+    let result = f.run_future(&unit);
+    let owner = f.runtime.select_program(&f.module).unwrap();
+    ConversionContext::new(&mut f.runtime, &owner)
+        .unwrap()
+        .decode::<()>(&result)
+        .unwrap();
     let events = f.invoke("events", &[]);
-    drop(f.invoke("discard", &[f.value(&events)]));
-    let outer = f.invoke("nested", &[f.value(&events)]);
+    drop(f.invoke("discard", slices::from_ref(&events)));
+    let outer = f.invoke("nested", slices::from_ref(&events));
     let inner = f.run_future(&outer);
     assert_eq!(
-        f.invoke("count", &[f.value(&events)])
-            .value(f.runtime.gc())
+        f.invoke("count", slices::from_ref(&events))
+            .as_u64()
             .unwrap(),
-        Value::U64(0)
+        0
     );
+    assert_eq!(f.run_future(&inner).as_i32().unwrap(), 42);
     assert_eq!(
-        f.run_future(&inner).value(f.runtime.gc()).unwrap(),
-        Value::I32(42)
-    );
-    assert_eq!(
-        f.invoke("count", &[f.value(&events)])
-            .value(f.runtime.gc())
+        f.invoke("count", slices::from_ref(&events))
+            .as_u64()
             .unwrap(),
-        Value::U64(1)
+        1
     );
     let repeated = f.start_future(&inner);
     assert!(matches!(
@@ -48,10 +47,10 @@ fn sdk_async_block_capture_and_control_flow_contract() {
         DriveResult::Complete(Err(error)) if matches!(error.clone(), ref error if error.kind() == RuntimeErrorKind::ScriptTrap)
     ));
     assert_eq!(
-        f.invoke("count", &[f.value(&events)])
-            .value(f.runtime.gc())
+        f.invoke("count", slices::from_ref(&events))
+            .as_u64()
             .unwrap(),
-        Value::U64(1)
+        1
     );
 }
 
@@ -81,11 +80,8 @@ pub fn cold() -> Future<i32> {
         f.sent.lock().unwrap().pop().unwrap().complete(Ok(2)),
         CompletionStatus::Accepted
     );
-    assert_eq!(
-        f.complete(&owner).value(f.runtime.gc()).unwrap(),
-        Value::I32(42)
-    );
+    assert_eq!(f.complete(&owner).as_i32().unwrap(), 42);
     drop(owner);
     f.runtime.collect_garbage().unwrap();
-    assert_eq!(f.runtime.gc().active_roots(), 0);
+    assert_eq!(f.runtime.gc_stats().root_registrations, 0);
 }

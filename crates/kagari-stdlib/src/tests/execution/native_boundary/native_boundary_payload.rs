@@ -9,26 +9,29 @@ use crate::{
 };
 mod managed;
 mod methods;
-mod take;
 
 use kagari_runtime::{
     error::RuntimeError,
     native::{
-        binding::NativeResult,
+        binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
         conversion::context::ConversionContext,
         declarations::{FunctionDecl, MethodDecl},
         module::NativeModule,
-        payload::{Opaque, take::NativeTake},
-        storage::{NativePayload, NativeStorage},
+        payload::Opaque,
+        storage::{NativePayload, NativeStorage, initializer::NativeInit},
         typed::{NativeContext, loans::LoanContext},
         types::{Type, TypeRef},
     },
-    resource::HeapCharge,
-    value::Value,
+    value::{carriers::StoredValue, view::ValueView},
 };
 
-use kagari_types::reference::ReferenceAccess;
+use kagari_gc::{
+    error::GcError,
+    object::{Gc, GcObject, ObjectCharge},
+    scan::{EdgeVisitor, ScanBudget, ScanKind, ScanStatus},
+};
+use kagari_types::{reference::ReferenceAccess, scalar::BuiltinType, ty::Ty};
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     slice,
@@ -41,6 +44,31 @@ use std::{
 
 kagari_runtime::native_data! {
     struct PlayerState { hp: i32, position: [f32; 3] }
+}
+
+// SAFETY: the recursive NativeData fields are fixed and edge-free. This explicit
+// provider tests read-only payload registration of the same Rust mapping.
+unsafe impl GcObject for PlayerState {
+    type ScanState = ();
+    const SCAN_KIND: ScanKind = ScanKind::EdgeFree;
+
+    fn begin_scan(&self) {}
+
+    fn scan(
+        &self,
+        _: &mut (),
+        _: &mut ScanBudget,
+        _: &mut EdgeVisitor<'_>,
+    ) -> Result<ScanStatus, GcError> {
+        Ok(ScanStatus::Complete)
+    }
+
+    fn charge(&self) -> ObjectCharge {
+        ObjectCharge {
+            units: size_of::<Self>().div_ceil(size_of::<usize>()),
+            bytes: 0,
+        }
+    }
 }
 
 #[test]
@@ -116,43 +144,38 @@ fn checked_data_edits_preserve_writes_and_release_exclusive_borrows_on_failure()
         )
         .unwrap();
     let (mut vm, owner) = fixture(
-        r#"
-        use example::data::{Player, ReadOnlyPayload, new, damage};
-        pub fn make() -> Player { new() }
-        pub fn hit(player: Player, amount: i32) -> i32 { damage(player, amount) }
-        pub fn blocked(player: ReadOnlyPayload) -> i32 { player.edit() }
-    "#,
+        include_str!("../../../../tests/fixtures/native/checked-data-edits.kgr"),
         Some(&module.finish().unwrap()),
     );
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let object: Opaque<PlayerState> = vm
         .execute_typed(&_owner_program, "make", (), &Default::default())
         .unwrap();
     let alias = object.clone();
     let mut cx = vm.context(&owner).unwrap();
-    let before = cx.runtime().gc().stats().current_heap_units;
+    cx.collect_garbage().unwrap();
+    let before = cx.runtime().gc_stats().provider_units;
     object
-        .edit(&cx, |state| {
+        .edit(&mut cx, |state| {
             state.position[0] = 2.0;
-            assert!(alias.read(&cx, |_| Ok(())).is_err());
-            assert!(alias.edit(&cx, |_| Ok(())).is_err());
-            assert!(alias.take(&cx).is_err());
             Ok(())
         })
         .unwrap();
     assert!(
         object
-            .edit::<()>(&cx, |state| {
+            .edit::<()>(&mut cx, |state| {
                 state.hp = 90;
                 Err(RuntimeError::module_validation("after write"))
             })
             .is_err()
     );
-    assert_eq!(alias.read(&cx, |state| Ok(state.hp)).unwrap(), 90);
+    assert_eq!(alias.read(&mut cx, |state| Ok(state.hp)).unwrap(), 90);
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
-            let _ = object.edit::<()>(&cx, |state| {
+            let _ = object.edit::<()>(&mut cx, |state| {
                 state.hp = 80;
                 panic!("after write")
             });
@@ -161,7 +184,7 @@ fn checked_data_edits_preserve_writes_and_release_exclusive_borrows_on_failure()
     );
     assert_eq!(
         alias
-            .read(&cx, |state| Ok((state.hp, state.position[0])))
+            .read(&mut cx, |state| Ok((state.hp, state.position[0])))
             .unwrap(),
         (80, 2.0)
     );
@@ -176,20 +199,19 @@ fn checked_data_edits_preserve_writes_and_release_exclusive_borrows_on_failure()
             .unwrap(),
         42
     );
-    assert_eq!(cx.runtime().gc().stats().current_heap_units, before);
+    assert_eq!(cx.runtime().gc_stats().provider_units, before);
     let no_edit = cx
         .runtime_mut()
         .bind_native_type::<PlayerState>(&_owner_program.root(), &no_edit, &[])
         .unwrap()
-        .create(
-            &mut cx,
-            PlayerState {
+        .create_with(&mut cx, |native| {
+            native.scope().alloc_leaf(PlayerState {
                 hp: 1,
                 position: [0.0; 3],
-            },
-        )
+            })
+        })
         .unwrap();
-    assert!(no_edit.edit(&cx, |_| Ok(())).is_err());
+    assert!(no_edit.edit(&mut cx, |_| Ok(())).is_err());
     assert!(
         cx.runtime_mut()
             .execute_typed::<_, i32>(
@@ -200,10 +222,14 @@ fn checked_data_edits_preserve_writes_and_release_exclusive_borrows_on_failure()
             )
             .is_err()
     );
-    assert_eq!(no_edit.read(&cx, |state| Ok(state.hp)).unwrap(), 1);
+    assert_eq!(no_edit.read(&mut cx, |state| Ok(state.hp)).unwrap(), 1);
     drop((object, alias, no_edit, cx));
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(vm.gc().active_roots(), 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[derive(Debug)]
@@ -212,34 +238,106 @@ struct Counter {
     dropped: Arc<AtomicUsize>,
 }
 
-// SAFETY: The counter owns an integer and a host-only atomic drop count. Neither
-// has script/runtime edges, and its one-unit accounting is stable while installed.
-unsafe impl NativeTake for Counter {}
-
 impl Drop for Counter {
     fn drop(&mut self) {
         self.dropped.fetch_add(1, Ordering::Relaxed);
     }
 }
 
-impl NativePayload for Counter {
-    fn trace<'payload>(&'payload self, _: &mut dyn FnMut(&'payload Value)) {}
+impl Counter {
+    fn allocate<'gc>(
+        native: &mut NativeInit<'_, '_, 'gc>,
+        value: i32,
+        dropped: Arc<AtomicUsize>,
+    ) -> Result<Gc<'gc, Self>, GcError> {
+        native.scope().alloc_leaf(Self { value, dropped })
+    }
+}
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(1, 0))
+impl NativePayload for Counter {
+    fn registration_storage() -> NativeStorage {
+        NativeStorage::payload::<Self>()
+    }
+}
+
+// SAFETY: scalar state and an inert Rust drop counter; no managed peer or owned
+// backing is inspected by scanning or destruction.
+unsafe impl GcObject for Counter {
+    type ScanState = ();
+    const SCAN_KIND: ScanKind = ScanKind::EdgeFree;
+
+    fn begin_scan(&self) {}
+
+    fn scan(
+        &self,
+        _: &mut (),
+        _: &mut ScanBudget,
+        _: &mut EdgeVisitor<'_>,
+    ) -> Result<ScanStatus, GcError> {
+        Ok(ScanStatus::Complete)
+    }
+
+    fn charge(&self) -> ObjectCharge {
+        ObjectCharge { units: 1, bytes: 0 }
     }
 }
 
 #[derive(Debug)]
-struct Edge(Value);
+struct Edge(StoredValue);
+
+impl Edge {
+    fn allocate<'gc>(
+        native: &mut NativeInit<'_, '_, 'gc>,
+        value: &ValueView<'_>,
+    ) -> Result<Gc<'gc, Self>, GcError> {
+        let value = native.value(value)?;
+        // SAFETY: only this initializer installs the field; the provider scans
+        // the complete same-heap cell and never extracts it in Drop.
+        unsafe {
+            native
+                .scope()
+                .alloc_with(|mut init| Ok(Self(StoredValue::initialize(&mut init, value)?)))
+        }
+    }
+}
 
 impl NativePayload for Edge {
-    fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
-        visit(&self.0);
+    fn registration_storage() -> NativeStorage {
+        NativeStorage::payload::<Self>()
+    }
+}
+
+// SAFETY: one initialized immutable same-heap cell, complete retry-safe scanning
+// and no peer-aware destructor or indirect backing.
+unsafe impl GcObject for Edge {
+    type ScanState = bool;
+    const SCAN_KIND: ScanKind = ScanKind::Bounded { max_work: 1 };
+
+    fn begin_scan(&self) -> bool {
+        false
     }
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(1, 0))
+    fn scan(
+        &self,
+        visited: &mut bool,
+        budget: &mut ScanBudget,
+        visitor: &mut EdgeVisitor<'_>,
+    ) -> Result<ScanStatus, GcError> {
+        if !*visited {
+            if !budget.take(1) {
+                return Ok(ScanStatus::Pending);
+            }
+            // SAFETY: this admitted provider retains its initialized cell.
+            if unsafe { self.0.scan(budget, visitor)? } == ScanStatus::Pending {
+                return Ok(ScanStatus::Pending);
+            }
+            *visited = true;
+        }
+        Ok(ScanStatus::Complete)
+    }
+
+    fn charge(&self) -> ObjectCharge {
+        ObjectCharge { units: 1, bytes: 0 }
     }
 }
 
@@ -251,7 +349,7 @@ fn module(dropped: Arc<AtomicUsize>) -> (NativeModule, TypeRef, TypeRef, TypeRef
     .unwrap();
     let mut declaration = module.define_type("Counter").unwrap();
     declaration
-        .native_storage(NativeStorage::takeable::<Counter>())
+        .native_storage(NativeStorage::payload::<Counter>())
         .unwrap();
     let counter = declaration.finish().unwrap();
     let mut declaration = module.define_type("Other").unwrap();
@@ -276,10 +374,10 @@ fn module(dropped: Arc<AtomicUsize>) -> (NativeModule, TypeRef, TypeRef, TypeRef
         .bind(
             new,
             move |cx: &mut NativeContext<'_>, (value,): (i32,)| -> NativeResult<Opaque<Counter>> {
-                cx.create_opaque(Counter {
-                    value,
-                    dropped: dropped.clone(),
-                })
+                cx.result_native_type::<Counter>()?
+                    .create_with(cx, |native| {
+                        Counter::allocate(native, value, dropped.clone())
+                    })
             },
         )
         .unwrap();
@@ -299,14 +397,30 @@ fn module(dropped: Arc<AtomicUsize>) -> (NativeModule, TypeRef, TypeRef, TypeRef
             },
         )
         .unwrap();
+    let wrap = module
+        .define_function(FunctionDecl::new("wrap_payload"))
+        .unwrap();
+    module
+        .function(&wrap, |function| {
+            let item = function.type_parameter("T")?.ty();
+            function.parameter("value", item.clone())?;
+            function.returns(edge.apply([item])?)?;
+            Ok(())
+        })
+        .unwrap();
+    module
+        .bind(
+            wrap,
+            NativeBinding::new(vec![Codec::Value], edge.codec(), |cx| {
+                let value = cx.argument(0)?;
+                cx.allocate_result_with(&[], |native| Edge::allocate(native, &value))
+            }),
+        )
+        .unwrap();
     (module.finish().unwrap(), counter, other, edge)
 }
 
-const SOURCE: &str = r#"
-    use example::payload::{Counter, new, read};
-    pub fn make(value: i32) -> Counter { new(value) }
-    pub fn value(counter: Counter) -> i32 { read(counter) }
-"#;
+const SOURCE: &str = include_str!("../../../../tests/fixtures/native/opaque-counter.kgr");
 
 #[test]
 fn retained_native_factories_share_aliases_and_check_nominal_and_runtime_identity() {
@@ -332,20 +446,18 @@ fn retained_native_factories_share_aliases_and_check_nominal_and_runtime_identit
             .bind_function::<(Opaque<Edge>,), i32>(&_owner_program.root(), "value")
             .is_err()
     );
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     let mut cx = runtime.context(&owner).unwrap();
     let object = native
-        .create(
-            &mut cx,
-            Counter {
-                value: 42,
-                dropped: dropped.clone(),
-            },
-        )
+        .create_with(&mut cx, |native| {
+            Counter::allocate(native, 42, dropped.clone())
+        })
         .unwrap();
     let alias = object.clone();
     drop(object);
     cx.collect_garbage().unwrap();
-    assert_eq!(alias.read(&cx, |state| Ok(state.value)).unwrap(), 42);
+    assert_eq!(alias.read(&mut cx, |state| Ok(state.value)).unwrap(), 42);
     assert_eq!(cx.runtime_mut().call(&read, (alias.clone(),)).unwrap(), 42);
     let returned: Opaque<Counter> = cx
         .runtime_mut()
@@ -356,20 +468,16 @@ fn retained_native_factories_share_aliases_and_check_nominal_and_runtime_identit
         .runtime_mut()
         .bind_native_type::<Counter>(&_owner_program.root(), &other, &[])
         .unwrap()
-        .create(
-            &mut cx,
-            Counter {
-                value: 0,
-                dropped: dropped.clone(),
-            },
-        )
+        .create_with(&mut cx, |native| {
+            Counter::allocate(native, 0, dropped.clone())
+        })
         .unwrap();
     assert!(cx.runtime_mut().call(&read, (wrong,)).is_err());
     let (mut foreign, foreign_owner) = fixture(SOURCE, Some(&module));
     let _foreign_owner_program = foreign_owner;
     let foreign_owner = foreign.select_program(&_foreign_owner_program).unwrap();
     let mut foreign_cx = foreign.context(&foreign_owner).unwrap();
-    assert!(alias.read(&foreign_cx, |_| Ok(())).is_err());
+    assert!(alias.read(&mut foreign_cx, |_| Ok(())).is_err());
     assert!(
         foreign_cx
             .runtime_mut()
@@ -378,108 +486,114 @@ fn retained_native_factories_share_aliases_and_check_nominal_and_runtime_identit
     );
     assert!(
         native
-            .create(
-                &mut foreign_cx,
-                Counter {
-                    value: 0,
-                    dropped: dropped.clone()
-                }
-            )
+            .create_with(&mut foreign_cx, |_| {
+                panic!("foreign factory must reject before running the initializer")
+            })
             .is_err()
     );
     drop((cx, alias));
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(runtime.gc().active_roots(), 0);
-    assert_eq!(dropped.load(Ordering::Relaxed), 4);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert_eq!(dropped.load(Ordering::Relaxed), 3);
 }
 
 #[test]
-fn native_borrows_reject_reentry_and_release_on_error_and_unwind() {
+fn native_borrows_release_on_error_and_unwind() {
     let (module, _, _, _) = module(Arc::new(AtomicUsize::new(0)));
     let (mut vm, owner) = fixture(SOURCE, Some(&module));
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let object: Opaque<Counter> = vm
         .execute_typed(&_owner_program, "make", (42,), &Default::default())
         .unwrap();
     let mut cx = vm.context(&owner).unwrap();
     assert!(
         object
-            .read(&cx, |_| {
-                assert!(object.read(&cx, |_| Ok(())).is_err());
+            .read(&mut cx, |_| {
                 Err::<(), _>(RuntimeError::module_validation("after inspection"))
             })
             .is_err()
     );
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
-            let _ = object.read::<()>(&cx, |_| panic!("borrow unwind"));
+            let _ = object.read::<()>(&mut cx, |_| panic!("borrow unwind"));
         }))
         .is_err()
     );
     cx.collect_garbage().unwrap();
-    assert_eq!(object.read(&cx, |state| Ok(state.value)).unwrap(), 42);
-    assert!(
-        cx.create_opaque(Counter {
-            value: 0,
-            dropped: Arc::new(AtomicUsize::new(0))
-        })
-        .is_err()
-    );
+    assert_eq!(object.read(&mut cx, |state| Ok(state.value)).unwrap(), 42);
+    assert!(cx.result_native_type::<Counter>().is_err());
     drop((object, cx));
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
-fn payload_factories_trace_children_and_reject_foreign_edges_before_publication() {
-    let (module, _, _, edge) = module(Arc::new(AtomicUsize::new(0)));
-    let (mut vm, owner) = fixture(SOURCE, Some(&module));
-    let _owner_program = owner;
-    let owner = vm.select_program(&_owner_program).unwrap();
+fn payload_constructors_trace_children_and_reject_foreign_inputs_before_publication() {
+    let dropped = Arc::new(AtomicUsize::new(0));
+    let (module, _, _, edge) = module(dropped.clone());
+    let (mut vm, installed) = fixture(SOURCE, Some(&module));
+    let owner = vm.select_program(&installed).unwrap();
     let element = ConversionContext::new(&mut vm, &owner)
         .unwrap()
         .type_for::<i32>()
         .unwrap();
     assert!(
-        vm.bind_native_type::<Edge>(&_owner_program.root(), &edge, &[])
+        vm.bind_native_type::<Edge>(&installed.root(), &edge, &[])
             .is_err()
     );
     let native = vm
         .bind_native_type_declaration::<Edge>(
-            &_owner_program.root(),
+            &installed.root(),
             edge.id(),
             edge.definitions(),
             &[element],
         )
         .unwrap();
-    let mut cx = vm.context(&owner).unwrap();
-    let child: Opaque<Counter> = cx
-        .runtime_mut()
-        .execute_typed(&_owner_program, "make", (42,), &Default::default())
+    assert!(
+        matches!(native.type_argument().ty(), Ty::NativeObject(nominal)
+        if nominal.arguments == [Ty::Builtin(BuiltinType::I32)])
+    );
+    drop(native);
+    let child: Opaque<Counter> = vm
+        .execute_typed(&installed, "make", (42,), &Default::default())
         .unwrap();
-    // Handwritten NativePayload is an advanced tracing boundary. The typed
-    // native handle API itself never exposes a mutable traced field.
-    let root = ConversionContext::new(cx.runtime_mut(), &owner)
-        .unwrap()
-        .encode_value(child.native_type().type_argument(), child.clone())
+    let parent: Opaque<Edge> = vm
+        .execute_typed(&installed, "wrap", (child.clone(),), &Default::default())
         .unwrap();
-    let parent = native.create(&mut cx, Edge(root)).unwrap();
     drop(child);
-    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 2);
-    let (mut foreign, foreign_owner) = fixture(SOURCE, Some(&module));
-    let _foreign_owner_program = foreign_owner;
-    let foreign_owner = foreign.select_program(&_foreign_owner_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let retained = vm.gc_stats();
+    assert_eq!(dropped.load(Ordering::Relaxed), 0);
+    let (mut foreign, foreign_installed) = fixture(SOURCE, Some(&module));
     let child: Opaque<Counter> = foreign
-        .execute_typed(&_foreign_owner_program, "make", (0,), &Default::default())
+        .execute_typed(&foreign_installed, "make", (0,), &Default::default())
         .unwrap();
-    let foreign_value = ConversionContext::new(&mut foreign, &foreign_owner)
-        .unwrap()
-        .encode_value(child.native_type().type_argument(), child.clone())
-        .unwrap();
-    assert!(native.create(&mut cx, Edge(foreign_value)).is_err());
-    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 2);
+    assert!(
+        vm.execute_typed::<_, Opaque<Edge>>(&installed, "wrap", (child,), &Default::default())
+            .is_err()
+    );
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, retained.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        retained.root_registrations
+    );
+    assert_eq!(dropped.load(Ordering::Relaxed), 0);
     drop(parent);
-    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
+    vm.collect_garbage().unwrap();
+    assert!(vm.gc_stats().objects < retained.objects);
+    assert_eq!(dropped.load(Ordering::Relaxed), 1);
 }
 
 #[test]
@@ -493,13 +607,9 @@ fn native_handles_pin_old_scopes_and_transfer_with_their_runtime() {
         .bind_native_type::<Counter>(&_old_program.root(), &declaration, &[])
         .unwrap();
     let object = native
-        .create(
-            &mut vm.context(&old).unwrap(),
-            Counter {
-                value: 42,
-                dropped: dropped.clone(),
-            },
-        )
+        .create_with(&mut vm.context(&old).unwrap(), |native| {
+            Counter::allocate(native, 42, dropped.clone())
+        })
         .unwrap();
     reload_bytecode(
         &mut vm,
@@ -510,12 +620,8 @@ fn native_handles_pin_old_scopes_and_transfer_with_their_runtime() {
     .unwrap();
     let _new_program = _old_program.clone();
     let new = vm.select_program(&_new_program).unwrap();
-    assert!(
-        !vm.collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&old.key())
-    );
+    vm.collect_garbage().unwrap();
+    vm.validate_executable_module(&old).unwrap();
     thread::spawn(move || {
         assert_eq!(
             vm.execute_typed::<_, i32>(
@@ -530,21 +636,20 @@ fn native_handles_pin_old_scopes_and_transfer_with_their_runtime() {
         drop(object);
         let created = native
             .clone()
-            .create(
-                &mut vm.context(&new).unwrap(),
-                Counter { value: 43, dropped },
-            )
+            .create_with(&mut vm.context(&new).unwrap(), |native| {
+                Counter::allocate(native, 43, dropped.clone())
+            })
             .unwrap();
         assert_eq!(
             created
-                .read(&vm.context(&new).unwrap(), |state| Ok(state.value))
+                .read(&mut vm.context(&new).unwrap(), |state| Ok(state.value))
                 .unwrap(),
             43
         );
         drop((created, native));
-        let collected = vm.collect_garbage().unwrap();
-        assert_eq!(collected.live_objects, 0);
-        assert!(collected.reclaimed_modules.contains(&old.key()));
+        vm.collect_garbage().unwrap();
+        assert!(vm.validate_executable_module(&old).is_err());
+        assert_eq!(dropped.load(Ordering::Relaxed), 2);
     })
     .join()
     .unwrap();
@@ -553,12 +658,7 @@ fn native_handles_pin_old_scopes_and_transfer_with_their_runtime() {
 #[test]
 fn applied_native_handles_preserve_the_supplied_nominal_layout_scope() {
     let (module, _, _, edge) = module(Arc::new(AtomicUsize::new(0)));
-    let source = r#"
-        use example::payload::Edge;
-        pub struct Item { pub val value: i32 }
-        pub fn item() -> Item { Item { value: 42 } }
-        pub fn accept(value: Edge<Item>) -> i32 { 42 }
-    "#;
+    let source = include_str!("../../../../tests/fixtures/native/opaque-applied-layout.kgr");
     let (mut vm, old) = fixture(source, Some(&module));
     let _old_program = old;
     let old = vm.select_program(&_old_program).unwrap();
@@ -599,13 +699,17 @@ fn applied_native_handles_preserve_the_supplied_nominal_layout_scope() {
             slice::from_ref(new_item.type_argument()),
         )
         .unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     let mut cx = runtime.context(&old).unwrap();
-    let old_value = old_type.create(&mut cx, Edge(Value::Unit)).unwrap();
+    let old_value = old_type
+        .create_with(&mut cx, |native| Edge::allocate(native, &ValueView::unit()))
+        .unwrap();
     let new_owner = cx.runtime().select_program(&_new_program).unwrap();
     let new_value = new_type
-        .create(
+        .create_with(
             &mut cx.runtime_mut().context(&new_owner).unwrap(),
-            Edge(Value::Unit),
+            |native| Edge::allocate(native, &ValueView::unit()),
         )
         .unwrap();
     let old_call = cx
@@ -629,5 +733,10 @@ fn applied_native_handles_preserve_the_supplied_nominal_layout_scope() {
             .is_err()
     );
     assert_eq!(cx.runtime_mut().call(&new_call, (new_value,)).unwrap(), 42);
-    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
+    cx.collect_garbage().unwrap();
+    assert_eq!(cx.runtime().gc_stats().objects, baseline.objects);
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }

@@ -10,10 +10,10 @@ use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, metadata::DefinitionMetadata,
 };
 use kagari_runtime::{
-    host::{HostCallContext, HostError, HostObjectId, HostSchemaEpoch},
+    host::{HostError, HostObjectId, HostSchemaEpoch},
     module::entry::ProgramEntry,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
-    value::Value,
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, host, types::Type},
+    value::{kind::ObjectKind, view::ValueView},
 };
 use kagari_source::source_database::SourceLayer;
 use kagari_stdlib as stdlib;
@@ -87,12 +87,23 @@ fn compile_offline() -> (KagariEngine, DefinitionMetadata<BytecodeArtifact>) {
                         effects: Default::default(),
                     },
                 )?;
-                methods.bind("read", |_: &mut HostCallContext<'_>, args: &[Value]| {
-                    let [Value::HostRoot(_), Value::I32(amount)] = args else {
-                        return Err(HostError::new("checked Counter receiver and i32 argument"));
-                    };
-                    Ok(Value::I32(*amount))
-                })
+                methods.bind(
+                    "read",
+                    host::callback(|_, args| {
+                        let [receiver, amount] = args else {
+                            return Err(HostError::new(
+                                "checked Counter receiver and i32 argument",
+                            ));
+                        };
+                        if receiver.kind() != Some(ObjectKind::HostRoot) {
+                            return Err(HostError::new("checked Counter receiver"));
+                        }
+                        let amount = amount
+                            .as_i32()
+                            .ok_or_else(|| HostError::new("checked i32 argument"))?;
+                        Ok(ValueView::from(amount))
+                    }),
+                )
             })
         })
         .unwrap();
@@ -110,13 +121,18 @@ fn compile_offline() -> (KagariEngine, DefinitionMetadata<BytecodeArtifact>) {
         )
         .unwrap();
     module
-        .bind(make, |cx: &mut HostCallContext<'_>, _: &[Value]| {
-            let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
-            cx.runtime()
-                .gc()
-                .alloc_host_root(root)
-                .map_err(|error| HostError::new(error.to_string()))
-        })
+        .bind(
+            make,
+            host::callback(|cx, _| {
+                let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
+                let value = cx
+                    .runtime_mut()
+                    .host_root_value(root)
+                    .map_err(|error| HostError::new(error.to_string()))?;
+                cx.import(&value)
+                    .map_err(|error| HostError::new(error.to_string()))
+            }),
+        )
         .unwrap();
     // One checked installation owns both declarations and callbacks. Compilation
     // consumes the cold declarations and never executes either callback.
@@ -160,7 +176,7 @@ fn main() {
     let result = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap();
-    let value = result.return_value.value(runtime.gc()).unwrap();
-    assert_eq!(value, Value::I32(42));
+    let value = result.return_value.as_i32().expect("checked i32 result");
+    assert_eq!(value, 42);
     println!("static + dynamic host interface result: {value:?}");
 }

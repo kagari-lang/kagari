@@ -2,13 +2,14 @@
 use crate::{
     Runtime,
     context::ExecutionContext,
-    module::ExecutableModule,
+    module::{ExecutableModule, managed::source::RevisionSource},
     native::{
         binding::NativeResult,
         conversion::{FromKagari, arguments::IntoKagariArguments},
         function_handle::Function,
         typed::NativeContext,
     },
+    session::ExecutionEntry,
 };
 
 impl Runtime {
@@ -21,8 +22,30 @@ impl Runtime {
         context: &ExecutionContext,
         access: impl FnOnce(&mut NativeContext<'_>) -> NativeResult<R>,
     ) -> NativeResult<R> {
+        self.with_context_source(owner, context, None, access)
+    }
+
+    /// A retained data handle supplies its actual layout source. Ordinary
+    /// dependency/candidate admission still applies; this grants no callable
+    /// exception for entering an unrelated retained execution graph.
+    pub(super) fn with_context_source<R>(
+        &mut self,
+        owner: &ExecutableModule,
+        context: &ExecutionContext,
+        origin: Option<RevisionSource<'_>>,
+        access: impl FnOnce(&mut NativeContext<'_>) -> NativeResult<R>,
+    ) -> NativeResult<R> {
         context.validate_for_execute("host object access")?;
-        let mut session = self.begin_execution(owner, context.runtime_options())?;
+        let origin = match origin {
+            Some(origin) => origin,
+            None => self.selection_origin(owner)?,
+        };
+        let mut session = self.begin_execution_inner(
+            owner,
+            context.runtime_options(),
+            ExecutionEntry::Program,
+            origin,
+        )?;
         let runtime = session.runtime_mut();
         runtime.attach_execution_observer()?;
         let mut cx = runtime.context(owner)?;

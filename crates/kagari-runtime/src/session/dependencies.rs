@@ -1,9 +1,9 @@
 //! Bounded Task waits and structured parent edges share one dependency graph.
 use crate::{
     error::{RuntimeError, trap::TrapReason},
+    execution::roots::SessionId,
     native::binding::NativeResult,
     resource::AsyncLimits,
-    session::store::SessionId,
     task::TaskId,
 };
 

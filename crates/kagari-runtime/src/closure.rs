@@ -1,25 +1,29 @@
 //! Checked closure call metadata, independent of collector implementation.
-mod native;
+mod access;
+pub mod calls;
 #[cfg(test)]
 mod tests;
 use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::{
-        TypeEnvironment, arguments::ScopedSignature, bindings::TypeBindings,
+        TypeEnvironment,
+        arguments::{ScopedSignature, TypeArgument},
         compatibility::TypeView,
     },
-    gc::roots::RootedValue,
     module::{
         ExecutableModule,
         dispatch::{CallRoute, CallRouteKind, PublicationToken},
     },
-    value::Value,
+    native::future::claims,
+    value::{carriers::RootedValue, closures::ClosureObject, kind::ObjectKind},
+    value_check,
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget, program::ModuleRef};
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{ids::FunctionRef, representation::semantic_representation};
+use kagari_gc::error::GcError;
 use kagari_types::ty::Ty;
 use std::{slice, sync::Arc};
 
@@ -56,28 +60,33 @@ impl Runtime {
     /// values select the current route; retained computations report their body.
     /// The returned token does not retain the supplied root or executable code.
     pub fn observe_callable_value(
-        &self,
+        &mut self,
         root: &RootedValue,
     ) -> Result<Option<CallableObservation>, RuntimeError> {
-        self.gc().ensure_no_native_borrow()?;
+        self.resources().ensure_synchronous_thread()?;
         self.resources().ensure_execution_allowed()?;
-        let value = root
-            .value(self.gc())
-            .ok_or_else(|| RuntimeError::module_validation("callable observation root"))?;
-        match value {
-            Value::Closure(_) => self.resolve_closure(&value)?.observe(self).map(Some),
-            Value::GcHandle(id) => {
-                let (owner, _, _) = self.gc().future_contract(id)?;
-                self.validate_executable_module(&owner)?;
-                if let Some(closure) = self.gc().future_script(id)? {
-                    return self.resolve_closure(&closure)?.observe(self).map(Some);
+        value_check::candidate_root(self, root)?;
+        let closure = self
+            .memory
+            .scope(&self.resources, |cx, _| {
+                let value = root.get(cx)?;
+                if value.kind() != Some(ObjectKind::Closure) {
+                    return Ok(None);
                 }
-                self.gc().future_native_origin(id)
-            }
-            _ => Err(RuntimeError::module_validation(
-                "observation requires a closure or Future",
-            )),
+                let object =
+                    cx.downcast::<ClosureObject>(value.object().ok_or(GcError::Representation)?)?;
+                Ok(Some(cx.read(object, |object| object.record().clone())))
+            })
+            .map_err(|error| match error {
+                GcError::ForeignHeap | GcError::InvalidRoot | GcError::Representation => {
+                    RuntimeError::module_validation("callable observation root")
+                }
+                error => self.managed_memory_error(error),
+            })?;
+        if let Some(closure) = closure {
+            return closure.observe(self).map(Some);
         }
+        claims::observe(self, root)
     }
 }
 
@@ -99,7 +108,6 @@ pub enum ClosureTarget {
 pub struct NamedClosure {
     pub(crate) route: CallRoute,
     pub(crate) target: CallableTarget,
-    pub(crate) signature: Arc<ScopedSignature>,
 }
 
 /// Only runtime preparation constructs native closure metadata. Its signature
@@ -107,21 +115,220 @@ pub struct NamedClosure {
 #[derive(Debug, Clone)]
 pub struct NativeClosure {
     pub(crate) import: NativeImportId,
-    pub(crate) signature: Arc<ScopedSignature>,
 }
 
-/// Closure metadata stored by value in the runtime heap. An explicit diagnostic
-/// copy does not root captures or authorize execution after its source is collected.
-#[derive(Debug, Clone)]
-pub struct ClosureValueSnapshot {
+/// Immutable closure meaning. Captures and executable retention belong to the
+/// actual ClosureObject; cloning this record never retains managed state.
+#[derive(Debug)]
+pub struct ClosureRecord {
     pub environment: Option<TypeEnvironment>,
     pub implementation: ExecutableModule,
     pub target: ClosureTarget,
-    pub captures: Vec<Value>,
+    pub(crate) capture_types: Box<[Option<TypeArgument>]>,
+    signature: Arc<ScopedSignature>,
 }
 
-impl ClosureValueSnapshot {
-    fn observe(&self, runtime: &Runtime) -> Result<CallableObservation, RuntimeError> {
+#[derive(Clone, Copy)]
+pub(crate) enum ClosureMode {
+    Ordinary,
+    Retained,
+}
+
+impl ClosureRecord {
+    pub(crate) fn script(
+        runtime: &Runtime,
+        owner: &ExecutableModule,
+        function: FunctionRef,
+        capture_count: usize,
+        environment: Option<TypeEnvironment>,
+        mode: ClosureMode,
+    ) -> Result<Self, RuntimeError> {
+        runtime.validate_executable_module(owner)?;
+        if owner.is_static_initializer(function) {
+            return Err(RuntimeError::module_validation(
+                "static initializer is not a callable value",
+            ));
+        }
+        let function_metadata = &owner
+            .bytecode
+            .functions
+            .get(function.index())
+            .ok_or_else(|| RuntimeError::module_validation("invalid closure function"))?
+            .metadata;
+        if capture_count > function_metadata.params.len() {
+            return Err(RuntimeError::module_validation(
+                "closure capture contract mismatch",
+            ));
+        }
+        if function_metadata
+            .semantic
+            .generic
+            .as_ref()
+            .is_some_and(|body| {
+                environment
+                    .as_ref()
+                    .is_none_or(|environment| !environment.types.matches(body))
+            })
+        {
+            return Err(RuntimeError::module_validation(
+                "closure generic environment",
+            ));
+        }
+        let types = environment
+            .as_ref()
+            .map(|environment| environment.types.clone());
+        let mut capture_types = Vec::new();
+        capture_types
+            .try_reserve_exact(capture_count)
+            .map_err(|_| RuntimeError::resource_limit("closure capture types"))?;
+        for index in 0..capture_count {
+            if index.is_multiple_of(1024) {
+                runtime.resources().poll_execution()?;
+            }
+            let argument = function_metadata
+                .semantic
+                .params
+                .get(&index)
+                .map(|ty| {
+                    runtime
+                        .type_arguments(owner, types.clone(), slice::from_ref(ty))?
+                        .pop()
+                        .ok_or_else(|| RuntimeError::module_validation("closure capture type"))
+                })
+                .transpose()?;
+            capture_types.push(argument);
+        }
+        let mut params = Vec::new();
+        params
+            .try_reserve_exact(function_metadata.params.len() - capture_count)
+            .map_err(|_| RuntimeError::resource_limit("closure parameter types"))?;
+        for index in capture_count..function_metadata.params.len() {
+            if index.is_multiple_of(1024) {
+                runtime.resources().poll_execution()?;
+            }
+            params.push(
+                function_metadata
+                    .semantic
+                    .params
+                    .get(&index)
+                    .cloned()
+                    .ok_or_else(|| RuntimeError::module_validation("closure parameter type"))?,
+            );
+        }
+        let params = runtime.type_arguments(owner, types.clone(), &params)?;
+        let result = function_metadata
+            .semantic
+            .result
+            .as_ref()
+            .ok_or_else(|| RuntimeError::module_validation("closure result type"))?;
+        let result = runtime
+            .type_arguments(owner, types, slice::from_ref(result))?
+            .pop()
+            .ok_or_else(|| RuntimeError::module_validation("closure result scope"))?;
+        let entry = CallableTarget::Script(function);
+        let target = if matches!(mode, ClosureMode::Ordinary) {
+            let route = owner.bind_call_route(entry)?;
+            if route.kind() == CallRouteKind::BodyOwned {
+                ClosureTarget::Script(function)
+            } else {
+                ClosureTarget::Named(NamedClosure {
+                    route,
+                    target: entry,
+                })
+            }
+        } else {
+            ClosureTarget::Script(function)
+        };
+        Ok(Self {
+            implementation: owner.clone(),
+            target,
+            environment,
+            capture_types: capture_types.into_boxed_slice(),
+            signature: Arc::new(ScopedSignature { params, result }),
+        })
+    }
+
+    pub(crate) fn native(
+        runtime: &Runtime,
+        owner: ExecutableModule,
+        import: NativeImportId,
+        environment: Option<TypeEnvironment>,
+        signature: Arc<ScopedSignature>,
+        mode: ClosureMode,
+    ) -> Result<Self, RuntimeError> {
+        runtime.validate_executable_module(&owner)?;
+        let imported = owner
+            .bytecode
+            .native_imports
+            .get(import.index())
+            .ok_or_else(|| RuntimeError::module_validation("native closure import"))?;
+        if signature.params.len() != imported.signature.params.len()
+            || imported.generic.as_ref().is_some_and(|body| {
+                environment
+                    .as_ref()
+                    .is_none_or(|environment| !environment.types.matches(body))
+            })
+        {
+            return Err(RuntimeError::module_validation(
+                "native closure signature scope",
+            ));
+        }
+        let types = environment
+            .as_ref()
+            .map(|environment| environment.types.as_ref());
+        for (index, (actual, expected)) in signature
+            .params
+            .iter()
+            .zip(&imported.signature.params)
+            .enumerate()
+        {
+            if index.is_multiple_of(1024) {
+                runtime.resources().poll_execution()?;
+            }
+            actual.validate(runtime)?;
+            if !actual
+                .view(&owner)
+                .compatible(TypeView::new(expected, &owner, types))
+            {
+                return Err(RuntimeError::module_validation(
+                    "native closure parameter scope",
+                ));
+            }
+        }
+        signature.result.validate(runtime)?;
+        if !signature.result.view(&owner).compatible(TypeView::new(
+            &imported.signature.result,
+            &owner,
+            types,
+        )) {
+            return Err(RuntimeError::module_validation(
+                "native closure result scope",
+            ));
+        }
+        let entry = CallableTarget::Native(import);
+        let target = if matches!(mode, ClosureMode::Ordinary) {
+            let route = owner.bind_call_route(entry)?;
+            if route.kind() == CallRouteKind::BodyOwned {
+                ClosureTarget::Native(NativeClosure { import })
+            } else {
+                ClosureTarget::Named(NamedClosure {
+                    route,
+                    target: entry,
+                })
+            }
+        } else {
+            ClosureTarget::Native(NativeClosure { import })
+        };
+        Ok(Self {
+            environment,
+            implementation: owner,
+            target,
+            capture_types: Box::default(),
+            signature,
+        })
+    }
+
+    pub(crate) fn observe(&self, runtime: &Runtime) -> Result<CallableObservation, RuntimeError> {
         if let Some(route) = self.call_route() {
             let selected = runtime.select_call_route(route)?;
             return Ok(CallableObservation::entry(
@@ -143,7 +350,7 @@ impl ClosureValueSnapshot {
         }
     }
 
-    /// Original exact identity for observation; this does not select current code.
+    /// Observe the original exact entry without selecting current code.
     pub fn callable_target(&self) -> CallableTarget {
         match &self.target {
             ClosureTarget::Script(function) => CallableTarget::Script(*function),
@@ -152,7 +359,6 @@ impl ClosureValueSnapshot {
         }
     }
 
-    /// Checked ordinary route, absent for already-selected computations.
     pub fn call_route(&self) -> Option<&CallRoute> {
         match &self.target {
             ClosureTarget::Named(named) => Some(&named.route),
@@ -160,237 +366,48 @@ impl ClosureValueSnapshot {
         }
     }
 
-    pub(crate) fn bind_named(&mut self, runtime: &Runtime) -> Result<(), RuntimeError> {
-        let target = self.callable_target();
-        let route = self.implementation.bind_call_route(target)?;
-        if route.kind() != CallRouteKind::BodyOwned {
-            self.target = ClosureTarget::Named(NamedClosure {
-                route,
-                target,
-                signature: self.signature(runtime)?,
-            });
-        }
-        Ok(())
-    }
-
-    /// Select once for an invocation or queue admission. The returned snapshot is
-    /// exact, but is not a root; its caller must publish its metadata/captures before GC.
-    pub(crate) fn select_call(&self, runtime: &Runtime) -> Result<Self, RuntimeError> {
-        let ClosureTarget::Named(named) = &self.target else {
-            runtime.validate_executable_module(&self.implementation)?;
-            return Ok(self.clone());
-        };
-        let selected = runtime.select_call_route(&named.route)?;
-        let environment = self
-            .environment
-            .as_ref()
-            .map(|environment| {
-                runtime.transport_environment(&self.implementation, &selected, environment)
-            })
-            .transpose()?;
-        let target = match selected.target() {
-            CallableTarget::Script(function) => ClosureTarget::Script(function),
-            CallableTarget::Native(import) => {
-                let types = environment
-                    .as_ref()
-                    .map(|environment| environment.types.clone());
-                let params = runtime.type_arguments(
-                    selected.owner(),
-                    types.clone(),
-                    &selected.signature().params,
-                )?;
-                let result = runtime
-                    .type_arguments(
-                        selected.owner(),
-                        types,
-                        slice::from_ref(&selected.signature().result),
-                    )?
-                    .pop()
-                    .ok_or_else(|| {
-                        RuntimeError::module_validation("selected native closure result scope")
-                    })?;
-                ClosureTarget::Native(NativeClosure {
-                    import,
-                    signature: Arc::new(ScopedSignature { params, result }),
-                })
-            }
-        };
-        Ok(Self {
-            implementation: selected.owner().clone(),
-            target,
-            environment,
-            captures: self.captures.clone(),
-        })
-    }
-
-    fn scoped_signature(&self) -> Option<&Arc<ScopedSignature>> {
-        match &self.target {
-            ClosureTarget::Named(named) => Some(&named.signature),
-            ClosureTarget::Native(native) => Some(&native.signature),
-            ClosureTarget::Script(_) => None,
-        }
-    }
-
-    pub(crate) fn signature(
-        &self,
-        runtime: &Runtime,
-    ) -> Result<Arc<ScopedSignature>, RuntimeError> {
-        if let Some(signature) = self.scoped_signature() {
-            return Ok(signature.clone());
-        }
-        let function = self.script_function().expect("script closure target");
-        let metadata = &self
-            .implementation
-            .bytecode
-            .functions
-            .get(function.index())
-            .ok_or_else(|| RuntimeError::module_validation("closure function"))?
-            .metadata;
-        let types = (self.captures.len()..metadata.params.len())
-            .map(|index| {
-                metadata
-                    .semantic
-                    .params
-                    .get(&index)
-                    .cloned()
-                    .ok_or_else(|| RuntimeError::module_validation("closure parameter type"))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let environment = self
-            .environment
-            .as_ref()
-            .map(|environment| environment.types.clone());
-        let params = runtime.type_arguments(&self.implementation, environment.clone(), &types)?;
-        let result = metadata
-            .semantic
-            .result
-            .as_ref()
-            .ok_or_else(|| RuntimeError::module_validation("closure result type"))?;
-        let result = runtime
-            .type_arguments(&self.implementation, environment, slice::from_ref(result))?
-            .pop()
-            .ok_or_else(|| RuntimeError::module_validation("closure result scope"))?;
-        Ok(Arc::new(ScopedSignature { params, result }))
+    pub(crate) fn signature(&self) -> &Arc<ScopedSignature> {
+        &self.signature
     }
 
     pub(crate) fn matches_physical_signature(
         &self,
         expected: impl ExactSizeIterator<Item = ValueType>,
         result: ValueType,
-    ) -> Result<bool, RuntimeError> {
-        if let Some(signature) = self.scoped_signature() {
-            return Ok(signature.params.len() == expected.len()
-                && signature
-                    .params
-                    .iter()
-                    .zip(expected)
-                    .all(|(ty, expected)| semantic_representation(ty.ty()) == expected)
-                && semantic_representation(signature.result.ty()) == result);
-        }
-        let function = self.script_function().expect("script closure target");
-        let function = self
-            .implementation
-            .bytecode
-            .functions
-            .get(function.index())
-            .ok_or_else(|| RuntimeError::module_validation("closure function"))?;
-        let parameters = function
-            .metadata
-            .params
-            .get(self.captures.len()..)
-            .ok_or_else(|| RuntimeError::module_validation("closure captures"))?;
-        if parameters.len() != expected.len() {
-            return Ok(false);
-        }
-        let resolve = |physical, semantic: Option<&Ty>| -> Result<ValueType, RuntimeError> {
-            if physical != ValueType::Generic {
-                return Ok(physical);
-            }
-            let ty =
-                semantic.ok_or_else(|| RuntimeError::module_validation("generic closure type"))?;
-            let environment = self
-                .environment
-                .as_ref()
-                .ok_or_else(|| RuntimeError::module_validation("generic closure environment"))?;
-            Ok(semantic_representation(&environment.types.resolve(ty)?))
-        };
-        for (index, (actual, expected)) in parameters.iter().zip(expected).enumerate() {
-            if resolve(
-                *actual,
-                function
-                    .metadata
-                    .semantic
-                    .params
-                    .get(&(self.captures.len() + index)),
-            )? != expected
-            {
-                return Ok(false);
-            }
-        }
-        Ok(resolve(
-            function.metadata.return_type,
-            function.metadata.semantic.result.as_ref(),
-        )? == result)
+    ) -> bool {
+        self.signature.params.len() == expected.len()
+            && self
+                .signature
+                .params
+                .iter()
+                .zip(expected)
+                .all(|(ty, expected)| semantic_representation(ty.ty()) == expected)
+            && semantic_representation(self.signature.result.ty()) == result
     }
 
-    pub(crate) fn matches_function(
-        &self,
-        params: &[Ty],
-        result: &Ty,
-        owner: &ExecutableModule,
-        environment: Option<&TypeBindings>,
-    ) -> bool {
-        if let Some(signature) = self.scoped_signature() {
-            return signature.params.len() == params.len()
-                && signature
-                    .params
-                    .iter()
-                    .zip(params)
-                    .all(|(actual, expected)| {
-                        actual.view(&self.implementation).compatible(TypeView::new(
-                            expected,
-                            owner,
-                            environment,
-                        ))
-                    })
-                && signature
-                    .result
-                    .view(&self.implementation)
-                    .compatible(TypeView::new(result, owner, environment));
-        }
-        let function = self.script_function().expect("script closure target");
-        let Some(function) = self.implementation.bytecode.functions.get(function.index()) else {
+    pub(crate) fn matches_view(&self, expected: TypeView<'_>) -> bool {
+        let Some(expected) = expected.normalized() else {
             return false;
         };
-        let compatible = |actual: &Ty, expected: &Ty| {
-            TypeView::new(
-                actual,
-                &self.implementation,
-                self.environment
-                    .as_ref()
-                    .map(|environment| environment.types.as_ref()),
-            )
-            .compatible(TypeView::new(expected, owner, environment))
+        let Ty::Function { params, .. } = expected.ty else {
+            return false;
         };
-        let captures = self.captures.len();
-        function
-            .metadata
-            .params
-            .get(captures..)
-            .is_some_and(|suffix| suffix.len() == params.len())
-            && params.iter().enumerate().all(|(index, expected)| {
-                function
-                    .metadata
-                    .semantic
-                    .params
-                    .get(&(captures + index))
-                    .is_some_and(|actual| compatible(actual, expected))
+        self.signature.params.len() == params.len()
+            && self
+                .signature
+                .params
+                .iter()
+                .enumerate()
+                .all(|(index, actual)| {
+                    expected.function_parameter(index).is_some_and(|expected| {
+                        actual.view(&self.implementation).compatible(expected)
+                    })
+                })
+            && expected.function_result().is_some_and(|expected| {
+                self.signature
+                    .result
+                    .view(&self.implementation)
+                    .compatible(expected)
             })
-            && function
-                .metadata
-                .semantic
-                .result
-                .as_ref()
-                .is_some_and(|actual| compatible(actual, result))
     }
 }

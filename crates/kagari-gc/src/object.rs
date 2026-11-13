@@ -8,6 +8,8 @@ use std::{
     alloc::{Layout, LayoutError},
     any::Any,
     fmt,
+    fmt::Pointer,
+    hash::{Hash, Hasher},
     marker::PhantomData,
     ptr::NonNull,
 };
@@ -37,7 +39,10 @@ pub unsafe trait GcObject: Any + Send {
         visitor: &mut EdgeVisitor<'_>,
     ) -> Result<ScanStatus, GcError>;
 
-    /// Excludes this object's shallow bytes, child objects and shared host backing.
+    /// Describe owned indirect bytes and provider logical units, excluding this
+    /// object's shallow bytes, child objects and shared host backing. Charge
+    /// changes require admitted provider mutation and committed accounting before
+    /// exposing a result whose loan can be forgotten.
     fn charge(&self) -> ObjectCharge {
         ObjectCharge::default()
     }
@@ -47,6 +52,8 @@ pub unsafe trait GcObject: Any + Send {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct ObjectCharge {
     pub bytes: usize,
+    /// Provider-defined logical cost, aggregated in HeapStats::provider_units.
+    /// Physical object count is observed separately; units do not drive pacing.
     pub units: usize,
 }
 
@@ -61,7 +68,8 @@ pub struct Edge<T: 'static> {
 
 /// A copyable object identity valid only inside its creating Heap::scope callback.
 /// Its invariant lifetime proves heap membership; the handle stores one pointer.
-/// Copying registers no root and borrows no payload. Use Scope or a checked field
+/// Equality/hashing use allocation identity within this invariant scope. Copying
+/// registers no root and borrows no payload. Use Scope or a checked field
 /// to access data; explicit retention is required to cross a collection boundary.
 pub struct Gc<'gc, T: 'static> {
     pub(crate) reference: ObjectRef,
@@ -86,6 +94,12 @@ pub struct Gc<'gc, T: 'static> {
 pub enum AnyObject {}
 
 impl<'gc, T: 'static> Gc<'gc, T> {
+    /// Compare allocation identity inside the same invariant heap scope. This
+    /// observes no payload and grants no retention or address transport authority.
+    pub fn ptr_eq<U: 'static>(self, other: Gc<'gc, U>) -> bool {
+        self.reference == other.reference
+    }
+
     /// Forget the static Rust representation without changing retention or scope.
     pub fn erase(self) -> Gc<'gc, AnyObject> {
         Gc {
@@ -93,6 +107,20 @@ impl<'gc, T: 'static> Gc<'gc, T> {
             invariant: PhantomData,
             marker: PhantomData,
         }
+    }
+}
+
+impl<T: 'static> PartialEq for Gc<'_, T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.reference == other.reference
+    }
+}
+
+impl<T: 'static> Eq for Gc<'_, T> {}
+
+impl<T: 'static> Hash for Gc<'_, T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.reference.hash(state);
     }
 }
 
@@ -110,13 +138,22 @@ impl<T: 'static> fmt::Debug for Gc<'_, T> {
     }
 }
 
+/// An opaque diagnostic identity within the protected allocation's lifetime.
+/// Formatting exposes no reference or retention authority; the allocation may
+/// be recycled after reclamation, so this text is not a persistent object ID.
+impl<T: 'static> fmt::Pointer for Gc<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Pointer::fmt(&self.reference.0, f)
+    }
+}
+
 impl<T: 'static> fmt::Debug for Edge<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Edge").field(&self.reference).finish()
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ObjectRef(pub(crate) NonNull<ObjectHeader>);
 
 // SAFETY: inert carriers expose no dereference; admitted payloads are Send and

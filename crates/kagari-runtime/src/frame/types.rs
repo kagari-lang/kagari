@@ -1,4 +1,7 @@
 //! Reified type arguments retained by a shared frame or closure.
+#[cfg(test)]
+use crate::execution_metadata::groups::OperationId;
+
 pub mod arguments;
 pub(crate) mod bindings;
 pub(crate) mod compatibility;
@@ -7,21 +10,15 @@ pub(crate) mod operations;
 use crate::{
     error::RuntimeError,
     execution_metadata::{
-        MetadataEdge,
-        environments::EnvironmentId,
-        groups::{OperationGroupId, OperationId},
+        MetadataEdge, environments::EnvironmentId, groups::group::OperationGroup,
     },
     frame::types::{
-        arguments::TypeArgument, bindings::TypeBindings, compatibility::TypeIdentity,
-        construction::ConstructionScope, operations::OperationBindings,
+        arguments::TypeArgument, bindings::TypeBindings, construction::ConstructionScope,
+        operations::OperationBindings,
     },
-    gc::GcHeap,
 };
 use kagari_common::identity::table::DefinitionTable;
-use kagari_types::{
-    declaration::requirement::NativeCallableRequirement,
-    ty::{GenericParam, NominalTy},
-};
+use kagari_types::ty::GenericParam;
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -33,12 +30,15 @@ pub(crate) struct EnvironmentRecord {
 }
 
 impl EnvironmentRecord {
-    pub(crate) fn trace_metadata<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
+    pub(crate) fn trace_metadata<'a, E, F>(&'a self, visit: &mut F) -> Result<(), E>
+    where
+        F: FnMut(MetadataEdge<'a>) -> Result<(), E> + ?Sized,
+    {
         if let Some(parent) = &self.parent {
-            pending.push(MetadataEdge::Environment(*parent));
+            visit(MetadataEdge::Environment(*parent))?;
         }
-        self.operations.trace_metadata(pending);
-        self.constructions.trace(pending);
+        self.operations.trace_metadata(visit)?;
+        self.constructions.trace(visit)
     }
 
     pub(crate) fn new(
@@ -83,20 +83,16 @@ impl EnvironmentRecord {
     #[cfg(test)]
     pub(crate) fn add_operation(
         &mut self,
-        heap: &GcHeap,
+        group: &OperationGroup,
         id: OperationId,
     ) -> Result<(), RuntimeError> {
-        self.operations.push(heap, id)?;
+        self.operations.push(group, id)?;
         self.refresh_types();
         Ok(())
     }
 
-    pub(crate) fn add_receiver(
-        &mut self,
-        heap: &GcHeap,
-        id: OperationGroupId,
-    ) -> Result<(), RuntimeError> {
-        self.operations.receiver(heap, id)?;
+    pub(crate) fn add_receiver(&mut self, group: &OperationGroup) -> Result<(), RuntimeError> {
+        self.operations.receiver(group)?;
         self.refresh_types();
         Ok(())
     }
@@ -112,29 +108,4 @@ impl EnvironmentRecord {
 pub struct TypeEnvironment {
     pub(crate) id: EnvironmentId,
     pub(crate) types: Arc<TypeBindings>,
-}
-
-impl TypeEnvironment {
-    pub(crate) fn operation_slot(
-        &self,
-        heap: &GcHeap,
-        receiver: &TypeIdentity,
-        interface: &NominalTy,
-        slot: u32,
-    ) -> Option<OperationId> {
-        heap.environment(self.id)?
-            .operations
-            .operation_slot(heap, receiver, interface, slot)
-    }
-
-    pub(crate) fn operation(
-        &self,
-        heap: &GcHeap,
-        required: &NativeCallableRequirement,
-        receiver: &TypeIdentity,
-    ) -> Option<OperationId> {
-        heap.environment(self.id)?
-            .operations
-            .operation(heap, required, receiver)
-    }
 }

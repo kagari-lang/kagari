@@ -32,8 +32,8 @@ fn explicit_enum_hash_is_stable_across_variant_reordering() {
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.gc())
-                .expect("retained execution result"),
+                .as_i64()
+                .expect("retained i64 hash result"),
         );
     }
     assert_eq!(hashes[0], hashes[1]);

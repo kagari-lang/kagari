@@ -2,8 +2,10 @@
 use std::sync::Arc;
 
 use crate::{
-    Runtime, backend::native::InstalledNativeFunction, jit_abi::jit_poll_execution,
-    module::ExecutableModule,
+    Runtime,
+    backend::native::InstalledNativeFunction,
+    jit_abi::jit_poll_execution,
+    module::{ExecutableModule, retention::RetentionOrigin},
 };
 use kagari_bytecode::instruction::{BytecodeInstruction, ConstantId, ConstantOperand, Slot};
 use {
@@ -48,7 +50,7 @@ unsafe extern "C" fn constant_i32<const VALUE: i32>(
 }
 
 pub(super) fn install_i32<const VALUE: i32>(
-    runtime: &Runtime,
+    runtime: &mut Runtime,
     module: &ExecutableModule,
     debug_metadata: bool,
 ) -> InstalledNativeFunction {
@@ -110,6 +112,7 @@ pub(super) fn install_i32<const VALUE: i32>(
                 artifact,
                 owner: Arc::new(StaticCode),
             }),
+            RetentionOrigin::Current,
         )
     }
     .unwrap()

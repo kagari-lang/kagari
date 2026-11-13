@@ -12,21 +12,8 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-const PLAYER: &str = r#"
-    pub struct Player { pub var hp: i32 }
-    impl Player {
-        pub fn create(hp: i32) -> Player { Player { hp: hp } }
-        pub fn damage(self, amount: i32) -> i32 { self.hp = self.hp - amount; self.hp }
-        pub fn alias(self) -> Player { self }
-        pub fn fail(self, divisor: i32) -> i32 { self.hp = self.hp - 1; self.hp / divisor }
-        fn hidden(self) -> i32 { self.hp }
-        pub(super) fn parent(self) -> i32 { self.hidden() }
-    }
-    pub struct Enemy { pub var hp: i32 }
-    impl Enemy { pub fn damage(self, amount: i32) -> bool { self.hp = self.hp - amount; true } }
-    pub fn enemy() -> Enemy { Enemy { hp: 10 } }
-    pub fn evidence() -> i32 { val player = Player::create(100); player.damage(2) + player.alias().parent() }
-"#;
+const PLAYER: &str =
+    include_str!("../../../../../tests/fixtures/native/function-player-methods.kgr");
 
 #[test]
 fn prepared_methods_and_associated_functions_enforce_receiver_and_access() {
@@ -156,14 +143,12 @@ fn object_method_reentry_collects_and_retains_returned_aliases() {
             .map(|()| registered_function)
     }
     .unwrap();
-    let source = PLAYER.replace(
-        "pub fn alias(self) -> Player { self }",
-        "pub fn alias(self) -> Player { collect(); self }",
-    );
-    let source = format!("use example::methods::collect;\n{source}");
-    let (mut vm, owner) = fixture(&source, Some(&builder.finish().unwrap()));
+    let source = include_str!("../../../../../tests/fixtures/native/function-player-collect.kgr");
+    let (mut vm, owner) = fixture(source, Some(&builder.finish().unwrap()));
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let player_type = vm.bind_type(&_owner_program.root(), "Player", &[]).unwrap();
     let create = vm
         .bind_associated_function::<(i32,), Object>(&player_type, "create")
@@ -181,9 +166,13 @@ fn object_method_reentry_collects_and_retains_returned_aliases() {
         42
     );
     assert_eq!(calls.load(Ordering::Relaxed), 1);
-    drop(retained);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(vm.gc().active_roots(), 0);
+    drop((retained, player_type, create, alias, hp));
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -197,6 +186,7 @@ fn prepared_methods_select_current_code_and_preserve_receiver_admission() {
         .bind_associated_function::<(i32,), Object>(&old_type, "create")
         .unwrap();
     let player = vm.call(&old_create, (100,)).unwrap();
+    assert_eq!(PLAYER.matches("self.hp - amount").count(), 2);
     let source = PLAYER.replace("self.hp - amount", "self.hp - amount - 1");
     reload_bytecode(
         &mut vm,
@@ -234,19 +224,9 @@ fn prepared_methods_select_current_code_and_preserve_receiver_admission() {
     drop(old_create);
     drop(old_damage);
     drop(old_type);
-    assert!(
-        !cx.runtime_mut()
-            .collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&old.key())
-    );
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert!(cx.runtime().validate_executable_module(&old).is_ok());
     drop(duplicate);
-    assert!(
-        cx.runtime_mut()
-            .collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&old.key())
-    );
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert!(cx.runtime().validate_executable_module(&old).is_err());
 }

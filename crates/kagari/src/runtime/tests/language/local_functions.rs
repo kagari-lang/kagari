@@ -1,7 +1,7 @@
 //! Local callables through encoded, source-free execution.
 
 use crate::{BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::Program};
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
 
@@ -63,11 +63,7 @@ pub async fn asynchronous() -> i32 {
         "method",
     ] {
         let result = runtime.execute(&loaded, entry, &[], &context).unwrap();
-        assert_eq!(
-            result.return_value.value(runtime.gc()).unwrap(),
-            Value::I32(42),
-            "{entry}"
-        );
+        assert_eq!(result.return_value.as_i32().unwrap(), 42, "{entry}");
     }
     let selected = runtime.select_program(&loaded).unwrap();
     assert!(selected.exported_function("inner").is_none());

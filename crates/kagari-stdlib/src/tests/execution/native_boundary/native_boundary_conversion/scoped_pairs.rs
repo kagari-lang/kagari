@@ -1,6 +1,7 @@
 use super::source_free_vm;
 use kagari_runtime::{
     Runtime,
+    error::{RuntimeError, RuntimeErrorKind},
     frame::types::arguments::TypeArgument,
     native::{
         binding::NativeResult,
@@ -12,7 +13,7 @@ use kagari_runtime::{
         typed::{NativeContext, loans::LoanContext},
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 
 use kagari_bytecode::{
@@ -59,7 +60,7 @@ impl FromKagari for ConversionEffect {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
         let value = i32::from_kagari(cx, expected, value)?;
         CONVERSIONS.fetch_add(1, Ordering::SeqCst);
@@ -84,17 +85,19 @@ fn one_registered_pair_method_serves_opaque_and_external_receivers() {
             .receiver_access(ReferenceAccess::Mutable)
             .parameter("inventory", Type::ref_mut(inventory))
             .parameter("amount", Type::i32()).returns(Type::i32()))?;
-        methods.bind(transfer, |_: &mut LoanContext<'_>, (treasury, inventory, amount): (&mut Treasury, &mut Inventory, i32)| {
-            treasury.hp += amount; inventory.gold -= 5; Ok(treasury.hp)
+        methods.bind(transfer, |cx: &mut LoanContext<'_>, (treasury, inventory, amount): (&mut Treasury, &mut Inventory, i32)| {
+            cx.poll()?;
+            treasury.hp += amount;
+            inventory.gold -= 5;
+            if amount < 0 {
+                return Err(RuntimeError::host_call_failure("completed mixed writes"));
+            }
+            Ok(treasury.hp)
         })
     })).unwrap();
     let module = builder.finish().unwrap();
     let (mut vm, owner) = source_free_vm(
-        r#"
-        use example::mixed_packs::{Treasury, Inventory};
-        pub fn owned(treasury: Treasury, inventory: RefMut<Inventory>) -> i32 { treasury.transfer(inventory, 30) }
-        pub fn external(treasury: RefMut<Treasury>, inventory: RefMut<Inventory>) -> i32 { treasury.transfer(inventory, 30) }
-    "#,
+        include_str!("../../../../../tests/fixtures/native/scoped-mixed-packs.kgr"),
         &module,
     );
     let _owner_program = owner;
@@ -111,13 +114,17 @@ fn one_registered_pair_method_serves_opaque_and_external_receivers() {
             Treasury { hp: 40 },
         )
         .unwrap();
-    let raw = ConversionContext::new(&mut vm, &owner)
-        .unwrap()
-        .encode_value(treasury_type.type_argument(), opaque.clone())
-        .unwrap();
+    let raw = {
+        let mut cx = ConversionContext::new(&mut vm, &owner).unwrap();
+        let value = cx
+            .encode_value(treasury_type.type_argument(), opaque.clone())
+            .unwrap();
+        cx.retain(&value).unwrap()
+    };
     let mut external = Treasury { hp: 40 };
     let mut inventory = Inventory { gold: 25 };
     vm.with_host_scope(|scope| {
+        let raw = scope.import(&raw)?;
         let treasury = scope.borrow_mut(treasury_type.rust_type(), &mut external)?;
         let inventory = scope.borrow_mut(&inventory_type, &mut inventory)?;
         assert_eq!(
@@ -127,8 +134,9 @@ fn one_registered_pair_method_serves_opaque_and_external_receivers() {
                 "owned",
                 &[raw, inventory.value()],
                 &Default::default()
-            )?,
-            Value::I32(70)
+            )?
+            .as_i32(),
+            Some(70)
         );
         assert_eq!(
             Runtime::execute_scoped(
@@ -137,21 +145,47 @@ fn one_registered_pair_method_serves_opaque_and_external_receivers() {
                 "external",
                 &[treasury.value(), inventory.value()],
                 &Default::default()
-            )?,
-            Value::I32(70)
+            )?
+            .as_i32(),
+            Some(70)
+        );
+        assert_eq!(
+            Runtime::execute_scoped(
+                scope,
+                &_owner_program,
+                "fail",
+                &[raw, inventory.value()],
+                &Default::default()
+            )
+            .unwrap_err()
+            .kind(),
+            RuntimeErrorKind::HostCallFailure
+        );
+        // Both writes completed despite failure. Reusing the same external place
+        // and Native receiver also requires both loan owners to have retired.
+        assert_eq!(
+            Runtime::execute_scoped(
+                scope,
+                &_owner_program,
+                "owned",
+                &[raw, inventory.value()],
+                &Default::default()
+            )?
+            .as_i32(),
+            Some(99)
         );
         Ok(())
     })
     .unwrap();
     assert_eq!(external.hp, 70);
-    assert_eq!(inventory.gold, 15);
+    assert_eq!(inventory.gold, 5);
     assert_eq!(
         opaque
-            .read(&NativeContext::new(&mut vm, &owner).unwrap(), |value| Ok(
-                value.hp
-            ))
+            .read(&mut NativeContext::new(&mut vm, &owner).unwrap(), |value| {
+                Ok(value.hp)
+            })
             .unwrap(),
-        70
+        99
     );
 }
 
@@ -285,8 +319,9 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
                 "tick",
                 &[whole.value()],
                 &Default::default()
-            )?,
-            Value::I32(70)
+            )?
+            .as_i32(),
+            Some(70)
         );
         assert_eq!(
             Runtime::execute_scoped(
@@ -295,8 +330,9 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
                 "inspect",
                 &[whole.value()],
                 &Default::default()
-            )?,
-            Value::I32(70)
+            )?
+            .as_i32(),
+            Some(70)
         );
         assert!(
             Runtime::execute_scoped(
@@ -317,8 +353,9 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
                 "replace",
                 &[whole.value()],
                 &Default::default()
-            )?,
-            Value::I32(6)
+            )?
+            .as_i32(),
+            Some(6)
         );
         stats.read(scope, |_scope, stats| {
             assert_eq!(stats.hp, 6);
@@ -331,8 +368,9 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
                 "once",
                 &[whole.value(), second.value()],
                 &Default::default()
-            )?,
-            Value::I32(111)
+            )?
+            .as_i32(),
+            Some(111)
         );
         let renamed = Runtime::execute_scoped(
             scope,
@@ -341,12 +379,11 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
             &[whole.value()],
             &Default::default(),
         )?;
-        scope.execute(&[renamed], |runtime, values| {
-            let Value::Str(id) = values[0] else {
-                panic!("string")
-            };
-            assert_eq!(&*runtime.gc().string(id).unwrap(), "changed");
-            Ok(Value::Unit)
+        scope.execute(&[renamed], |runtime, values, result| {
+            let mut cx = ConversionContext::new(runtime, &owner)?;
+            let text = values.get(&mut cx, 0)?;
+            cx.read_string(&text, |text| assert_eq!(text, "changed"))?;
+            result.publish(cx.runtime_mut(), &ValueView::unit())
         })?;
         Ok(())
     })

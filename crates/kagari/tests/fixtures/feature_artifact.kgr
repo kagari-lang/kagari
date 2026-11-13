@@ -197,6 +197,10 @@ pub fn required_methods() -> i32 {
 
 use external::fixture::hold;
 
+pub fn retained_handler() -> external::fixture::Handler<i32> {
+    hold(42, |value| value)
+}
+
 pub fn application_payload() -> i32 {
     val values = [20, 1, 19];
     val offset = [2];

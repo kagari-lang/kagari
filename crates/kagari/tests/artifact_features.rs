@@ -9,6 +9,7 @@ use kagari::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
     program::{Compilation, Program},
+    runtime::Runtime,
 };
 use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, KbcArtifact},
@@ -16,9 +17,11 @@ use kagari_bytecode::{
     program::{identity, verify_program},
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
-use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
-    error::RuntimeErrorKind, module::entry::ProgramEntry, native::objects::Object,
+    error::RuntimeErrorKind,
+    module::{InstalledProgram, entry::ProgramEntry},
+    native::{conversion::context::ConversionContext, objects::Object},
+    reload::ReloadValidationError,
 };
 use kagari_stdlib as stdlib;
 use kagari_types::ty::Ty;
@@ -27,12 +30,21 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use kagari_runtime::value::Value;
 #[cfg(feature = "source")]
 use kagari_source::source::SourceFile;
 use std::{fs, path::Path, sync::OnceLock};
 
 // Share application code with the emitter while compiling without its frontend.
+// Application-owned managed payload results cross the portable artifact boundary.
+#[cfg(feature = "source")]
+#[path = "artifact_features/native_results.rs"]
+mod native_results;
+
+// Public Host interface contracts exercise decoded/source and Native boundaries.
+#[cfg(all(feature = "source", feature = "native"))]
+#[path = "artifact_features/host_interfaces.rs"]
+mod host_interfaces;
+
 #[path = "support/native_enums.rs"]
 mod native_enums;
 #[path = "support/native_provider.rs"]
@@ -90,6 +102,22 @@ fn artifact() -> DefinitionMetadata<KbcArtifact> {
     KbcArtifact::from_bytes(artifact_bytes()).unwrap()
 }
 
+// Publication owns warmed constants/preparation independently of execution roots.
+// Replacing it with the same verified product isolates cleanup from those caches.
+fn replace_with_cold_publication(
+    runtime: &mut Runtime,
+    loaded: &InstalledProgram,
+    program: &Program,
+) {
+    runtime
+        .program(loaded)
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(program, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(loaded, &candidate, Default::default()))
+        .unwrap();
+    runtime.collect_garbage().unwrap();
+}
+
 #[test]
 fn portable_artifact_executes_without_source_compilation() {
     let program =
@@ -99,6 +127,8 @@ fn portable_artifact_executes_without_source_compilation() {
     let context = ExecutionContext::default();
     let mut runtime = engine(config, Default::default()).runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     for entry in [
         ProgramEntry::Main,
         ProgramEntry::Export("declaration_patterns"),
@@ -107,16 +137,14 @@ fn portable_artifact_executes_without_source_compilation() {
         ProgramEntry::Export("transparent_alias_values"),
     ] {
         let result = runtime.execute(&loaded, entry, &[], &context).unwrap();
-        assert_eq!(
-            result
-                .return_value
-                .value(runtime.gc())
-                .expect("retained execution result"),
-            Value::I32(42),
-            "{entry:?}",
-        );
+        assert_eq!(result.return_value.as_i32(), Some(42), "{entry:?}",);
         drop(result);
-        assert_eq!(runtime.gc().active_roots(), 0, "{entry:?}");
+        runtime.collect_garbage().unwrap();
+        assert_eq!(
+            runtime.gc_stats().root_registrations,
+            baseline.root_registrations,
+            "{entry:?}"
+        );
         assert_eq!(
             runtime.resources().counters().current_call_depth,
             0,
@@ -173,9 +201,26 @@ fn portable_artifact_executes_without_source_compilation() {
     let wrong_field = runtime.bind_field::<i32>(&unused, "value").unwrap();
     assert!(runtime.get(&cell, &wrong_field).is_err());
     assert_eq!(runtime.get(&cell, &field).unwrap(), 43);
-    drop(cell);
-    assert_eq!(runtime.gc().active_roots(), 0);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    drop((
+        cell,
+        closed,
+        field,
+        make,
+        unused,
+        wrong_field,
+        root_answer,
+        answer,
+        root_async,
+        answer_async,
+    ));
+    replace_with_cold_publication(&mut runtime, &loaded, &program);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
 }
 
 #[test]
@@ -187,18 +232,18 @@ fn source_free_shared_operator_contract_executes() {
     let context = ExecutionContext::default();
     let mut runtime = engine(config, Default::default()).runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     let result = runtime
         .execute(&loaded, "shared_operator_values", &[], &context)
         .unwrap();
-    assert_eq!(
-        result
-            .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
-    );
+    assert_eq!(result.return_value.as_i32(), Some(42));
     drop(result);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     assert!(!runtime.is_quarantined());
 }
@@ -212,6 +257,8 @@ fn source_free_native_bindings_execute_and_release_scopes() {
     config.default_runtime.gc.collection_threshold = Some(1);
     let mut runtime = engine(config, Default::default()).runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     for _ in 0..3 {
         for entry in ["required_methods", "fixed_array_construction"] {
             assert_eq!(
@@ -219,24 +266,25 @@ fn source_free_native_bindings_execute_and_release_scopes() {
                     .execute(&loaded, entry, &[], &context)
                     .unwrap()
                     .return_value
-                    .value(runtime.gc())
-                    .expect("retained execution result"),
-                Value::I32(42)
+                    .as_i32(),
+                Some(42)
             );
         }
-        assert_eq!(runtime.gc().active_roots(), 0);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(
+            runtime.gc_stats().root_registrations,
+            baseline.root_registrations
+        );
         assert_eq!(runtime.resources().counters().current_call_depth, 0);
         assert!(!runtime.is_quarantined());
         // Release the version's constant roots before checking for leaked native
         // scopes/results; the replacement cache has not been materialized.
-        runtime
-            .program(&loaded)
-            .map_err(ReloadValidationError::Runtime)
-            .and_then(|base| base.prepare_replacement(&program, &Default::default()))
-            .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
-            .unwrap();
-        runtime.collect_garbage().unwrap();
-        assert_eq!(runtime.gc().allocated_objects(), 0);
+        replace_with_cold_publication(&mut runtime, &loaded, &program);
+        assert_eq!(runtime.gc_stats().objects, baseline.objects);
+        assert_eq!(
+            runtime.gc_stats().root_registrations,
+            baseline.root_registrations
+        );
     }
 }
 
@@ -248,19 +296,29 @@ fn source_free_native_enums_retain_nested_payloads() {
     config.default_runtime.gc.collection_threshold = Some(1);
     let mut runtime = engine(config, Default::default()).runtime(Default::default());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     for _ in 0..3 {
         assert_eq!(
             runtime
                 .execute(&loaded, "native_enum_values", &[], &Default::default())
                 .unwrap()
                 .return_value
-                .value(runtime.gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+                .as_i32(),
+            Some(42)
         );
-        assert_eq!(runtime.gc().active_roots(), 0);
         runtime.collect_garbage().unwrap();
-        assert_eq!(runtime.gc().allocated_objects(), 0);
+        assert_eq!(
+            runtime.gc_stats().root_registrations,
+            baseline.root_registrations
+        );
+        runtime.collect_garbage().unwrap();
+        replace_with_cold_publication(&mut runtime, &loaded, &program);
+        assert_eq!(runtime.gc_stats().objects, baseline.objects);
+        assert_eq!(
+            runtime.gc_stats().root_registrations,
+            baseline.root_registrations
+        );
     }
 }
 
@@ -272,6 +330,8 @@ fn source_free_try_carriers_execute_with_selected_residual_calls() {
     config.default_runtime.gc.collection_threshold = Some(1);
     let mut runtime = engine(config, Default::default()).runtime(Default::default());
     let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     for entry in ["native_propagation_values", "standard_residual_values"] {
         for _ in 0..3 {
             assert_eq!(
@@ -279,14 +339,22 @@ fn source_free_try_carriers_execute_with_selected_residual_calls() {
                     .execute(&loaded, entry, &[], &Default::default())
                     .unwrap()
                     .return_value
-                    .value(runtime.gc())
-                    .expect("retained execution result"),
-                Value::I32(42)
+                    .as_i32(),
+                Some(42)
             );
-            assert_eq!(runtime.gc().active_roots(), 0);
+            runtime.collect_garbage().unwrap();
+            assert_eq!(
+                runtime.gc_stats().root_registrations,
+                baseline.root_registrations
+            );
             assert_eq!(runtime.resources().counters().current_call_depth, 0);
             runtime.collect_garbage().unwrap();
-            assert_eq!(runtime.gc().allocated_objects(), 0);
+            replace_with_cold_publication(&mut runtime, &loaded, &prepared);
+            assert_eq!(runtime.gc_stats().objects, baseline.objects);
+            assert_eq!(
+                runtime.gc_stats().root_registrations,
+                baseline.root_registrations
+            );
         }
     }
 }
@@ -370,9 +438,8 @@ fn native_payload_interpretation_follows_the_feature_boundary() {
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+                .as_i32(),
+            Some(42)
         );
     }
 }
@@ -514,13 +581,7 @@ mod native {
         let report = runtime
             .execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
             .unwrap();
-        assert_eq!(
-            report
-                .return_value
-                .value(runtime.gc())
-                .expect("retained execution result"),
-            Value::I32(42)
-        );
+        assert_eq!(report.return_value.as_i32(), Some(42));
         assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
     }
 }
@@ -554,13 +615,7 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
     let report = runtime
         .execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         .unwrap();
-    assert_eq!(
-        report
-            .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
-    );
+    assert_eq!(report.return_value.as_i32(), Some(42));
     assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
     let prepared = NativeCompiler::default()
         .prepare(
@@ -575,13 +630,7 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
     let report = runtime
         .execute_prepared(&loaded, "required_methods", &[], &context, &prepared)
         .unwrap();
-    assert_eq!(
-        report
-            .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
-    );
+    assert_eq!(report.return_value.as_i32(), Some(42));
     assert_eq!(
         report.jit.unwrap().status,
         JitExecutionStatus::InterpreterFallback
@@ -598,22 +647,49 @@ fn source_free_application_payload_traces_closures_and_arrays() {
     let context = ExecutionContext::default();
     let mut runtime = engine(config, drops.clone()).runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let owner = runtime.select_program(&loaded).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     for expected in 1..=3 {
         let result = runtime
             .execute(&loaded, "application_payload", &[], &context)
             .unwrap();
+        let mut conversion = ConversionContext::new(&mut runtime, &owner).unwrap();
+        assert_eq!(conversion.decode::<i32>(&result.return_value).unwrap(), 42);
+        drop((conversion, result));
+        runtime.collect_garbage().unwrap();
         assert_eq!(
-            result
-                .return_value
-                .value(runtime.gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+            runtime.gc_stats().root_registrations,
+            baseline.root_registrations
         );
-        drop(result);
-        assert_eq!(runtime.gc().active_roots(), 0);
-        assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+        assert_eq!(runtime.gc_stats().objects, baseline.objects);
         assert_eq!(drops.load(Ordering::SeqCst), expected);
+        assert!(!runtime.is_quarantined());
     }
+    let retained = runtime
+        .execute(&loaded, "retained_handler", &[], &context)
+        .unwrap()
+        .return_value;
+    runtime.collect_garbage().unwrap();
+    assert_eq!(drops.load(Ordering::SeqCst), 3);
+    drop(runtime);
+    assert_eq!(
+        drops.load(Ordering::SeqCst),
+        4,
+        "shutdown destroys a payload even while a Host lease remains"
+    );
+    let mut other = engine(Default::default(), drops.clone()).runtime(context);
+    let error = other
+        .with_host_scope(|scope| scope.import(&retained).map(|_| ()))
+        .unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+    assert!(!other.is_quarantined());
+    drop(retained);
+    assert_eq!(
+        drops.load(Ordering::SeqCst),
+        4,
+        "dropping the inert lease cannot dispose the payload twice"
+    );
 }
 
 #[test]
@@ -668,7 +744,8 @@ fn structurally_valid_library_binding_mismatch_is_rejected_on_load() {
                 && error.to_string().contains("native declaration differs from its installed contract")),
         "{error:?}"
     );
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, 0);
 }
 
 #[test]
@@ -679,6 +756,8 @@ fn source_free_converted_residual_keeps_its_original_failure_origin() {
     config.default_runtime.gc.collection_threshold = Some(1);
     let mut runtime = engine(config, Default::default()).runtime(Default::default());
     let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     let report = runtime
         .execute(&loaded, "converted_error_origin", &[], &Default::default())
         .unwrap();
@@ -701,9 +780,18 @@ fn source_free_converted_residual_keeps_its_original_failure_origin() {
             .ends_with("feature-artifact.kgr")
     );
     drop(report.return_value);
-    assert_eq!(runtime.gc().active_roots(), 0);
     runtime.collect_garbage().unwrap();
-    assert_eq!(runtime.gc().allocated_objects(), 0);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    runtime.collect_garbage().unwrap();
+    replace_with_cold_publication(&mut runtime, &loaded, &prepared);
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 fn editable_artifact() -> (DefinitionContext, KbcArtifact) {

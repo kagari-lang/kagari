@@ -1222,8 +1222,8 @@ Current contracts live in [host interop](spec/host-interop.md),
 [runtime ownership](spec/runtime.md), [traits](spec/traits.md),
 [artifacts](spec/artifacts.md) and [reload](spec/module-activation.md).
 The [scoped SDK example](../crates/kagari/examples/scoped_host.rs) registers one
-method set for Opaque, Ref and RefMut and demonstrates read/edit/take with old
-alias invalidation. [DTO/Opaque](../crates/kagari/examples/value_interop.rs),
+method set for Opaque, Ref and RefMut and demonstrates checked read/edit loans
+and shared identity. [DTO/Opaque](../crates/kagari/examples/value_interop.rs),
 [optional Serde](../crates/kagari/examples/serde_interop.rs) and
 [cold source-free registration](../crates/kagari-runtime/examples/offline_host.rs)
 provide the other runnable boundary cases. No implicit Rust trait exposure or GC
@@ -1934,7 +1934,7 @@ quota, and the 64 KiB collection floor is policy, not a measured optimum.
 Focused local validation selected optimized/unoptimized debugger behavior and
 artifact round-trip, all 12 MIR-pass contract tests, committed native storage and
 mutation/cleanup accounting, cross-thread/stale root leases, sparse relocation,
-interface snapshot independence and native take/reuse. These passed, as did the
+interface snapshot independence. Extraction-only coverage was retired in RR03. These passed, as did the
 runtime `execution-diagnostics` feature check, structure, formatting, workspace
 all-target Clippy and diff checks. The old loop-hoisting test was replaced with
 original block/span/scope preservation while retaining forwarding/reuse assertions.

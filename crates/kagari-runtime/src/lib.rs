@@ -4,10 +4,16 @@ use crate::{
         InterpreterCacheId, InterpreterCacheRecord, InterpreterCacheRegistry,
         ReloadDependencySnapshot,
     },
+    clock::Instant,
+    closure::calls::SelectedClosure,
     context::ExecutionContext,
-    error::{RuntimeError, fault::EngineFault, trap::TrapReason},
+    error::{RuntimeError, fault::EngineFault, reason::CancellationReason},
+    execution::{
+        memory::{GcHeapConfig, ManagedMemory},
+        roots::ExecutionRoots,
+    },
+    execution_metadata::{identity::MetadataIds, managed::applications::ApplicationObject},
     frame::ExecutionStack,
-    gc::{GcCollection, GcHeap, GcHeapConfig, HeapObjectId, roots::RootedValue},
     host::{
         FrameHostBorrowToken, HostBorrowKind, HostBorrowTable, HostRegistry,
         installation::PreparedHostTypes,
@@ -15,16 +21,19 @@ use crate::{
     host_scope::HostResourceScope,
     metadata::{TypeId, TypeRegistry},
     module::{
-        ExecutableModule, Installation, InstalledProgram, ModuleEpochRetention, ModuleKey,
-        ModuleStore, VerifiedProgram, dispatch::PublicationToken, staging::StagedProgram,
+        ExecutableModule, Installation, InstalledProgram, ModuleKey, ModuleStore, VerifiedProgram,
+        dispatch::PublicationToken, layout_storage::StructStorageLayouts,
+        managed::source::RevisionSource, staging::StagedProgram,
     },
     native::{
-        callable::PreparedClosure, completion::CompletionRegistry,
+        completion::CompletionRegistry, conversion::arguments::ArgumentValues,
         function_handle::cache::FunctionCache, interfaces::binding::InterfaceCache,
         objects::cache::BindingCache, registry::NativeRegistry,
     },
-    objects::{invocation::MethodInvocation, method::BoundReceiver},
-    reflection::ReflectionError,
+    objects::{
+        interfaces::cache::DescriptionCache, invocation::MethodInvocation, method::BoundReceiver,
+    },
+    observer::values::ObservedValues,
     reload::updates::ReloadAdmission,
     resource::{AsyncLimits, ResourceState, RuntimeLimits},
     scheduler::Scheduler,
@@ -33,7 +42,10 @@ use crate::{
         ExecutionSession, SessionScope, dependencies::Dependencies, group::GroupStore,
     },
     task::store::TaskStore,
-    value::Value,
+    value::{
+        carriers::RootedValue,
+        place::{PublishedResult, ResultPlace},
+    },
 };
 mod authority;
 mod clock;
@@ -41,9 +53,13 @@ pub mod loading;
 mod objects;
 mod observer;
 
-use kagari_bytecode::instruction::BinaryOp;
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::{ids::FunctionRef, standard::RuntimePrimitive};
+use kagari_gc::{
+    error::GcError,
+    heap::{CollectionReport, HeapStats, Phase},
+    root::Root,
+};
 use kagari_types::declaration::path::HostPathDeclaration;
 use std::{
     cell::RefCell,
@@ -68,7 +84,6 @@ mod execution_metadata;
 mod execution_state;
 mod executor;
 pub mod frame;
-pub mod gc;
 pub mod host;
 pub mod host_scope;
 #[cfg(test)]
@@ -173,18 +188,23 @@ pub struct Runtime {
     tasks: TaskStore,
     operations: OnceLock<Result<CompletionRegistry, RuntimeError>>,
     async_limits: AsyncLimits,
-    gc: GcHeap,
+    memory: ManagedMemory,
+    metadata_ids: MetadataIds,
+    resources: ResourceState,
     types: TypeRegistry,
     host: HostRegistry,
     native_entries: NativeRegistry,
     host_borrows: HostBorrowTable,
 
     modules: ModuleStore,
+    structure_layouts: StructStorageLayouts,
     interpreter_caches: InterpreterCacheRegistry,
     object_bindings: BindingCache,
     function_bindings: FunctionCache,
     interface_bindings: InterfaceCache,
+    interface_descriptions: DescriptionCache,
     observer: RefCell<Option<Box<dyn ExecutionObserver>>>,
+    observed_values: RefCell<Option<ObservedValues>>,
 }
 
 /// A resolved dynamic method whose interface receiver stays rooted across
@@ -194,6 +214,8 @@ pub struct RootedInterfaceMethod {
     invocation: MethodInvocation,
     bound_receiver: BoundReceiver,
     _root: RootedValue,
+    application_root: Option<Root<ApplicationObject>>,
+    computation_root: Option<Root<ApplicationObject>>,
 }
 
 impl Runtime {
@@ -221,18 +243,23 @@ impl Runtime {
             tasks: TaskStore::new(config.async_limits),
             operations: OnceLock::new(),
             async_limits: config.async_limits,
-            gc: GcHeap::new(config.gc, resources),
+            memory: ManagedMemory::new(config.gc),
+            metadata_ids: MetadataIds::default(),
+            resources,
             types,
             host,
             native_entries,
             host_borrows: HostBorrowTable::default(),
 
             modules: ModuleStore::default(),
+            structure_layouts: StructStorageLayouts::default(),
             interpreter_caches: InterpreterCacheRegistry::default(),
             object_bindings: BindingCache::default(),
             function_bindings: FunctionCache::default(),
             interface_bindings: InterfaceCache::default(),
+            interface_descriptions: DescriptionCache::default(),
             observer: RefCell::new(None),
+            observed_values: RefCell::new(None),
         }
     }
 
@@ -255,24 +282,21 @@ impl Runtime {
         &mut self,
         module: &ExecutableModule,
     ) -> Result<ExecutionStack<'_>, RuntimeError> {
-        self.gc.ensure_no_native_borrow()?;
         let session = self.begin_execution(module, self.execution_options())?;
         ExecutionStack::new(session)
     }
 
-    /// A live closure carries its own generation-pinned dependency program.
-    /// Nested closure calls share the current session and its counters, while
-    /// ordinary entries still require the current caller's checked dependency graph.
+    /// Enter one source-backed closure selection without selecting it again.
+    /// The supplying frame/Native/Host scope stays alive through frame publication.
     pub fn enter_closure_execution_stack(
         &mut self,
-        closure: &PreparedClosure,
+        closure: &SelectedClosure<'_>,
     ) -> Result<ExecutionStack<'_>, RuntimeError> {
-        closure.validate(self)?;
-        let owner = closure.snapshot(self)?.implementation.clone();
         let session = self.begin_execution_inner(
-            &owner,
+            closure.owner(),
             self.execution_options(),
             ExecutionEntry::RetainedClosure,
+            closure.origin(),
         )?;
         ExecutionStack::new(session)
     }
@@ -329,7 +353,12 @@ impl Runtime {
         let mut options = self.execution_options();
         options.phase = ExecutionPhase::CandidateInitialization;
         let previous = self.resources().replace_session(None);
-        match self.admit_execution(candidate.module(), options, ExecutionEntry::Candidate) {
+        match self.admit_execution(
+            candidate.module(),
+            options,
+            ExecutionEntry::Candidate,
+            RevisionSource::Host(candidate.program.revision()),
+        ) {
             Ok(execution) => Ok(CandidateSession {
                 candidate,
                 runtime: self,
@@ -344,12 +373,16 @@ impl Runtime {
         }
     }
 
+    /// Begin or reenter execution through a matching actual admitted body, or
+    /// through current publication when no such source exists. An old descriptor
+    /// alone cannot reopen retired state. Ordinary inner calls still select current code.
     pub fn begin_execution(
         &mut self,
         module: &ExecutableModule,
         options: ExecutionOptions,
     ) -> Result<ExecutionSession<'_>, RuntimeError> {
-        self.begin_execution_inner(module, options, ExecutionEntry::Program)
+        let origin = self.selection_origin(module)?;
+        self.begin_execution_inner(module, options, ExecutionEntry::Program, origin)
     }
 
     fn begin_execution_inner(
@@ -357,9 +390,10 @@ impl Runtime {
         module: &ExecutableModule,
         options: ExecutionOptions,
         entry: ExecutionEntry,
+        origin: RevisionSource<'_>,
     ) -> Result<ExecutionSession<'_>, RuntimeError> {
         let scope = self
-            .admit_execution(module, options, entry)
+            .admit_execution(module, options, entry, origin)
             .map_err(|error| error.with_trace(self.capture_error_trace()))?;
         Ok(ExecutionSession {
             runtime: self,
@@ -372,12 +406,13 @@ impl Runtime {
         module: &ExecutableModule,
         options: ExecutionOptions,
         entry: ExecutionEntry,
+        origin: RevisionSource<'_>,
     ) -> Result<SessionScope, RuntimeError> {
-        let activation = self.resources().begin_synchronous_activation()?;
+        let resources = &self.resources;
+        let activation = resources.begin_synchronous_activation()?;
         self.ensure_scheduler_open()?;
-        self.gc.ensure_no_native_borrow()?;
         if self.modules.is_staged(module)
-            && self.resources().active_session().is_none()
+            && resources.active_session().is_none()
             && !matches!(entry, ExecutionEntry::Candidate)
         {
             return Err(RuntimeError::execution_phase_violation(
@@ -395,7 +430,7 @@ impl Runtime {
             ));
         }
 
-        let id = if let Some(session) = self.resources().active_session() {
+        let id = if let Some(session) = resources.active_session() {
             if options.phase == ExecutionPhase::CandidateInitialization
                 && session.options.phase != ExecutionPhase::CandidateInitialization
             {
@@ -411,8 +446,7 @@ impl Runtime {
                 .sessions
                 .frames(session.id)
                 .ok_or_else(|| {
-                    self.resources()
-                        .quarantine(EngineFault::FrameStackIsBorrowedAcrossExecution)
+                    resources.quarantine(EngineFault::FrameStackIsBorrowedAcrossExecution)
                 })?
                 .last()
                 .is_some_and(|frame| {
@@ -432,18 +466,72 @@ impl Runtime {
                     "nested execution must use the same installation dependency program",
                 ));
             }
+            self.memory
+                .scope(&self.resources, |cx, roots| {
+                    ExecutionRoots::with(roots, cx, |slots| {
+                        origin.resolve(&self.modules, slots, module).map(|_| ())
+                    })
+                })
+                .map_err(|error| match error {
+                    GcError::ForeignHeap
+                    | GcError::InvalidRoot
+                    | GcError::Index
+                    | GcError::Representation => RuntimeError::module_validation(
+                        "foreign, expired or mismatched execution origin",
+                    ),
+                    error => self.managed_memory_error(error),
+                })?;
             session.id
         } else {
-            let program = self
-                .retain_module(module, ModuleEpochRetention::ActiveCall)
+            let registration = self
+                .modules
+                .register_execution(module)
                 .ok_or_else(|| RuntimeError::module_validation("execution program was released"))?;
-            let id = self.resources().sessions.insert(
+            // Resolve the original origin before growth, then publish the sole
+            // body edge in the same closed source scope. No root pack or second
+            // origin lookup is needed while creating the execution.
+            let published = self.memory.scope(&self.resources, |cx, roots| {
+                ExecutionRoots::with(roots, cx, |slots| {
+                    let revision = match origin.resolve(&self.modules, slots, module) {
+                        Ok(revision) => revision,
+                        Err(error) => return Ok(Err(error)),
+                    };
+                    let id = slots.enter(0)?;
+                    match slots.push_dependency(id, revision) {
+                        Ok(body) => Ok(Ok((id, body))),
+                        Err(error) => {
+                            slots.leave(id)?;
+                            Err(error)
+                        }
+                    }
+                })
+            });
+            let (id, body) = published
+                .map_err(|error| self.managed_memory_error(error))?
+                .map_err(|error| match error {
+                    GcError::ForeignHeap
+                    | GcError::InvalidRoot
+                    | GcError::Index
+                    | GcError::Representation => RuntimeError::module_validation(
+                        "foreign, expired or mismatched execution origin",
+                    ),
+                    error => self.managed_memory_error(error),
+                })?;
+            if let Err(error) = resources.sessions.insert(
+                id,
                 module.clone(),
                 options,
-                self.resources().counters(),
-                program,
-            )?;
-            self.resources().start_execution(id);
+                resources.counters(),
+                registration,
+                body,
+            ) {
+                if let Err(cleanup) = self.memory.retire_execution(&self.resources, id) {
+                    return Err(resources
+                        .quarantine(EngineFault::ExecutionStorageRetirementFailed(cleanup)));
+                }
+                return Err(error);
+            }
+            resources.start_execution(id);
             id
         };
         let state = self
@@ -451,22 +539,24 @@ impl Runtime {
             .sessions
             .get(id)
             .expect("entered execution session");
-        let scopes = state.scopes.get().checked_add(1).ok_or_else(|| {
-            self.resources()
-                .quarantine(EngineFault::ExecutionScopeCountOverflow)
-        })?;
+        let scopes = state
+            .scopes
+            .get()
+            .checked_add(1)
+            .ok_or_else(|| resources.quarantine(EngineFault::ExecutionScopeCountOverflow))?;
         state.scopes.set(scopes);
         drop(state);
         let mut scope = SessionScope::new(id, activation.detach());
-        if let Err(error) = self.resources().poll_execution() {
-            scope.retire(self.resources());
+        if let Err(error) = resources.poll_execution() {
+            scope.retire(self);
             return Err(error);
         }
         Ok(scope)
     }
 
-    pub fn gc(&self) -> &GcHeap {
-        &self.gc
+    /// Observe the current managed collector without opening a payload loan.
+    pub fn gc_stats(&self) -> HeapStats {
+        self.memory.stats()
     }
 
     pub fn host(&self) -> &HostRegistry {
@@ -482,7 +572,10 @@ impl Runtime {
         self.host_borrows.validate(token, required)
     }
 
-    pub fn host_scope(&mut self, values: &[Value]) -> Result<HostResourceScope<'_>, RuntimeError> {
+    pub fn host_scope(
+        &mut self,
+        values: &[RootedValue],
+    ) -> Result<HostResourceScope<'_>, RuntimeError> {
         HostResourceScope::new(self, values)
     }
 
@@ -527,89 +620,7 @@ impl Runtime {
         self.host.resolve_path(declaration)
     }
 
-    pub fn make_host_path_view(
-        &self,
-        root: host::HostRootHandle,
-        descriptor_id: host::HostPathDescriptorId,
-        dynamic_args: host::DynamicPathArguments,
-    ) -> Result<host::HostPathViewHandle, RuntimeError> {
-        self.resources().ensure_execution_allowed()?;
-        self.reject_candidate_external_access()?;
-        if !dynamic_args
-            .as_slice()
-            .iter()
-            .all(|arg| self.gc.validate_value(&arg.value))
-        {
-            return Err(RuntimeError::typed_path_validation(
-                "invalid heap reference in path arguments",
-            ));
-        }
-        self.host
-            .make_path_view(&self.gc, root, descriptor_id, dynamic_args)
-    }
-
-    pub fn make_host_path_view_from_value(
-        &self,
-        root_or_view: &value::Value,
-        descriptor_id: host::HostPathDescriptorId,
-        dynamic_args: Vec<value::Value>,
-    ) -> Result<host::HostPathViewHandle, RuntimeError> {
-        self.resources().ensure_execution_allowed()?;
-        self.reject_candidate_external_access()?;
-        if !self.gc.validate_value(root_or_view)
-            || !dynamic_args.iter().all(|arg| self.gc.validate_value(arg))
-        {
-            return Err(RuntimeError::typed_path_validation(
-                "invalid heap reference in path arguments",
-            ));
-        }
-        self.host
-            .make_path_view_from_value(&self.gc, root_or_view, descriptor_id, dynamic_args)
-    }
-
-    pub fn read_host_path(
-        &mut self,
-        root_or_view: &value::Value,
-        descriptor_id: host::HostPathDescriptorId,
-        dynamic_args: Vec<value::Value>,
-    ) -> Result<value::Value, RuntimeError> {
-        self.resources().ensure_execution_allowed()?;
-        self.reject_candidate_external_access()?;
-        let result = self.read_path(root_or_view, descriptor_id, dynamic_args);
-        self.resources().ensure_execution_allowed()?;
-        result
-    }
-
-    pub fn set_host_path(
-        &mut self,
-        root_or_view: &value::Value,
-        descriptor_id: host::HostPathDescriptorId,
-        dynamic_args: Vec<value::Value>,
-        value: value::Value,
-    ) -> Result<(), RuntimeError> {
-        self.resources().poll_execution()?;
-        self.reject_candidate_external_access()?;
-        let result = self.set_path(root_or_view, descriptor_id, dynamic_args, value);
-        self.resources().ensure_execution_allowed()?;
-        result
-    }
-
-    pub fn modify_host_path(
-        &mut self,
-        root_or_view: &value::Value,
-        descriptor_id: host::HostPathDescriptorId,
-        dynamic_args: Vec<value::Value>,
-        op: BinaryOp,
-        value: value::Value,
-    ) -> Result<value::Value, RuntimeError> {
-        self.resources().poll_execution()?;
-        self.reject_candidate_external_access()?;
-        let result = self.modify_path(root_or_view, descriptor_id, dynamic_args, op, value);
-        self.resources().ensure_execution_allowed()?;
-        result
-    }
-
-    pub fn host_dirty_paths(&self) -> Vec<host::HostPathMutationRecord> {
+    pub fn host_dirty_paths(&self) -> Vec<host::HostPathMutationRecord<RootedValue>> {
         self.host.dirty_paths()
     }
 
@@ -622,7 +633,7 @@ impl Runtime {
     }
 
     pub fn resources(&self) -> &ResourceState {
-        self.gc.resources()
+        &self.resources
     }
 
     pub fn modules(&self) -> &ModuleStore {
@@ -652,107 +663,96 @@ impl Runtime {
         Some(artifact)
     }
 
-    pub fn root_value(&self, value: value::Value) -> Option<RootedValue> {
-        self.gc.root_value(value)
-    }
-
-    fn validate_heap_payloads(&self, values: &[Value]) -> Result<(), RuntimeError> {
-        self.resources().ensure_execution_allowed()?;
-        if !values
-            .iter()
-            .all(|value| value.is_default_heap_payload(&self.gc) && self.gc.validate_value(value))
-        {
-            return Err(RuntimeError::from(TrapReason::InvalidOrForeignHeapPayload));
+    /// Finish collection through the sole execution-root driver. Payload/source
+    /// loans must end before entry; provider failures quarantine the Runtime.
+    pub fn collect_garbage(&mut self) -> Result<CollectionReport, RuntimeError> {
+        self.resources.ensure_synchronous_thread()?;
+        self.resources.ensure_not_publishing()?;
+        self.resources.ensure_execution_allowed()?;
+        self.modules.check_collection_access()?;
+        self.flush_static_failures()?;
+        let started = Instant::now();
+        // Full collection always includes a fresh cycle, including when it first
+        // finishes an active one. Concurrent later releases retain their own flag.
+        let abandoned = self.modules.take_abandonment();
+        let result = self.resources.collect_operation(|| {
+            let mut report = self.memory.collect(&self.resources)?;
+            self.modules.dispose_retired(abandoned)?;
+            self.structure_layouts.prune();
+            self.interface_descriptions.prune();
+            report.elapsed = started.elapsed();
+            Ok::<_, GcError>(report)
+        });
+        if abandoned && !matches!(&result, Ok(Ok(_))) {
+            self.modules.restore_abandonment();
         }
-        Ok(())
+        result?.map_err(|error| self.managed_memory_error(error))
     }
 
-    pub fn trace_roots(&self) -> Option<Vec<HeapObjectId>> {
-        self.gc.trace_roots()
-    }
-
-    /// Collect unreachable heap objects and module instances in one graph traversal.
-    pub fn collect_garbage(&mut self) -> Result<GcCollection, RuntimeError> {
-        self.resources().ensure_synchronous_thread()?;
-        self.resources().ensure_not_publishing()?;
-        self.gc.ensure_no_native_borrow()?;
-        self.resources().ensure_execution_allowed()?;
-        self.gc.collect(&self.modules, &self.host.gc_roots())
-    }
-
-    /// Collect at an eligible safepoint with exclusive Runtime access.
-    /// Read views must end before the safepoint:
-    /// ```compile_fail,E0502
-    /// use kagari_runtime::Runtime;
-    /// fn collect(runtime: &mut Runtime) {
-    ///     let heap = runtime.gc();
-    ///     runtime.gc_safepoint().unwrap();
-    ///     let _ = heap.stats();
-    /// }
-    /// ```
+    /// Advance managed collection only at an admitted execution boundary.
     pub fn gc_safepoint(&mut self) -> Result<(), RuntimeError> {
-        self.resources().poll_execution()?;
-        let collection_due = if self.gc.collection_due() {
-            true
-        } else if self.gc.automatic_collection_enabled() {
+        self.resources.poll_execution()?;
+        let abandoned = if self.memory.automatic_collection_enabled() {
             self.modules.check_collection_access()?;
             self.modules.abandonment_pending()
         } else {
             false
         };
-        if collection_due {
-            self.collect_garbage()?;
+        if self.memory.service_requested(abandoned) {
+            self.flush_static_failures()?;
+            // A release during an already active cycle may have been marked.
+            // Keep its fresh-cycle request until the next Idle -> Roots boundary.
+            let acknowledge =
+                self.memory.stats().phase == Phase::Idle && self.modules.take_abandonment();
+            let result = self.resources.collect_operation(|| {
+                self.memory.safepoint(&self.resources)?;
+                self.modules.dispose_retired(acknowledge)?;
+                if self.memory.stats().phase == Phase::Idle {
+                    self.structure_layouts.prune();
+                    self.interface_descriptions.prune();
+                }
+                Ok::<_, GcError>(())
+            });
+            if acknowledge && !matches!(&result, Ok(Ok(()))) {
+                self.modules.restore_abandonment();
+            }
+            result?.map_err(|error| self.managed_memory_error(error))?;
         }
         Ok(())
     }
 
-    pub fn reflect_type_of(&self, value: &value::Value) -> Result<value::Value, RuntimeError> {
-        self.resources().poll_execution()?;
-        reflection::type_of(&self.gc, value).map_err(|error| error.into_runtime_error())
+    /// Invalid public input handles are admission errors. Failures in an already
+    /// admitted graph still use managed_memory_error and quarantine the Runtime.
+    pub(crate) fn managed_input_error(&self, error: GcError) -> RuntimeError {
+        match error {
+            GcError::ForeignHeap
+            | GcError::InvalidRoot
+            | GcError::Index
+            | GcError::Representation => RuntimeError::module_validation(error.to_string()),
+            error => self.managed_memory_error(error),
+        }
     }
 
-    pub fn reflect_get_field(
-        &self,
-        value: &value::Value,
-        field_name: &str,
-    ) -> Result<value::Value, RuntimeError> {
-        self.resources().poll_execution()?;
-        reflection::get_field(&self.gc, value, field_name)
-            .map_err(|error| error.into_runtime_error().into_reflective_read())
-    }
-
-    pub fn reflect_set_field(
-        &self,
-        value: &value::Value,
-        field_name: &str,
-        next_value: value::Value,
-    ) -> Result<value::Value, RuntimeError> {
-        self.resources().poll_execution()?;
-        reflection::set_field(&self.gc, value, field_name, next_value)
-            .map_err(ReflectionError::into_write_error)
-    }
-
-    pub fn reflect_set_index(
-        &self,
-        value: &value::Value,
-        index: &value::Value,
-        next_value: value::Value,
-    ) -> Result<value::Value, RuntimeError> {
-        self.resources().poll_execution()?;
-        reflection::set_index(&self.gc, value, index, next_value)
-            .map_err(ReflectionError::into_write_error)
+    fn managed_memory_error(&self, error: GcError) -> RuntimeError {
+        match error {
+            GcError::Allocation => self.resources.limit("managed allocation"),
+            GcError::Limit(name) => self.resources.limit(name),
+            GcError::Closed => RuntimeError::from(CancellationReason::RuntimeIsClosed),
+            error => self
+                .resources
+                .quarantine(EngineFault::ManagedCollectionFailed(error)),
+        }
     }
 
     /// Invoke a checked primitive value operation.
-    pub fn invoke_standard_builtin(
+    pub fn invoke_standard_builtin<'result>(
         &mut self,
         owner: &ExecutableModule,
         intrinsic: RuntimePrimitive,
-        args: &[value::Value],
-    ) -> Result<value::Value, BuiltinError> {
-        self.resources().ensure_execution_allowed()?;
-        let value = builtin::invoke_standard(self, owner, intrinsic, args)?;
-        Ok(value)
+        args: ArgumentValues<'_>,
+        destination: ResultPlace<'result>,
+    ) -> Result<PublishedResult<'result>, BuiltinError> {
+        builtin::invoke_standard(self, owner, intrinsic, args, destination)
     }
 }
 

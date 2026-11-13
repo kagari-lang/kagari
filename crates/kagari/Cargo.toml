@@ -35,6 +35,7 @@ kagari-syntax = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
 
 [dev-dependencies]
+kagari-gc.workspace = true
 kagari-stdlib.workspace = true
 rstest.workspace = true
 serde.workspace = true

@@ -1,8 +1,9 @@
-//! Frozen D00 whole-call workload with only an explicitly authored Native provider.
+//! Core call contracts and matched workloads use explicitly authored providers.
 #[path = "support/bytecode.rs"]
 mod bytecode_fixture;
 mod internal_calls;
 mod native_allocations_counter;
+mod native_scope;
 use crate::bytecode_fixture::load_bytecode;
 use crate::native_allocations_counter::{measured, verify_counter};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};

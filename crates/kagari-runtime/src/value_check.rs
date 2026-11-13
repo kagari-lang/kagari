@@ -1,97 +1,212 @@
 //! Runtime value/type compatibility consumes checked layouts and lexical type facts.
 //! Heap storage supplies descriptors; the collector does not resolve type policy.
+pub(crate) mod data;
+pub(crate) mod scoped;
 use crate::{
-    frame::types::{bindings::TypeBindings, compatibility::TypeView},
-    gc::GcHeap,
+    Runtime,
+    error::RuntimeError,
+    execution::roots::ExecutionRoots,
+    frame::{arguments::FrameArguments, types::arguments::TypeArgument},
     module::ExecutableModule,
-    numeric,
-    value::{EnumTag, Value},
+    value::{carriers::RootedValue, view::ValueView},
+    value_check::data::DataWalk,
 };
-use kagari_contract::representation::semantic_representation;
-use kagari_types::ty::Ty;
+use kagari_gc::error::GcError;
 
-pub(crate) fn matches_type(
-    heap: &GcHeap,
-    value: &Value,
-    ty: &Ty,
-    owner: &ExecutableModule,
-) -> bool {
-    matches_view(heap, value, TypeView::new(ty, owner, None))
-}
-
-pub(crate) fn matches_type_in(
-    heap: &GcHeap,
-    value: &Value,
-    ty: &Ty,
-    owner: &ExecutableModule,
-    environment: Option<&TypeBindings>,
-) -> bool {
-    matches_view(heap, value, TypeView::new(ty, owner, environment))
-}
-
-/// One matcher for raw lexical expressions and admitted closed type facts. Project
-/// container children without discarding their closed result or supplying scope.
-/// Tuple descent follows the checked type tree; no per-value worklist is needed.
-pub(crate) fn matches_view(heap: &GcHeap, value: &Value, view: TypeView<'_>) -> bool {
-    if let Ty::Parameter { owner, position } = view.ty {
-        return view
-            .environment
-            .and_then(|environment| environment.argument(owner, *position))
-            .is_some_and(|argument| argument.matches_heap(heap, value, view.owner));
-    }
-    let Some(view) = view.normalized() else {
-        return false;
+/// Candidate entry/result policy is separate from nominal matching. Select its
+/// immutable owner facts without holding control, then walk actual protected data
+/// under the paired scope. Executable metadata edges are not captured data.
+pub(crate) fn candidate_protected(
+    runtime: &mut Runtime,
+    values: &[ValueView<'_>],
+) -> Result<(), RuntimeError> {
+    let Some(owner) = runtime.resources.candidate_owner() else {
+        return Ok(());
     };
-    match (value, view.ty) {
-        (value, Ty::Builtin(kind)) => {
-            if kind.integer_layout().is_some() {
-                numeric::read_integer(*kind, value).is_ok()
-            } else {
-                value.has_representation(semantic_representation(view.ty))
-            }
-        }
-        (Value::Range(id), Ty::Range(_, _)) => heap
-            .range(*id)
-            .is_some_and(|range| view.closed().is_some_and(|ty| range.matches(&ty))),
-        (Value::Closure(id), Ty::Function { params, result }) => {
-            heap.closure_snapshot(*id).is_some_and(|snapshot| {
-                snapshot.matches_function(params, result, view.owner, view.environment)
-            })
-        }
-        (Value::Tuple(id), Ty::Tuple(types)) => heap.tuple(*id).is_some_and(|values| {
-            values.len() == types.len()
-                && values.iter().enumerate().all(|(index, value)| {
-                    view.parameter(index)
-                        .is_some_and(|view| matches_view(heap, value, view))
-                })
-        }),
-        (Value::Struct(id), Ty::Struct(expected)) => {
-            heap.struct_layout(*id).is_some_and(|actual| {
-                if view.environment.is_none() {
-                    view.owner
-                        .find_struct_layout(expected)
-                        .is_some_and(|current| actual.matches(&current))
-                } else {
-                    actual.matches_view(view)
+    let Runtime {
+        memory, resources, ..
+    } = runtime;
+    let result = memory.scope(resources, |cx, roots| {
+        ExecutionRoots::with(roots, cx, |slots| {
+            Ok((|| {
+                let mut walk = DataWalk::candidate(owner);
+                for (index, value) in values.iter().enumerate() {
+                    if index.is_multiple_of(1024) {
+                        resources.poll_closed()?;
+                    }
+                    let value = value.get(slots)?;
+                    if !walk.value(slots.scope(), value, resources)? {
+                        return Err(RuntimeError::execution_phase_violation(
+                            "external object in candidate host value",
+                        )
+                        .into());
+                    }
                 }
-            })
-        }
-        (Value::Enum(id), Ty::Enum(_)) => heap.enum_view(*id).is_some_and(
-            |value| matches!(&value.tag, EnumTag::Declared(actual) if actual.matches_view(view)),
-        ),
-        (Value::Interface(id), Ty::Trait(_)) => heap
-            .interface_snapshot(*id)
-            .is_some_and(|actual| actual.matches_type(view.ty, view.owner, view.environment)),
-        (Value::GcHandle(id), Ty::NativeObject(_)) => heap.matches_native_type(*id, view),
+                Ok::<_, scoped::CheckError>(())
+            })())
+        })
+    });
+    result
+        .map_err(|error| runtime.managed_input_error(error))?
+        .map_err(|error| {
+            runtime
+                .resources
+                .admit_execution_error(error.into_runtime(runtime))
+        })
+}
 
-        (Value::Array(id), Ty::Array(_)) => heap.array_contract(*id).is_some_and(|contract| {
-            view.parameter(0)
-                .is_some_and(|element| contract.matches_view(element))
-        }),
+/// Direct Host object access has no argument pack to perform this admission.
+/// Walk the genuine root under its heap scope, then admit errors after it ends.
+pub(crate) fn candidate_root(
+    runtime: &mut Runtime,
+    value: &RootedValue,
+) -> Result<(), RuntimeError> {
+    let Some(owner) = runtime.resources.candidate_owner() else {
+        return Ok(());
+    };
+    let resources = &runtime.resources;
+    let result = runtime.memory.scope(&runtime.resources, |cx, _| {
+        let value = value.get(cx)?;
+        Ok((|| -> Result<(), scoped::CheckError> {
+            resources.poll_closed()?;
+            if !DataWalk::candidate(owner).value(cx, value, resources)? {
+                return Err(RuntimeError::execution_phase_violation(
+                    "external object in candidate access",
+                )
+                .into());
+            }
+            Ok(())
+        })())
+    });
+    result
+        .map_err(|error| runtime.managed_input_error(error))?
+        .map_err(|error| {
+            runtime
+                .resources
+                .admit_execution_error(error.into_runtime(runtime))
+        })
+}
 
-        (_, Ty::Projection { .. } | Ty::SelfType(_)) => view
-            .closed()
-            .is_some_and(|ty| matches_type(heap, value, &ty, view.owner)),
-        _ => false,
-    }
+/// Frame arguments retain their original sources; candidate data policy inspects
+/// the borrowed receiver/captures/explicit pack without materializing another pack.
+pub(crate) fn candidate_arguments(
+    runtime: &mut Runtime,
+    arguments: FrameArguments<'_, '_>,
+) -> Result<(), RuntimeError> {
+    let Some(owner) = runtime.resources.candidate_owner() else {
+        return Ok(());
+    };
+    let Runtime {
+        memory, resources, ..
+    } = runtime;
+    let result = memory.scope(resources, |cx, roots| {
+        ExecutionRoots::with(roots, cx, |slots| {
+            Ok((|| -> Result<(), scoped::CheckError> {
+                arguments.check_bounds(slots)?;
+                let mut walk = DataWalk::candidate(owner);
+                for index in 0..arguments.len() {
+                    if index.is_multiple_of(1024) {
+                        resources.poll_closed()?;
+                    }
+                    let value = arguments.get(slots, index)?;
+                    if !walk.value(slots.scope(), value, resources)? {
+                        return Err(RuntimeError::execution_phase_violation(
+                            "external object in candidate call arguments",
+                        )
+                        .into());
+                    }
+                }
+                Ok(())
+            })())
+        })
+    });
+    result
+        .map_err(|error| runtime.managed_input_error(error))?
+        .map_err(|error| {
+            runtime
+                .resources
+                .admit_execution_error(error.into_runtime(runtime))
+        })
+}
+
+/// Check a Host submission while its original root supplies protection.
+/// No conversion-local pack, managed allocation or root registration is needed.
+pub(crate) fn matches_rooted(
+    runtime: &mut Runtime,
+    owner: &ExecutableModule,
+    expected: &TypeArgument,
+    value: &RootedValue,
+) -> Result<bool, RuntimeError> {
+    expected.validate(runtime)?;
+    let Runtime {
+        memory,
+        host,
+        host_borrows,
+        resources,
+        ..
+    } = runtime;
+    let result = memory.scope(resources, |cx, _| {
+        let value = value.get(cx)?;
+        Ok(scoped::matches_argument(
+            cx,
+            value,
+            expected,
+            owner,
+            host,
+            host_borrows,
+            resources,
+        ))
+    });
+    result
+        .map_err(|error| runtime.managed_input_error(error))?
+        .map_err(|error| {
+            runtime
+                .resources
+                .admit_execution_error(error.into_runtime(runtime))
+        })
+}
+
+/// Match prepared lexical facts against an existing protected view. This closed
+/// read cannot allocate managed output, execute callbacks or retain any value;
+/// the original source owns protection, so no conversion-local mark is needed.
+pub(crate) fn matches_protected(
+    runtime: &mut Runtime,
+    owner: &ExecutableModule,
+    expected: &TypeArgument,
+    value: &ValueView<'_>,
+) -> Result<bool, RuntimeError> {
+    expected.validate(runtime)?;
+    let Runtime {
+        memory,
+        host,
+        host_borrows,
+        resources,
+        ..
+    } = runtime;
+    let result = memory.scope(resources, |cx, roots| {
+        ExecutionRoots::with(roots, cx, |slots| {
+            let value = value.get(slots)?;
+            Ok(scoped::matches_argument(
+                slots.scope(),
+                value,
+                expected,
+                owner,
+                host,
+                host_borrows,
+                resources,
+            ))
+        })
+    });
+    result
+        .map_err(|error| match error {
+            GcError::ForeignHeap
+            | GcError::InvalidRoot
+            | GcError::Index
+            | GcError::Representation => RuntimeError::module_validation(error.to_string()),
+            error => runtime.managed_memory_error(error),
+        })?
+        .map_err(|error| {
+            let error = error.into_runtime(runtime);
+            runtime.resources.admit_execution_error(error)
+        })
 }

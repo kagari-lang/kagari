@@ -16,7 +16,7 @@ use crate::{
         typed::NativeContext,
     },
     session::ExecutionOptions,
-    value::Value,
+    value::view::ValueView,
 };
 
 use std::slice;
@@ -24,16 +24,16 @@ use std::slice;
 impl Runtime {
     /// Execute a closed public entry using a branded external host scope. This
     /// uses the interpreter's ordinary checked entry, session and trap cleanup.
-    pub fn execute_scoped<'entry>(
-        scope: &mut HostScope<'_, '_>,
+    pub fn execute_scoped<'entry, 'scope, 'host: 'scope>(
+        scope: &mut HostScope<'scope, 'host>,
         program: &InstalledProgram,
         entry: impl Into<ProgramEntry<'entry>>,
-        arguments: &[Value],
+        arguments: &[ValueView<'_>],
         context: &ExecutionContext,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ValueView<'scope>> {
         let entry = entry.into();
         context.validate_for_execute(entry.label())?;
-        scope.execute(arguments, |runtime, arguments| {
+        scope.execute(arguments, |runtime, arguments, destination| {
             let module = runtime.select_program(program)?;
             let (owner, function) = entry
                 .resolve(&module)
@@ -54,16 +54,22 @@ impl Runtime {
                 })
                 .collect::<NativeResult<Vec<_>>>()?;
             let parameters = runtime.resolve_type_arguments(&owner, &parameters)?;
-            let conversion = ConversionContext::new(runtime, &owner)?;
-            for (expected, value) in parameters.iter().zip(arguments) {
-                conversion.check_value(expected, value)?;
+            let mut conversion = ConversionContext::new(runtime, &owner)?;
+            for (index, expected) in parameters.iter().enumerate() {
+                let value = arguments.get(&mut conversion, index)?;
+                conversion.check_value(expected, &value)?;
             }
             drop(conversion);
             let mut session = runtime.begin_execution(&owner, context.runtime_options())?;
             let runtime = session.runtime_mut();
             runtime.attach_execution_observer()?;
-            Executor::new(runtime, &owner, function, arguments)
-                .and_then(|mut executor| executor.run())
+            Executor::new(runtime, &owner, function, arguments).and_then(|mut executor| {
+                executor.run(|runtime, stack, value| {
+                    stack.with_result(runtime, value, |runtime, value| {
+                        destination.publish(runtime, &value)
+                    })
+                })
+            })
         })
     }
 
@@ -142,20 +148,14 @@ impl Runtime {
         let runtime = session.runtime_mut();
         let mut conversion = ConversionContext::new(runtime, module)?;
         conversion.check_type::<R>(&result)?;
-        let roots = PreparedArguments::<A>::new(&conversion, &params)?
+        let arguments = PreparedArguments::<A>::new(&conversion, &params)?
             .encode(&mut conversion, arguments)?;
-        let arguments = (0..params.len())
-            .map(|slot| {
-                roots
-                    .get(conversion.runtime().gc(), slot)
-                    .ok_or_else(invalid)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let value = Executor::new(conversion.runtime_mut(), module, function, &arguments)?.run()?;
-        let rooted = conversion.runtime().root_value(value).ok_or_else(invalid)?;
-        let value = rooted
-            .value(conversion.runtime().gc())
-            .ok_or_else(invalid)?;
-        conversion.decode_value(&result, &value)
+        Executor::new(conversion.runtime_mut(), module, function, arguments)?.run(
+            |runtime, stack, value| {
+                stack.with_result(runtime, value, |runtime, value| {
+                    ConversionContext::new(runtime, module)?.decode_value(&result, &value)
+                })
+            },
+        )
     }
 }

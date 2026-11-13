@@ -17,12 +17,13 @@ use kagari_runtime::{
     Runtime as CoreRuntime, RuntimeConfig,
     module::{ExecutableModule, InstalledProgram},
     native::module::NativeModule,
-    value::Value,
+    value::carriers::RootedValue,
 };
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
 use kagari_types::declaration::module::ModuleDecl;
 use rstest::rstest;
+use std::slice;
 
 pub(super) fn prepare_static_program(
     engine: &KagariEngine,
@@ -45,13 +46,11 @@ pub(super) fn prepare_static_program(
     .unwrap()
 }
 
-fn static_call(runtime: &mut Runtime, module: &InstalledProgram, entry: &str) -> Value {
+fn static_call(runtime: &mut Runtime, module: &InstalledProgram, entry: &str) -> RootedValue {
     runtime
         .execute(module, entry, &[], &Default::default())
         .unwrap()
         .return_value
-        .value(runtime.gc())
-        .unwrap()
 }
 
 #[rstest]
@@ -83,8 +82,11 @@ pub fn write() { STATE = 128578u32; }
     let old = runtime
         .load_program(first.program(), Default::default())
         .unwrap();
-    assert_eq!(static_call(&mut runtime, &old, "read"), Value::I64(97));
-    static_call(&mut runtime, &old, "write");
+    assert_eq!(
+        static_call(&mut runtime, &old, "read").as_i64().unwrap(),
+        97
+    );
+    let _ = static_call(&mut runtime, &old, "write");
     assert_eq!(
         runtime
             .program(&old)
@@ -114,8 +116,8 @@ pub fn write() { STATE = 128578u32; }
     );
     for module in [&old, &current] {
         assert_eq!(
-            static_call(&mut runtime, module, "read"),
-            Value::I64(128578)
+            static_call(&mut runtime, module, "read").as_i64().unwrap(),
+            128578
         );
     }
 }
@@ -145,7 +147,7 @@ fn persistent_static_objects_and_recursive_nominal_collections_preserve_aliases(
     let old = runtime
         .load_program(first.program(), Default::default())
         .unwrap();
-    assert_eq!(static_call(&mut runtime, &old, "check"), Value::Bool(true));
+    assert!(static_call(&mut runtime, &old, "check").as_bool().unwrap());
     assert_eq!(
         runtime
             .program(&old)
@@ -165,17 +167,22 @@ fn persistent_static_objects_and_recursive_nominal_collections_preserve_aliases(
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
-    static_call(&mut runtime, &current, "replace");
+    let _ = static_call(&mut runtime, &current, "replace");
     for module in [&old, &current] {
-        assert_eq!(
-            static_call(&mut runtime, module, "check"),
-            Value::Bool(true)
+        assert!(
+            static_call(&mut runtime, module, "check")
+                .as_bool()
+                .unwrap()
+        );
+        assert!(
+            static_call(&mut runtime, module, "distinct")
+                .as_bool()
+                .unwrap()
         );
         assert_eq!(
-            static_call(&mut runtime, module, "distinct"),
-            Value::Bool(true)
+            static_call(&mut runtime, module, "read").as_i32().unwrap(),
+            791
         );
-        assert_eq!(static_call(&mut runtime, module, "read"), Value::I32(791));
     }
 }
 
@@ -199,10 +206,18 @@ fn persistent_static_callbacks_and_interfaces_call_current_helpers(#[case] decod
     let old = runtime
         .load_program(first.program(), Default::default())
         .unwrap();
-    assert_eq!(static_call(&mut runtime, &old, "init"), Value::Bool(true));
+    assert!(static_call(&mut runtime, &old, "init").as_bool().unwrap());
     // Force the aliases before replacing their original cells.
-    assert_eq!(static_call(&mut runtime, &old, "saved"), Value::I32(22));
-    assert_eq!(static_call(&mut runtime, &old, "function"), Value::I32(10));
+    assert_eq!(
+        static_call(&mut runtime, &old, "saved").as_i32().unwrap(),
+        22
+    );
+    assert_eq!(
+        static_call(&mut runtime, &old, "function")
+            .as_i32()
+            .unwrap(),
+        10
+    );
     runtime
         .program(&old)
         .map_err(ReloadValidationError::Runtime)
@@ -210,27 +225,42 @@ fn persistent_static_callbacks_and_interfaces_call_current_helpers(#[case] decod
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
-    static_call(&mut runtime, &current, "set_state");
+    let _ = static_call(&mut runtime, &current, "set_state");
 
-    assert_eq!(
-        static_call(&mut runtime, &current, "fresh_lookup"),
-        Value::Bool(true)
+    assert!(
+        static_call(&mut runtime, &current, "fresh_lookup")
+            .as_bool()
+            .unwrap()
     );
     assert_eq!(
-        static_call(&mut runtime, &current, "current"),
-        Value::I32(50)
+        static_call(&mut runtime, &current, "current")
+            .as_i32()
+            .unwrap(),
+        50
     );
     assert_eq!(
-        static_call(&mut runtime, &current, "function"),
-        Value::I32(20)
+        static_call(&mut runtime, &current, "function")
+            .as_i32()
+            .unwrap(),
+        20
     );
-    static_call(&mut runtime, &current, "replace");
+    let _ = static_call(&mut runtime, &current, "replace");
     assert_eq!(
-        static_call(&mut runtime, &current, "current"),
-        Value::I32(70)
+        static_call(&mut runtime, &current, "current")
+            .as_i32()
+            .unwrap(),
+        70
     );
-    assert_eq!(static_call(&mut runtime, &current, "saved"), Value::I32(50));
-    assert_eq!(static_call(&mut runtime, &old, "current"), Value::I32(70));
+    assert_eq!(
+        static_call(&mut runtime, &current, "saved")
+            .as_i32()
+            .unwrap(),
+        50
+    );
+    assert_eq!(
+        static_call(&mut runtime, &old, "current").as_i32().unwrap(),
+        70
+    );
 }
 
 #[rstest]
@@ -250,11 +280,13 @@ fn persistent_static_hash_comparators_use_current_bodies_and_helpers(#[case] dec
         .load_program(first.program(), Default::default())
         .unwrap();
     for entry in ["map_lookup", "set_lookup"] {
-        assert_eq!(static_call(&mut runtime, &old, entry), Value::Bool(true));
+        assert!(static_call(&mut runtime, &old, entry).as_bool().unwrap());
     }
     assert_eq!(
-        static_call(&mut runtime, &old, "compare_contents"),
-        Value::I32(15)
+        static_call(&mut runtime, &old, "compare_contents")
+            .as_i32()
+            .unwrap(),
+        15
     );
     for (updated, expected) in [(bodies, 2323), (helpers, 2424)] {
         let candidate = prepare_static_program(&engine, updated, decoded);
@@ -265,31 +297,36 @@ fn persistent_static_hash_comparators_use_current_bodies_and_helpers(#[case] dec
             .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
             .unwrap();
         for entry in ["map_lookup", "set_lookup"] {
-            static_call(&mut runtime, &old, "reset_markers");
-            assert_eq!(static_call(&mut runtime, &old, entry), Value::Bool(true));
+            let _ = static_call(&mut runtime, &old, "reset_markers");
+            assert!(static_call(&mut runtime, &old, entry).as_bool().unwrap());
             assert_eq!(
-                static_call(&mut runtime, &old, "markers"),
-                Value::I32(expected)
+                static_call(&mut runtime, &old, "markers").as_i32().unwrap(),
+                expected
             );
         }
     }
     let current = old.clone();
     assert_eq!(
-        static_call(&mut runtime, &current, "compare_contents"),
-        Value::I32(15)
+        static_call(&mut runtime, &current, "compare_contents")
+            .as_i32()
+            .unwrap(),
+        15
     );
-    assert_eq!(
-        static_call(&mut runtime, &current, "content_hashes"),
-        Value::Bool(true)
+    assert!(
+        static_call(&mut runtime, &current, "content_hashes")
+            .as_bool()
+            .unwrap()
     );
-    assert_eq!(
-        static_call(&mut runtime, &current, "fresh_lookup"),
-        Value::Bool(true)
+    assert!(
+        static_call(&mut runtime, &current, "fresh_lookup")
+            .as_bool()
+            .unwrap()
     );
     for entry in ["map_lookup", "set_lookup", "mutate_keys"] {
-        assert_eq!(
-            static_call(&mut runtime, &current, entry),
-            Value::Bool(true)
+        assert!(
+            static_call(&mut runtime, &current, entry)
+                .as_bool()
+                .unwrap()
         );
     }
     let changed_hash =
@@ -302,12 +339,14 @@ fn persistent_static_hash_comparators_use_current_bodies_and_helpers(#[case] dec
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     for entry in ["map_lookup", "set_lookup"] {
-        static_call(&mut runtime, &old, "reset_markers");
+        let _ = static_call(&mut runtime, &old, "reset_markers");
         // Changed hashes need not find old entries. Only current dispatch is asserted.
         let _ = static_call(&mut runtime, &old, entry);
         assert_eq!(
-            static_call(&mut runtime, &old, "hash_observed"),
-            Value::I32(34)
+            static_call(&mut runtime, &old, "hash_observed")
+                .as_i32()
+                .unwrap(),
+            34
         );
     }
 }
@@ -352,6 +391,26 @@ fn decode_program(
     DefinitionMetadata::checked(definitions, artifact.program, &Default::default()).unwrap()
 }
 
+/// Compare released executions/values against a cold graph of the current product.
+/// A new revision may contain a different amount of prepared managed metadata.
+fn assert_cold_reclamation(
+    runtime: &mut CoreRuntime,
+    installed: &InstalledProgram,
+    current: DefinitionMetadata<BytecodeProgram>,
+) {
+    let mut cold = CoreRuntime::default();
+    NativeModule::install_all(&stdlib::modules().unwrap(), &mut cold).unwrap();
+    let _cold = load_bytecode(&mut cold, "cold-reload-reference", current.clone()).unwrap();
+    cold.collect_garbage().unwrap();
+    let baseline = cold.gc_stats();
+    reload_bytecode(runtime, installed, None, current).unwrap();
+    runtime.collect_garbage().unwrap();
+    let released = runtime.gc_stats();
+    assert_eq!(released.objects, baseline.objects);
+    assert_eq!(released.provider_units, baseline.provider_units);
+    assert_eq!(released.root_registrations, baseline.root_registrations);
+}
+
 #[test]
 fn retained_local_function_values_call_current_bodies_and_clean_up_all_exits() {
     let source = include_str!("../../../../tests/fixtures/embedding/reload/local-functions-v1.kgr");
@@ -377,62 +436,71 @@ fn retained_local_function_values_call_current_bodies_and_clean_up_all_exits() {
         .find(|contract| contract.abi.name == "Run")
         .unwrap();
     let run = ModuleDecl::method_id(contract.declaration, "run", old.definitions()).unwrap();
+    let run_path = old.definitions().resolve(run).unwrap().to_path();
     let old_key = old.key();
     let mut vm = runtime;
-    let saved_root = vm
+    vm.collect_garbage().unwrap();
+    let base_roots = vm.gc_stats().root_registrations;
+    let saved = vm
         .execute_module(&old, "make", vm.execution_options())
         .unwrap()
         .return_value;
-    let saved = saved_root.value(vm.gc()).unwrap();
     reload_bytecode(
         &mut vm,
         &_old_program,
         Some("local-reload".into()),
-        replacement,
+        replacement.clone(),
     )
     .unwrap();
     let _current_program = _old_program.clone();
     let current = vm.select_program(&_current_program).unwrap();
+    let current_run = current.definitions().lookup(&run_path).unwrap();
     drop(old);
     vm.collect_garbage().unwrap();
     assert!(vm.modules().loaded(old_key).is_some());
-    let fresh_root = vm
+    let fresh = vm
         .execute_module(&current, "make", vm.execution_options())
         .unwrap()
         .return_value;
-    let fresh = fresh_root.value(vm.gc()).unwrap();
-    for (value, expected) in [(&saved, 43), (&fresh, 43)] {
+    for (value, method, expected) in [(&saved, &run, 43), (&fresh, &current_run, 43)] {
         assert_eq!(
-            vm.invoke_interface_method(value, &run, &[Value::I32(0)])
+            vm.invoke_interface_method(value, method, &[RootedValue::from(0_i32)])
+                .unwrap()
+                .as_i32()
                 .unwrap(),
-            Value::I32(expected)
+            expected
         );
     }
     for (mode, expected) in [(1, "division by zero"), (2, "call depth")] {
         let error = vm
-            .invoke_interface_method(&saved, &run, &[Value::I32(mode)])
+            .invoke_interface_method(&saved, &run, &[RootedValue::from(mode)])
             .unwrap_err();
         assert!(format!("{error:?}").contains(expected), "{error:?}");
-        assert_eq!(vm.gc().active_roots(), 2);
+        assert_eq!(vm.resources().counters().current_call_depth, 0);
+        assert!(vm.execution_root().is_none());
+        vm.collect_garbage().unwrap();
+        assert_eq!(vm.gc_stats().root_registrations, base_roots + 2);
         assert!(!vm.is_quarantined());
     }
     let mut session = support::cancel_after(&mut vm, &current, 48);
     let error = session
         .runtime_mut()
-        .invoke_interface_method(&fresh, &run, &[Value::I32(3)])
+        .invoke_interface_method(&fresh, &current_run, &[RootedValue::from(3_i32)])
         .unwrap_err();
     drop(session);
     assert!(format!("{error:?}").contains("cancel"), "{error:?}");
-    assert_eq!(vm.gc().active_roots(), 2);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().root_registrations, base_roots + 2);
     assert!(!vm.is_quarantined());
     assert_eq!(
-        vm.invoke_interface_method(&saved, &run, &[Value::I32(0)])
+        vm.invoke_interface_method(&saved, &run, &[RootedValue::from(0_i32)])
+            .unwrap()
+            .as_i32()
             .unwrap(),
-        Value::I32(43)
+        43
     );
-    drop((saved_root, fresh_root));
-    assert_eq!(vm.gc().active_roots(), 0);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    drop((saved, fresh));
+    assert_cold_reclamation(&mut vm, &_old_program, replacement);
     assert_eq!(vm.modules().retention_counts(old_key).runtime_values, 0);
 }
 
@@ -451,11 +519,7 @@ fn retained_generic_default_and_override_closures_use_current_operations_after_r
     config.gc.collection_threshold = Some(1);
     let mut runtime = {
         let mut registered = CoreRuntime::new(config);
-        kagari_runtime::native::module::NativeModule::install_all(
-            &stdlib::modules().unwrap(),
-            &mut registered,
-        )
-        .unwrap();
+        NativeModule::install_all(&stdlib::modules().unwrap(), &mut registered).unwrap();
         registered
     };
     let old = load_bytecode(&mut runtime, "generic-reload", program).unwrap();
@@ -474,75 +538,86 @@ fn retained_generic_default_and_override_closures_use_current_operations_after_r
         ModuleDecl::method_id(contract.declaration, "constructed", old.definitions()).unwrap();
     let late_constructed =
         ModuleDecl::method_id(contract.declaration, "late_constructed", old.definitions()).unwrap();
+    let method_paths = [run, selected_default, constructed, late_constructed]
+        .map(|id| old.definitions().resolve(id).unwrap().to_path());
     let old_key = old.key();
     let mut vm = runtime;
     let saved = vm
         .execute_module(&old, "make", vm.execution_options())
         .unwrap()
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result");
-    let root = vm.root_value(saved).unwrap();
+        .return_value;
     reload_bytecode(
         &mut vm,
         &_old_program,
         Some("generic-reload".into()),
-        replacement,
+        replacement.clone(),
     )
     .unwrap();
     let _current_program = _old_program.clone();
     let current = vm.select_program(&_current_program).unwrap();
+    let [
+        current_run,
+        current_selected_default,
+        current_constructed,
+        current_late_constructed,
+    ] = method_paths.map(|path| current.definitions().lookup(&path).unwrap());
     drop(old);
     vm.collect_garbage().unwrap();
     assert!(vm.modules().loaded(old_key).is_some());
     let fresh = vm
         .execute_module(&current, "make", vm.execution_options())
         .unwrap()
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result");
-    let fresh_root = vm.root_value(fresh).unwrap();
-    assert_eq!(
-        vm.invoke_interface_method(&saved, &run, &[]).unwrap(),
-        Value::Bool(false)
+        .return_value;
+    assert!(
+        !vm.invoke_interface_method(&saved, &run, &[])
+            .unwrap()
+            .as_bool()
+            .unwrap()
     );
-    assert_eq!(
-        vm.invoke_interface_method(&fresh, &run, &[]).unwrap(),
-        Value::Bool(false)
+    assert!(
+        !vm.invoke_interface_method(&fresh, &current_run, &[])
+            .unwrap()
+            .as_bool()
+            .unwrap()
     );
-    assert_eq!(
-        vm.invoke_interface_method(&saved, &selected_default, &[])
-            .unwrap(),
-        Value::Bool(false)
+    assert!(
+        !vm.invoke_interface_method(&saved, &selected_default, &[])
+            .unwrap()
+            .as_bool()
+            .unwrap()
     );
-    assert_eq!(
-        vm.invoke_interface_method(&fresh, &selected_default, &[])
-            .unwrap(),
-        Value::Bool(false)
+    assert!(
+        !vm.invoke_interface_method(&fresh, &current_selected_default, &[])
+            .unwrap()
+            .as_bool()
+            .unwrap()
     );
-    assert_eq!(
-        vm.invoke_interface_method(&saved, &constructed, &[])
-            .unwrap(),
-        Value::Bool(false)
+    assert!(
+        !vm.invoke_interface_method(&saved, &constructed, &[])
+            .unwrap()
+            .as_bool()
+            .unwrap()
     );
-    assert_eq!(
-        vm.invoke_interface_method(&fresh, &constructed, &[])
-            .unwrap(),
-        Value::Bool(false)
+    assert!(
+        !vm.invoke_interface_method(&fresh, &current_constructed, &[])
+            .unwrap()
+            .as_bool()
+            .unwrap()
     );
-    assert_eq!(
-        vm.invoke_interface_method(&saved, &late_constructed, &[])
-            .unwrap(),
-        Value::Bool(false)
+    assert!(
+        !vm.invoke_interface_method(&saved, &late_constructed, &[])
+            .unwrap()
+            .as_bool()
+            .unwrap()
     );
-    assert_eq!(
-        vm.invoke_interface_method(&fresh, &late_constructed, &[])
-            .unwrap(),
-        Value::Bool(false)
+    assert!(
+        !vm.invoke_interface_method(&fresh, &current_late_constructed, &[])
+            .unwrap()
+            .as_bool()
+            .unwrap()
     );
-    drop((root, fresh_root));
-    assert_eq!(vm.gc().active_roots(), 0);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    drop((saved, fresh));
+    assert_cold_reclamation(&mut vm, &_old_program, replacement);
     assert_eq!(vm.modules().retention_counts(old_key).runtime_values, 0);
 }
 
@@ -559,11 +634,7 @@ fn retained_generic_try_calls_use_current_carrier_operations() {
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = CoreRuntime::new(config);
-    kagari_runtime::native::module::NativeModule::install_all(
-        &stdlib::modules().unwrap(),
-        &mut runtime,
-    )
-    .unwrap();
+    NativeModule::install_all(&stdlib::modules().unwrap(), &mut runtime).unwrap();
     let old = load_bytecode(&mut runtime, "try-reload", program).unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
@@ -574,65 +645,63 @@ fn retained_generic_try_calls_use_current_carrier_operations() {
         .find(|contract| contract.abi.name == "Run")
         .unwrap();
     let run = ModuleDecl::method_id(contract.declaration, "run", old.definitions()).unwrap();
+    let run_path = old.definitions().resolve(run).unwrap().to_path();
     let old_key = old.key();
     let mut vm = runtime;
     let saved = vm
         .execute_module(&old, "make", vm.execution_options())
         .unwrap()
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result");
-    let root = vm.root_value(saved).unwrap();
+        .return_value;
     let stopped = vm
         .execute_module(&old, "make_stopped", vm.execution_options())
         .unwrap()
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result");
-    let stopped_root = vm.root_value(stopped).unwrap();
+        .return_value;
     reload_bytecode(
         &mut vm,
         &_old_program,
         Some("try-reload".into()),
-        replacement,
+        replacement.clone(),
     )
     .unwrap();
     let _current_program = _old_program.clone();
     let current = vm.select_program(&_current_program).unwrap();
+    let current_run = current.definitions().lookup(&run_path).unwrap();
     drop(old);
     vm.collect_garbage().unwrap();
     assert!(vm.modules().loaded(old_key).is_some());
     let fresh = vm
         .execute_module(&current, "make", vm.execution_options())
         .unwrap()
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result");
-    let fresh_root = vm.root_value(fresh).unwrap();
+        .return_value;
     let fresh_stopped = vm
         .execute_module(&current, "make_stopped", vm.execution_options())
         .unwrap()
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result");
-    let fresh_stopped_root = vm.root_value(fresh_stopped).unwrap();
+        .return_value;
     assert_eq!(
-        vm.invoke_interface_method(&saved, &run, &[]).unwrap(),
-        Value::I32(43)
+        vm.invoke_interface_method(&saved, &run, &[])
+            .unwrap()
+            .as_i32()
+            .unwrap(),
+        43
     );
     assert_eq!(
-        vm.invoke_interface_method(&fresh, &run, &[]).unwrap(),
-        Value::I32(43)
+        vm.invoke_interface_method(&fresh, &current_run, &[])
+            .unwrap()
+            .as_i32()
+            .unwrap(),
+        43
     );
-    for value in [&stopped, &fresh_stopped] {
+    for (value, method) in [(&stopped, &run), (&fresh_stopped, &current_run)] {
         assert_eq!(
-            vm.invoke_interface_method(value, &run, &[]).unwrap(),
-            Value::I32(0)
+            vm.invoke_interface_method(value, method, &[])
+                .unwrap()
+                .as_i32()
+                .unwrap(),
+            0
         );
     }
-    drop((root, fresh_root, stopped_root, fresh_stopped_root));
-    assert_eq!(vm.gc().active_roots(), 0);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    drop((saved, fresh, stopped, fresh_stopped));
+    assert_cold_reclamation(&mut vm, &_old_program, replacement);
     assert_eq!(vm.modules().retention_counts(old_key).runtime_values, 0);
 }
 
@@ -664,7 +733,7 @@ fn content_helper_uses_current_interface_iteration_for_retained_values() {
         &mut vm,
         &_old_program,
         Some("receiver-reload".into()),
-        replacement,
+        replacement.clone(),
     )
     .unwrap();
     let _current_program = _old_program.clone();
@@ -689,16 +758,16 @@ fn content_helper_uses_current_interface_iteration_for_retained_values() {
     let method =
         ModuleDecl::method_id(contract.declaration, "same", current.definitions()).unwrap();
     for (root, expected) in [(&saved, false), (&fresh, false)] {
-        let value = root.value(vm.gc()).unwrap();
         assert_eq!(
-            vm.invoke_interface_method(&probe.value(vm.gc()).unwrap(), &method, &[value, value])
+            vm.invoke_interface_method(&probe, &method, &[root.clone(), root.clone()])
+                .unwrap()
+                .as_bool()
                 .unwrap(),
-            Value::Bool(expected)
+            expected
         );
     }
     drop((saved, fresh, probe));
-    assert_eq!(vm.gc().active_roots(), 0);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    assert_cold_reclamation(&mut vm, &_old_program, replacement);
     assert_eq!(vm.modules().retention_counts(old_key).runtime_values, 0);
 }
 
@@ -734,6 +803,7 @@ fn shared_collection_comparison_selects_current_operations(
     let old = load_bytecode(&mut runtime, "shared-comparison-reload", original).unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
+    let old_definitions = old.definitions().clone();
     let old_key = old.key();
     let replacement = match preparation {
         ReloadPreparation::BodyOnlyArtifact => prepare(&engine, replacement_source),
@@ -754,7 +824,7 @@ fn shared_collection_comparison_selects_current_operations(
         &mut vm,
         &_old_program,
         Some("shared-comparison-reload".into()),
-        replacement,
+        replacement.clone(),
     )
     .unwrap();
     let _current_program = _old_program.clone();
@@ -773,19 +843,22 @@ fn shared_collection_comparison_selects_current_operations(
         .unwrap();
     let method =
         ModuleDecl::method_id(contract.declaration, "check", current.definitions()).unwrap();
-    for (probe, expected) in [(&old_probe, false), (&fresh_probe, false)] {
+    let old_method = old_definitions
+        .lookup(&current.definitions().resolve(method).unwrap().to_path())
+        .unwrap();
+    for (probe, method, expected) in [
+        (&old_probe, &old_method, false),
+        (&fresh_probe, &method, false),
+    ] {
         assert_eq!(
-            vm.invoke_interface_method(
-                &probe.value(vm.gc()).unwrap(),
-                &method,
-                &[factory.value(vm.gc()).unwrap()],
-            )
-            .unwrap(),
-            Value::Bool(expected),
+            vm.invoke_interface_method(probe, method, slice::from_ref(&factory),)
+                .unwrap()
+                .as_bool()
+                .unwrap(),
+            expected,
         );
     }
     drop((factory, old_probe, fresh_probe));
-    assert_eq!(vm.gc().active_roots(), 0);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    assert_cold_reclamation(&mut vm, &_old_program, replacement);
     assert_eq!(vm.modules().retention_counts(old_key).runtime_values, 0,);
 }

@@ -2,22 +2,38 @@
 use crate::{
     Runtime,
     executor::Executor,
+    frame::arguments::FrameArguments,
     module::ExecutableModule,
-    native::{binding::NativeResult, context::ScriptCall},
-    value::Value,
+    native::{binding::NativeResult, context::ScriptCall, conversion::arguments::ArgumentValues},
+    value::place::{PublishedResult, ResultPlace},
 };
 
-pub(crate) fn invoke_script(
+pub(crate) fn invoke_script<'result>(
     runtime: &mut Runtime,
     _owner: &ExecutableModule,
-    target: ScriptCall<'_>,
-    arguments: &[Value],
-) -> NativeResult<Value> {
+    target: ScriptCall<'_, '_>,
+    arguments: ArgumentValues<'_>,
+    destination: ResultPlace<'result>,
+) -> NativeResult<PublishedResult<'result>> {
     let stack = match target {
+        ScriptCall::Selected(selected) => {
+            let mut stack = runtime.enter_selected_execution_stack(selected)?;
+            stack
+                .with(|runtime, frames| frames.push_selected_call(runtime, selected, arguments))?;
+            stack
+        }
         ScriptCall::Closure(closure) => {
             let mut stack = runtime.enter_closure_execution_stack(closure)?;
             stack.with(|runtime, frames| {
-                frames.push_closure(runtime, closure.value(), arguments, None)
+                frames
+                    .push_selected_closure(
+                        runtime,
+                        closure,
+                        FrameArguments::pack(arguments),
+                        None,
+                        None,
+                    )
+                    .map(|_| ())
             })?;
             stack
         }
@@ -29,10 +45,14 @@ pub(crate) fn invoke_script(
         ScriptCall::Interface(method) => {
             let mut stack = runtime.enter_interface_execution_stack(method)?;
             stack.with(|runtime, frames| {
-                frames.push_interface_method(runtime, method.clone(), arguments, None)
+                frames.push_interface_method(runtime, method, arguments, None)
             })?;
             stack
         }
     };
-    Executor::from_activation(stack).run()
+    Executor::from_activation(stack).run(|runtime, stack, value| {
+        stack.with_result(runtime, value, |runtime, value| {
+            destination.publish(runtime, &value)
+        })
+    })
 }

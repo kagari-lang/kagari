@@ -24,12 +24,13 @@ use kagari_runtime::{
         builder::ModuleBuilder,
         context::NativeCall,
         declarations::{FunctionDecl, MethodDecl},
+        host,
         module::NativeModule,
         types::Type,
     },
     reload::ReloadValidationError,
     session::ExecutionOptions,
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::declaration::{NativeDeclaration, TraitDef, host::HostCallPolicy};
@@ -49,9 +50,12 @@ fn installed_function_needs_no_execution_permissions() {
         )
         .unwrap();
     builder
-        .bind(function, |_: &mut HostCallContext<'_>, _: &[Value]| {
-            Ok(Value::I32(42))
-        })
+        .bind(
+            function,
+            host::callback(|_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
+                Ok(ValueView::from(42i32))
+            }),
+        )
         .unwrap();
     let module = builder.finish().unwrap();
     let program = free_function_program(&module.to_declaration());
@@ -63,8 +67,8 @@ fn installed_function_needs_no_execution_permissions() {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     assert_eq!(
-        invoke(&mut runtime, &loaded, 0, &[]).unwrap(),
-        Value::I32(42)
+        invoke(&mut runtime, &loaded, 0, &[]).unwrap().as_i32(),
+        Some(42)
     );
 }
 
@@ -84,10 +88,13 @@ fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
         )
         .unwrap();
     builder
-        .bind(function, move |_: &mut HostCallContext<'_>, _: &[Value]| {
-            callback_cancel.cancel();
-            Ok(Value::I32(42))
-        })
+        .bind(
+            function,
+            host::callback(move |_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
+                callback_cancel.cancel();
+                Ok(ValueView::from(42i32))
+            }),
+        )
         .unwrap();
     let module = builder.finish().unwrap();
     let program = free_function_program(&module.to_declaration());
@@ -96,6 +103,8 @@ fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
     let loaded = load_bytecode(&mut runtime, "cancel", program).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     let mut session = runtime
         .begin_execution(
             &loaded,
@@ -120,7 +129,7 @@ fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
             .kind(),
         RuntimeErrorKind::Cancelled
     );
-    assert_eq!(session.runtime().gc().active_roots(), 0);
+    assert_eq!(session.runtime().gc_stats().root_registrations, roots);
     drop(session);
     let _next = runtime
         .begin_execution(&loaded, ExecutionOptions::default())

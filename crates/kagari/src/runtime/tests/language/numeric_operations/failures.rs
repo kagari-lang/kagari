@@ -1,14 +1,17 @@
 use crate::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::{
-    host::HostCallContext,
+    host::HostError,
     module::entry::ProgramEntry,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
-    value::Value,
+    native::{
+        builder::ModuleBuilder, conversion::context::ConversionContext, declarations::FunctionDecl,
+        host, types::Type,
+    },
+    value::carriers::RootedValue,
 };
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
 use kagari_stdlib::declarations::StandardDeclarations;
-use kagari_types::declaration::host::HostCallPolicy;
+use kagari_types::{declaration::host::HostCallPolicy, scalar::BuiltinType, ty::Ty};
 use std::sync::{Arc, Mutex};
 
 #[test]
@@ -27,11 +30,15 @@ fn shifts_reject_negative_and_width_counts() {
         let loaded = runtime
             .load_program(&loaded_program, Default::default())
             .unwrap();
+        runtime.collect_garbage().unwrap();
+        let roots = runtime.gc_stats().root_registrations;
         let error = runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap_err();
-        assert!(format!("{error:?}").contains("shift out of range"));
-        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(error.code(), "KG_RUNTIME_SCRIPT_TRAP");
+        assert!(error.to_string().contains("shift out of range"));
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc_stats().root_registrations, roots);
     }
 }
 
@@ -49,14 +56,22 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
                 }),
         )
         .unwrap();
-    let memory_slot = Arc::new(Mutex::new(None));
+    let memory_slot = Arc::new(Mutex::new(None::<RootedValue>));
     let captured_memory = memory_slot.clone();
     builder
-        .bind(memory, move |_: &mut HostCallContext<'_>, _: &[Value]| {
-            Ok(Value::Array(
-                captured_memory.lock().unwrap().expect("initialized memory"),
-            ))
-        })
+        .bind(
+            memory,
+            host::callback(move |cx, _| {
+                let root = captured_memory
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .expect("initialized memory")
+                    .clone();
+                cx.import(&root)
+                    .map_err(|error| HostError::new(error.to_string()))
+            }),
+        )
         .unwrap();
     let engine = KagariEngine::with_native_modules(
         Default::default(),
@@ -93,28 +108,47 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
         .load_program(&loaded_program, Default::default())
         .unwrap();
     let _selected_loaded = runtime.select_program(&loaded).unwrap();
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     let memory = runtime
         .alloc_array(
             &_selected_loaded,
-            kagari_types::ty::Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
-            vec![Value::I32(7), Value::I32(0), Value::I32(0)],
+            Ty::Builtin(BuiltinType::I32),
+            &[
+                RootedValue::from(7_i32),
+                RootedValue::from(0_i32),
+                RootedValue::from(0_i32),
+            ],
         )
         .unwrap();
-    let root = runtime.root_value(Value::Array(memory)).unwrap();
-    *memory_slot.lock().unwrap() = Some(memory);
+    *memory_slot.lock().unwrap() = Some(memory.clone());
     let error = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap_err();
+    assert_eq!(error.code(), "KG_RUNTIME_SCRIPT_TRAP");
     assert!(
-        format!("{error:?}").contains("shift out of range"),
+        error.to_string().contains("shift out of range"),
         "{error:?}"
     );
-    assert_eq!(
-        runtime.gc().array_snapshot(memory).unwrap(),
-        vec![Value::I32(7), Value::I32(1), Value::I32(2)]
-    );
-    drop(root);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    {
+        let mut cx = ConversionContext::new(&mut runtime, &_selected_loaded).unwrap();
+        let array = cx.import(&memory).unwrap();
+        assert_eq!(cx.array_len(&array).unwrap(), 3);
+        let values = (0..3)
+            .map(|index| {
+                cx.array_element(&array, index)
+                    .unwrap()
+                    .unwrap()
+                    .as_i32()
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(values, [7, 1, 2]);
+    }
+    drop(memory);
+    memory_slot.lock().unwrap().take();
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
 }
 
 #[test]

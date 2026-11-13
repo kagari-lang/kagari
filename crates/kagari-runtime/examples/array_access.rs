@@ -6,7 +6,9 @@ use kagari_bytecode::{
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::updates::UpdateEvidence;
 use kagari_runtime::module::VerifiedProgram;
-use kagari_runtime::{Runtime, error::RuntimeErrorKind, value::Value};
+use kagari_runtime::{
+    Runtime, error::RuntimeErrorKind, native::conversion::context::ConversionContext,
+};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn main() {
@@ -42,23 +44,42 @@ fn main() {
         .unwrap();
     let owner = runtime.select_program(&owner_program).unwrap();
 
-    let gc = runtime.gc();
-    let id = runtime
-        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(1)])
+    let root = runtime
+        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), &[1i32.into()])
         .unwrap();
-    let value = Value::Array(id);
-    let root = runtime.root_value(value).unwrap();
-    // Fixed arrays preserve their declared element type and length.
-    gc.array_set(id, 0, Value::I32(42)).unwrap();
-    assert_eq!(
-        gc.array_set(id, 1, Value::I32(9)).unwrap_err().kind(),
-        RuntimeErrorKind::IndexOutOfBounds,
-    );
-    assert_eq!(gc.array_get(id, 0), Some(Value::I32(42)));
-    assert_eq!(gc.array_len(id), Some(1));
+    {
+        let mut conversion = ConversionContext::new(&mut runtime, &owner).unwrap();
+        let value = conversion.import(&root).unwrap();
+        // Fixed arrays preserve their declared element type and length. These
+        // views borrow the conversion's execution source and create no Host root.
+        conversion.array_set(&value, 0, &42i32.into()).unwrap();
+        assert_eq!(
+            conversion
+                .array_set(&value, 1, &9i32.into())
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::IndexOutOfBounds
+        );
+        assert_eq!(
+            conversion
+                .array_element(&value, 0)
+                .unwrap()
+                .unwrap()
+                .as_i32(),
+            Some(42)
+        );
+        assert_eq!(conversion.array_len(&value).unwrap(), 1);
+    }
     runtime.collect_garbage().unwrap();
-    let gc = runtime.gc();
-    assert_eq!(root.value(gc), Some(Value::Array(id)));
-    gc.array_set(id, 0, Value::I32(7)).unwrap();
-    assert_eq!(gc.array_snapshot(id), Some(vec![Value::I32(7)]));
+    let mut conversion = ConversionContext::new(&mut runtime, &owner).unwrap();
+    let value = conversion.import(&root).unwrap();
+    conversion.array_set(&value, 0, &7i32.into()).unwrap();
+    assert_eq!(
+        conversion
+            .array_element(&value, 0)
+            .unwrap()
+            .unwrap()
+            .as_i32(),
+        Some(7)
+    );
 }

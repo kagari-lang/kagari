@@ -4,14 +4,14 @@ use crate::{
     error::RuntimeError,
     execution_metadata::{
         MetadataEdge,
-        groups::{OperationGroupId, OperationId},
+        groups::{OperationGroupId, OperationId, group::OperationGroup},
+        operation::BoundOperation,
     },
     frame::types::{bindings::AssociatedInterface, compatibility::TypeIdentity},
-    gc::GcHeap,
     module::dispatch::SelectedTarget,
 };
 use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::NominalTy};
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum OperationSegment {
@@ -44,25 +44,40 @@ impl OperationBindings {
         &self,
         runtime: &Runtime,
         selected: &SelectedTarget,
+        groups: &HashMap<OperationGroupId, Arc<OperationGroup>>,
     ) -> Result<Self, RuntimeError> {
         let invalid = || RuntimeError::module_validation("transported operation witness");
         let mut ids = Vec::new();
-        for segment in self.segments() {
+        for (index, segment) in self.segments().iter().enumerate() {
+            if index.is_multiple_of(1024) {
+                runtime.resources().poll_execution()?;
+            }
+            ids.try_reserve(1)
+                .map_err(|_| RuntimeError::resource_limit("transported operation members"))?;
             match segment {
                 OperationSegment::Selected(id) => ids.push(*id),
                 OperationSegment::Transported(key) => ids.push(key.id),
-                OperationSegment::Receiver(id) => ids.extend(
-                    runtime
-                        .gc
-                        .operation_group(*id)
-                        .ok_or_else(invalid)?
-                        .operation_ids(),
-                ),
+                OperationSegment::Receiver(id) => {
+                    let group = groups.get(id).ok_or_else(invalid)?;
+                    ids.try_reserve(group.operation_ids().len()).map_err(|_| {
+                        RuntimeError::resource_limit("transported operation members")
+                    })?;
+                    for (index, member) in group.operation_ids().enumerate() {
+                        if index.is_multiple_of(1024) {
+                            runtime.resources().poll_execution()?;
+                        }
+                        ids.push(member);
+                    }
+                }
             }
         }
         let mut result = Self::default();
-        for id in ids {
-            let operation = runtime.gc.bound_operation(id).ok_or_else(invalid)?;
+        for (index, id) in ids.into_iter().enumerate() {
+            if index.is_multiple_of(1024) {
+                runtime.resources().poll_execution()?;
+            }
+            let group = groups.get(&id.group).ok_or_else(invalid)?;
+            let operation = group.get(id).ok_or_else(invalid)?;
             if operation.owner.installation_id() != selected.owner().installation_id() {
                 if !operation
                     .owner
@@ -72,7 +87,7 @@ impl OperationBindings {
                         "script trait witness belongs to another installation",
                     ));
                 }
-                result.push(&runtime.gc, id)?;
+                result.append(operation, id)?;
                 continue;
             }
             let mapping = selected.mapping_from(operation.owner.publication_definitions())?;
@@ -114,20 +129,32 @@ impl OperationBindings {
     }
 
     #[cfg(test)]
-    pub(crate) fn validate(&self, heap: &GcHeap) -> bool {
+    pub(crate) fn validate(&self, groups: &HashMap<OperationGroupId, Arc<OperationGroup>>) -> bool {
         self.segments().iter().all(|segment| match segment {
-            OperationSegment::Selected(id) => heap.bound_operation(*id).is_some(),
-            OperationSegment::Receiver(id) => heap.operation_group(*id).is_some(),
-            OperationSegment::Transported(key) => heap.bound_operation(key.id).is_some(),
+            OperationSegment::Selected(id) => groups
+                .get(&id.group)
+                .and_then(|group| group.get(*id))
+                .is_some(),
+            OperationSegment::Receiver(id) => groups.contains_key(id),
+            OperationSegment::Transported(key) => groups
+                .get(&key.id.group)
+                .and_then(|group| group.get(key.id))
+                .is_some(),
         })
     }
 
-    pub(crate) fn trace_metadata<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
-        pending.extend(self.segments().iter().map(|segment| match segment {
-            OperationSegment::Selected(operation) => MetadataEdge::Operation(*operation),
-            OperationSegment::Receiver(group) => MetadataEdge::Group(*group),
-            OperationSegment::Transported(key) => MetadataEdge::Operation(key.id),
-        }));
+    pub(crate) fn trace_metadata<'a, E, F>(&'a self, visit: &mut F) -> Result<(), E>
+    where
+        F: FnMut(MetadataEdge<'a>) -> Result<(), E> + ?Sized,
+    {
+        for segment in self.segments() {
+            visit(match segment {
+                OperationSegment::Selected(operation) => MetadataEdge::Operation(*operation),
+                OperationSegment::Receiver(group) => MetadataEdge::Group(*group),
+                OperationSegment::Transported(key) => MetadataEdge::Operation(key.id),
+            })?;
+        }
+        Ok(())
     }
 
     pub(crate) fn associated_interfaces(&self) -> Arc<Vec<AssociatedInterface>> {
@@ -138,10 +165,24 @@ impl OperationBindings {
         self.segments().is_empty()
     }
 
-    pub(crate) fn push(&mut self, heap: &GcHeap, id: OperationId) -> Result<(), RuntimeError> {
-        let operation = heap
-            .bound_operation(id)
+    pub(crate) fn push(
+        &mut self,
+        group: &OperationGroup,
+        id: OperationId,
+    ) -> Result<(), RuntimeError> {
+        let operation = group
+            .get(id)
             .ok_or_else(|| RuntimeError::module_validation("invalid selected operation"))?;
+        self.append(operation, id)
+    }
+
+    fn append(&mut self, operation: &BoundOperation, id: OperationId) -> Result<(), RuntimeError> {
+        Arc::make_mut(self.segments.get_or_insert_default())
+            .try_reserve(1)
+            .map_err(|_| RuntimeError::resource_limit("operation bindings"))?;
+        Arc::make_mut(self.associated.get_or_insert_default())
+            .try_reserve(1)
+            .map_err(|_| RuntimeError::resource_limit("operation associated types"))?;
         Arc::make_mut(self.associated.get_or_insert_default()).push(AssociatedInterface {
             lookup_scope: None,
             outputs: Default::default(),
@@ -153,17 +194,17 @@ impl OperationBindings {
         Ok(())
     }
 
-    pub(crate) fn receiver(
-        &mut self,
-        heap: &GcHeap,
-        id: OperationGroupId,
-    ) -> Result<(), RuntimeError> {
-        let group = heap
-            .operation_group(id)
-            .ok_or_else(|| RuntimeError::module_validation("invalid receiver group"))?;
+    pub(crate) fn receiver(&mut self, group: &OperationGroup) -> Result<(), RuntimeError> {
+        Arc::make_mut(self.segments.get_or_insert_default())
+            .try_reserve(1)
+            .map_err(|_| RuntimeError::resource_limit("operation bindings"))?;
+        Arc::make_mut(self.associated.get_or_insert_default())
+            .try_reserve(group.associated_interfaces().len())
+            .map_err(|_| RuntimeError::resource_limit("operation associated types"))?;
         Arc::make_mut(self.associated.get_or_insert_default())
             .extend(group.associated_interfaces());
-        Arc::make_mut(self.segments.get_or_insert_default()).push(OperationSegment::Receiver(id));
+        Arc::make_mut(self.segments.get_or_insert_default())
+            .push(OperationSegment::Receiver(group.id()));
         Ok(())
     }
 
@@ -183,22 +224,20 @@ impl OperationBindings {
 
     pub(crate) fn operation_slot(
         &self,
-        heap: &GcHeap,
+        groups: &HashMap<OperationGroupId, Arc<OperationGroup>>,
         receiver: &TypeIdentity,
         interface: &NominalTy,
         slot: u32,
     ) -> Option<OperationId> {
         self.segments().iter().find_map(|segment| match segment {
             OperationSegment::Selected(id) => {
-                let operation = heap.bound_operation(*id)?;
+                let operation = groups.get(&id.group)?.get(*id)?;
                 (operation.slot == slot
                     && operation.receiver_identity.as_ref() == receiver
                     && operation.interface_key.satisfies(interface))
                 .then_some(*id)
             }
-            OperationSegment::Receiver(id) => {
-                heap.operation_group(*id)?.slot(receiver, interface, slot)
-            }
+            OperationSegment::Receiver(id) => groups.get(id)?.slot(receiver, interface, slot),
             OperationSegment::Transported(key) => (key.slot == slot
                 && key.receiver.same_contract(receiver)
                 && key.interface_key.satisfies(interface))
@@ -208,20 +247,18 @@ impl OperationBindings {
 
     pub(crate) fn operation(
         &self,
-        heap: &GcHeap,
+        groups: &HashMap<OperationGroupId, Arc<OperationGroup>>,
         required: &NativeCallableRequirement,
         receiver: &TypeIdentity,
     ) -> Option<OperationId> {
         self.segments().iter().find_map(|segment| match segment {
             OperationSegment::Selected(id) => {
-                let operation = heap.bound_operation(*id)?;
+                let operation = groups.get(&id.group)?.get(*id)?;
                 (operation.receiver_identity.as_ref() == receiver
                     && operation.matches_requirement(required))
                 .then_some(*id)
             }
-            OperationSegment::Receiver(id) => {
-                heap.operation_group(*id)?.operation(required, receiver)
-            }
+            OperationSegment::Receiver(id) => groups.get(id)?.operation(required, receiver),
             OperationSegment::Transported(key) => (key.receiver.same_contract(receiver)
                 && key.requirement.receiver == required.receiver
                 && key.requirement.member == required.member

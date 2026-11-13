@@ -1,0 +1,7 @@
+use example::events::Event;
+
+pub fn read(event: Event<i32>) -> i32 {
+    match event {
+        Event::Data(value) => value
+    }
+}

@@ -3,11 +3,10 @@ use crate::{
     Runtime,
     error::{RuntimeError, reason::ErrorReason},
     executor::{DriveOutcome, Executor},
-    gc::roots::RootedValue,
     module::{ExecutableModule, entry::ProgramEntry},
     native::binding::NativeResult,
     session::{ExecutionOptions, owned::OwnedExecution},
-    value::Value,
+    value::carriers::RootedValue,
 };
 
 use std::num::NonZeroUsize;
@@ -24,7 +23,7 @@ impl Runtime {
         &mut self,
         module: &ExecutableModule,
         entry: impl Into<ProgramEntry<'a>>,
-        arguments: &[Value],
+        arguments: &[RootedValue],
         options: ExecutionOptions,
     ) -> Result<OwnedExecution, RuntimeError> {
         self.validate_executable_module(module)?;
@@ -32,14 +31,13 @@ impl Runtime {
         let (module, function) = entry.resolve(module).ok_or_else(|| {
             RuntimeError::new(ErrorReason::MissingFunction(entry.label().to_owned()))
         })?;
-        let (module, function) = self.select_function(&module, function)?;
         self.start_owned_execution(&module, function, arguments, options)
     }
 
     /// Queue a cold Future as a root; drive exactly one layer without flattening.
     pub fn start_future(
         &mut self,
-        future: &Value,
+        future: &RootedValue,
         options: ExecutionOptions,
     ) -> Result<OwnedExecution, RuntimeError> {
         self.start_owned_future(future, options)
@@ -66,19 +64,15 @@ impl Runtime {
         complete: impl FnOnce(&mut Runtime, &RootedValue) -> NativeResult<()>,
     ) -> Result<DriveResult, RuntimeError> {
         let executor = Executor::resume(self, owner)?;
-        let mut output = None;
-        let outcome = executor.run_slice(slice, |runtime, value| {
-            let root = runtime
-                .root_value(value)
-                .ok_or_else(|| RuntimeError::module_validation("owned execution result root"))?;
+        let outcome = executor.run_slice(slice, |runtime, stack, value| {
+            let root = stack.retain_result(runtime, value)?;
             complete(runtime, &root)?;
-            output = Some(root);
-            Ok(())
+            Ok(root)
         });
         let result = match outcome {
             Ok(DriveOutcome::Runnable) => return Ok(DriveResult::Runnable),
             Ok(DriveOutcome::Waiting) => return Ok(DriveResult::Waiting),
-            Ok(DriveOutcome::Complete(_)) => Ok(output.expect("rooted terminal output")),
+            Ok(DriveOutcome::Complete(root)) => Ok(root),
             Err(error) => Err(error),
         };
         self.finish_owned_execution(owner)?;

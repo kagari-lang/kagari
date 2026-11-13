@@ -1,0 +1,9 @@
+use test::probe::keep;
+
+fn main() {
+    val values = Vec::from([1, 2]);
+    keep(values);
+    for item in [4, 5].map(|item| item).zip(values.filter(|item| item > 0)).enumerate() {
+        values.push(item[0] as i32);
+    }
+}

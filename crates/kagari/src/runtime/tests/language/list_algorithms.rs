@@ -5,8 +5,8 @@ use crate::{
     program::Program,
 };
 use kagari_bytecode::artifact::KbcArtifact;
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::reload::ReloadValidationError;
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
 use rstest::rstest;
@@ -37,16 +37,22 @@ fn ordinary_execution(
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
-    assert_eq!(
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
+    assert!(
         runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::Bool(true)
+            .as_bool()
+            .unwrap()
     );
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert!(runtime.execution_root().is_none());
+    runtime.collect_garbage().unwrap();
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
     // Retire materialized module constants before checking execution-root cleanup.
     runtime
         .program(&loaded)
@@ -55,5 +61,5 @@ fn ordinary_execution(
         .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
         .unwrap();
     runtime.collect_garbage().unwrap();
-    assert_eq!(runtime.gc().allocated_objects(), 0);
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
 }

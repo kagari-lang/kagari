@@ -4,7 +4,9 @@ use crate::{
     engine::{EngineConfig, KagariEngine},
     program::Compilation,
 };
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::{
+    module::entry::ProgramEntry, value::carriers::RootedValue, value_semantics::script_equal,
+};
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
 
@@ -71,25 +73,31 @@ fn numeric_example_source_and_encoded_are_deterministic_and_release_roots() {
         let loaded = runtime
             .load_program(program.program(), Default::default())
             .unwrap();
+        runtime.collect_garbage().unwrap();
+        let roots = runtime.gc_stats().root_registrations;
         // Reuse the same loaded program and heap: RNG state must be local to each call.
         for run in 1..=2 {
             for (entry, expected) in [
-                (ProgramEntry::Main, Value::I32(42)),
+                (ProgramEntry::Main, RootedValue::from(42_i32)),
                 (
                     ProgramEntry::Export("sampling_checksum"),
-                    Value::U64(EXPECTED_CHECKSUM),
+                    RootedValue::from(EXPECTED_CHECKSUM),
                 ),
             ] {
                 let result = runtime
                     .execute(&loaded, entry, &[], &context)
                     .unwrap_or_else(|error| panic!("{route} run {run}: {error:?}"));
-                assert_eq!(
-                    result.return_value.value(runtime.gc()).unwrap(),
-                    expected,
+                assert!(
+                    script_equal(&mut runtime, &result.return_value, &expected).unwrap(),
                     "{route} run {run}: {entry:?}"
                 );
                 drop(result);
-                assert_eq!(runtime.gc().active_roots(), 0, "{route} run {run}");
+                runtime.collect_garbage().unwrap();
+                assert_eq!(
+                    runtime.gc_stats().root_registrations,
+                    roots,
+                    "{route} run {run}"
+                );
                 assert_eq!(
                     runtime.resources().counters().current_call_depth,
                     0,
@@ -97,7 +105,9 @@ fn numeric_example_source_and_encoded_are_deterministic_and_release_roots() {
                 );
                 assert!(!runtime.is_quarantined(), "{route} run {run}");
             }
-            println!("{route} run {run}: main=42 checksum=0x{EXPECTED_CHECKSUM:016x} roots=0");
+            println!(
+                "{route} run {run}: main=42 checksum=0x{EXPECTED_CHECKSUM:016x} roots={roots}"
+            );
         }
     }
 }

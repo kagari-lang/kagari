@@ -1,5 +1,10 @@
 //! Cold native producers keep traced arguments until an owned execution drives them.
+pub(crate) mod claims;
 mod registration;
+pub(crate) mod storage;
+#[cfg(test)]
+mod tests;
+use crate::native::future::storage::ColdObject;
 use crate::{
     Runtime,
     closure::CallableObservation,
@@ -12,19 +17,19 @@ use crate::{
         composition::ColdComposition,
         conversion::{
             IntoKagari,
-            arguments::{FromKagariArguments, PreparedArguments},
+            arguments::{ArgumentValues, FromKagariArguments, PreparedArguments},
             context::ConversionContext,
         },
-        storage::{NativePayload, NativeStorage},
+        storage::NativeStorage,
     },
-    resource::HeapCharge,
-    value::Value,
+    value::place::{PublishedResult, ResultPlace},
 };
+use kagari_gc::root::Root;
 use kagari_types::declaration::native::NativeStorageLayout;
 use std::{
     fmt,
     marker::PhantomData,
-    slice,
+    ptr,
     sync::Arc,
     task::{Poll, Waker},
 };
@@ -47,17 +52,23 @@ impl<T> NativeStart<T> {
 }
 
 trait Producer: fmt::Debug + Send + Sync {
-    fn start(
+    fn start<'call>(
         &self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         cold: &NativeFuture,
+        values: ArgumentValues<'call>,
+        source: &Root<ColdObject>,
         registry: &CompletionRegistry,
         wake: &Waker,
     ) -> NativeResult<Box<dyn PendingNative>>;
 }
 
 pub(crate) trait PendingNative: fmt::Debug + Send {
-    fn poll(&mut self, runtime: &mut Runtime) -> NativeResult<Poll<Value>>;
+    fn poll<'result>(
+        &mut self,
+        runtime: &mut Runtime,
+        output: ResultPlace<'result>,
+    ) -> NativeResult<Poll<PublishedResult<'result>>>;
 
     fn cancel(&mut self) -> NativeResult<()>;
 }
@@ -79,10 +90,12 @@ where
     R: IntoKagari + Send + 'static,
     F: Fn(A, Completion<R>) -> NativeResult<NativeStart<R>> + Send + Sync,
 {
-    fn start(
+    fn start<'call>(
         &self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         cold: &NativeFuture,
+        values: ArgumentValues<'call>,
+        source: &Root<ColdObject>,
         registry: &CompletionRegistry,
         wake: &Waker,
     ) -> NativeResult<Box<dyn PendingNative>> {
@@ -91,7 +104,7 @@ where
         let mut operation = registry.reserve::<R>()?;
         operation.set_waker(wake);
         let completion = operation.completion()?;
-        let arguments = prepared.decode(cx, &cold.values)?;
+        let arguments = prepared.decode(cx, values)?;
         cx.poll()?;
         match (self.entry)(arguments, completion.clone())? {
             NativeStart::Ready(value) => {
@@ -105,11 +118,13 @@ where
             operation,
             owner: cold.owner.clone(),
             output: cold.output.clone(),
+            source: source.clone(),
         }))
     }
 }
 
 struct TypedPending<R> {
+    source: Root<ColdObject>,
     operation: Operation<R>,
     owner: ExecutableModule,
     output: TypeArgument,
@@ -124,16 +139,21 @@ impl<R> fmt::Debug for TypedPending<R> {
 }
 
 impl<R: IntoKagari + Send + 'static> PendingNative for TypedPending<R> {
-    fn poll(&mut self, runtime: &mut Runtime) -> NativeResult<Poll<Value>> {
+    fn poll<'result>(
+        &mut self,
+        runtime: &mut Runtime,
+        output: ResultPlace<'result>,
+    ) -> NativeResult<Poll<PublishedResult<'result>>> {
         runtime.resources().poll_execution()?;
         match self.operation.poll()? {
             OperationPoll::Pending => Ok(Poll::Pending),
             OperationPoll::Ready(result) => {
-                let mut cx = ConversionContext::new(runtime, &self.owner)?;
+                let mut cx =
+                    ConversionContext::for_cold_future(runtime, &self.owner, &self.source)?;
                 cx.poll()?;
                 let value = cx.encode_prepared(&self.output, result?)?;
                 cx.poll()?;
-                Ok(Poll::Ready(value))
+                output.publish(cx.runtime_mut(), &value).map(Poll::Ready)
             }
             OperationPoll::Retired => Err(RuntimeError::module_validation("retired native wait")),
         }
@@ -150,78 +170,74 @@ pub(crate) struct NativeFuture {
     owner: ExecutableModule,
     parameters: Vec<TypeArgument>,
     output: TypeArgument,
-    pub(crate) values: Vec<Value>,
     producer: Arc<dyn Producer>,
 }
 
 impl NativeFuture {
-    pub(crate) fn start(
+    fn start(
         &self,
         runtime: &mut Runtime,
+        source: &Root<ColdObject>,
         registry: &CompletionRegistry,
         wake: &Waker,
     ) -> NativeResult<Box<dyn PendingNative>> {
-        let mut cx = ConversionContext::new(runtime, &self.owner)?;
-        self.producer.start(&mut cx, self, registry, wake)
+        let valid = runtime.memory.scope(&runtime.resources, |cx, _| {
+            let cold = cx.get(source)?;
+            Ok(cx.read(cold, |cold| matches!(cold.recipe().as_ref(), ColdFuture::Native(actual) if ptr::eq(actual, self))))
+        }).map_err(|error| runtime.managed_memory_error(error))?;
+        if !valid {
+            return Err(RuntimeError::module_validation("cold producer source"));
+        }
+        let pending = {
+            let mut cx = ConversionContext::for_cold_future(runtime, &self.owner, source)?;
+            let values = cx.cold_future_arguments(source)?;
+            self.producer
+                .start(&mut cx, self, values, source, registry, wake)?
+        };
+        // The submission owns its decoded Rust inputs now. Retain only executable
+        // evidence for completion conversion, not the original capture graph.
+        runtime
+            .memory
+            .scope(&runtime.resources, |cx, _| {
+                let cold = cx.get(source)?;
+                ColdObject::release_captures(cx, cold)
+            })
+            .map_err(|error| runtime.managed_memory_error(error))?;
+        Ok(pending)
     }
 }
 
+/// Immutable selected producer facts. Captured values live only in ColdObject.
 #[derive(Debug)]
 pub(crate) enum ColdFuture {
     Native(NativeFuture),
     Composition(ColdComposition),
-    // A private, fully captured resume closure keeps its executable environment
-    // reachable through the existing GC metadata graph. It never escapes alone.
-    Script(Value),
+    Script { owner: ExecutableModule },
 }
 
 impl ColdFuture {
+    pub(crate) fn owner(&self) -> &ExecutableModule {
+        match self {
+            Self::Native(cold) => &cold.owner,
+            Self::Composition(cold) => &cold.owner,
+            Self::Script { owner } => owner,
+        }
+    }
+
+    pub(crate) fn capture_count(&self) -> usize {
+        match self {
+            Self::Native(native) => native.parameters.len(),
+            Self::Composition(_) => 2,
+            Self::Script { .. } => 1,
+        }
+    }
+
     pub(crate) fn retained_bytes(&self) -> usize {
-        match self {
-            Self::Native(cold) => cold
-                .values
-                .capacity()
-                .checked_mul(size_of::<Value>())
-                .and_then(|bytes| {
-                    bytes.checked_add(
-                        cold.parameters
-                            .capacity()
-                            .checked_mul(size_of::<TypeArgument>())?,
-                    )
-                })
-                .expect("disjoint cold capture buffers"),
-            Self::Script(_) | Self::Composition(_) => 0,
-        }
-    }
-
-    pub(crate) fn values(&self) -> &[Value] {
-        match self {
-            Self::Native(cold) => &cold.values,
-            Self::Script(closure) => slice::from_ref(closure),
-            Self::Composition(cold) => &cold.values,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct FuturePayload {
-    pub(crate) cold: Option<ColdFuture>,
-}
-
-impl NativePayload for FuturePayload {
-    fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
-        if let Some(cold) = &self.cold {
-            for value in cold.values() {
-                visit(value);
+        size_of::<Self>()
+            + match self {
+                Self::Native(cold) => cold.parameters.capacity() * size_of::<TypeArgument>(),
+                Self::Script { .. } | Self::Composition(_) => 0,
             }
-        }
-    }
-
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(
-            self.cold.as_ref().map_or(0, |cold| cold.values().len()),
-            self.cold.as_ref().map_or(0, ColdFuture::retained_bytes),
-        ))
     }
 }
 
@@ -229,79 +245,6 @@ impl NativeStorage {
     /// Sealed runtime storage for a nominal Future<T> declaration. Script cannot
     /// construct or modify its payload; only registered cold producers can do so.
     pub fn future() -> Self {
-        Self::provided_with_layout::<FuturePayload>(NativeStorageLayout::Future)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::test_support::layouts::allocation_owner;
-    use kagari_types::{scalar::BuiltinType, ty::Ty};
-
-    #[derive(Debug)]
-    struct Unstarted;
-
-    impl Producer for Unstarted {
-        fn start(
-            &self,
-            _: &mut ConversionContext<'_>,
-            _: &NativeFuture,
-            _: &CompletionRegistry,
-            _: &Waker,
-        ) -> NativeResult<Box<dyn PendingNative>> {
-            panic!("claiming captures must not submit the producer")
-        }
-    }
-
-    #[test]
-    fn cold_claim_transfers_backing_and_sweep_releases_only_remaining_charge() {
-        let mut runtime = Runtime::default();
-        let owner = allocation_owner(&mut runtime);
-        let ty = Ty::Builtin(BuiltinType::Unit);
-        let output = runtime
-            .resolve_type_arguments(&owner, std::slice::from_ref(&ty))
-            .unwrap()
-            .remove(0);
-        let mut values = Vec::with_capacity(64);
-        values.extend([Value::Unit, Value::Unit]);
-        let parameters = Vec::with_capacity(8);
-        let backing = values.capacity() * size_of::<Value>()
-            + parameters.capacity() * size_of::<TypeArgument>();
-        let payload = FuturePayload {
-            cold: Some(ColdFuture::Native(NativeFuture {
-                origin: None,
-                owner: owner.clone(),
-                parameters,
-                output,
-                values,
-                producer: Arc::new(Unstarted),
-            })),
-        };
-        let object = NativeStorage::future()
-            .prepare_payload(runtime.gc(), &ty, payload, &owner)
-            .unwrap();
-        let id = runtime.gc().alloc_native(object).unwrap();
-        let root = runtime.root_value(Value::GcHandle(id)).unwrap();
-        // This synthetic producer has no binding identity. Observation neither
-        // invents one nor starts/claims the producer (Unstarted would panic).
-        assert_eq!(runtime.observe_callable_value(&root).unwrap(), None);
-        assert_eq!(
-            runtime.gc().stats().current_retained_bytes,
-            (backing + size_of::<FuturePayload>()) as u128
-        );
-        let cold = runtime.gc().take_cold_future(id).unwrap();
-        assert_eq!(runtime.observe_callable_value(&root).unwrap(), None);
-        assert_eq!(runtime.gc().stats().current_heap_units, 1);
-        assert_eq!(
-            runtime.gc().stats().current_retained_bytes,
-            size_of::<FuturePayload>() as u128
-        );
-        assert!(runtime.gc().take_cold_future(id).is_err());
-        drop(root);
-        runtime.collect_garbage().unwrap();
-        assert_eq!(runtime.gc().stats().current_heap_units, 0);
-        assert_eq!(runtime.gc().stats().current_retained_bytes, 0);
-        assert_eq!(cold.values(), [Value::Unit, Value::Unit]);
+        Self::provided_with_layout::<storage::FuturePayload>(NativeStorageLayout::Future)
     }
 }

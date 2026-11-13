@@ -13,7 +13,7 @@ use kagari::{
 #[cfg(feature = "aot")]
 use kagari_codegen_cranelift::CraneliftBackend;
 #[cfg(feature = "aot")]
-use kagari_runtime::module::entry::ProgramEntry;
+use kagari_runtime::{module::entry::ProgramEntry, value_semantics::format_value};
 use std::path::Path;
 #[cfg(feature = "aot")]
 use std::{env, process::Command};
@@ -90,16 +90,14 @@ pub(super) fn run(directory: &Path) -> Result<(), CliError> {
         .load_program(bundle.program(), Default::default())
         .map_err(print_embedding_error)?;
     let prepared = bundle
-        .install(&runtime, &loaded)
+        .install(&mut runtime, &loaded)
         .map_err(|e| CliError::message(1, e.to_string()))?;
     let report = runtime
         .execute_prepared(&loaded, bundle.entry(), &[], &context, &prepared)
         .map_err(print_embedding_error)?;
-    println!(
-        "{:?}: {:?}",
-        report.jit.as_ref().map(|jit| jit.status),
-        report.return_value.value(runtime.gc())
-    );
+    let value =
+        format_value(&mut runtime, &report.return_value, true).map_err(print_embedding_error)?;
+    println!("{:?}: {value}", report.jit.as_ref().map(|jit| jit.status));
     if let Some(failure) = report.failure {
         return Err(CliError::message(1, format!("Result::Err: {failure}")));
     }

@@ -1,4 +1,4 @@
-//! Fallible, rooted conversion shared by native calls and host object access.
+//! Fallible scoped conversion shared by Native calls and Host object access.
 pub mod arguments;
 mod composites;
 pub mod context;
@@ -14,7 +14,7 @@ use crate::{
         binding::NativeResult, catalog::DeclarationCatalog, conversion::context::ConversionContext,
         projection::GeneratedField, schema::TypeRegistration, types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 
 /// Resolve the Rust boundary type through the installed declaration catalog.
@@ -25,11 +25,11 @@ pub trait KagariType {
     /// Read an owned scalar or retained handle from an inline borrowed field.
     /// Structured data is exposed as a location, never implicitly copied here.
     #[doc(hidden)]
-    fn snapshot_field(
+    fn snapshot_field<'call>(
         &self,
-        _: &mut ConversionContext<'_>,
+        _: &mut ConversionContext<'call>,
         _: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ValueView<'call>> {
         Err(RuntimeError::module_validation(
             "Rust field has no owned leaf reader",
         ))
@@ -61,13 +61,13 @@ pub trait KagariType {
 }
 
 /// Convert owned Rust data. Composite adapters use `encode_value` for children,
-/// so they share type checks, recursion/work bounds and temporary roots.
+/// so they share type checks, recursion/work bounds and protected local storage.
 pub trait IntoKagari: KagariType + Sized {
-    fn into_kagari(
+    fn into_kagari<'call>(
         self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value>;
+    ) -> NativeResult<ValueView<'call>>;
 }
 
 /// Convert a checked script value into owned Rust data or an owning handle.
@@ -79,7 +79,7 @@ pub trait IntoKagari: KagariType + Sized {
 ///     frame::types::arguments::TypeArgument,
 ///     native::{binding::NativeResult, catalog::DeclarationCatalog,
 ///         conversion::{KagariType, FromKagari, context::ConversionContext}, types::Type},
-///     value::Value,
+///     value::view::ValueView,
 /// };
 /// struct Borrowed<'a>(&'a str);
 /// impl KagariType for Borrowed<'_> {
@@ -88,10 +88,9 @@ pub trait IntoKagari: KagariType + Sized {
 ///     }
 /// }
 /// impl<'a> FromKagari for Borrowed<'a> {
-///     fn from_kagari(_: &mut ConversionContext<'_>, _: &TypeArgument,
-///                    value: &Value) -> NativeResult<Self> {
-///         let Value::Str(text) = value else { panic!("string") };
-///         Ok(Self(text.as_str()))
+///     fn from_kagari(cx: &mut ConversionContext<'_>, _: &TypeArgument,
+///                    value: &ValueView<'_>) -> NativeResult<Self> {
+///         cx.read_string(value, |text| Self(text))
 ///     }
 /// }
 /// ```
@@ -103,6 +102,6 @@ pub trait FromKagari: KagariType + Sized {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self>;
 }

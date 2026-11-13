@@ -7,7 +7,7 @@ use crate::{
         catalog::DeclarationCatalog,
         completion::Completion,
         conversion::{IntoKagari, arguments::FromKagariArguments},
-        future::{ColdFuture, FuturePayload, NativeFuture, NativeStart, Producer, TypedProducer},
+        future::{ColdFuture, NativeFuture, NativeStart, Producer, TypedProducer},
         types::TypeRef,
     },
     session::ExecutionPhase,
@@ -56,7 +56,7 @@ where
             entry: self,
             marker: PhantomData::<fn(A) -> R>,
         });
-        let mut binding = NativeBinding::new(
+        let mut binding = NativeBinding::scoped(
             parameters
                 .iter()
                 .map(|ty| Codec::Exact(ty.clone()))
@@ -75,26 +75,19 @@ where
                 let values = (0..call.arguments.len())
                     .map(|index| call.argument(index))
                     .collect::<NativeResult<Vec<_>>>()?;
-                call.runtime.gc().validate_async_values(&values)?;
-                call.allocate_result_payload(
-                    FuturePayload {
-                        cold: Some(ColdFuture::Native(NativeFuture {
-                            origin: Some(CallableObservation {
-                                publication: call.owner.publication_token(),
-                                module: call.owner.slot(),
-                                target: ObservedCallableTarget::NativeBinding(
-                                    call.function.declaration,
-                                ),
-                            }),
-                            owner: call.owner.clone(),
-                            parameters: signature.params.clone(),
-                            output,
-                            values,
-                            producer: producer.clone(),
-                        })),
-                    },
-                    &[],
-                )
+                let recipe = ColdFuture::Native(NativeFuture {
+                    origin: Some(CallableObservation {
+                        publication: call.owner.publication_token(),
+                        module: call.owner.slot(),
+                        target: ObservedCallableTarget::NativeBinding(call.function.declaration),
+                    }),
+                    owner: call.owner.clone(),
+                    parameters: signature.params.clone(),
+                    output,
+                    producer: producer.clone(),
+                });
+                let value = call.allocate_future_result(recipe, &values)?;
+                call.set_result(value)
             },
         );
         binding.prepare_mapping = Some(Arc::new(|cx, signature| {

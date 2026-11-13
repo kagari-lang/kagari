@@ -27,14 +27,14 @@ use kagari_runtime::{
         context::NativeCall,
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_types::{
     declaration::TypeDefKind,
     ty::{GenericBound, Ty},
 };
 
-type Entry = for<'call> fn(&mut NativeCall<'call>) -> NativeResult<Value>;
+type Entry = for<'call> fn(&mut NativeCall<'call>) -> NativeResult<ValueView<'call>>;
 
 pub(crate) fn contribute(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     protocols::declare(module)?;

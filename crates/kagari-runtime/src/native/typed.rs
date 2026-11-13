@@ -5,7 +5,6 @@ mod receiver;
 use crate::{
     Runtime,
     error::RuntimeError,
-    gc::GcCollection,
     module::ExecutableModule,
     native::{
         binding::{Codec, LinkedNativeFunction, NativeBinding, NativeResult},
@@ -17,9 +16,10 @@ use crate::{
         },
         typed::receiver::ReceiverArguments,
     },
-    value::Value,
+    value::kind::ObjectKind,
 };
 use kagari_common::identity::metadata::DefinitionMetadata;
+use kagari_gc::heap::CollectionReport;
 use kagari_types::declaration::NativeDeclaration;
 use std::sync::Arc;
 
@@ -67,7 +67,7 @@ impl<'call> NativeContext<'call> {
         self.conversion.poll()
     }
 
-    pub fn collect_garbage(&mut self) -> NativeResult<GcCollection> {
+    pub fn collect_garbage(&mut self) -> NativeResult<CollectionReport> {
         self.runtime_mut().collect_garbage()
     }
 
@@ -132,7 +132,7 @@ impl NativeBinding {
         + Sync
         + 'static,
     ) -> Self {
-        let mut binding = Self::new(vec![Codec::Value; arity], Codec::Value, move |call| {
+        let mut binding = Self::scoped(vec![Codec::Value; arity], Codec::Value, move |call| {
             invoke(call, &entry)
         });
         binding.prepare_mapping = Some(Arc::new(|cx, signature| {
@@ -146,40 +146,50 @@ impl NativeBinding {
 fn invoke<A: FromKagariArguments, R: IntoKagari>(
     call: &mut NativeCall<'_>,
     entry: &impl Fn(&mut NativeContext<'_>, A) -> NativeResult<R>,
-) -> NativeResult<Value> {
+) -> NativeResult<()> {
     let invoke_script = call.invoke_script;
     let function = call.function;
-    let signature = call.function.type_signature()?;
+    let signature = function.type_signature()?;
     let result_type = &signature.result;
-    // The linked binding/application owns fixed Rust mapping validation. Actual
-    // values, loans and custom conversion effects remain invocation checks.
     let types = &signature.params;
-    let mut values = Vec::new();
-    values
-        .try_reserve_exact(call.arguments.len())
-        .map_err(|_| RuntimeError::resource_limit("native argument values"))?;
-    for slot in 0..call.arguments.len() {
-        values.push(call.argument(slot)?);
-    }
-    let mut context = NativeContext {
-        conversion: ConversionContext::in_native_call(call)?,
-        invoke_script: Some(invoke_script),
-        function: Some(function),
+    let values = call.arguments();
+    let destination = call.pending_place()?;
+    let published = {
+        let mut context = NativeContext {
+            conversion: ConversionContext::in_native_call(call)?,
+            invoke_script: Some(invoke_script),
+            function: Some(function),
+        };
+        context.conversion.check_elements(values.len())?;
+        loans::check_receiver_storage(
+            &mut context,
+            function.binding.receiver_access,
+            types,
+            values.reborrow(),
+        )?;
+        // Prepared mappings belong to the binding. The receiver owner admits
+        // scoped external receivers separately; the ordinary matcher must not
+        // broaden an owned Native/struct type to make that case pass globally.
+        for (index, ty) in types.iter().enumerate() {
+            if index != 0 && index.is_multiple_of(1024) {
+                context.poll()?;
+            }
+            let value = values.get(&mut context.conversion, index)?;
+            if index == 0
+                && function.binding.receiver_access.is_some()
+                && value.kind() == Some(ObjectKind::Ephemeral)
+            {
+                continue;
+            }
+            context.conversion.check_value(ty, &value)?;
+        }
+        let arguments = PreparedArguments::<A>::from_binding(&context.conversion, types)
+            .decode_admitted(&mut context.conversion, values.reborrow())?;
+        let result = entry(&mut context, arguments)?;
+        let value = context.conversion.encode_prepared(result_type, result)?;
+        // Publish while this conversion's local suffix is still alive. Its Drop
+        // may retire every encoder temporary before Native completion proceeds.
+        destination.publish(context.runtime_mut(), &value)?
     };
-    loans::check_receiver_storage(&context, function.binding.receiver_access, types, &values)?;
-    // Keep the complete pack through result conversion as well as decoding and
-    // payload access. A loan ends before the result's first allocation/safepoint.
-    let roots = context
-        .runtime()
-        .gc()
-        .root_execution_values(values.clone())
-        .ok_or_else(|| RuntimeError::module_validation("native invocation argument roots"))?;
-    let arguments = PreparedArguments::<A>::from_binding(&context.conversion, types)
-        .decode(&mut context.conversion, &values)?;
-    let result = entry(&mut context, arguments)?;
-    let result = context.conversion.encode_prepared(result_type, result);
-    drop(roots);
-    result
-    // No safepoint occurs between dropping this scope and the caller publishing
-    // the returned value. LinkedResultAdapter protects it before allocating.
+    call.accept_staged(published)
 }

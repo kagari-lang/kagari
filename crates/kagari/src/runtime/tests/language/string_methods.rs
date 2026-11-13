@@ -5,8 +5,8 @@ use crate::{
     program::Program,
 };
 use kagari_bytecode::artifact::KbcArtifact;
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::reload::ReloadValidationError;
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
 use rstest::rstest;
@@ -41,23 +41,22 @@ fn run(source: &str, expected_error: Option<&str>) {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     let result = runtime.execute(&loaded, ProgramEntry::Main, &[], &context);
     match expected_error {
-        None => assert_eq!(
-            result
-                .unwrap()
-                .return_value
-                .value(runtime.gc())
-                .expect("retained execution result"),
-            Value::Bool(true)
-        ),
+        None => assert!(result.unwrap().return_value.as_bool().unwrap()),
         Some(message) => {
             let error = result.unwrap_err();
             assert_eq!(error.code(), "KG_RUNTIME_SCRIPT_TRAP");
             assert!(format!("{error:?}").contains(message), "{error:?}");
         }
     }
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     // The published version owns its materialized constants. Replace it with an
     // unused version so this assertion still detects leaked execution roots.
@@ -67,6 +66,7 @@ fn run(source: &str, expected_error: Option<&str>) {
         .and_then(|base| base.prepare_replacement(&program, &Default::default()))
         .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
         .unwrap();
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
     assert!(!runtime.is_quarantined());
 }

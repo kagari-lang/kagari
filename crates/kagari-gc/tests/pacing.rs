@@ -99,7 +99,9 @@ fn pacing_counts_reused_storage_and_committed_indirect_growth_only() -> Result<(
     let reused_growth = heap.stats().allocation_growth_bytes;
     assert!(reused_growth > 0);
     let before = heap.stats().indirect_bytes;
+    assert_eq!(heap.stats().provider_units, 0);
     ObjectVec::push(&mut heap.access()?, &vector, &node)?;
+    assert_eq!(heap.stats().provider_units, 1);
     assert_eq!(
         heap.stats().allocation_growth_bytes,
         reused_growth + heap.stats().indirect_bytes - before
@@ -111,6 +113,41 @@ fn pacing_counts_reused_storage_and_committed_indirect_growth_only() -> Result<(
         heap.scope(|cx| unsafe { descriptor.alloc_with(cx, |_| Err(GcError::Index)) }.map(|_| ()));
     assert!(matches!(result, Err(GcError::Index)));
     assert_eq!(heap.stats().allocation_growth_bytes, growth);
+    assert_eq!(heap.stats().provider_units, 1);
+    let failed = heap.accounting();
+    assert_eq!(failed.before, failed.after);
+    assert_eq!(failed.before, failed.peak);
+    // The vector already has capacity. Grow and shrink its logical charge in one
+    // access interval, with no surviving endpoint delta or additional allocation.
+    unsafe {
+        heap.access()?.with_object_mut(&vector, |vector, _| {
+            vector.clear();
+            Ok(())
+        })?;
+    }
+    let before = heap.stats();
+    {
+        let mut access = heap.access()?;
+        ObjectVec::push(&mut access, &vector, &node)?;
+        // SAFETY: removing all edges preserves capacity and invalidates the scan
+        // through the ordinary mutation guard; no result needs publication.
+        unsafe {
+            access.with_object_mut(&vector, |vector, _| {
+                vector.clear();
+                Ok(())
+            })?;
+        }
+    }
+    let committed = heap.accounting();
+    assert_eq!(committed.before, committed.after);
+    assert_eq!(committed.peak.units, committed.before.units + 1);
+    assert_eq!(committed.after.units, before.objects as u128);
+    assert_eq!(committed.peak.indirect_bytes, before.indirect_bytes);
+    assert!(ObjectVec::values(&mut heap.access()?, &vector)?.is_empty());
+    heap.shutdown();
+    assert_eq!(heap.accounting().after.units, 0);
+    assert_eq!(heap.accounting().after.indirect_bytes, 0);
+    assert_eq!(heap.stats().provider_units, 0);
     Ok(())
 }
 

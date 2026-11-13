@@ -1,0 +1,42 @@
+pub fn read(index: u64) -> i32 {
+    val values = [7];
+    values[index]
+}
+
+pub fn write(index: u64) {
+    val values = [7];
+    values[index] = 9;
+}
+
+pub fn signed(index: i64) -> i32 {
+    val values = [7];
+    values[index]
+}
+
+pub fn repeat(count: u64) -> u64 {
+    val values = [7u64; count];
+    values.len()
+}
+
+pub fn make() -> [i32] {
+    [0, 7]
+}
+
+fn base(values: [i32]) -> [i32] {
+    values[0] = values[0] * 10 + 1;
+    values
+}
+
+fn index(values: [i32], position: u64) -> u64 {
+    values[0] = values[0] * 10 + 2;
+    position
+}
+
+fn replacement(values: [i32]) -> i32 {
+    values[0] = values[0] * 10 + 3;
+    9
+}
+
+pub fn write_order(values: [i32], position: u64) {
+    base(values)[index(values, position)] = replacement(values);
+}

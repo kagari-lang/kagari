@@ -1,6 +1,10 @@
 use super::*;
 use crate::{execution::fixtures::FixtureExecution, interpreter_tests::common};
-use crate::{module::entry::ProgramEntry, value_semantics::script_equal};
+use crate::{
+    module::entry::ProgramEntry,
+    native::conversion::context::ConversionContext,
+    value::{aggregates::tuples::TupleObject, scalar, strings::StringObject},
+};
 use kagari_bytecode::instruction::ConstantId;
 use kagari_contract::ids::FunctionRef;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
@@ -36,17 +40,14 @@ fn executes_runtime_reflect_type_of_helper() {
         .execute_fixture(&loaded, FunctionRef::new(0))
         .expect("vm should execute");
 
-    assert!(
-        script_equal(
-            vm.gc(),
-            &(report
-                .return_value
-                .value(vm.gc())
-                .expect("retained execution result")),
-            &(vm.gc().alloc_string("i32".to_owned()).unwrap())
-        )
-        .unwrap()
-    );
+    let actual = vm
+        .memory
+        .scope(&vm.resources, |cx, _| {
+            let value = report.return_value.get(cx)?;
+            StringObject::read(cx, value, str::to_owned)
+        })
+        .unwrap();
+    assert_eq!(actual, "i32");
 }
 
 #[test]
@@ -121,17 +122,21 @@ fn executes_runtime_reflect_get_and_set_field_helpers() {
         .execute_fixture(&loaded, FunctionRef::new(0))
         .expect("vm should execute");
 
-    let Value::Tuple(values) = report
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result")
-    else {
-        panic!("expected initial and updated field values");
-    };
-    assert_eq!(
-        &*vm.gc().tuple(values).unwrap(),
-        &[Value::I32(1), Value::I32(9)]
-    );
+    vm.memory
+        .scope(&vm.resources, |cx, _| {
+            let value = report.return_value.get(cx)?;
+            let tuple = cx.downcast::<TupleObject>(value.object().unwrap())?;
+            assert_eq!(
+                scalar::read_integer(BuiltinType::I32, TupleObject::get(cx, tuple, 0)?).unwrap(),
+                1
+            );
+            assert_eq!(
+                scalar::read_integer(BuiltinType::I32, TupleObject::get(cx, tuple, 1)?).unwrap(),
+                9
+            );
+            Ok(())
+        })
+        .unwrap();
 }
 
 #[test]
@@ -199,16 +204,15 @@ fn executes_runtime_reflect_set_index_helper() {
         .execute_fixture(&loaded, FunctionRef::new(0))
         .expect("vm should execute");
 
-    let Value::Array(handle) = report
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result")
-    else {
-        panic!("expected array return value");
-    };
+    let mut cx = ConversionContext::new(&mut vm, &loaded).unwrap();
+    let array = cx.import(&report.return_value).unwrap();
     assert_eq!(
-        vm.gc().array_snapshot(handle),
-        Some(vec![Value::I32(2), Value::I32(2)])
+        cx.array_element(&array, 0usize).unwrap().unwrap().as_i32(),
+        Some(2)
+    );
+    assert_eq!(
+        cx.array_element(&array, 1usize).unwrap().unwrap().as_i32(),
+        Some(2)
     );
 }
 
@@ -216,17 +220,9 @@ fn executes_runtime_reflect_set_index_helper() {
 fn executes_source_lowered_reflection_field_helpers() {
     let (runtime, loaded) = load_bytecode_program(
         "test.kgr",
-        compile_test_bytecode(
-            r#"
-struct Point { var x: i32 }
-
-fn main() -> i32 {
-    val point = Point { x: 1 };
-    val next = set_field(point, "x", 9);
-    get_field(next, "x")
-}
-"#,
-        ),
+        compile_test_bytecode(include_str!(
+            "../../../tests/fixtures/reflection/field-helper.kgr"
+        )),
     );
     let program = loaded;
     let loaded = runtime.select_program(&program).unwrap();
@@ -235,27 +231,16 @@ fn main() -> i32 {
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
 
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(9)
-    );
+    assert_eq!(report.return_value.as_i32(), Some(9));
 }
 
 #[test]
 fn executes_source_lowered_set_index_helper() {
     let (runtime, loaded) = load_bytecode_program(
         "test.kgr",
-        compile_test_bytecode(
-            r#"
-fn main() -> [i32] {
-    val values = [1, 2];
-    set_index(values, 0, 9)
-}
-"#,
-        ),
+        compile_test_bytecode(include_str!(
+            "../../../tests/fixtures/reflection/index-helper.kgr"
+        )),
     );
     let program = loaded;
     let loaded = runtime.select_program(&program).unwrap();
@@ -264,35 +249,23 @@ fn main() -> [i32] {
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
 
-    let Value::Array(handle) = report
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result")
-    else {
-        panic!("expected array return value");
-    };
+    let mut cx = ConversionContext::new(&mut vm, &loaded).unwrap();
+    let array = cx.import(&report.return_value).unwrap();
     assert_eq!(
-        vm.gc().array_snapshot(handle),
-        Some(vec![Value::I32(9), Value::I32(2)])
+        cx.array_element(&array, 0usize).unwrap().unwrap().as_i32(),
+        Some(9)
+    );
+    assert_eq!(
+        cx.array_element(&array, 1usize).unwrap().unwrap().as_i32(),
+        Some(2)
     );
 }
 
 #[test]
 fn executes_source_lowered_place_assignments() {
-    let (runtime, loaded) = load_test_module(
-        r#"
-struct Point { var x: i32 }
-struct Holder { var inner: Point }
-
-fn main() -> i32 {
-    var holder = Holder { inner: Point { x: 1 } };
-    holder.inner.x = 7;
-    var values = [1, 2];
-    values[0] = 5;
-    holder.inner.x + values[0]
-}
-"#,
-    );
+    let (runtime, loaded) = load_test_module(include_str!(
+        "../../../tests/fixtures/reflection/place-assignment.kgr"
+    ));
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = runtime;
@@ -300,11 +273,5 @@ fn main() -> i32 {
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
 
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(12)
-    );
+    assert_eq!(report.return_value.as_i32(), Some(12));
 }

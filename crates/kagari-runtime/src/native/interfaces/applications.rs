@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    execution_metadata::MetadataRoot,
+    execution_metadata::managed::{environments::EnvironmentObject, sources::MetadataSource},
     frame::types::{
         EnvironmentRecord,
         arguments::{ScopedSignature, TypeArgument},
@@ -10,12 +10,15 @@ use crate::{
         construction::ConstructionScope,
         operations::OperationBindings,
     },
-    gc::roots::RootSet,
     module::{ExecutableModule, ModuleKey},
-    native::{binding::NativeResult, interfaces::binding::InterfaceMember},
+    native::{
+        binding::NativeResult, conversion::context::ConversionContext,
+        interfaces::binding::InterfaceMember,
+    },
 };
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
 use kagari_contract::{callable::interface::InterfaceCallContract, ids::FunctionRef};
+use kagari_gc::root::Root;
 use kagari_types::ty::Ty;
 use std::slice;
 
@@ -34,7 +37,7 @@ pub(super) struct AppliedMethod {
     pub(super) arguments: Vec<TypeArgument>,
     pub(super) operations: OperationBindings,
     pub(super) constructions: ConstructionScope,
-    _roots: RootSet,
+    pub(super) environment: Root<EnvironmentObject>,
 }
 
 fn missing() -> RuntimeError {
@@ -119,30 +122,46 @@ impl ApplicationEvidence {
 
     pub(super) fn prepare(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         member: &InterfaceMember,
     ) -> NativeResult<AppliedMethod> {
         let arguments = runtime.resolve_type_arguments(&self.owner, &self.contract.arguments)?;
         let parameters = member.contract.methods[member.slot].generic_params.clone();
-        let operations =
-            runtime.bind_operations_in(&self.owner, None, &self.contract.operations)?;
+        let mut conversion = ConversionContext::new(runtime, &self.owner)?;
+        let execution = conversion.execution_id()?;
+        let mut protected = vec![MetadataSource::Revision {
+            owner: &self.owner,
+            source: member.origin(),
+        }];
+        let operations = conversion.runtime_mut().bind_operations_in(
+            execution,
+            &self.owner,
+            None,
+            &self.contract.operations,
+            &mut protected,
+        )?;
         let mut environment =
             EnvironmentRecord::new(self.owner.definitions(), parameters, arguments.clone())?;
-        let constructions =
-            runtime.bind_constructions_in(&self.owner, None, &self.contract.constructions)?;
+        let constructions = conversion.runtime_mut().bind_constructions_in(
+            execution,
+            &self.owner,
+            None,
+            &self.contract.constructions,
+            &mut protected,
+        )?;
         environment.set_constructions(constructions.clone());
         environment.extend_operations(operations.clone());
-        let environment = runtime.alloc_environment(environment)?;
-        let roots = runtime.root_metadata(vec![
-            MetadataRoot::Program(self.owner.clone()),
-            MetadataRoot::Environment(environment.id),
-        ])?;
+        let environment =
+            conversion
+                .runtime_mut()
+                .alloc_environment(execution, environment, &protected)?;
+        let environment = conversion.runtime_mut().retain_environment(&environment)?;
         Ok(AppliedMethod {
             key: self.key,
             arguments,
             operations,
             constructions,
-            _roots: roots,
+            environment,
         })
     }
 }

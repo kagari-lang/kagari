@@ -1,95 +1,29 @@
-//! Runtime-local constant values are edges of the installed module version.
+//! Host constant reads borrow an explicit actual revision and retain escaping values.
 use crate::{
     Runtime,
-    error::{RuntimeError, fault::EngineFault},
-    module::ExecutableModule,
-    value::Value,
+    error::RuntimeError,
+    module::{ExecutableModule, managed::revision::RevisionState, retention::RetentionOrigin},
+    value::carriers::RootedValue,
 };
-
-use kagari_bytecode::instruction::{ConstantId, ConstantOperand};
-use std::sync::OnceLock;
-
-/// Single-assignment cells permit shared execution links without mutable store
-/// borrows. The runtime remains exclusively driven and can move between threads.
-/// This pool owns no program root: only its module record supplies traced edges.
-#[derive(Debug)]
-pub(crate) struct ConstantPool {
-    values: Box<[OnceLock<Value>]>,
-}
-
-impl ConstantPool {
-    pub(super) fn new(len: usize) -> Self {
-        Self {
-            values: (0..len).map(|_| OnceLock::new()).collect(),
-        }
-    }
-
-    pub(crate) fn get(&self, constant: ConstantId) -> Option<Value> {
-        self.values.get(constant.index())?.get().copied()
-    }
-
-    pub(super) fn iter(&self) -> impl DoubleEndedIterator<Item = &Value> {
-        self.values.iter().filter_map(OnceLock::get)
-    }
-
-    /// The caller admits and retains the owning program before entering. This
-    /// operation may allocate, so no interpreter operand-bank borrow may cross it.
-    pub(crate) fn materialize(
-        &self,
-        runtime: &Runtime,
-        owner: &ExecutableModule,
-        constant: ConstantId,
-    ) -> Result<Value, RuntimeError> {
-        let cell = self
-            .values
-            .get(constant.index())
-            .ok_or_else(|| RuntimeError::module_validation("constant index out of bounds"))?;
-        if let Some(value) = cell.get() {
-            return Ok(*value);
-        }
-        let source = owner
-            .bytecode
-            .constants
-            .get(constant.index())
-            .ok_or_else(|| RuntimeError::module_validation("constant index out of bounds"))?;
-        // Allocation cannot collect or invoke user code. Publish the edge before
-        // the next safepoint; failure leaves the cell empty and safe to retry.
-        let value = match source {
-            ConstantOperand::Unit => Value::Unit,
-            ConstantOperand::Bool(value) => Value::Bool(*value),
-            ConstantOperand::Char(value) => Value::Char(*value),
-            ConstantOperand::I32(value) => Value::I32(*value),
-            ConstantOperand::I64(value) => Value::I64(*value),
-            ConstantOperand::U64(value) => Value::U64(*value),
-            ConstantOperand::F32(value) => Value::F32(*value),
-            ConstantOperand::F64(value) => Value::F64(*value),
-            ConstantOperand::Str(text) => runtime.gc.alloc_string(text.clone())?,
-        };
-        cell.set(value).map_err(|_| {
-            runtime
-                .resources()
-                .quarantine(EngineFault::ConstantInitializedDuringExclusiveExecution)
-        })?;
-        Ok(value)
-    }
-}
+use kagari_bytecode::instruction::ConstantId;
 
 impl Runtime {
-    /// Materialize a portable constant once. The owning module version retains it;
-    /// callers root an escaped value independently before releasing that version.
+    /// Materialize a portable constant once in its actual revision's managed pool.
+    ///
+    /// Current selects the matching publication; Admitted and Retained borrow an
+    /// exact protected body. A descriptor alone cannot reopen a retired revision.
+    /// Managed results acquire an independent Host lease. Foreign, mismatched or
+    /// expired origins and out-of-bounds constants fail before materialization.
     pub fn read_constant(
-        &self,
+        &mut self,
         module: &ExecutableModule,
         constant: ConstantId,
-    ) -> Result<Value, RuntimeError> {
-        self.validate_executable_module(module)?;
-        let records = self.modules.inner.try_borrow_mut().map_err(|_| {
-            self.resources()
-                .quarantine(EngineFault::ConstantStorageBorrowedAcrossExecution)
-        })?;
-        let record = records
-            .resolve(module)
-            .ok_or_else(|| RuntimeError::module_validation("constant owner has been released"))?;
-        record.constants.materialize(self, module, constant)
+        origin: RetentionOrigin<'_>,
+    ) -> Result<RootedValue, RuntimeError> {
+        let origin = origin.resolve(self, module)?;
+        self.with_revision_origin(module, origin, |slots, revision| {
+            let value = RevisionState::constant(slots.scope(), revision, module.slot(), constant)?;
+            value.retain(slots.scope())
+        })
     }
 }

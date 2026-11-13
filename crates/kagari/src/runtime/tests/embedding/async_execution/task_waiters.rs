@@ -1,14 +1,15 @@
 //! Shared waits, directional cancellation, cached outputs and dependency cycles.
-use super::{Fixture, Value, slice};
+use super::{Fixture, slice};
 use crate::engine::EngineConfig;
 use kagari_runtime::execution::owned::DriveResult;
 use kagari_runtime::{
     error::RuntimeErrorKind,
-    gc::roots::RootedValue,
     task::{
         CancellationCause, TaskId, TaskReport, control::TaskScopeOwner, drive::TaskDriveResult,
     },
+    value::carriers::RootedValue,
 };
+use std::slice as slices;
 use std::{
     num::NonZeroUsize,
     sync::{Arc, atomic::Ordering},
@@ -43,24 +44,15 @@ impl Tasks {
         Self { fixture, scope }
     }
 
-    fn spawn(&mut self, entry: &str, args: &[Value]) -> (TaskId, RootedValue) {
+    fn spawn(&mut self, entry: &str, args: &[RootedValue]) -> (TaskId, RootedValue) {
         let factory = self.fixture.invoke(entry, args);
         let task = self
             .fixture
             .runtime
-            .spawn_task(
-                &self.fixture.value(self.scope.capability()),
-                &self.fixture.value(&factory),
-            )
+            .spawn_task(&(self.scope.capability()).clone(), &factory)
             .unwrap()
             .unwrap();
-        (
-            self.fixture
-                .runtime
-                .task_id(&self.fixture.value(&task))
-                .unwrap(),
-            task,
-        )
+        (self.fixture.runtime.task_id(&task).unwrap(), task)
     }
 
     fn drive(&mut self, id: TaskId) -> TaskDriveResult {
@@ -93,40 +85,29 @@ fn scoped_task_shared_wait_contract() {
 
     let (producer, handle) = tasks.spawn("producer", &[]);
     assert_eq!(tasks.drive(producer), TaskDriveResult::Waiting);
-    let (left, left_handle) =
-        tasks.spawn("observe", &[tasks.fixture.value(&handle), Value::I32(1)]);
+    let (left, left_handle) = tasks.spawn("observe", &[handle.clone(), RootedValue::from(1_i32)]);
     let collection = tasks.fixture.invoke("tasks", &[]);
     for _ in 0..2 {
-        let _ = tasks.fixture.invoke(
-            "add",
-            &[
-                tasks.fixture.value(&collection),
-                tasks.fixture.value(&handle),
-            ],
-        );
+        let _ = tasks
+            .fixture
+            .invoke("add", &[collection.clone(), handle.clone()]);
     }
-    let (right, _) = tasks.spawn("looping", &[tasks.fixture.value(&collection)]);
+    let (right, _) = tasks.spawn("looping", slices::from_ref(&collection));
     assert_eq!(tasks.drive(left), TaskDriveResult::Waiting);
     assert_eq!(tasks.drive(right), TaskDriveResult::Waiting);
     // Writes commit while the waiter is suspended; its next cursor read traps.
-    drop(tasks.fixture.invoke(
-        "add",
-        &[
-            tasks.fixture.value(&collection),
-            tasks.fixture.value(&handle),
-        ],
-    ));
-    let (excess, _) = tasks.spawn("observe", &[tasks.fixture.value(&handle), Value::I32(2)]);
+    drop(
+        tasks
+            .fixture
+            .invoke("add", &[collection.clone(), handle.clone()]),
+    );
+    let (excess, _) = tasks.spawn("observe", &[handle.clone(), RootedValue::from(2_i32)]);
     assert_eq!(tasks.drive(excess), TaskDriveResult::Complete);
     assert_eq!(
         tasks.report(excess).outcome.unwrap_err().error.kind(),
         RuntimeErrorKind::ResourceLimitExceeded
     );
-    tasks
-        .fixture
-        .runtime
-        .cancel_task(&tasks.fixture.value(&left_handle))
-        .unwrap();
+    tasks.fixture.runtime.cancel_task(&left_handle).unwrap();
     assert_eq!(tasks.fixture.runtime.drain_cancelled_tasks().unwrap(), 1);
     assert_eq!(
         tasks.report(left).outcome.unwrap_err().cancellation,
@@ -137,7 +118,7 @@ fn scoped_task_shared_wait_contract() {
         0,
         "waiter cancellation leaves target IO running"
     );
-    let (replacement, _) = tasks.spawn("observe", &[tasks.fixture.value(&handle), Value::I32(2)]);
+    let (replacement, _) = tasks.spawn("observe", &[handle.clone(), RootedValue::from(2_i32)]);
     assert_eq!(
         tasks.drive(replacement),
         TaskDriveResult::Waiting,
@@ -158,27 +139,11 @@ fn scoped_task_shared_wait_contract() {
     assert_eq!(tasks.drive(producer), TaskDriveResult::Complete);
     let ready = tasks.fixture.runtime.ready_tasks(&tasks.scope).unwrap();
     assert!(ready.contains(&right) && ready.contains(&replacement));
-    assert_eq!(
-        tasks
-            .report(producer)
-            .outcome
-            .unwrap()
-            .value(tasks.fixture.runtime.gc())
-            .unwrap(),
-        Value::I32(7)
-    );
+    assert_eq!(tasks.report(producer).outcome.unwrap().as_i32().unwrap(), 7);
     let (reused, _) = tasks.spawn("immediate", &[]);
     assert_ne!(reused, producer);
     assert_eq!(tasks.drive(reused), TaskDriveResult::Complete);
-    assert_eq!(
-        tasks
-            .report(reused)
-            .outcome
-            .unwrap()
-            .value(tasks.fixture.runtime.gc())
-            .unwrap(),
-        Value::I32(99)
-    );
+    assert_eq!(tasks.report(reused).outcome.unwrap().as_i32().unwrap(), 99);
     assert_eq!(tasks.drive(right), TaskDriveResult::Complete);
     assert_eq!(
         tasks.report(right).outcome.unwrap_err().error.kind(),
@@ -186,44 +151,22 @@ fn scoped_task_shared_wait_contract() {
     );
     assert_eq!(tasks.drive(replacement), TaskDriveResult::Complete);
     assert_eq!(
-        tasks
-            .report(replacement)
-            .outcome
-            .unwrap()
-            .value(tasks.fixture.runtime.gc())
-            .unwrap(),
-        Value::I32(9)
+        tasks.report(replacement).outcome.unwrap().as_i32().unwrap(),
+        9
     );
     // A fresh cursor sees all three committed entries and reuses the cached output.
-    let (fresh, _) = tasks.spawn("looping", &[tasks.fixture.value(&collection)]);
+    let (fresh, _) = tasks.spawn("looping", slices::from_ref(&collection));
     assert_eq!(tasks.drive(fresh), TaskDriveResult::Complete);
-    assert_eq!(
-        tasks
-            .report(fresh)
-            .outcome
-            .unwrap()
-            .value(tasks.fixture.runtime.gc())
-            .unwrap(),
-        Value::I32(21)
-    );
-    let ordinary = tasks
-        .fixture
-        .invoke("direct", &[tasks.fixture.value(&handle)]);
-    assert_eq!(
-        tasks
-            .fixture
-            .run_future(&ordinary)
-            .value(tasks.fixture.runtime.gc())
-            .unwrap(),
-        Value::I32(7)
-    );
+    assert_eq!(tasks.report(fresh).outcome.unwrap().as_i32().unwrap(), 21);
+    let ordinary = tasks.fixture.invoke("direct", slices::from_ref(&handle));
+    assert_eq!(tasks.fixture.run_future(&ordinary).as_i32().unwrap(), 7);
     assert_eq!(
         tasks.fixture.starts.load(Ordering::SeqCst),
         1,
         "shared awaits never restart the producer"
     );
     let (business, business_handle) = tasks.spawn("business", &[]);
-    let (consumer, _) = tasks.spawn("propagate", &[tasks.fixture.value(&business_handle)]);
+    let (consumer, _) = tasks.spawn("propagate", slices::from_ref(&business_handle));
     assert_eq!(tasks.drive(consumer), TaskDriveResult::Waiting);
     assert_eq!(tasks.drive(business), TaskDriveResult::Complete);
     assert_eq!(tasks.drive(consumer), TaskDriveResult::Complete);
@@ -231,16 +174,16 @@ fn scoped_task_shared_wait_contract() {
     assert_eq!(
         tasks
             .fixture
-            .invoke("code", &[tasks.fixture.value(&result)])
-            .value(tasks.fixture.runtime.gc())
+            .invoke("code", slices::from_ref(&result))
+            .as_i32()
             .unwrap(),
-        Value::I32(-4)
+        -4
     );
     assert!(tasks.report(business).outcome.is_ok());
     let inferred = tasks.fixture.invoke("infer_future", &[]);
     let _ = tasks.fixture.run_future(&inferred);
     let (nested, nested_handle) = tasks.spawn("nested", &[]);
-    let (observer, _) = tasks.spawn("nested_observer", &[tasks.fixture.value(&nested_handle)]);
+    let (observer, _) = tasks.spawn("nested_observer", slices::from_ref(&nested_handle));
     assert_eq!(tasks.drive(observer), TaskDriveResult::Waiting);
     assert_eq!(tasks.drive(nested), TaskDriveResult::Complete);
     assert_eq!(tasks.drive(observer), TaskDriveResult::Complete);
@@ -251,7 +194,6 @@ fn scoped_task_shared_wait_contract() {
         1,
         "Task await does not flatten Future-valued output"
     );
-    assert_eq!(tasks.fixture.value(&inner), tasks.fixture.value(&alias));
     let owned = tasks.fixture.start_future(&inner);
     assert!(matches!(
         tasks.fixture.runtime.drive(&owned, slice()).unwrap(),
@@ -265,14 +207,7 @@ fn scoped_task_shared_wait_contract() {
         .pop()
         .unwrap()
         .complete(Ok(55));
-    assert_eq!(
-        tasks
-            .fixture
-            .complete(&owned)
-            .value(tasks.fixture.runtime.gc())
-            .unwrap(),
-        Value::I32(55)
-    );
+    assert_eq!(tasks.fixture.complete(&owned).as_i32().unwrap(), 55);
     let repeated = tasks.fixture.start_future(&alias);
     assert!(
         matches!(
@@ -289,9 +224,7 @@ fn scoped_task_dependency_failure_contract() {
 
     let (producer, handle) = tasks.spawn("producer", &[]);
     assert_eq!(tasks.drive(producer), TaskDriveResult::Waiting);
-    let ordinary = tasks
-        .fixture
-        .invoke("direct", &[tasks.fixture.value(&handle)]);
+    let ordinary = tasks.fixture.invoke("direct", slices::from_ref(&handle));
     let owned = tasks.fixture.start_future(&ordinary);
     assert!(matches!(
         tasks.fixture.runtime.drive(&owned, slice()).unwrap(),
@@ -318,21 +251,14 @@ fn scoped_task_dependency_failure_contract() {
         .unwrap();
     let factory = tasks
         .fixture
-        .invoke("observe", &[tasks.fixture.value(&handle), Value::I32(1)]);
+        .invoke("observe", &[handle.clone(), RootedValue::from(1_i32)]);
     let other = tasks
         .fixture
         .runtime
-        .spawn_task(
-            &tasks.fixture.value(other_scope.capability()),
-            &tasks.fixture.value(&factory),
-        )
+        .spawn_task(&(other_scope.capability()).clone(), &factory)
         .unwrap()
         .unwrap();
-    let other_id = tasks
-        .fixture
-        .runtime
-        .task_id(&tasks.fixture.value(&other))
-        .unwrap();
+    let other_id = tasks.fixture.runtime.task_id(&other).unwrap();
     assert_eq!(
         tasks
             .fixture
@@ -361,18 +287,14 @@ fn scoped_task_dependency_failure_contract() {
         "closing a waiting scope leaves another scope's target running"
     );
     let (middle, middle_handle) =
-        tasks.spawn("observe", &[tasks.fixture.value(&handle), Value::I32(1)]);
+        tasks.spawn("observe", &[handle.clone(), RootedValue::from(1_i32)]);
     let (last, _) = tasks.spawn(
         "observe",
-        &[tasks.fixture.value(&middle_handle), Value::I32(2)],
+        &[middle_handle.clone(), RootedValue::from(2_i32)],
     );
     assert_eq!(tasks.drive(middle), TaskDriveResult::Waiting);
     assert_eq!(tasks.drive(last), TaskDriveResult::Waiting);
-    tasks
-        .fixture
-        .runtime
-        .cancel_task(&tasks.fixture.value(&handle))
-        .unwrap();
+    tasks.fixture.runtime.cancel_task(&handle).unwrap();
     assert_eq!(tasks.fixture.runtime.drain_cancelled_tasks().unwrap(), 1);
     assert_eq!(tasks.fixture.cancels.load(Ordering::SeqCst), 1);
     assert_eq!(
@@ -389,9 +311,7 @@ fn scoped_task_dependency_failure_contract() {
         assert_eq!(origin.task, producer);
         assert_eq!(origin.cancellation, Some(CancellationCause::Explicit));
     }
-    let ordinary = tasks
-        .fixture
-        .invoke("direct", &[tasks.fixture.value(&handle)]);
+    let ordinary = tasks.fixture.invoke("direct", slices::from_ref(&handle));
     let owned = tasks.fixture.start_future(&ordinary);
     let DriveResult::Complete(Err(error)) = tasks.fixture.runtime.drive(&owned, slice()).unwrap()
     else {
@@ -406,15 +326,14 @@ fn scoped_task_dependency_failure_contract() {
             let (id, task) = tasks.spawn(
                 "indexed",
                 &[
-                    tasks.fixture.value(&collection),
-                    Value::U64(((index + 1) % size) as u64),
+                    collection.clone(),
+                    RootedValue::from(((index + 1) % size) as u64),
                 ],
             );
             ids.push(id);
-            let _ = tasks.fixture.invoke(
-                "add",
-                &[tasks.fixture.value(&collection), tasks.fixture.value(&task)],
-            );
+            let _ = tasks
+                .fixture
+                .invoke("add", &[collection.clone(), task.clone()]);
         }
         for id in &ids[..size - 1] {
             assert_eq!(tasks.drive(*id), TaskDriveResult::Waiting);
@@ -430,9 +349,7 @@ fn scoped_task_dependency_failure_contract() {
         }
     }
     let (target, handle) = tasks.spawn("immediate", &[]);
-    let ordinary = tasks
-        .fixture
-        .invoke("direct", &[tasks.fixture.value(&handle)]);
+    let ordinary = tasks.fixture.invoke("direct", slices::from_ref(&handle));
     let owned = tasks.fixture.start_future(&ordinary);
     assert!(matches!(
         tasks.fixture.runtime.drive(&owned, slice()).unwrap(),
@@ -448,13 +365,8 @@ fn scoped_task_dependency_failure_contract() {
     ));
     assert!(tasks.fixture.runtime.is_quarantined());
     assert_eq!(
-        tasks
-            .report(target)
-            .outcome
-            .unwrap()
-            .value(tasks.fixture.runtime.gc())
-            .unwrap(),
-        Value::I32(99),
+        tasks.report(target).outcome.unwrap().as_i32().unwrap(),
+        99,
         "wake failure cannot overwrite committed terminal success"
     );
     assert_eq!(tasks.fixture.runtime.drain_retired_executions().unwrap(), 1);

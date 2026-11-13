@@ -2,6 +2,8 @@
 use crate::{
     Runtime,
     error::RuntimeError,
+    execution::roots::SessionId,
+    execution_metadata::managed::sources::MetadataSource,
     frame::types::{
         TypeEnvironment, arguments::ScopedSignature, compatibility::TypeView,
         operations::OperationBindings,
@@ -15,7 +17,7 @@ use crate::{
         result::LinkedResultAdapter,
         types::{Type, same_definition},
     },
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_common::identity::{
     scoped::DefinitionReferences,
@@ -96,10 +98,10 @@ impl Codec {
 ///
 /// ```compile_fail
 /// use std::rc::Rc;
-/// use kagari_runtime::{native::binding::{Codec, NativeBinding}, value::Value};
+/// use kagari_runtime::{native::binding::{Codec, NativeBinding}, value::view::ValueView};
 /// let local = Rc::new(1);
 /// let binding = NativeBinding::new(Vec::<Codec>::new(), Codec::Value, move |_| {
-///     Ok(Value::I32(*local))
+///     Ok(ValueView::from(*local))
 /// });
 /// ```
 #[derive(Clone)]
@@ -136,7 +138,10 @@ impl NativeBinding {
     pub fn new(
         arguments: impl Into<Box<[Codec]>>,
         result: Codec,
-        entry: impl for<'call> Fn(&mut NativeCall<'call>) -> NativeResult<Value> + Send + Sync + 'static,
+        entry: impl for<'call> Fn(&mut NativeCall<'call>) -> NativeResult<ValueView<'call>>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         Self::scoped(arguments, result, move |call| {
             let value = entry(call)?;
@@ -234,6 +239,14 @@ impl LinkedNativeFunction {
             .ok_or_else(|| RuntimeError::module_validation("native result type scope"))?;
         let signature = ScopedSignature { params, result };
         self.prepare_mapping(runtime, owner, &signature)?;
+        for (index, operation) in self.selected.iter().enumerate() {
+            if index.is_multiple_of(1024) {
+                runtime.resources().poll_execution()?;
+            }
+            if let LinkedOperation::Ready(callable) = operation {
+                callable.prepare_signature(runtime, owner)?;
+            }
+        }
         self.prepared_signature
             .set(signature)
             .map_err(|_| RuntimeError::module_validation("duplicate native signature preparation"))
@@ -277,10 +290,13 @@ impl LinkedNativeFunction {
     pub(crate) fn apply(
         &self,
         runtime: &mut Runtime,
+        execution: SessionId,
         owner: &ExecutableModule,
         environment: TypeEnvironment,
         operations: &OperationBindings,
+        protected: &mut Vec<MetadataSource<'_>>,
     ) -> NativeResult<Self> {
+        let snapshot = runtime.environment_snapshot_in(protected, &environment)?;
         let params = runtime.type_arguments(
             owner,
             Some(environment.types.clone()),
@@ -319,6 +335,7 @@ impl LinkedNativeFunction {
                 .iter()
                 .map(|operation| match operation {
                     LinkedOperation::Ready(callable) => {
+                        callable.prepare_signature(runtime, owner)?;
                         Ok(LinkedOperation::Ready(callable.clone()))
                     }
                     LinkedOperation::Forward(required) => {
@@ -338,66 +355,19 @@ impl LinkedNativeFunction {
                             &Default::default(),
                         )?;
                         let operation = operations
-                            .operation(&runtime.gc, &resolved, &receiver)
+                            .operation(&snapshot.groups, &resolved, &receiver)
                             .ok_or_else(|| {
                                 RuntimeError::module_validation(
                                     "native constraint operation environment",
                                 )
                             })?;
                         Ok(LinkedOperation::Ready(LinkedCallable::prepare(
-                            runtime,
-                            owner,
-                            &environment,
-                            required,
-                            operation,
+                            runtime, execution, owner, &snapshot, required, operation, protected,
                         )?))
                     }
                 })
                 .collect::<NativeResult<Vec<_>>>()?
                 .into_boxed_slice(),
         })
-    }
-
-    pub(crate) fn invoke(&self, context: &mut NativeCall<'_>) -> NativeResult<Value> {
-        if context.arguments.len() != self.signature.params.len() {
-            return Err(RuntimeError::module_validation(
-                "native invocation argument count",
-            ));
-        }
-        context.poll()?;
-        let result = context
-            .narrow_arguments()
-            .and_then(|()| self.invoke_narrowed(context));
-        result.map_err(|error| context.runtime.resources().admit_execution_error(error))
-    }
-
-    fn invoke_narrowed(&self, context: &mut NativeCall<'_>) -> NativeResult<Value> {
-        let signature = self.type_signature()?;
-        let result = match &self.binding.entry {
-            BindingEntry::Callback(entry) => entry(context).map_err(|error| *error),
-            BindingEntry::Primitive(primitive) => primitive
-                .execute(context.runtime, context.owner, signature, |index| {
-                    context.argument(index)
-                })
-                .map_err(|error| *error)
-                .and_then(|value| context.set_result(value)),
-        }
-        .map_err(|error| context.runtime.resources().admit_execution_error(error));
-        context.poll()?;
-        result?;
-        let value = context.result()?;
-        if (!self.binding.converted_result || self.result_adapter.is_some())
-            && !signature
-                .result
-                .matches(context.runtime, &value, context.owner)
-        {
-            return Err(RuntimeError::module_validation(
-                "native result differs from its Kagari declaration",
-            ));
-        }
-        match &self.result_adapter {
-            Some(adapter) => adapter.convert(context.runtime, context.owner, value),
-            None => Ok(value),
-        }
     }
 }

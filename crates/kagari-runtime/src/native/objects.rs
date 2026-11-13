@@ -7,12 +7,12 @@ mod methods;
 
 use crate::{
     Runtime,
-    error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    gc::{HeapObjectId, roots::RootedValue},
-    module::{ExecutableModule, StructLayoutRef, retention::ProgramLease},
+    module::{
+        ExecutableModule, StructLayoutRef, managed::source::RevisionSource, retention::ProgramLease,
+    },
     native::{binding::NativeResult, typed::NativeContext},
-    value::Value,
+    value::carriers::RootedValue,
 };
 use std::{marker::PhantomData, sync::Arc};
 
@@ -49,7 +49,7 @@ pub(crate) struct TypeRecord {
     layout: StructLayoutRef,
     argument: TypeArgument,
     public: bool,
-    _program: ProgramLease,
+    program: ProgramLease,
 }
 
 impl ObjectType {
@@ -68,8 +68,16 @@ impl ObjectType {
         &self.0.argument
     }
 
+    pub(crate) fn layout(&self) -> &StructLayoutRef {
+        &self.0.layout
+    }
+
     pub fn owner(&self) -> &ExecutableModule {
         self.0.layout.module()
+    }
+
+    pub(crate) fn origin(&self) -> RevisionSource<'_> {
+        RevisionSource::Host(self.0.program.revision())
     }
 
     pub(crate) fn validate(&self, runtime: &Runtime) -> NativeResult<()> {
@@ -82,14 +90,7 @@ impl<S> Object<S> {
         &self.object_type
     }
 
-    pub(crate) fn id(&self, cx: &NativeContext<'_>) -> NativeResult<HeapObjectId> {
-        cx.runtime().gc().ensure_no_native_borrow()?;
-        cx.runtime().resources().ensure_execution_allowed()?;
-        match self.root.value(cx.runtime().gc()) {
-            Some(Value::Struct(id)) => Ok(id),
-            _ => Err(RuntimeError::module_validation(
-                "foreign or expired object handle",
-            )),
-        }
+    pub(crate) fn validate(&self, cx: &mut NativeContext<'_>) -> NativeResult<()> {
+        cx.conversion.check_struct_root(&self.root, &self.layout)
     }
 }

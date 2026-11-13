@@ -1,129 +1,64 @@
-//! Synchronous native access borrows stable, already rooted caller slots.
+//! Synchronous Native access borrows stable, source-protected caller slots.
+mod allocation;
+mod calls;
 mod enums;
+mod invocation;
 pub mod operations;
+mod ranges;
+mod reads;
 mod references;
 mod result;
+mod scratch;
 mod tasks;
 #[cfg(test)]
 mod tests;
+mod values;
 use crate::{
     RootedInterfaceMethod, Runtime,
+    closure::calls::SelectedClosure,
     error::RuntimeError,
-    execution_metadata::{MetadataEdge, MetadataRoot},
-    frame::{
-        types::{
-            TypeEnvironment,
-            arguments::{ScopedSignature, TypeArgument},
-            compatibility::TypeView,
-        },
-        values::FrameSlots,
+    execution::roots::{DependencyId, ExecutionRoots, LocalMark, SessionId},
+    execution_metadata::{
+        MetadataEdge,
+        applications::{AdmittedApplication, ApplicationRecord},
+        managed::{environments::EnvironmentObject, sources::MetadataSource},
     },
-    gc::{GcCollection, GcHeap, roots::RootSet},
-    module::{ExecutableModule, execution::layout::Location},
+    frame::types::{
+        TypeEnvironment,
+        arguments::{ScopedSignature, TypeArgument},
+        compatibility::TypeView,
+    },
+    module::{ExecutableModule, managed::source::RevisionSource},
     native::{
-        arguments::CallArguments,
         binding::{LinkedNativeFunction, NativeResult},
-        callable::{CallableHandle, PreparedClosure},
-        context::result::PendingReturn,
-        conversion::{IntoKagari, context::ConversionContext},
-        declarations::SelectedCall,
+        callable::CallableHandle,
+        context::result::{PendingReturn, ReturnSource},
+        conversion::{IntoKagari, arguments::ArgumentValues, context::ConversionContext},
+        declarations::SelectedCall as DeclaredCall,
         function_handle::PreparedFunction,
-        scalar::NativeScalar,
-        storage::{NativePayload, StorageContext},
-        storage_type::StorageType,
-        stored_selection::StoredSelection,
-        typed::NativeContext,
+        storage::NativePayload,
     },
-    value::Value,
+    value::{
+        place::{PublishedResult, ResultPlace},
+        view::ValueView,
+    },
 };
 use kagari_bytecode::{module::CallableTarget, program::ModuleRef};
 use kagari_contract::standard::RuntimePrimitive;
+use kagari_gc::{error::GcError, heap::CollectionReport};
 use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::Ty};
-use std::{marker::PhantomData, rc::Rc, slice, sync::Arc};
-
-#[derive(Clone, Copy)]
-pub(crate) enum ArgumentSlots<'call> {
-    Prepared(&'call [Location]),
-    Contiguous {
-        start: usize,
-        count: usize,
-    },
-    /// Only sealed scalar argument packs can construct this unrooted view.
-    Scalars(&'call [Value]),
-}
-
-#[derive(Clone)]
-pub struct ArgumentView<'call> {
-    frame: Option<FrameSlots>,
-    slots: ArgumentSlots<'call>,
-    narrowed: Option<RootSet>,
-}
-
-impl<'call> ArgumentView<'call> {
-    pub(crate) fn frame(frame: FrameSlots, slots: ArgumentSlots<'call>) -> Self {
-        Self {
-            frame: Some(frame),
-            slots,
-            narrowed: None,
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        match self.slots {
-            ArgumentSlots::Prepared(slots) => slots.len(),
-            ArgumentSlots::Contiguous { count, .. } => count,
-            ArgumentSlots::Scalars(values) => values.len(),
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    pub(crate) fn contains(&self, heap: &GcHeap, index: usize) -> bool {
-        if let Some(roots) = &self.narrowed {
-            return roots.contains_slot(heap, index);
-        }
-        if let ArgumentSlots::Scalars(values) = self.slots {
-            return index < values.len();
-        }
-        self.with_value(heap, index, |_| ()).is_some()
-    }
-
-    /// Read rooted immutable slot data without an owning clone. The closure cannot
-    /// retain a slot reference; it must not reenter while this borrow is active.
-    pub fn with_value<R>(
-        &self,
-        heap: &GcHeap,
-        index: usize,
-        read: impl FnOnce(&Value) -> R,
-    ) -> Option<R> {
-        if let Some(roots) = &self.narrowed {
-            return roots.with_value(heap, index, read);
-        }
-        match self.slots {
-            ArgumentSlots::Scalars(values) => values.get(index).map(read),
-            ArgumentSlots::Prepared(slots) => {
-                self.frame?.with_location(heap, *slots.get(index)?, read)
-            }
-            ArgumentSlots::Contiguous { start, count } if index < count => {
-                self.frame?
-                    .with_value(heap, start.checked_add(index)?, read)
-            }
-            ArgumentSlots::Contiguous { .. } => None,
-        }
-    }
-
-    pub fn get(&self, heap: &GcHeap, index: usize) -> Option<Value> {
-        self.with_value(heap, index, Value::clone)
-    }
-}
+use std::{
+    marker::PhantomData,
+    rc::Rc,
+    slice,
+    sync::{Arc, OnceLock},
+};
 
 /// A target selected from a verified program during linking, without source lookup.
 #[derive(Debug, Clone)]
 pub struct LinkedCallable {
     pub(crate) environment: Option<TypeEnvironment>,
-    pub(crate) scoped_signature: Option<Arc<ScopedSignature>>,
+    pub(crate) scoped_signature: OnceLock<Arc<ScopedSignature>>,
     pub(crate) owner: CallableOwner,
     pub(crate) target: CallableTarget,
     pub(crate) params: Box<[Ty]>,
@@ -136,68 +71,103 @@ pub(crate) enum CallableOwner {
     Program(ModuleRef),
     /// An executable edge retained by a descriptor or active execution window.
     Resolved(ExecutableModule),
-    Pinned(ExecutableModule, RootSet),
 }
 
 impl LinkedCallable {
-    /// Select once at invocation, including callers which bypass VM entry. The
-    /// temporary root protects the exact computation through callback/result checks.
-    pub(crate) fn select_current(
+    /// Prepare closed lexical facts once for this immutable linked record.
+    /// Dynamic applications initialize the same field with their applied facts.
+    pub(crate) fn prepare_signature(
         &self,
         runtime: &Runtime,
         caller: &ExecutableModule,
-    ) -> NativeResult<Self> {
-        let source = self.owner(caller)?;
+    ) -> NativeResult<()> {
+        if self.scoped_signature.get().is_some() {
+            return Ok(());
+        }
+        if self.environment.is_some() {
+            return Err(RuntimeError::module_validation(
+                "applied callable signature is not prepared",
+            ));
+        }
+        let owner = self.owner(caller)?;
+        let params = runtime.type_arguments(&owner, None, &self.params)?;
+        let result = runtime
+            .type_arguments(&owner, None, slice::from_ref(&self.result))?
+            .pop()
+            .ok_or_else(|| RuntimeError::module_validation("selected callback result scope"))?;
+        self.scoped_signature
+            .set(Arc::new(ScopedSignature { params, result }))
+            .map_err(|_| {
+                RuntimeError::module_validation("duplicate callable signature preparation")
+            })
+    }
 
+    /// Select under the enclosing conversion's preparation mark. Actual sources
+    /// retain lexical environments; the selected body uses its exact origin.
+    /// This nonescaping invocation creates no Host root or retention pack.
+    pub(crate) fn select_current(
+        &self,
+        runtime: &mut Runtime,
+        caller: &ExecutableModule,
+        execution: SessionId,
+        protected: &[MetadataSource<'_>],
+    ) -> NativeResult<CallSelection> {
+        let source = self.owner(caller)?;
         let selected = runtime.select_call_route(&source.bind_call_route(self.target)?)?;
         let environment = self
             .environment
             .as_ref()
-            .map(|environment| runtime.transport_environment(&source, &selected, environment))
-            .transpose()?;
-        let scoped_signature = match &self.scoped_signature {
-            Some(signature) => signature.clone(),
-            None => Arc::new(ScopedSignature {
-                params: runtime.type_arguments(&source, None, &self.params)?,
-                result: runtime
-                    .type_arguments(&source, None, slice::from_ref(&self.result))?
-                    .pop()
+            .map(|facts| {
+                let environment = runtime
+                    .copy_environment_in(execution, facts, protected)?
                     .ok_or_else(|| {
-                        RuntimeError::module_validation("selected callback result scope")
-                    })?,
-            }),
-        };
-        let mut metadata = vec![MetadataRoot::Program(selected.owner().clone())];
-        metadata.extend(
-            environment
-                .iter()
-                .map(|environment| MetadataRoot::Environment(environment.id)),
-        );
-        let roots = runtime.root_metadata(metadata)?;
-        Ok(Self {
-            owner: CallableOwner::Pinned(selected.owner().clone(), roots),
-            target: selected.target(),
-            environment,
-            scoped_signature: Some(scoped_signature),
-            params: self.params.clone(),
-            result: self.result.clone(),
-            primitive: self.primitive,
+                        RuntimeError::module_validation("callback environment is not protected")
+                    })?;
+                runtime.transport_environment(execution, &source, &selected, &environment)
+            })
+            .transpose()?;
+        self.prepare_signature(runtime, &source)?;
+        let scoped_signature = self
+            .scoped_signature
+            .get()
+            .expect("prepared callable signature")
+            .clone();
+        let origin = runtime.selection_origin(selected.owner())?;
+        Ok(CallSelection {
+            owner: selected.owner().clone(),
+            target: Self {
+                owner: CallableOwner::Resolved(selected.owner().clone()),
+                target: selected.target(),
+                environment: environment
+                    .as_ref()
+                    .map(|environment| environment.facts().clone()),
+                scoped_signature: OnceLock::from(scoped_signature),
+                params: self.params.clone(),
+                result: self.result.clone(),
+                primitive: self.primitive,
+            },
+            origin,
+            environment: environment.map(|environment| environment.source()),
         })
     }
 
-    pub(crate) fn trace<'a>(
+    pub(crate) fn trace<'a, E, F>(
         &'a self,
         caller: &'a ExecutableModule,
-        pending: &mut Vec<MetadataEdge<'a>>,
-    ) {
+        visit: &mut F,
+    ) -> Result<(), E>
+    where
+        F: FnMut(MetadataEdge<'a>) -> Result<(), E> + ?Sized,
+    {
         let owner = match &self.owner {
             CallableOwner::Program(_) => caller,
-            CallableOwner::Resolved(owner) | CallableOwner::Pinned(owner, _) => owner,
+            CallableOwner::Resolved(owner) => owner,
         };
-        pending.push(MetadataEdge::Program(owner));
+        visit(MetadataEdge::Program(owner))?;
         if let Some(environment) = &self.environment {
-            pending.push(MetadataEdge::Environment(environment.id));
+            visit(MetadataEdge::EnvironmentFacts(environment))?;
         }
+        Ok(())
     }
 
     pub(crate) fn owner(&self, caller: &ExecutableModule) -> NativeResult<ExecutableModule> {
@@ -205,9 +175,23 @@ impl LinkedCallable {
             CallableOwner::Program(module) => caller
                 .member(*module)
                 .ok_or_else(|| RuntimeError::module_validation("native callable generation")),
-            CallableOwner::Pinned(owner, _retention) => Ok(owner.clone()),
             CallableOwner::Resolved(owner) => Ok(owner.clone()),
         }
+    }
+}
+
+/// One ordinary selection, valid only while its conversion/source owner lives.
+/// Facts and coordinates survive growth, but do not own independent GC roots.
+pub(crate) struct CallSelection {
+    pub(in crate::native) owner: ExecutableModule,
+    pub(in crate::native) target: LinkedCallable,
+    pub(in crate::native) origin: RevisionSource<'static>,
+    environment: Option<DependencyId<EnvironmentObject>>,
+}
+
+impl CallSelection {
+    pub(in crate::native) fn metadata(&self) -> Option<MetadataSource<'static>> {
+        self.environment.map(MetadataSource::Environment)
     }
 }
 
@@ -226,120 +210,145 @@ impl LinkedOperation {
     }
 }
 
-/// The backend supplies synchronous execution while Runtime owns the checked target.
-/// No execution-frame or storage borrow may span this call.
-/// A backend enters the target's authenticated retained execution scope before
-/// pushing it; that scope owns runtime/liveness/candidate entry validation.
-pub enum ScriptCall<'target> {
-    Closure(&'target PreparedClosure),
+/// One ordinary call already selected under the enclosing synchronous activation.
+/// It borrows checked metadata and its actual origin; it creates no Host root.
+/// Backends must enter this sealed selection before publishing a callee frame.
+pub struct SelectedCall<'target> {
+    owner: &'target ExecutableModule,
+    target: &'target LinkedCallable,
+    origin: RevisionSource<'target>,
+    environment: Option<MetadataSource<'target>>,
+}
+
+impl<'target> SelectedCall<'target> {
+    pub(in crate::native) fn new(
+        owner: &'target ExecutableModule,
+        target: &'target LinkedCallable,
+        origin: RevisionSource<'target>,
+        environment: Option<MetadataSource<'target>>,
+    ) -> Self {
+        Self {
+            owner,
+            target,
+            origin,
+            environment,
+        }
+    }
+
+    pub(crate) fn environment_source(&self) -> Option<MetadataSource<'target>> {
+        self.environment
+    }
+
+    pub fn owner(&self) -> &'target ExecutableModule {
+        self.owner
+    }
+
+    pub fn target(&self) -> &'target LinkedCallable {
+        self.target
+    }
+
+    pub(crate) fn origin(&self) -> RevisionSource<'target> {
+        self.origin
+    }
+}
+
+pub enum ScriptCall<'target, 'source> {
+    Selected(&'target SelectedCall<'source>),
+    Closure(&'target SelectedClosure<'source>),
     Pinned(&'target PreparedFunction),
     Interface(&'target RootedInterfaceMethod),
 }
 
-pub type ScriptInvoker =
-    fn(&mut Runtime, &ExecutableModule, ScriptCall<'_>, &[Value]) -> NativeResult<Value>;
+/// Execute the checked target without holding a frame/storage loan. A backend
+/// enters its authenticated scope before publishing a frame and completes result
+/// publication before retiring that activation's source suffix.
+pub type ScriptInvoker = for<'args, 'result> fn(
+    &mut Runtime,
+    &ExecutableModule,
+    ScriptCall<'_, '_>,
+    ArgumentValues<'args>,
+    ResultPlace<'result>,
+) -> NativeResult<PublishedResult<'result>>;
 
 pub struct NativeCall<'call> {
     pub(crate) _thread: PhantomData<Rc<()>>,
-    pub(crate) pending: PendingReturn,
+    pub(crate) pending: ReturnSource<'call>,
+    locals: Option<LocalMark>,
     pub(crate) runtime: &'call mut Runtime,
     pub(crate) owner: &'call ExecutableModule,
     pub(crate) function: &'call LinkedNativeFunction,
-    pub(crate) arguments: ArgumentView<'call>,
+    pub(crate) arguments: ArgumentValues<'call>,
     pub(crate) invoke_script: ScriptInvoker,
 }
 
+/// Closed bindings need no application object. Applied bindings borrow the
+/// checked record while the Native source owns its actual managed dependency.
+pub(crate) enum NativeEntry<'entry> {
+    Closed(&'entry LinkedNativeFunction),
+    Applied(&'entry AdmittedApplication),
+}
+
 impl<'call> NativeCall<'call> {
-    pub fn callable(&self, index: usize) -> NativeResult<CallableHandle<'call>> {
+    /// Admit one synchronous logical Native suffix without a script frame or
+    /// copied argument roots. Body state comes from its explicit current/retained
+    /// origin; source publication remains exclusive with Runtime.
+    pub(crate) fn new(
+        runtime: &'call mut Runtime,
+        owner: &'call ExecutableModule,
+        entry: NativeEntry<'call>,
+        body: RevisionSource<'_>,
+        arguments: ArgumentValues<'call>,
+        invoke_script: ScriptInvoker,
+    ) -> NativeResult<Self> {
+        let (function, application) = match entry {
+            NativeEntry::Closed(function) => (function, None),
+            NativeEntry::Applied(application) => {
+                let ApplicationRecord::Native(facts) = application.record().as_ref() else {
+                    return Err(RuntimeError::module_validation(
+                        "Native entry application kind",
+                    ));
+                };
+                if facts.owner.key() != owner.key() {
+                    return Err(RuntimeError::module_validation(
+                        "Native entry application owner",
+                    ));
+                }
+                (&facts.function, Some(application))
+            }
+        };
+        runtime.resources.ensure_synchronous_thread()?;
+        runtime.resources.poll_execution()?;
+        if arguments.len() != function.signature.params.len() {
+            return Err(RuntimeError::module_validation(
+                "native invocation argument count",
+            ));
+        }
+        runtime.validate_executable_module(owner)?;
+        let pending = PendingReturn::new(runtime, owner, body, arguments, application)?;
+        Ok(Self {
+            _thread: Default::default(),
+            pending: ReturnSource::Owned(pending),
+            locals: None,
+            runtime,
+            owner,
+            function,
+            arguments,
+            invoke_script,
+        })
+    }
+
+    pub(in crate::native) fn gc_error(&self, error: GcError) -> RuntimeError {
+        match error {
+            GcError::ForeignHeap
+            | GcError::InvalidRoot
+            | GcError::Index
+            | GcError::Representation => RuntimeError::module_validation(error.to_string()),
+            error => self.runtime.managed_memory_error(error),
+        }
+    }
+
+    pub fn callable(&mut self, index: usize) -> NativeResult<CallableHandle<'call>> {
         CallableHandle::from_argument(self, index)
-    }
-
-    /// Allocate the checked factory of this call's declared nominal Native result.
-    pub fn allocate_result(&mut self) -> NativeResult<Value> {
-        self.heap().ensure_no_native_borrow()?;
-        let ty = self.function.type_signature()?.result.ty();
-        let Ty::NativeObject(nominal) = ty else {
-            return Err(RuntimeError::module_validation(
-                "native result requires a nominal type",
-            ));
-        };
-        let storage = self
-            .runtime
-            .native_entries
-            .storage
-            .get_id(nominal.declaration)
-            .ok_or_else(|| {
-                RuntimeError::module_validation("native result storage is not installed")
-            })?;
-        self.runtime.validate_executable_module(self.owner)?;
-        let object = storage.create(&StorageContext {
-            runtime: self.runtime,
-            owner: self.owner,
-            ty,
-            scope: Some(&self.function.type_signature()?.result),
-            selected: &self.function.selected,
-        })?;
-        self.heap().alloc_native(object).map(Value::GcHandle)
-    }
-
-    /// Retain only declared selected slots as metadata edges of the result.
-    pub fn allocate_result_payload<S: NativePayload>(
-        &mut self,
-        payload: S,
-        slots: &[usize],
-    ) -> NativeResult<Value> {
-        self.heap().ensure_no_native_borrow()?;
-        let ty = self.function.type_signature()?.result.ty();
-        let Ty::NativeObject(nominal) = ty else {
-            return Err(RuntimeError::module_validation(
-                "provided payload requires a registered native object result",
-            ));
-        };
-        let storage = self
-            .runtime
-            .native_entries
-            .storage
-            .get_id(nominal.declaration)
-            .ok_or_else(|| RuntimeError::module_validation("native storage is not installed"))?;
-        self.runtime.validate_executable_module(self.owner)?;
-        let mut object = storage.prepare_payload(self.heap(), ty, payload, self.owner)?;
-        object.scope = Some(self.function.type_signature()?.result.clone());
-        object.selected = slots
-            .iter()
-            .map(|slot| StoredSelection::new(self.owner, self.selected_at(*slot)?))
-            .collect::<NativeResult<Arc<[_]>>>()?;
-        self.heap().alloc_native(object).map(Value::GcHandle)
-    }
-
-    /// Invoke a declared stored selection from an ordinary Native object argument.
-    /// The argument roots its relationship evidence; temporary call authority pins
-    /// the newly selected computation without changing the root session.
-    /// Rejects missing slots, incompatible values and forbidden candidate reentry.
-    /// The caller must publish the returned value before its next safepoint.
-    pub fn call_stored_values(
-        &mut self,
-        argument: usize,
-        slot: usize,
-        values: &[Value],
-    ) -> NativeResult<Value> {
-        let id = match self.argument(argument)? {
-            Value::GcHandle(id) => id,
-            _ => return Err(RuntimeError::module_validation("stored callable receiver")),
-        };
-        let selections = self.heap().native_selections(id)?;
-        let target = selections
-            .get(slot)
-            .ok_or_else(|| RuntimeError::module_validation("stored callable slot"))?
-            .retain(self.runtime)?;
-        let function = PreparedFunction::selected(self.runtime, self.owner, target)?;
-        let result = {
-            let mut context =
-                NativeContext::with_invoker(self.runtime, self.owner, self.invoke_script)?;
-            function.call_values(&mut context, values)?
-        };
-        result
-            .value(self.heap())
-            .ok_or_else(|| RuntimeError::module_validation("stored callable result retention"))
     }
 
     /// Inspect a checked payload while excluding mutable Runtime services.
@@ -351,24 +360,18 @@ impl<'call> NativeCall<'call> {
     /// }
     /// ```
     pub fn with_payload<S: NativePayload, R>(
-        &self,
+        &mut self,
         index: usize,
         access: impl for<'payload> FnOnce(&'payload S) -> NativeResult<R>,
     ) -> NativeResult<R> {
-        let Value::GcHandle(id) = self.argument(index)? else {
-            return Err(RuntimeError::module_validation("native storage argument"));
-        };
-        self.heap().with_native(id, access)
+        let value = self.argument(index)?;
+        self.read_payload(value, access)
     }
 
     /// Collection sees this call's existing argument/frame roots. A payload borrow
     /// cannot span collection, just as it cannot span script reentry.
-    pub fn collect_garbage(&mut self) -> NativeResult<GcCollection> {
+    pub fn collect_garbage(&mut self) -> NativeResult<CollectionReport> {
         self.runtime.collect_garbage()
-    }
-
-    pub fn heap(&self) -> &GcHeap {
-        self.runtime.gc()
     }
 
     /// Resolve a scoped type in this native function's lexical program. Result parameters
@@ -407,11 +410,17 @@ impl<'call> NativeCall<'call> {
     }
 
     /// Convert an owned Rust result after all scoped input views are released.
-    /// This uses the typed boundary's limits and temporary roots. The caller
-    /// publishes the returned value before the next safepoint.
-    pub fn encode_result<T: IntoKagari>(&mut self, value: T) -> NativeResult<Value> {
+    /// This uses the typed boundary's limits and publishes into this call's
+    /// pending source cell before encoder scratch retires.
+    pub fn encode_result<T: IntoKagari>(&mut self, value: T) -> NativeResult<()> {
         let signature = self.function.type_signature()?;
-        ConversionContext::in_native_call(self)?.encode_value(&signature.result, value)
+        let destination = self.pending_place()?;
+        let published = {
+            let mut conversion = ConversionContext::in_native_call(self)?;
+            let value = conversion.encode_value(&signature.result, value)?;
+            destination.publish(conversion.runtime_mut(), &value)?
+        };
+        self.accept_staged(published)
     }
 
     /// Retain the complete result type, including nominal payload scopes.
@@ -430,39 +439,51 @@ impl<'call> NativeCall<'call> {
     }
 
     /// Forward optional enum failure provenance after checked construction.
-    /// Both values must remain rooted across this allocation.
-    pub fn forward_enum_origin(&mut self, original: &Value, value: &Value) -> NativeResult<Value> {
-        self.runtime
-            .forward_enum_origin(self.owner, original, value)
+    /// Both inputs and the returned value stay protected by this call's source.
+    pub fn forward_enum_origin(
+        &mut self,
+        original: &ValueView<'_>,
+        value: &ValueView<'_>,
+    ) -> NativeResult<ValueView<'call>> {
+        self.convert_value(|conversion| conversion.forward_enum_origin(original, value))
     }
 
     /// Allocate a fixed-length builtin array with an explicit element contract.
+    /// The returned view stays protected by this Native call across reentry.
     pub fn allocate_array(
         &mut self,
         element: TypeArgument,
-        elements: Vec<Value>,
-    ) -> NativeResult<Value> {
-        self.heap().ensure_no_native_borrow()?;
-        element.validate(self.runtime)?;
-        self.runtime.validate_heap_payloads(&elements)?;
-        let contract = Arc::new(StorageType::prepare_scoped(element, self.owner)?);
-        self.heap()
-            .alloc_array_with_contract(contract, elements)
-            .map(Value::Array)
+        elements: &[ValueView<'_>],
+    ) -> NativeResult<ValueView<'call>> {
+        self.convert_value(|conversion| conversion.allocate_array(&element, elements))
+    }
+
+    /// Construct a fixed tuple directly from protected call values. Its managed
+    /// fields and result remain in this call's source, without escaping Host roots.
+    pub fn allocate_tuple<const N: usize>(
+        &mut self,
+        elements: &[ValueView<'_>; N],
+    ) -> NativeResult<ValueView<'call>> {
+        self.convert_value(|conversion| conversion.allocate_tuple(elements))
     }
 
     pub fn owner(&self) -> &ExecutableModule {
         self.owner
     }
 
-    pub fn arguments(&self) -> ArgumentView<'call> {
-        self.arguments.clone()
+    pub fn arguments(&self) -> ArgumentValues<'call> {
+        self.arguments
     }
 
-    pub fn argument(&self, index: usize) -> NativeResult<Value> {
-        self.arguments
-            .get(self.heap(), index)
-            .ok_or_else(|| RuntimeError::module_validation("native argument slot"))
+    pub fn argument(&mut self, index: usize) -> NativeResult<ValueView<'call>> {
+        self.runtime.resources.ensure_synchronous_thread()?;
+        self.runtime.resources.ensure_execution_allowed()?;
+        self.runtime
+            .memory
+            .scope(&self.runtime.resources, |cx, roots| {
+                ExecutionRoots::with(roots, cx, |slots| self.arguments.view(slots, index))
+            })
+            .map_err(|error| self.gc_error(error))
     }
 
     pub fn argument_type(&self, index: usize) -> NativeResult<&'call Ty> {
@@ -489,7 +510,7 @@ impl<'call> NativeCall<'call> {
 
     /// Borrow checked evidence retained by this call. Escaping typed handles
     /// explicitly promote the selection to independent ownership.
-    pub fn selected(&self, key: &SelectedCall) -> NativeResult<&'call LinkedCallable> {
+    pub fn selected(&self, key: &DeclaredCall) -> NativeResult<&'call LinkedCallable> {
         self.function.check_requirement(self.owner, key)?;
         self.selected_at(key.slot)
     }
@@ -503,98 +524,16 @@ impl<'call> NativeCall<'call> {
             .ok_or_else(|| RuntimeError::module_validation("native selected callable slot"))
     }
 
-    pub fn call_values(
-        &mut self,
-        target: &LinkedCallable,
-        arguments: &[Value],
-    ) -> NativeResult<Value> {
-        self.heap().ensure_no_native_borrow()?;
-        let target = target.select_current(self.runtime, self.owner)?;
-        self.call_selected_values(&target, arguments)
-    }
-
-    fn call_selected_values(
-        &mut self,
-        target: &LinkedCallable,
-        arguments: &[Value],
-    ) -> NativeResult<Value> {
-        let owner = target.owner(self.owner)?;
-        if arguments.len() != target.params.len()
-            || arguments
-                .iter()
-                .enumerate()
-                .any(|(index, value)| !target.matches_argument(self.runtime, &owner, index, value))
-        {
-            return Err(RuntimeError::module_validation("native callback arguments"));
-        }
-        let value = match target.primitive {
-            Some(primitive) => self
-                .runtime
-                .invoke_standard_builtin(&owner, primitive, arguments)
-                .map_err(|error| error.into_runtime_error())?,
-            None => {
-                // Selection already happened above. Carry exact retained-call
-                // authority across the backend boundary, not an ordinary Program
-                // entry that is restricted to the old native frame's graph.
-                let prepared = PreparedFunction::selected(self.runtime, &owner, target.clone())?;
-                (self.invoke_script)(
-                    self.runtime,
-                    &owner,
-                    ScriptCall::Pinned(&prepared),
-                    arguments,
-                )?
-            }
-        };
-        if !target.matches_result(self.runtime, &owner, &value) {
-            return Err(RuntimeError::module_validation("native callback result"));
-        }
-        Ok(value)
-    }
-
-    pub fn call<R: NativeScalar, A: CallArguments>(
-        &mut self,
-        target: &LinkedCallable,
-        arguments: A,
-    ) -> NativeResult<R> {
-        self.heap().ensure_no_native_borrow()?;
-        let target = target.select_current(self.runtime, self.owner)?;
-        if Ty::Builtin(R::abi_type()) != target.result || !A::matches(&target.params) {
-            return Err(RuntimeError::module_validation(
-                "native callback conversion differs from its declared result",
-            ));
-        }
-        arguments.with_values(|arguments| {
-            if target.primitive.is_none()
-                && target.environment.is_none()
-                && let CallableTarget::Native(import) = target.target
-            {
-                let owner = target.owner(self.owner)?;
-                let function = self
-                    .runtime
-                    .modules
-                    .native_binding(&owner, import)
-                    .ok_or_else(|| RuntimeError::module_validation("unlinked native callback"))?;
-                let mut context = NativeCall {
-                    _thread: Default::default(),
-                    pending: Default::default(),
-                    runtime: self.runtime,
-                    owner: &owner,
-                    function: &function,
-                    arguments: ArgumentView {
-                        frame: None,
-                        slots: ArgumentSlots::Scalars(arguments),
-                        narrowed: None,
-                    },
-                    invoke_script: self.invoke_script,
-                };
-                return function.invoke(&mut context).and_then(R::decode);
-            }
-            self.call_selected_values(&target, arguments)
-                .and_then(R::decode)
-        })
-    }
-
     pub fn poll(&self) -> NativeResult<()> {
         self.runtime.resources().poll_execution()
+    }
+}
+
+impl Drop for NativeCall<'_> {
+    fn drop(&mut self) {
+        if let Some(mark) = self.locals.take() {
+            self.runtime.retire_execution_locals(mark);
+        }
+        self.pending.retire_owned(self.runtime);
     }
 }

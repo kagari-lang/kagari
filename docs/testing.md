@@ -424,13 +424,25 @@ Keep both observations in one lifecycle scenario rather than asserting that ever
 value created before publication calls old code. Preserve alias-binding identity,
 failed-publication atomicity, frozen declarations, static continuity and cleanup.
 
-SDK orchestration remains in the existing `embedding/generic_reload`,
-`embedding/typed_calls` and `runtime/update` unit modules. Their source inputs live
-under `crates/kagari/tests/fixtures/embedding/{reload,typed,source-updates}/`.
+SDK orchestration remains in the `embedding/generic_reload` and `runtime/update`
+unit modules and the existing public `async_facade` test target. Its typed_calls
+child owns typed-handle/reload/source observations, and runtime_transfer owns the
+Tokio task/Runtime migration contract. Their source inputs live
+under `crates/kagari/tests/fixtures/embedding/{reload,typed,source-updates}/`
+and `crates/kagari/tests/fixtures/embedding/runtime-transfer.kgr`.
 Use named `rstest` rows for shared orchestration, explicit versioned fixtures for
 substantial source changes, and guarded once-only replacements for small edits.
 Source-inspection fixtures with exact authored-definition assertions retain their
 intentional spelling; they are not ordinary formatting examples.
+
+Public Host trait/interface and concrete Native-result artifact contracts live
+in the existing artifact_features target's host_interfaces and native_results
+children. Keep their source producer, decoded consumer, registered callback and
+lifecycle assertions together; the target's feature/platform matrix remains CI.
+The generic result inputs live under tests/fixtures/embedding/native-results/.
+The decoded application-payload lifecycle case also owns Runtime shutdown with a
+retained Host lease and exactly-once payload disposal; keep that contract together
+with its ordinary collection assertions rather than duplicating a unit teardown.
 
 Runtime admission and historical specialization demands belong to
 `kagari-runtime/src/module/tests/update_admission.rs`; frozen named inventory and
@@ -450,7 +462,7 @@ It does not imply script-state snapshot/restore or migration APIs.
 For host interop changes, select the affected owner: runtime `native_schema` for
 DTO/derive/Serde, runtime `native::tests::host_registration` and stdlib
 `tests::runtime_boundary::installation_access` for exact contracts,
-VM `native_boundary` for Opaque take, scoped method/argument and portable reference
+VM `native_boundary` for Opaque retention, scoped method/argument and portable reference
 semantics, and SDK `scoped_calls` for execution-context integration. Production
 scope and callback lifetime proofs live beside their API as rustdoc tests; the
 standalone prototype is retired. A focused selection is:

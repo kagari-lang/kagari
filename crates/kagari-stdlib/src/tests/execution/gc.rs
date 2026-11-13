@@ -11,11 +11,11 @@ use crate::tests::{
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     debug::{DebugSession, SourceBreakpoint},
-    execution::{JitExecutionStatus, native::PreparedNativeEntry},
-    gc::GcHeapConfig,
+    execution::{JitExecutionStatus, memory::GcHeapConfig, native::PreparedNativeEntry},
     module::entry::ProgramEntry,
+    native::{conversion::context::ConversionContext, function_handle::Function},
     resource::RuntimeLimits,
-    value::Value,
+    value::carriers::RootedValue,
 };
 
 use kagari_bytecode::instruction::BytecodeInstruction;
@@ -38,9 +38,9 @@ fn runtime() -> Runtime {
 
 #[test]
 fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints() {
-    let module = compile_test_bytecode(
-        "pub fn make() -> [i32] { [42] } fn main() -> [i32] { val kept = make(); val other = [1, 2]; kept }",
-    );
+    let module = compile_test_bytecode(include_str!(
+        "../../../tests/fixtures/gc/returned-array.kgr"
+    ));
     for encoded in [false, true] {
         for jit in [false, true] {
             let mut runtime = runtime();
@@ -54,6 +54,8 @@ fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints(
             let _loaded_program = loaded;
             let loaded = runtime.select_program(&_loaded_program).unwrap();
             let mut vm = runtime;
+            vm.collect_garbage().unwrap();
+            let baseline = vm.gc_stats();
             let report = if jit {
                 vm.execute_prepared_module(
                     &loaded,
@@ -66,22 +68,34 @@ fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints(
                 vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
                     .unwrap()
             };
-            let Value::Array(array) = report
-                .return_value
-                .value(vm.gc())
-                .expect("retained execution result")
-            else {
-                panic!("array result")
-            };
-            assert!(vm.gc().stats().collections > 0);
-            assert_eq!(vm.gc().array_snapshot(array), Some(vec![Value::I32(42)]));
-            assert_eq!(vm.gc().active_roots(), 1);
+            assert!(vm.gc_stats().completed_cycles > baseline.completed_cycles);
             let retained = report.return_value;
             vm.collect_garbage().unwrap();
-            assert_eq!(vm.gc().allocated_objects(), 1);
-            assert_eq!(vm.gc().array_get(array, 0), Some(Value::I32(42)));
+            assert_eq!(
+                vm.gc_stats().root_registrations,
+                baseline.root_registrations + 1
+            );
+            {
+                let mut conversion = ConversionContext::new(&mut vm, &loaded).unwrap();
+                let array = conversion.import(&retained).unwrap();
+                assert_eq!(conversion.array_len(&array).unwrap(), 1);
+                assert_eq!(
+                    conversion
+                        .array_element(&array, 0)
+                        .unwrap()
+                        .unwrap()
+                        .as_i32(),
+                    Some(42)
+                );
+            }
             drop(retained);
-            assert_eq!(vm.collect_garbage().unwrap().reclaimed_objects, 1);
+            vm.collect_garbage().unwrap();
+            assert_eq!(vm.gc_stats().objects, baseline.objects);
+            assert_eq!(vm.gc_stats().provider_units, baseline.provider_units);
+            assert_eq!(
+                vm.gc_stats().root_registrations,
+                baseline.root_registrations
+            );
         }
     }
 }
@@ -92,56 +106,58 @@ fn closures_keep_captured_objects_and_cells_alive_across_collection() {
         "../../../tests/fixtures/gc/captured-object-and-cell.kgr"
     ));
     let mut runtime = runtime();
-    let loaded = load_bytecode(&mut runtime, "closure_gc.kgr", module).unwrap();
-    let _loaded_program = loaded;
-    let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let mut vm = runtime;
-    let report = vm
-        .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
+    let installed = load_bytecode(&mut runtime, "closure_gc.kgr", module).unwrap();
+    let loaded = runtime.select_program(&installed).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
+    let report = runtime
+        .execute_module(&loaded, ProgramEntry::Main, runtime.execution_options())
         .unwrap();
+    assert!(runtime.gc_stats().completed_cycles > baseline.completed_cycles);
+    let mut conversion = ConversionContext::new(&mut runtime, &loaded).unwrap();
+    assert_eq!(conversion.decode::<i32>(&report.return_value).unwrap(), 43);
+    drop((conversion, report));
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
+    assert_eq!(runtime.gc_stats().provider_units, baseline.provider_units);
     assert_eq!(
-        report
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(43)
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
     );
-    assert!(vm.gc().stats().collections > 0);
-    drop(report);
-    assert_eq!(vm.gc().active_roots(), 0);
+    assert!(!runtime.is_quarantined());
 }
 
 #[test]
-fn closure_handles_reject_other_runtimes_and_reclaimed_slots() {
-    let module = compile_test_bytecode("pub fn make() -> fn() -> i32 { || 42 }");
-    let foreign_runtime = runtime();
-    let mut owner_runtime = runtime();
-    let loaded = load_bytecode(&mut owner_runtime, "closure_handles.kgr", module).unwrap();
-    let _loaded_program = loaded;
-    let loaded = owner_runtime.select_program(&_loaded_program).unwrap();
-    let mut vm = owner_runtime;
-    let value = vm
-        .execute_module(&loaded, "make", vm.execution_options())
-        .unwrap()
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result");
-    let Value::Closure(_) = value else {
-        panic!("closure result")
-    };
-    assert!(foreign_runtime.resolve_closure(&value).is_err());
-    let rooted = vm.root_value(value).unwrap();
+fn closure_handles_reject_other_runtimes_and_release_their_retained_graph() {
+    let module = compile_test_bytecode(include_str!(
+        "../../../tests/fixtures/gc/closure-handle.kgr"
+    ));
+    let mut foreign_runtime = runtime();
+    let mut vm = runtime();
+    let installed = load_bytecode(&mut vm, "closure_handles.kgr", module).unwrap();
     vm.collect_garbage().unwrap();
-    assert!(vm.resolve_closure(&value).is_ok());
-    drop(rooted);
+    let baseline = vm.gc_stats();
+    let closure: Function<(), i32> = vm
+        .execute_typed(&installed, "make", (), &Default::default())
+        .unwrap();
+    assert!(foreign_runtime.call(&closure, ()).is_err());
     vm.collect_garbage().unwrap();
-    assert!(vm.resolve_closure(&value).is_err());
+    assert_eq!(vm.call(&closure, ()).unwrap(), 42);
+    drop(closure);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
 fn malformed_closure_function_is_rejected_before_execution() {
-    let (definitions, mut module) =
-        compile_test_bytecode("fn main() -> i32 { val call = || 42; call() }").into_parts();
+    let (definitions, mut module) = compile_test_bytecode(include_str!(
+        "../../../tests/fixtures/gc/malformed-closure.kgr"
+    ))
+    .into_parts();
     let instruction = module.modules[module.root.index()]
         .functions
         .iter_mut()
@@ -164,83 +180,96 @@ fn malformed_closure_function_is_rejected_before_execution() {
 
 #[test]
 fn rooted_closure_retains_its_old_program_after_new_publish() {
-    let old = compile_test_bytecode("pub fn make() -> fn() -> i32 { || 41 }");
-    let new = compile_test_bytecode("pub fn make() -> fn() -> i32 { || 42 }");
+    let old = compile_test_bytecode(include_str!("../../../tests/fixtures/gc/closure-old.kgr"));
+    let new = compile_test_bytecode(include_str!("../../../tests/fixtures/gc/closure-new.kgr"));
     let mut runtime = runtime();
     let loaded = load_bytecode(&mut runtime, "closure_epoch.kgr", old).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = runtime;
-    let closure = vm
-        .execute_module(&loaded, "make", vm.execution_options())
-        .unwrap()
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result");
-    let rooted = vm.root_value(closure).unwrap();
+    let closure: Function<(), i32> = vm
+        .execute_typed(&_loaded_program, "make", (), &Default::default())
+        .unwrap();
     reload_bytecode(&mut vm, &_loaded_program, None, new).unwrap();
     let replacement = vm.select_program(&_loaded_program).unwrap();
     drop(loaded);
     vm.collect_garbage().unwrap();
-    let snapshot = vm.resolve_closure(&rooted.value(vm.gc()).unwrap()).unwrap();
-    vm.validate_executable_module(&snapshot.implementation)
+    let prepared = closure.prepare_call(&mut vm).unwrap();
+    vm.validate_executable_module(prepared.owner()).unwrap();
+    assert_ne!(prepared.owner().key(), replacement.key());
+    assert_eq!(vm.call(&closure, ()).unwrap(), 41);
+    let fresh: Function<(), i32> = vm
+        .execute_typed(&_loaded_program, "make", (), &Default::default())
         .unwrap();
-    assert_ne!(snapshot.implementation.key(), replacement.key());
-    drop(rooted);
+    assert_eq!(vm.call(&fresh, ()).unwrap(), 42);
 }
 
 #[test]
 fn native_scalar_execution_visits_the_same_collection_safepoint() {
     let mut runtime = runtime();
-    let module = compile_test_bytecode("fn main() -> i32 { 42 }");
+    let module =
+        compile_test_bytecode(include_str!("../../../tests/fixtures/gc/native-scalar.kgr"));
     let loaded = load_bytecode(&mut runtime, "gc.kgr", module).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     let dead = runtime
-        .alloc_array(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
+        .alloc_array(
+            &loaded,
+            Ty::Builtin(BuiltinType::I32),
+            &[RootedValue::from(7i32)],
+        )
         .unwrap();
-    let native =
-        PreparedNativeEntry::Native(native_fixtures::install_i32::<42>(&runtime, &loaded, false));
+    let native = PreparedNativeEntry::Native(native_fixtures::install_i32::<42>(
+        &mut runtime,
+        &loaded,
+        false,
+    ));
+    drop(dead);
     let mut vm = runtime;
     let report = vm
         .execute_prepared_module(&loaded, ProgramEntry::Main, &native, vm.execution_options())
         .unwrap();
     assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
-    );
-    assert!(vm.gc().stats().collections > 0);
-    assert!(vm.gc().array_len(dead).is_none());
+    assert_eq!(report.return_value.as_i32(), Some(42));
+    assert!(vm.gc_stats().completed_cycles > baseline.completed_cycles);
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
 }
 
 #[test]
 fn traps_release_frame_roots_and_call_depth() {
-    let module = compile_test_bytecode("fn main() -> i32 { val temporary = [1, 2]; 1 / 0 }");
+    let module = compile_test_bytecode(include_str!("../../../tests/fixtures/gc/trap-array.kgr"));
     {
         let mut runtime = runtime();
         let loaded = load_bytecode(&mut runtime, "gc.kgr", module.clone()).unwrap();
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
         let mut vm = runtime;
+        vm.collect_garbage().unwrap();
+        let baseline = vm.gc_stats();
         assert!(
             vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
                 .is_err()
         );
-        assert_eq!(vm.gc().active_roots(), 0);
         assert_eq!(vm.resources().counters().current_call_depth, 0);
         vm.collect_garbage().unwrap();
-        assert_eq!(vm.gc().allocated_objects(), 0);
-        assert_eq!(vm.resources().counters().current_heap_units, 0);
+        assert_eq!(vm.gc_stats().objects, baseline.objects);
+        assert_eq!(vm.gc_stats().provider_units, baseline.provider_units);
+        assert_eq!(
+            vm.gc_stats().root_registrations,
+            baseline.root_registrations
+        );
+        assert_eq!(
+            vm.resources().counters().current_heap_units,
+            baseline.objects as u128 + baseline.provider_units
+        );
     }
 }
 
 #[test]
 fn cloned_debug_bindings_keep_inspected_objects_alive_after_the_session_is_replaced() {
-    let source = "fn main() -> i32 { val kept = [7]; kept.len(); 42 }";
+    let source = include_str!("../../../tests/fixtures/gc/debug-binding.kgr");
     let module = compile_test_bytecode(source);
     let mut runtime = standard_runtime(RuntimeConfig {
         ..Default::default()
@@ -256,6 +285,8 @@ fn cloned_debug_bindings_keep_inspected_objects_alive_after_the_session_is_repla
         ))
         .unwrap();
     let mut vm = runtime;
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     vm.attach_debug_session(session).unwrap();
     vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .unwrap();
@@ -271,13 +302,27 @@ fn cloned_debug_bindings_keep_inspected_objects_alive_after_the_session_is_repla
         .clone();
     vm.attach_debug_session(DebugSession::new(&vm).unwrap())
         .unwrap();
-    let Value::Array(array) = binding.value else {
-        panic!("inspected array")
-    };
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 1);
-    assert_eq!(vm.gc().array_get(array, 0), Some(Value::I32(7)));
+    vm.collect_garbage().unwrap();
+    {
+        let mut conversion = ConversionContext::new(&mut vm, &loaded).unwrap();
+        let array = conversion.import(&binding.value).unwrap();
+        assert_eq!(conversion.array_len(&array).unwrap(), 1);
+        assert_eq!(
+            conversion
+                .array_element(&array, 0)
+                .unwrap()
+                .unwrap()
+                .as_i32(),
+            Some(7)
+        );
+    }
     drop(binding);
-    assert_eq!(vm.collect_garbage().unwrap().reclaimed_objects, 1);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -290,14 +335,20 @@ fn growing_execution_windows_keep_outer_values_alive_and_release_them_on_return(
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = runtime;
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .unwrap();
-    assert_eq!(report.return_value.value(vm.gc()), Some(Value::I32(74)));
-    assert!(vm.gc().stats().collections > 0);
+    assert_eq!(report.return_value.as_i32(), Some(74));
+    assert!(vm.gc_stats().completed_cycles > baseline.completed_cycles);
     assert_eq!(vm.resources().counters().current_call_depth, 0);
     drop(report);
     vm.collect_garbage().unwrap();
-    assert_eq!(vm.gc().allocated_objects(), 0);
-    assert_eq!(vm.gc().active_roots(), 0);
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(vm.gc_stats().provider_units, baseline.provider_units);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }

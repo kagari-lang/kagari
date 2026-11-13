@@ -7,8 +7,9 @@ use crate::engine::EngineConfig;
 use kagari_runtime::execution::owned::DriveResult;
 use kagari_runtime::{
     error::RuntimeErrorKind, native::completion::CompletionStatus, scheduler::TurnBudget,
-    value::Value,
+    value::carriers::RootedValue,
 };
+use std::slice;
 use std::{num::NonZeroUsize, sync::atomic::Ordering};
 
 const SOURCE: &str = include_str!("../../../../../tests/fixtures/embedding/async/groups.kgr");
@@ -22,9 +23,9 @@ fn groups_waits_are_nonowning_and_cycles_cross_nested_groups() {
         .runtime
         .create_task_scope_with_context(&f.module, &Default::default())
         .unwrap();
-    let task = f.invoke("launch", &[f.value(scope.capability())]);
+    let task = f.invoke("launch", &[(scope.capability()).clone()]);
     host.until(&mut f.runtime, || f.starts.load(Ordering::SeqCst) == 1);
-    let future = f.invoke("shared", &[f.value(&task)]);
+    let future = f.invoke("shared", slice::from_ref(&task));
     let selected_execution = f.start_future(&future);
     let mut joined = f
         .runtime
@@ -37,7 +38,7 @@ fn groups_waits_are_nonowning_and_cycles_cross_nested_groups() {
         0,
         "group exit detaches a wait, not its shared Task"
     );
-    let mut observer = scheduled("observe", &[f.value(&task)], &mut f);
+    let mut observer = scheduled("observe", slice::from_ref(&task), &mut f);
     f.sent.lock().unwrap().pop().unwrap().complete(Ok(42));
     host.until(&mut f.runtime, || observer.is_finished());
     assert_eq!(result(&mut observer).unwrap(), 42);
@@ -46,13 +47,13 @@ fn groups_waits_are_nonowning_and_cycles_cross_nested_groups() {
         let task = f.invoke(
             "cycle",
             &[
-                f.value(scope.capability()),
-                f.value(&tasks),
-                Value::Bool(nested),
+                (scope.capability()).clone(),
+                tasks.clone(),
+                RootedValue::from(nested),
             ],
         );
-        drop(f.invoke("add", &[f.value(&tasks), f.value(&task)]));
-        let mut observer = scheduled("observe", &[f.value(&task)], &mut f);
+        drop(f.invoke("add", &[tasks.clone(), task.clone()]));
+        let mut observer = scheduled("observe", slice::from_ref(&task), &mut f);
         host.until(&mut f.runtime, || observer.is_finished());
         let error = result(&mut observer).unwrap_err();
         assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
@@ -73,7 +74,7 @@ fn groups_pre_admission_cancel_capacity_and_parent_depth() {
     let mut f = Fixture::configured_source(SOURCE, config);
     let left = f.invoke("input", &[]);
     let right = f.invoke("input", &[]);
-    let composition = f.invoke("compose", &[f.value(&left), f.value(&right)]);
+    let composition = f.invoke("compose", &[left.clone(), right.clone()]);
     let owner = f.start_future(&composition);
     assert!(matches!(
         f.runtime
@@ -100,7 +101,7 @@ fn groups_pre_admission_cancel_capacity_and_parent_depth() {
     f.runtime.drain_retired_executions().unwrap();
     let host = HostLoop::new();
     assert!(f.runtime.poll(&mut host.context()).is_pending());
-    let mut ticket = scheduled("supplied", &[f.value(&left), f.value(&right)], &mut f);
+    let mut ticket = scheduled("supplied", &[left.clone(), right.clone()], &mut f);
     host.until(&mut f.runtime, || ticket.is_finished());
     assert_eq!(
         result(&mut ticket).unwrap(),
@@ -178,11 +179,10 @@ fn groups_right_err_cleans_sibling_before_publication_and_keeps_origin() {
                 1,
                 "cleanup precedes parent result conversion"
             );
-            let value = root.value(runtime.gc()).unwrap();
             let trace = runtime
-                .gc()
-                .result_error_trace(&value)
-                .expect("original Err origin");
+                .result_failure(root)
+                .expect("original Err origin")
+                .trace;
             assert!(
                 trace
                     .frames
@@ -196,7 +196,7 @@ fn groups_right_err_cleans_sibling_before_publication_and_keeps_origin() {
     host.until(&mut f.runtime, || ticket.is_finished());
     let root = result(&mut ticket).unwrap();
     f.runtime.collect_garbage().unwrap();
-    assert!(root.value(f.runtime.gc()).is_some());
+    assert!(f.runtime.result_failure(&root).is_some());
     assert_eq!(f.starts.load(Ordering::SeqCst), 1);
     assert_eq!(f.cancels.load(Ordering::SeqCst), 1);
     let late = f.sent.lock().unwrap().pop().unwrap();
@@ -211,7 +211,7 @@ fn groups_claim_pair_atomically_and_bound_admission() {
     let host = HostLoop::new();
     assert!(f.runtime.poll(&mut host.context()).is_pending());
     let input = f.invoke("input", &[]);
-    let mut duplicate = scheduled("duplicate", &[f.value(&input)], &mut f);
+    let mut duplicate = scheduled("duplicate", slice::from_ref(&input), &mut f);
     host.until(&mut f.runtime, || duplicate.is_finished());
     assert_eq!(
         result(&mut duplicate).unwrap_err().kind(),
@@ -226,7 +226,7 @@ fn groups_claim_pair_atomically_and_bound_admission() {
     host.until(&mut f.runtime, || consumed.is_finished());
     assert_eq!(result(&mut consumed).unwrap(), 7);
     let other = f.invoke("input", &[]);
-    let mut invalid = scheduled("supplied", &[f.value(&other), f.value(&input)], &mut f);
+    let mut invalid = scheduled("supplied", &[other.clone(), input.clone()], &mut f);
     host.until(&mut f.runtime, || invalid.is_finished());
     assert_eq!(
         result(&mut invalid).unwrap_err().kind(),

@@ -2,15 +2,26 @@
 use crate::{
     Runtime,
     error::{RuntimeError, reason::StaleHandleReason},
+    execution::memory::ManagedMemory,
     host::HostRegistryId,
     module::{
-        ExecutableModule, Installation, InstallationId, InstalledProgram, Module, ModuleKey,
-        ModuleSnapshot, ModuleStore,
+        ExecutableModule, Installation, InstallationId, InstalledProgram, Module, ModuleSnapshot,
+        ModuleStore, ProgramDescriptor, managed::InstallationState,
     },
+    resource::ResourceState,
 };
 
 use kagari_common::identity::ModuleIdentity;
+use kagari_gc::{error::GcError, heap::Phase, root::Root};
 use std::{mem, sync::Arc};
+
+/// One current publication owns its installation graph. Identity-only Host
+/// handles and historical descriptor indexes never clone this ownership.
+#[derive(Debug)]
+pub(super) struct CurrentPublication {
+    pub(super) program: Arc<ProgramDescriptor>,
+    pub(super) root: Root<InstallationState>,
+}
 
 impl InstalledProgram {
     /// Construct the root namespace identity, including after close. Live queries
@@ -106,7 +117,7 @@ impl ModuleStore {
                 RuntimeError::module_validation("current programs borrowed during lookup")
             })?
             .get(&installation.id)
-            .cloned()
+            .map(|publication| publication.program.clone())
             .ok_or_else(|| RuntimeError::from(StaleHandleReason::InstallationIsClosed))?;
         Ok(ExecutableModule {
             slot: program.root,
@@ -162,32 +173,43 @@ impl ModuleStore {
         self.capture_current(installation)
     }
 
-    pub(super) fn current_roots(&self) -> Result<Vec<ModuleKey>, RuntimeError> {
-        let current = self.current.try_borrow().map_err(|_| {
-            RuntimeError::module_validation("current programs borrowed during collection")
-        })?;
-        Ok(current
-            .values()
-            .map(|program| {
-                let root = &program.modules[program.root.index()];
-                ModuleKey {
-                    id: root.id,
-                    epoch: root.epoch,
-                }
-            })
-            .collect())
-    }
-
     /// Revoke authority independently of executable storage. No current-table
     /// borrow or callback escapes this operation; destruction follows the borrow.
-    pub(crate) fn retire_installations(&self) {
+    pub(crate) fn revoke_publications(
+        &self,
+        memory: &mut ManagedMemory,
+        resources: &ResourceState,
+    ) -> Result<(), GcError> {
         self.retired.set(true);
         let previous = mem::take(&mut *self.current.borrow_mut());
+        let result = if previous.is_empty()
+            || matches!(memory.stats().phase, Phase::Closed | Phase::Faulted)
+        {
+            // Faulted/closed memory cannot be reopened. Dropping genuine roots
+            // still revokes publication; inert edges wait for heap shutdown.
+            Ok(())
+        } else {
+            memory.scope(resources, |cx, _| {
+                for publication in previous.values() {
+                    let installation = cx.get(&publication.root)?;
+                    InstallationState::revoke(cx, installation)?;
+                }
+                Ok(())
+            })
+        };
+        // Both table and heap loans end before descriptor/root disposal.
         drop(previous);
+        result
     }
 }
 
 impl Runtime {
+    pub(crate) fn retire_installations(&mut self) -> Result<(), RuntimeError> {
+        self.modules
+            .revoke_publications(&mut self.memory, &self.resources)
+            .map_err(|error| self.managed_memory_error(error))
+    }
+
     /// Capture an immutable publication through its supplying Runtime. The
     /// descriptor itself grants no executable retention or revival authority.
     pub fn select_program(

@@ -10,11 +10,11 @@ use kagari_bytecode::artifact::KbcArtifact;
 use kagari_common::identity::{ModuleIdentity, PackageId, map::DefinitionContext};
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{
-    host::HostCallContext,
+    host::HostError,
     native::{
-        builder::ModuleBuilder, declarations::FunctionDecl, module::NativeModule, types::Type,
+        builder::ModuleBuilder, declarations::FunctionDecl, host, module::NativeModule, types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_stdlib as stdlib;
@@ -38,17 +38,20 @@ fn echo_module(result: Type, calls: Arc<Mutex<Vec<i32>>>) -> NativeModule {
         )
         .unwrap();
     builder
-        .bind(echo, move |_: &mut HostCallContext<'_>, args: &[Value]| {
-            let [Value::I32(value)] = args else {
-                unreachable!()
-            };
-            calls.lock().unwrap().push(*value);
-            Ok(if returns_bool {
-                Value::Bool(true)
-            } else {
-                Value::I32(value + 1)
-            })
-        })
+        .bind(
+            echo,
+            host::callback(move |_, args| {
+                let value = args[0]
+                    .as_i32()
+                    .ok_or_else(|| HostError::new("expected i32"))?;
+                calls.lock().unwrap().push(value);
+                Ok(if returns_bool {
+                    ValueView::from(true)
+                } else {
+                    ValueView::from(value + 1)
+                })
+            }),
+        )
         .unwrap();
     builder.finish().unwrap()
 }
@@ -223,13 +226,7 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
                 runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
             }
             .unwrap();
-            assert_eq!(
-                report
-                    .return_value
-                    .value(runtime.gc())
-                    .expect("retained execution result"),
-                Value::I32(5)
-            );
+            assert_eq!(report.return_value.as_i32().unwrap(), 5);
         }
         assert_eq!(*calls.lock().unwrap(), [1, 2, 3, 4, 1, 2, 3, 4]);
     }
@@ -302,9 +299,9 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
     assert_eq!(*calls.lock().unwrap(), [39, 40, 41]);
 }

@@ -1,0 +1,5 @@
+use std::collections::List;
+
+pub fn make() -> List<i32> {
+    Vec::from([20, 22])
+}

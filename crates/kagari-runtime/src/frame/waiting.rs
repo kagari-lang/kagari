@@ -1,17 +1,20 @@
-//! A pending native or Task wait is an owned session resource, not a call frame.
+//! A pending Native or Task wait uses the owning execution's protected cells.
 use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault},
-    frame::{FrameStack, types::arguments::TypeArgument},
-    gc::roots::{RootSet, RootedValue},
+    execution::roots::{ExecutionRoots, SessionId, pending::PendingSlots},
+    frame::{
+        FrameStack, transfer::ReturnValue, types::arguments::TypeArgument,
+        values::FrameAllocationError,
+    },
     native::{
         binding::NativeResult,
         completion::CompletionRegistry,
-        future::{ColdFuture, PendingNative},
+        future::{ColdFuture, PendingNative, claims::ClaimedFuture},
     },
-    session::store::SessionId,
     task::waiting::TaskWait,
-    value::Value,
+    value::{carriers::RootedValue, place::ResultPlace},
+    value_check,
 };
 #[cfg(test)]
 mod tests;
@@ -30,31 +33,34 @@ pub(crate) struct PendingWait {
     destination: Option<Slot>,
     pending: PendingOperation,
     output: TypeArgument,
-    // Keep the awaitable's exact code/type provenance and cached result alive.
-    awaitable: RootedValue,
+    slots: PendingSlots,
 }
 
 #[derive(Debug)]
 enum PendingOperation {
     Native(Box<dyn PendingNative>),
     Task(TaskWait),
-    Group {
-        parent: SessionId,
-        result: Option<RootedValue>,
+    Group { parent: SessionId },
+}
+
+/// Branch reservation contains no invocation authority until the atomic pair
+/// claim installs it. No reserved branch is scheduled before that commit.
+#[derive(Debug)]
+pub(crate) enum QueuedFuture {
+    Source {
+        output: TypeArgument,
     },
-}
-
-#[derive(Debug)]
-pub(crate) struct QueuedFuture {
-    pub value: RootedValue,
-    pub output: TypeArgument,
-    pub claimed: Option<ClaimedFuture>,
-}
-
-#[derive(Debug)]
-pub(crate) struct ClaimedFuture {
-    pub cold: ColdFuture,
-    pub _captures: RootSet,
+    Unclaimed {
+        value: RootedValue,
+        output: TypeArgument,
+    },
+    Claimed {
+        claim: ClaimedFuture,
+        output: TypeArgument,
+    },
+    Reserved {
+        output: TypeArgument,
+    },
 }
 
 impl PendingWait {
@@ -65,31 +71,37 @@ impl PendingWait {
                 pending.cancel();
                 Ok(())
             }
-            // Parent retirement owns group teardown, including when the wait has
-            // been temporarily removed while polling or unwinding an error.
+            // Parent retirement owns teardown even while the wait is detached.
             PendingOperation::Group { .. } => Ok(()),
         }
     }
 
-    fn poll(&mut self, runtime: &mut Runtime) -> NativeResult<Poll<Value>> {
+    fn poll(&mut self, runtime: &mut Runtime) -> NativeResult<Poll<()>> {
+        let output = self.slots.output();
         match &mut self.pending {
-            PendingOperation::Native(pending) => pending.poll(runtime),
-            PendingOperation::Group { parent, result } => match runtime.poll_group(*parent)? {
+            PendingOperation::Native(pending) => {
+                match pending.poll(runtime, ResultPlace::new(output))? {
+                    Poll::Pending => Ok(Poll::Pending),
+                    Poll::Ready(published) => published.admit(output).map(|_| Poll::Ready(())),
+                }
+            }
+            PendingOperation::Group { parent } => match runtime.poll_group(*parent)? {
                 Poll::Pending => Ok(Poll::Pending),
                 Poll::Ready(root) => {
-                    let value = root
-                        .value(runtime.gc())
-                        .ok_or_else(|| RuntimeError::module_validation("group output root"))?;
-                    *result = Some(root);
-                    Ok(Poll::Ready(value))
+                    runtime
+                        .memory
+                        .scope(&runtime.resources, |cx, roots| {
+                            ExecutionRoots::with(roots, cx, |slots| {
+                                let value = root.get(slots.scope())?;
+                                slots.set(output, value)
+                            })
+                        })
+                        .map_err(|error| runtime.managed_memory_error(error))?;
+                    Ok(Poll::Ready(()))
                 }
             },
             PendingOperation::Task(pending) => {
-                let value = self
-                    .awaitable
-                    .value(runtime.gc())
-                    .ok_or_else(|| RuntimeError::module_validation("Task wait root"))?;
-                pending.poll(runtime, &value)
+                pending.poll(runtime, self.slots.awaitable(), output)
             }
         }
     }
@@ -110,106 +122,121 @@ impl Runtime {
 }
 
 impl FrameStack {
-    /// Start a single await. Repeated polling uses `poll_await`, never this entry.
-    /// The backend advances its PC before entering and publishes no destination
-    /// value until the resumed completion is successfully converted.
+    /// The backend advances its PC before entry. The awaitable is published in
+    /// pending storage before dead operands are cleared or any callback can run.
     pub fn begin_await(
         &self,
         runtime: &mut Runtime,
-        value: Value,
+        register: Slot,
         destination: Slot,
         future: &Ty,
     ) -> NativeResult<()> {
         self.validate_top(runtime)?;
         runtime.reject_static_initialization("await")?;
+        if self.session_state(runtime).pending.borrow().is_some() {
+            return Err(RuntimeError::module_validation("execution already waiting"));
+        }
+        let (frame_slots, location) = {
+            let frame = self.current(runtime)?;
+            (
+                frame.slots(),
+                frame.slot_location(runtime.resources(), register, true)?,
+            )
+        };
+        let pending = PendingSlots::new(self.session);
+        runtime
+            .memory
+            .scope(&runtime.resources, |cx, roots| {
+                ExecutionRoots::with(roots, cx, |slots| {
+                    let value = frame_slots.read(slots, location)?;
+                    pending.clear(slots)?;
+                    slots.set(pending.awaitable(), value)
+                })
+            })
+            .map_err(|error| runtime.managed_memory_error(error))?;
         self.discard_dead_await_slots(runtime)?;
-        if !self.can_park(runtime)? || self.session_state(runtime).pending.borrow().is_some() {
+        if !self.can_park(runtime)? {
             return Err(RuntimeError::module_validation(
                 "await requires a suspendable owned execution",
             ));
         }
-        runtime.resources().poll_execution()?;
-        let (output, role) = {
+        runtime.resources.poll_execution()?;
+        let (owner, environment) = {
             let frame = self.current(runtime)?;
-            let applied = frame
-                .type_arguments(runtime, slice::from_ref(future))?
-                .pop()
-                .ok_or_else(|| RuntimeError::module_validation("await type scope"))?;
-            if !applied.matches(runtime, &value, frame.loaded()) {
-                return Err(RuntimeError::module_validation("awaitable type mismatch"));
-            }
-            let Ty::NativeObject(nominal) = applied.ty() else {
-                return Err(RuntimeError::module_validation("awaitable storage type"));
-            };
-            let role = runtime
-                .native_entries
-                .catalog
-                .types
-                .get_id(nominal.declaration)
-                .map(|ty| ty.kind);
-            let Some(TypeDefKind::NativeStorage(
-                role @ (NativeStorageLayout::Future | NativeStorageLayout::Task),
-            )) = role
-            else {
-                return Err(RuntimeError::module_validation(
-                    "unsupported awaitable storage",
-                ));
-            };
-            (applied.parameter(runtime, frame.loaded(), 0)?, role)
+            (
+                frame.loaded.clone(),
+                frame.environment().map(|env| env.types.clone()),
+            )
         };
-        self.start_await(runtime, value, Some(destination), output, role)
+        let applied = runtime
+            .type_arguments(&owner, environment, slice::from_ref(future))?
+            .pop()
+            .ok_or_else(|| RuntimeError::module_validation("await type scope"))?;
+        let value = runtime
+            .memory
+            .inspect_value(pending.awaitable())
+            .map_err(|error| runtime.managed_memory_error(error))?;
+        if !value_check::matches_protected(runtime, &owner, &applied, &value)? {
+            return Err(RuntimeError::module_validation("awaitable type mismatch"));
+        }
+        let Ty::NativeObject(nominal) = applied.ty() else {
+            return Err(RuntimeError::module_validation("awaitable storage type"));
+        };
+        let role = runtime
+            .native_entries
+            .catalog
+            .types
+            .get_id(nominal.declaration)
+            .map(|ty| ty.kind);
+        let Some(TypeDefKind::NativeStorage(
+            role @ (NativeStorageLayout::Future | NativeStorageLayout::Task),
+        )) = role
+        else {
+            return Err(RuntimeError::module_validation(
+                "unsupported awaitable storage",
+            ));
+        };
+        let output = applied.parameter(runtime, &owner, 0)?;
+        self.start_await(runtime, Some(destination), output, role)
     }
 
     fn start_await(
         &self,
         runtime: &mut Runtime,
-        value: Value,
         destination: Option<Slot>,
         output: TypeArgument,
         role: NativeStorageLayout,
     ) -> NativeResult<()> {
-        let Value::GcHandle(id) = value else {
-            return Err(RuntimeError::module_validation(
-                "await requires a Future or Task",
-            ));
-        };
-        let root = runtime
-            .root_value(value)
-            .ok_or_else(|| RuntimeError::module_validation("awaitable root"))?;
-        runtime
-            .gc()
-            .validate_async_values(slice::from_ref(&Value::GcHandle(id)))?;
-        let wake = self
-            .session_state(runtime)
-            .owner
-            .borrow()
-            .as_ref()
-            .expect("owned activation")
-            .waker();
+        let slots = PendingSlots::new(self.session);
         if role == NativeStorageLayout::Task {
-            let pending = runtime.begin_task_wait(&Value::GcHandle(id), self.session, wake)?;
+            let wake = self
+                .session_state(runtime)
+                .owner
+                .borrow()
+                .as_ref()
+                .expect("owned activation")
+                .waker();
+            let pending = runtime.begin_task_wait(slots.awaitable(), self.session, wake)?;
             *self.session_state(runtime).pending.borrow_mut() = Some(PendingWait {
                 destination,
                 pending: PendingOperation::Task(pending),
                 output,
-                awaitable: root,
+                slots,
             });
             return Ok(());
         }
-        let cold = runtime.gc().take_cold_future(id)?;
-        // Claim removed the GC edges. Root them before converters or submission.
-        let _captures = runtime
-            .gc()
-            .root_execution_values(cold.values().to_vec())
-            .ok_or_else(|| RuntimeError::module_validation("Future capture roots"))?;
-        self.start_claimed(runtime, cold, root, destination, output)
+        let value = runtime
+            .memory
+            .inspect_value(slots.awaitable())
+            .map_err(|error| runtime.managed_memory_error(error))?;
+        let claim = runtime.claim_future(&value)?;
+        self.start_claimed(runtime, claim, destination, output)
     }
 
     fn start_claimed(
         &self,
         runtime: &mut Runtime,
-        cold: ColdFuture,
-        root: RootedValue,
+        claim: ClaimedFuture,
         destination: Option<Slot>,
         output: TypeArgument,
     ) -> NativeResult<()> {
@@ -220,71 +247,91 @@ impl FrameStack {
             .as_ref()
             .expect("owned activation")
             .waker();
-        let cold = match cold {
-            ColdFuture::Composition(cold) => {
-                runtime.request_group(self.session, cold, wake)?;
-                *self.session_state(runtime).pending.borrow_mut() = Some(PendingWait {
-                    destination,
-                    pending: PendingOperation::Group {
-                        parent: self.session,
-                        result: None,
-                    },
-                    output,
-                    awaitable: root,
-                });
+        let slots = PendingSlots::new(self.session);
+        let pending = match claim.recipe() {
+            ColdFuture::Composition(_) => {
+                runtime.request_group(self.session, claim, wake)?;
+                PendingOperation::Group {
+                    parent: self.session,
+                }
+            }
+            ColdFuture::Script { .. } => {
+                self.push_future(runtime, claim, destination, &output)?;
+                runtime
+                    .memory
+                    .scope(&runtime.resources, |cx, roots| {
+                        ExecutionRoots::with(roots, cx, |source| slots.clear(source))
+                    })
+                    .map_err(|error| runtime.managed_memory_error(error))?;
                 return Ok(());
             }
-            ColdFuture::Script(closure) => {
-                return self.push_future(runtime, closure, destination, &output);
+            ColdFuture::Native(_) => {
+                let registry = runtime.operation_registry()?.clone();
+                let started = claim.start_native(runtime, &registry, &wake);
+                registry.check().map_err(|_| {
+                    runtime
+                        .quarantine_execution_invariant(EngineFault::NativeOperationCleanupFailed)
+                })?;
+                PendingOperation::Native(started?)
             }
-            ColdFuture::Native(cold) => cold,
         };
-        let registry = runtime.operation_registry()?.clone();
-        let started = cold.start(runtime, &registry, &wake);
-        registry.check().map_err(|_| {
-            runtime.quarantine_execution_invariant(EngineFault::NativeOperationCleanupFailed)
-        })?;
-        let pending = started?;
         *self.session_state(runtime).pending.borrow_mut() = Some(PendingWait {
             destination,
-            pending: PendingOperation::Native(pending),
+            pending,
             output,
-            awaitable: root,
+            slots,
         });
+        // The Native wait/group now owns the computation source. A consumed
+        // Future header is no longer an awaitable dependency; Tasks keep theirs.
+        runtime
+            .memory
+            .scope(&runtime.resources, |cx, roots| {
+                ExecutionRoots::with(roots, cx, |source| slots.release_awaitable(source))
+            })
+            .map_err(|error| runtime.managed_memory_error(error))?;
         Ok(())
     }
 
-    fn discard_dead_await_slots(&self, runtime: &Runtime) -> NativeResult<()> {
-        let frame = self.current(runtime)?;
+    fn discard_dead_await_slots(&self, runtime: &mut Runtime) -> NativeResult<()> {
+        let (owner, target, point, frame_slots) = {
+            let frame = self.current(runtime)?;
+            (
+                frame.loaded.clone(),
+                frame.target,
+                frame.executing,
+                frame.slots(),
+            )
+        };
         let invalid = || RuntimeError::module_validation("await lacks checked suspension facts");
-        let CallableTarget::Script(function) = frame.target else {
+        let CallableTarget::Script(function) = target else {
             return Err(invalid());
         };
-        let point = frame.executing.ok_or_else(invalid)?;
-        let retained = frame.loaded.execution().functions[function.index()]
+        let retained = owner.execution().functions[function.index()]
             .awaits
-            .get(&point)
+            .get(&point.ok_or_else(invalid)?)
             .ok_or_else(invalid)?;
-        runtime
-            .resources()
-            .frame_values
-            .try_borrow_mut()
-            .map_err(|_| {
-                runtime
-                    .resources()
-                    .quarantine(EngineFault::ExecutionWindowsBorrowedDuringAwait)
-            })?
-            .retain_managed(frame.slots, retained)
-            .ok_or_else(invalid)
+        let resources = &runtime.resources;
+        let result = runtime.memory.scope(&runtime.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                Ok(frame_slots.retain_managed(slots, retained, resources))
+            })
+        });
+        result
+            .map_err(|error| runtime.managed_memory_error(error))?
+            .map_err(|error| match error {
+                FrameAllocationError::Storage(error) => runtime.managed_memory_error(error),
+                FrameAllocationError::Execution(error) => {
+                    runtime.resources.admit_execution_error(error)
+                }
+            })
     }
 
-    /// No callback, conversion or result destruction occurs while the session
-    /// table is borrowed. This also permits custom conversion to allocate safely.
-    pub fn poll_await(&self, runtime: &mut Runtime) -> NativeResult<Poll<Option<Value>>> {
+    /// No control, source or payload loan crosses a producer or conversion.
+    pub fn poll_await(&self, runtime: &mut Runtime) -> NativeResult<Poll<Option<ReturnValue>>> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::AwaitPoll);
         self.validate_top(runtime)?;
-        runtime.resources().poll_execution()?;
+        runtime.resources.poll_execution()?;
         self.start_queued_factory(runtime)?;
         let queued = self
             .session_state(runtime)
@@ -297,20 +344,35 @@ impl FrameStack {
                     "invalid queued Future activation",
                 ));
             }
-            let value = queued
-                .value
-                .value(runtime.gc())
-                .ok_or_else(|| RuntimeError::module_validation("queued Future root"))?;
-            if let Some(claimed) = queued.claimed {
-                self.start_claimed(runtime, claimed.cold, queued.value, None, queued.output)?;
-            } else {
-                self.start_await(
-                    runtime,
-                    value,
-                    None,
-                    queued.output,
-                    NativeStorageLayout::Future,
-                )?;
+            match queued {
+                QueuedFuture::Source { output } => {
+                    self.start_await(runtime, None, output, NativeStorageLayout::Future)?;
+                }
+                QueuedFuture::Claimed { claim, output } => {
+                    claim.validate_queued(runtime)?;
+                    self.start_claimed(runtime, claim, None, output)?
+                }
+                QueuedFuture::Unclaimed { value, output } => {
+                    let pending = PendingSlots::new(self.session);
+                    runtime
+                        .memory
+                        .scope(&runtime.resources, |cx, roots| {
+                            ExecutionRoots::with(roots, cx, |slots| {
+                                let value = value.get(slots.scope())?;
+                                pending.clear(slots)?;
+                                slots.set(pending.awaitable(), value)
+                            })
+                        })
+                        .map_err(|error| runtime.managed_memory_error(error))?;
+                    // Pending storage owns the awaitable before its Host lease ends.
+                    drop(value);
+                    self.start_await(runtime, None, output, NativeStorageLayout::Future)?;
+                }
+                QueuedFuture::Reserved { .. } => {
+                    return Err(RuntimeError::module_validation(
+                        "unclaimed branch activation",
+                    ));
+                }
             }
         }
         let pending = self.session_state(runtime).pending.borrow_mut().take();
@@ -328,34 +390,61 @@ impl FrameStack {
                 *self.session_state(runtime).pending.borrow_mut() = Some(wait);
                 Ok(Poll::Pending)
             }
-            Poll::Ready(value) => {
+            Poll::Ready(()) => {
                 let owner = if wait.destination.is_some() {
-                    self.current(runtime)?.loaded().clone()
+                    self.current(runtime)?.loaded.clone()
                 } else {
                     self.session_state(runtime).root.clone()
                 };
-                if !wait.output.matches(runtime, &value, &owner) {
+                let value = runtime
+                    .memory
+                    .inspect_value(wait.slots.output())
+                    .map_err(|error| runtime.managed_memory_error(error))?;
+                if !value_check::matches_protected(runtime, &owner, &wait.output, &value)? {
                     return Err(RuntimeError::module_validation(
                         "await output type mismatch",
                     ));
                 }
                 if let Some(destination) = wait.destination {
-                    self.current_mut(runtime)?
-                        .write_slot(runtime, destination, value)?;
+                    let (frame, location) = {
+                        let frame = self.current(runtime)?;
+                        (
+                            frame.slots(),
+                            frame.slot_location(runtime.resources(), destination, false)?,
+                        )
+                    };
+                    ResultPlace::frame(&frame, Some(&location))
+                        .publish(runtime, &value)?
+                        .admit_frame(&frame, Some(&location))?;
+                    runtime
+                        .memory
+                        .scope(&runtime.resources, |cx, roots| {
+                            ExecutionRoots::with(roots, cx, |slots| wait.slots.clear(slots))
+                        })
+                        .map_err(|error| runtime.managed_memory_error(error))?;
+                    self.complete_source_write(runtime);
                     Ok(Poll::Ready(None))
                 } else {
-                    Ok(Poll::Ready(Some(value)))
+                    let packet = runtime
+                        .memory
+                        .scope(&runtime.resources, |cx, roots| {
+                            ExecutionRoots::with(roots, cx, |slots| {
+                                let value = slots.get(wait.slots.output())?;
+                                let packet = ReturnValue::protect(slots, self.session, value)?;
+                                wait.slots.clear(slots)?;
+                                Ok(packet)
+                            })
+                        })
+                        .map_err(|error| runtime.managed_memory_error(error))?;
+                    Ok(Poll::Ready(Some(packet)))
                 }
             }
         }
     }
 
-    /// Prove and consume a pending activation without changing readiness.
-    ///
-    /// Always validates fresh state after polling; a concurrent completion or
-    /// cancellation notification survives the commit. Errors retain the activation
-    /// for trace capture and cleanup. Missing/non-suspendable waits are errors.
-    pub fn park_waiting(activation: &mut Option<Self>, runtime: &Runtime) -> NativeResult<()> {
+    /// Validate fresh data after polling; failure preserves activation for trace
+    /// capture and cleanup. A pending wait is required for this transition.
+    pub fn park_waiting(activation: &mut Option<Self>, runtime: &mut Runtime) -> NativeResult<()> {
         let stack = activation
             .as_ref()
             .ok_or_else(|| RuntimeError::module_validation("missing parking activation"))?;

@@ -5,10 +5,11 @@ use kagari_runtime::{
     error::RuntimeErrorKind,
     module::entry::ProgramEntry,
     native::{
-        binding::NativeResult,
+        binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
         callable::{CallableHandle, StoredCallable},
         context::NativeCall,
+        conversion::context::ConversionContext,
         declarations::FunctionDecl,
         function_handle::Function,
         storage::NativeStorage,
@@ -16,7 +17,7 @@ use kagari_runtime::{
         types::Type,
         views::ValueHandle,
     },
-    value::Value,
+    value::view::ValueView,
 };
 
 use std::sync::{
@@ -66,15 +67,13 @@ fn machine_scalar_conveniences_check_host_range_before_callback_entry() {
         )
         .unwrap();
     let (mut vm, owner) = compile(
-        r#"
-        use example::machine_scalars;
-        pub fn unsigned(value: u64) -> u64 { machine_scalars::unsigned(value) }
-        pub fn signed(value: i64) -> i64 { machine_scalars::signed(value) }
-        "#,
+        include_str!("../../../../tests/fixtures/native/callback-machine-scalars.kgr"),
         Some(&builder.finish().unwrap()),
     );
     let _owner_program = owner;
     let _owner = vm.select_program(&_owner_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     for value in [0, u32::MAX as u64 + 1, u64::MAX] {
         let before = calls.load(Ordering::SeqCst);
         let result =
@@ -109,7 +108,12 @@ fn machine_scalar_conveniences_check_host_range_before_callback_entry() {
             assert_eq!(calls.load(Ordering::SeqCst), before);
         }
     }
-    assert_eq!(vm.gc().active_roots(), 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
     assert_eq!(vm.resources().counters().current_call_depth, 0);
 }
 
@@ -155,46 +159,93 @@ fn function_arguments_call_captured_script_closures_synchronously() {
         )
         .unwrap();
     builder.bind(apply, call_repeatedly).unwrap();
+    let step = builder
+        .define_function(
+            FunctionDecl::new("step")
+                .parameter("value", Type::i32())
+                .parameter("offset", Type::i32())
+                .returns(Type::array(Type::i32()).unwrap()),
+        )
+        .unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = calls.clone();
+    builder
+        .bind(
+            step,
+            NativeBinding::scoped(
+                vec![Codec::Exact(Type::i32()), Codec::Exact(Type::i32())],
+                Codec::Value,
+                move |call| {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    let value = call.argument(0)?.as_i32().unwrap();
+                    let offset = call.argument(1)?.as_i32().unwrap();
+                    let expected = value + offset;
+                    let element = call.result_type_parameter(0)?;
+                    let result = call.allocate_array(element, &[ValueView::from(expected)])?;
+                    call.set_result(result)?;
+                    call.collect_garbage()?;
+                    assert_eq!(
+                        call.array_element(&result, 0)?.unwrap().as_i32(),
+                        Some(expected),
+                        "nested Native pending result survives collection before return"
+                    );
+                    Ok(())
+                },
+            ),
+        )
+        .unwrap();
     let module = builder.finish().unwrap();
     let (mut vm, loaded) = compile(
-        r#"
-        use example::callbacks::apply;
-        fn main() -> i32 {
-            val offset = [14];
-            var calls = 0;
-            val result = apply(|value| { calls += 1; value + offset[0] }, 0, 3);
-            if calls == 3 { result } else { -1 }
-        }
-        pub fn trapped() -> i32 { apply(|value| 10 / value, 0, 1) }
-        pub fn healthy() -> i32 { apply(|value| value + 1, 40, 2) }
-    "#,
+        include_str!("../../../../tests/fixtures/native/callback-captured-calls.kgr"),
         Some(&module),
     );
     let _loaded_program = loaded;
     let loaded = vm.select_program(&_loaded_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     assert_eq!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
-    assert!(
-        vm.execute_module(&loaded, "trapped", vm.execution_options())
-            .is_err()
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
     );
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    let failure = vm
+        .execute_module(&loaded, "trapped", vm.execution_options())
+        .unwrap_err();
+    assert_eq!(failure.kind(), RuntimeErrorKind::ScriptTrap);
+    assert!(failure.to_string().contains("division by zero"));
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
     assert_eq!(
         vm.execute_module(&loaded, "healthy", vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(calls.load(Ordering::SeqCst), 5);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert_eq!(vm.resources().counters().current_call_depth, 0);
+    assert!(vm.execution_root().is_none());
+    assert!(!vm.is_quarantined());
 }
 
 #[test]
@@ -242,23 +293,22 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let old = r#"
-        use example::retained::{remember, invoke};
-        fn main() -> i32 { val offset = [41]; remember(|value| value + offset[0]); invoke(1) }
-        pub fn run() -> i32 { invoke(1) }
-    "#;
+    let old = include_str!("../../../../tests/fixtures/native/callback-retained-reload.kgr");
     let (mut vm, loaded) = compile(old, Some(&module));
     let _loaded_program = loaded;
     let loaded = vm.select_program(&_loaded_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let old_key = loaded.key();
+    let old_descriptor = loaded.clone();
     assert_eq!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
+    assert_eq!(old.matches("[41]").count(), 1);
     reload_bytecode(
         &mut vm,
         &_loaded_program,
@@ -270,26 +320,30 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
     let replacement = vm.select_program(&_replacement_program).unwrap();
     drop(loaded);
     vm.collect_garbage().unwrap();
-    assert!(vm.modules().loaded(old_key).is_some());
+    assert!(vm.validate_executable_module(&old_descriptor).is_ok());
     assert_eq!(
         vm.execute_module(&replacement, "run", vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
     assert_eq!(
         vm.execute_module(&replacement, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(100)
+            .as_i32(),
+        Some(100)
     );
     held.lock().unwrap().take();
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
     assert_eq!(vm.modules().retention_counts(old_key).runtime_values, 0);
+    assert!(vm.validate_executable_module(&old_descriptor).is_err());
 }
 
 #[test]
@@ -319,9 +373,10 @@ fn stored_callbacks_trace_captures_through_an_ordinary_native_payload() {
     builder
         .bind(
             new,
-            |cx: &mut NativeCall<'_>, callback: CallableHandle<'_>| -> NativeResult<Value> {
-                cx.allocate_result_payload(callback.store(), &[])
-            },
+            NativeBinding::new(vec![Codec::Callable], Codec::Value, |cx| {
+                let callback = cx.callable(0)?;
+                cx.allocate_result_with(&[], |init| callback.store(init))
+            }),
         )
         .unwrap();
     let invoke = builder
@@ -337,43 +392,42 @@ fn stored_callbacks_trace_captures_through_an_ordinary_native_payload() {
             |cx: &mut NativeCall<'_>, handler: ValueHandle<'_>| -> NativeResult<i32> {
                 let result = handler
                     .with_operation(cx, |cx| {
-                        let stored = handler.with_payload::<StoredCallable, _>(cx, |callback| {
-                            Ok(callback.clone())
-                        })?;
+                        let value = handler.value(cx)?;
+                        let stored = cx
+                            .callable_payload::<StoredCallable>(&value, |_, callback| {
+                                Some(callback)
+                            })?
+                            .expect("stored callback provider");
                         cx.collect_garbage()?;
-                        stored.call_values(cx, &[Value::I32(1)])
+                        stored.call::<i32, _>(cx, (1,))
                     })?
                     .expect("first guarded callback");
-                let Value::I32(result) = result else {
-                    panic!("checked stored callback result");
-                };
                 Ok(result)
             },
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let (mut vm, loaded) = compile(
-        r#"
-        use example::stored::{Handler, new, invoke};
-        fn make() -> Handler { val offset = [41]; new(|value| value + offset[0]) }
-        fn main() -> i32 { invoke(make()) }
-    "#,
+    let (mut vm, installed) = compile(
+        include_str!("../../../../tests/fixtures/native/stored_callback.kgr"),
         Some(&module),
     );
-    let _loaded_program = loaded;
-    let loaded = vm.select_program(&_loaded_program).unwrap();
-    assert_eq!(
-        vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
-            .unwrap()
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
-    );
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    let loaded = vm.select_program(&installed).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats().objects;
+    let output = vm
+        .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
+        .unwrap();
+    let mut conversion = ConversionContext::new(&mut vm, &loaded).unwrap();
+    assert_eq!(conversion.decode::<i32>(&output.return_value).unwrap(), 42);
+    drop(conversion);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline);
 }
 
-fn identity(cx: &mut NativeCall<'_>, value: ValueHandle<'_>) -> NativeResult<Value> {
+fn identity<'call>(
+    cx: &mut NativeCall<'call>,
+    value: ValueHandle<'call>,
+) -> NativeResult<ValueView<'call>> {
     value.value(cx)
 }
 
@@ -424,31 +478,26 @@ fn ordinary_generic_value_binding_keeps_closed_types_and_shared_values() {
         .unwrap();
     let module = builder.finish().unwrap();
     let (mut vm, loaded) = compile(
-        r#"
-        use example::generic::{identity, probe};
-        struct Item { val value: i32 }
-        fn main() -> i32 {
-            val original = [20, 22];
-            val same = identity(original);
-            same[0] = 21;
-            val item = Item { value: 21 };
-            if original[0] != 21 || probe(42) != 42 { return -1; }
-            identity(item).value + identity(21)
-        }
-    "#,
+        include_str!("../../../../tests/fixtures/native/callback-generic-identity.kgr"),
         Some(&module),
     );
     let _loaded_program = loaded;
     let loaded = vm.select_program(&_loaded_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     assert_eq!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -474,15 +523,15 @@ fn array_and_callable_arguments_share_an_ordinary_rust_binding() {
              values: ValueHandle<'_>,
              map: CallableHandle<'_>|
              -> NativeResult<i32> {
-                let Value::Array(values) = values.value(cx)? else {
-                    panic!("checked array")
-                };
-                let length = cx.heap().array_len(values).unwrap();
+                let values = values.value(cx)?;
+                let length = cx.array_len(&values)?;
                 let mut sum = 0;
                 for index in 0..length {
-                    let Value::I32(value) = cx.heap().array_get(values, index).unwrap() else {
-                        panic!("checked element")
-                    };
+                    let value = cx
+                        .array_element(&values, index)?
+                        .expect("checked index")
+                        .as_i32()
+                        .expect("checked element");
                     sum += map.call::<i32, _>(cx, (value,))?;
                 }
                 Ok(sum)
@@ -491,17 +540,24 @@ fn array_and_callable_arguments_share_an_ordinary_rust_binding() {
         .unwrap();
     let module = builder.finish().unwrap();
     let (mut vm, loaded) = compile(
-        "use example::fold::fold; fn main() -> i32 { fold([9, 10], |value| (value + 1) * 2) }",
+        include_str!("../../../../tests/fixtures/native/callback-array-fold.kgr"),
         Some(&module),
     );
     let _loaded_program = loaded;
     let loaded = vm.select_program(&_loaded_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     assert_eq!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
+    );
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
     );
 }

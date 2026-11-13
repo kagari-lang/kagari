@@ -107,6 +107,7 @@ fn append_and_repeated_removal_preserve_a_captured_scan_extent() -> Result<(), G
         ObjectVec::alloc(&mut access, &nodes)?
     };
     let before = partial_vector(&mut heap, &vector)?;
+    assert_eq!(heap.stats().provider_units, 96);
     {
         let mut access = heap.access()?;
         let appended = Node::alloc(&mut access, 96, &drops)?;
@@ -119,6 +120,7 @@ fn append_and_repeated_removal_preserve_a_captured_scan_extent() -> Result<(), G
             drop(ObjectVec::remove(&mut access, &vector, 0)?);
         }
     }
+    assert_eq!(heap.stats().provider_units, 93);
     finish_cycle(&mut heap)?;
     // Conservative publication/rooting may keep removed objects for this cycle.
     heap.collect()?;
@@ -133,6 +135,7 @@ fn append_and_repeated_removal_preserve_a_captured_scan_extent() -> Result<(), G
     drop(vector);
     heap.collect()?;
     assert_eq!(drops.load(Ordering::Relaxed), 97);
+    assert_eq!(heap.stats().provider_units, 0);
     Ok(())
 }
 

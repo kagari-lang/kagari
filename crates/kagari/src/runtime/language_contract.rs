@@ -26,14 +26,15 @@ use kagari_runtime::{
     Runtime as CoreRuntime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionFrame,
-    gc::GcHeap,
     host::{HostCallContext, HostError},
-    module::{InstalledProgram, entry::ProgramEntry},
-    native::{builder::ModuleBuilder, module::NativeModule},
+    module::{ExecutableModule, InstalledProgram, entry::ProgramEntry},
+    native::{
+        builder::ModuleBuilder, conversion::context::ConversionContext, host, module::NativeModule,
+    },
     reload::ReloadValidationError,
     resource::RuntimeLimits,
     session::{ExecutionEvent, ExecutionObserver},
-    value::Value,
+    value::{carriers::RootedValue, view::ValueView},
     value_semantics::script_equal,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
@@ -87,7 +88,7 @@ impl Route {
 
 #[derive(Debug)]
 enum Expected {
-    Value(fn(&GcHeap) -> Value),
+    Value(fn(&mut ConversionContext<'_>) -> RootedValue),
     Diagnostic(&'static str),
     IndexTrap,
     HostFailure,
@@ -119,7 +120,7 @@ struct RecordingHost {
 
 struct PublishedReload<'a> {
     candidate: &'a Case<'a>,
-    selected_result: fn(&GcHeap) -> Value,
+    selected_result: fn(&mut ConversionContext<'_>) -> RootedValue,
     native_entry: &'a str,
 }
 
@@ -185,7 +186,10 @@ impl<'a> Case<'a> {
 }
 
 fn logging_module(
-    entry: impl for<'call> Fn(&mut HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+    entry: impl for<'call> Fn(
+        &mut HostCallContext<'call>,
+        &[ValueView<'call>],
+    ) -> Result<ValueView<'call>, HostError>
     + Send
     + Sync
     + 'static,
@@ -199,7 +203,7 @@ fn logging_module(
     )
     .unwrap();
     let log = builder.declared_function("log").unwrap();
-    builder.bind(log, entry).unwrap();
+    builder.bind(log, host::callback(entry)).unwrap();
     builder.finish().unwrap()
 }
 
@@ -334,7 +338,8 @@ fn run_routes(case: &Case<'_>) {
 }
 
 fn assert_outcome(
-    runtime: &CoreRuntime,
+    runtime: &mut CoreRuntime,
+    owner: &ExecutableModule,
     case: &Case<'_>,
     route: Route,
     attempt: usize,
@@ -342,12 +347,9 @@ fn assert_outcome(
 ) {
     match (&case.expected, outcome.as_ref()) {
         (Expected::Value(expected), Ok(report)) => {
-            let actual = report
-                .return_value
-                .value(runtime.gc())
-                .expect("retained execution result");
+            let expected = expected(&mut ConversionContext::new(runtime, owner).unwrap());
             assert!(
-                script_equal(runtime.gc(), &actual, &expected(runtime.gc())).unwrap(),
+                script_equal(runtime, &report.return_value, &expected).unwrap(),
                 "{} ({route:?}, attempt {attempt})",
                 case.name
             );
@@ -443,10 +445,12 @@ fn run(
     let cancellation = CancellationToken::default();
     let cancel = cancellation.clone();
     logging_module(move |cx, args| {
-        let [Value::Str(id)] = args else {
+        let [message] = args else {
             return Err(HostError::new("log requires one string"));
         };
-        let message = cx.runtime().gc().string(*id).unwrap().to_owned();
+        let message = cx
+            .read_string(message, str::to_owned)
+            .map_err(|error| HostError::new(error.to_string()))?;
         let mut state = capture.lock().unwrap();
         state.calls.push(HostCall {
             symbol: "host.log",
@@ -465,11 +469,11 @@ fn run(
         if cancel_call == Some(state.calls.len()) {
             cancel.cancel();
         }
-        Ok(Value::Unit)
+        Ok(ValueView::unit())
     })
     .install(&mut runtime)
     .unwrap();
-    let observed_vector = Arc::new(Mutex::new(None));
+    let observed_vector = Arc::new(Mutex::new(None::<RootedValue>));
     if case.vector.is_some() {
         let capture_vector = observed_vector.clone();
         let capture_host = host.clone();
@@ -481,14 +485,23 @@ fn run(
         .unwrap();
         let vector = builder.declared_function("vector").unwrap();
         builder
-            .bind(vector, move |_: &mut HostCallContext<'_>, _: &[Value]| {
-                capture_host.lock().unwrap().calls.push(HostCall {
-                    symbol: "observe.vector",
-                    args: vec![],
-                });
-                (*capture_vector.lock().unwrap())
-                    .ok_or_else(|| HostError::new("Vec fixture is not initialized"))
-            })
+            .bind(
+                vector,
+                host::callback(move |cx, _| {
+                    capture_host.lock().unwrap().calls.push(HostCall {
+                        symbol: "observe.vector",
+                        args: vec![],
+                    });
+                    let root = capture_vector
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .cloned()
+                        .ok_or_else(|| HostError::new("array fixture is not initialized"))?;
+                    cx.import(&root)
+                        .map_err(|error| HostError::new(error.to_string()))
+                }),
+            )
             .unwrap();
         builder.finish().unwrap().install(&mut runtime).unwrap();
     }
@@ -497,15 +510,18 @@ fn run(
         .unwrap_or_else(|error| panic!("{} ({route:?}): {error}", case.name));
     let selected = runtime.select_program(&loaded).unwrap();
     let retained = case.vector.map(|(initial, _)| {
-        let id = runtime
+        let rooted = runtime
             .alloc_array(
                 &selected,
                 kagari_types::ty::Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
-                initial.iter().copied().map(Value::I32).collect(),
+                &initial
+                    .iter()
+                    .copied()
+                    .map(RootedValue::from)
+                    .collect::<Vec<_>>(),
             )
             .unwrap();
-        let rooted = runtime.root_value(Value::Array(id)).unwrap();
-        *observed_vector.lock().unwrap() = Some(rooted.value(runtime.gc()).unwrap());
+        *observed_vector.lock().unwrap() = Some(rooted.clone());
         rooted
     });
     if let Some(at) = case.cancel_at {
@@ -561,13 +577,15 @@ fn run(
             })
         })
     });
+    vm.collect_garbage().unwrap();
+    let retained_roots = vm.gc_stats().root_registrations;
     let run = |runtime: &mut Runtime| {
         if case.cancel_at.is_some() {
             runtime.attach_execution_observer().unwrap();
         }
         for attempt in 0..case.repeat {
             let outcome = execute_route(runtime, &loaded, case, route, prepared.as_ref());
-            assert_outcome(runtime, case, route, attempt, outcome);
+            assert_outcome(runtime, &selected, case, route, attempt, outcome);
         }
         assert_eq!(
             runtime.resources().counters().current_call_depth,
@@ -624,16 +642,14 @@ fn run(
             );
         };
         let result = result.unwrap();
+        let expected =
+            (reload.selected_result)(&mut ConversionContext::new(&mut vm, &selected).unwrap());
         assert!(
-            script_equal(
-                vm.gc(),
-                &result.value(vm.gc()).unwrap(),
-                &(reload.selected_result)(vm.gc()),
-            )
-            .unwrap(),
+            script_equal(&mut vm, &result, &expected).unwrap(),
             "{} ({route:?}): old body must call the current dependency",
             case.name
         );
+        drop(expected);
         drop(result);
         if let Some(entries) = &old_native {
             for (entry, prepared) in entries {
@@ -675,15 +691,15 @@ fn run(
                             outcome.as_ref().unwrap().jit.as_ref().unwrap().status,
                             JitExecutionStatus::InterpreterFallback
                         );
-                        assert_outcome(&vm, candidate, route, 0, outcome);
+                        assert_outcome(&mut vm, &current_selected, candidate, route, 0, outcome);
                     }
                 }
             }
         }
         let outcome = vm.execute_module(&selected, ProgramEntry::Main, vm.execution_options());
-        assert_outcome(&vm, candidate, route, 0, outcome);
+        assert_outcome(&mut vm, &current_selected, candidate, route, 0, outcome);
         let outcome = execute_route(&mut vm, &current, candidate, route, current_native.as_ref());
-        assert_outcome(&vm, candidate, route, 0, outcome);
+        assert_outcome(&mut vm, &current_selected, candidate, route, 0, outcome);
         let before = vm.modules().loaded_count();
         let stale_members = stale.module().members().count();
         assert!(matches!(
@@ -696,7 +712,7 @@ fn run(
         );
         assert_eq!(vm.modules().loaded_count(), before - stale_members);
         let outcome = execute_route(&mut vm, &current, candidate, route, current_native.as_ref());
-        assert_outcome(&vm, candidate, route, 1, outcome);
+        assert_outcome(&mut vm, &current_selected, candidate, route, 1, outcome);
     }
     assert_eq!(
         vm.resources().counters().current_call_depth,
@@ -705,18 +721,27 @@ fn run(
         case.name
     );
     if let Some((_, expected)) = case.vector {
-        assert_eq!(
-            vm.gc().active_roots(),
-            1,
-            "only the explicit observer root remains"
-        );
         vm.collect_garbage().unwrap();
-        let Value::Array(array) = retained.as_ref().unwrap().value(vm.gc()).unwrap() else {
-            unreachable!()
-        };
         assert_eq!(
-            vm.gc().array_snapshot(array),
-            Some(expected.iter().copied().map(Value::I32).collect()),
+            vm.gc_stats().root_registrations,
+            retained_roots,
+            "calls release their roots and preserve the explicit observer root"
+        );
+        let owner = vm.select_program(&loaded).unwrap();
+        let mut cx = ConversionContext::new(&mut vm, &owner).unwrap();
+        let array = cx.import(retained.as_ref().unwrap()).unwrap();
+        assert_eq!(cx.array_len(&array).unwrap(), expected.len());
+        let actual = (0..expected.len())
+            .map(|index| {
+                cx.array_element(&array, index)
+                    .unwrap()
+                    .unwrap()
+                    .as_i32()
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            actual, expected,
             "{} ({route:?}): post-execution heap state",
             case.name
         );

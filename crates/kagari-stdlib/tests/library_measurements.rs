@@ -1,5 +1,7 @@
 //! Reproducible end-to-end interpreter samples; compilation/input creation are excluded.
 //! Run with --ignored --nocapture --test-threads=1. This is not a JIT benchmark.
+//! managed_objects_delta is the net number of resident managed allocations at
+//! observation, including unswept garbage; it is not a cumulative allocation count.
 // Shared preparation keeps verifier and linker failures observable.
 #[path = "../../kagari-runtime/tests/support/bytecode.rs"]
 mod bytecode_fixture;
@@ -9,15 +11,27 @@ use kagari_stdlib::catalog as foundation_catalog;
 mod native_allocations_counter;
 use kagari_common::identity::table::DefinitionId;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_gc::heap::HeapStats;
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
-use kagari_runtime::{Runtime, RuntimeConfig, module::ExecutableModule, value::Value};
+use kagari_runtime::{
+    Runtime, RuntimeConfig, module::ExecutableModule,
+    native::conversion::context::ConversionContext, value::carriers::RootedValue,
+};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{declaration::module::ModuleDecl, scalar::BuiltinType, ty::Ty};
 
 use native_allocations_counter::{measured, verify_counter};
-use std::{hint::black_box, time::Instant};
+use std::{hint::black_box, slice, time::Instant};
 
-fn setup() -> (Runtime, ExecutableModule, Value, Vec<DefinitionId>) {
+struct Fixture {
+    runtime: Runtime,
+    owner: ExecutableModule,
+    runner: RootedValue,
+    methods: Vec<DefinitionId>,
+    baseline: HeapStats,
+}
+
+fn setup() -> Fixture {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set(
@@ -66,14 +80,20 @@ fn setup() -> (Runtime, ExecutableModule, Value, Vec<DefinitionId>) {
     ]
     .map(|name| ModuleDecl::method_id(contract.declaration, name, loaded.definitions()).unwrap())
     .to_vec();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     let mut vm = runtime;
     let runner = vm
         .execute(&_loaded_program, "runner", &[], &Default::default())
         .unwrap()
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result");
-    (vm, loaded, runner, methods)
+        .return_value;
+    Fixture {
+        runtime: vm,
+        owner: loaded,
+        runner,
+        methods,
+        baseline,
+    }
 }
 
 #[test]
@@ -81,9 +101,14 @@ fn setup() -> (Runtime, ExecutableModule, Value, Vec<DefinitionId>) {
 fn compare_rust_native_and_script_stable_sorting() {
     verify_counter();
     let compilation = Instant::now();
-    let (mut vm, loaded, runner, methods) = setup();
+    let Fixture {
+        runtime: mut vm,
+        owner: loaded,
+        runner,
+        methods,
+        baseline,
+    } = setup();
     println!("compile_and_load_ns={}", compilation.elapsed().as_nanos());
-    let root = vm.root_value(runner).unwrap();
     for length in [16usize, 4096] {
         let input: Vec<i32> = (0..length)
             .map(|index| ((index * 1543 + 71) % 997) as i32)
@@ -106,14 +131,20 @@ fn compare_rust_native_and_script_stable_sorting() {
                     .alloc_array(
                         &loaded,
                         Ty::Builtin(BuiltinType::I32),
-                        input.iter().copied().map(Value::I32).collect(),
+                        &input
+                            .iter()
+                            .copied()
+                            .map(RootedValue::from)
+                            .collect::<Vec<_>>(),
                     )
                     .unwrap();
-                let array_root = vm.root_value(Value::Array(array)).unwrap();
                 let counter = vm
-                    .alloc_array(&loaded, Ty::Builtin(BuiltinType::U64), vec![Value::U64(0)])
+                    .alloc_array(
+                        &loaded,
+                        Ty::Builtin(BuiltinType::U64),
+                        &[RootedValue::from(0u64)],
+                    )
                     .unwrap();
-                let counter_root = vm.root_value(Value::Array(counter)).unwrap();
                 // Prepare interface views outside the sort interval, and report
                 // their construction separately from repeated dispatch.
                 let values = if case.starts_with("interface_") {
@@ -123,7 +154,7 @@ fn compare_rust_native_and_script_stable_sorting() {
                             vm.invoke_interface_method(
                                 &runner,
                                 methods.last().unwrap(),
-                                &[Value::Array(array)],
+                                slice::from_ref(&array),
                             )
                             .unwrap(),
                         );
@@ -136,36 +167,42 @@ fn compare_rust_native_and_script_stable_sorting() {
                     }
                     result.unwrap()
                 } else {
-                    Value::Array(array)
+                    array.clone()
                 };
-                let values_root = vm.root_value(values).unwrap();
-                let before = vm.gc().stats();
+                let arguments = [values, counter.clone()];
+                let before = vm.gc_stats();
                 let (allocations, duration) = measured(|| {
-                    black_box(
-                        vm.invoke_interface_method(
-                            &runner,
-                            method,
-                            &[values, Value::Array(counter)],
-                        )
-                        .unwrap(),
+                    let _ = black_box(
+                        vm.invoke_interface_method(&runner, method, &arguments)
+                            .unwrap(),
                     );
                 });
-                let after = vm.gc().stats();
-                assert_eq!(
-                    vm.gc().array_snapshot(array).unwrap(),
-                    expected.iter().copied().map(Value::I32).collect::<Vec<_>>()
-                );
-                let callbacks = vm.gc().array_get(counter, 0).unwrap();
-                if sample > 0 {
-                    println!(
-                        "{case},n={length},sample={sample},ns={},callbacks={callbacks:?},gc_objects={},allocations={allocations:?}",
-                        duration.as_nanos(),
-                        after.allocated_objects + after.reclaimed_objects
-                            - before.allocated_objects
-                            - before.reclaimed_objects
+                let after = vm.gc_stats();
+                let mut cx = ConversionContext::new(&mut vm, &loaded).unwrap();
+                let values = cx.import(&array).unwrap();
+                assert_eq!(cx.array_len(&values).unwrap(), expected.len());
+                for (index, expected) in expected.iter().enumerate() {
+                    assert_eq!(
+                        cx.array_element(&values, index).unwrap().unwrap().as_i32(),
+                        Some(*expected)
                     );
                 }
-                drop((array_root, counter_root, values_root));
+                let counter_value = cx.import(&counter).unwrap();
+                let callbacks = cx
+                    .array_element(&counter_value, 0)
+                    .unwrap()
+                    .unwrap()
+                    .as_u64()
+                    .unwrap();
+                drop(cx);
+                if sample > 0 {
+                    println!(
+                        "{case},n={length},sample={sample},ns={},callbacks={callbacks:?},managed_objects_delta={},allocations={allocations:?}",
+                        duration.as_nanos(),
+                        after.objects as i128 - before.objects as i128
+                    );
+                }
+                drop((array, counter, arguments));
                 vm.collect_garbage().unwrap();
             }
         }
@@ -186,15 +223,20 @@ fn compare_rust_native_and_script_stable_sorting() {
                 assert_eq!(values, expected);
                 if sample > 0 {
                     println!(
-                        "{case},n={length},sample={sample},ns={},callbacks={comparisons},gc_objects=0,allocations={allocations:?}",
+                        "{case},n={length},sample={sample},ns={},callbacks={comparisons},managed_objects_delta=0,allocations={allocations:?}",
                         duration.as_nanos()
                     );
                 }
             }
         }
     }
-    drop(root);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    drop(runner);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 fn analysis_database() -> AnalysisDatabase {

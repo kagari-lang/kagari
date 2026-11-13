@@ -1,6 +1,7 @@
 //! Physical slot intervals consume verified control flow and binding availability.
 //! Logical identities remain stable; source names do not require a second bank.
 use crate::module::execution::layout::scalar_type;
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     availability::DebugAvailability,
     instruction::{BytecodeInstruction, Slot},
@@ -14,6 +15,7 @@ const MAX_WORDS: usize = 1_000_000;
 /// Managed locations are distinct and never participate in scalar coloring.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum SlotColor {
+    Unit,
     Scalar(usize),
     Managed,
 }
@@ -51,7 +53,9 @@ impl SlotAllocation {
                 .slots
                 .iter()
                 .map(|&representation| {
-                    if scalar_type(representation).is_some() {
+                    if representation == ValueType::Unit {
+                        SlotColor::Unit
+                    } else if scalar_type(representation).is_some() {
                         let color = SlotColor::Scalar(scalar_count);
                         scalar_count += 1;
                         color
@@ -256,7 +260,9 @@ impl SlotAllocation {
             .slots
             .iter()
             .map(|&representation| {
-                if scalar_type(representation).is_some() {
+                if representation == ValueType::Unit {
+                    SlotColor::Unit
+                } else if scalar_type(representation).is_some() {
                     has_scalar = true;
                     SlotColor::Scalar(0)
                 } else {

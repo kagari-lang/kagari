@@ -21,10 +21,7 @@ use kagari::{
 };
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_runtime::execution::{JitExecutionStatus, native::PreparedNativeEntry};
-use kagari_runtime::{
-    module::{InstalledProgram, entry::ProgramEntry},
-    value::Value,
-};
+use kagari_runtime::module::{InstalledProgram, entry::ProgramEntry};
 use kagari_source::source::SourceFile;
 use mlua::{Function, Lua};
 use workloads::{WORKLOADS, Workload};
@@ -180,14 +177,7 @@ impl ExecutionRoutes {
                 JitExecutionStatus::Native
             );
         }
-        let Value::I32(value) = report
-            .return_value
-            .value(self.runtime.gc())
-            .expect("retained execution result")
-        else {
-            panic!("expected i32 result")
-        };
-        value
+        report.return_value.as_i32().expect("i32 benchmark result")
     }
 
     fn lua(&self) -> i32 {
@@ -200,11 +190,10 @@ impl ExecutionRoutes {
         if options.diagnostics {
             println!("DIAGNOSTIC_WORKLOAD,{}", workload.name);
             diagnostics::measure(
-                &self.runtime,
+                &mut self.runtime,
                 &self.module,
                 &self.context,
                 ProgramEntry::Main,
-                &[],
                 expected,
             );
             return;

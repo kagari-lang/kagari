@@ -2,9 +2,10 @@
 use crate::diagnostics::Diagnostic;
 use kagari::error::EmbeddingError;
 use kagari_runtime::{
+    Runtime,
     error::RuntimeError,
-    gc::{GcHeap, roots::RootedValue},
-    value::Value,
+    host_scope::HostResourceScope,
+    value::{carriers::RootedValue, kind::ObjectKind, view::ValueView},
 };
 use serde::Serialize;
 use std::fmt::{self, Write};
@@ -84,58 +85,66 @@ pub(crate) enum OwnedResult {
 }
 
 impl OwnedResult {
-    pub(crate) fn rooted(root: &RootedValue, heap: &GcHeap) -> Result<Self, WebError> {
-        let value = root
-            .value(heap)
-            .ok_or_else(|| WebError::new("WEB_RESULT_ROOT", "result root is stale"))?;
-        Self::value(value, heap)
+    pub(crate) fn rooted(root: &RootedValue, runtime: &mut Runtime) -> Result<Self, WebError> {
+        let mut scope = runtime
+            .host_scope(&[])
+            .map_err(|error| WebError::runtime(&error))?;
+        let value = scope
+            .import(root)
+            .map_err(|error| WebError::runtime(&error))?;
+        Self::value(value, &mut scope)
     }
 
-    fn value(value: Value, heap: &GcHeap) -> Result<Self, WebError> {
-        Ok(match value {
-            Value::Unit => Self::Unit,
-            Value::Bool(value) => Self::Bool { value },
-            Value::I32(value) => Self::I32 {
-                value: value.to_string(),
-            },
-            Value::I64(value) => Self::I64 {
-                value: value.to_string(),
-            },
-            Value::U64(value) => Self::U64 {
-                value: value.to_string(),
-            },
-            Value::F32(value) => Self::F32 {
-                value: value.to_string(),
-            },
-            Value::F64(value) => Self::F64 {
-                value: value.to_string(),
-            },
-            Value::Str(id) => {
-                let text = heap
-                    .string(id)
-                    .ok_or_else(|| WebError::new("WEB_RESULT_ROOT", "result String is stale"))?;
-                Self::String {
-                    value: prefix(&text, RESULT_BYTES).to_owned(),
-                    truncated: text.len() > RESULT_BYTES,
+    fn value(value: ValueView<'_>, scope: &mut HostResourceScope<'_>) -> Result<Self, WebError> {
+        if value.is_unit() {
+            return Ok(Self::Unit);
+        }
+        if let Some(value) = value.as_bool() {
+            return Ok(Self::Bool { value });
+        }
+        macro_rules! scalar {
+            ($accessor:ident, $variant:ident) => {
+                if let Some(value) = value.$accessor() {
+                    return Ok(Self::$variant {
+                        value: value.to_string(),
+                    });
                 }
-            }
-            value => Self::Opaque {
-                kind: match value {
-                    Value::Tuple(_) => "tuple",
-                    Value::Range(_) => "range",
-                    Value::Array(_) => "array",
-
-                    Value::Enum(_) => "enum",
-                    Value::Struct(_) => "struct",
-                    Value::GcHandle(_) => "gc_handle",
-                    Value::Interface(_) => "interface",
-                    Value::Closure(_) => "closure",
-                    Value::Cell(_) => "cell",
-                    Value::HostRoot(_) => "host_root",
-                    Value::HostPathView(_) => "host_path_view",
-                    Value::Ephemeral(_) | Value::RuntimeEphemeral(_) => "ephemeral",
-                    _ => unreachable!("scalars handled above"),
-                },
+            };
+        }
+        scalar!(as_i32, I32);
+        scalar!(as_i64, I64);
+        scalar!(as_u64, U64);
+        scalar!(as_f32, F32);
+        scalar!(as_f64, F64);
+        if value.as_char().is_some() {
+            return Ok(Self::Opaque { kind: "char" });
+        }
+        let kind = value
+            .kind()
+            .ok_or_else(|| WebError::new("WEB_RESULT_ROOT", "invalid result representation"))?;
+        if kind == ObjectKind::String {
+            return scope
+                .read_string(&value, |text| Self::String {
+                    value: prefix(text, RESULT_BYTES).to_owned(),
+                    truncated: text.len() > RESULT_BYTES,
+                })
+                .map_err(|error| WebError::runtime(&error));
+        }
+        Ok(Self::Opaque {
+            kind: match kind {
+                ObjectKind::Tuple => "tuple",
+                ObjectKind::Range => "range",
+                ObjectKind::Array => "array",
+                ObjectKind::Enum => "enum",
+                ObjectKind::Struct => "struct",
+                ObjectKind::Native => "gc_handle",
+                ObjectKind::Interface => "interface",
+                ObjectKind::Closure => "closure",
+                ObjectKind::Cell => "cell",
+                ObjectKind::HostRoot => "host_root",
+                ObjectKind::HostPath => "host_path_view",
+                ObjectKind::Ephemeral => "ephemeral",
+                ObjectKind::String => unreachable!("String handled above"),
             },
         })
     }
@@ -178,37 +187,58 @@ impl Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "source")]
+    use crate::BrowserSession;
     use kagari_runtime::Runtime;
+    #[cfg(feature = "source")]
+    use kagari_runtime::native::conversion::context::ConversionContext;
 
     #[test]
     fn integers_are_tagged_lossless_decimal_strings() {
-        let runtime = Runtime::default();
-        let heap = runtime.gc();
+        let mut runtime = Runtime::default();
         for (value, tag, expected) in [
-            (Value::I64(i64::MIN), "i64", "-9223372036854775808"),
-            (Value::I64(i64::MAX), "i64", "9223372036854775807"),
-            (Value::U64(u64::MAX), "u64", "18446744073709551615"),
-            (Value::I32(-7), "i32", "-7"),
+            (RootedValue::from(i64::MIN), "i64", "-9223372036854775808"),
+            (RootedValue::from(i64::MAX), "i64", "9223372036854775807"),
+            (RootedValue::from(u64::MAX), "u64", "18446744073709551615"),
+            (RootedValue::from(-7i32), "i32", "-7"),
         ] {
-            let owned = OwnedResult::value(value, heap).unwrap_or_else(|_| panic!("scalar"));
+            let owned =
+                OwnedResult::rooted(&value, &mut runtime).unwrap_or_else(|_| panic!("scalar"));
             let json = serde_json::to_value(owned).unwrap();
             assert_eq!(json["tag"], tag);
             assert_eq!(json["value"], expected);
         }
     }
 
+    #[cfg(feature = "source")]
     #[test]
     fn strings_are_bounded_owned_copies_not_retained_heap_handles() {
-        let mut runtime = Runtime::default();
-        let heap = runtime.gc();
-        let value = heap.alloc_string("😀".repeat(RESULT_BYTES)).unwrap();
-        let root = heap.root_value(value).unwrap();
-        runtime.collect_garbage().unwrap();
-        let owned =
-            OwnedResult::rooted(&root, runtime.gc()).unwrap_or_else(|_| panic!("rooted String"));
+        let mut session = BrowserSession::new().unwrap();
+        let prepared: serde_json::Value = serde_json::from_str(
+            &session.compile(include_str!("../tests/fixtures/protocol-owner.kgr")),
+        )
+        .unwrap();
+        assert_eq!(prepared["status"], "ready");
+        let owner = session
+            .runtime
+            .select_program(session.module.as_ref().unwrap())
+            .unwrap();
+        session.runtime.collect_garbage().unwrap();
+        let baseline = session.runtime.gc_stats();
+        let root = ConversionContext::new(&mut session.runtime, &owner)
+            .unwrap()
+            .encode("😀".repeat(RESULT_BYTES))
+            .unwrap();
+        session.runtime.collect_garbage().unwrap();
+        let owned = OwnedResult::rooted(&root, &mut session.runtime)
+            .unwrap_or_else(|_| panic!("rooted String"));
         drop(root);
-        runtime.collect_garbage().unwrap();
-        assert!(!runtime.gc().validate_value(&value));
+        session.runtime.collect_garbage().unwrap();
+        assert_eq!(session.runtime.gc_stats().objects, baseline.objects);
+        assert_eq!(
+            session.runtime.gc_stats().root_registrations,
+            baseline.root_registrations
+        );
         let json = serde_json::to_value(owned).unwrap();
         assert_eq!(json["tag"], "string");
         assert_eq!(json["value"].as_str().unwrap().len(), RESULT_BYTES);

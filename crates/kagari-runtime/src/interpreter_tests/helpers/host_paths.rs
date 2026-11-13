@@ -1,5 +1,4 @@
 use super::*;
-use crate::interpreter_tests::common::logging_module;
 #[cfg(test)]
 use crate::test_support::bytecode::load_bytecode;
 use crate::{
@@ -7,12 +6,18 @@ use crate::{
     host::{HostCallContext, HostPathDescriptorId},
     jit_abi::jit_poll_execution,
     module::entry::ProgramEntry,
+    native::{
+        conversion::{arguments::ArgumentValues, context::ConversionContext},
+        host::callback,
+    },
+    value::{carriers::RootedValue, view::ValueView},
 };
 use crate::{
-    execution::reentry::reenter,
-    execution::{fixtures::FixtureExecution, native::PreparedNativeEntry},
+    execution::{fixtures::FixtureExecution, native::PreparedNativeEntry, reentry::reenter},
     interpreter_tests::{
-        common::{module_program, round_trip_bytecode},
+        common::{
+            compile_native_test_bytecode, logging_module, module_program, round_trip_bytecode,
+        },
         native_fixtures,
     },
 };
@@ -27,7 +32,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
     for encoded in [false, true] {
         for jit in [false, true] {
             let (mut runtime, hp) = register_vm_host_path_runtime(PathAccess::ReadWrite);
-            logging_module(|_, _| Ok(Value::Unit))
+            logging_module(|_, _| Ok(ValueView::unit()))
                 .install(&mut runtime)
                 .unwrap();
             let write_hp = hp.clone();
@@ -35,9 +40,9 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
                 .register_host_path_adapter(
                     HostPathDescriptorId::new(0),
                     HostPathAdapter::new()
-                        .with_read(|_, _| Ok(Value::I32(10)))
+                        .with_read(|_, _| Ok(ValueView::from(10i32)))
                         .with_prepare_write(move |_, _, record| {
-                            let Value::I32(value) = record.new_value else {
+                            let Some(value) = record.new_value.as_i32() else {
                                 return Err(HostError::new("expected i32"));
                             };
                             let hp = write_hp.clone();
@@ -51,13 +56,13 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
             let scalar = load_bytecode(
                 &mut runtime,
                 "scalar.kgr",
-                compile_test_bytecode("fn main() -> i32 { 42 }"),
+                compile_test_bytecode(include_str!("../../../tests/fixtures/host/path-scalar.kgr")),
             )
             .unwrap();
             let _scalar_program = scalar;
             let scalar = runtime.select_program(&_scalar_program).unwrap();
             let prepared = native_fixtures::unsupported();
-            let native = native_fixtures::install_i32::<42>(&runtime, &scalar, false);
+            let native = native_fixtures::install_i32::<42>(&mut runtime, &scalar, false);
             let scalar_entry = PreparedNativeEntry::Native(native.clone());
             let program = module_program(path_module(
                 "main",
@@ -90,6 +95,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
             let loaded = load_bytecode(&mut runtime, "fault.kgr", program).unwrap();
             let _loaded_program = loaded;
             let loaded = runtime.select_program(&_loaded_program).unwrap();
+            let roots = runtime.gc_stats().root_registrations;
             let mut vm = runtime;
             let error = if jit {
                 vm.execute_fixture_prepared(&loaded, FunctionRef::new(0), &prepared)
@@ -102,7 +108,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
             assert!(vm.is_quarantined());
             assert_eq!(vm.modules().retention_counts(loaded.key()).active_calls, 0);
             assert_eq!(*hp.lock().unwrap(), 20); // Internal faults do not promise business rollback.
-            assert_eq!(vm.gc().active_roots(), 0);
+            assert_eq!(vm.gc_stats().root_registrations, roots);
             assert_eq!(vm.resources().counters().current_call_depth, 0);
             let before = vm.resources().counters();
             for error in [
@@ -139,12 +145,20 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
         let scope = call.runtime_mut().begin_execution(&root, options).unwrap();
         assert_eq!(scope.host_scope_count(), 2);
         drop(scope);
-        let value = reenter(call, &root, function, &[]).unwrap();
+        let roots = call.runtime().gc_stats().root_registrations;
+        let value = reenter(call, &root, function, ArgumentValues::scalars(&[])).unwrap();
         call.runtime_mut().collect_garbage().unwrap();
-        let Value::Array(array) = value.value(call.runtime().gc()).unwrap() else {
-            panic!("array")
-        };
-        assert_eq!(call.runtime().gc().array_get(array, 0), Some(Value::I32(7)));
+        {
+            let mut cx = ConversionContext::new(call.runtime_mut(), &root).unwrap();
+            let array = cx.import(&value).unwrap();
+            assert_eq!(cx.array_len(&array).unwrap(), 1);
+            assert_eq!(
+                cx.array_element(&array, 0).unwrap().unwrap().as_i32(),
+                Some(7)
+            );
+        }
+        drop(value);
+        assert_eq!(call.runtime().gc_stats().root_registrations, roots);
     }
     for encoded in [false, true] {
         for jit in [false, true] {
@@ -164,17 +178,20 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                 }))
                 .unwrap();
             entered
-                .bind(entry, move |call: &mut HostCallContext<'_>, _: &[Value]| {
-                    let root_value = call.runtime().gc().alloc_host_root(root).unwrap();
-                    call.runtime_mut()
-                        .set_host_path(&root_value, descriptor, vec![], Value::I32(20))
-                        .unwrap();
-                    Ok(Value::Unit)
-                })
+                .bind(
+                    entry,
+                    callback(move |call: &mut HostCallContext<'_>, _| {
+                        let root_value = call.runtime_mut().host_root_value(root).unwrap();
+                        call.runtime_mut()
+                            .set_host_path(&root_value, descriptor, &[], &RootedValue::from(20i32))
+                            .unwrap();
+                        Ok(ValueView::unit())
+                    }),
+                )
                 .unwrap();
             let entered = entered.finish().unwrap();
-            let bytecode = crate::interpreter_tests::common::compile_native_test_bytecode(
-                "fn main() -> i32 { fixture::effects::entered(); 42 } fn compute() -> [i32] { [7] }",
+            let bytecode = compile_native_test_bytecode(
+                include_str!("../../../tests/fixtures/host/path-reentry.kgr"),
                 &[&entered],
             );
             let compute = bytecode.records().modules[bytecode.records().root.index()]
@@ -200,12 +217,12 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                         .with_read(move |call, _| {
                             assert_reentry(call, compute);
                             reading.lock().unwrap().push("read");
-                            Ok(Value::I32(10))
+                            Ok(ValueView::from(10i32))
                         })
                         .with_prepare_write(move |call, _, record| {
                             assert_reentry(call, compute);
                             preparing.lock().unwrap().push("prepare");
-                            let Value::I32(next) = record.new_value else {
+                            let Some(next) = record.new_value.as_i32() else {
                                 panic!("i32")
                             };
                             let hp = write_hp.clone();
@@ -223,6 +240,8 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
             let loaded = load_bytecode(&mut runtime, "path-reentry.kgr", program).unwrap();
             let _loaded_program = loaded;
             let loaded = runtime.select_program(&_loaded_program).unwrap();
+            runtime.collect_garbage().unwrap();
+            let baseline = runtime.gc_stats();
             let mut vm = runtime;
             let mut scope = vm.begin_execution(&loaded, vm.execution_options()).unwrap();
             let prepared = native_fixtures::unsupported();
@@ -240,19 +259,16 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                     .execute_module(&loaded, ProgramEntry::Main, options)
             }
             .unwrap();
-            assert_eq!(
-                report
-                    .return_value
-                    .value(scope.runtime().gc())
-                    .expect("retained execution result"),
-                Value::I32(42)
-            );
+            assert_eq!(report.return_value.as_i32(), Some(42));
             assert_eq!(*hp.lock().unwrap(), 20);
             assert_eq!(*stages.lock().unwrap(), ["validate", "read", "prepare"]);
             assert_eq!(scope.host_scope_count(), 0);
             assert_eq!(scope.counters().current_call_depth, 0);
             drop(report);
-            assert_eq!(scope.runtime().gc().active_roots(), 0);
+            assert_eq!(
+                scope.runtime().gc_stats().root_registrations,
+                baseline.root_registrations
+            );
             drop(scope);
             let replacement = vm
                 .stage_reload_verified_program(
@@ -263,7 +279,11 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                 .unwrap();
             vm.publish_staged_reload(replacement).unwrap();
             vm.collect_garbage().unwrap();
-            assert_eq!(vm.gc().allocated_objects(), 0);
+            assert_eq!(vm.gc_stats().objects, baseline.objects);
+            assert_eq!(
+                vm.gc_stats().root_registrations,
+                baseline.root_registrations
+            );
             assert_eq!(vm.host_dirty_paths().len(), 1);
         }
     }
@@ -330,13 +350,7 @@ fn executes_typed_path_read_set_modify_and_view_instructions() {
     let mut vm = runtime;
     let report = vm.execute_fixture(&loaded, FunctionRef::new(0)).unwrap();
 
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(7)
-    );
+    assert_eq!(report.return_value.as_i32(), Some(7));
     assert_eq!(*hp.lock().unwrap(), 7);
     assert_eq!(vm.host_dirty_paths().len(), 2);
 }
@@ -411,9 +425,8 @@ fn installed_typed_path_helpers_need_no_permission_flags() {
         vm.execute_fixture(&loaded, FunctionRef::new(0))
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(10)
+            .as_i32(),
+        Some(10)
     );
 }
 
@@ -446,7 +459,7 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
             runtime
                 .register_host_path_adapter(
                     target,
-                    HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(73))),
+                    HostPathAdapter::new().with_read(|_, _| Ok(ValueView::from(73i32))),
                 )
                 .unwrap();
             let bytecode = path_module(
@@ -526,13 +539,7 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
             } else {
                 vm.execute_fixture(&loaded, FunctionRef::new(0)).unwrap()
             };
-            assert_eq!(
-                value
-                    .return_value
-                    .value(vm.gc())
-                    .expect("retained execution result"),
-                Value::I32(73)
-            );
+            assert_eq!(value.return_value.as_i32(), Some(73));
         }
     }
 }
@@ -566,7 +573,7 @@ fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
     runtime
         .register_host_path_adapter(
             target,
-            HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(0))),
+            HostPathAdapter::new().with_read(|_, _| Ok(ValueView::from(0i32))),
         )
         .unwrap();
     let required = DefinitionMetadata::checked(

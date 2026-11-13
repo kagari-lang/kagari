@@ -34,6 +34,7 @@ fn initialization_error_and_panic_release_the_reserved_page_and_root() -> Result
     assert_eq!(heap.stats().root_registrations, 0);
     assert_eq!(heap.stats().backing_bytes, 0);
     assert_eq!(heap.stats().allocation_growth_bytes, 0);
+    assert_eq!(heap.stats().provider_units, 0);
     let root = heap.access()?.alloc_leaf(42u64)?;
     assert_eq!(
         heap.access()?.with_object(&root, |view| *view.object())?,
@@ -57,12 +58,14 @@ fn failed_growth_preserves_contents_and_committed_charge() -> Result<(), GcError
         vector = ObjectVec::alloc(&mut access, &[node.clone(), node.clone()])?;
     }
     let bytes = heap.stats().indirect_bytes;
+    assert_eq!(heap.stats().provider_units, 2);
     let growth = heap.stats().allocation_growth_bytes;
     assert!(matches!(
         ObjectVec::push(&mut heap.access()?, &vector, &node),
         Err(GcError::Limit("indirect bytes"))
     ));
     assert_eq!(heap.stats().indirect_bytes, bytes);
+    assert_eq!(heap.stats().provider_units, 2);
     assert_eq!(heap.stats().allocation_growth_bytes, growth);
     assert_eq!(ObjectVec::values(&mut heap.access()?, &vector)?.len(), 2);
     heap.collect()?;
@@ -146,19 +149,35 @@ fn forgetting_a_mutable_loan_keeps_the_scanner_conservatively_invalidated() -> R
         }
     }
     assert!(active);
+    assert_eq!(heap.stats().provider_units, 96);
+    let bytes = heap.stats().indirect_bytes;
     heap.scope(|cx| {
         let vector = cx.get(&vector)?;
-        // SAFETY: dropping edges changes no owned capacity; it needs a restart,
-        // installed before the loan is exposed. No unrooted result escapes.
+        // SAFETY: dropping edges changes no capacity. Commit the reduced logical
+        // charge before exposing a forgettable result; the scanner restart stays
+        // installed independently of accounting. No unrooted result escapes.
         let mut object = unsafe { cx.borrow_object_mut(vector) }?;
+        unsafe {
+            object.parts().0.truncate(1);
+        }
+        object.commit_accounting()?;
+        // A second edit starts from that committed snapshot, not the initial
+        // length. Its checkpoint must run even though the guard stays borrowed.
         unsafe {
             object.parts().0.clear();
         }
+        object.commit_accounting()?;
         std::mem::forget(object);
         Ok(())
     })?;
+    assert_eq!(heap.stats().provider_units, 0);
+    assert_eq!(heap.stats().indirect_bytes, bytes);
     heap.collect()?;
     assert_eq!(drops.load(Ordering::Relaxed), 96);
+    drop(vector);
+    heap.collect()?;
+    assert_eq!(heap.stats().provider_units, 0);
+    assert_eq!(heap.stats().indirect_bytes, 0);
     Ok(())
 }
 
@@ -338,6 +357,45 @@ unsafe impl GcObject for ChargeFault {
         }
         ObjectCharge::default()
     }
+}
+
+#[test]
+fn explicit_charge_failure_is_not_retried_by_drop() -> Result<(), GcError> {
+    let drops = Arc::new(AtomicUsize::new(0));
+    let enabled = Arc::new(AtomicBool::new(false));
+    // The existing fault injector panics on call five. Admission succeeds while
+    // disabled; enable only after the complete loan has been established.
+    let calls = Arc::new(AtomicUsize::new(5));
+    let mut heap = Heap::default();
+    let root = heap.access()?.alloc_leaf(ChargeFault {
+        _destructor: Destructor {
+            panic: false,
+            drops: drops.clone(),
+        },
+        enabled: enabled.clone(),
+        calls: calls.clone(),
+    })?;
+    heap.scope(|cx| {
+        let value = cx.get(&root)?;
+        // SAFETY: no payload or capacity edit; this tests containment of a
+        // deliberately invalid charge hook, not an unchecked publication route.
+        let mut loan = unsafe { cx.borrow_object_mut(value) }?;
+        enabled.store(true, Ordering::Relaxed);
+        assert_eq!(
+            loan.commit_accounting(),
+            Err(GcError::Provider("mutation charge panicked"))
+        );
+        assert_eq!(loan.commit_accounting(), Err(GcError::Faulted));
+        drop(loan);
+        Ok(())
+    })?;
+    assert_eq!(heap.stats().phase, Phase::Faulted);
+    assert_eq!(calls.load(Ordering::Relaxed), 6);
+    assert_eq!(heap.stats().provider_units, 0);
+    assert_eq!(heap.shutdown().disposed_objects, 1);
+    assert_eq!(drops.load(Ordering::Relaxed), 1);
+    assert_eq!(calls.load(Ordering::Relaxed), 6);
+    Ok(())
 }
 
 #[test]

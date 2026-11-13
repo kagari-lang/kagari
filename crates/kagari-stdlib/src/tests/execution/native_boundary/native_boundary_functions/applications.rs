@@ -20,7 +20,7 @@ use kagari_runtime::{
         objects::Object,
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 
 use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
@@ -38,12 +38,7 @@ fn generic_function_binding_uses_closed_witnesses_and_rejects_missing_applicatio
     let module = generic_identity_module();
     let declaration = declaration_query(&module, DefinitionKind::Function, "identity");
     let (mut vm, owner) = fixture(
-        r#"
-        use example::generic_helper::identity;
-        pub fn evidence() -> i32 { identity(42) }
-        fn hidden<T>(value: T) -> T { value }
-        pub fn hidden_evidence() -> i32 { hidden(1) }
-    "#,
+        include_str!("../../../../../tests/fixtures/native/function-generic-witnesses.kgr"),
         Some(&module),
     );
     let _owner_program = owner;
@@ -113,13 +108,7 @@ fn generic_native_calls_return_retained_objects_tuples_and_closures() {
     let identity_id = declaration_query(&module, DefinitionKind::Function, "identity");
     let singleton_id = declaration_query(&module, DefinitionKind::Function, "singleton");
     let (mut vm, owner) = fixture(
-        r#"
-        use example::generic_helper::{identity, singleton};
-        pub struct Item { pub val value: i32 }
-        pub fn make() -> Item { identity(Item { value: 42 }) }
-        pub fn evidence() -> (i32,) { singleton(1) }
-        pub fn closure() -> fn() -> i32 { identity(|| 42) }
-    "#,
+        include_str!("../../../../../tests/fixtures/native/function-generic-retained-values.kgr"),
         Some(&module),
     );
     let _owner_program = owner;
@@ -279,19 +268,15 @@ fn generic_bindings_keep_type_evidence_without_pinning_ordinary_code() {
             .unwrap(),
         41
     );
+    vm.collect_garbage().unwrap();
     assert!(
-        !vm.collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&old.key()),
+        vm.validate_executable_module(&old).is_ok(),
         "the returned object still owns its original type scope"
     );
     drop((retained, value, item, make, identity));
+    vm.collect_garbage().unwrap();
     assert!(
-        vm.collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&old.key()),
+        vm.validate_executable_module(&old).is_err(),
         "a reusable ordinary binding does not pin obsolete executable code"
     );
     assert!(vm.call(&duplicate, (current_object,)).is_ok());
@@ -335,19 +320,13 @@ fn bound_native_application_uses_the_compilers_selected_trait_operation() {
                 let item = cx.argument(0)?;
                 let operation = cx.selected(&selected)?;
                 cx.collect_garbage()?;
-                cx.call_values(operation, &[item, Value::I32(0)])
+                cx.call_values(operation, &[item, ValueView::from(0i32)])
             }),
         )
         .unwrap();
     let module = builder.finish().unwrap();
     let (mut vm, owner) = fixture(
-        r#"
-        use example::bound::{Step, repeat};
-        pub struct Counter { pub val amount: i32 }
-        impl Step for Counter { fn step(self, value: i32) -> i32 { value + self.amount } }
-        pub fn make() -> Counter { Counter { amount: 42 } }
-        pub fn evidence() -> i32 { repeat(make()) }
-    "#,
+        include_str!("../../../../../tests/fixtures/native/function-bound-trait-operation.kgr"),
         Some(&module),
     );
     let _owner_program = owner;
@@ -418,12 +397,13 @@ fn admitted_native_retains_its_frame_while_selected_callbacks_use_current_code()
                 let operation = cx.selected(&selected)?;
                 let continuation = 100;
                 cx.collect_garbage()?;
-                let Value::I32(result) = cx.call_values(operation, &[item])? else {
-                    panic!("checked callback result");
-                };
+                let result = cx
+                    .call_values(operation, &[item])?
+                    .as_i32()
+                    .expect("checked callback result");
                 cx.collect_garbage()?;
                 assert_eq!(cx.owner().key(), owner);
-                Ok(Value::I32(continuation + result))
+                Ok(ValueView::from(continuation + result))
             }),
         )
         .unwrap();
@@ -432,6 +412,8 @@ fn admitted_native_retains_its_frame_while_selected_callbacks_use_current_code()
         include_str!("../../../../../tests/fixtures/native/admitted-selected-current-callback.kgr");
     let (mut vm, program) = fixture_without_foundation(source, Some(&module));
     let old = vm.select_program(&program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let counter = vm.bind_type(&program.root(), "Counter", &[]).unwrap();
     let value = vm.bind_field::<i32>(&counter, "value").unwrap();
     let receiver: Object = vm
@@ -497,46 +479,36 @@ fn admitted_native_retains_its_frame_while_selected_callbacks_use_current_code()
         current.publication_token(),
         prepared.owner().publication_token()
     );
-    {
-        let mut _session = vm
-            .begin_execution(prepared.owner(), vm.execution_options())
-            .unwrap();
-        let _session_options = _session.runtime().execution_options();
-        // Current entries from the same installation may join the admitted session.
-        let mut nested_activation = _session
-            .runtime_mut()
-            .enter_execution_stack(&current)
-            .unwrap();
-        nested_activation
-            .with(|vm, _nested| {
+    // Enter through the actual retained capability; a detached old descriptor
+    // cannot reopen an obsolete publication through ordinary begin_execution.
+    let mut activation = vm
+        .enter_pinned_execution_stack(prepared.selection())
+        .unwrap();
+    activation
+        .with(|vm, _| {
+            let mut nested_activation = vm.enter_execution_stack(&current)?;
+            nested_activation.with(|vm, _| {
                 assert_eq!(vm.execution_root().unwrap().key(), native_owner);
-
                 Ok(())
-            })
-            .unwrap();
-        drop(nested_activation);
-        for expected in [111, 121] {
-            let options = _session_options.clone();
-            assert_eq!(
-                prepared
-                    .call_with_options(
-                        &mut _session.runtime_mut().context(prepared.owner()).unwrap(),
+            })?;
+            drop(nested_activation);
+            for expected in [111, 121] {
+                let options = vm.execution_options();
+                assert_eq!(
+                    prepared.call_with_options(
+                        &mut vm.context(prepared.owner())?,
                         (receiver.clone(),),
-                        options,
-                    )
-                    .unwrap(),
-                expected
-            );
-            assert_eq!(
-                _session.runtime().execution_root().unwrap().key(),
-                native_owner
-            );
-            assert_eq!(
-                _session.runtime().resources().counters().current_call_depth,
-                0
-            );
-        }
-    }
+                        options
+                    )?,
+                    expected
+                );
+                assert_eq!(vm.execution_root().unwrap().key(), native_owner);
+                assert_eq!(vm.resources().counters().current_call_depth, 0);
+            }
+            Ok(())
+        })
+        .unwrap();
+    drop(activation);
     assert_eq!(*owners.lock().unwrap(), [native_owner, native_owner]);
     assert_eq!(
         receiver
@@ -546,6 +518,10 @@ fn admitted_native_retains_its_frame_while_selected_callbacks_use_current_code()
     );
     assert!(vm.execution_root().is_none());
     drop((receiver, prepared, function, counter, value));
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(vm.gc().active_roots(), 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }

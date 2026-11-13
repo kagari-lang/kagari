@@ -1,0 +1,19 @@
+use example::functions::tick;
+
+pub struct Player {
+    pub var hp: i32
+}
+
+pub fn make() -> Player {
+    tick();
+    Player { hp: 42 }
+}
+
+pub fn read(player: Player) -> i32 {
+    player.hp
+}
+
+fn private() -> i32 {
+    tick();
+    1
+}

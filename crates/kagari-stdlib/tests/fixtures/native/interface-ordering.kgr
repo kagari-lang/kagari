@@ -1,0 +1,48 @@
+use std::cmp::{ Ordering };
+
+use example::comparison::Compare;
+
+struct Source {}
+
+impl Compare for Source {}
+
+struct Rank {
+    val value: i32
+}
+
+impl PartialEq for Rank {
+    fn eq(self, other: Self) -> bool {
+        self.value == other.value
+    }
+}
+
+impl Eq for Rank {}
+
+impl PartialOrd for Rank {
+    fn partial_cmp(self, other: Self) -> Option<Ordering> {
+        self.value.partial_cmp(other.value)
+    }
+}
+
+impl Ord for Rank {
+    fn cmp(self, other: Self) -> Ordering {
+        other.value.cmp(self.value)
+    }
+}
+
+fn main() -> i32 {
+    val source: Compare = Source {};
+    if source.compare(10, 20) != Ordering::Less {
+        return 0;
+    };
+    val left = Rank { value: 10 };
+    val right = Rank { value: 20 };
+    if source.compare(left, right) != Ordering::Greater {
+        return 0;
+    };
+    if source.compare("a", "b") == Ordering::Less {
+        42
+    } else {
+        0
+    }
+}

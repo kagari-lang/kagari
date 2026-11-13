@@ -1,0 +1,17 @@
+use example::generic_helper::identity;
+
+pub struct Item {
+    pub var value: i32
+}
+
+pub fn item() -> Item {
+    identity(Item { value: 42 })
+}
+
+pub fn invoke(f: fn(Item) -> Item, item: Item) -> Item {
+    f(item)
+}
+
+pub fn echo(f: fn(Item) -> Item) -> fn(Item) -> Item {
+    f
+}

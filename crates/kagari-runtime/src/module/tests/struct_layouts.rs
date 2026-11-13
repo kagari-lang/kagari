@@ -1,15 +1,62 @@
 #[cfg(test)]
 use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
-use crate::{Runtime, error::RuntimeErrorKind, reflection, value::Value};
+use crate::{
+    Runtime,
+    error::{RuntimeErrorKind, reason::ErrorReason, trap::TrapReason},
+    module::ExecutableModule,
+    native::conversion::context::ConversionContext,
+    value::{aggregates::structures::StructObject, carriers::RootedValue, view::ValueView},
+};
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::{instruction::StructId, program::ModuleRef};
 use kagari_common::identity::map::DefinitionContext;
 use kagari_types::{
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
 };
+use std::slice;
 
 use crate::test_support::layouts;
+
+fn rooted_tuple<const N: usize>(
+    runtime: &mut Runtime,
+    owner: &ExecutableModule,
+    values: &[&RootedValue; N],
+) -> RootedValue {
+    let mut source = ConversionContext::new(runtime, owner).unwrap();
+    let values = (*values).map(|value| source.import(value).unwrap());
+    let tuple = source.allocate_tuple(&values).unwrap();
+    source.retain(&tuple).unwrap()
+}
+
+fn rooted_string(runtime: &mut Runtime, owner: &ExecutableModule, text: String) -> RootedValue {
+    let mut source = ConversionContext::new(runtime, owner).unwrap();
+    let value = source.allocate_string(text).unwrap();
+    source.retain(&value).unwrap()
+}
+
+fn assert_field_target(
+    runtime: &mut Runtime,
+    object: &RootedValue,
+    slot: usize,
+    expected: &RootedValue,
+) {
+    runtime
+        .memory
+        .scope(&runtime.resources, |cx, _| {
+            let object = cx.downcast::<StructObject>(object.get(cx)?.object().unwrap())?;
+            let value = StructObject::get(cx, object, slot)?;
+            assert!(
+                value
+                    .object()
+                    .unwrap()
+                    .ptr_eq(expected.get(cx)?.object().unwrap())
+            );
+            Ok(())
+        })
+        .unwrap();
+}
 
 #[test]
 fn slot_access_checks_nominal_owner_schema_permission_and_representation() {
@@ -23,7 +70,10 @@ fn slot_access_checks_nominal_owner_schema_permission_and_representation() {
         ],
     );
     let object = runtime
-        .alloc_struct(layout.clone(), vec![Value::I32(1), Value::Bool(true)])
+        .alloc_struct(
+            layout.clone(),
+            &[RootedValue::from(1i32), RootedValue::from(true)],
+        )
         .unwrap();
     let context = DefinitionContext::new().unwrap();
     let mut foreign = layout
@@ -59,41 +109,54 @@ fn slot_access_checks_nominal_owner_schema_permission_and_representation() {
         .unwrap()
         .struct_layout(StructId::new(0))
         .unwrap();
-    let heap = runtime.gc();
-    assert!(heap.struct_get_slot(object, &foreign, 0).is_none());
-    assert!(
-        heap.struct_set_slot(object, &foreign, 0, Value::I32(99))
-            .is_err()
-    );
-    assert!(
-        heap.struct_set_slot(object, &layout, 1, Value::Bool(false))
-            .is_err()
-    );
-    assert!(
-        heap.struct_set_slot(object, &layout, 0, Value::Bool(false))
-            .is_err()
-    );
-    assert!(
-        heap.struct_set_slot(object, &layout, usize::MAX, Value::I32(99))
-            .is_err()
-    );
-    assert!(
-        reflection::set_field(heap, &Value::Struct(object), "fixed", Value::Bool(false)).is_err()
-    );
-    assert!(reflection::set_field(heap, &Value::Struct(object), "x", Value::Bool(false)).is_err());
+    let mut source = ConversionContext::new(&mut runtime, layout.module()).unwrap();
+    let value = source.import(&object).unwrap();
     assert_eq!(
-        heap.struct_get_slot(object, &layout, 0),
-        Some(Value::I32(1))
+        source.struct_field(&value, &foreign, 0).unwrap_err().kind(),
+        RuntimeErrorKind::ModuleValidation
+    );
+    for error in [
+        source
+            .set_struct_field(&value, &foreign, 0, &ValueView::from(99i32))
+            .unwrap_err(),
+        source
+            .set_struct_field(&value, &layout, 1, &ValueView::from(false))
+            .unwrap_err(),
+        source
+            .set_struct_field(&value, &layout, 0, &ValueView::from(false))
+            .unwrap_err(),
+        source
+            .set_struct_field(&value, &layout, usize::MAX, &ValueView::from(99i32))
+            .unwrap_err(),
+    ] {
+        assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+    }
+    assert_eq!(
+        source.struct_field(&value, &layout, 0).unwrap().as_i32(),
+        Some(1)
     );
     assert_eq!(
-        heap.struct_get_slot(object, &layout, 1),
-        Some(Value::Bool(true))
+        source.struct_field(&value, &layout, 1).unwrap().as_bool(),
+        Some(true)
     );
-    reflection::set_field(heap, &Value::Struct(object), "x", Value::I32(42)).unwrap();
+    drop(source);
+    for field in ["fixed", "x"] {
+        assert_eq!(
+            runtime
+                .reflect_set_field(&object, field, &RootedValue::from(false))
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::InvalidReflectiveWrite
+        );
+    }
+    let _ = runtime
+        .reflect_set_field(&object, "x", &RootedValue::from(42i32))
+        .unwrap();
     assert_eq!(
-        heap.struct_get_slot(object, &layout, 0),
-        Some(Value::I32(42))
+        runtime.reflect_get_field(&object, "x").unwrap().as_i32(),
+        Some(42)
     );
+    assert!(!runtime.is_quarantined());
 }
 
 #[test]
@@ -110,37 +173,53 @@ fn allocation_rejects_foreign_layout_and_invalid_initializers_before_accounting(
         "Point",
         &[("x", Ty::Builtin(BuiltinType::I32), true)],
     );
-    let counters = runtime.resources().counters();
+    let before = runtime.gc_stats();
     assert_eq!(
         runtime
-            .alloc_struct(foreign.clone(), vec![Value::I32(7)])
+            .alloc_struct(foreign.clone(), &[RootedValue::from(7)])
             .unwrap_err()
             .kind(),
-        RuntimeErrorKind::ModuleValidation
+        RuntimeErrorKind::ModuleValidation,
     );
     for fields in [
         vec![],
-        vec![Value::Bool(false)],
-        vec![Value::I32(1), Value::I32(2)],
+        vec![RootedValue::from(false)],
+        vec![RootedValue::from(1), RootedValue::from(2)],
     ] {
+        let error = runtime.alloc_struct(layout.clone(), &fields).unwrap_err();
+        assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
+        assert!(matches!(
+            error.reason(),
+            ErrorReason::Trap(TrapReason::InvalidHeapTargetIndexOrPayload)
+        ));
+        assert_eq!(runtime.gc_stats().objects, before.objects);
+        assert_eq!(runtime.gc_stats().provider_units, before.provider_units);
         assert_eq!(
-            runtime
-                .alloc_struct(layout.clone(), fields)
-                .unwrap_err()
-                .kind(),
-            RuntimeErrorKind::ScriptTrap
+            runtime.gc_stats().root_registrations,
+            before.root_registrations
         );
     }
-    assert_eq!(runtime.resources().counters(), counters);
-    assert_eq!(runtime.gc().allocated_objects(), 0);
-    let object = runtime.alloc_struct(layout, vec![Value::I32(1)]).unwrap();
-    assert!(runtime.gc().struct_get_slot(object, &foreign, 0).is_none());
-    assert!(
-        runtime
-            .gc()
-            .struct_set_slot(object, &foreign, 0, Value::I32(2))
-            .is_err()
+    let object = runtime
+        .alloc_struct(layout.clone(), &[RootedValue::from(1)])
+        .unwrap();
+    assert_eq!(runtime.gc_stats().objects, before.objects + 1);
+    let mut conversion = ConversionContext::new(&mut runtime, layout.module()).unwrap();
+    let value = conversion.import(&object).unwrap();
+    assert_eq!(
+        conversion
+            .struct_field(&value, &layout, 0)
+            .unwrap()
+            .as_i32(),
+        Some(1)
     );
+    drop((conversion, object));
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, before.objects);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        before.root_registrations
+    );
+    assert!(!runtime.is_quarantined());
 }
 
 #[test]
@@ -160,9 +239,8 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
         .struct_layout(StructId::new(0))
         .unwrap();
     let object = runtime
-        .alloc_struct(original.clone(), vec![Value::I32(1)])
+        .alloc_struct(original.clone(), &[RootedValue::from(1)])
         .unwrap();
-    let _root = runtime.root_value(Value::Struct(object)).unwrap();
     let (definitions, bytecode) = original
         .module()
         .to_unverified(&Default::default())
@@ -185,47 +263,80 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
     let next = runtime.select_program(&program).unwrap();
     let compatible = next.struct_layout(StructId::new(0)).unwrap();
     assert_ne!(original.module().key(), compatible.module().key());
-    runtime
-        .gc()
-        .struct_set_slot(object, &compatible, 0, Value::I32(42))
-        .unwrap();
+    {
+        let mut conversion = ConversionContext::new(&mut runtime, &next).unwrap();
+        let value = conversion.import(&object).unwrap();
+        conversion
+            .set_struct_field(&value, &compatible, 0, &ValueView::from(42))
+            .unwrap();
+    }
     let original_key = original.module().key();
     drop(original);
-    assert!(
-        runtime
-            .collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&original_key)
-    );
-    let retained = runtime.gc().struct_layout(object).unwrap();
-    assert_eq!(retained.module().key(), original_key);
-    assert_eq!(
-        reflection::get_field(runtime.gc(), &Value::Struct(object), "x").unwrap(),
-        Value::I32(42)
-    );
-    // A retained verified generation can still allocate without a module-store lookup.
-    assert!(
-        runtime
-            .alloc_struct(retained.clone(), vec![Value::I32(3)])
-            .is_ok()
-    );
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.modules().loaded(original_key).is_none());
+    let retained = {
+        let mut conversion = ConversionContext::new(&mut runtime, &next).unwrap();
+        let value = conversion.import(&object).unwrap();
+        let retained = conversion.struct_layout(&value).unwrap();
+        assert_eq!(retained.module().key(), original_key);
+        assert_eq!(
+            conversion
+                .struct_field(&value, &retained, 0)
+                .unwrap()
+                .as_i32(),
+            Some(42)
+        );
+        retained
+    };
+    // Immutable nominal backing remains sufficient after the mutable revision is
+    // gone. Creating plain data must not open an execution or resurrect a body.
+    let fresh = runtime
+        .alloc_struct(retained.clone(), &[RootedValue::from(3)])
+        .unwrap();
+    assert!(runtime.modules().loaded(original_key).is_none());
     let changed = layouts::layout(
         &mut runtime,
         "Point",
         &[("x", Ty::Builtin(BuiltinType::I32), false)],
     );
-    assert!(runtime.gc().struct_get_slot(object, &changed, 0).is_none());
-    assert!(
-        runtime
-            .gc()
-            .struct_set_slot(object, &changed, 0, Value::I32(99))
-            .is_err()
-    );
-    assert_eq!(
-        runtime.gc().struct_get_slot(object, &retained, 0),
-        Some(Value::I32(42))
-    );
+    {
+        let mut conversion = ConversionContext::new(&mut runtime, &next).unwrap();
+        let value = conversion.import(&object).unwrap();
+        assert_eq!(
+            conversion
+                .struct_field(&value, &changed, 0)
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::ModuleValidation
+        );
+        assert_eq!(
+            conversion
+                .set_struct_field(&value, &changed, 0, &ValueView::from(99))
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::ModuleValidation
+        );
+        assert_eq!(
+            conversion
+                .struct_field(&value, &retained, 0)
+                .unwrap()
+                .as_i32(),
+            Some(42)
+        );
+        let value = conversion.import(&fresh).unwrap();
+        assert_eq!(
+            conversion
+                .struct_field(&value, &retained, 0)
+                .unwrap()
+                .as_i32(),
+            Some(3)
+        );
+    }
+    let roots = runtime.gc_stats().root_registrations;
+    drop((object, fresh));
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, roots - 2);
+    assert!(!runtime.is_quarantined());
 }
 
 #[test]
@@ -252,7 +363,9 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
         arguments: vec![],
         associated_types: Default::default(),
     });
-    let wrong_value = Value::Struct(runtime.alloc_struct(wrong, vec![Value::I32(9)]).unwrap());
+    let wrong_value = runtime
+        .alloc_struct(wrong, &[RootedValue::from(9i32)])
+        .unwrap();
     let context = DefinitionContext::new().unwrap();
     let mut bytecode = wrapper
         .module()
@@ -292,112 +405,149 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
     let module = runtime.select_program(&module_program).unwrap();
     let wrapper = module.struct_layout(StructId::new(0)).unwrap();
     let leaf = module.struct_layout(StructId::new(1)).unwrap();
-    let valid = Value::Struct(runtime.alloc_struct(leaf, vec![Value::I32(42)]).unwrap());
+    let valid = runtime
+        .alloc_struct(leaf, &[RootedValue::from(42i32)])
+        .unwrap();
     let Ty::Array(element) = &wrapper.layout().fields[0].ty else {
         panic!("array field")
     };
     let element = (**element).clone();
-    let initial = Value::Array(
-        runtime
-            .alloc_array(
-                &module,
-                element.clone(),
-                vec![
-                    runtime
-                        .gc()
-                        .alloc_tuple(vec![valid, Value::Bool(true)])
-                        .unwrap(),
-                ],
-            )
-            .unwrap(),
-    );
+    let tuple = rooted_tuple(&mut runtime, &module, &[&valid, &RootedValue::from(true)]);
+    let initial = runtime
+        .alloc_array(&module, element.clone(), &[tuple])
+        .unwrap();
     let target = runtime
-        .alloc_struct(wrapper.clone(), vec![initial])
+        .alloc_struct(wrapper.clone(), slice::from_ref(&initial))
         .unwrap();
     let Ty::Tuple(mut wrong_member_type) = element.clone() else {
         panic!("tuple element")
     };
     wrong_member_type[1] = Ty::Builtin(BuiltinType::I32);
+    let wrong_tuple = rooted_tuple(
+        &mut runtime,
+        &wrong_owner,
+        &[&wrong_value, &RootedValue::from(true)],
+    );
+    let wrong_scalar = rooted_tuple(&mut runtime, &module, &[&valid, &RootedValue::from(1i32)]);
     for (owner, ty, values) in [
         (
             &wrong_owner,
             Ty::Tuple(vec![wrong_type, Ty::Builtin(BuiltinType::Bool)]),
-            vec![
-                runtime
-                    .gc()
-                    .alloc_tuple(vec![wrong_value, Value::Bool(true)])
-                    .unwrap(),
-            ],
+            vec![wrong_tuple],
         ),
         (
             &module,
             Ty::Tuple(wrong_member_type.clone()),
-            vec![
-                runtime
-                    .gc()
-                    .alloc_tuple(vec![valid, Value::I32(1)])
-                    .unwrap(),
-            ],
+            vec![wrong_scalar],
         ),
         (&module, Ty::Tuple(wrong_member_type), vec![]),
     ] {
-        let invalid = Value::Array(runtime.alloc_array(owner, ty, values).unwrap());
+        let invalid = runtime.alloc_array(owner, ty, &values).unwrap();
         let before = runtime.resources().counters();
-        let objects = runtime.gc().allocated_objects();
+        let heap = runtime.gc_stats();
+        let error = runtime
+            .alloc_struct(wrapper.clone(), slice::from_ref(&invalid))
+            .unwrap_err();
+        assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
+        assert!(matches!(
+            error.reason(),
+            ErrorReason::Trap(TrapReason::InvalidHeapTargetIndexOrPayload)
+        ));
         assert_eq!(
             runtime
-                .alloc_struct(wrapper.clone(), vec![invalid])
+                .reflect_set_field(&target, "items", &invalid)
                 .unwrap_err()
                 .kind(),
-            RuntimeErrorKind::ScriptTrap
+            RuntimeErrorKind::InvalidReflectiveWrite
         );
-        assert_eq!(
-            runtime
-                .gc()
-                .struct_set_slot(target, &wrapper, 0, invalid)
-                .unwrap_err()
-                .kind(),
-            RuntimeErrorKind::ScriptTrap
-        );
-        assert_eq!(
-            runtime.gc().struct_get_slot(target, &wrapper, 0),
-            Some(initial)
-        );
+        assert_field_target(&mut runtime, &target, 0, &initial);
         assert_eq!(runtime.resources().counters(), before);
-        assert_eq!(runtime.gc().allocated_objects(), objects);
+        assert_eq!(runtime.gc_stats(), heap);
     }
-    let replacement = Value::Array(runtime.alloc_array(&module, element, vec![]).unwrap());
-    runtime
-        .gc()
-        .struct_set_slot(target, &wrapper, 0, replacement)
+    let replacement = runtime.alloc_array(&module, element, &[]).unwrap();
+    let _ = runtime
+        .reflect_set_field(&target, "items", &replacement)
         .unwrap();
-    assert_eq!(
-        runtime.gc().struct_get_slot(target, &wrapper, 0),
-        Some(replacement)
-    );
+    assert_field_target(&mut runtime, &target, 0, &replacement);
+    assert!(!runtime.is_quarantined());
 }
 
 #[test]
 fn mixed_scalar_fields_preserve_full_domains_and_float_bits_at_value_boundaries() {
+    // Expected tags/bits are independent constants, including NaN payloads and
+    // sign extension; deriving them from the input codec would hide a codec bug.
     let cases = [
-        (BuiltinType::Bool, Value::Bool(true)),
-        (BuiltinType::Unit, Value::Unit),
-        (BuiltinType::I8, Value::I32(i8::MIN.into())),
-        (BuiltinType::I16, Value::I32(i16::MIN.into())),
-        (BuiltinType::I32, Value::I32(i32::MIN)),
-        (BuiltinType::I64, Value::I64(i64::MIN)),
-        (BuiltinType::I64, Value::I64(i64::MAX)),
-        (BuiltinType::U8, Value::I64(u8::MAX.into())),
-        (BuiltinType::U16, Value::I64(u16::MAX.into())),
-        (BuiltinType::U32, Value::I64(u32::MAX.into())),
-        (BuiltinType::U64, Value::U64(u64::MAX)),
-        (BuiltinType::F32, Value::F32(f32::from_bits(0x7fc1_2345))),
+        (
+            BuiltinType::Bool,
+            RootedValue::from(true),
+            (ValueType::Bool, 1),
+        ),
+        (BuiltinType::Unit, RootedValue::unit(), (ValueType::Unit, 0)),
+        (
+            BuiltinType::I8,
+            RootedValue::from(-128i32),
+            (ValueType::I32, 0xffff_ffff_ffff_ff80),
+        ),
+        (
+            BuiltinType::I16,
+            RootedValue::from(-32_768i32),
+            (ValueType::I32, 0xffff_ffff_ffff_8000),
+        ),
+        (
+            BuiltinType::I32,
+            RootedValue::from(i32::MIN),
+            (ValueType::I32, 0xffff_ffff_8000_0000),
+        ),
+        (
+            BuiltinType::I64,
+            RootedValue::from(i64::MIN),
+            (ValueType::I64, 0x8000_0000_0000_0000),
+        ),
+        (
+            BuiltinType::I64,
+            RootedValue::from(i64::MAX),
+            (ValueType::I64, 0x7fff_ffff_ffff_ffff),
+        ),
+        (
+            BuiltinType::U8,
+            RootedValue::from(255i64),
+            (ValueType::I64, 0xff),
+        ),
+        (
+            BuiltinType::U16,
+            RootedValue::from(65_535i64),
+            (ValueType::I64, 0xffff),
+        ),
+        (
+            BuiltinType::U32,
+            RootedValue::from(4_294_967_295i64),
+            (ValueType::I64, 0xffff_ffff),
+        ),
+        (
+            BuiltinType::U64,
+            RootedValue::from(u64::MAX),
+            (ValueType::U64, u64::MAX),
+        ),
+        (
+            BuiltinType::F32,
+            RootedValue::from(f32::from_bits(0x7fc1_2345)),
+            (ValueType::F32, 0x7fc1_2345),
+        ),
         (
             BuiltinType::F64,
-            Value::F64(f64::from_bits(0x7ff8_1234_5678_9abc)),
+            RootedValue::from(f64::from_bits(0x7ff8_1234_5678_9abc)),
+            (ValueType::F64, 0x7ff8_1234_5678_9abc),
         ),
-        (BuiltinType::Char, Value::Char('\0')),
-        (BuiltinType::Char, Value::Char(char::MAX)),
+        (
+            BuiltinType::Char,
+            RootedValue::from('\0'),
+            (ValueType::Char, 0),
+        ),
+        (
+            BuiltinType::Char,
+            RootedValue::from(char::MAX),
+            (ValueType::Char, 0x10ffff),
+        ),
     ];
     let names = (0..cases.len())
         .map(|slot| format!("field{slot}"))
@@ -405,105 +555,122 @@ fn mixed_scalar_fields_preserve_full_domains_and_float_bits_at_value_boundaries(
     let fields = cases
         .iter()
         .zip(&names)
-        .map(|((ty, _), name)| (name.as_str(), Ty::Builtin(*ty), true))
+        .map(|((ty, _, _), name)| (name.as_str(), Ty::Builtin(*ty), true))
         .collect::<Vec<_>>();
     let mut runtime = Runtime::default();
     let layout = layouts::layout(&mut runtime, "Scalars", &fields);
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     let counters = runtime.resources().counters();
     for (slot, invalid) in [
-        (2, Value::I32(-129)),
-        (2, Value::I32(128)),
-        (3, Value::I32(-32_769)),
-        (3, Value::I32(32_768)),
-        (7, Value::I64(-1)),
-        (7, Value::I64(256)),
-        (8, Value::I64(-1)),
-        (8, Value::I64(65_536)),
-        (9, Value::I64(-1)),
-        (9, Value::I64(4_294_967_296)),
-        (9, Value::Char('a')),
-        (13, Value::I64(0)),
-        (14, Value::I64(0x10ffff)),
+        (2, RootedValue::from(-129i32)),
+        (2, RootedValue::from(128i32)),
+        (3, RootedValue::from(-32_769i32)),
+        (3, RootedValue::from(32_768i32)),
+        (7, RootedValue::from(-1i64)),
+        (7, RootedValue::from(256i64)),
+        (8, RootedValue::from(-1i64)),
+        (8, RootedValue::from(65_536i64)),
+        (9, RootedValue::from(-1i64)),
+        (9, RootedValue::from(4_294_967_296i64)),
+        (9, RootedValue::from('a')),
+        (13, RootedValue::from(0i64)),
+        (14, RootedValue::from(0x10ffffi64)),
     ] {
-        let mut initial = cases.iter().map(|(_, value)| *value).collect::<Vec<_>>();
+        let mut initial = cases
+            .iter()
+            .map(|(_, value, _)| value.clone())
+            .collect::<Vec<_>>();
         initial[slot] = invalid;
-        assert_eq!(
-            runtime
-                .alloc_struct(layout.clone(), initial)
-                .unwrap_err()
-                .kind(),
-            RuntimeErrorKind::ScriptTrap
-        );
+        let error = runtime.alloc_struct(layout.clone(), &initial).unwrap_err();
+        assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
+        assert!(matches!(
+            error.reason(),
+            ErrorReason::Trap(TrapReason::InvalidHeapTargetIndexOrPayload)
+        ));
+        assert_eq!(runtime.gc_stats(), baseline);
     }
     assert_eq!(runtime.resources().counters(), counters);
-    assert_eq!(runtime.gc().allocated_objects(), 0);
-    let object = runtime
-        .alloc_struct(
-            layout.clone(),
-            cases.iter().map(|(_, value)| *value).collect(),
-        )
-        .unwrap();
-    let root = runtime.root_value(Value::Struct(object)).unwrap();
+    let initial = cases
+        .iter()
+        .map(|(_, value, _)| value.clone())
+        .collect::<Vec<_>>();
+    let object = runtime.alloc_struct(layout.clone(), &initial).unwrap();
     runtime.collect_garbage().unwrap();
-    for (slot, (_, expected)) in cases.iter().enumerate() {
-        let actual = runtime.gc().struct_get_slot(object, &layout, slot).unwrap();
-        match (actual, expected) {
-            (Value::F32(actual), Value::F32(expected)) => {
-                assert_eq!(actual.to_bits(), expected.to_bits())
-            }
-            (Value::F64(actual), Value::F64(expected)) => {
-                assert_eq!(actual.to_bits(), expected.to_bits())
-            }
-            (actual, expected) => assert_eq!(actual, *expected),
-        }
+    let mut source = ConversionContext::new(&mut runtime, layout.module()).unwrap();
+    let value = source.import(&object).unwrap();
+    for (slot, (_, _, expected)) in cases.iter().enumerate() {
+        assert_eq!(
+            source
+                .struct_field(&value, &layout, slot)
+                .unwrap()
+                .scalar_payload(),
+            Some(*expected)
+        );
     }
-    runtime
-        .gc()
-        .struct_set_slot(object, &layout, 11, Value::F32(-0.0))
+    source
+        .set_struct_field(&value, &layout, 11, &ValueView::from(-0.0f32))
         .unwrap();
-    runtime
-        .gc()
-        .struct_set_slot(object, &layout, 12, Value::F64(-0.0))
+    source
+        .set_struct_field(&value, &layout, 12, &ValueView::from(-0.0f64))
         .unwrap();
-    let (_, fields) = runtime.gc().struct_snapshot(object).unwrap();
-    let Value::F32(value) = fields[11].value else {
-        unreachable!()
-    };
-    assert_eq!(value.to_bits(), (-0.0_f32).to_bits());
-    let Value::F64(value) = fields[12].value else {
-        unreachable!()
-    };
-    assert_eq!(value.to_bits(), (-0.0_f64).to_bits());
-    assert!(
-        runtime
-            .gc()
-            .struct_set_slot(object, &layout, 2, Value::I32(128))
-            .is_err()
+    let snapshot = source.snapshot_struct(&value, &layout).unwrap();
+    assert_eq!(
+        snapshot
+            .element(&mut source, 11)
+            .unwrap()
+            .as_f32()
+            .unwrap()
+            .to_bits(),
+        0x8000_0000
     );
     assert_eq!(
-        runtime.gc().struct_get_slot(object, &layout, 2),
-        Some(Value::I32(-128))
+        snapshot
+            .element(&mut source, 12)
+            .unwrap()
+            .as_f64()
+            .unwrap()
+            .to_bits(),
+        0x8000_0000_0000_0000
     );
-    assert!(
-        runtime
-            .gc()
-            .struct_set_slot(object, &layout, 13, Value::I64(97))
-            .is_err()
+    assert_eq!(
+        source
+            .set_struct_field(&value, &layout, 2, &ValueView::from(128i32))
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::ModuleValidation
     );
-    runtime
-        .gc()
-        .struct_set_slot(object, &layout, 13, Value::Char('🙂'))
+    assert_eq!(
+        source.struct_field(&value, &layout, 2).unwrap().as_i32(),
+        Some(-128)
+    );
+    assert_eq!(
+        source
+            .set_struct_field(&value, &layout, 13, &ValueView::from(97i64))
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::ModuleValidation
+    );
+    source
+        .set_struct_field(&value, &layout, 13, &ValueView::from('🙂'))
         .unwrap();
     assert_eq!(
-        runtime.gc().struct_get_slot(object, &layout, 13),
-        Some(Value::Char('🙂'))
+        source.struct_field(&value, &layout, 13).unwrap().as_char(),
+        Some('🙂')
     );
-    drop(root);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    drop(source);
+    drop(object);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert!(!runtime.is_quarantined());
 }
 
 #[test]
-fn mixed_layout_relocation_preserves_references_empty_records_and_aliases() {
+fn mixed_layouts_keep_aliased_fields_across_collection_and_growth() {
     let mut runtime = Runtime::default();
     let empty = layouts::layout(&mut runtime, "Empty", &[]);
     let small = layouts::layout(
@@ -520,96 +687,120 @@ fn mixed_layout_relocation_preserves_references_empty_records_and_aliases() {
             ("bits", Ty::Builtin(BuiltinType::F64), true),
         ],
     );
+    let owner = packed.module().clone();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     let mut kept = Vec::new();
     for index in 0..200_i32 {
-        let zero = runtime.alloc_struct(empty.clone(), vec![]).unwrap();
+        let zero = runtime.alloc_struct(empty.clone(), &[]).unwrap();
         let flag = runtime
-            .alloc_struct(small.clone(), vec![Value::Bool(true)])
+            .alloc_struct(small.clone(), &[RootedValue::from(true)])
             .unwrap();
-        let text = runtime.gc().alloc_string(index.to_string()).unwrap();
+        let text = rooted_string(&mut runtime, &owner, index.to_string());
         let bits = 0x7ff8_0000_0000_0000 + index as u64;
         let record = runtime
             .alloc_struct(
                 packed.clone(),
-                vec![
-                    Value::I32(index - 100),
+                &[
+                    RootedValue::from(index - 100),
                     text,
-                    Value::F64(f64::from_bits(bits)),
+                    RootedValue::from(f64::from_bits(bits)),
                 ],
             )
             .unwrap();
         if index % 17 == 0 {
-            let tuple = runtime
-                .gc()
-                .alloc_tuple(vec![
-                    Value::Struct(zero),
-                    Value::Struct(flag),
-                    Value::Struct(record),
-                ])
-                .unwrap();
-            kept.push((
-                runtime.root_value(tuple).unwrap(),
-                zero,
-                flag,
-                record,
-                index,
-                bits,
-            ));
+            let tuple = rooted_tuple(&mut runtime, &owner, &[&zero, &flag, &record]);
+            kept.push((tuple, index, bits));
         }
+        // Only each retained tuple protects its three records and String child.
+        // No detached IDs or extra child roots survive this iteration.
     }
+    runtime.collect_garbage().unwrap();
     assert_eq!(
-        runtime.collect_garbage().unwrap().live_objects,
-        kept.len() * 5
+        runtime.gc_stats().objects,
+        baseline.objects + kept.len() * 5
     );
-    for (_, _, flag, record, _, _) in &kept {
-        runtime
-            .gc()
-            .struct_set_slot(*flag, &small, 0, Value::Bool(false))
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations + kept.len()
+    );
+    for (tuple, _, _) in &kept {
+        let mut source = ConversionContext::new(&mut runtime, &owner).unwrap();
+        let tuple = source.import(tuple).unwrap();
+        let flag = source.tuple_element(&tuple, 1).unwrap();
+        let record = source.tuple_element(&tuple, 2).unwrap();
+        source
+            .set_struct_field(&flag, &small, 0, &ValueView::from(false))
             .unwrap();
-        runtime
-            .gc()
-            .struct_set_slot(*record, &packed, 0, Value::I32(-128))
+        source
+            .set_struct_field(&record, &packed, 0, &ValueView::from(-128i32))
             .unwrap();
     }
-    // Grow after compaction, reusing directory IDs while byte offsets remain private.
+    // New dead allocations exercise growth/reuse while the tuple-owned graph
+    // remains live. The nonmoving collector exposes no directory/offset identity.
     for _ in 0..400 {
-        runtime
+        let text = rooted_string(&mut runtime, &owner, "dead".to_owned());
+        let _ = runtime
             .alloc_struct(
                 packed.clone(),
-                vec![
-                    Value::I32(127),
-                    runtime.gc().alloc_string("dead".to_owned()).unwrap(),
-                    Value::F64(-0.0),
-                ],
+                &[RootedValue::from(127i32), text, RootedValue::from(-0.0f64)],
             )
             .unwrap();
     }
+    runtime.collect_garbage().unwrap();
     assert_eq!(
-        runtime.collect_garbage().unwrap().live_objects,
-        kept.len() * 5
+        runtime.gc_stats().objects,
+        baseline.objects + kept.len() * 5
     );
-    for (_, zero, flag, record, index, bits) in &kept {
-        assert!(runtime.gc().struct_snapshot(*zero).unwrap().1.is_empty());
+    for (tuple, index, bits) in &kept {
+        let mut source = ConversionContext::new(&mut runtime, &owner).unwrap();
+        let tuple = source.import(tuple).unwrap();
+        assert_eq!(source.tuple_len(&tuple).unwrap(), 3);
+        let zero = source.tuple_element(&tuple, 0).unwrap();
+        assert!(
+            source
+                .struct_layout(&zero)
+                .unwrap()
+                .layout()
+                .fields
+                .is_empty()
+        );
+        let flag = source.tuple_element(&tuple, 1).unwrap();
+        let record = source.tuple_element(&tuple, 2).unwrap();
         assert_eq!(
-            runtime.gc().struct_get_slot(*flag, &small, 0),
-            Some(Value::Bool(false))
+            source.struct_field(&flag, &small, 0).unwrap().as_bool(),
+            Some(false)
         );
         assert_eq!(
-            runtime.gc().struct_get_slot(*record, &packed, 0),
-            Some(Value::I32(-128))
+            source.struct_field(&record, &packed, 0).unwrap().as_i32(),
+            Some(-128)
         );
-        let Some(Value::Str(text)) = runtime.gc().struct_get_slot(*record, &packed, 1) else {
-            panic!("retained string")
-        };
-        assert_eq!(&*runtime.gc().string(text).unwrap(), &index.to_string());
-        let Some(Value::F64(value)) = runtime.gc().struct_get_slot(*record, &packed, 2) else {
-            panic!("retained f64")
-        };
-        assert_eq!(value.to_bits(), *bits);
+        let text = source.struct_field(&record, &packed, 1).unwrap();
+        assert_eq!(
+            source.read_string(&text, str::to_owned).unwrap(),
+            index.to_string()
+        );
+        assert_eq!(
+            source
+                .struct_field(&record, &packed, 2)
+                .unwrap()
+                .as_f64()
+                .unwrap()
+                .to_bits(),
+            *bits
+        );
     }
-    let stale = kept[0].3;
     drop(kept);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
-    runtime.alloc_struct(empty, vec![]).unwrap();
-    assert!(!runtime.gc().validate_value(&Value::Struct(stale)));
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    let fresh = runtime.alloc_struct(empty, &[]).unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects + 1);
+    drop(fresh);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
+    assert!(!runtime.is_quarantined());
 }

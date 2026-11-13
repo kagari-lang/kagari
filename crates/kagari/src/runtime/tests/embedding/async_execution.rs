@@ -6,14 +6,13 @@ use crate::{
     runtime::Runtime,
 };
 use kagari_runtime::execution::owned::DriveResult;
-use kagari_runtime::value::Value;
 
 // Shared with the source-free standalone consumer; it uses these parent imports.
 #[path = "../../../../tests/support/async_fixture.rs"]
 mod fixture;
 use crate::{BytecodeArtifact, engine::EngineConfig};
 use fixture::{Fixture, slice};
-use kagari_runtime::{gc::roots::RootedValue, session::owned::OwnedExecution};
+use kagari_runtime::{session::owned::OwnedExecution, value::carriers::RootedValue};
 use kagari_source::source::SourceFile;
 use std::num::NonZeroUsize;
 
@@ -57,14 +56,14 @@ impl Fixture {
         Self::with_prepared_program(config, install, |engine, _, _| prepare_source(engine, text))
     }
 
-    fn invoke(&mut self, entry: &str, arguments: &[Value]) -> RootedValue {
+    fn invoke(&mut self, entry: &str, arguments: &[RootedValue]) -> RootedValue {
         self.call(entry, arguments).unwrap()
     }
 
     fn call(
         &mut self,
         entry: &str,
-        arguments: &[Value],
+        arguments: &[RootedValue],
     ) -> kagari_runtime::native::binding::NativeResult<RootedValue> {
         if arguments.is_empty() {
             return self
@@ -88,13 +87,9 @@ impl Fixture {
         panic!("bounded ordinary call");
     }
 
-    fn value(&self, root: &RootedValue) -> Value {
-        root.value(self.runtime.gc()).unwrap()
-    }
-
     fn start_future(&mut self, future: &RootedValue) -> OwnedExecution {
         self.runtime
-            .start_future(&self.value(future), Default::default())
+            .start_future(future, Default::default())
             .unwrap()
     }
 

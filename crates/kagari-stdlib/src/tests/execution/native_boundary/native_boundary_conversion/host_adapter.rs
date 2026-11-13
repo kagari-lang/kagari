@@ -3,20 +3,23 @@ use crate::tests::execution::native_boundary::{compile_program, support::round_t
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
-    gc::GcHeapConfig,
+    execution::memory::GcHeapConfig,
     host::{
-        HostCallContext, HostError, HostObjectId, HostPathAdapter, HostSchemaEpoch,
-        PreparedHostPathWrite,
+        HostCallContext, HostError, HostObjectId, HostPathAdapter, HostPathDescriptorId,
+        HostSchemaEpoch, PreparedHostPathWrite,
     },
     native::{
+        binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
         context::NativeCall,
+        conversion::context::ConversionContext,
         declarations::{FunctionDecl, MethodDecl},
+        host,
         installation::NativeInstallation,
         types::Type,
     },
     session::{DeterministicInputs, ExecutionPhase, TraceValue},
-    value::Value,
+    value::{kind::ObjectKind, view::ValueView},
 };
 
 #[cfg(test)]
@@ -62,24 +65,22 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
         .unwrap();
     assert!(
         builder
-            .bind(echo.clone(), |cx: &mut NativeCall<'_>| cx.argument(0))
+            .bind(
+                echo.clone(),
+                NativeBinding::new(vec![Codec::Value], Codec::Value, |cx| cx.argument(0))
+            )
             .is_err()
     );
     builder
         .bind(
             echo.clone(),
-            |cx: &mut HostCallContext<'_>, args: &[Value]| {
+            host::callback(|cx, args| {
                 cx.runtime_mut().collect_garbage().unwrap();
-                let Value::Str(id) = args[0] else {
-                    panic!("string argument")
-                };
-                let text = cx.runtime().gc().string(id).unwrap().to_owned();
+                let text = cx.read_string(&args[0], str::to_owned).unwrap();
                 let time = cx.execution_time_millis().unwrap();
-                cx.runtime()
-                    .gc()
-                    .alloc_string(format!("{text}:{time}"))
+                cx.allocate_string(format!("{text}:{time}"))
                     .map_err(|error| HostError::new(error.to_string()))
-            },
+            }),
         )
         .unwrap();
     let entered = Arc::new(AtomicUsize::new(0));
@@ -101,10 +102,10 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
         builder
             .bind(
                 function,
-                move |cx: &mut HostCallContext<'_>, _: &[Value]| {
+                host::callback(move |cx, _| {
                     entered.fetch_add(1, Ordering::Relaxed);
                     match name {
-                        "configuration" => Ok(Value::I32(7)),
+                        "configuration" => Ok(ValueView::from(7i32)),
                         "fail" => Err(HostError::new("service failed")),
                         "cancel" => {
                             cx.runtime().execution_options().cancellation.cancel();
@@ -112,7 +113,7 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
                         }
                         _ => panic!("service unwind"),
                     }
-                },
+                }),
             )
             .unwrap();
     }
@@ -123,24 +124,17 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
         builder
             .bind(
                 missing_policy.clone(),
-                |_: &mut HostCallContext<'_>, _: &[Value]| Ok(Value::Unit)
+                host::callback(|_, _| Ok(ValueView::unit()))
             )
             .is_err()
     );
     // A rejected binding does not consume the declaration; complete it normally.
     builder
-        .bind(missing_policy, |_: &mut NativeCall<'_>| Ok(Value::Unit))
+        .bind(missing_policy, |_: &mut NativeCall<'_>| Ok(()))
         .unwrap();
     let module = builder.finish().unwrap();
     let (mut vm, owner) = source_free_vm(
-        r#"
-        use example::services;
-        pub fn run() -> String { services::echo("hello") }
-        pub fn configuration() -> i32 { services::configuration() }
-        pub fn fail() -> i32 { services::fail() }
-        pub fn cancel() -> i32 { services::cancel() }
-        pub fn unwind() -> i32 { services::panic() }
-        "#,
+        include_str!("../../../../../tests/fixtures/native/host-policy-trace.kgr"),
         &module,
     );
     let _owner_program = owner;
@@ -158,10 +152,13 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
             .runtime_mut()
             .execute_module(&owner, "run", session_options.clone())
             .unwrap();
-        let Value::Str(id) = report.return_value.value(session.runtime().gc()).unwrap() else {
-            panic!("string result")
-        };
-        assert_eq!(&*session.runtime().gc().string(id).unwrap(), "hello:123");
+        assert_eq!(
+            ConversionContext::new(session.runtime_mut(), &owner)
+                .unwrap()
+                .decode::<String>(&report.return_value)
+                .unwrap(),
+            "hello:123"
+        );
         assert_eq!(session.host_scope_count(), 0);
         let error = session
             .runtime_mut()
@@ -208,10 +205,7 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
             .runtime_mut()
             .execute_module(&owner, "configuration", session_options.clone())
             .unwrap();
-        assert_eq!(
-            report.return_value.value(session.runtime().gc()),
-            Some(Value::I32(7))
-        );
+        assert_eq!(report.return_value.as_i32(), Some(7));
         let error = session
             .runtime_mut()
             .execute_module(&owner, "fail", session_options.clone())
@@ -305,10 +299,12 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
         .bind_path(
             &preview,
             HostPathAdapter::new().with_read(|context, path| {
+                let root = context
+                    .runtime_mut()
+                    .host_root_value(path.root)
+                    .map_err(|error| HostError::new(error.to_string()))?;
                 context
-                    .runtime()
-                    .gc()
-                    .alloc_host_root(path.root)
+                    .import(&root)
                     .map_err(|error| HostError::new(error.to_string()))
             }),
         )
@@ -318,10 +314,12 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
             &identity,
             HostPathAdapter::new()
                 .with_read(|context, path| {
+                    let root = context
+                        .runtime_mut()
+                        .host_root_value(path.root)
+                        .map_err(|error| HostError::new(error.to_string()))?;
                     context
-                        .runtime()
-                        .gc()
-                        .alloc_host_root(path.root)
+                        .import(&root)
                         .map_err(|error| HostError::new(error.to_string()))
                 })
                 .with_prepare_write(|_, _, _| Ok(PreparedHostPathWrite::new(|| {}))),
@@ -336,6 +334,7 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
     builder
         .implement(player, |group| {
             let edited = state.clone();
+            let heal_identity = identity.clone();
             group.inherent_impl(|methods| {
                 let method = methods.define_method(
                     MethodDecl::instance("heal")
@@ -351,17 +350,19 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
                 )?;
                 methods.bind(
                     method,
-                    move |context: &mut HostCallContext<'_>, values: &[Value]| {
+                    host::callback(move |context, values| {
                         context.runtime_mut().collect_garbage().unwrap();
-                        let [value, Value::I32(amount)] = values else {
+                        let [value, amount] = values else {
                             panic!("root and amount")
                         };
-                        assert_external_argument(context, value, PathAccess::ReadWrite);
-                        Ok(Value::I32(
-                            (edited.fetch_add(*amount as usize, Ordering::SeqCst)
-                                + *amount as usize) as i32,
+                        let amount = amount.as_i32().expect("checked i32 amount");
+                        let path = context.runtime().resolve_host_path(&heal_identity).unwrap();
+                        assert_external_argument(context, value, PathAccess::ReadWrite, path);
+                        Ok(ValueView::from(
+                            (edited.fetch_add(amount as usize, Ordering::SeqCst) + amount as usize)
+                                as i32,
                         ))
-                    },
+                    }),
                 )
             })?;
             let read = state.clone();
@@ -376,37 +377,37 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
                 )?;
                 methods.bind(
                     "hp",
-                    move |context: &mut HostCallContext<'_>, values: &[Value]| {
+                    host::callback(move |context, values| {
                         context.runtime_mut().collect_garbage().unwrap();
                         let [value] = values else { panic!("root") };
-                        assert_external_argument(context, value, PathAccess::ReadOnly);
-                        if matches!(value, Value::HostPathView(_)) {
-                            let path = context.runtime().resolve_host_path(&identity).unwrap();
+                        let path = context.runtime().resolve_host_path(&identity).unwrap();
+                        assert_external_argument(context, value, PathAccess::ReadOnly, path);
+                        if value.kind() == Some(ObjectKind::HostPath) {
+                            let root = context.retain(value).unwrap();
                             let nested = context
-                                .runtime()
-                                .make_host_path_view_from_value(value, path, vec![])
+                                .runtime_mut()
+                                .make_host_path_view(&root, path, &[])
                                 .unwrap();
-                            assert_eq!(nested.access(), PathAccess::ReadOnly);
+                            let nested = context.import(&nested).unwrap();
+                            assert_eq!(
+                                context.inspect_path(&nested).unwrap().access,
+                                PathAccess::ReadOnly
+                            );
                             assert!(
                                 context
                                     .runtime_mut()
-                                    .set_host_path(value, path, vec![], *value)
+                                    .set_host_path(&root, path, &[], &root)
                                     .is_err()
                             );
                         }
-                        Ok(Value::I32(read.load(Ordering::SeqCst) as i32))
-                    },
+                        Ok(ValueView::from(read.load(Ordering::SeqCst) as i32))
+                    }),
                 )
             })
         })
         .unwrap();
     let module = builder.finish().unwrap();
-    let source = r#"
-        use example::roots::{Player, HasHp};
-        fn hp<T: HasHp>(player: T) -> i32 { player.hp() }
-        pub fn main(player: Player) -> i32 { player.heal(5); hp(player) }
-        pub fn read(player: Player) -> i32 { hp(player) }
-    "#;
+    let source = include_str!("../../../../../tests/fixtures/native/host-root-methods.kgr");
     let program = round_trip_program(compile_program(source, Some(&module)));
     let mut modules = crate::modules().unwrap();
     modules.push(module.clone());
@@ -426,13 +427,12 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
     let root = runtime
         .register_host_root(HostObjectId(17), type_id, HostSchemaEpoch::new(3))
         .unwrap();
-    let value = runtime.gc().alloc_host_root(root).unwrap();
-    let value = runtime.gc().root_execution_values(vec![value]).unwrap();
+    let value = runtime.host_root_value(root).unwrap();
     let owner = load_bytecode(&mut runtime, "shared-root", program).unwrap();
     let _owner_program = owner;
     let mut vm = runtime;
-    let argument = value.get(vm.gc(), 0).unwrap();
     vm.with_host_scope(|scope| {
+        let argument = scope.import(&value)?;
         assert_eq!(
             Runtime::execute_scoped(
                 scope,
@@ -440,21 +440,18 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
                 "main",
                 &[argument],
                 &Default::default()
-            )?,
-            Value::I32(15)
+            )?
+            .as_i32(),
+            Some(15)
         );
         Ok(())
     })
     .unwrap();
     assert_eq!(state.load(Ordering::SeqCst), 15);
     let path = vm.resolve_host_path(&identity).unwrap();
-    let view = vm
-        .make_host_path_view(root, path, Default::default())
-        .unwrap();
-    let view = vm.gc().alloc_host_path(view).unwrap();
-    let view = vm.gc().root_execution_values(vec![view]).unwrap();
-    let view_value = view.get(vm.gc(), 0).unwrap();
+    let view = vm.make_host_path_view(&value, path, &[]).unwrap();
     vm.with_host_scope(|scope| {
+        let view_value = scope.import(&view)?;
         assert_eq!(
             Runtime::execute_scoped(
                 scope,
@@ -462,21 +459,18 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
                 "main",
                 &[view_value],
                 &Default::default()
-            )?,
-            Value::I32(20)
+            )?
+            .as_i32(),
+            Some(20)
         );
         Ok(())
     })
     .unwrap();
     assert_eq!(state.load(Ordering::SeqCst), 20);
     let preview_path = vm.resolve_host_path(&preview).unwrap();
-    let readonly = vm
-        .make_host_path_view(root, preview_path, Default::default())
-        .unwrap();
-    let readonly = vm.gc().alloc_host_path(readonly).unwrap();
-    let readonly = vm.gc().root_execution_values(vec![readonly]).unwrap();
-    let readonly_value = readonly.get(vm.gc(), 0).unwrap();
+    let readonly = vm.make_host_path_view(&value, preview_path, &[]).unwrap();
     vm.with_host_scope(|scope| {
+        let readonly_value = scope.import(&readonly)?;
         assert_eq!(
             Runtime::execute_scoped(
                 scope,
@@ -484,8 +478,9 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
                 "read",
                 &[readonly_value],
                 &Default::default()
-            )?,
-            Value::I32(20)
+            )?
+            .as_i32(),
+            Some(20)
         );
         assert!(
             Runtime::execute_scoped(
@@ -501,13 +496,25 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
     })
     .unwrap();
     assert_eq!(state.load(Ordering::SeqCst), 20);
-    let Value::HostPathView(id) = view.get(vm.gc(), 0).unwrap() else {
-        panic!("view")
-    };
-    assert_eq!(
-        vm.gc().host_path(id).unwrap().access(),
-        PathAccess::ReadWrite
-    );
+    // The hp callback already checks a narrowed argument. A later unique call
+    // through the original path proves that the caller's capability was preserved.
+    vm.with_host_scope(|scope| {
+        let original = scope.import(&view)?;
+        assert_eq!(
+            Runtime::execute_scoped(
+                scope,
+                &_owner_program,
+                "main",
+                &[original],
+                &Default::default()
+            )?
+            .as_i32(),
+            Some(25)
+        );
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(state.load(Ordering::SeqCst), 25);
     let scope = vm.host_scope(&[]).unwrap();
     scope
         .borrows()
@@ -518,45 +525,63 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
     let foreign = other
         .register_host_root(HostObjectId(17), type_id, HostSchemaEpoch::new(3))
         .unwrap();
-    let foreign = vm.gc().alloc_host_root(foreign).unwrap();
+    assert_eq!(
+        vm.host_root_value(foreign).unwrap_err().kind(),
+        RuntimeErrorKind::TypedPathValidation
+    );
+    let foreign = other.host_root_value(foreign).unwrap();
     assert!(
-        vm.with_host_scope(|scope| Runtime::execute_scoped(
-            scope,
-            &_owner_program,
-            "main",
-            &[foreign],
-            &Default::default()
-        ))
+        vm.with_host_scope(|scope| {
+            let foreign = scope.import(&foreign)?;
+            Runtime::execute_scoped(
+                scope,
+                &_owner_program,
+                "main",
+                &[foreign],
+                &Default::default(),
+            )
+            .map(|_| ())
+        })
         .is_err()
     );
-    assert_eq!(state.load(Ordering::SeqCst), 20);
+    assert_eq!(state.load(Ordering::SeqCst), 25);
 }
 
-fn assert_external_argument(context: &mut HostCallContext<'_>, value: &Value, access: PathAccess) {
-    let runtime = context.runtime();
-    let object = match value {
-        Value::HostRoot(id) => runtime.gc().host_root(*id).unwrap().object_id(),
-        Value::HostPathView(id) => {
-            let view = runtime.gc().host_path(*id).unwrap();
-            assert_eq!(view.access(), access);
-            view.root().object_id()
-        }
-        _ => panic!("external argument"),
+fn assert_external_argument(
+    context: &mut HostCallContext<'_>,
+    value: &ValueView<'_>,
+    access: PathAccess,
+    identity: HostPathDescriptorId,
+) {
+    let facts = if value.kind() == Some(ObjectKind::HostPath) {
+        let facts = context.inspect_path(value).unwrap();
+        assert_eq!(facts.access, access);
+        facts
+    } else {
+        assert_eq!(value.kind(), Some(ObjectKind::HostRoot));
+        let root = context.retain(value).unwrap();
+        let path = context
+            .runtime_mut()
+            .make_host_path_view(&root, identity, &[])
+            .unwrap();
+        let path = context.import(&path).unwrap();
+        context.inspect_path(&path).unwrap()
     };
-    assert_eq!(object, HostObjectId(17));
+    assert_eq!(facts.root.object_id(), HostObjectId(17));
     if access == PathAccess::ReadOnly {
-        assert!(
+        let type_id = context
+            .runtime()
+            .types()
+            .get_by_name("example::roots::Player")
+            .unwrap()
+            .id;
+        assert_eq!(
             context
                 .borrows()
-                .borrow_unique(
-                    object,
-                    runtime
-                        .types()
-                        .get_by_name("example::roots::Player")
-                        .unwrap()
-                        .id
-                )
-                .is_err()
+                .borrow_unique(HostObjectId(17), type_id)
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::HostBorrowConflict
         );
     }
 }

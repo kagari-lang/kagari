@@ -1,0 +1,11 @@
+struct Node {
+    val next: Option<Node>
+}
+
+fn main() -> Option<Node> {
+    var head: Option<Node> = None;
+    for index in 0..10000 {
+        head = Some(Node { next: head });
+    }
+    head
+}

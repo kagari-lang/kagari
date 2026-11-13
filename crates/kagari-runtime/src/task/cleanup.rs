@@ -3,23 +3,27 @@ use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind, reason::CancellationReason},
     error_trace::ErrorTrace,
-    native::binding::NativeResult,
+    native::{binding::NativeResult, conversion::context::inputs::ValueInput},
     session::ExecutionPhase,
     task::{CancellationCause, TaskId, store::TaskState},
-    value::Value,
+    value::carriers::RootedValue,
 };
 
 use std::{mem, sync::atomic::Ordering};
 
 impl Runtime {
     /// Cancelling a terminal Task is a no-op, including after report retirement.
-    pub fn cancel_task(&self, value: &Value) -> NativeResult<()> {
+    pub fn cancel_task(&mut self, value: &RootedValue) -> NativeResult<()> {
+        self.cancel_task_input(ValueInput::Root(value))
+    }
+
+    pub(crate) fn cancel_task_input(&mut self, value: ValueInput<'_, '_>) -> NativeResult<()> {
         self.resources().poll_execution()?;
         if self.execution_options().phase != ExecutionPhase::Ordinary {
             return Err(RuntimeError::execution_phase_violation("task cancellation"));
         }
-        let (id, outcome) = self.gc().task_snapshot(value)?;
-        if outcome.is_some() {
+        let (id, ready) = self.task_state_input(value)?;
+        if ready {
             return Ok(());
         }
         let signal = self
@@ -37,7 +41,6 @@ impl Runtime {
     /// cleanup capability, not authority to run ready work from another scope.
     pub fn drain_cancelled_tasks(&mut self) -> NativeResult<usize> {
         self.require_idle_driver()?;
-        self.gc().ensure_no_native_borrow()?;
         let fault = self
             .resources()
             .ensure_execution_allowed()
@@ -45,7 +48,7 @@ impl Runtime {
             .filter(|error| error.kind() == RuntimeErrorKind::EngineFault);
         if fault.is_some() {
             for (_, scope) in self.tasks.scopes.iter() {
-                scope.control.closing.store(true, Ordering::Release);
+                scope.control.status.closing.store(true, Ordering::Release);
             }
         }
         let ids = self
@@ -113,7 +116,7 @@ impl Runtime {
             .iter()
             .filter(|(_, scope)| {
                 scope.control.owner_dropped.load(Ordering::Acquire)
-                    && scope.control.closed.load(Ordering::Acquire)
+                    && scope.control.status.closed.load(Ordering::Acquire)
             })
             .map(|(id, _)| id)
             .collect::<Vec<_>>();
@@ -139,7 +142,7 @@ impl Runtime {
 
 impl Drop for Runtime {
     fn drop(&mut self) {
-        self.modules().retire_installations();
+        let _ = self.retire_installations();
         let _ = self.close();
     }
 }

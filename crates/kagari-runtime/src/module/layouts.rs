@@ -420,16 +420,26 @@ impl EnumVariantRef {
         })
     }
 
+    fn argument_expressions(&self) -> &[Ty] {
+        if self.scope.is_some() {
+            &self.module.bytecode.enumerations[self.id.index()].arguments
+        } else {
+            &self.layout().arguments
+        }
+    }
+
+    /// Project one argument in its supplying lexical scope, without building a
+    /// synthetic nominal application or discarding prepared generic provenance.
+    pub(crate) fn argument_type(&self, position: usize) -> Option<TypeView<'_>> {
+        self.argument_expressions()
+            .get(position)
+            .map(|ty| TypeView::new(ty, &self.module, self.type_bindings().map(Arc::as_ref)))
+    }
+
     fn type_expression(&self) -> Ty {
         Ty::Enum(NominalTy {
             declaration: self.layout().declaration,
-            arguments: if self.scope.is_some() {
-                self.module.bytecode.enumerations[self.id.index()]
-                    .arguments
-                    .clone()
-            } else {
-                self.layout().arguments.clone()
-            },
+            arguments: self.argument_expressions().to_vec(),
             associated_types: Default::default(),
         })
     }

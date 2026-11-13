@@ -176,7 +176,7 @@ impl BrowserSession {
             Ok(DriveResult::Complete(result)) => {
                 self.active.take();
                 match result {
-                    Ok(root) => match OwnedResult::rooted(&root, self.runtime.gc()) {
+                    Ok(root) => match OwnedResult::rooted(&root, &mut self.runtime) {
                         Ok(result) => Response {
                             result: Some(result),
                             ..Response::new("complete")

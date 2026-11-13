@@ -1,14 +1,17 @@
 //! Closed field offsets retain immutable layout provenance, never executable roots.
 use crate::{
+    error::RuntimeError,
     frame::types::compatibility::TypeIdentity,
     host::HostRegistryId,
     module::{InstallationId, ModuleKey, StructLayoutRef, layout_identity::LayoutIdentity},
+    value::scalar::fields::ScalarEncoding,
 };
-use kagari_abi::representation::ValueType;
 use kagari_bytecode::instruction::StructId;
-use kagari_contract::representation::builtin_representation;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Weak},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct StructStorageKey {
@@ -55,7 +58,7 @@ pub(crate) enum StoredField {
         encoding: ScalarEncoding,
     },
     Managed {
-        offset: usize,
+        index: usize,
     },
 }
 
@@ -63,31 +66,34 @@ pub(crate) enum StoredField {
 pub(crate) struct StructStorageLayout {
     pub(crate) semantic: StructLayoutRef,
     pub(crate) fields: Box<[StoredField]>,
-    pub(crate) references: Box<[usize]>,
-    pub(crate) size: usize,
+    pub(crate) scalar_bytes: usize,
+    pub(crate) managed_count: usize,
 }
 
 impl StructStorageLayout {
     pub(crate) fn prepare(semantic: StructLayoutRef) -> Option<Self> {
         let mut fields = Vec::with_capacity(semantic.layout().fields.len());
-        let mut references = Vec::new();
+        let mut managed_count = 0_usize;
         let mut size = 0_usize;
-        for (slot, field) in semantic.layout().fields.iter().enumerate() {
+        for field in &semantic.layout().fields {
             if !field.ty.is_concrete() {
                 return None;
             }
             let (encoding, width) = match &field.ty {
-                Ty::Builtin(ty) if *ty != BuiltinType::String => (
-                    StoredField::Scalar {
-                        offset: size,
-                        encoding: ScalarEncoding::new(*ty)?,
-                    },
-                    scalar_width(*ty)?,
-                ),
+                Ty::Builtin(ty) if *ty != BuiltinType::String => {
+                    let encoding = ScalarEncoding::new(*ty)?;
+                    (
+                        StoredField::Scalar {
+                            offset: size,
+                            encoding,
+                        },
+                        encoding.width,
+                    )
+                }
                 _ => {
-                    references.push(slot);
-                    // Representation discriminator plus checked owner/slot/generation.
-                    (StoredField::Managed { offset: size }, 13)
+                    let index = managed_count;
+                    managed_count = managed_count.checked_add(1)?;
+                    (StoredField::Managed { index }, 0)
                 }
             };
             size = size.checked_add(width)?;
@@ -96,38 +102,42 @@ impl StructStorageLayout {
         Some(Self {
             semantic,
             fields: fields.into_boxed_slice(),
-            references: references.into_boxed_slice(),
-            size,
+            scalar_bytes: size,
+            managed_count,
         })
     }
 }
 
-fn scalar_width(ty: BuiltinType) -> Option<usize> {
-    Some(match ty {
-        BuiltinType::Unit => 0,
-        BuiltinType::Bool => 1,
-        BuiltinType::Char | BuiltinType::F32 => 4,
-        BuiltinType::F64 => 8,
-        _ => (ty.integer_layout()?.0 / 8) as usize,
-    })
+/// Weak immutable descriptions are shared by interpreter and Host construction.
+/// Cache keys/entries never grant object or executable liveness; GC prunes dead
+/// descriptions after provider retirement, without per-allocation table scans.
+#[derive(Debug, Default)]
+pub(crate) struct StructStorageLayouts {
+    entries: HashMap<StructStorageKey, Weak<StructStorageLayout>>,
 }
 
-/// Width/sign are derived once from the verified semantic scalar domain.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct ScalarEncoding {
-    pub(crate) ty: BuiltinType,
-    pub(crate) representation: ValueType,
-    pub(crate) width: usize,
-    pub(crate) signed: bool,
-}
+impl StructStorageLayouts {
+    pub(crate) fn prepare(
+        &mut self,
+        layout: StructLayoutRef,
+    ) -> Result<Arc<StructStorageLayout>, RuntimeError> {
+        let key = layout.storage_key();
+        if let Some(existing) = self.entries.get(&key).and_then(Weak::upgrade) {
+            return Ok(existing);
+        }
+        let description = Arc::new(
+            StructStorageLayout::prepare(layout)
+                .ok_or_else(|| RuntimeError::module_validation("closed struct storage layout"))?,
+        );
+        self.entries
+            .try_reserve(1)
+            .map_err(|_| RuntimeError::resource_limit("struct description registry"))?;
+        self.entries.insert(key, Arc::downgrade(&description));
+        Ok(description)
+    }
 
-impl ScalarEncoding {
-    fn new(ty: BuiltinType) -> Option<Self> {
-        Some(Self {
-            ty,
-            representation: builtin_representation(ty),
-            width: scalar_width(ty)?,
-            signed: ty.integer_layout().is_some_and(|(_, signed)| signed),
-        })
+    pub(crate) fn prune(&mut self) {
+        self.entries
+            .retain(|_, description| description.strong_count() != 0);
     }
 }

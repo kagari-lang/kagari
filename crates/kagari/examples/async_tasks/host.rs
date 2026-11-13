@@ -72,6 +72,8 @@ pub fn run(engine: KagariEngine, program: Program, io: FakeIo) -> HostResult<()>
     let module = runtime
         .load_program(&program, Default::default())
         .map_err(diagnostic)?;
+    runtime.collect_garbage()?;
+    let baseline = runtime.gc_stats();
     let (send, ready) = mpsc::sync_channel(1);
     let wake = Waker::from(Arc::new(Notify(send)));
     assert!(runtime.poll(&mut Context::from_waker(&wake)).is_pending());
@@ -158,10 +160,23 @@ pub fn run(engine: KagariEngine, program: Program, io: FakeIo) -> HostResult<()>
     assert_eq!(io.cancelled(), 1);
     assert_eq!(late.completion.complete(Ok(999)), CompletionStatus::Stale);
     println!("Task cancelled by scope close; late reply rejected");
-    drop((scope, job));
+    drop((scope, job, make, handler, ping, total));
+    // Current publication owns prepared environments and String constants. Its
+    // cold equivalent lets the host check execution cleanup independently.
+    let selected = runtime.select_program(&module).map_err(diagnostic)?;
+    let replacement = runtime
+        .stage_reload_verified_program(&module, None, selected.verified_program().clone())
+        .map_err(diagnostic)?;
+    runtime
+        .publish_staged_reload(replacement)
+        .map_err(diagnostic)?;
     runtime.collect_garbage()?;
-    assert_eq!(runtime.gc().active_roots(), 0);
-    assert_eq!(runtime.gc().allocated_objects(), 0);
+    assert!(runtime.validate_executable_module(&selected).is_err());
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
     runtime.close().map_err(diagnostic)?;
     Ok(())
 }

@@ -5,7 +5,7 @@ use crate::{
     program::Compilation,
     runtime::tests::language::numeric_checks::NumericChecks,
 };
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
 
@@ -125,16 +125,21 @@ fn assert_checks(program: &Compilation, route: &str, source: &str, checks: &Nume
     let loaded = runtime
         .load_program(program.program(), Default::default())
         .unwrap();
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     let result = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap_or_else(|error| panic!("{route}: {error:?}\n{source}"));
-    let value = result.return_value.value(runtime.gc()).unwrap();
-    let Value::I32(marker) = value else {
-        panic!("{route}: expected numeric check marker, got {value:?}\n{source}");
-    };
+    let marker = result.return_value.as_i32().unwrap_or_else(|| {
+        panic!(
+            "{route}: expected numeric check marker, got {:?}\n{source}",
+            result.return_value
+        )
+    });
     checks.assert_result(marker, route, source);
     drop(result);
-    assert_eq!(runtime.gc().active_roots(), 0, "{route}");
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, roots, "{route}");
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     assert!(!runtime.is_quarantined());
 }

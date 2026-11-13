@@ -29,82 +29,36 @@ fn failed_array(source: &str, expected: &[i32], calls: usize) {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = runtime;
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     assert!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .is_err()
     );
     assert_eq!(probe.calls.load(Ordering::SeqCst), calls);
     let snapshot = inspect_retained(&mut vm, &loaded, &probe);
-    let Value::Array(array) = snapshot.value(vm.gc()).unwrap() else {
-        panic!("snapshot")
-    };
-    assert_eq!(
-        vm.gc().array_snapshot(array).unwrap(),
-        expected
-            .iter()
-            .map(|value| Value::I32(*value))
-            .collect::<Vec<_>>()
-    );
+    assert_eq!(array_i32(&mut vm, &loaded, &snapshot), expected);
     drop(snapshot);
     probe.retained.lock().unwrap().take();
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(vm.gc().active_roots(), 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
 fn retain_failure_keeps_completed_removals_and_stops_callbacks() {
     failed_array(
-        r#"
-use test::probe::{keep, tick};
-fn main() {
-    val values = Vec::from([1,2,3,4]); keep(values);
-    values.retain(|value| {
-        val count = tick();
-        if count == 3u64 { val fail = 1 / 0; }
-        value != 1
-    });
-}
-"#,
+        include_str!("../../../../tests/fixtures/collections/retain-callback-failure.kgr"),
         &[2, 3, 4],
         3,
     );
 }
 
-const CONTAINER: &str = r#"use std::collections::{List, MutableList};
-use std::iter::{CollectionCursor};
-use std::ops::{Index};
-
-use test::probe::{keep, tick};
-struct Sequence { val items: Vec<i32> }
-impl Index<u64> for Sequence {
-    type Output = i32;
-    fn index(self, index: u64) -> i32 { self.items[index] }
-}
-impl Iterable for Sequence {
-    type Item = i32;
-    type Iter = CollectionCursor<i32>;
-    fn iter(self) -> CollectionCursor<i32> { self.items.iter() }
-}
-impl List<i32> for Sequence {
-    fn len(self) -> u64 { self.items.len() }
-    fn is_empty(self) -> bool { self.items.is_empty() }
-    fn get(self, index: u64) -> Option<i32> { self.items.get(index) }
-}
-impl MutableList<i32> for Sequence {
-    fn push(self, value: i32) { self.items.push(value); }
-    fn pop(self) -> Option<i32> { self.items.pop() }
-    fn insert(self, index: u64, value: i32) { self.items.insert(index,value); }
-    fn clear(self) { self.items.clear(); }
-    fn set(self, index: u64, value: i32) {
-        if tick() == 2u64 { val fail = 1 / 0; }
-        self.items[index] = value;
-    }
-    fn remove(self, index: u64) -> Option<i32> {
-        if tick() == 2u64 { val fail = 1 / 0; }
-        self.items.remove(index)
-    }
-}
-"#;
+const CONTAINER: &str =
+    include_str!("../../../../tests/fixtures/collections/custom-list-receiver.kgr");
 
 #[test]
 fn custom_receiver_failures_preserve_completed_writes_and_removals() {
@@ -137,12 +91,7 @@ fn list_edits_commit_before_invalidating_an_active_cursor() {
 #[test]
 fn cursor_reads_cannot_observe_a_buffer_detached_for_sorting() {
     failed_array(
-        r#"use test::probe::keep;
-        fn main() {
-            val values=Vec::from([3,1,2]); keep(values);
-            val cursor=values.iter();
-            values.sort_by(|a,b| { cursor.next(); a.cmp(b) });
-        }"#,
+        include_str!("../../../../tests/fixtures/collections/sort-cursor-read.kgr"),
         &[3, 1, 2],
         0,
     );

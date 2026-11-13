@@ -12,9 +12,10 @@ use kagari_runtime::{
     Runtime, RuntimeConfig,
     backend::{BackendInvocationError, native::InstalledNativeFunction},
     error::RuntimeErrorKind,
+    module::retention::RetentionOrigin,
     native::module::NativeModule,
     resource::RuntimeLimits,
-    value::Value,
+    value::carriers::RootedValue,
 };
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
@@ -105,17 +106,20 @@ fn finalized_code_and_installed_runtimes_move_execute_and_release_on_other_threa
         let loaded = runtime.select_program(&_loaded_program).unwrap();
         // SAFETY: this product was compiled from this exact bytecode's MIR;
         // the finalized owner retains immutable pages through invocation.
-        let installed = unsafe { runtime.install_native_function(&loaded, product) }.unwrap();
+        let installed =
+            unsafe { runtime.install_native_function(&loaded, product, RetentionOrigin::Current) }
+                .unwrap();
         assert_eq!(
-            runtime.invoke_native_function(&installed).unwrap(),
-            Value::I32(42)
+            runtime.invoke_native_function(&installed).unwrap().as_i32(),
+            Some(42)
         );
         thread::spawn(move || {
+            let baseline = runtime.gc_stats().root_registrations;
             assert_eq!(
-                runtime.invoke_native_function(&installed).unwrap(),
-                Value::I32(42)
+                runtime.invoke_native_function(&installed).unwrap().as_i32(),
+                Some(42)
             );
-            assert_eq!(runtime.gc().active_roots(), 0);
+            assert_eq!(runtime.gc_stats().root_registrations, baseline);
             drop(runtime);
             drop(installed);
         })
@@ -135,13 +139,13 @@ fn cranelift_backend_compiles_scalar_mir_and_products_outlive_the_backend() {
     let mut backend = CraneliftBackend::for_host().unwrap();
     let mut products = Vec::new();
     for (body, result) in [
-        ("40 + 2", Value::I32(42)),
-        ("!false", Value::Bool(true)),
-        ("-42", Value::I32(-42)),
-        ("40 < 42", Value::Bool(true)),
-        ("true == false", Value::Bool(false)),
+        ("40 + 2", RootedValue::from(42)),
+        ("!false", RootedValue::from(true)),
+        ("-42", RootedValue::from(-42)),
+        ("40 < 42", RootedValue::from(true)),
+        ("true == false", RootedValue::from(false)),
     ] {
-        let ty = if matches!(result, Value::Bool(_)) {
+        let ty = if result.as_bool().is_some() {
             "bool"
         } else {
             "i32"
@@ -179,14 +183,17 @@ fn cranelift_backend_compiles_scalar_mir_and_products_outlive_the_backend() {
         .unwrap();
         let _module_program = module;
         let module = runtime.select_program(&_module_program).unwrap();
-        let installed = unsafe { runtime.install_native_function(&module, code.clone()) }.unwrap();
+        let installed = unsafe {
+            runtime.install_native_function(&module, code.clone(), RetentionOrigin::Current)
+        }
+        .unwrap();
         drop(code);
-        assert_eq!(
-            runtime.invoke_native_function(&installed).unwrap(),
-            expected
-        );
+        let baseline = runtime.gc_stats().root_registrations;
+        let actual = runtime.invoke_native_function(&installed).unwrap();
+        assert_eq!(actual.as_i32(), expected.as_i32());
+        assert_eq!(actual.as_bool(), expected.as_bool());
 
-        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(runtime.gc_stats().root_registrations, baseline);
     }
 }
 
@@ -258,7 +265,11 @@ fn checked_i32_traps_keep_the_exact_mir_point(#[case] expression: &str) {
         let origin = function.metadata.origins[overflow_offset].clone();
         let module_program = load_bytecode(&mut runtime, "native", bytecode).unwrap();
         let module = runtime.select_program(&module_program).unwrap();
-        let installed = unsafe { runtime.install_native_function(&module, code.clone()) }.unwrap();
+        let installed = unsafe {
+            runtime.install_native_function(&module, code.clone(), RetentionOrigin::Current)
+        }
+        .unwrap();
+        let baseline = runtime.gc_stats().root_registrations;
         let failure = runtime.invoke_native_function(&installed).unwrap_err();
         let BackendInvocationError::RuntimeFailure(error) = failure.error else {
             panic!("runtime trap")
@@ -274,6 +285,6 @@ fn checked_i32_traps_keep_the_exact_mir_point(#[case] expression: &str) {
         );
         assert_eq!(failure.trace.frames[0].source_span, Some(origin.span));
         assert_eq!(runtime.resources().counters().current_call_depth, 0);
-        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(runtime.gc_stats().root_registrations, baseline);
     }
 }

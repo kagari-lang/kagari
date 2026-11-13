@@ -3,7 +3,10 @@ use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault},
     frame::types::arguments::TypeArgument,
-    module::{ExecutableModule, Module, ModuleEpochRetention, StructLayoutRef},
+    module::{
+        ExecutableModule, Module, ModuleEpochRetention, StructLayoutRef,
+        managed::source::RevisionSource,
+    },
     native::{
         binding::NativeResult,
         objects::{ObjectType, TypeRecord, fields::FieldRecord},
@@ -44,7 +47,7 @@ impl Runtime {
         path: &str,
         arguments: &[TypeArgument],
     ) -> NativeResult<ObjectType> {
-        self.gc().ensure_no_native_borrow()?;
+        self.resources().ensure_execution_allowed()?;
         let snapshot = self.capture_module(owner)?;
         let export = snapshot.resolve_public_path(path, PublicPathKind::Type)?;
         let PublicPathTarget::Type(export) = export else {
@@ -86,7 +89,7 @@ impl Runtime {
         declaration: &DefinitionPath,
         arguments: &[TypeArgument],
     ) -> NativeResult<ObjectType> {
-        self.gc().ensure_no_native_borrow()?;
+        self.resources().ensure_execution_allowed()?;
         let snapshot = self.capture_module(owner)?;
         let declaration = snapshot
             .root
@@ -117,7 +120,11 @@ impl Runtime {
                     .iter()
                     .enumerate()
                     .filter(|(_, layout)| {
-                        layout.declaration == declaration && layout.accepts(&types)
+                        layout.declaration == declaration
+                            && (member
+                                .identity_admission()
+                                .equivalent(&layout.arguments, &types)
+                                || layout.accepts(&types))
                     })
                     .max_by_key(|(_, layout)| {
                         !layout.arguments.iter().all(|ty| ty.is_concrete())
@@ -132,7 +139,7 @@ impl Runtime {
     }
 
     fn retain_public_object_type(&mut self, layout: StructLayoutRef) -> NativeResult<ObjectType> {
-        let result = self.retain_object_type(layout)?;
+        let result = self.retain_object_type(layout, RevisionSource::Current)?;
         if !result.0.public {
             return Err(RuntimeError::module_validation("object type is not public"));
         }
@@ -143,6 +150,7 @@ impl Runtime {
     pub(crate) fn retain_object_type(
         &mut self,
         layout: StructLayoutRef,
+        origin: RevisionSource<'_>,
     ) -> NativeResult<ObjectType> {
         self.validate_executable_module(layout.module())?;
         let cache = &mut self.object_bindings;
@@ -171,13 +179,13 @@ impl Runtime {
                 })
         });
         let program = self
-            .retain_program(layout.module(), ModuleEpochRetention::RuntimeValue)
+            .retain_program(layout.module(), ModuleEpochRetention::RuntimeValue, origin)
             .ok_or_else(|| RuntimeError::module_validation("object type program retention"))?;
         let record = Arc::new(TypeRecord {
             layout,
             argument,
             public,
-            _program: program,
+            program,
         });
         let cache = &mut self.object_bindings;
         cache
@@ -280,7 +288,7 @@ mod tests {
             .into_unverified();
         let mut runtime = Runtime::default();
         let program = load_bytecode(&mut runtime, "objects", bytecode).unwrap();
-        let allocated = runtime.gc().allocated_objects();
+        let allocated = runtime.gc_stats().objects;
         let player = runtime.bind_type(&program.root(), "Player", &[]).unwrap();
         assert!(player.field("visible").is_ok());
         assert!(player.field("secret").is_err());
@@ -299,6 +307,6 @@ mod tests {
             .unwrap();
         assert_eq!(player.type_argument().ty(), advanced.type_argument().ty());
 
-        assert_eq!(runtime.gc().allocated_objects(), allocated);
+        assert_eq!(runtime.gc_stats().objects, allocated);
     }
 }

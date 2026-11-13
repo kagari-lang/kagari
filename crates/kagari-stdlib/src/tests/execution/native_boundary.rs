@@ -8,20 +8,31 @@ use kagari_runtime::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
         context::NativeCall,
-        declarations::FunctionDecl,
+        conversion::{IntoKagari, context::ConversionContext},
+        declarations::{CallableRequirement, FunctionDecl, MethodDecl},
         module::NativeModule,
         scalar::NativeScalar,
         storage::{NativePayload, NativeStorage},
+        typed::NativeContext,
         types::Type,
+        value_handle::ScriptValue,
     },
-    resource::HeapCharge,
-    value::Value,
+    value::{
+        carriers::{RootedValue, StoredValue},
+        view::ValueView,
+    },
 };
 
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_gc::{
+    error::GcError,
+    object::{GcObject, ObjectCharge},
+    scan::{EdgeVisitor, ScanBudget, ScanKind, ScanStatus},
+};
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
@@ -42,7 +53,6 @@ mod native_boundary_interfaces;
 mod native_boundary_payload;
 mod native_boundary_references;
 mod native_boundary_resources;
-mod native_boundary_sessions;
 mod native_boundary_storage;
 mod native_boundary_transfer;
 mod support;
@@ -148,7 +158,7 @@ fn scalar_function_executes_through_the_checked_registration() {
         .unwrap();
     let module = module.finish().unwrap();
     let (mut vm, loaded) = compile(
-        "use example::math::add; fn main() -> i32 { add(20, 22) }",
+        include_str!("../../../tests/fixtures/native/scalar_registration.kgr"),
         Some(&module),
     );
     let _loaded_program = loaded;
@@ -157,9 +167,8 @@ fn scalar_function_executes_through_the_checked_registration() {
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
 }
 
@@ -178,12 +187,14 @@ fn raw_result_contract_failure_releases_the_execution_scope() {
     module
         .bind(
             function,
-            |_cx: &mut NativeCall<'_>| -> NativeResult<Value> { Ok(Value::Bool(true)) },
+            NativeBinding::new(vec![], Codec::Exact(Type::i32()), |_cx| {
+                Ok(ValueView::from(true))
+            }),
         )
         .unwrap();
     let module = module.finish().unwrap();
     let (mut vm, loaded) = compile(
-        "use example::bad::broken; fn main() -> i32 { broken() } pub fn healthy() -> i32 { 42 }",
+        include_str!("../../../tests/fixtures/native/wrong_raw_result.kgr"),
         Some(&module),
     );
     let _loaded_program = loaded;
@@ -196,27 +207,15 @@ fn raw_result_contract_failure_releases_the_execution_scope() {
         vm.execute_module(&loaded, "healthy", vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
 }
 
 #[test]
 fn foundation_defaults_execute_without_optional_modules() {
     let (mut vm, loaded) = compile(
-        r#"use std::collections::{HashMap, HashSet};
-
-        fn main() -> i32 {
-            val values = Vec::new();
-            values.push(20); values.push(22);
-            val map = HashMap::new(); map.insert(1, values[0]); map.insert(2, values[1]);
-            val set = HashSet::new(); set.insert(1); set.insert(1);
-            if values.len() == (2 as u64) && map.len() == (2 as u64) && set.len() == (1 as u64) && map.contains_key(2) {
-                var total = 0; for value in values { total = total + value; } total
-            } else { 0 }
-        }
-    "#,
+        include_str!("../../../tests/fixtures/native/foundation_defaults.kgr"),
         None,
     );
     let _loaded_program = loaded;
@@ -225,33 +224,15 @@ fn foundation_defaults_execute_without_optional_modules() {
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
 }
 
 #[test]
 fn custom_hash_collisions_use_selected_script_methods() {
     let (mut vm, loaded) = compile(
-        r#"use std::collections::{HashMap};
-use std::hash::{Hash};
-
-        struct Key { val value: i32 }
-        impl PartialEq for Key { fn eq(self, other: Key) -> bool { self.value == other.value } }
-        impl Eq for Key {}
-        impl Hash for Key { fn hash(self) -> i64 { 7 } }
-        fn main() -> i32 {
-            val map = HashMap::new();
-            map.insert(Key { value: 1 }, 20); map.insert(Key { value: 2 }, 22);
-            map.insert(Key { value: 1 }, 21);
-            val second = Key { value: 2 }; val first = Key { value: 1 };
-            val found = map.get(first);
-            if map.len() == (2 as u64) && map.contains_key(second) {
-                match found { Some(value) => value + 21, None => 0 }
-            } else { 0 }
-        }
-    "#,
+        include_str!("../../../tests/fixtures/native/hash_collisions.kgr"),
         None,
     );
     let _loaded_program = loaded;
@@ -260,16 +241,13 @@ use std::hash::{Hash};
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
 }
 
 #[test]
 fn selected_script_callbacks_return_directly_to_a_rust_loop() {
-    use kagari_runtime::native::declarations::CallableRequirement;
-    use kagari_runtime::native::declarations::MethodDecl;
     let mut module = ModuleBuilder::new(
         "example::calls",
         &StandardDeclarations::default()
@@ -308,11 +286,9 @@ fn selected_script_callbacks_return_directly_to_a_rust_loop() {
                 Codec::Exact(Type::i32()),
                 move |cx| {
                     let receiver = cx.argument(0)?;
-                    let Value::I32(count) = cx.argument(1)? else {
-                        unreachable!()
-                    };
+                    let count = i32::decode(cx.argument(1)?)?;
                     let target = cx.selected(&selected)?;
-                    let mut value = Value::I32(0);
+                    let mut value = ValueView::from(0i32);
                     for _ in 0..count {
                         cx.poll()?;
                         value = cx.call_values(target, &[receiver, value])?;
@@ -324,16 +300,7 @@ fn selected_script_callbacks_return_directly_to_a_rust_loop() {
         .unwrap();
     let module = module.finish().unwrap();
     let (mut vm, loaded) = compile(
-        r#"
-        use example::calls::{Step, repeat};
-        struct Counter { val amount: i32 }
-        impl Step for Counter { fn step(self, value: i32) -> i32 { value + self.amount } }
-        fn main() -> i32 { repeat(Counter { amount: 14 }, 3) }
-        trait Runner { fn run<T: Step>(self, item: T) -> i32 { repeat(item, 3) } }
-        struct Source {}
-        impl Runner for Source {}
-        pub fn shared() -> i32 { val source: Runner = Source {}; source.run(Counter { amount: 14 }) }
-    "#,
+        include_str!("../../../tests/fixtures/native/selected_loop.kgr"),
         Some(&module),
     );
     let _loaded_program = loaded;
@@ -343,26 +310,55 @@ fn selected_script_callbacks_return_directly_to_a_rust_loop() {
             vm.execute_module(&loaded, entry, vm.execution_options())
                 .unwrap()
                 .return_value
-                .value(vm.gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+                .as_i32(),
+            Some(42)
         );
     }
 }
 
 #[derive(Debug)]
 struct TracedCounter {
-    values: Value,
+    values: StoredValue,
     dropped: Arc<AtomicUsize>,
 }
 
 impl NativePayload for TracedCounter {
-    fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
-        visit(&self.values);
+    fn registration_storage() -> NativeStorage {
+        NativeStorage::payload::<Self>()
+    }
+}
+
+// SAFETY: the sole script field is initialized in the provider's GC brand and
+// completely scanned. Drop touches only an inert Rust counter, never a peer.
+unsafe impl GcObject for TracedCounter {
+    type ScanState = bool;
+    const SCAN_KIND: ScanKind = ScanKind::Bounded { max_work: 1 };
+
+    fn begin_scan(&self) -> bool {
+        false
     }
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(1, 0))
+    fn scan(
+        &self,
+        visited: &mut bool,
+        budget: &mut ScanBudget,
+        visitor: &mut EdgeVisitor<'_>,
+    ) -> Result<ScanStatus, GcError> {
+        if !*visited {
+            if !budget.take(1) {
+                return Ok(ScanStatus::Pending);
+            }
+            // SAFETY: this provider retains its initialized same-heap cell.
+            if unsafe { self.values.scan(budget, visitor)? } == ScanStatus::Pending {
+                return Ok(ScanStatus::Pending);
+            }
+            *visited = true;
+        }
+        Ok(ScanStatus::Complete)
+    }
+
+    fn charge(&self) -> ObjectCharge {
+        ObjectCharge { units: 1, bytes: 0 }
     }
 }
 
@@ -370,98 +366,6 @@ impl Drop for TracedCounter {
     fn drop(&mut self) {
         self.dropped.fetch_add(1, Ordering::SeqCst);
     }
-}
-
-#[test]
-fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
-    let dropped = Arc::new(AtomicUsize::new(0));
-    let factory_dropped = dropped.clone();
-    let mut builder = ModuleBuilder::new(
-        "example::objects",
-        &StandardDeclarations::default()
-            .catalog()
-            .expect("explicit standard providers"),
-    )
-    .unwrap();
-    let mut declaration = builder.define_type("Counter").unwrap();
-    declaration.type_parameter("T").unwrap();
-    declaration
-        .native_storage(NativeStorage::new(move |context| {
-            let values = context.allocate_array(
-                context.resolve_type(Type::i32().abi())?,
-                vec![Value::I32(42)],
-            )?;
-            Ok(TracedCounter {
-                values,
-                dropped: factory_dropped.clone(),
-            })
-        }))
-        .unwrap();
-    let counter = declaration.finish().unwrap();
-    let ty = counter.apply([Type::i32()]).unwrap();
-    let new = builder
-        .define_function(FunctionDecl::new("new").returns(ty.clone()))
-        .unwrap();
-    builder
-        .bind(
-            new,
-            NativeBinding::new(vec![], counter.codec(), |context| context.allocate_result()),
-        )
-        .unwrap();
-    let read = builder
-        .define_function(
-            FunctionDecl::new("read")
-                .parameter("counter", ty)
-                .returns(Type::i32()),
-        )
-        .unwrap();
-    builder
-        .bind(
-            read,
-            NativeBinding::new(
-                vec![counter.codec()],
-                Codec::Exact(Type::i32()),
-                |context| {
-                    context.with_payload::<TracedCounter, _>(0, |payload| {
-                        let Value::Array(id) = payload.values else {
-                            panic!("counter payload");
-                        };
-                        context
-                            .heap()
-                            .array_get(id, 0)
-                            .ok_or_else(|| RuntimeError::module_validation("missing traced child"))
-                    })
-                },
-            ),
-        )
-        .unwrap();
-    let module = builder.finish().unwrap();
-    let (mut vm, loaded) = compile(
-        "use example::objects::{Counter, new, read}; fn main() -> Counter<i32> { new() } pub fn answer() -> i32 { read(new()) }",
-        Some(&module),
-    );
-    let _loaded_program = loaded;
-    let loaded = vm.select_program(&_loaded_program).unwrap();
-    let value = vm
-        .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
-        .unwrap()
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result");
-    let rooted = vm.gc().root_value(value).unwrap();
-    vm.collect_garbage().unwrap();
-    assert_eq!(dropped.load(Ordering::SeqCst), 0);
-    assert_eq!(
-        vm.execute_module(&loaded, "answer", vm.execution_options())
-            .unwrap()
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
-    );
-    drop(rooted);
-    vm.collect_garbage().unwrap();
-    assert_eq!(dropped.load(Ordering::SeqCst), 2);
 }
 
 #[test]
@@ -483,37 +387,36 @@ fn array_literals_repeats_and_empty_arrays_preserve_native_access_and_aliases() 
     builder
         .bind(
             probe,
-            NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::i32()), |cx| {
-                let Value::Array(id) = cx.argument(0)? else {
-                    panic!("checked array argument")
-                };
-                let mut values = cx.heap().array_snapshot(id).unwrap();
+            |cx: &mut NativeContext<'_>, (values,): (ScriptValue,)| -> NativeResult<i32> {
+                let owner = cx
+                    .runtime()
+                    .execution_root()
+                    .ok_or_else(|| RuntimeError::module_validation("active script owner"))?;
+                let ty = values.type_argument().clone();
+                let mut conversion = ConversionContext::new(cx.runtime_mut(), &owner)?;
+                let array = values.into_kagari(&mut conversion, &ty)?;
+                let mut values = (0..conversion.array_len(&array)?)
+                    .map(|index| {
+                        i32::decode(
+                            conversion
+                                .array_element(&array, index)?
+                                .expect("array cell"),
+                        )
+                    })
+                    .collect::<NativeResult<Vec<_>>>()?;
                 values.reverse();
                 let mut total = 0;
                 for (index, value) in values.into_iter().enumerate() {
-                    cx.heap().array_set(id, index, value)?;
-                    let Value::I32(value) = value else {
-                        panic!("checked element")
-                    };
+                    conversion.array_set(&array, index, &ValueView::from(value))?;
                     total += value;
                 }
-                Ok(Value::I32(total))
-            }),
+                Ok(total)
+            },
         )
         .unwrap();
     let module = builder.finish().unwrap();
     let (mut vm, loaded) = compile(
-        r#"
-        use example::arrays::probe;
-        fn main() -> i32 {
-            val empty: [i32] = [];
-            val values = [20, 22];
-            val repeated = [7; 6];
-            if probe(empty) != 0 || probe(repeated) != 42 { return -1; }
-            val alias = values;
-            if probe(values) == 42 && alias[0] == 22 { 42 } else { -2 }
-        }
-    "#,
+        include_str!("../../../tests/fixtures/native/array_aliases.kgr"),
         Some(&module),
     );
     let _loaded_program = loaded;
@@ -522,16 +425,15 @@ fn array_literals_repeats_and_empty_arrays_preserve_native_access_and_aliases() 
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
 }
 
 #[test]
 fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_elements() {
     let (mut vm, loaded) = compile(
-        "struct Node { val value: i32 } pub fn values() -> [i32] { [1, 2, 3, 4] } pub fn nodes() -> [Node] { [Node { value: 42 }] }",
+        include_str!("../../../tests/fixtures/native/bulk_arrays.kgr"),
         None,
     );
     let _loaded_program = loaded;
@@ -539,68 +441,72 @@ fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_eleme
     let value = vm
         .execute_module(&loaded, "values", vm.execution_options())
         .unwrap()
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result");
-    let rooted = vm.root_value(value).unwrap();
-    let Value::Array(id) = value else {
-        panic!("array result");
-    };
-    let heap = vm.gc();
-    assert!(heap.array_fill(id, Value::Bool(true)).is_err());
-    assert_eq!(
-        heap.array_snapshot(id).unwrap(),
-        vec![Value::I32(1), Value::I32(2), Value::I32(3), Value::I32(4)]
-    );
-    heap.array_copy_within(id, Bound::Included(0), Bound::Excluded(3), 1)
-        .unwrap();
-    assert_eq!(
-        heap.array_snapshot(id).unwrap(),
-        vec![Value::I32(1), Value::I32(1), Value::I32(2), Value::I32(3)]
-    );
+        .return_value;
     let wrong = vm
         .alloc_array(
             &loaded,
-            kagari_types::ty::Ty::Builtin(kagari_types::scalar::BuiltinType::Bool),
-            vec![Value::Bool(true); 4],
+            Ty::Builtin(BuiltinType::Bool),
+            &vec![RootedValue::from(true); 4],
         )
         .unwrap();
-    let wrong_root = vm.root_value(Value::Array(wrong)).unwrap();
-    assert!(heap.array_copy_from(id, wrong).is_err());
-    assert_eq!(
-        heap.array_snapshot(id).unwrap(),
-        vec![Value::I32(1), Value::I32(1), Value::I32(2), Value::I32(3)]
-    );
-    heap.array_fill(id, Value::I32(7)).unwrap();
-    heap.array_set(id, 0, Value::I32(2)).unwrap();
-    assert_eq!(
-        heap.array_snapshot(id).unwrap(),
-        vec![Value::I32(2), Value::I32(7), Value::I32(7), Value::I32(7)]
-    );
-    drop(wrong_root);
-    drop(rooted);
+    {
+        let mut conversion = ConversionContext::new(&mut vm, &loaded).unwrap();
+        let array = conversion.import(&value).unwrap();
+        assert!(
+            conversion
+                .array_fill(&array, &ValueView::from(true))
+                .is_err()
+        );
+        assert_i32_array(&mut conversion, &array, &[1, 2, 3, 4]);
+        conversion
+            .array_copy_within(&array, Bound::Included(0), Bound::Excluded(3), 1)
+            .unwrap();
+        assert_i32_array(&mut conversion, &array, &[1, 1, 2, 3]);
+        let wrong = conversion.import(&wrong).unwrap();
+        assert!(conversion.array_copy_from(&array, &wrong).is_err());
+        assert_i32_array(&mut conversion, &array, &[1, 1, 2, 3]);
+        conversion
+            .array_fill(&array, &ValueView::from(7i32))
+            .unwrap();
+        conversion
+            .array_set(&array, 0, &ValueView::from(2i32))
+            .unwrap();
+        assert_i32_array(&mut conversion, &array, &[2, 7, 7, 7]);
+    }
+    drop(wrong);
+    drop(value);
     let nodes = vm
         .execute_module(&loaded, "nodes", vm.execution_options())
         .unwrap()
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result");
-    let root = vm.root_value(nodes).unwrap();
+        .return_value;
     vm.collect_garbage().unwrap();
-    let Value::Array(id) = nodes else {
-        panic!("string array result");
+    let child = {
+        let mut conversion = ConversionContext::new(&mut vm, &loaded).unwrap();
+        let array = conversion.import(&nodes).unwrap();
+        let child = conversion
+            .array_element(&array, 0)
+            .unwrap()
+            .expect("traced node");
+        conversion.retain(&child).unwrap()
     };
-    let Some(Value::Struct(child)) = vm.gc().array_get(id, 0) else {
-        panic!("traced node");
-    };
-    let (_, fields) = vm.gc().struct_snapshot(child).unwrap();
-    assert_eq!(fields[0].value, Value::I32(42));
-    drop(root);
+    assert_eq!(
+        vm.reflect_get_field(&child, "value").unwrap().as_i32(),
+        Some(42)
+    );
+}
+
+fn assert_i32_array(cx: &mut ConversionContext<'_>, array: &ValueView<'_>, expected: &[i32]) {
+    assert_eq!(cx.array_len(array).unwrap(), expected.len());
+    for (index, expected) in expected.iter().enumerate() {
+        assert_eq!(
+            cx.array_element(array, index).unwrap().unwrap().as_i32(),
+            Some(*expected)
+        );
+    }
 }
 
 #[test]
 fn every_scalar_array_preserves_its_declared_element_and_values() {
-    use kagari_types::scalar::BuiltinType;
     let language = StandardDeclarations::default();
     let mut builder = ModuleBuilder::new(
         "example::scalar_arrays",
@@ -627,20 +533,19 @@ fn every_scalar_array_preserves_its_declared_element_and_values() {
                 .bind(
                     function,
                     NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::bool()), move |cx| {
-                        let Value::Array(id) = cx.argument(0)? else {
-                            panic!("checked array")
-                        };
+                        let array = cx.argument(0)?;
                         assert_eq!(
                             cx.argument_type_parameter(0, 0)?.ty(),
-                            &kagari_types::ty::Ty::Builtin(BuiltinType::$kind)
+                            &Ty::Builtin(BuiltinType::$kind)
                         );
-                        let values = cx.heap().array_snapshot(id).unwrap();
-                        assert!(values.len() <= 2);
-                        for value in values {
+                        let len = cx.array_len(&array)?;
+                        assert!(len <= 2);
+                        for index in 0..len {
+                            let value = cx.array_element(&array, index)?.expect("checked cell");
                             assert_eq!(<$rust as NativeScalar>::decode(value)?, $expected);
                         }
                         count.fetch_add(1, Ordering::SeqCst);
-                        Ok(Value::Bool(true))
+                        Ok(ValueView::from(true))
                     }),
                 )
                 .unwrap();
@@ -678,9 +583,8 @@ fn every_scalar_array_preserves_its_declared_element_and_values() {
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::Bool(true)
+            .as_bool(),
+        Some(true)
     );
     assert_eq!(calls.load(Ordering::SeqCst), 36);
 }
@@ -716,6 +620,8 @@ fn hash_callbacks_can_collect_and_trap_without_losing_keys_or_lookup_guards() {
     );
     let _loaded_program = loaded;
     let loaded = vm.select_program(&_loaded_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     assert!(
         vm.execute_module(&loaded, "failing", vm.execution_options())
             .is_err()
@@ -725,13 +631,12 @@ fn hash_callbacks_can_collect_and_trap_without_losing_keys_or_lookup_guards() {
         vm.execute_module(&loaded, "healthy", vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
     assert!(count.load(Ordering::SeqCst) > 10);
-    let collected = vm.collect_garbage().unwrap();
-    assert_eq!(collected.live_objects, 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
 }
 
 #[test]
@@ -743,11 +648,12 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
     )
     .unwrap();
     let mut declaration = builder.define_type("Counter").unwrap();
+    declaration.type_parameter("T").unwrap();
     declaration
         .native_storage(NativeStorage::payload::<TracedCounter>())
         .unwrap();
     let counter = declaration.finish().unwrap();
-    let ty = counter.apply([]).unwrap();
+    let ty = counter.apply([Type::i32()]).unwrap();
     let dropped = Arc::new(AtomicUsize::new(0));
     let new = builder
         .define_function(
@@ -761,13 +667,20 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
         .bind(
             new,
             NativeBinding::new(vec![Codec::Value], counter.codec(), move |cx| {
-                cx.allocate_result_payload(
-                    TracedCounter {
-                        values: cx.argument(0)?,
-                        dropped: capture.clone(),
-                    },
-                    &[],
-                )
+                let values = cx.argument(0)?;
+                cx.allocate_result_with(&[], |native| {
+                    let values = native.value(&values)?;
+                    // SAFETY: the returned provider owns the initialized field and
+                    // its GcObject scanner visits it throughout the same heap life.
+                    unsafe {
+                        native.scope().alloc_with(|mut init| {
+                            Ok(TracedCounter {
+                                values: StoredValue::initialize(&mut init, values)?,
+                                dropped: capture.clone(),
+                            })
+                        })
+                    }
+                })
             }),
         )
         .unwrap();
@@ -791,25 +704,18 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
         .bind(
             read,
             NativeBinding::new(vec![counter.codec()], Codec::Exact(Type::i32()), |cx| {
-                cx.with_payload::<TracedCounter, _>(0, |payload| {
-                    let Value::Array(id) = payload.values else {
-                        return Err(RuntimeError::module_validation("counter child"));
-                    };
-                    cx.heap()
-                        .array_get(id, 0)
-                        .ok_or_else(|| RuntimeError::module_validation("counter element"))
-                })
+                let receiver = cx.argument(0)?;
+                let values = cx.value_payload::<TracedCounter>(&receiver, |scope, payload| {
+                    StoredValue::get_field(scope, payload, |payload| Some(&payload.values))
+                })?;
+                cx.array_element(&values, 0)?
+                    .ok_or_else(|| RuntimeError::module_validation("counter element"))
             }),
         )
         .unwrap();
     let module = builder.finish().unwrap();
     let (mut vm, loaded) = compile(
-        r#"
-        use example::provided::{Counter, new, read, missing_payload};
-        fn main() -> Counter { new([42]) }
-        pub fn healthy() -> i32 { read(new([42])) }
-        pub fn invalid() -> Counter { missing_payload() }
-    "#,
+        include_str!("../../../tests/fixtures/native/traced_constructor.kgr"),
         Some(&module),
     );
     let _loaded_program = loaded;
@@ -818,24 +724,39 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
         .execute_module(&loaded, "invalid", vm.execution_options())
         .unwrap_err();
     assert!(error.to_string().contains("explicitly supplied payload"));
-    let value = vm
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
+    let root = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .unwrap()
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result");
-    let root = vm.root_value(value).unwrap();
+        .return_value;
     vm.collect_garbage().unwrap();
     assert_eq!(dropped.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        vm.execute(
+            &_loaded_program,
+            "read_retained",
+            std::slice::from_ref(&root),
+            &Default::default()
+        )
+        .unwrap()
+        .return_value
+        .as_i32(),
+        Some(42)
+    );
     assert_eq!(
         vm.execute_module(&loaded, "healthy", vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
     drop(root);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
     assert_eq!(dropped.load(Ordering::SeqCst), 2);
 }

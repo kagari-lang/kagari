@@ -2,7 +2,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::{arguments::TypeArgument, bindings::TypeBindings},
-    module::{ExecutableModule, Module},
+    module::{ExecutableModule, Module, managed::source::RevisionSource},
     native::{
         binding::NativeResult,
         payload::{NativeType, TypeRecord, managed::AppliedSchema},
@@ -40,7 +40,7 @@ impl Runtime {
         definitions: &DefinitionTable,
         arguments: &[TypeArgument],
     ) -> NativeResult<NativeType<T>> {
-        self.gc().ensure_no_native_borrow()?;
+        self.resources().ensure_execution_allowed()?;
         let snapshot = self.capture_module(owner)?;
         let owner = &snapshot.root;
         let id = self
@@ -81,15 +81,15 @@ impl Runtime {
             .type_arguments(owner, Some(environment), &[expression])?
             .pop()
             .ok_or_else(invalid)?;
-        self.prepare_native_type(owner, argument)
+        self.prepare_native_type(owner, argument, RevisionSource::Current)
     }
 
     pub(crate) fn prepare_native_type<T: Send + 'static>(
         &mut self,
         owner: &ExecutableModule,
         argument: TypeArgument,
+        origin: RevisionSource<'_>,
     ) -> NativeResult<NativeType<T>> {
-        self.gc().ensure_no_native_borrow()?;
         self.resources().ensure_execution_allowed()?;
         self.validate_executable_module(owner)?;
         argument.validate(self)?;
@@ -105,7 +105,7 @@ impl Runtime {
         if storage.layout() != NativeStorageLayout::Opaque || !storage.accepts_payload::<T>() {
             return Err(invalid());
         }
-        let rust_type = RustType::prepare(self, owner, argument.clone())?;
+        let rust_type = RustType::prepare(self, owner, argument.clone(), origin)?;
         let managed = storage
             .managed_schema()
             .map(|schema| {

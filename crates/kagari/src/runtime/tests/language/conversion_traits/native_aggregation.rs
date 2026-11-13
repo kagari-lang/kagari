@@ -23,6 +23,8 @@ fn native_numeric_aggregation_checks_declared_width_and_releases_roots() {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
+        runtime.collect_garbage().unwrap();
+        let roots = runtime.gc_stats().root_registrations;
         let error = runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap_err();
@@ -30,6 +32,7 @@ fn native_numeric_aggregation_checks_declared_width_and_releases_roots() {
             format!("{error:?}").contains("integer overflow"),
             "{error:?}"
         );
-        assert_eq!(runtime.gc().active_roots(), 0);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc_stats().root_registrations, roots);
     }
 }

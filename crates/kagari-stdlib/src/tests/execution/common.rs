@@ -4,8 +4,8 @@ use kagari_runtime::{
     Runtime, RuntimeConfig,
     host::{HostCallContext, HostError},
     module::{InstalledProgram, VerifiedProgram},
-    native::{builder::ModuleBuilder, module::NativeModule},
-    value::Value,
+    native::{builder::ModuleBuilder, host, module::NativeModule},
+    value::view::ValueView,
 };
 
 use crate as foundation;
@@ -75,7 +75,10 @@ pub fn load_test_module(source_text: &str) -> (Runtime, InstalledProgram) {
 
 /// Bind the fixed print service through ordinary common native registration.
 pub fn logging_module(
-    entry: impl for<'call> Fn(&mut HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+    entry: impl for<'call> Fn(
+        &mut HostCallContext<'call>,
+        &[ValueView<'call>],
+    ) -> Result<ValueView<'call>, HostError>
     + Send
     + Sync
     + 'static,
@@ -89,13 +92,16 @@ pub fn logging_module(
     )
     .unwrap();
     let log = builder.declared_function("log").unwrap();
-    builder.bind(log, entry).unwrap();
+    builder.bind(log, host::callback(entry)).unwrap();
     builder.finish().unwrap()
 }
 
 /// Compile the explicit logging contract; callers install their own logging implementation.
 pub fn compile_logging_test_bytecode(source_text: &str) -> DefinitionMetadata<BytecodeProgram> {
-    compile_native_test_bytecode(source_text, &[&logging_module(|_, _| Ok(Value::Unit))])
+    compile_native_test_bytecode(
+        source_text,
+        &[&logging_module(|_, _| Ok(ValueView::unit()))],
+    )
 }
 
 pub fn compile_test_bytecode(source_text: &str) -> DefinitionMetadata<BytecodeProgram> {

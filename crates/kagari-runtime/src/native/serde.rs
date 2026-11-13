@@ -12,7 +12,7 @@ use crate::{
         schema::TypeRegistration,
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 use deserializer::Deserializer;
 use serde::{Serialize, de, de::DeserializeOwned, ser};
@@ -135,11 +135,11 @@ impl<T: KagariSchema> KagariType for Serde<T> {
 }
 
 impl<T: KagariSchema + Serialize> IntoKagari for Serde<T> {
-    fn into_kagari(
+    fn into_kagari<'call>(
         self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ValueView<'call>> {
         self.0.serialize(Serializer::new(cx, expected))
     }
 }
@@ -148,7 +148,7 @@ impl<T: KagariSchema + DeserializeOwned> FromKagari for Serde<T> {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
         T::deserialize(Deserializer::new(cx, expected, *value)).map(Self)
     }

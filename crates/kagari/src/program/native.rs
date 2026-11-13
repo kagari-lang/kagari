@@ -11,11 +11,14 @@ use kagari_codegen::{
 use kagari_common::cancellation::CancellationToken;
 use kagari_contract::{ids::FunctionRef, native::NativeCompilationProduct};
 use kagari_mir::ids::InstanceId;
-use kagari_runtime::execution::native::PreparedNativeEntry;
 use kagari_runtime::{
     backend::BackendInvocationError,
     error::RuntimeError,
-    module::{InstalledProgram, entry::ProgramEntry, revision::ProgramRevision},
+    execution::native::PreparedNativeEntry,
+    module::{
+        InstalledProgram, entry::ProgramEntry, retention::RetentionOrigin,
+        revision::ProgramRevision,
+    },
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -231,8 +234,13 @@ impl NativeCode {
             CachedFunction::Native(product) => {
                 // SAFETY: the trusted backend establishes callable pages; the opaque
                 // revision binds their exact verified body before local installation.
-                let installed =
-                    unsafe { runtime.install_native_function(&owner, product.clone())? };
+                let installed = unsafe {
+                    runtime.install_native_function(
+                        &owner,
+                        product.clone(),
+                        RetentionOrigin::Current,
+                    )?
+                };
                 Ok(PreparedNativeEntry::Native(installed))
             }
         }

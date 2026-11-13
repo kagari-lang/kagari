@@ -8,7 +8,7 @@ use crate::{
         schema::TypeRegistration,
         types::Type,
     },
-    value::{EnumTag, Value},
+    value::view::ValueView,
 };
 use kagari_common::identity::DefinitionPath;
 use kagari_types::{language::binding, ty::Ty};
@@ -32,21 +32,23 @@ impl<T: KagariType> KagariType for Box<T> {
 }
 
 impl<T: IntoKagari> IntoKagari for Box<T> {
-    fn into_kagari(
+    fn into_kagari<'call>(
         self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ValueView<'call>> {
         // The enclosing conversion frame already owns type/root/depth checks.
         (*self).into_kagari(cx, expected)
     }
 }
 
 impl<T: FromKagari> FromKagari for Box<T> {
+    const PRESERVES_IDENTITY: bool = T::PRESERVES_IDENTITY;
+
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
         // Box adds no script graph node; reentering would report a false cycle.
         T::from_kagari(cx, expected, value).map(Box::new)
@@ -75,20 +77,19 @@ impl<T: KagariType> KagariType for Option<T> {
 }
 
 impl<T: IntoKagari> IntoKagari for Option<T> {
-    fn into_kagari(
+    fn into_kagari<'call>(
         self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
-        let (member, fields) = match self {
-            None => ("None", vec![]),
+    ) -> NativeResult<ValueView<'call>> {
+        match self {
+            None => cx.allocate_enum_member(expected, "None", &[]),
             Some(value) => {
                 let element = cx.parameter(expected, 0)?;
-                ("Some", vec![cx.encode_value(&element, value)?])
+                let value = cx.encode_value(&element, value)?;
+                cx.allocate_enum_member(expected, "Some", &[value])
             }
-        };
-        cx.runtime()
-            .make_enum_member(cx.owner(), expected, member, fields)
+        }
     }
 }
 
@@ -96,7 +97,7 @@ impl<T: FromKagari> FromKagari for Option<T> {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
         match enum_payload(cx, expected, value, "None", "Some")? {
             (false, EnumPayload::Empty) => Ok(None),
@@ -156,11 +157,11 @@ fn check_enum_type(
 }
 
 impl<T: IntoKagari, E: IntoKagari> IntoKagari for Result<T, E> {
-    fn into_kagari(
+    fn into_kagari<'call>(
         self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ValueView<'call>> {
         let (member, value) = match self {
             Ok(value) => {
                 let element = cx.parameter(expected, 0)?;
@@ -171,8 +172,7 @@ impl<T: IntoKagari, E: IntoKagari> IntoKagari for Result<T, E> {
                 ("Err", cx.encode_value(&element, value)?)
             }
         };
-        cx.runtime()
-            .make_enum_member(cx.owner(), expected, member, vec![value])
+        cx.allocate_enum_member(expected, member, &[value])
     }
 }
 
@@ -180,7 +180,7 @@ impl<T: FromKagari, E: FromKagari> FromKagari for Result<T, E> {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
         let (error, payload) = enum_payload(cx, expected, value, "Ok", "Err")?;
         let EnumPayload::Single(value) = payload else {
@@ -197,43 +197,30 @@ impl<T: FromKagari, E: FromKagari> FromKagari for Result<T, E> {
 
 // Conversion may invoke a user adapter. Copy only the selected payload before
 // releasing the heap view; the enclosing conversion frame retains the input root.
-enum EnumPayload {
+enum EnumPayload<'call> {
     Empty,
-    Single(Value),
+    Single(ValueView<'call>),
     Invalid,
 }
 
-fn enum_payload(
-    cx: &ConversionContext<'_>,
+fn enum_payload<'call>(
+    cx: &mut ConversionContext<'call>,
     expected: &TypeArgument,
-    value: &Value,
+    value: &ValueView<'_>,
     first: &str,
     second: &str,
-) -> NativeResult<(bool, EnumPayload)> {
-    let Value::Enum(id) = value else {
-        return Err(RuntimeError::module_validation(
-            "nominal conversion requires an enum",
-        ));
-    };
-    let (actual, payload) = cx
-        .runtime()
-        .gc()
-        .enum_view(*id)
-        .map(|view| {
-            let EnumTag::Declared(actual) = &view.tag;
-            let payload = match view.fields.as_slice() {
-                [] => EnumPayload::Empty,
-                [value] => EnumPayload::Single(*value),
-                _ => EnumPayload::Invalid,
-            };
-            (actual.clone(), payload)
-        })
-        .ok_or_else(|| RuntimeError::module_validation("enum conversion identity"))?;
+) -> NativeResult<(bool, EnumPayload<'call>)> {
+    let (actual, length) = cx.enum_shape(value)?;
     for (member, choice) in [(first, false), (second, true)] {
         let expected = cx
             .runtime()
             .declared_enum_variant(cx.owner(), expected, member)?;
         if actual.matches_layout(&expected) {
+            let payload = match length {
+                0 => EnumPayload::Empty,
+                1 => EnumPayload::Single(cx.enum_element(value, 0)?),
+                _ => EnumPayload::Invalid,
+            };
             return Ok((choice, payload));
         }
     }

@@ -5,7 +5,6 @@ use crate::execution::{native::PreparedNativeEntry, owned::DriveResult};
 use crate::{
     Runtime,
     module::{VerifiedProgram, entry::ProgramEntry},
-    value::Value,
 };
 use kagari_abi::native::BackendId;
 use kagari_bytecode::artifact::KbcArtifact;
@@ -21,20 +20,7 @@ fn direct_calls_use_public_paths_and_require_explicit_private_entry_selection() 
     let root = source
         .set(
             "exports.kgr",
-            r#"
-            mod implementation {
-                pub fn value() -> i32 { 42 }
-                pub fn identity(value: i32) -> i32 { value }
-                fn secret() -> bool { true }
-            }
-            pub use crate::implementation::value as answer;
-            pub use crate::implementation::identity as echo;
-            pub use crate as again;
-            pub fn template<T>(value: T) -> T { value }
-            pub fn wrapper() -> i32 { template(7) }
-            fn main() -> i32 { 3 }
-            "#
-            .into(),
+            include_str!("../../tests/fixtures/execution/direct-export-routes.kgr").into(),
             SourceLayer::Base,
         )
         .unwrap();
@@ -78,6 +64,7 @@ fn direct_calls_use_public_paths_and_require_explicit_private_entry_selection() 
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = runtime;
+    let roots_before = vm.gc_stats().root_registrations;
     let fallback = PreparedNativeEntry::Unsupported {
         backend: BackendId::new("export-fixture"),
         diagnostics: vec!["interpreter route".into()],
@@ -112,10 +99,7 @@ fn direct_calls_use_public_paths_and_require_explicit_private_entry_selection() 
             let report = vm
                 .execute_module(owner, selection, vm.execution_options())
                 .unwrap();
-            assert_eq!(
-                report.return_value.value(vm.gc()),
-                Some(Value::I32(expected))
-            );
+            assert_eq!(report.return_value.as_i32(), Some(expected));
             assert_eq!(
                 vm.execute_module_typed::<(), i32>(owner, selection, ())
                     .unwrap(),
@@ -124,16 +108,13 @@ fn direct_calls_use_public_paths_and_require_explicit_private_entry_selection() 
             let report = vm
                 .execute_prepared_module(owner, selection, &fallback, vm.execution_options())
                 .unwrap();
-            assert_eq!(
-                report.return_value.value(vm.gc()),
-                Some(Value::I32(expected))
-            );
+            assert_eq!(report.return_value.as_i32(), Some(expected));
             let execution = vm.start(owner, selection, &[], Default::default()).unwrap();
             loop {
                 match vm.drive(&execution, NonZeroUsize::new(1).unwrap()).unwrap() {
                     DriveResult::Runnable => continue,
                     DriveResult::Complete(result) => {
-                        assert_eq!(result.unwrap().value(vm.gc()), Some(Value::I32(expected)));
+                        assert_eq!(result.unwrap().as_i32(), Some(expected));
                         break;
                     }
                     DriveResult::Waiting => panic!("synchronous fixture"),
@@ -146,5 +127,5 @@ fn direct_calls_use_public_paths_and_require_explicit_private_entry_selection() 
             19
         );
     }
-    assert_eq!(vm.gc().active_roots(), 0);
+    assert_eq!(vm.gc_stats().root_registrations, roots_before);
 }

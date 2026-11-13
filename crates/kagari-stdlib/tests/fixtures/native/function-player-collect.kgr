@@ -1,0 +1,49 @@
+use example::methods::collect;
+
+pub struct Player {
+    pub var hp: i32
+}
+
+impl Player {
+    pub fn create(hp: i32) -> Player {
+        Player { hp: hp }
+    }
+    pub fn damage(self, amount: i32) -> i32 {
+        self.hp = self.hp - amount;
+        self.hp
+    }
+    pub fn alias(self) -> Player {
+        collect();
+        self
+    }
+    pub fn fail(self, divisor: i32) -> i32 {
+        self.hp = self.hp - 1;
+        self.hp / divisor
+    }
+    fn hidden(self) -> i32 {
+        self.hp
+    }
+    pub(super) fn parent(self) -> i32 {
+        self.hidden()
+    }
+}
+
+pub struct Enemy {
+    pub var hp: i32
+}
+
+impl Enemy {
+    pub fn damage(self, amount: i32) -> bool {
+        self.hp = self.hp - amount;
+        true
+    }
+}
+
+pub fn enemy() -> Enemy {
+    Enemy { hp: 10 }
+}
+
+pub fn evidence() -> i32 {
+    val player = Player::create(100);
+    player.damage(2) + player.alias().parent()
+}

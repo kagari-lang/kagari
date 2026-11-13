@@ -2,29 +2,27 @@
 use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault, trap::TrapReason},
+    execution::roots::SessionId,
     frame::{
-        ExecutionStack, FrameStack,
-        factory::QueuedFactory,
-        types::arguments::TypeArgument,
-        waiting::{ClaimedFuture, QueuedFuture},
+        ExecutionStack, FrameStack, factory::QueuedFactory, types::arguments::TypeArgument,
+        waiting::QueuedFuture,
     },
-    gc::roots::RootSet,
     module::ExecutableModule,
-    native::future::ColdFuture,
+    native::future::claims::{ClaimedFuture, FutureContract},
     publication::ActivationMark,
     session::{
-        ExecutionId, ExecutionOptions, ExecutionPhase, ExecutionSession, SessionScope,
-        SessionState, store::SessionId,
+        ExecutionId, ExecutionOptions, ExecutionPhase, ExecutionSession, SessionScope, SessionState,
     },
-    value::Value,
+    value::{carriers::RootedValue, properties::ValueProperties},
+    value_check,
 };
 
+use kagari_bytecode::module::CallableTarget;
 use kagari_common::cancellation::{CancellationSubscription, CancellationToken};
 use kagari_contract::ids::FunctionRef;
 use std::{
     mem,
     panic::{AssertUnwindSafe, catch_unwind},
-    slice,
     sync::{
         Arc, Mutex, OnceLock, Weak,
         atomic::{AtomicBool, Ordering},
@@ -33,7 +31,7 @@ use std::{
 };
 
 enum OwnedStart<'a> {
-    Function(FunctionRef, &'a [Value]),
+    Function(FunctionRef, &'a [RootedValue]),
     Future(QueuedFuture),
     Factory(QueuedFactory),
     Branch(QueuedFuture),
@@ -215,7 +213,7 @@ impl Runtime {
         &mut self,
         module: &ExecutableModule,
         entry: FunctionRef,
-        args: &[Value],
+        args: &[RootedValue],
         options: ExecutionOptions,
     ) -> Result<OwnedExecution, RuntimeError> {
         self.require_idle_driver()?;
@@ -225,25 +223,39 @@ impl Runtime {
                 "owned candidate execution",
             ));
         }
+        self.validate_executable_module(module)?;
+        let route = module.bind_call_route(CallableTarget::Script(entry))?;
+        let selected = self.select_call_route(&route)?;
+        let CallableTarget::Script(entry) = selected.target() else {
+            return Err(RuntimeError::module_validation(
+                "owned script entry selected a native import",
+            ));
+        };
+        let module = selected.owner();
         let function = module
             .bytecode
             .functions
             .get(entry.index())
             .ok_or_else(|| RuntimeError::module_validation("invalid owned execution entry"))?;
-        if args.len() != usize::from(function.parameter_count)
-            || args.iter().enumerate().any(|(index, value)| {
-                !value.is_storable(self.gc())
-                    || function
-                        .metadata
-                        .semantic
-                        .params
-                        .get(&index)
-                        .is_none_or(|ty| !self.matches_type_in(value, ty, module, None))
-            })
-        {
-            return Err(RuntimeError::module_validation(
-                "invalid owned execution arguments",
-            ));
+        let parameters = (0..args.len())
+            .map(|index| function.metadata.semantic.params.get(&index).cloned())
+            .collect::<Option<Vec<_>>>()
+            .filter(|_| args.len() == usize::from(function.parameter_count))
+            .ok_or_else(|| RuntimeError::module_validation("invalid owned execution arguments"))?;
+        let parameters = self.resolve_type_arguments(module, &parameters)?;
+        for (value, expected) in args.iter().zip(&parameters) {
+            let storable = self
+                .memory
+                .scope(&self.resources, |cx, _| {
+                    let value = value.get(cx)?;
+                    ValueProperties::of(cx, value).map(|facts| facts.storable)
+                })
+                .map_err(|error| self.managed_input_error(error))?;
+            if !storable || !value_check::matches_rooted(self, module, expected, value)? {
+                return Err(RuntimeError::module_validation(
+                    "invalid owned execution arguments",
+                ));
+            }
         }
         self.create_owned_execution(module, options, OwnedStart::Function(entry, args))
     }
@@ -252,7 +264,7 @@ impl Runtime {
     /// runs until the host drives the returned owner.
     pub fn start_owned_future(
         &mut self,
-        value: &Value,
+        value: &RootedValue,
         options: ExecutionOptions,
     ) -> Result<OwnedExecution, RuntimeError> {
         self.require_idle_driver()?;
@@ -262,35 +274,25 @@ impl Runtime {
                 "owned candidate Future",
             ));
         }
-        let Value::GcHandle(id) = value else {
-            return Err(RuntimeError::module_validation(
-                "owned entry requires a Future",
-            ));
+        let contract = self
+            .memory
+            .scope(&self.resources, |cx, _| {
+                FutureContract::read(cx, value.get(cx)?)
+            })
+            .map_err(|error| self.managed_memory_error(error))?;
+        self.validate_executable_module(&contract.owner)?;
+        let queued = QueuedFuture::Unclaimed {
+            output: contract.applied.parameter(self, &contract.owner, 0)?,
+            value: value.clone(),
         };
-        let (owner, ty, scope) = self.gc().future_contract(*id)?;
-        self.validate_executable_module(&owner)?;
-        let future = match scope {
-            Some(scope) => scope,
-            None => self
-                .resolve_type_arguments(&owner, slice::from_ref(&ty))?
-                .pop()
-                .ok_or_else(|| RuntimeError::module_validation("Future entry type"))?,
-        };
-        let queued = QueuedFuture {
-            claimed: None,
-            output: future.parameter(self, &owner, 0)?,
-            value: self
-                .root_value(*value)
-                .ok_or_else(|| RuntimeError::module_validation("Future entry root"))?,
-        };
-        self.create_owned_execution(&owner, options, OwnedStart::Future(queued))
+        self.create_owned_execution(&contract.owner, options, OwnedStart::Future(queued))
     }
 
     /// Queue a zero-argument Future factory. Its ordinary body and exactly one
     /// returned Future layer run in this same execution on subsequent drives.
     pub fn start_owned_factory(
         &mut self,
-        value: &Value,
+        value: &RootedValue,
         options: ExecutionOptions,
     ) -> Result<OwnedExecution, RuntimeError> {
         self.require_idle_driver()?;
@@ -333,7 +335,6 @@ impl Runtime {
         &mut self,
         parent: SessionId,
         module: &ExecutableModule,
-        value: Value,
         output: TypeArgument,
     ) -> Result<OwnedExecution, RuntimeError> {
         self.require_idle_driver()?;
@@ -352,13 +353,7 @@ impl Runtime {
         let nesting = state.group_depth.get() + 1;
         let logical_root = state.logical_root.get();
         drop(state);
-        let queued = QueuedFuture {
-            value: self
-                .root_value(value)
-                .ok_or_else(|| RuntimeError::resource_limit("branch awaitable root"))?,
-            output,
-            claimed: None,
-        };
+        let queued = QueuedFuture::Reserved { output };
         let execution = self.create_owned_execution(module, options, OwnedStart::Branch(queued))?;
         let state = self
             .resources()
@@ -372,22 +367,18 @@ impl Runtime {
         Ok(execution)
     }
 
-    pub(crate) fn install_branch_claim(
-        &self,
-        execution: &OwnedExecution,
-        cold: ColdFuture,
-        captures: RootSet,
-    ) {
+    pub(crate) fn install_branch_claim(&self, execution: &OwnedExecution, claim: ClaimedFuture) {
         let state = self
             .resources()
             .sessions
             .get(execution.id)
             .expect("reserved branch");
         let mut queued = state.queued_future.borrow_mut();
-        queued.as_mut().expect("reserved branch start").claimed = Some(ClaimedFuture {
-            cold,
-            _captures: captures,
-        });
+        let output = match queued.as_ref().expect("reserved branch start") {
+            QueuedFuture::Reserved { output } => output.clone(),
+            _ => unreachable!("branch claim installed once"),
+        };
+        *queued = Some(QueuedFuture::Claimed { claim, output });
     }
 
     fn create_owned_execution(
@@ -452,9 +443,12 @@ impl Runtime {
                 .owner
                 .borrow_mut() = Some(owner);
             match prepare(runtime)? {
-                OwnedStart::Function(function, args) => {
-                    stack.push(runtime, module.slot(), function, args, None)
-                }
+                OwnedStart::Function(function, args) => stack.push_rooted_callable(
+                    runtime,
+                    module.clone(),
+                    CallableTarget::Script(function),
+                    args,
+                ),
                 OwnedStart::Future(queued) | OwnedStart::Branch(queued) => {
                     *runtime
                         .resources()
@@ -506,7 +500,6 @@ impl Runtime {
         owner: &OwnedExecution,
     ) -> Result<ExecutionStack<'_>, RuntimeError> {
         self.require_idle_driver()?;
-        self.gc().ensure_no_native_borrow()?;
         self.ensure_scheduler_open()?;
         self.validate_owned_execution(owner)?;
         let activation = self.resources().begin_synchronous_activation()?;
@@ -621,7 +614,7 @@ impl Runtime {
         };
         let runtime = &mut *retirement.runtime;
         let group_failure = runtime.close_owned_groups(id).err();
-        let (mut state, frames) = runtime.resources().sessions.remove(id).ok_or_else(|| {
+        let (mut state, mut frames) = runtime.resources().sessions.remove(id).ok_or_else(|| {
             RuntimeError::module_validation("foreign, retired or borrowed execution")
         })?;
         let mut failed = group_failure.is_some();
@@ -635,8 +628,18 @@ impl Runtime {
                 .is_err();
         }
         // Release every window before dropping any frame's retained host owners.
-        for frame in &frames {
-            frame.release_values(runtime.resources());
+        for frame in frames.iter_mut().rev() {
+            frame.release_values(&mut runtime.memory, &runtime.resources);
+        }
+        if let Err(error) = runtime.memory.retire_execution(&runtime.resources, id) {
+            // A faulted heap keeps inert source carriers until shutdown. Control,
+            // host loans and wakers still retire below without reopening access.
+            if !runtime.resources().is_quarantined() {
+                runtime
+                    .resources()
+                    .quarantine(EngineFault::ExecutionStorageRetirementFailed(error));
+            }
+            failed = true;
         }
         for frame in frames {
             failed |= runtime

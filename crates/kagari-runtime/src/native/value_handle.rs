@@ -2,8 +2,7 @@
 use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    gc::roots::RootedValue,
-    module::{ExecutableModule, ModuleEpochRetention, retention::ProgramLease},
+    module::ExecutableModule,
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
@@ -11,7 +10,7 @@ use crate::{
         typed::NativeContext,
         types::Type,
     },
-    value::Value,
+    value::{carriers::RootedValue, view::ValueView},
 };
 
 /// Forward an arbitrary declared generic value without copying its object graph
@@ -22,7 +21,6 @@ pub struct ScriptValue {
     root: RootedValue,
     argument: TypeArgument,
     owner: ExecutableModule,
-    _program: ProgramLease,
 }
 
 impl ScriptValue {
@@ -31,11 +29,9 @@ impl ScriptValue {
     }
 
     pub fn decode<T: FromKagari>(&self, cx: &mut NativeContext<'_>) -> NativeResult<T> {
-        let value = self
-            .root
-            .value(cx.runtime().gc())
-            .ok_or_else(|| RuntimeError::module_validation("foreign or expired script value"))?;
         let mut conversion = ConversionContext::new(cx.runtime_mut(), &self.owner)?;
+        conversion.check_type::<T>(&self.argument)?;
+        let value = conversion.import(&self.root)?;
         conversion.decode_prepared(&self.argument, &value)
     }
 }
@@ -58,33 +54,25 @@ impl FromKagari for ScriptValue {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
         cx.check_type::<Self>(expected)?;
         cx.check_value(expected, value)?;
-        let root = cx
-            .runtime()
-            .root_value(*value)
-            .ok_or_else(|| RuntimeError::module_validation("script value retention"))?;
-        let program = cx
-            .runtime()
-            .retain_program(cx.owner(), ModuleEpochRetention::RuntimeValue)
-            .ok_or_else(|| RuntimeError::module_validation("script value program retention"))?;
+        let root = cx.retain(value)?;
         Ok(Self {
             root,
             argument: expected.clone(),
             owner: cx.owner().clone(),
-            _program: program,
         })
     }
 }
 
 impl IntoKagari for ScriptValue {
-    fn into_kagari(
+    fn into_kagari<'call>(
         self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ValueView<'call>> {
         cx.check_type::<Self>(expected)?;
         if !self
             .argument
@@ -95,10 +83,7 @@ impl IntoKagari for ScriptValue {
                 "script value declared type differs from its destination",
             ));
         }
-        let value = self
-            .root
-            .value(cx.runtime().gc())
-            .ok_or_else(|| RuntimeError::module_validation("foreign or expired script value"))?;
+        let value = cx.import(&self.root)?;
         cx.check_value(expected, &value)?;
         Ok(value)
     }

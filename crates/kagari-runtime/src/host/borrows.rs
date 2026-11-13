@@ -1,6 +1,5 @@
 use crate::{
     error::{RuntimeError, fault::EngineFault},
-    gc::GcHeap,
     host::{
         ActiveBorrowFrame, BorrowEpoch, FrameBorrowRecord, FrameHostBorrowToken, HostBorrowKind,
         HostBorrowOwner, HostBorrowTable, HostCallGuard, HostFrameAccess, HostFrameId,
@@ -8,7 +7,6 @@ use crate::{
     },
     metadata::TypeId,
     resource::ResourceState,
-    value::Value,
 };
 
 use kagari_common::identity::table::DefinitionId;
@@ -164,16 +162,6 @@ impl HostBorrowTable {
             )));
         }
         Ok(())
-    }
-
-    pub fn validate_no_escape(heap: &GcHeap, value: &Value) -> Result<(), RuntimeError> {
-        if value.contains_host_borrow(heap) {
-            Err(RuntimeError::host_borrow_escape(
-                "frame-scoped host borrow cannot outlive its call frame",
-            ))
-        } else {
-            Ok(())
-        }
     }
 
     pub(super) fn borrow(

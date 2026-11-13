@@ -2,10 +2,10 @@
 use crate::{
     Runtime,
     error::{RuntimeError, reason::CancellationReason},
-    gc::roots::RootedValue,
     native::binding::NativeResult,
     scheduler::wake::WakeHub,
     session::ExecutionId,
+    value::carriers::RootedValue,
 };
 
 use kagari_common::cancellation::CancellationToken;

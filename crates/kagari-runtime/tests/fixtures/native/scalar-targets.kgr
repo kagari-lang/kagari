@@ -1,0 +1,6 @@
+fn main() -> i64 {
+    val first: i32 = 7;
+    val second: i64 = 9;
+    first.identity();
+    second.identity()
+}

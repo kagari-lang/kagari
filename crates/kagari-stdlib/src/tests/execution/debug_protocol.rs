@@ -7,7 +7,6 @@ use kagari_runtime::{
         DebugAdapterEvent, DebugAdapterRequest, DebugAdapterResponse, DebugProtocolAdapter,
     },
     module::entry::ProgramEntry,
-    value::Value,
 };
 
 use crate::tests::execution::common::{compile_test_bytecode, standard_runtime};
@@ -20,12 +19,7 @@ fn debug_runtime(_module_name: &str) -> Runtime {
 
 #[test]
 fn debug_protocol_adapter_smoke_test_attaches_breaks_and_evaluates_watch() {
-    let source = r#"
-fn main() -> i32 {
-    val value = 3;
-    value + 4
-}
-"#;
+    let source = include_str!("../../../tests/fixtures/execution/debug-watch.kgr");
     let mut runtime = debug_runtime("adapter.kgr");
     let loaded = load_bytecode(&mut runtime, "adapter.kgr", compile_test_bytecode(source))
         .expect("module should load");
@@ -57,13 +51,7 @@ fn main() -> i32 {
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("debugged module should execute");
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(7)
-    );
+    assert_eq!(report.return_value.as_i32(), Some(7));
     let flushed = adapter
         .handle_request(&mut vm, DebugAdapterRequest::FlushEvents)
         .expect("adapter should flush debug events");
@@ -97,23 +85,15 @@ fn main() -> i32 {
             },
         )
         .expect("adapter should evaluate watch");
-    assert_eq!(
-        watch,
-        DebugAdapterResponse::WatchValue {
-            value: Value::I32(3)
-        }
-    );
+    let DebugAdapterResponse::WatchValue { value } = watch else {
+        panic!("watch response");
+    };
+    assert_eq!(value.as_i32(), Some(3));
 }
 
 #[test]
 fn debug_protocol_adapter_routes_step_and_run_to_cursor_requests() {
-    let source = r#"
-fn main() -> i32 {
-    val first = 1;
-    val second = first + 1;
-    second
-}
-"#;
+    let source = include_str!("../../../tests/fixtures/execution/debug-step.kgr");
     let mut runtime = debug_runtime("adapter_step.kgr");
     let loaded = load_bytecode(
         &mut runtime,
@@ -143,12 +123,12 @@ fn main() -> i32 {
             .expect("run to cursor should configure breakpoint"),
         DebugAdapterResponse::BreakpointSet { .. }
     ));
-    assert_eq!(
+    assert!(matches!(
         adapter
             .handle_request(&mut vm, DebugAdapterRequest::StepInto)
             .expect("step into should configure"),
         DebugAdapterResponse::StepConfigured
-    );
+    ));
 
     vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("debugged module should execute");

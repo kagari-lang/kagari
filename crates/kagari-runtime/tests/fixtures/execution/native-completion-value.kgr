@@ -1,0 +1,7 @@
+use test::completion::value;
+
+fn main() -> i32 {
+    val a = value();
+    val b = a + 1;
+    (a + b) + value() - 7
+}

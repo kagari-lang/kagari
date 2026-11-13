@@ -8,8 +8,8 @@ use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     error::RuntimeErrorKind,
     module::{EnumVariantRef, ExecutableModule, entry::ProgramEntry},
-    reflection,
-    value::{EnumTag, Value},
+    native::conversion::context::ConversionContext,
+    value::{EnumTag, carriers::RootedValue},
     value_semantics::script_equal,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
@@ -73,40 +73,49 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
         .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
         .unwrap();
     let root = report.return_value;
-    let Value::Enum(handle) = root.value(runtime.gc()).expect("retained execution result") else {
-        panic!("constructed enum")
-    };
+    let expected = runtime
+        .alloc_enum(
+            EnumTag::Declared(option.clone()),
+            &[RootedValue::from(42_i32)],
+        )
+        .unwrap();
+    assert!(script_equal(&mut runtime, &root, &expected).unwrap());
+    drop(expected);
+    let name = runtime.reflect_type_of(&root).unwrap();
     assert_eq!(
-        runtime.gc().enum_snapshot(handle).unwrap().fields,
-        [Value::I32(42)]
+        ConversionContext::new(&mut runtime, &_selected_loaded)
+            .unwrap()
+            .decode::<String>(&name)
+            .unwrap(),
+        "Option"
     );
-    let Value::Str(name) = reflection::type_of(runtime.gc(), &Value::Enum(handle)).unwrap() else {
-        panic!("enum type name")
-    };
-    assert_eq!(&*runtime.gc().string(name).unwrap(), "Option");
+    drop(name);
+    let applied = runtime
+        .resolve_type_arguments(
+            &_selected_loaded,
+            &[binding::option(
+                _selected_loaded.definitions(),
+                Ty::Builtin(BuiltinType::I32),
+            )
+            .unwrap()],
+        )
+        .unwrap()
+        .pop()
+        .unwrap();
     let standard = runtime
         .make_enum_member(
             &_selected_loaded,
-            &runtime
-                .resolve_type_arguments(
-                    &_selected_loaded,
-                    &[binding::option(
-                        _selected_loaded.definitions(),
-                        Ty::Builtin(BuiltinType::I32),
-                    )
-                    .unwrap()],
-                )
-                .unwrap()[0],
+            &applied,
             "Some",
-            vec![Value::I32(42)],
+            &[RootedValue::from(42_i32)],
         )
         .unwrap();
-    assert!(!script_equal(runtime.gc(), &Value::Enum(handle), &standard).unwrap());
-
-    for fields in [vec![], vec![Value::Bool(true)]] {
+    assert!(!script_equal(&mut runtime, &root, &standard).unwrap());
+    drop(standard);
+    for fields in [vec![], vec![RootedValue::from(true)]] {
         assert_eq!(
             runtime
-                .alloc_enum(EnumTag::Declared(option.clone()), fields)
+                .alloc_enum(EnumTag::Declared(option.clone()), &fields)
                 .unwrap_err()
                 .kind(),
             RuntimeErrorKind::ScriptTrap
@@ -126,41 +135,42 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
                     &foreign_runtime.select_program(&foreign).unwrap(),
                     "Option"
                 )),
-                vec![Value::I32(42)]
+                &[RootedValue::from(42_i32)]
             )
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::ModuleValidation
     );
-
     let array = runtime
         .alloc_array(
             &_selected_loaded,
             Ty::Builtin(BuiltinType::I32),
-            vec![Value::I32(1)],
+            &[RootedValue::from(1_i32)],
         )
         .unwrap();
     let wrong = runtime
         .alloc_enum(
             EnumTag::Declared(variant(&_selected_loaded, "Other")),
-            vec![Value::I32(42)],
+            &[RootedValue::from(42_i32)],
         )
         .unwrap();
-    assert!(
+    assert_eq!(
         runtime
             .alloc_enum(
                 EnumTag::Declared(holder.clone()),
-                vec![Value::Enum(wrong), Value::Array(array)]
+                &[wrong.clone(), array.clone()]
             )
-            .is_err()
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::ScriptTrap
     );
-    assert!(
+    drop(
         runtime
             .alloc_enum(
                 EnumTag::Declared(holder.clone()),
-                vec![Value::Enum(handle), Value::Array(array)]
+                &[root.clone(), array.clone()],
             )
-            .is_ok()
+            .unwrap(),
     );
     let old_key = _selected_loaded.key();
     let changed = compile(
@@ -180,40 +190,47 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
             .is_err()
     );
     assert_eq!(runtime.select_program(&loaded).unwrap().key(), old_key);
-    // Frozen payload layouts reject publication. An independent installation with
-    // the changed schema still cannot consume the retained old values.
+    // Frozen layouts reject publication; another installation has independent payload types.
     let new = runtime.load_program(&changed, Default::default()).unwrap();
-    assert!(
+    assert_eq!(
         runtime
             .alloc_enum(
                 EnumTag::Declared(variant(&runtime.select_program(&new).unwrap(), "Holder")),
-                vec![Value::Enum(handle), Value::Array(array)]
+                &[root.clone(), array.clone()]
             )
-            .is_err()
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::ScriptTrap
     );
-    drop(holder);
-    drop(option);
-    drop(loaded);
+    drop((holder, loaded, wrong, array));
     runtime.collect_garbage().unwrap();
-    let snapshot = runtime.gc().enum_snapshot(handle).unwrap();
-    let EnumTag::Declared(retained) = snapshot.tag;
-    assert_eq!(retained.module().key(), old_key);
-    assert_eq!(snapshot.fields, [Value::I32(42)]);
-    assert!(
-        runtime
-            .alloc_enum(EnumTag::Declared(retained.clone()), vec![Value::I32(7)])
-            .is_ok()
-    );
+    let expected = runtime
+        .alloc_enum(
+            EnumTag::Declared(option.clone()),
+            &[RootedValue::from(42_i32)],
+        )
+        .unwrap();
+    assert!(script_equal(&mut runtime, &root, &expected).unwrap());
+    drop(expected);
+    runtime.collect_garbage().unwrap();
+    let before_release = runtime.gc_stats();
     drop(root);
     runtime.collect_garbage().unwrap();
-    assert!(runtime.gc().enum_snapshot(handle).is_none());
-    assert!(
+    let after_release = runtime.gc_stats();
+    assert_eq!(
+        after_release.objects + 1,
+        before_release.objects,
+        "the scalar enum has no remaining data owner"
+    );
+    assert_eq!(
+        after_release.root_registrations + 1,
+        before_release.root_registrations
+    );
+    // Immutable layout facts remain usable independently of the previous data instance.
+    drop(
         runtime
-            .alloc_enum(
-                EnumTag::Declared(retained.clone()),
-                vec![Value::Enum(handle)]
-            )
-            .is_err()
+            .alloc_enum(EnumTag::Declared(option), &[RootedValue::from(7_i32)])
+            .unwrap(),
     );
 }
 
@@ -248,14 +265,13 @@ fn imported_enum_constructors_use_the_pinned_dependency_layouts() {
             Default::default(),
         )
         .unwrap();
-    assert_eq!(
+    assert!(
         runtime
             .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::Bool(true)
+            .as_bool()
+            .unwrap()
     );
 }
 

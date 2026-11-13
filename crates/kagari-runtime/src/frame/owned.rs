@@ -2,14 +2,13 @@
 use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault},
+    execution::roots::ExecutionRoots,
     frame::{FrameStack, NativeEntryState},
     module::linked_execution::LinkedFunction,
+    value_check::{data::AsyncDataWalk, scoped::CheckError},
 };
 #[cfg(test)]
 pub(super) mod tests;
-
-#[cfg(test)]
-use crate::gc::retention_probe::{self, Event};
 
 use kagari_bytecode::module::CallableTarget;
 use std::sync::Arc;
@@ -77,50 +76,61 @@ impl FrameStack {
         Ok(())
     }
 
-    pub(crate) fn can_park(&self, runtime: &Runtime) -> Result<bool, RuntimeError> {
-        #[cfg(test)]
-        retention_probe::record(runtime.gc(), Event::Proof);
+    pub(crate) fn can_park(&self, runtime: &mut Runtime) -> Result<bool, RuntimeError> {
         self.validate_top(runtime)?;
-        runtime.gc().ensure_no_native_borrow()?;
         if runtime.static_initialization_active() {
             return Ok(false);
         }
-        let state = self.session_state(runtime);
-        if state.owner.borrow().is_none()
-            || state.scopes.get() != 1
-            || state.frame_scopes.borrow().len() != 1
-            || !state.host_scopes.borrow().is_empty()
         {
-            return Ok(false);
-        }
-        let frames = self.frames(runtime)?;
-        let values = runtime.resources().frame_values.try_borrow().map_err(|_| {
-            runtime
-                .resources()
-                .quarantine(EngineFault::ExecutionWindowsBorrowedDuringSuspension)
-        })?;
-        runtime.gc().with_async_values(|walk| {
-            for frame in frames.iter() {
-                #[cfg(test)]
-                retention_probe::record(runtime.gc(), Event::Frame);
-                if !frame.mutations.is_empty()
-                    || matches!(frame.native_entry, NativeEntryState::Running)
-                {
-                    return Ok(false);
-                }
-                let ranges = values.ranges(frame.slots).ok_or_else(|| {
-                    runtime
-                        .resources()
-                        .quarantine(EngineFault::InvalidParkedFrameWindow)
-                })?;
-                let retained = &values.values[ranges.managed];
-                if !retained.iter().all(|value| value.is_storable(runtime.gc())) {
-                    return Ok(false);
-                }
-                walk.validate(retained)?;
+            let state = self.session_state(runtime);
+            if state.owner.borrow().is_none()
+                || state.scopes.get() != 1
+                || state.frame_scopes.borrow().len() != 1
+                || !state.host_scopes.borrow().is_empty()
+            {
+                return Ok(false);
             }
-            Ok(true)
-        })
+        }
+        // Shared frame control and physical sources overlap only in this closed
+        // provider walk. No executing Runtime service runs; both loans end before
+        // error admission or trace capture. Payload loans require exclusive access.
+        let Runtime {
+            memory, resources, ..
+        } = &mut *runtime;
+        let frames = resources
+            .sessions
+            .frames(self.session)
+            .ok_or_else(|| resources.quarantine(EngineFault::ParkedFrameStackBorrowed))?;
+        let result = memory.scope(resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                if slots.native_depth(self.session)? != 0 {
+                    return Ok(Ok(false));
+                }
+                Ok((|| -> Result<bool, CheckError> {
+                    let mut walk = AsyncDataWalk::default();
+                    for (index, frame) in frames.iter().enumerate() {
+                        if index != 0 && index.is_multiple_of(1024) {
+                            resources.ensure_execution_allowed()?;
+                        }
+                        if matches!(frame.native_entry, NativeEntryState::Running) {
+                            return Ok(false);
+                        }
+                        if !walk.frame(slots, self.session, frame.slots().banks, resources)? {
+                            return Ok(false);
+                        }
+                    }
+                    walk.remaining(slots, self.session, resources)
+                })())
+            })
+        });
+        drop(frames);
+        result
+            .map_err(|error| runtime.managed_memory_error(error))?
+            .map_err(|error| {
+                runtime
+                    .resources
+                    .admit_execution_error(error.into_runtime(runtime))
+            })
     }
 
     /// Attempt a ready-slice transition, consuming the activation only on success.
@@ -131,7 +141,7 @@ impl FrameStack {
     /// Success retains frame roots, ends the activation and publishes readiness.
     pub fn try_park_ready(
         activation: &mut Option<Self>,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
     ) -> Result<bool, RuntimeError> {
         let stack = activation
             .as_mut()

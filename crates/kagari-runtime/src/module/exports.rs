@@ -353,6 +353,7 @@ mod tests {
         let program = runtime
             .load_verified_program("paths", function_program(FUNCTION_PATHS))
             .unwrap();
+        let heap = runtime.gc_stats();
         let root = program.root();
         let child = runtime.module(&program.root(), "api").unwrap();
         // No root fallback even though Count exists there.
@@ -400,8 +401,7 @@ mod tests {
                 .kind(),
             RuntimeErrorKind::EngineFault
         );
-        assert_eq!(runtime.gc().allocated_objects(), 0);
-        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(runtime.gc_stats(), heap);
     }
 
     fn navigation_program(updated: bool) -> DefinitionMetadata<BytecodeProgram> {

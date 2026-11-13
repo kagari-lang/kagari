@@ -2,9 +2,11 @@ use crate::{
     Runtime,
     error::{RuntimeError, trap::TrapReason},
     session::ExecutionPhase,
-    value::Value,
+    value::carriers::RootedValue,
+    value_check,
 };
 
+use kagari_gc::error::GcError;
 use kagari_types::declaration::host::{HostCallPolicy, HostFunctionEffects, HostPassingStyle};
 
 impl Runtime {
@@ -54,13 +56,22 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn validate_debug_value(&self, value: &Value) -> Result<(), RuntimeError> {
-        self.resources().poll_execution()?;
-        if !self.gc.validate_value(value) {
-            return Err(RuntimeError::from(
-                TrapReason::InvalidHeapReferenceInDebugValue,
-            ));
-        }
-        Ok(())
+    /// Authenticate a retained diagnostic value in this Runtime. Invalid/foreign
+    /// handles trap; shutdown, termination and candidate restrictions still apply.
+    pub fn validate_debug_value(&mut self, value: &RootedValue) -> Result<(), RuntimeError> {
+        self.resources.ensure_synchronous_thread()?;
+        self.resources.poll_execution()?;
+        self.memory
+            .scope(&self.resources, |cx, _| value.get(cx).map(|_| ()))
+            .map_err(|error| match error {
+                GcError::ForeignHeap
+                | GcError::InvalidRoot
+                | GcError::Index
+                | GcError::Representation => {
+                    RuntimeError::from(TrapReason::InvalidHeapReferenceInDebugValue)
+                }
+                error => self.managed_memory_error(error),
+            })?;
+        value_check::candidate_root(self, value)
     }
 }

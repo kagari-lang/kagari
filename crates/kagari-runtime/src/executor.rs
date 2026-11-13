@@ -1,16 +1,14 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::{RuntimeError, fault::EngineFault},
-    frame::{ExecutionFrame, ExecutionStack, FrameStack},
+    frame::{ExecutionFrame, ExecutionStack, FrameStack, transfer::ReturnValue},
     module::ExecutableModule,
+    native::conversion::arguments::ArgumentValues,
     session::owned::OwnedExecution,
-    value::Value,
 };
-mod aggregate_ops;
 mod dispatch;
 mod driver;
 pub(crate) mod native;
-mod value_ops;
 
 use kagari_bytecode::module::CallableTarget;
 use kagari_contract::ids::FunctionRef;
@@ -28,10 +26,10 @@ struct Interpreter<'a> {
     stack: &'a mut Option<FrameStack>,
 }
 
-pub(crate) enum DriveOutcome {
+pub(crate) enum DriveOutcome<T> {
     Runnable,
     Waiting,
-    Complete(Value),
+    Complete(T),
 }
 
 impl<'a> Executor<'a> {
@@ -39,7 +37,7 @@ impl<'a> Executor<'a> {
         runtime: &'a mut Runtime,
         loaded: &'a ExecutableModule,
         entry: FunctionRef,
-        args: &[Value],
+        args: ArgumentValues<'_>,
     ) -> Result<Self, RuntimeError> {
         loaded
             .bytecode
@@ -65,11 +63,10 @@ impl<'a> Executor<'a> {
 
     pub(crate) fn new_interface(
         runtime: &'a mut Runtime,
-        method: RootedInterfaceMethod,
-        args: &[Value],
+        method: &RootedInterfaceMethod,
+        args: ArgumentValues<'_>,
     ) -> Result<Self, RuntimeError> {
-        let loaded = method.implementation(runtime)?;
-        let mut activation = runtime.enter_execution_stack(&loaded)?;
+        let mut activation = runtime.enter_interface_execution_stack(method)?;
         activation.with(|runtime, stack| {
             stack
                 .push_interface_method(runtime, method, args, None)
@@ -82,21 +79,30 @@ impl<'a> Executor<'a> {
         Self { activation }
     }
 
-    pub(crate) fn run(&mut self) -> Result<Value, RuntimeError> {
+    /// Consume the result while its execution source and authority remain live.
+    /// A Host consumer may retain it; an internal consumer publishes or decodes
+    /// directly without introducing an escaping root lease.
+    pub(crate) fn run<R>(
+        &mut self,
+        complete: impl FnOnce(&mut Runtime, &FrameStack, ReturnValue) -> Result<R, RuntimeError>,
+    ) -> Result<R, RuntimeError> {
         self.activation.drive(|runtime, stack| {
-            Interpreter { runtime, stack }
-                .run_inner(None)
-                .and_then(|outcome| match outcome {
-                    DriveOutcome::Complete(value) => Ok(value),
-                    _ => Err(RuntimeError::from(EngineFault::HostInvariant(
-                        "synchronous entry cannot suspend",
-                    ))),
-                })
-                .map_err(|error| {
-                    error
-                        .admit_execution_error(runtime.resources())
-                        .with_trace(runtime.capture_error_trace())
-                })
+            let result = Interpreter { runtime, stack }.run_inner(None);
+            let result = result.and_then(|outcome| match outcome {
+                DriveOutcome::Complete(value) => complete(
+                    runtime,
+                    stack.as_ref().expect("completed active stack"),
+                    value,
+                ),
+                _ => Err(RuntimeError::from(EngineFault::HostInvariant(
+                    "synchronous entry cannot suspend",
+                ))),
+            });
+            result.map_err(|error| {
+                error
+                    .admit_execution_error(runtime.resources())
+                    .with_trace(runtime.capture_error_trace())
+            })
         })
     }
 
@@ -109,35 +115,33 @@ impl<'a> Executor<'a> {
         })
     }
 
-    pub(crate) fn run_slice(
+    pub(crate) fn run_slice<R>(
         mut self,
         slice: NonZeroUsize,
-        complete: impl FnOnce(&mut Runtime, Value) -> Result<(), RuntimeError>,
-    ) -> Result<DriveOutcome, RuntimeError> {
+        complete: impl FnOnce(&mut Runtime, &FrameStack, ReturnValue) -> Result<R, RuntimeError>,
+    ) -> Result<DriveOutcome<R>, RuntimeError> {
         self.activation.drive(|runtime, stack| {
-            let value = Interpreter { runtime, stack }
-                .run_inner(Some(slice.get()))
-                .map_err(|error| {
-                    error
-                        .admit_execution_error(runtime.resources())
-                        .with_trace(runtime.capture_error_trace())
-                })?;
-            match &value {
-                DriveOutcome::Runnable => debug_assert!(stack.is_none()),
-                DriveOutcome::Waiting => {
-                    FrameStack::park_waiting(stack, runtime).map_err(|error| {
-                        error
-                            .admit_execution_error(runtime.resources())
-                            .with_trace(runtime.capture_error_trace())
-                    })?
+            let result = (|| match (Interpreter { runtime, stack }).run_inner(Some(slice.get()))? {
+                DriveOutcome::Runnable => {
+                    debug_assert!(stack.is_none());
+                    Ok(DriveOutcome::Runnable)
                 }
-                DriveOutcome::Complete(value) => complete(runtime, *value).map_err(|error| {
-                    error
-                        .admit_execution_error(runtime.resources())
-                        .with_trace(runtime.capture_error_trace())
-                })?,
-            }
-            Ok(value)
+                DriveOutcome::Waiting => {
+                    FrameStack::park_waiting(stack, runtime)?;
+                    Ok(DriveOutcome::Waiting)
+                }
+                DriveOutcome::Complete(value) => complete(
+                    runtime,
+                    stack.as_ref().expect("completed active stack"),
+                    value,
+                )
+                .map(DriveOutcome::Complete),
+            })();
+            result.map_err(|error: RuntimeError| {
+                error
+                    .admit_execution_error(runtime.resources())
+                    .with_trace(runtime.capture_error_trace())
+            })
         })
     }
 }

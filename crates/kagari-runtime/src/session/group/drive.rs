@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault, reason::CancellationReason},
     execution::owned::DriveResult,
-    gc::roots::RootedValue,
+    execution::roots::SessionId,
     native::{
         binding::NativeResult,
         composition::{PairContext, PairDecision},
@@ -11,11 +11,12 @@ use crate::{
     session::{
         group::{BranchActivation, GroupRecord, GroupState, GroupWork, invalid},
         owned::OwnedExecution,
-        store::SessionId,
     },
+    value::carriers::RootedValue,
+    value_check::data::async_result,
 };
 
-use std::{num::NonZeroUsize, slice};
+use std::num::NonZeroUsize;
 
 impl Runtime {
     pub(crate) fn acquire_group(&mut self, parent: SessionId) -> NativeResult<GroupWork> {
@@ -77,21 +78,22 @@ impl Runtime {
             let GroupState::Running(group) = &mut record.state else {
                 return Err(invalid());
             };
-            let value = output.value(self.gc()).ok_or_else(invalid)?;
-            if !group.contract.inputs[index].matches(self, &value, &group.contract.owner) {
-                return Err(invalid());
-            }
-            self.gc().validate_async_values(slice::from_ref(&value))?;
+            async_result(
+                self,
+                &output,
+                &group.contract.inputs[index],
+                &group.contract.owner,
+            )?;
             group.outputs[index] = Some(output);
-            let cx = PairContext {
-                runtime: self,
-                contract: &group.contract,
-                outputs: &group.outputs,
+            let hub = self.scheduler.hub.clone();
+            let decision = {
+                let mut cx = PairContext {
+                    runtime: self,
+                    contract: &group.contract,
+                    outputs: &group.outputs,
+                };
+                hub.contain(|| group.contract.policy.on_output(&mut cx, index))
             };
-            let decision = self
-                .scheduler
-                .hub
-                .contain(|| group.contract.policy.on_output(&cx, index));
             self.check_scheduler_fault()?;
             self.poll_group_parent(parent)?;
             match decision.expect("contained policy")? {
@@ -99,15 +101,7 @@ impl Runtime {
                     Err(invalid())
                 }
                 PairDecision::Finish(root) => {
-                    let value = root.value(self.gc()).ok_or_else(invalid)?;
-                    if !group
-                        .contract
-                        .output
-                        .matches(self, &value, &group.contract.owner)
-                    {
-                        return Err(invalid());
-                    }
-                    self.gc().validate_async_values(slice::from_ref(&value))?;
+                    async_result(self, &root, &group.contract.output, &group.contract.owner)?;
                     Ok(PairDecision::Finish(root))
                 }
                 decision => Ok(decision),

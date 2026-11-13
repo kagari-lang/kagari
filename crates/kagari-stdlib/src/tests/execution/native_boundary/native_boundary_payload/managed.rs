@@ -30,7 +30,7 @@ use kagari_runtime::{
         types::{Type, TypeRef},
         value_handle::ScriptValue,
     },
-    value::Value,
+    value::view::ValueView,
 };
 
 use std::{
@@ -156,17 +156,7 @@ fn registration() -> Registration {
     }
 }
 
-const SOURCE: &str = r#"
-    use example::managed::{Holder, new, read, install, invoke};
-    pub fn make(hp: i32) -> Holder { new(hp, "initial", || 42) }
-    pub fn cycle(hp: i32) -> Holder {
-        val holder = make(hp);
-        install(holder, || read(holder) + 1);
-        holder
-    }
-    pub fn plain() -> fn() -> i32 { || 7 }
-    pub fn run(holder: Holder) -> i32 { invoke(holder) }
-"#;
+const SOURCE: &str = include_str!("../../../../../tests/fixtures/native/managed_payload.kgr");
 
 #[test]
 fn registered_payload_fields_support_aliases_reentry_and_rootless_callback_cycles() {
@@ -179,6 +169,8 @@ fn registered_payload_fields_support_aliases_reentry_and_rootless_callback_cycle
     let (mut vm, owner) = fixture(SOURCE, Some(&module));
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let object: Holder = vm
         .execute_typed(&_owner_program, "cycle", (41,), &Default::default())
         .unwrap();
@@ -192,11 +184,12 @@ fn registered_payload_fields_support_aliases_reentry_and_rootless_callback_cycle
     assert_eq!(object.get(&mut cx, &name).unwrap(), "initial");
     object.set(&mut cx, &name, "updated".into()).unwrap();
     assert_eq!(alias.get(&mut cx, &name.clone()).unwrap(), "updated");
-    // Holder/callback, the updated name, and the module string constant.
-    assert_eq!(cx.collect_garbage().unwrap().live_objects, 4);
+    cx.collect_garbage().unwrap();
+    let retained = cx.runtime().gc_stats();
+    assert!(retained.objects > baseline.objects);
     let held = object.get(&mut cx, &callback).unwrap();
     object
-        .edit_data(&cx, |state| {
+        .edit_data(&mut cx, |state| {
             state.hp = 40;
             Ok(())
         })
@@ -214,7 +207,7 @@ fn registered_payload_fields_support_aliases_reentry_and_rootless_callback_cycle
     );
     assert!(
         object
-            .edit_data::<()>(&cx, |state| {
+            .edit_data::<()>(&mut cx, |state| {
                 state.hp = 41;
                 Err(RuntimeError::module_validation("after write"))
             })
@@ -222,7 +215,7 @@ fn registered_payload_fields_support_aliases_reentry_and_rootless_callback_cycle
     );
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
-            let _ = object.edit_data::<()>(&cx, |state| {
+            let _ = object.edit_data::<()>(&mut cx, |state| {
                 state.hp = 42;
                 panic!("after data write")
             });
@@ -231,12 +224,20 @@ fn registered_payload_fields_support_aliases_reentry_and_rootless_callback_cycle
     );
     assert_eq!(held.call(&mut cx, ()).unwrap(), 43);
     drop((object, alias));
-    // Holder/callback, the updated name, and the module string constant.
-    assert_eq!(cx.collect_garbage().unwrap().live_objects, 4);
+    cx.collect_garbage().unwrap();
+    assert_eq!(cx.runtime().gc_stats().objects, retained.objects);
+    assert_eq!(
+        cx.runtime().gc_stats().provider_units,
+        retained.provider_units
+    );
     drop((held, cx, native_type, name, callback));
     publish_unused_version(&mut vm, &_owner_program);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(vm.gc().active_roots(), 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -255,17 +256,26 @@ fn managed_construction_and_replacement_require_every_checked_field() {
         .unwrap();
     let name_field = native_type.bind_field(&mut vm, &name).unwrap();
     let callback_field = native_type.bind_field(&mut vm, &callback).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let mut cx = vm.context(&owner).unwrap();
     let callback: Callback = cx
         .runtime_mut()
         .execute_typed(&_owner_program, "plain", (), &Default::default())
         .unwrap();
+    cx.collect_garbage().unwrap();
+    let callback_live = cx.runtime().gc_stats();
     let mut incomplete = native_type.build(State { hp: 10 }).unwrap();
     incomplete
         .set(&mut cx, &callback_field, callback.clone())
         .unwrap();
     assert!(incomplete.finish(&mut cx).is_err());
-    assert_eq!(cx.collect_garbage().unwrap().live_objects, 1);
+    cx.collect_garbage().unwrap();
+    assert_eq!(cx.runtime().gc_stats().objects, callback_live.objects);
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        callback_live.root_registrations
+    );
     let mut builder = native_type.build(State { hp: 10 }).unwrap();
     builder
         .set(&mut cx, &callback_field, callback.clone())
@@ -273,6 +283,24 @@ fn managed_construction_and_replacement_require_every_checked_field() {
     builder.set(&mut cx, &name_field, "built".into()).unwrap();
     let object = builder.finish(&mut cx).unwrap();
     let alias = object.clone();
+    // A completed owning constructor must retire its source temporary even while
+    // this Host context remains alive. Warm metadata above, then compare liveness
+    // independently of the number of physical Native representations.
+    cx.collect_garbage().unwrap();
+    cx.collect_garbage().unwrap();
+    let retained = cx.runtime().gc_stats().objects;
+    let mut discarded = native_type.build(State { hp: 0 }).unwrap();
+    discarded
+        .set(&mut cx, &name_field, "transient".into())
+        .unwrap();
+    discarded
+        .set(&mut cx, &callback_field, callback.clone())
+        .unwrap();
+    drop(discarded.finish(&mut cx).unwrap());
+    // Finish any suspended assist, then observe a fresh post-release cycle.
+    cx.collect_garbage().unwrap();
+    cx.collect_garbage().unwrap();
+    assert_eq!(cx.runtime().gc_stats().objects, retained);
     assert!(
         native_type
             .build(State { hp: 0 })
@@ -280,16 +308,20 @@ fn managed_construction_and_replacement_require_every_checked_field() {
             .replace(&mut cx, &object)
             .is_err()
     );
-    assert_eq!(object.read(&cx, |p| Ok(p.data().hp)).unwrap(), 10);
+    assert_eq!(object.read(&mut cx, |p| Ok(p.data().hp)).unwrap(), 10);
+    cx.collect_garbage().unwrap();
+    let units = cx.runtime().gc_stats().provider_units;
     let mut replacement = native_type.build(State { hp: 20 }).unwrap();
     replacement
         .set(&mut cx, &name_field, "replaced".into())
         .unwrap();
     replacement.set(&mut cx, &callback_field, callback).unwrap();
-    let units = cx.runtime().gc().stats().current_heap_units;
     replacement.replace(&mut cx, &object).unwrap();
-    assert_eq!(cx.runtime().gc().stats().current_heap_units, units);
-    assert_eq!(alias.read(&cx, |p| Ok(p.data().hp)).unwrap(), 20);
+    cx.collect_garbage().unwrap();
+    // The replacement has the same fixed schema and callback, and three more
+    // UTF-8 bytes in its sole String. Old provider/backing is no longer charged.
+    assert_eq!(cx.runtime().gc_stats().provider_units, units + 3);
+    assert_eq!(alias.read(&mut cx, |p| Ok(p.data().hp)).unwrap(), 20);
     assert_eq!(alias.get(&mut cx, &name_field).unwrap(), "replaced");
     let other = registration();
     assert!(
@@ -318,7 +350,12 @@ fn managed_construction_and_replacement_require_every_checked_field() {
             .is_err()
     );
     drop((object, alias));
-    assert_eq!(cx.collect_garbage().unwrap().live_objects, 0);
+    cx.collect_garbage().unwrap();
+    assert_eq!(cx.runtime().gc_stats().objects, baseline.objects);
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -329,6 +366,8 @@ fn stored_callback_keeps_old_code_and_releases_the_old_program_with_its_cycle() 
     let (mut vm, old) = fixture(SOURCE, Some(&module));
     let _old_program = old;
     let old = vm.select_program(&_old_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let object: Holder = vm
         .execute_typed(&_old_program, "cycle", (41,), &Default::default())
         .unwrap();
@@ -363,20 +402,32 @@ fn stored_callback_keeps_old_code_and_releases_the_old_program_with_its_cycle() 
             .unwrap(),
         43
     );
-    assert!(
-        !cx.collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&old.key())
-    );
+    cx.collect_garbage().unwrap();
+    cx.runtime_mut().validate_executable_module(&old).unwrap();
     drop((object, field));
-    let collected = cx.collect_garbage().unwrap();
-    assert!(collected.reclaimed_modules.contains(&old.key()));
-    // Current holder/callback, its name, and its module string constant.
-    assert_eq!(collected.live_objects, 4);
+    cx.collect_garbage().unwrap();
+    assert!(cx.runtime_mut().validate_executable_module(&old).is_err());
+    let current_field = replacement
+        .native_type()
+        .bind_field(cx.runtime_mut(), &callback)
+        .unwrap();
+    assert_eq!(
+        replacement
+            .get(&mut cx, &current_field)
+            .unwrap()
+            .call(&mut cx, ())
+            .unwrap(),
+        43
+    );
+    drop(current_field);
     drop((replacement, cx));
     publish_unused_version(&mut vm, &_new_program);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 struct Converted {
@@ -388,7 +439,7 @@ impl FromKagari for Converted {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
         String::from_kagari(cx, expected, value).map(|text| Self { text, fail: false })
     }
@@ -401,11 +452,11 @@ impl KagariType for Converted {
 }
 
 impl IntoKagari for Converted {
-    fn into_kagari(
+    fn into_kagari<'call>(
         self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ValueView<'call>> {
         cx.runtime_mut().collect_garbage()?;
         if self.fail {
             return Err(RuntimeError::module_validation(
@@ -441,7 +492,7 @@ fn failed_converters_keep_prior_initializers_and_committed_fields_rooted() {
     wrong_ty.native_storage(wrong_storage.finish()).unwrap();
     let wrong_ty = wrong_ty.finish().unwrap();
     let (mut vm, owner) = fixture(
-        "pub fn callback() -> fn() -> i32 { || 42 }",
+        include_str!("../../../../../tests/fixtures/native/managed-converter-callback.kgr"),
         Some(&module.finish().unwrap()),
     );
     let _owner_program = owner;
@@ -457,11 +508,15 @@ fn failed_converters_keep_prior_initializers_and_committed_fields_rooted() {
     );
     let callback_field = native_type.bind_field(&mut vm, &callback_token).unwrap();
     let text_field = native_type.bind_field(&mut vm, &text_token).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let mut cx = vm.context(&owner).unwrap();
     let callback: Callback = cx
         .runtime_mut()
         .execute_typed(&_owner_program, "callback", (), &Default::default())
         .unwrap();
+    cx.collect_garbage().unwrap();
+    let callback_live = cx.runtime().gc_stats();
     let mut builder = native_type.build(()).unwrap();
     builder.set(&mut cx, &callback_field, callback).unwrap();
     assert!(
@@ -476,7 +531,8 @@ fn failed_converters_keep_prior_initializers_and_committed_fields_rooted() {
             )
             .is_err()
     );
-    assert_eq!(cx.collect_garbage().unwrap().live_objects, 1);
+    cx.collect_garbage().unwrap();
+    assert_eq!(cx.runtime().gc_stats().objects, callback_live.objects);
     builder
         .set(
             &mut cx,
@@ -538,7 +594,12 @@ fn failed_converters_keep_prior_initializers_and_committed_fields_rooted() {
     assert!(replacement.replace(&mut cx, &object).is_err());
     assert_eq!(object.get(&mut cx, &text_field).unwrap().text, "initial");
     drop(object);
-    assert_eq!(cx.collect_garbage().unwrap().live_objects, 0);
+    cx.collect_garbage().unwrap();
+    assert_eq!(cx.runtime().gc_stats().objects, baseline.objects);
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -600,16 +661,12 @@ fn generic_managed_fields_keep_their_argument_scope_across_native_calls_and_bind
         )
         .unwrap();
     let module = module.finish().unwrap();
-    let source = r#"
-        use example::managed::{Boxed, wrap, read};
-        pub struct Item { pub var value: i32 }
-        pub fn item() -> Item { Item { value: 42 } }
-        pub fn make() -> Boxed<Item> { wrap(item()) }
-        pub fn run(value: Boxed<Item>) -> i32 { read(value).value }
-    "#;
+    let source = include_str!("../../../../../tests/fixtures/native/generic-managed-field.kgr");
     let (mut vm, old) = fixture(source, Some(&module));
     let _old_program = old;
     let _old = vm.select_program(&_old_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let old_value: Boxed = vm
         .execute_typed(&_old_program, "make", (), &Default::default())
         .unwrap();
@@ -623,6 +680,8 @@ fn generic_managed_fields_keep_their_argument_scope_across_native_calls_and_bind
         .unwrap(),
         42
     );
+    vm.collect_garbage().unwrap();
+    let before_installation = vm.gc_stats().objects;
     let new = load_bytecode(
         &mut vm,
         "independent",
@@ -631,6 +690,8 @@ fn generic_managed_fields_keep_their_argument_scope_across_native_calls_and_bind
     .unwrap();
     let _new_program = new;
     let new = vm.select_program(&_new_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let publication_objects = vm.gc_stats().objects - before_installation;
     let new_value: Boxed = vm
         .execute_typed(&_new_program, "make", (), &Default::default())
         .unwrap();
@@ -722,5 +783,9 @@ fn generic_managed_fields_keep_their_argument_scope_across_native_calls_and_bind
         42
     );
     drop((scoped, old_value, new_value));
-    assert_eq!(cx.collect_garbage().unwrap().live_objects, 0);
+    cx.collect_garbage().unwrap();
+    assert_eq!(
+        cx.runtime().gc_stats().objects,
+        baseline.objects + publication_objects
+    );
 }

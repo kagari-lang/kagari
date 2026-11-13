@@ -5,21 +5,26 @@ mod tests;
 use crate::{
     Runtime,
     error::RuntimeError,
+    execution::roots::ExecutionRoots,
     frame::types::{arguments::TypeArgument, bindings::TypeBindings, compatibility::TypeView},
     host::{
         BorrowEpoch, FrameBorrowRecord, HostBorrowKind, HostBorrowOwner, HostBorrowTable,
         HostCallGuard, HostFrameId, HostFrameMark, HostObjectId,
     },
-    module::{ExecutableModule, ModuleEpochRetention, retention::ProgramLease},
+    module::{ExecutableModule, retention::ProgramLease},
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
         projection::GeneratedField,
         rust_type::{RustField, RustType},
     },
-    value::{EphemeralValue, Value},
+    value::{
+        EphemeralValue, carriers::ScopedValue, host_values::EphemeralObject, kind::ObjectKind,
+        view::ValueView,
+    },
 };
 use kagari_common::identity::table::DefinitionId;
+use kagari_gc::{access::Scope, error::GcError};
 use kagari_types::{reference::ReferenceAccess, ty::Ty};
 use std::{
     any::TypeId,
@@ -108,9 +113,9 @@ impl HostBorrowTable {
         runtime.resources().poll_execution()?;
         runtime.validate_executable_module(descriptor.owner())?;
         descriptor.type_argument().validate(runtime)?;
-        let program = runtime
-            .retain_program(descriptor.owner(), ModuleEpochRetention::RuntimeValue)
-            .ok_or_else(invalid)?;
+        // The checked descriptor already owns the exact revision. A scoped
+        // reservation borrows that same authority instead of registering again.
+        let program = descriptor.program();
         let mut state = self.state.borrow_mut();
         // Distinct zero-sized Rust places can share an address. Give each
         // reservation its own identity; copies of a view still share its key.
@@ -210,6 +215,35 @@ impl HostBorrowTable {
         self.with_root(view, |_| Ok(()))
     }
 
+    /// Publish a weaker inert capability while the original provider is scoped.
+    /// Liveness precedes access weakening, including an already shared input.
+    pub(crate) fn narrow_scoped<'gc>(
+        &self,
+        cx: &mut Scope<'gc>,
+        value: ScopedValue<'gc>,
+        access: ReferenceAccess,
+    ) -> Result<NativeResult<Option<ScopedValue<'gc>>>, GcError> {
+        if value.kind() != Some(ObjectKind::Ephemeral) {
+            return Ok(Err(invalid()));
+        }
+        let Some(object) = value.object() else {
+            return Ok(Err(invalid()));
+        };
+        let object = cx.downcast::<EphemeralObject>(object)?;
+        let EphemeralValue::HostView(view) = cx.read(object, EphemeralObject::value) else {
+            return Ok(Err(invalid()));
+        };
+        if let Err(error) = self.validate_scoped(view) {
+            return Ok(Err(error));
+        }
+        match view.narrow(access) {
+            Ok(Some(view)) => EphemeralObject::alloc(cx, EphemeralValue::HostView(view))
+                .map(|value| Ok(Some(value))),
+            Ok(None) => Ok(Ok(None)),
+            Err(error) => Ok(Err(error)),
+        }
+    }
+
     pub(crate) fn scoped_matches(
         &self,
         runtime: &Runtime,
@@ -280,11 +314,8 @@ impl HostBorrowTable {
     ) -> NativeResult<(HostFrameMark, [*mut (); N])> {
         runtime.resources().ensure_synchronous_thread()?;
         runtime.resources().poll_execution()?;
-        let mut prepared = Vec::new();
-        prepared
-            .try_reserve_exact(N)
-            .map_err(|_| RuntimeError::resource_limit("host loan pack"))?;
-        for (view, rust_type, access) in requests {
+        let mut prepared: [Option<_>; N] = [const { None }; N];
+        for (slot, (view, rust_type, access)) in requests.into_iter().enumerate() {
             if !view.access.permits(access) {
                 return Err(RuntimeError::host_borrow_conflict(
                     "shared view cannot grant mutable access",
@@ -298,10 +329,10 @@ impl HostBorrowTable {
                 place.target.validate(runtime)?;
                 Ok((root.pointer, place.clone()))
             })?;
-            prepared.push((view.object, pointer, place, access));
+            prepared[slot] = Some((view.object, pointer, place, access));
         }
         let loan = self.enter_frame_in(Some(runtime.resources()))?;
-        for (object, _, place, access) in &prepared {
+        for (object, _, place, access) in prepared.iter().flatten() {
             self.borrow_record(
                 &loan,
                 FrameBorrowRecord {
@@ -317,7 +348,8 @@ impl HostBorrowTable {
             )?;
         }
         let mut pointers = [ptr::null_mut(); N];
-        for (slot, (_, mut pointer, place, _)) in prepared.into_iter().enumerate() {
+        for (slot, prepared) in prepared.into_iter().enumerate() {
+            let (_, mut pointer, place, _) = prepared.expect("complete validated Host loan pack");
             for projector in place.projectors.iter() {
                 // SAFETY: A validated generated inline chain starts at the live
                 // reserved root. Every loan in the pack is already active; raw
@@ -445,27 +477,21 @@ impl HostBorrowTable {
     }
 }
 
-impl Runtime {
-    pub(crate) fn narrow_scoped(
-        &self,
-        value: &Value,
-        access: ReferenceAccess,
-    ) -> NativeResult<Option<Value>> {
-        let view = self.scoped_view(value)?;
-        if !view.access.permits(access) {
+impl ScopedHostView {
+    /// Weaken inert access metadata. Callers validate the live capability before
+    /// this operation, and every later dereference still validates its owner.
+    pub(crate) fn narrow(self, access: ReferenceAccess) -> NativeResult<Option<Self>> {
+        if !self.access.permits(access) {
             return Err(invalid());
         }
-        if view.access == access {
-            return Ok(None);
-        }
-        self.gc()
-            .alloc_ephemeral(EphemeralValue::HostView(ScopedHostView { access, ..view }))
-            .map(Some)
+        Ok((self.access != access).then_some(Self { access, ..self }))
     }
+}
 
+impl Runtime {
     pub(crate) fn matches_scoped_receiver(
-        &self,
-        value: &Value,
+        &mut self,
+        value: &ValueView<'_>,
         target: &Ty,
         owner: &ExecutableModule,
         environment: Option<&TypeBindings>,
@@ -480,11 +506,29 @@ impl Runtime {
         })
     }
 
-    pub(crate) fn scoped_view(&self, value: &Value) -> NativeResult<ScopedHostView> {
-        let Value::Ephemeral(id) = value else {
-            return Err(invalid());
-        };
-        let Some(EphemeralValue::HostView(view)) = self.gc().ephemeral(*id) else {
+    pub(crate) fn scoped_view(&mut self, value: &ValueView<'_>) -> NativeResult<ScopedHostView> {
+        self.resources.ensure_synchronous_thread()?;
+        self.resources.ensure_execution_allowed()?;
+        let result = self.memory.scope(&self.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                let value = value.get(slots)?;
+                if value.kind() != Some(ObjectKind::Ephemeral) {
+                    return Err(GcError::Representation);
+                }
+                let object = slots
+                    .scope()
+                    .downcast::<EphemeralObject>(value.object().ok_or(GcError::Representation)?)?;
+                Ok(slots.scope().read(object, EphemeralObject::value))
+            })
+        });
+        let value = result.map_err(|error| match error {
+            GcError::ForeignHeap
+            | GcError::InvalidRoot
+            | GcError::Index
+            | GcError::Representation => invalid(),
+            error => self.managed_memory_error(error),
+        })?;
+        let EphemeralValue::HostView(view) = value else {
             return Err(invalid());
         };
         self.host_borrows.validate_scoped(view)?;

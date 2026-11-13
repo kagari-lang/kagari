@@ -1,0 +1,6 @@
+fn main() -> i32 {
+    var x = 1;
+    val old = x;
+    x = 2;
+    old * 10 + x
+}

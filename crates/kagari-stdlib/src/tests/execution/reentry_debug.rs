@@ -12,7 +12,7 @@ use kagari_runtime::{
     debug::{DebugPauseReason, DebugSession, SourceBreakpoint},
     execution::reentry::reenter,
     module::entry::ProgramEntry,
-    value::Value,
+    value::view::ValueView,
 };
 
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
@@ -22,7 +22,7 @@ use kagari_types::declaration::logging;
 fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
     for encoded in [false, true] {
         for jit in [false, true] {
-            let source = "fn main() -> i32 { val kept = [42]; print(\"enter\"); kept[0] } fn nested(n: i32) -> i32 { val doubled = n + n; doubled + 2147483647 }";
+            let source = include_str!("../../../tests/fixtures/execution/debug-reentry.kgr");
             let module = compile_logging_test_bytecode(source);
             let nested = module.records().modules[module.records().root.index()]
                 .functions
@@ -58,9 +58,12 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
             });
             logging_module(move |context, _| {
                 let root = context.runtime().execution_root().unwrap();
-                assert!(reenter(context, &root, nested, &[Value::I32(2)]).is_err());
+                let args = context
+                    .retain_temporaries(&[ValueView::from(2i32)])
+                    .unwrap();
+                assert!(reenter(context, &root, nested, args).is_err());
                 context.runtime_mut().collect_garbage().unwrap();
-                Ok(Value::Unit)
+                Ok(ValueView::unit())
             })
             .install(&mut runtime)
             .unwrap();
@@ -88,13 +91,7 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
                 vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             }
             .unwrap();
-            assert_eq!(
-                report
-                    .return_value
-                    .value(vm.gc())
-                    .expect("retained execution result"),
-                Value::I32(42)
-            );
+            assert_eq!(report.return_value.as_i32(), Some(42));
             let debug = vm.debug_session().unwrap();
             for reason in [
                 DebugPauseReason::Breakpoint(breakpoint),
@@ -114,7 +111,8 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
                     pause.frames[2]
                         .bindings
                         .iter()
-                        .any(|binding| binding.name == "doubled" && binding.value == Value::I32(4))
+                        .any(|binding| binding.name == "doubled"
+                            && binding.value.as_i32() == Some(4))
                 );
                 assert_eq!(pause.frames[2].epoch, loaded.epoch.0);
             }

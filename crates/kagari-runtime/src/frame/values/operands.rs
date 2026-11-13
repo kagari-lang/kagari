@@ -1,162 +1,157 @@
-//! Borrowed banks preserve the ordinary slot representation rules after window admission.
+//! Closed operand access publishes managed writes through the paired source.
 use crate::{
-    frame::values::{ExecutionValues, FrameSlots},
-    module::execution::layout::Location,
-    value::{Value, scalar},
+    execution::roots::{Slots, ValueBank, ValueLocation, frames::FrameBanks},
+    frame::transfer::ReturnValue,
+    module::execution::{layout::Location, operands::OperandSlot},
+    value::{
+        carriers::ScopedValue,
+        scalar::{self, domain},
+    },
 };
-use kagari_abi::representation::ValueType;
+use kagari_gc::{access::Scope, error::GcError};
 
-/// A checked source window whose identity cannot change during the storage borrow.
-pub(crate) struct OperandView<'a> {
-    managed: &'a [Value],
-    payloads: &'a [u64],
-    initialized: &'a [bool],
+/// This loan cannot cross GC or arbitrary executing services. Managed fields
+/// remain encapsulated; scalar-only regions may lend the disjoint payload banks.
+pub(crate) struct OperandWindow<'access, 'source, 'gc> {
+    pub(super) slots: &'access mut Slots<'source, 'gc>,
+    pub(super) banks: FrameBanks,
 }
 
-pub(crate) struct OperandWindow<'a> {
-    pub(crate) managed: &'a mut [Value],
-    pub(crate) payloads: &'a mut [u64],
-    pub(crate) initialized: &'a mut [bool],
-}
-
-impl ExecutionValues {
-    pub(crate) fn read_operands(&self, slots: FrameSlots) -> Option<OperandView<'_>> {
-        let ranges = &self.window(slots)?.ranges;
-        Some(OperandView {
-            managed: self.values.get(ranges.managed.clone())?,
-            payloads: self.payloads.get(ranges.scalars.clone())?,
-            initialized: self.initialized.get(ranges.scalars.clone())?,
+impl<'gc> OperandWindow<'_, '_, 'gc> {
+    pub(crate) fn read_managed(
+        &mut self,
+        operand: OperandSlot,
+    ) -> Result<ScopedValue<'gc>, GcError> {
+        if !operand.managed() || operand.index() >= self.banks.managed_count {
+            return Err(GcError::Index);
+        }
+        self.slots.get(ValueLocation {
+            execution: self.banks.execution,
+            bank: ValueBank::Managed,
+            slot: self.banks.managed + operand.index(),
         })
     }
 
-    pub(crate) fn borrow_operands(&mut self, slots: FrameSlots) -> Option<OperandWindow<'_>> {
-        // Validate owner/generation once, before any references into the banks escape.
-        self.window(slots)?;
-        let window = self.windows.get(slots.index)?;
-        window.slot_layout.as_ref()?;
-        Some(OperandWindow {
-            managed: self.values.get_mut(window.ranges.managed.clone())?,
-            payloads: self.payloads.get_mut(window.ranges.scalars.clone())?,
-            initialized: self.initialized.get_mut(window.ranges.scalars.clone())?,
-        })
+    pub(crate) fn scope(&mut self) -> &mut Scope<'gc> {
+        self.slots.scope()
+    }
+
+    pub(crate) fn protect_return(
+        &mut self,
+        value: ScopedValue<'gc>,
+    ) -> Result<ReturnValue, GcError> {
+        ReturnValue::protect(self.slots, self.banks.execution, value)
+    }
+
+    pub(crate) fn read_location(
+        &mut self,
+        location: Location,
+    ) -> Result<ScopedValue<'gc>, GcError> {
+        read_operand(self.slots, self.banks, location)
+    }
+
+    pub(crate) fn write_location(
+        &mut self,
+        location: Location,
+        value: ScopedValue<'gc>,
+    ) -> Result<(), GcError> {
+        write_operand(self.slots, self.banks, location, value)
+    }
+
+    /// No managed edge or Runtime capability accompanies these scalar slices.
+    pub(crate) fn scalar_banks(&mut self) -> Result<(&mut [u64], &mut [bool]), GcError> {
+        self.slots.check_frame_banks(self.banks)?;
+        let storage = self.slots.storage(self.banks.execution)?;
+        let range = self.banks.scalars..self.banks.scalars + self.banks.scalar_count;
+        Ok((
+            &mut storage.scalars[range.clone()],
+            &mut storage.initialized[range],
+        ))
     }
 }
 
-impl OperandView<'_> {
-    pub(crate) fn with_value<R>(
-        &self,
-        location: Location,
-        read: impl FnOnce(&Value) -> R,
-    ) -> Option<R> {
-        with_operand(
-            self.managed,
-            self.payloads,
-            self.initialized,
-            location,
-            read,
-        )
+#[inline(always)]
+pub(super) fn read_operand<'gc>(
+    slots: &mut Slots<'_, 'gc>,
+    banks: FrameBanks,
+    location: Location,
+) -> Result<ScopedValue<'gc>, GcError> {
+    slots.check_frame_banks(banks)?;
+    if location.operand.is_unit() {
+        return location
+            .admits(ScopedValue::unit())
+            .then_some(ScopedValue::unit())
+            .ok_or(GcError::Representation);
     }
-
-    fn scalar_location(&self, location: Location) -> Option<(ValueType, u64)> {
-        let slot = location.operand.scalar()?.index();
-        if !self.initialized.get(slot).copied()? {
-            return None;
+    let index = location.operand.index();
+    if location.operand.managed() {
+        if index >= banks.managed_count {
+            return Err(GcError::Index);
         }
-        Some((location.representation, *self.payloads.get(slot)?))
-    }
-
-    pub(crate) fn check_managed(
-        &self,
-        location: Location,
-        check: impl FnOnce(&Value) -> bool,
-    ) -> Option<bool> {
-        if location.operand.scalar().is_some() {
-            self.scalar_location(location)?;
-            return Some(true);
+        let value = slots.get(ValueLocation {
+            execution: banks.execution,
+            bank: ValueBank::Managed,
+            slot: banks.managed + index,
+        })?;
+        // Public cold inspection preserves unavailable Unit. Arguments/typed
+        // operations separately require the prepared actual representation.
+        if !value.is_unit() && !location.admits(value) {
+            return Err(GcError::Representation);
         }
-        self.with_value(location, check)
+        return Ok(value);
     }
+    if index >= banks.scalar_count {
+        return Err(GcError::Index);
+    }
+    let storage = slots.storage(banks.execution)?;
+    let index = banks.scalars + index;
+    if !storage.initialized[index] {
+        return Ok(ScopedValue::unit());
+    }
+    let bits = storage.scalars[index];
+    if !domain::admits_payload(location.representation, location.semantic, bits) {
+        return Err(GcError::Representation);
+    }
+    scalar::decode(location.representation, bits).ok_or(GcError::Representation)
 }
 
-impl OperandWindow<'_> {
-    // Consume the projection in its caller, including the shared decoder below.
-    #[inline(always)]
-    pub(crate) fn with_value<R>(
-        &self,
-        location: Location,
-        read: impl FnOnce(&Value) -> R,
-    ) -> Option<R> {
-        with_operand(
-            self.managed,
-            self.payloads,
-            self.initialized,
-            location,
-            read,
-        )
+pub(crate) fn write_operand<'gc>(
+    slots: &mut Slots<'_, 'gc>,
+    banks: FrameBanks,
+    location: Location,
+    value: ScopedValue<'gc>,
+) -> Result<(), GcError> {
+    slots.check_frame_banks(banks)?;
+    if !location.admits(value) {
+        return Err(GcError::Representation);
     }
-
-    pub(crate) fn read_location(&self, location: Location) -> Option<Value> {
-        read_operand(self.managed, self.payloads, self.initialized, location)
+    if location.operand.is_unit() {
+        return Ok(());
     }
-
-    pub(crate) fn write_location(&mut self, location: Location, value: Value) -> Option<()> {
-        write_operand(
-            self.managed,
-            self.payloads,
-            self.initialized,
-            location,
+    let index = location.operand.index();
+    if location.operand.managed() {
+        if index >= banks.managed_count {
+            return Err(GcError::Index);
+        }
+        slots.set(
+            ValueLocation {
+                execution: banks.execution,
+                bank: ValueBank::Managed,
+                slot: banks.managed + index,
+            },
             value,
         )
-    }
-}
-
-pub(super) fn read_operand(
-    managed: &[Value],
-    payloads: &[u64],
-    initialized: &[bool],
-    location: Location,
-) -> Option<Value> {
-    with_operand(managed, payloads, initialized, location, |value| *value)
-}
-
-// Projection is a compile-time abstraction: do not transport its generic result
-// across an extra call before the caller can eliminate unused Value variants.
-#[inline(always)]
-fn with_operand<R>(
-    managed: &[Value],
-    payloads: &[u64],
-    initialized: &[bool],
-    location: Location,
-    read: impl FnOnce(&Value) -> R,
-) -> Option<R> {
-    let slot = location.operand;
-    if slot.managed() {
-        return managed.get(slot.index()).map(read);
-    }
-    if !initialized.get(slot.index()).copied()? {
-        // Inspection preserves unavailable Unit; scalar kernels reject missing payloads.
-        return Some(read(&Value::Unit));
-    }
-    let value = scalar::decode(location.representation, *payloads.get(slot.index())?)?;
-    Some(read(&value))
-}
-
-pub(super) fn write_operand(
-    managed: &mut [Value],
-    payloads: &mut [u64],
-    initialized: &mut [bool],
-    location: Location,
-    value: Value,
-) -> Option<()> {
-    if !location.admits(&value) {
-        return None;
-    }
-    let slot = location.operand;
-    if slot.managed() {
-        *managed.get_mut(slot.index())? = value;
     } else {
-        *payloads.get_mut(slot.index())? = scalar::encode(&value)?;
-        *initialized.get_mut(slot.index())? = true;
+        if index >= banks.scalar_count {
+            return Err(GcError::Index);
+        }
+        let bits = scalar::encode(&value).ok_or(GcError::Representation)?;
+        let storage = slots.storage(banks.execution)?;
+        storage.scalars[banks.scalars + index] = bits;
+        storage.initialized[banks.scalars + index] = true;
+        Ok(())
     }
-    Some(())
 }
+
+#[cfg(test)]
+mod tests;

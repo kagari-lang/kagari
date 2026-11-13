@@ -4,8 +4,6 @@ use kagari_source::source::SourceFile;
 use rstest::rstest;
 use std::{fs, path::PathBuf};
 
-use kagari_runtime::value::Value;
-
 use crate::test_support::execution;
 
 #[rstest]
@@ -134,9 +132,9 @@ fn nested_inline_modules_resolve_qualified_members() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
 }
 
@@ -201,13 +199,7 @@ pub fn after_trap() -> i32 { 42 }
     let result = runtime
         .execute(&loaded, "after_trap", &[], &context)
         .unwrap();
-    assert_eq!(
-        result
-            .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
-    );
+    assert_eq!(result.return_value.as_i32().unwrap(), 42);
 }
 
 #[test]
@@ -230,17 +222,20 @@ fn closure_trap_releases_execution_resources() {
             Default::default(),
         )
         .unwrap();
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     assert!(runtime.execute(&loaded, "fail", &[], &context).is_err());
     assert_eq!(
         runtime
             .execute(&loaded, "after", &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
 }
 
 #[test]
@@ -273,18 +268,18 @@ pub fn overflow() -> i32 { val minimum = -2147483648; minimum % -1 }
             .execute(&loaded, "integer", &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(2)
+            .as_i32()
+            .unwrap(),
+        2
     );
     assert_eq!(
         runtime
             .execute(&loaded, "fractional", &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::F32(1.5)
+            .as_f32()
+            .unwrap(),
+        1.5
     );
     for (name, message) in [
         ("zero", "integer remainder by zero"),

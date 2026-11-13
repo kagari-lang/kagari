@@ -2,8 +2,8 @@
 use crate::{
     execution_metadata::applications::ApplicationId,
     frame::types::{TypeEnvironment, compatibility::TypeIdentity},
-    gc::interfaces::InterfaceResultBinding,
     module::ExecutableModule,
+    objects::interfaces::description::InterfaceResultBinding,
 };
 use kagari_bytecode::module::CallableTarget;
 use kagari_contract::standard::RuntimePrimitive;

@@ -7,7 +7,7 @@ use kagari_derive::KagariSchema;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
-    gc::GcHeapConfig,
+    execution::memory::GcHeapConfig,
     native::{
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
@@ -92,10 +92,7 @@ fn serde_schema_roundtrips_renames_skips_composites_and_all_variant_shapes() {
             .collect::<Vec<_>>(),
         ["targetId", "power", "nested", "maybe", "result", "label"]
     );
-    let program = program_for_source(
-        &module,
-        "use game::serde::Request; pub fn inspect(input: Request) -> i32 { input.power }",
-    );
+    let program = program_for_source(&module, include_str!("fixtures/native/serde_request.kgr"));
     let mut runtime = Runtime::new(RuntimeConfig {
         gc: GcHeapConfig {
             collection_threshold: Some(1),
@@ -208,10 +205,7 @@ fn serde_char_roundtrips_scalars_and_containers_without_integer_coercion() {
 #[test]
 fn serde_uses_conversion_limits_and_reports_nested_error_paths() {
     let module = module();
-    let program = program_for_source(
-        &module,
-        "use game::serde::Request; pub fn inspect(input: Request) -> i32 { input.power }",
-    );
+    let program = program_for_source(&module, include_str!("fixtures/native/serde_request.kgr"));
     let mut runtime = Runtime::default();
     let mut modules = kagari_stdlib::modules().unwrap();
     modules.push(module);
@@ -248,9 +242,43 @@ fn serde_uses_conversion_limits_and_reports_nested_error_paths() {
     assert!(error.to_string().contains("field nested"));
     assert!(error.to_string().contains("element 0"));
     cx.runtime_mut().gc_safepoint().unwrap();
-    let mut cx = ConversionContext::new(cx.runtime_mut(), &owner).unwrap();
+    drop(cx);
+    let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
     let root = cx.encode(Serde(Transformed { value: 2 })).unwrap();
     assert_eq!(cx.decode::<Serde<Transformed>>(&root).unwrap().0.value, 4);
+    drop(root);
+    drop(cx);
+
+    // The tuple and its two scalar adapters exhaust this conversion budget.
+    // Finalization must publish completed children without reserving their work
+    // again. One less node must fail in the second child's conversion instead.
+    let mut cx = ConversionContext::with_limits(
+        &mut runtime,
+        &owner,
+        ConversionLimits {
+            max_nodes: 5,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let root = cx.encode(Serde((7i32, 9i32))).unwrap();
+    let mut read = ConversionContext::new(cx.runtime_mut(), &owner).unwrap();
+    assert_eq!(read.decode::<Serde<(i32, i32)>>(&root).unwrap().0, (7, 9));
+    drop(read);
+    drop(root);
+    drop(cx);
+    let mut cx = ConversionContext::with_limits(
+        &mut runtime,
+        &owner,
+        ConversionLimits {
+            max_nodes: 4,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let error = cx.encode(Serde((7i32, 9i32))).unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
+    assert!(error.to_string().contains("element 1"));
 }
 
 #[derive(Serialize, KagariSchema)]

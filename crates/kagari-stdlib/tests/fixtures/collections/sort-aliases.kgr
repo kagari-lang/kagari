@@ -1,0 +1,12 @@
+fn main() -> bool {
+    val empty: Vec<i32> = Vec::from([]);
+    empty.sort();
+    val values = Vec::from([3, 1, 2, 1]);
+    val alias = values;
+    values.sort();
+    if alias[0] != 1 || alias[1] != 1 || alias[2] != 2 || alias[3] != 3 {
+        return false;
+    }
+    values.sort_by(|a, b| b.cmp(a));
+    alias[0] == 3 && alias[1] == 2 && alias[2] == 1 && alias[3] == 1
+}

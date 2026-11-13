@@ -9,7 +9,7 @@ use crate::{
 };
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::identity::metadata::DefinitionMetadata;
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
 use rstest::rstest;
@@ -72,13 +72,7 @@ fn execute(artifact: DefinitionMetadata<BytecodeArtifact>) {
             runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
-        assert_eq!(
-            result
-                .return_value
-                .value(runtime.gc())
-                .expect("retained execution result"),
-            Value::I32(42)
-        );
+        assert_eq!(result.return_value.as_i32().unwrap(), 42);
     }
 }
 
@@ -134,9 +128,9 @@ fn interpreter_execution(
                 .execute(&program, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+                .as_i32()
+                .unwrap(),
+            42
         );
     }
 }
@@ -172,9 +166,9 @@ fn encoded_execution(
             .execute(&program, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
 }
 
@@ -206,8 +200,8 @@ fn direct_execution(
             .execute(&program, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
 }

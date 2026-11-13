@@ -6,7 +6,7 @@ use kagari_runtime::{
         builder::ModuleBuilder, conversion::context::ConversionContext, declarations::MethodDecl,
         module::NativeModule, typed::loans::LoanContext, types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 
 use crate::declarations::StandardDeclarations;
@@ -62,12 +62,8 @@ fn registration() -> NativeModule {
     module.finish().unwrap()
 }
 
-const SOURCE: &str = r#"
-    use example::struct_scope::Player;
-    pub fn inspect(player: Ref<Player>) -> String { player.inspect() }
-    pub fn damage(player: RefMut<Player>, amount: i32) -> i32 { player.damage(amount) }
-    pub fn copy(player: Player) -> Player { player }
-"#;
+const SOURCE: &str =
+    include_str!("../../../../../tests/fixtures/native/conversion-scoped-struct.kgr");
 
 #[test]
 fn registered_struct_loans_use_original_host_storage_and_common_methods() {
@@ -103,20 +99,20 @@ fn registered_struct_loans_use_original_host_storage_and_common_methods() {
                 scope,
                 &_owner_program,
                 "damage",
-                &[view.value(), Value::I32(3)],
+                &[view.value(), ValueView::from(3i32)],
                 &Default::default()
-            )?,
-            Value::I32(7)
+            )?
+            .as_i32(),
+            Some(7)
         );
         // A later invocation may collect; the earlier heap result is retained
         // for the active scope, independently of the original Rust object.
-        scope.execute(&[], |runtime, _| {
+        scope.execute(&[text], |runtime, values, result| {
             runtime.collect_garbage()?;
-            let Value::Str(id) = text else {
-                panic!("String");
-            };
-            assert_eq!(&*runtime.gc().string(id).unwrap(), "external hp=10");
-            Ok(Value::Unit)
+            let mut cx = ConversionContext::new(runtime, &owner)?;
+            let text = values.get(&mut cx, 0)?;
+            cx.read_string(&text, |text| assert_eq!(text, "external hp=10"))?;
+            result.publish(cx.runtime_mut(), &ValueView::unit())
         })?;
         view.read(scope, |_scope, player| {
             assert_eq!(player.hp, 7);
@@ -127,10 +123,11 @@ fn registered_struct_loans_use_original_host_storage_and_common_methods() {
                 scope,
                 &_owner_program,
                 "damage",
-                &[view.value(), Value::I32(1)],
+                &[view.value(), ValueView::from(1i32)],
                 &Default::default()
-            ))
-            .is_err()
+            )
+            .map(|_| ()))
+                .is_err()
         );
         Ok(())
     })

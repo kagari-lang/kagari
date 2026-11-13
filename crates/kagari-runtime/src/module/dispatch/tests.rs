@@ -3,6 +3,7 @@ use crate::{
     module::{
         ExecutableModule, ModuleEpochRetention,
         dispatch::{CallRoute, CallRouteKind},
+        managed::source::RevisionSource,
     },
     test_support::update_programs as programs,
 };
@@ -188,7 +189,11 @@ fn retained_generated_body_and_ordinary_inner_route_select_different_publication
         .unwrap();
     let old = runtime.select_program(&program).unwrap();
     let retained = runtime
-        .retain_program(&old, ModuleEpochRetention::RuntimeValue)
+        .retain_program(
+            &old,
+            ModuleEpochRetention::RuntimeValue,
+            RevisionSource::Current,
+        )
         .unwrap();
     let inner = route(&old, "a");
     let body = old

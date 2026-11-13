@@ -3,10 +3,14 @@ use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
+    execution::roots::{ExecutionRoots, SessionId},
+    host::scoped::ScopedHostView,
+    module::StructLayoutRef,
+    native::binding::NativeResult,
     native::{
         builder::ModuleBuilder, catalog::DeclarationCatalog, conversion::context::ConversionContext,
     },
-    value::Value,
+    value::{carriers::ScopedValue, place::ResultPlace, view::ValueView},
 };
 use kagari_bytecode::{instruction::StructId, module::BytecodeModule, program::ModuleRef};
 use kagari_common::identity::{DefinitionKind, metadata::DefinitionMetadata};
@@ -25,6 +29,33 @@ struct Stats {
 struct Player {
     stats: Stats,
     label: String,
+}
+
+// This test owns the raw result execution until every field result is consumed.
+// Each read publishes before its conversion/Host loan retires, as a frame does.
+fn read<'source>(
+    runtime: &mut Runtime,
+    execution: SessionId,
+    view: ScopedHostView,
+    layout: &StructLayoutRef,
+    slot: usize,
+    access: ReferenceAccess,
+) -> NativeResult<ValueView<'source>> {
+    let destination = runtime
+        .memory
+        .scope(&runtime.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                slots.push_local(execution, ScopedValue::unit())
+            })
+        })
+        .map_err(|error| runtime.managed_memory_error(error))?;
+    runtime
+        .read_scoped_field(view, layout, slot, access, ResultPlace::new(destination))?
+        .admit(destination)?;
+    runtime
+        .memory
+        .inspect_value(destination)
+        .map_err(|error| runtime.managed_memory_error(error))
 }
 
 #[test]
@@ -121,31 +152,67 @@ fn executable_inline_field_codecs_keep_paths_current_and_results_rooted() {
         stats: Stats { hp: 40 },
         label: "original".into(),
     };
+    let results = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let roots_before = runtime.gc_stats().root_registrations;
     runtime
         .with_host_scope(|scope| {
             let whole = scope.borrow_mut(&player_type, &mut player)?;
-            scope.execute(&[whole.value()], |runtime, values| {
-                let view = runtime.scoped_view(&values[0])?;
-                let compatible =
-                    runtime.read_scoped_field(view, &newer_layout, 0, ReferenceAccess::Shared)?;
-                assert!(compatible.get(runtime.gc(), 0).is_some());
-                let stats =
-                    runtime.read_scoped_field(view, &player_layout, 0, ReferenceAccess::Mutable)?;
-                let stats_value = stats.get(runtime.gc(), 0).unwrap();
-                let stats_view = runtime.scoped_view(&stats_value)?;
-                runtime.write_scoped_field(stats_view, &stats_layout, 0, Value::I32(70))?;
+            scope.execute(&[whole.value()], |runtime, values, destination| {
+                let value = runtime
+                    .memory
+                    .scope(&runtime.resources, |cx, roots| {
+                        ExecutionRoots::with(roots, cx, |slots| values.view(slots, 0))
+                    })
+                    .map_err(|error| runtime.managed_memory_error(error))?;
+                let view = runtime.scoped_view(&value)?;
+                let compatible = read(
+                    runtime,
+                    results,
+                    view,
+                    &newer_layout,
+                    0,
+                    ReferenceAccess::Shared,
+                )?;
+                assert!(runtime.scoped_view(&compatible).is_ok());
+                let stats = read(
+                    runtime,
+                    results,
+                    view,
+                    &player_layout,
+                    0,
+                    ReferenceAccess::Mutable,
+                )?;
+                let stats_view = runtime.scoped_view(&stats)?;
+                runtime.write_scoped_field(
+                    stats_view,
+                    &stats_layout,
+                    0,
+                    &ValueView::from(70i32),
+                )?;
                 assert_eq!(
-                    runtime
-                        .read_scoped_field(stats_view, &stats_layout, 0, ReferenceAccess::Mutable)?
-                        .get(runtime.gc(), 0),
-                    Some(Value::I32(70))
+                    read(
+                        runtime,
+                        results,
+                        stats_view,
+                        &stats_layout,
+                        0,
+                        ReferenceAccess::Mutable
+                    )?
+                    .as_i32(),
+                    Some(70)
                 );
-                let shared =
-                    runtime.read_scoped_field(view, &player_layout, 0, ReferenceAccess::Shared)?;
-                let shared = runtime.scoped_view(&shared.get(runtime.gc(), 0).unwrap())?;
+                let shared = read(
+                    runtime,
+                    results,
+                    view,
+                    &player_layout,
+                    0,
+                    ReferenceAccess::Shared,
+                )?;
+                let shared = runtime.scoped_view(&shared)?;
                 assert!(
                     runtime
-                        .write_scoped_field(shared, &stats_layout, 0, Value::I32(99))
+                        .write_scoped_field(shared, &stats_layout, 0, &ValueView::from(99i32))
                         .is_err()
                 );
                 runtime.with_host_loans(
@@ -153,53 +220,72 @@ fn executable_inline_field_codecs_keep_paths_current_and_results_rooted() {
                     |runtime, _| {
                         assert!(
                             runtime
-                                .write_scoped_field(stats_view, &stats_layout, 0, Value::I32(99))
+                                .write_scoped_field(
+                                    stats_view,
+                                    &stats_layout,
+                                    0,
+                                    &ValueView::from(99i32)
+                                )
                                 .is_err()
                         );
                         Ok(())
                     },
                 )?;
+                assert_eq!(runtime.gc_stats().root_registrations, roots_before);
                 let mut cx = ConversionContext::new(runtime, &owner)?;
-                let replacement = cx.encode(Stats { hp: 5 })?;
-                let replacement_value = replacement.value(cx.runtime().gc()).unwrap();
+                let stats_type = cx.type_for::<Stats>()?;
+                let replacement = cx.encode_value(&stats_type, Stats { hp: 5 })?;
                 cx.runtime_mut()
-                    .write_scoped_field(view, &player_layout, 0, replacement_value)?;
+                    .write_scoped_field(view, &player_layout, 0, &replacement)?;
                 assert_eq!(
-                    cx.runtime_mut()
-                        .read_scoped_field(stats_view, &stats_layout, 0, ReferenceAccess::Mutable)?
-                        .get(cx.runtime().gc(), 0),
-                    Some(Value::I32(5))
+                    read(
+                        cx.runtime_mut(),
+                        results,
+                        stats_view,
+                        &stats_layout,
+                        0,
+                        ReferenceAccess::Mutable
+                    )?
+                    .as_i32(),
+                    Some(5)
                 );
-                let label = cx.runtime_mut().read_scoped_field(
+                let label = read(
+                    cx.runtime_mut(),
+                    results,
                     view,
                     &player_layout,
                     1,
                     ReferenceAccess::Shared,
                 )?;
                 cx.runtime_mut().collect_garbage()?;
-                let Value::Str(id) = label.get(cx.runtime().gc(), 0).unwrap() else {
-                    panic!("string")
-                };
-                assert_eq!(&*cx.runtime().gc().string(id).unwrap(), "original");
-                let changed = cx.encode("changed".to_string())?;
-                let changed_value = changed.value(cx.runtime().gc()).unwrap();
+                assert_eq!(cx.read_string(&label, str::to_owned)?, "original");
+                let string_type = cx.type_for::<String>()?;
+                let changed = cx.encode_value(&string_type, "changed".to_string())?;
                 cx.runtime_mut().with_host_loans(
                     [(stats_view, TypeId::of::<Stats>(), ReferenceAccess::Shared)],
                     |runtime, [stats]| {
-                        // SAFETY: The checked shared Stats loan remains active throughout
-                        // this callback; Runtime access preserves disjoint-path checks.
+                        // SAFETY: The exact shared Stats loan remains active. A
+                        // disjoint generated field write cannot invalidate it.
                         let stats = unsafe { &*stats.cast::<Stats>() };
                         assert_eq!(stats.hp, 5);
-                        runtime.write_scoped_field(view, &player_layout, 1, changed_value)?;
+                        runtime.write_scoped_field(view, &player_layout, 1, &changed)?;
                         assert_eq!(stats.hp, 5);
                         Ok(())
                     },
                 )?;
-                Ok(Value::Unit)
+                assert_eq!(cx.runtime().gc_stats().root_registrations, roots_before);
+                drop(cx);
+                destination.publish(runtime, &ValueView::unit())
             })?;
             Ok(())
         })
         .unwrap();
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, results)
+        .unwrap();
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, roots_before);
     assert_eq!(player.stats.hp, 5);
     assert_eq!(player.label, "changed");
 }

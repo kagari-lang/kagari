@@ -12,7 +12,7 @@ use kagari_runtime::{
         conversion::{FromKagari, KagariType, context::ConversionContext},
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 
 use std::{
@@ -39,7 +39,7 @@ impl FromKagari for HostileOutput {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         ty: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
         assert_eq!(i32::from_kagari(cx, ty, value)?, 42);
         Ok(Self)

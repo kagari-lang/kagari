@@ -6,18 +6,16 @@ use crate::{
     native::{
         binding::NativeResult,
         conversion::{
-            arguments::{
-                FromKagariArguments, IntoKagariArguments, PreparedArguments, encode_arguments,
-            },
+            arguments::{FromKagariArguments, IntoKagariArguments, PreparedArguments},
             context::ConversionContext,
         },
     },
-    value::{EnumTag, Value},
+    value::view::ValueView,
 };
 
 use std::slice;
 
-impl ConversionContext<'_> {
+impl<'call> ConversionContext<'call> {
     /// Encode a declared unit/tuple variant without serializing bytes. Payload
     /// tuple elements are fields; a tuple-valued field uses an additional tuple.
     pub fn encode_variant<A: IntoKagariArguments>(
@@ -25,23 +23,28 @@ impl ConversionContext<'_> {
         expected: &TypeArgument,
         member: &str,
         payload: A,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ValueView<'call>> {
         self.poll()?;
         let layout = self
             .runtime()
             .declared_enum_variant(self.owner(), expected, member)?;
         let fields = self.variant_fields(&layout)?;
-        let mapping = PreparedArguments::<A>::new(self, &fields)?;
-        let (_roots, values) = encode_arguments(self, mapping, payload)
+        let mut frame = self.scratch()?;
+        let mapping = PreparedArguments::<A>::new(&frame, &fields)?;
+        let values = mapping
+            .encode(&mut frame, payload)
             .map_err(|error| error.at(ErrorLocation::Variant(member.to_owned())))?;
-        self.runtime()
-            .alloc_enum(EnumTag::Declared(layout), values)
-            .map(Value::Enum)
+        let value = frame.allocate_enum_pack(layout, values)?;
+        frame.preserve(value)
     }
 
     /// Inspect only the checked nominal variant. No payload is decoded or exposed
     /// as a Rust borrow; generated converters select their matching tuple shape.
-    pub fn variant_name(&self, expected: &TypeArgument, value: &Value) -> NativeResult<String> {
+    pub fn variant_name(
+        &mut self,
+        expected: &TypeArgument,
+        value: &ValueView<'_>,
+    ) -> NativeResult<String> {
         let layout = self.variant_layout(expected, value)?;
         layout
             .module()
@@ -55,7 +58,7 @@ impl ConversionContext<'_> {
     pub fn decode_variant<A: FromKagariArguments>(
         &mut self,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
         member: &str,
     ) -> NativeResult<A> {
         self.poll()?;
@@ -68,42 +71,23 @@ impl ConversionContext<'_> {
                 "enum conversion variant mismatch",
             ));
         }
-        let Value::Enum(id) = value else {
-            unreachable!("checked enum value")
-        };
         self.check_elements(actual.variant().payload.len())?;
-        let snapshot = self
-            .runtime()
-            .gc()
-            .enum_snapshot(*id)
-            .ok_or_else(|| RuntimeError::module_validation("enum conversion snapshot"))?;
         let fields = self.variant_fields(&actual)?;
-        PreparedArguments::<A>::new(self, &fields)?
-            .decode(self, &snapshot.fields)
+        let mut frame = self.scratch()?;
+        let values = frame.enum_arguments(value)?;
+        PreparedArguments::<A>::new(&frame, &fields)?
+            .decode(&mut frame, values)
             .map_err(|error| error.at(ErrorLocation::Variant(member.to_owned())))
     }
 
     pub(crate) fn variant_layout(
-        &self,
+        &mut self,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<EnumVariantRef> {
         self.poll()?;
-        expected.validate(self.runtime())?;
         self.check_value(expected, value)?;
-        let Value::Enum(id) = value else {
-            return Err(RuntimeError::module_validation(
-                "enum conversion requires an enum value",
-            ));
-        };
-        self.runtime()
-            .gc()
-            .enum_view(*id)
-            .map(|view| {
-                let EnumTag::Declared(layout) = &view.tag;
-                layout.clone()
-            })
-            .ok_or_else(|| RuntimeError::module_validation("enum conversion identity"))
+        self.enum_shape(value).map(|(layout, _)| layout)
     }
 
     pub(crate) fn variant_fields(

@@ -16,10 +16,14 @@ use kagari_runtime::{
     backend::{BackendInvocationError, native::NativeInvocationFailure},
     error::RuntimeErrorKind,
     execution::reentry::reenter,
-    host::HostBorrowKind,
-    module::{ExecutableModule, entry::ProgramEntry},
+    host::{HostBorrowKind, HostError, HostObjectId},
+    metadata::TypeId,
+    module::{
+        ExecutableModule, ModuleEpochRetention, entry::ProgramEntry, retention::RetentionOrigin,
+    },
+    native::conversion::context::ConversionContext,
     resource::RuntimeLimits,
-    value::Value,
+    value::{carriers::RootedValue, view::ValueView},
 };
 
 use kagari_bytecode::program::BytecodeProgram;
@@ -49,16 +53,27 @@ fn route(
     round_trip_bytecode(program)
 }
 
+fn array_values(runtime: &mut Runtime, owner: &ExecutableModule, value: &RootedValue) -> Vec<i32> {
+    let mut cx = ConversionContext::new(runtime, owner).unwrap();
+    let value = cx.import(value).unwrap();
+    (0..cx.array_len(&value).unwrap())
+        .map(|index| {
+            cx.array_element(&value, index)
+                .unwrap()
+                .unwrap()
+                .as_i32()
+                .unwrap()
+        })
+        .collect()
+}
+
 #[test]
 fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
-    use kagari_runtime::error::RuntimeErrorKind;
-    use kagari_runtime::host::HostObjectId;
-    use kagari_runtime::metadata::TypeId;
     for encoded in [false, true] {
         for jit in [false, true] {
-            let module = compile_logging_test_bytecode(
-                "fn main() -> i32 { val kept = [42]; print(\"outer\"); kept[0] } fn make(n: i32) -> [i32] { print(\"inner\"); [n, 8] }",
-            );
+            let module = compile_logging_test_bytecode(include_str!(
+                "../../../tests/fixtures/execution/session-reentry-storage.kgr"
+            ));
             let make = module.records().modules[module.records().root.index()]
                 .functions
                 .iter()
@@ -69,62 +84,59 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
             let result = retained.clone();
             let mut runtime = runtime();
             logging_module(move |context, args| {
-
-                    if matches!(args, [Value::Str(id)] if &*context.runtime().gc().string(*id).unwrap() == "outer") {
-                        let root = context.runtime().execution_root().unwrap();
-                        let token = context
-                            .borrows()
-                            .borrow_unique(HostObjectId(1), TypeId::new(0))
-                            .unwrap();
-                        assert!(
-                            reenter(
-                                context,
-                                &root,
-                                make,
-                                &[Value::Bool(true)]
-                            )
-                            .is_err()
-                        );
-                        let value = reenter(
-                            context,
-                            &root,
-                            make,
-                            &[Value::I32(7)],
-                        )
+                if context
+                    .read_string(&args[0], |text| text == "outer")
+                    .unwrap()
+                {
+                    let root = context.runtime().execution_root().unwrap();
+                    let token = context
+                        .borrows()
+                        .borrow_unique(HostObjectId(1), TypeId::new(0))
                         .unwrap();
+                    let wrong = context
+                        .retain_temporaries(&[ValueView::from(true)])
+                        .unwrap();
+                    assert_eq!(
+                        reenter(context, &root, make, wrong).unwrap_err().kind(),
+                        RuntimeErrorKind::ModuleValidation
+                    );
+                    let arguments = context
+                        .retain_temporaries(&[ValueView::from(7i32)])
+                        .unwrap();
+                    let value = reenter(context, &root, make, arguments).unwrap();
+                    context
+                        .borrows()
+                        .validate(token, HostBorrowKind::Unique)
+                        .unwrap();
+                    context.runtime_mut().collect_garbage().unwrap();
+                    assert_eq!(array_values(context.runtime_mut(), &root, &value), [7, 8]);
+                    *result.lock().unwrap() = Some(value);
+                } else {
+                    assert_eq!(
+                        context.runtime().resources().counters().current_call_depth,
+                        4
+                    );
+                    assert_eq!(
                         context
                             .borrows()
-                            .validate(token, HostBorrowKind::Unique)
-                            .unwrap();
-                        context.runtime_mut().collect_garbage().unwrap();
-                        let Value::Array(id) = value.value(context.runtime().gc()).unwrap() else {
-                            panic!("array result")
-                        };
-                        assert_eq!(
-                            context.runtime().gc().array_snapshot(id).unwrap(),
-                            [Value::I32(7), Value::I32(8)]
-                        );
-                        *result.lock().unwrap() = Some(value);
-                    } else {
-                        assert_eq!(context.runtime().resources().counters().current_call_depth, 4);
-                        assert_eq!(
-                            context
-                                .borrows()
-                                .borrow_shared(HostObjectId(1), TypeId::new(0))
-                                .unwrap_err()
-                                .kind(),
-                            RuntimeErrorKind::HostBorrowConflict
-                        );
-                        context.runtime_mut().collect_garbage().unwrap();
-                    }
-                    Ok(Value::Unit)
-                }).install(&mut runtime)
-                .unwrap();
+                            .borrow_shared(HostObjectId(1), TypeId::new(0))
+                            .unwrap_err()
+                            .kind(),
+                        RuntimeErrorKind::HostBorrowConflict
+                    );
+                    context.runtime_mut().collect_garbage().unwrap();
+                }
+                Ok(ValueView::unit())
+            })
+            .install(&mut runtime)
+            .unwrap();
             let loaded =
                 load_bytecode(&mut runtime, "reentry.kgr", route(module, encoded)).unwrap();
             let _loaded_program = loaded;
             let loaded = runtime.select_program(&_loaded_program).unwrap();
             let mut vm = runtime;
+            vm.collect_garbage().unwrap();
+            let baseline = vm.gc_stats();
             let prepared = native_fixtures::unsupported();
             let report = if jit {
                 vm.execute_prepared_module(
@@ -137,13 +149,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                 vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             }
             .unwrap();
-            assert_eq!(
-                report
-                    .return_value
-                    .value(vm.gc())
-                    .expect("retained execution result"),
-                Value::I32(42)
-            );
+            assert_eq!(report.return_value.as_i32(), Some(42));
             drop(report);
             assert_eq!(vm.resources().counters().current_call_depth, 0);
             assert!(vm.execution_root().is_none());
@@ -155,33 +161,40 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                 .unwrap();
             drop(frame);
             resources.runtime_mut().collect_garbage().unwrap();
-            let raw = retained
-                .lock()
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .value(resources.runtime().gc())
-                .unwrap();
-            assert!(resources.runtime().gc().validate_value(&raw));
-            assert!(!Runtime::default().gc().validate_value(&raw));
+            let value = retained.lock().unwrap().as_ref().unwrap().clone();
+            assert_eq!(
+                array_values(resources.runtime_mut(), &loaded, &value),
+                [7, 8]
+            );
+            let mut other = Runtime::default();
+            assert_eq!(
+                other
+                    .host_scope(std::slice::from_ref(&value))
+                    .err()
+                    .unwrap()
+                    .kind(),
+                RuntimeErrorKind::ModuleValidation
+            );
+            drop(value);
             retained.lock().unwrap().take();
             resources.runtime_mut().collect_garbage().unwrap();
-            assert!(!resources.runtime().gc().validate_value(&raw));
-            assert_eq!(resources.runtime().gc().active_roots(), 0);
+            assert_eq!(
+                resources.runtime().gc_stats().root_registrations,
+                baseline.root_registrations
+            );
+            assert_eq!(resources.runtime().gc_stats().objects, baseline.objects);
         }
     }
 }
 
 #[test]
 fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
-    use kagari_runtime::host::HostObjectId;
-    use kagari_runtime::metadata::TypeId;
     for cancel in [false, true] {
         for encoded in [false, true] {
             for jit in [false, true] {
-                let module = compile_logging_test_bytecode(
-                    "fn main() -> i32 { print(\"outer\"); 42 } fn nested() -> i32 { print(\"inner\"); 7 }",
-                );
+                let module = compile_logging_test_bytecode(include_str!(
+                    "../../../tests/fixtures/execution/session-reentry-termination.kgr"
+                ));
                 let nested = module.records().modules[module.records().root.index()]
                     .functions
                     .iter()
@@ -199,23 +212,31 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                 logging_module(move |context, args| {
                     let root = context.runtime().execution_root().unwrap();
                     context.borrows().borrow_shared(HostObjectId(2), TypeId::new(0)).unwrap();
-                    let temporary = Value::Array(context.runtime().alloc_array(&root, Ty::Builtin(BuiltinType::I32), vec![Value::I32(11)]).unwrap());
+                    let temporary = context.convert_value(&root, |cx| {
+                        let item = cx.type_for::<i32>()?;
+                        cx.allocate_array(&item, &[ValueView::from(11i32)])
+                    }).unwrap();
                     context.retain_temporaries(std::slice::from_ref(&temporary)).unwrap();
                     context.runtime_mut().collect_garbage().unwrap();
-                    assert!(context.runtime().gc().validate_value(&temporary));
-                    if matches!(args, [Value::Str(id)] if &*context.runtime().gc().string(*id).unwrap() == "inner") {
+                    let observed = context.retain(&temporary).unwrap();
+                    assert_eq!(array_values(context.runtime_mut(), &root, &observed), [11]);
+                    drop(observed);
+                    if context.read_string(&args[0], |text| text == "inner").unwrap() {
                         cancellation.cancel();
                     } else {
-                        let error = reenter(context, &root, nested, &[]).expect_err("nested termination");
+                        let arguments = context.retain_temporaries(&[]).unwrap();
+                        let error = reenter(context, &root, nested, arguments).expect_err("nested termination");
                         assert!(matches!(&error, error if error.kind() == if cancel { RuntimeErrorKind::Cancelled } else { RuntimeErrorKind::ResourceLimitExceeded }));
                     }
                     // Even a host deliberately swallowing a nested terminal error cannot resume.
-                    Ok(Value::Unit)
+                    Ok(ValueView::unit())
                 }).install(&mut runtime).unwrap();
                 let loaded =
                     load_bytecode(&mut runtime, "termination.kgr", route(module, encoded)).unwrap();
                 let _loaded_program = loaded;
                 let loaded = runtime.select_program(&_loaded_program).unwrap();
+                runtime.collect_garbage().unwrap();
+                let baseline = runtime.gc_stats();
                 let mut options = runtime.execution_options();
                 options.cancellation = token;
 
@@ -259,9 +280,14 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                     matches!(&error, error if error.kind() == if cancel { RuntimeErrorKind::Cancelled } else { RuntimeErrorKind::ResourceLimitExceeded })
                 );
                 assert_eq!(scope.runtime().resources().counters().current_call_depth, 0);
-                assert_eq!(scope.runtime().gc().active_roots(), 0);
                 assert_eq!(scope.host_scope_count(), 0);
                 drop(scope);
+                vm.collect_garbage().unwrap();
+                assert_eq!(
+                    vm.gc_stats().root_registrations,
+                    baseline.root_registrations
+                );
+                assert_eq!(vm.gc_stats().objects, baseline.objects);
                 let resources = vm.host_scope(&[]).unwrap();
                 let frame = resources.borrows();
                 frame
@@ -274,16 +300,10 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
 }
 
 #[test]
-fn reentry_rejects_foreign_and_stale_inputs() {
-    let module = compile_logging_test_bytecode(
-        "fn main() -> i32 { print(\"enter\"); 42 } fn echo(value: Vec<i32>) -> Vec<i32> { value }",
-    );
-    let main = module.records().modules[module.records().root.index()]
-        .functions
-        .iter()
-        .find(|f| f.name == "main")
-        .unwrap()
-        .id;
+fn reentry_rejects_foreign_sources_and_retired_code() {
+    let module = compile_logging_test_bytecode(include_str!(
+        "../../../tests/fixtures/execution/reentry-inputs.kgr"
+    ));
     let echo = module.records().modules[module.records().root.index()]
         .functions
         .iter()
@@ -293,53 +313,116 @@ fn reentry_rejects_foreign_and_stale_inputs() {
     let calls = Arc::new(AtomicUsize::new(0));
     let called = calls.clone();
     let mut foreign = standard_runtime(Default::default());
-    logging_module(|_, _| Ok(Value::Unit))
-        .install(&mut foreign)
-        .unwrap();
-    let foreign_module = load_bytecode(
+    let foreign_program = load_bytecode(
         &mut foreign,
         "foreign.kgr",
         compile_test_bytecode("fn main() -> i32 { 7 }"),
     )
     .unwrap();
-    let _foreign_module_program = foreign_module;
-    let foreign_module = foreign.select_program(&_foreign_module_program).unwrap();
-    let foreign_value = Value::Array(
-        foreign
-            .alloc_array(&foreign_module, Ty::Builtin(BuiltinType::I32), vec![])
-            .unwrap(),
-    );
-    assert!(foreign.gc().validate_value(&foreign_value));
-    let retained_foreign_value = foreign_value;
+    let foreign_module = foreign.select_program(&foreign_program).unwrap();
+    let foreign_value = foreign
+        .alloc_array(&foreign_module, Ty::Builtin(BuiltinType::I32), &[])
+        .unwrap();
+    let retained_foreign_value = foreign_value.clone();
+    let retained_foreign_module = foreign_module.clone();
+    let retired = Arc::new(Mutex::new(None::<ExecutableModule>));
+    let retired_callback = retired.clone();
     let mut runtime = runtime();
     logging_module(move |context, _| {
         called.fetch_add(1, Ordering::SeqCst);
-
-        assert!(matches!(reenter(context, &foreign_module, main, &[]), Err(error) if error.kind() == RuntimeErrorKind::StaleHandle));
-        if let Some(root) = context.runtime().execution_root() {
-                assert!(matches!(reenter(context, &root, echo, std::slice::from_ref(&foreign_value)), Err(error) if error.kind() == RuntimeErrorKind::ModuleValidation));
-                let stale = Value::Array(context.runtime().alloc_array(&root, Ty::Builtin(BuiltinType::I32), vec![]).unwrap());
-                context.runtime_mut().collect_garbage().unwrap();
-                assert!(matches!(reenter(context, &root, echo, &[stale]), Err(error) if error.kind() == RuntimeErrorKind::ModuleValidation));
-        }
-        Ok(Value::Unit)
-    }).install(&mut runtime).unwrap();
-    let loaded = load_bytecode(&mut runtime, "inputs.kgr", module).unwrap();
-    let _loaded_program = loaded;
-    let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let mut vm = runtime;
+        let empty = context.retain_temporaries(&[]).unwrap();
+        let main = foreign_module
+            .bytecode
+            .functions
+            .iter()
+            .find(|f| f.name == "main")
+            .unwrap()
+            .id;
+        assert_eq!(
+            reenter(context, &foreign_module, main, empty)
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::StaleHandle
+        );
+        assert_eq!(
+            context.import(&foreign_value).unwrap_err().kind(),
+            RuntimeErrorKind::ModuleValidation
+        );
+        let old = retired_callback.lock().unwrap().as_ref().unwrap().clone();
+        let main = old
+            .bytecode
+            .functions
+            .iter()
+            .find(|f| f.name == "main")
+            .unwrap()
+            .id;
+        assert_eq!(
+            reenter(context, &old, main, empty).unwrap_err().kind(),
+            RuntimeErrorKind::StaleHandle
+        );
+        let root = context.runtime().execution_root().unwrap();
+        let local = context
+            .runtime_mut()
+            .alloc_array(
+                &root,
+                Ty::Builtin(BuiltinType::I32),
+                &[RootedValue::from(11i32)],
+            )
+            .unwrap();
+        context.runtime_mut().collect_garbage().unwrap();
+        let view = context.import(&local).unwrap();
+        let arguments = context.retain_temporaries(&[view]).unwrap();
+        let result = reenter(context, &root, echo, arguments).unwrap();
+        assert_eq!(array_values(context.runtime_mut(), &root, &result), [11]);
+        Ok(ValueView::unit())
+    })
+    .install(&mut runtime)
+    .unwrap();
+    let retired_program = load_bytecode(
+        &mut runtime,
+        "retired",
+        compile_test_bytecode("fn main() -> i32 { 7 }"),
+    )
+    .unwrap();
+    let old = runtime.select_program(&retired_program).unwrap();
+    let candidate = runtime
+        .stage_reload_verified_program(&retired_program, None, old.verified_program().clone())
+        .unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
+    runtime.collect_garbage().unwrap();
     assert_eq!(
-        vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
+        runtime.validate_executable_module(&old).unwrap_err().kind(),
+        RuntimeErrorKind::StaleHandle
+    );
+    *retired.lock().unwrap() = Some(old);
+    let loaded_program = load_bytecode(&mut runtime, "inputs.kgr", module).unwrap();
+    let loaded = runtime.select_program(&loaded_program).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
+    assert_eq!(
+        runtime
+            .execute_module(&loaded, ProgramEntry::Main, runtime.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
-    assert!(foreign.gc().validate_value(&retained_foreign_value));
+    assert!(
+        array_values(
+            &mut foreign,
+            &retained_foreign_module,
+            &retained_foreign_value
+        )
+        .is_empty()
+    );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    assert_eq!(vm.gc().active_roots(), 0);
-    assert_eq!(vm.resources().counters().current_call_depth, 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
 }
 
 #[test]
@@ -368,13 +451,14 @@ fn reentry_selects_current_code_and_publication_requires_an_idle_boundary() {
         logging_module(move |context, _| {
             let versions = targets.lock().unwrap().clone();
             for version in &versions {
-                let result = reenter(context, version, function, &[]);
+                let arguments = context.retain_temporaries(&[]).unwrap();
+                let result = reenter(context, version, function, arguments);
                 values
                     .lock()
                     .unwrap()
-                    .push(result.unwrap().value(context.runtime().gc()).unwrap());
+                    .push(result.unwrap().as_i32().unwrap());
             }
-            Ok(Value::Unit)
+            Ok(ValueView::unit())
         })
         .install(&mut runtime)
         .unwrap();
@@ -382,6 +466,13 @@ fn reentry_selects_current_code_and_publication_requires_an_idle_boundary() {
         let _old_program = old;
         let old = runtime.select_program(&_old_program).unwrap();
         let mut vm = runtime;
+        let retained_old = vm
+            .retain_module(
+                &old,
+                ModuleEpochRetention::CompiledArtifact,
+                RetentionOrigin::Current,
+            )
+            .unwrap();
         let mut scope = vm.begin_execution(&old, vm.execution_options()).unwrap();
         let scope_options = scope.runtime().execution_options();
         let scope_options = scope_options.clone();
@@ -403,22 +494,23 @@ fn reentry_selects_current_code_and_publication_requires_an_idle_boundary() {
             program(9),
         )
         .unwrap();
+        vm.collect_garbage().unwrap();
         let new = vm.select_program(&_old_program).unwrap();
         versions.lock().unwrap().push(new.clone());
         vm.execute_module(&new, ProgramEntry::Main, vm.execution_options())
             .unwrap();
-        assert_eq!(
-            *observed.lock().unwrap(),
-            [Value::I32(7), Value::I32(9), Value::I32(9)]
-        );
+        assert_eq!(*observed.lock().unwrap(), [7, 9, 9]);
+        drop(retained_old);
+        vm.collect_garbage().unwrap();
+        assert!(vm.validate_executable_module(&old).is_err());
     }
 }
 
 #[test]
 fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
-    let module = compile_logging_test_bytecode(
-        "fn main() -> i32 { print(\"enter\"); 42 } fn fail(n: i32) -> i32 { val kept = [n]; n + 1 }",
-    );
+    let module = compile_logging_test_bytecode(include_str!(
+        "../../../tests/fixtures/execution/session-reentry-trap.kgr"
+    ));
     let fail = module.records().modules[module.records().root.index()]
         .functions
         .iter()
@@ -428,19 +520,24 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
     let mut runtime = runtime();
     logging_module(move |context, args| {
         let root = context.runtime().execution_root().unwrap();
-        let error = reenter(context, &root, fail, &[Value::I32(i32::MAX)]).unwrap_err();
+        let arguments = context
+            .retain_temporaries(&[ValueView::from(i32::MAX)])
+            .unwrap();
+        context.runtime_mut().collect_garbage().unwrap();
+        let objects = context.runtime().gc_stats().objects;
+        let error = reenter(context, &root, fail, arguments).unwrap_err();
         assert!(matches!(&error, error if error.kind() == RuntimeErrorKind::ScriptTrap));
         assert_eq!(
             context.runtime().resources().counters().current_call_depth,
             2
         );
         context.runtime_mut().collect_garbage().unwrap();
-        assert_eq!(context.runtime().gc().allocated_objects(), 1);
-        let [Value::Str(text)] = args else {
-            panic!("outer argument")
-        };
-        assert_eq!(&*context.runtime().gc().string(*text).unwrap(), "enter");
-        Ok(Value::Unit)
+        assert_eq!(context.runtime().gc_stats().objects, objects);
+        assert_eq!(
+            context.read_string(&args[0], str::to_owned).unwrap(),
+            "enter"
+        );
+        Ok(ValueView::unit())
     })
     .install(&mut runtime)
     .unwrap();
@@ -448,22 +545,21 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = runtime;
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     assert_eq!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
-    assert_eq!(vm.gc().active_roots(), 0);
-    // Releasing the published constant cache makes exact-zero collection detect
-    // leaked frames as well as heap values after the nested trap.
-    let candidate = vm
-        .stage_reload_verified_program(&_loaded_program, None, loaded.verified_program().clone())
-        .unwrap();
-    vm.publish_staged_reload(candidate).unwrap();
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
     assert_eq!(vm.resources().counters().current_call_depth, 0);
 }
 
@@ -474,7 +570,7 @@ fn native_safepoint_reports_cancellation_at_the_current_instruction() {
     let loaded = load_bytecode(&mut runtime, "native-cancel.kgr", module).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let native = native_fixtures::install_i32::<42>(&runtime, &loaded, false);
+    let native = native_fixtures::install_i32::<42>(&mut runtime, &loaded, false);
     let token = CancellationToken::default();
     let mut options = runtime.execution_options();
     options.cancellation = token.clone();
@@ -487,8 +583,8 @@ fn native_safepoint_reports_cancellation_at_the_current_instruction() {
 
     drop(session);
     assert_eq!(
-        runtime.invoke_native_function(&native).unwrap(),
-        Value::I32(42)
+        runtime.invoke_native_function(&native).unwrap().as_i32(),
+        Some(42)
     );
 }
 
@@ -504,16 +600,18 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
             logging_module(move |_, _| {
                 recorded.fetch_add(1, Ordering::SeqCst);
                 cancel.cancel();
-                Ok(Value::Unit)
+                Ok(ValueView::unit())
             })
             .install(&mut runtime)
             .unwrap();
-            let module = compile_logging_test_bytecode(
-                "fn main() -> i32 { val kept = [1]; print(\"cancel\"); 42 } pub fn ready() -> i32 { 7 }",
-            );
+            let module = compile_logging_test_bytecode(include_str!(
+                "../../../tests/fixtures/execution/session-effect-cancellation.kgr"
+            ));
             let loaded = load_bytecode(&mut runtime, "cancel.kgr", route(module, encoded)).unwrap();
             let _loaded_program = loaded;
             let loaded = runtime.select_program(&_loaded_program).unwrap();
+            runtime.collect_garbage().unwrap();
+            let baseline = runtime.gc_stats();
             let mut options = runtime.execution_options();
             options.cancellation = token;
             let mut vm = runtime;
@@ -539,7 +637,6 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
             };
             assert!(matches!(&error, error if error.kind() == RuntimeErrorKind::Cancelled));
             assert_eq!(calls.load(Ordering::SeqCst), 1);
-            assert_eq!(session.runtime().gc().active_roots(), 0);
             assert_eq!(
                 session.runtime().resources().counters().current_call_depth,
                 0
@@ -552,24 +649,18 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
             );
             drop(session);
             vm.collect_garbage().unwrap();
-            assert_eq!(vm.gc().allocated_objects(), 1, "published string constant");
+            assert_eq!(vm.gc_stats().objects, baseline.objects);
+            assert_eq!(
+                vm.gc_stats().root_registrations,
+                baseline.root_registrations
+            );
             assert_eq!(
                 vm.execute_module(&loaded, "ready", vm.execution_options())
                     .unwrap()
                     .return_value
-                    .value(vm.gc())
-                    .expect("retained execution result"),
-                Value::I32(7)
+                    .as_i32(),
+                Some(7)
             );
-            let candidate = vm
-                .stage_reload_verified_program(
-                    &_loaded_program,
-                    None,
-                    loaded.verified_program().clone(),
-                )
-                .unwrap();
-            vm.publish_staged_reload(candidate).unwrap();
-            assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
             assert!(!vm.is_quarantined());
         }
     }
@@ -580,7 +671,9 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
     for encoded in [false, true] {
         let program = || {
             route(
-                compile_logging_test_bytecode("fn main() { print(\"forbidden\"); }"),
+                compile_logging_test_bytecode(include_str!(
+                    "../../../tests/fixtures/execution/session-staged-effect.kgr"
+                )),
                 encoded,
             )
         };
@@ -589,7 +682,7 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
         let mut runtime = runtime();
         logging_module(move |_, _| {
             observed.fetch_add(1, Ordering::SeqCst);
-            Ok(Value::Unit)
+            Ok(ValueView::unit())
         })
         .install(&mut runtime)
         .unwrap();
@@ -643,11 +736,10 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
 
 #[test]
 fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
-    use kagari_runtime::host::HostError;
     for encoded in [false, true] {
-        let module = compile_logging_test_bytecode(
-            "fn main()->i32 { print(\"entry\");42 } fn fail()->i32 {42/0}",
-        );
+        let module = compile_logging_test_bytecode(include_str!(
+            "../../../tests/fixtures/execution/session-error-origin.kgr"
+        ));
         let fail = module.records().modules[module.records().root.index()]
             .functions
             .iter()
@@ -670,24 +762,18 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
                 .resolve_type_arguments(&owner, &[ty])
                 .unwrap()
                 .remove(0);
-            let value = context
-                .runtime()
-                .make_enum_member(
-                    &owner,
-                    &applied,
-                    "Err",
-                    vec![
-                        context
-                            .runtime()
-                            .gc()
-                            .alloc_string("host failure".into())
-                            .unwrap(),
-                    ],
-                )
+            let text = ConversionContext::new(context.runtime_mut(), &owner)
+                .unwrap()
+                .encode("host failure".to_owned())
                 .unwrap();
-            *saved.lock().unwrap() = context.runtime().result_failure(&value);
+            let value = context
+                .runtime_mut()
+                .make_enum_member(&owner, &applied, "Err", &[text])
+                .unwrap();
+            *saved.lock().unwrap() = context.runtime_mut().result_failure(&value);
             let root = context.runtime().execution_root().unwrap();
-            let error = reenter(context, &root, fail, &[]).unwrap_err();
+            let arguments = context.retain_temporaries(&[]).unwrap();
+            let error = reenter(context, &root, fail, arguments).unwrap_err();
             Err(HostError::new("nested call failed").with_trace(error.trace().unwrap().clone()))
         })
         .install(&mut runtime)
@@ -697,6 +783,8 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
         let mut vm = runtime;
+        vm.collect_garbage().unwrap();
+        let baseline = vm.gc_stats();
         let error = vm
             .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap_err();
@@ -717,7 +805,11 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
         assert_eq!(report.trace.frames[0].function_name, "log");
         assert_eq!(report.trace.frames[1].function_name, "main");
         vm.collect_garbage().unwrap();
-        assert_eq!(vm.gc().active_roots(), 0);
+        assert_eq!(
+            vm.gc_stats().root_registrations,
+            baseline.root_registrations
+        );
+        assert_eq!(vm.gc_stats().objects, baseline.objects);
         assert!(vm.execution_root().is_none());
     }
 }

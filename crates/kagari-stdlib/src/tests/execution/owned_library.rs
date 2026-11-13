@@ -10,9 +10,10 @@ use kagari_runtime::{
     execution::{owned::DriveResult, reentry::reenter},
     frame::ExecutionStack,
     module::entry::ProgramEntry,
+    native::conversion::context::ConversionContext,
     resource::RuntimeLimits,
     session::ExecutionOptions,
-    value::Value,
+    value::{carriers::RootedValue, view::ValueView},
 };
 
 use kagari_common::cancellation::CancellationToken;
@@ -61,10 +62,12 @@ fn async_owned_drive_contract() {
                 .start_owned_execution(&root, ping, &[], ExecutionOptions::default())
                 .is_err()
         );
-        let nested = reenter(context, &root, ping, &[]).unwrap();
-        assert_eq!(nested.value(context.runtime().gc()), Some(Value::I32(7)));
-        received.lock().unwrap().extend_from_slice(args);
-        Ok(Value::Unit)
+        let arguments = context.retain_temporaries(&[]).unwrap();
+        let nested = reenter(context, &root, ping, arguments).unwrap();
+        assert_eq!(nested.as_i32(), Some(7));
+        let text = context.read_string(&args[0], str::to_owned).unwrap();
+        received.lock().unwrap().push(text);
+        Ok(ValueView::unit())
     })
     .install(&mut runtime)
     .unwrap();
@@ -75,11 +78,22 @@ fn async_owned_drive_contract() {
     let synchronous = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .unwrap();
-    let Value::Array(expected) = synchronous.return_value.value(vm.gc()).unwrap() else {
-        panic!("array output")
+    let array_output = |vm: &mut Runtime, value: &RootedValue| {
+        let mut cx = ConversionContext::new(vm, &loaded).unwrap();
+        let value = cx.import(value).unwrap();
+        (0..cx.array_len(&value).unwrap())
+            .map(|index| {
+                cx.array_element(&value, index)
+                    .unwrap()
+                    .unwrap()
+                    .as_i32()
+                    .unwrap()
+            })
+            .collect::<Vec<_>>()
     };
-    let expected = vm.gc().array_snapshot(expected).unwrap();
-    assert_eq!(expected, vec![Value::I32(9), Value::I32(1)]);
+    let expected = array_output(&mut vm, &synchronous.return_value);
+    assert_eq!(expected, [9, 1]);
+    drop(synchronous);
     events.lock().unwrap().clear();
     let first = vm
         .start(
@@ -113,10 +127,7 @@ fn async_owned_drive_contract() {
                 DriveResult::Waiting => panic!("synchronous loop cannot wait"),
                 DriveResult::Complete(result) => {
                     let value = result.unwrap();
-                    let Value::Array(id) = value.value(vm.gc()).unwrap() else {
-                        panic!("array output")
-                    };
-                    assert_eq!(vm.gc().array_snapshot(id).unwrap(), expected);
+                    assert_eq!(array_output(&mut vm, &value), expected);
                     complete[index] = true;
                 }
             }
@@ -130,8 +141,8 @@ fn async_owned_drive_contract() {
     }
     assert_eq!(complete, [true, true]);
     assert_eq!(
-        events.lock().unwrap().len(),
-        6,
+        *events.lock().unwrap(),
+        ["step"; 6],
         "slices must not repeat effects"
     );
     assert!(
@@ -180,7 +191,7 @@ fn async_owned_drive_contract() {
         assert!(ExecutionStack::try_park_ready(&mut Some(activation_activation)).unwrap());
         assert!(matches!(
             vm.drive(&queued, slice).unwrap(),
-            DriveResult::Complete(Err(_))
+            DriveResult::Complete(Err(error)) if error.kind() == RuntimeErrorKind::Cancelled
         ));
         assert!(
             !queued.is_ready(),
@@ -220,7 +231,7 @@ fn async_owned_drive_contract() {
         let result = vm
             .execute_module(&loaded, "ping", vm.execution_options())
             .unwrap();
-        assert_eq!(result.return_value.value(vm.gc()).unwrap(), Value::I32(7));
+        assert_eq!(result.return_value.as_i32(), Some(7));
         let shutdown = vm
             .start(&loaded, "spin", &[], ExecutionOptions::default())
             .unwrap();
@@ -235,27 +246,16 @@ fn async_owned_drive_contract() {
 
 #[test]
 fn async_owned_drive_contract_iterator_invalidation() {
-    let program = compile_logging_test_bytecode(
-        r#"
-        pub fn make() -> Vec<i32> { Vec::from([1, 2, 3]) }
-        pub fn sum(items: Vec<i32>) -> i32 {
-            var sum = 0;
-            for value in items { sum += value; print("item"); }
-            sum
-        }
-        pub fn ping() -> i32 { 42 }
-        pub fn append(items: Vec<i32>) { items.push(9); }
-        pub fn replace(items: Vec<i32>) { items[1] = 20; }
-        pub fn length(items: Vec<i32>) -> u64 { items.len() }
-    "#,
-    );
+    let program = compile_logging_test_bytecode(include_str!(
+        "../../../tests/fixtures/execution/owned-iterator-invalidation.kgr"
+    ));
     let artifact = round_trip_bytecode(program);
     let seen = Arc::new(Mutex::new(0));
     let observed = seen.clone();
     let mut runtime = standard_runtime(Default::default());
     logging_module(move |_, _| {
         *observed.lock().unwrap() += 1;
-        Ok(Value::Unit)
+        Ok(ValueView::unit())
     })
     .install(&mut runtime)
     .unwrap();
@@ -263,11 +263,11 @@ fn async_owned_drive_contract_iterator_invalidation() {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = runtime;
-    let edit = |vm: &mut Runtime, name: &str, value: Value| {
-        crate::tests::support::invoke(vm, &loaded, name, &[value])
-            .value(vm.gc())
-            .unwrap()
+    let edit = |vm: &mut Runtime, name: &str, value: &RootedValue| {
+        crate::tests::support::invoke(vm, &loaded, name, std::slice::from_ref(value))
     };
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let slice = NonZeroUsize::new(1).unwrap();
     // Each case parks an actual collection loop after its first item. Normal
     // completion, invalidation, cancellation and owner drop retain no native borrows.
@@ -277,12 +277,13 @@ fn async_owned_drive_contract_iterator_invalidation() {
             .execute_module(&loaded, "make", vm.execution_options())
             .unwrap()
             .return_value;
-        let value = source.value(vm.gc()).unwrap();
-        let Value::GcHandle(_) = value else {
-            panic!("source Vec")
-        };
         let owner = vm
-            .start(&loaded, "sum", &[value], ExecutionOptions::default())
+            .start(
+                &loaded,
+                "sum",
+                std::slice::from_ref(&source),
+                ExecutionOptions::default(),
+            )
             .unwrap();
         for _ in 0..100 {
             assert!(matches!(
@@ -299,19 +300,19 @@ fn async_owned_drive_contract_iterator_invalidation() {
             vm.execute_module(&loaded, "ping", vm.execution_options())
                 .unwrap()
                 .return_value
-                .value(vm.gc()),
-            Some(Value::I32(42))
+                .as_i32(),
+            Some(42)
         );
         if exit != 0 {
-            edit(&mut vm, "append", value);
+            drop(edit(&mut vm, "append", &source));
         }
-        edit(&mut vm, "replace", value);
+        drop(edit(&mut vm, "replace", &source));
         match exit {
             0 => {
                 let mut finished = false;
                 for _ in 0..100 {
                     if let DriveResult::Complete(result) = vm.drive(&owner, slice).unwrap() {
-                        assert_eq!(result.unwrap().value(vm.gc()), Some(Value::I32(24)));
+                        assert_eq!(result.unwrap().as_i32(), Some(24));
                         finished = true;
                         break;
                     }
@@ -323,7 +324,7 @@ fn async_owned_drive_contract_iterator_invalidation() {
                 owner.cancel();
                 assert!(matches!(
                     vm.drive(&owner, slice).unwrap(),
-                    DriveResult::Complete(Err(_))
+                    DriveResult::Complete(Err(error)) if error.kind() == RuntimeErrorKind::Cancelled
                 ));
             }
             2 => {
@@ -344,15 +345,22 @@ fn async_owned_drive_contract_iterator_invalidation() {
                     1,
                     "no second item after invalidation"
                 );
-                assert_eq!(edit(&mut vm, "length", value), Value::U64(4));
+                assert_eq!(edit(&mut vm, "length", &source).as_u64(), Some(4));
             }
             _ => {
                 drop(owner);
                 assert_eq!(vm.drain_retired_executions().unwrap(), 1);
             }
         }
-        edit(&mut vm, "append", value);
+        drop(edit(&mut vm, "append", &source));
         assert_eq!(vm.resources().counters().current_call_depth, 0);
         assert_eq!(vm.modules().retention_counts(loaded.key()).active_calls, 0);
+        drop(source);
+        vm.collect_garbage().unwrap();
+        assert_eq!(
+            vm.gc_stats().root_registrations,
+            baseline.root_registrations
+        );
+        assert_eq!(vm.gc_stats().objects, baseline.objects);
     }
 }

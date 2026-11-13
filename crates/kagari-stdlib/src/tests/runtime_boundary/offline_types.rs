@@ -12,8 +12,10 @@ use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     host::{HostCallContext, HostError},
     metadata::TypeKind,
-    native::{builder::ModuleBuilder, declarations::MethodDecl, module::NativeModule, types::Type},
-    value::Value,
+    native::{
+        builder::ModuleBuilder, declarations::MethodDecl, host, module::NativeModule, types::Type,
+    },
+    value::view::ValueView,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{
@@ -158,9 +160,13 @@ fn bound(declarations: DefinitionMetadata<ModuleDecl>) -> Result<NativeModule, R
     assert!(builder.declared_method(0, "missing").is_err());
     builder.bind(
         method,
-        |_: &mut HostCallContext<'_>, _: &[Value]| -> Result<Value, HostError> {
-            panic!("metadata linking cannot invoke callbacks")
-        },
+        host::callback(
+            |_: &mut HostCallContext<'_>,
+             _: &[ValueView<'_>]|
+             -> Result<ValueView<'_>, HostError> {
+                panic!("metadata linking cannot invoke callbacks")
+            },
+        ),
     )?;
     builder.finish()
 }
@@ -243,9 +249,12 @@ fn trait_module(implementation: Option<HostPassingStyle>) -> NativeModule {
                             effects: Default::default(),
                         },
                     )?;
-                    methods.bind("get", |_: &mut HostCallContext<'_>, _: &[Value]| {
-                        Ok(Value::I32(1))
-                    })
+                    methods.bind(
+                        "get",
+                        host::callback(|_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
+                            Ok(ValueView::from(1i32))
+                        }),
+                    )
                 })
             })
             .unwrap();

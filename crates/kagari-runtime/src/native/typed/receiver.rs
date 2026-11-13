@@ -7,12 +7,11 @@ use crate::{
         catalog::DeclarationCatalog,
         conversion::{
             FromKagari, KagariType,
-            arguments::{FromKagariArguments, KagariArguments, PreparedArguments},
+            arguments::{ArgumentValues, FromKagariArguments, KagariArguments, PreparedArguments},
             context::ConversionContext,
         },
         types::Type,
     },
-    value::Value,
 };
 
 pub(super) struct ReceiverArguments<S, A>(pub S, pub A);
@@ -34,10 +33,10 @@ impl<S: KagariType, A: KagariArguments> KagariArguments for ReceiverArguments<S,
 }
 
 impl<S: FromKagari, A: FromKagariArguments> FromKagariArguments for ReceiverArguments<S, A> {
-    fn decode_arguments(
-        cx: &mut ConversionContext<'_>,
+    fn decode_arguments<'call>(
+        cx: &mut ConversionContext<'call>,
         prepared: &PreparedArguments<'_, Self>,
-        values: &[Value],
+        values: ArgumentValues<'call>,
     ) -> NativeResult<Self> {
         let expected = prepared.types();
         if values.len() != expected.len() || values.is_empty() {
@@ -45,20 +44,12 @@ impl<S: FromKagari, A: FromKagariArguments> FromKagariArguments for ReceiverArgu
                 "typed receiver argument count",
             ));
         }
-        for (ty, value) in expected.iter().zip(values) {
-            cx.check_value(ty, value)?;
-        }
-        // The receiver converter may reenter before the rest of the pack is
-        // decoded. Retain the whole input snapshot across that boundary.
-        let roots = cx
-            .runtime()
-            .gc()
-            .root_execution_values(values.to_vec())
-            .ok_or_else(|| RuntimeError::module_validation("typed receiver argument roots"))?;
-        let receiver = cx.decode_prepared::<S>(&expected[0], &values[0])?;
-        let arguments =
-            PreparedArguments::<A>::from_binding(cx, &expected[1..]).decode(cx, &values[1..])?;
-        drop(roots);
+        // The outer binding admitted the whole immutable prefix. A receiver
+        // converter may reenter without another copy or auxiliary root owner.
+        let value = values.get(cx, 0)?;
+        let receiver = cx.decode_admitted::<S>(&expected[0], &value)?;
+        let arguments = PreparedArguments::<A>::from_binding(cx, &expected[1..])
+            .decode_tail(cx, values.tail(1)?)?;
         Ok(Self(receiver, arguments))
     }
 }

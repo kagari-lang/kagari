@@ -1,7 +1,6 @@
 //! Matched finite arithmetic/bit/conversion workloads across every numeric type.
 use crate::Options;
 use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program};
-use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
 use mlua::{Function, Lua};
@@ -114,14 +113,7 @@ pub(super) fn run(options: &Options) {
             let report = runtime
                 .execute(&loaded, entry_name.as_str(), &[], &context)
                 .expect("numeric execution");
-            let Value::I32(value) = report
-                .return_value
-                .value(runtime.gc())
-                .expect("numeric result")
-            else {
-                panic!("numeric result type")
-            };
-            value
+            report.return_value.as_i32().expect("i32 benchmark result")
         };
         for _ in 0..options.warmups {
             for engine in ["kagari_vm", "lua54"] {

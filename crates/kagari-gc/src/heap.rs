@@ -1,10 +1,12 @@
 //! The exclusive heap driver, collection entrypoints and owned-memory observations.
 
+pub mod accounting;
 pub mod metadata;
 pub mod pacing;
 mod service;
 
 use self::{
+    accounting::{AccountingReport, MemoryLedger},
     pacing::{Pacing, PacingConfig},
     service::SweepStage,
 };
@@ -64,13 +66,17 @@ impl Default for HeapConfig {
 }
 
 /// Logical managed observations; excludes Arc/table allocator overhead and RSS.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HeapStats {
     pub phase: Phase,
     pub objects: usize,
+    /// Registered leases, including dropped roots awaiting release-notice service.
     pub root_registrations: usize,
     pub backing_bytes: usize,
     pub indirect_bytes: usize,
+    /// Sum of committed provider-declared logical units, excluding object count.
+    /// The collector assigns no language quota or session meaning to these units.
+    pub provider_units: u128,
     pub scan_workspace_bytes: usize,
     pub peak_managed_bytes: usize,
     pub completed_cycles: u64,
@@ -113,37 +119,6 @@ pub struct CollectionReport {
 pub struct ShutdownReport {
     pub disposed_objects: usize,
     pub destructor_panics: usize,
-}
-
-#[derive(Debug, Default)]
-pub(crate) struct MemoryLedger {
-    pub(crate) indirect: usize,
-    pub(crate) peak: usize,
-    pub(crate) allocation_growth: usize,
-}
-
-impl MemoryLedger {
-    pub(crate) fn grew(&mut self, bytes: usize) {
-        self.allocation_growth = self.allocation_growth.saturating_add(bytes);
-    }
-
-    pub(crate) fn check(&self, old: usize, new: usize, limit: usize) -> Result<usize, GcError> {
-        let total = self
-            .indirect
-            .checked_sub(old)
-            .and_then(|bytes| bytes.checked_add(new))
-            .ok_or(GcError::Limit("indirect accounting"))?;
-        if total > limit {
-            return Err(GcError::Limit("indirect bytes"));
-        }
-        Ok(total)
-    }
-
-    pub(crate) fn observe(&mut self, physical: &PhysicalHeap) {
-        self.peak = self
-            .peak
-            .max(physical.backing_bytes.saturating_add(self.indirect));
-    }
 }
 
 /// A nonmoving managed heap with one driver and one suspended object scanner.
@@ -189,6 +164,7 @@ impl Heap {
 
     /// Begin a short non-reentrant interval; excludes service until it ends.
     pub fn access(&mut self) -> Result<Access<'_>, GcError> {
+        self.ledger.begin(&self.physical);
         self.marking.check()?;
         Ok(Access {
             heap: self,
@@ -231,6 +207,13 @@ impl Heap {
         operation(&mut scope)
     }
 
+    /// Read the last access/service interval's committed occupancy and peaks.
+    /// Reading does not reset it. A new access, step, collection or safepoint
+    /// begins a new interval, including when admission subsequently fails.
+    pub fn accounting(&self) -> AccountingReport {
+        self.ledger.report(&self.physical)
+    }
+
     pub fn stats(&self) -> HeapStats {
         HeapStats {
             phase: self.marking.phase,
@@ -238,6 +221,7 @@ impl Heap {
             root_registrations: self.roots.count,
             backing_bytes: self.physical.backing_bytes,
             indirect_bytes: self.ledger.indirect,
+            provider_units: self.ledger.units,
             scan_workspace_bytes: self.workspace.bytes(),
             peak_managed_bytes: self.ledger.peak,
             completed_cycles: self.marking.cycles,
@@ -256,6 +240,7 @@ impl Heap {
         allowance: WorkBudget,
         source: &mut impl RootScan,
     ) -> Result<StepReport, GcError> {
+        self.ledger.begin(&self.physical);
         let start = Instant::now();
         let cycles = self.marking.cycles;
         let work = self.service_work(allowance, source)?;
@@ -325,6 +310,7 @@ impl Heap {
         &mut self,
         source: &mut impl RootScan,
     ) -> Result<CollectionReport, GcError> {
+        self.ledger.begin(&self.physical);
         self.marking.check()?;
         let start = Instant::now();
         let cycles = self.marking.cycles;
@@ -370,6 +356,7 @@ impl Heap {
     /// Permanently close admission and dispose every object outside storage loans.
     /// Destructor panics are contained and reported; later handle drops are inert.
     pub fn shutdown(&mut self) -> ShutdownReport {
+        self.ledger.begin(&self.physical);
         self.marking.close();
         self.roots.disconnect();
         self.active = None;
@@ -378,6 +365,7 @@ impl Heap {
         self.physical = PhysicalHeap::default();
         self.workspace = ScanWorkspace::default();
         self.ledger.indirect = 0;
+        self.ledger.units = 0;
         self.ledger.allocation_growth = 0;
         ShutdownReport {
             disposed_objects,

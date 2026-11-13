@@ -12,7 +12,7 @@ use kagari_runtime::{
         declarations::FunctionDecl, types::Type,
     },
     numeric,
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_source::source::SourceFile;
 use mlua::{Error as LuaError, Function, Lua};
@@ -76,12 +76,13 @@ fn native_step(_: &mut NativeCall<'_>, state: i32) -> NativeResult<i32> {
 }
 
 fn host_step(state: i32) -> NativeResult<i32> {
-    let multiplied = numeric::binary(BinaryOp::Mul, Value::I32(state), Value::I32(3))?;
-    let added = numeric::binary(BinaryOp::Add, multiplied, Value::I32(7))?;
-    let Value::I32(result) = numeric::binary(BinaryOp::Rem, added, Value::I32(251))? else {
-        unreachable!()
-    };
-    Ok(result)
+    let multiplied = numeric::binary(BinaryOp::Mul, ValueView::from(state), ValueView::from(3i32))?;
+    let added = numeric::binary(BinaryOp::Add, multiplied, ValueView::from(7i32))?;
+    Ok(
+        numeric::binary(BinaryOp::Rem, added, ValueView::from(251i32))?
+            .as_i32()
+            .expect("checked scalar recurrence"),
+    )
 }
 
 fn reference(name: &str) -> i32 {
@@ -251,10 +252,7 @@ pub(super) fn run(options: &Options) {
                 return entry.call::<i32>(()).unwrap();
             }
             let report = runtime.execute(&loaded, name, &[], &context).unwrap();
-            let Value::I32(value) = report.return_value.value(runtime.gc()).unwrap() else {
-                panic!("forms result");
-            };
-            value
+            report.return_value.as_i32().expect("i32 forms result")
         };
         #[cfg(feature = "diagnostics")]
         if options.diagnostics {
@@ -264,11 +262,10 @@ pub(super) fn run(options: &Options) {
                 .load_program(&prepared, Default::default())
                 .unwrap();
             diagnostics::measure(
-                &diagnostic_runtime,
+                &mut diagnostic_runtime,
                 &diagnostic_module,
                 &context,
                 name.into(),
-                &[],
                 expected,
             );
             continue;

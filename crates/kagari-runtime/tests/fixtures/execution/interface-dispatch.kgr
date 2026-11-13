@@ -1,0 +1,17 @@
+trait Tag {
+    fn tag(self) -> i32;
+}
+
+impl Tag for i32 {
+    fn tag(self) -> i32 {
+        self + 1
+    }
+}
+
+fn accept(value: Tag) -> i32 {
+    value.tag()
+}
+
+fn main() -> i32 {
+    accept(7)
+}

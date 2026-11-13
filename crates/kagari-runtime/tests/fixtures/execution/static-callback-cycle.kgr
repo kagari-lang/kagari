@@ -1,0 +1,3 @@
+static var state: fn() ->() = || {};
+
+fn main() {}

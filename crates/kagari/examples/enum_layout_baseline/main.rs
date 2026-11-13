@@ -8,12 +8,15 @@ use kagari::{
     engine::{EngineConfig, KagariEngine},
     program::Program,
 };
+use kagari_gc::heap::HeapStats;
 use kagari_runtime::{
     diagnostics::allocations::{self, Allocator, Counts},
-    gc::GcHeapStats,
     module::entry::ProgramEntry,
     native::value_handle::ScriptValue,
-    value::Value,
+    value::{
+        carriers::{RootedValue, StoredValue},
+        view::ValueView,
+    },
 };
 use kagari_source::source::SourceFile;
 use std::{env, hint::black_box, mem::size_of, time::Instant};
@@ -45,10 +48,10 @@ const CASES: &[(&str, bool)] = &[
 struct Sample {
     elapsed: u128,
     counts: Counts,
-    objects: usize,
+    live_objects_delta: i128,
     collections: u64,
-    live: GcHeapStats,
-    retired: GcHeapStats,
+    live: HeapStats,
+    retired: HeapStats,
     collect_ns: u128,
     live_bytes: i128,
 }
@@ -81,9 +84,11 @@ fn main() {
     let program =
         Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     println!(
-        "prepare_us={} engine_setup_us={engine_setup_us} Value_bytes={} count={count} samples={samples} automatic_gc={automatic}",
+        "prepare_us={} engine_setup_us={engine_setup_us} stored_value_bytes={} host_value_bytes={} view_bytes={} count={count} samples={samples} automatic_gc={automatic}",
         start.elapsed().as_micros(),
-        size_of::<Value>(),
+        size_of::<StoredValue>(),
+        size_of::<RootedValue>(),
+        size_of::<ValueView<'_>>(),
     );
     let mut load_times = Vec::with_capacity(samples);
     for sample in 0..=samples {
@@ -121,9 +126,10 @@ fn main() {
             );
             runtime.collect_garbage().unwrap();
         }
+        let baseline_roots = runtime.gc_stats().root_registrations;
         let mut times = Vec::with_capacity(samples);
         for sample in 0..samples {
-            let before = runtime.gc().stats();
+            let before = runtime.gc_stats();
             let (measurement, total) = allocations::measure(|| {
                 let start = Instant::now();
                 let result = runtime
@@ -131,11 +137,9 @@ fn main() {
                     .unwrap();
                 let elapsed = start.elapsed().as_nanos();
                 let counts = allocations::current().unwrap();
-                let after = runtime.gc().stats();
-                // allocated_objects is live occupancy, not a cumulative allocation counter.
-                let objects = after.allocated_objects + after.reclaimed_objects
-                    - before.allocated_objects
-                    - before.reclaimed_objects;
+                let after = runtime.gc_stats();
+                // This is retained occupancy, not a cumulative allocation count.
+                let live_objects_delta = after.objects as i128 - before.objects as i128;
                 runtime
                     .with_context(&owner, &context, |cx| {
                         if stored {
@@ -153,16 +157,16 @@ fn main() {
                 let start = Instant::now();
                 runtime.collect_garbage().unwrap();
                 let collect_ns = start.elapsed().as_nanos();
-                let live = runtime.gc().stats();
+                let live = runtime.gc_stats();
                 let live_bytes = allocations::current().unwrap().net_bytes;
                 drop(result);
                 runtime.collect_garbage().unwrap();
-                let retired = runtime.gc().stats();
+                let retired = runtime.gc_stats();
                 Sample {
                     elapsed,
                     counts,
-                    objects,
-                    collections: after.collections - before.collections,
+                    live_objects_delta,
+                    collections: after.completed_cycles - before.completed_cycles,
                     live,
                     retired,
                     collect_ns,
@@ -172,24 +176,28 @@ fn main() {
             let Sample {
                 elapsed,
                 counts,
-                objects,
+                live_objects_delta,
                 collections,
                 live,
                 retired,
                 collect_ns,
                 live_bytes,
             } = measurement;
-            assert_eq!(runtime.gc().active_roots(), 0, "{name}");
+            assert_eq!(
+                runtime.gc_stats().root_registrations,
+                baseline_roots,
+                "{name}"
+            );
             times.push(elapsed);
             println!(
-                "case={name} sample={sample} exec_ns={elapsed} alloc_requests={} requested_bytes={} net_requested_bytes={} gc_objects={objects} auto_collections={collections} ledger_with_result={} retired_ledger={} live_units={} retired_units={} explicit_live_collect_ns={collect_ns} live_requested_delta={live_bytes} retired_requested_delta={}",
+                "case={name} sample={sample} exec_ns={elapsed} alloc_requests={} requested_bytes={} net_requested_bytes={} live_objects_delta={live_objects_delta} auto_collections={collections} ledger_with_result={} retired_ledger={} live_units={} retired_units={} explicit_live_collect_ns={collect_ns} live_requested_delta={live_bytes} retired_requested_delta={}",
                 counts.requests,
                 counts.requested_bytes,
                 counts.net_bytes,
-                live.current_retained_bytes,
-                retired.current_retained_bytes,
-                live.current_heap_units,
-                retired.current_heap_units,
+                live.indirect_bytes,
+                retired.indirect_bytes,
+                live.objects as u128 + live.provider_units,
+                retired.objects as u128 + retired.provider_units,
                 total.net_bytes,
             );
         }

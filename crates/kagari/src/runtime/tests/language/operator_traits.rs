@@ -7,7 +7,7 @@ use crate::{
     program::Compilation,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
 use rstest::rstest;
@@ -56,6 +56,8 @@ fn ordinary_execution(
         let loaded = runtime
             .load_program(loaded_program.program(), Default::default())
             .unwrap();
+        runtime.collect_garbage().unwrap();
+        let roots = runtime.gc_stats().root_registrations;
         let result = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = NativeCompiler::default()
@@ -72,14 +74,9 @@ fn ordinary_execution(
             runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
-        assert_eq!(
-            result
-                .return_value
-                .value(runtime.gc())
-                .expect("retained execution result"),
-            Value::I32(42)
-        );
+        assert_eq!(result.return_value.as_i32().unwrap(), 42);
         drop(result);
-        assert_eq!(runtime.gc().active_roots(), 0);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc_stats().root_registrations, roots);
     }
 }

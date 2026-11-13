@@ -1,0 +1,29 @@
+pub trait Read<T> {
+    fn get(self) -> T;
+}
+
+pub struct Holder<T> {
+    pub var value: T
+}
+
+impl<T> Read<T> for Holder<T> {
+    fn get(self) -> T {
+        self.value
+    }
+}
+
+pub fn make() -> Read<i32> {
+    Holder { value: 42 }
+}
+
+pub fn read(value: Read<i32>) -> i32 {
+    value.get()
+}
+
+pub fn read_string(value: Read<String>) -> String {
+    value.get()
+}
+
+pub fn wrap(value: Read<i32>) -> Option<Read<i32>> {
+    Some(value)
+}

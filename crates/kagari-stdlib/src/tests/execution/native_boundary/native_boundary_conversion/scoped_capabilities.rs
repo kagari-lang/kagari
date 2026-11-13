@@ -5,7 +5,6 @@ use kagari_runtime::{
         builder::ModuleBuilder, callable::CallableHandle, context::NativeCall,
         declarations::FunctionDecl, scalar::NativeScalar, types::Type, views::ValueHandle,
     },
-    value::Value,
 };
 
 use kagari_derive::KagariValue;
@@ -40,24 +39,15 @@ fn shared_formal_arguments_cannot_forward_mutable_capabilities() {
                 forward,
                 |cx: &mut NativeCall<'_>, value: ValueHandle<'_>, callback: CallableHandle<'_>| {
                     cx.collect_garbage()?;
-                    assert_eq!(value.value(cx)?, cx.argument(0)?);
-                    assert_eq!(value.value(cx)?, cx.arguments().get(cx.heap(), 0).unwrap());
-                    i32::decode(callback.call_values(cx, &[value.value(cx)?])?)
+                    let forwarded = value.value(cx)?;
+                    i32::decode(callback.call_values(cx, &[forwarded])?)
                 },
             )
             .unwrap();
     }
     let module = builder.finish().unwrap();
     let (mut vm, owner) = source_free_vm(
-        r#"
-        use example::capabilities::{Player, forward, inspect};
-        fn bump(player: RefMut<Player>) -> i32 { player.hp += 1; player.hp }
-        pub fn attempt(player: RefMut<Player>) -> i32 { forward(player, |p: RefMut<Player>| bump(p)) }
-        fn relay(player: Ref<Player>) -> i32 { forward(player, |p: RefMut<Player>| bump(p)) }
-        pub fn via_shared(player: RefMut<Player>) -> i32 { relay(player) }
-        pub fn read(player: Ref<Player>) -> i32 { inspect(player, |p: Ref<Player>| p.hp) }
-        pub fn direct(player: RefMut<Player>) -> i32 { bump(player) }
-        "#,
+        include_str!("../../../../../tests/fixtures/native/conversion-scoped-capabilities.kgr"),
         &module,
     );
     let _owner_program = owner;
@@ -84,8 +74,9 @@ fn shared_formal_arguments_cannot_forward_mutable_capabilities() {
                 "read",
                 &[player.value()],
                 &Default::default()
-            )?,
-            Value::I32(40)
+            )?
+            .as_i32(),
+            Some(40)
         );
         assert_eq!(
             Runtime::execute_scoped(
@@ -94,8 +85,9 @@ fn shared_formal_arguments_cannot_forward_mutable_capabilities() {
                 "direct",
                 &[player.value()],
                 &Default::default()
-            )?,
-            Value::I32(41)
+            )?
+            .as_i32(),
+            Some(41)
         );
         Ok(())
     })

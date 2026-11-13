@@ -1,0 +1,7 @@
+use demo::Counter;
+
+use demo::Readable;
+
+pub fn read(value: Counter) -> i32 {
+    value.get()
+}

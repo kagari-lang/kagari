@@ -1,0 +1,9 @@
+fn main() -> i32 {
+    print("outer");
+    42
+}
+
+fn nested() -> i32 {
+    print("inner");
+    7
+}

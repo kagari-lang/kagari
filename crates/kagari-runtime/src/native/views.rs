@@ -1,67 +1,78 @@
-//! Call-scoped handles borrow existing frame roots; buffer access stays scoped.
+//! Call-scoped handles borrow source protection; payload access stays scoped.
 use crate::{
-    error::RuntimeError,
-    gc::{HeapObjectId, roots::RootedValue},
+    error::{RuntimeError, fault::EngineFault},
     native::{
-        binding::NativeResult,
-        context::{ArgumentView, NativeCall},
-        scalar::NativeScalar,
-        storage::NativePayload,
+        binding::NativeResult, context::NativeCall, scalar::NativeScalar, storage::NativePayload,
     },
-    value::Value,
+    value::{carriers::RootedValue, view::ValueView},
 };
+use kagari_gc::heap::Phase;
 use kagari_types::ty::Ty;
 
-/// A generic value keeps the exact closed Kagari type of its rooted argument.
+/// A generic value keeps the exact closed Kagari type of its protected argument.
 /// Use a scalar copy or an explicit owning root when retaining it in Rust.
 pub struct ValueHandle<'call> {
-    arguments: ArgumentView<'call>,
-    slot: usize,
+    value: ValueView<'call>,
     ty: &'call Ty,
 }
 
-/// Prevents recursive entry into an explicitly guarded native payload operation.
-/// The receiver remains protected by its call argument; no payload borrow spans reentry.
+/// The source coordinate survives collection/reentry without a payload pointer,
+/// owning root or a source/heap loan across arbitrary executing services.
 struct NativeOperationGuard<'guard, 'call> {
     call: &'guard mut NativeCall<'call>,
-    receiver: HeapObjectId,
+    receiver: ValueView<'guard>,
 }
 
 impl Drop for NativeOperationGuard<'_, '_> {
     fn drop(&mut self) {
-        self.call.heap().leave_native_operation(self.receiver);
+        match self.call.runtime.memory.stats().phase {
+            Phase::Closed => return,
+            Phase::Faulted => {
+                if !self.call.runtime.resources.is_quarantined() {
+                    self.call
+                        .runtime
+                        .resources
+                        .quarantine(EngineFault::NativeOperationCleanupFailed);
+                }
+                return;
+            }
+            _ => {}
+        }
+        if self.call.leave_native_operation(self.receiver).is_err()
+            && !self.call.runtime.resources.is_quarantined()
+        {
+            self.call
+                .runtime
+                .resources
+                .quarantine(EngineFault::NativeOperationCleanupFailed);
+        }
     }
 }
 
 impl<'call> ValueHandle<'call> {
     /// Run one guarded operation on this receiver. Recursive entry returns None.
-    /// The scope owns cleanup through normal return, errors and unwinding, and
-    /// lends the same call services to synchronous script reentry.
-    pub fn with_operation<R>(
+    /// Normal return, errors and unwinding clear the flag before the argument's
+    /// source owner retires. No Rust payload reference spans script reentry.
+    pub fn with_operation<'invoke, R>(
         &self,
-        cx: &mut NativeCall<'_>,
-        operation: impl FnOnce(&mut NativeCall<'_>) -> NativeResult<R>,
+        cx: &mut NativeCall<'invoke>,
+        operation: impl FnOnce(&mut NativeCall<'invoke>) -> NativeResult<R>,
     ) -> NativeResult<Option<R>> {
-        let Value::GcHandle(id) = self.value(cx)? else {
-            return Err(RuntimeError::module_validation("native operation argument"));
-        };
-        if !cx.heap().try_enter_native_operation(id)? {
+        let receiver = self.value(cx)?;
+        if !cx.enter_native_operation(receiver)? {
             return Ok(None);
         }
         let scope = NativeOperationGuard {
             call: cx,
-            receiver: id,
+            receiver: receiver.reborrow(),
         };
         operation(scope.call).map(Some)
     }
 
-    pub(crate) fn from_argument(cx: &NativeCall<'call>, slot: usize) -> NativeResult<Self> {
-        if !cx.arguments().contains(cx.heap(), slot) {
-            return Err(RuntimeError::module_validation("native argument slot"));
-        }
+    pub(crate) fn from_argument(cx: &mut NativeCall<'call>, slot: usize) -> NativeResult<Self> {
+        let value = cx.argument(slot)?;
         Ok(Self {
-            arguments: cx.arguments(),
-            slot,
+            value,
             ty: cx.argument_type(slot)?,
         })
     }
@@ -70,15 +81,13 @@ impl<'call> ValueHandle<'call> {
         self.ty
     }
 
-    /// This copy remains protected by the argument only while that argument is
-    /// alive. Root it before retaining it beyond the call or mutable reentry.
-    pub fn value(&self, cx: &NativeCall<'_>) -> NativeResult<Value> {
-        self.arguments.get(cx.heap(), self.slot).ok_or_else(|| {
-            RuntimeError::module_validation("foreign or expired native argument slot")
-        })
+    /// The original argument owner protects this view across synchronous reentry.
+    /// Source admission rejects foreign or retired owners before returning it.
+    pub fn value(&self, cx: &mut NativeCall<'_>) -> NativeResult<ValueView<'call>> {
+        cx.validate_value(self.value)
     }
 
-    pub fn scalar<S: NativeScalar>(&self, cx: &NativeCall<'_>) -> NativeResult<S> {
+    pub fn scalar<S: NativeScalar>(&self, cx: &mut NativeCall<'_>) -> NativeResult<S> {
         if self.ty != &Ty::Builtin(S::abi_type()) {
             return Err(RuntimeError::module_validation(
                 "native scalar differs from its argument type",
@@ -87,21 +96,17 @@ impl<'call> ValueHandle<'call> {
         S::decode(self.value(cx)?)
     }
 
-    pub fn root(&self, cx: &NativeCall<'_>) -> NativeResult<RootedValue> {
-        cx.heap().ensure_no_native_borrow()?;
-        cx.heap()
-            .root_value(self.value(cx)?)
-            .ok_or_else(|| RuntimeError::module_validation("native owning value root"))
+    /// Explicit ownership rejects runtime/scoped Host temporaries before root
+    /// registration; keeping a wrapper must never extend a borrowed Rust place.
+    pub fn root(&self, cx: &mut NativeCall<'_>) -> NativeResult<RootedValue> {
+        cx.retain_value(self.value)
     }
 
     pub fn with_payload<S: NativePayload, R>(
         &self,
-        cx: &NativeCall<'_>,
+        cx: &mut NativeCall<'_>,
         access: impl for<'payload> FnOnce(&'payload S) -> NativeResult<R>,
     ) -> NativeResult<R> {
-        let Value::GcHandle(id) = self.value(cx)? else {
-            return Err(RuntimeError::module_validation("native storage argument"));
-        };
-        cx.heap().with_native(id, access)
+        cx.read_payload(self.value, access)
     }
 }

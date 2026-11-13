@@ -1,6 +1,11 @@
 use super::fixture;
 use super::{compile_without_foundation, fixture_without_foundation};
-use crate::{declarations::StandardDeclarations, tests::support::bytecode::reload_bytecode};
+use crate::{
+    declarations::StandardDeclarations,
+    tests::{
+        execution::native_boundary::publish_unused_version, support::bytecode::reload_bytecode,
+    },
+};
 
 use kagari_runtime::native::{
     binding::NativeResult, builder::ModuleBuilder, conversion::context::ConversionContext,
@@ -16,73 +21,67 @@ use std::{
     },
 };
 
-const IDENTITY: &str = r#"
-    pub trait Identity {
-        fn identity<T>(self, value: T) -> T { value }
-        fn delayed<T>(self, value: T) -> fn() -> T { || value }
-    }
-    pub trait Child: Identity {}
-    struct Empty {}
-    pub struct Item { pub var value: i32 }
-    impl Identity for Empty {}
-    impl Child for Empty {}
-    pub fn make() -> Child { Empty {} }
-    pub fn item() -> Item { Item { value: 42 } }
-    pub fn scalar_evidence(target: Child) -> i32 { target.identity(1) }
-    pub fn object_evidence(target: Child, value: Item) -> Item { target.identity(value) }
-    pub fn closure_evidence(target: Child, value: Item) -> fn() -> Item { target.delayed(value) }
-"#;
+const IDENTITY: &str =
+    include_str!("../../../../../tests/fixtures/native/interface-inherited-applications.kgr");
 
 #[test]
 fn inherited_generic_interface_bindings_require_checked_applications_and_keep_returns_alive() {
     let (mut vm, owner) = fixture(IDENTITY, None);
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let target: Interface = vm
         .execute_typed(&_owner_program, "make", (), &Default::default())
         .unwrap();
     let item: Object = vm
         .execute_typed(&_owner_program, "item", (), &Default::default())
         .unwrap();
-    let mut cx = ConversionContext::new(&mut vm, &owner).unwrap();
-    let integer = cx.type_for::<i32>().unwrap();
-    let boolean = cx.type_for::<bool>().unwrap();
-    let member = target.member(cx.runtime(), "identity").unwrap();
+    let mut conversion = ConversionContext::new(&mut vm, &owner).unwrap();
+    let integer = conversion.type_for::<i32>().unwrap();
+    let boolean = conversion.type_for::<bool>().unwrap();
+    let identity_member = target.member(conversion.runtime_mut(), "identity").unwrap();
     assert!(
-        cx.runtime_mut()
-            .bind_interface_method::<(i32,), i32>(&member)
+        conversion
+            .runtime_mut()
+            .bind_interface_method::<(i32,), i32>(&identity_member)
             .is_err()
     );
     assert!(
-        cx.runtime_mut()
-            .bind_interface_method_application::<(bool,), bool>(&member, &[boolean])
+        conversion
+            .runtime_mut()
+            .bind_interface_method_application::<(bool,), bool>(&identity_member, &[boolean])
             .is_err()
     );
     assert!(
-        cx.runtime_mut()
-            .bind_interface_method_application::<(i32,), bool>(&member, slice::from_ref(&integer))
+        conversion
+            .runtime_mut()
+            .bind_interface_method_application::<(i32,), bool>(
+                &identity_member,
+                slice::from_ref(&integer)
+            )
             .is_err()
     );
-    let scalar = cx
+    let scalar = conversion
         .runtime_mut()
-        .bind_interface_method_application::<(i32,), i32>(&member, &[integer])
+        .bind_interface_method_application::<(i32,), i32>(&identity_member, &[integer])
         .unwrap();
-    let object = cx
+    let object = conversion
         .runtime_mut()
         .bind_interface_method_application::<(Object,), Object>(
-            &member,
+            &identity_member,
             slice::from_ref(item.object_type().type_argument()),
         )
         .unwrap();
-    let member = target.member(cx.runtime(), "delayed").unwrap();
-    let delayed = cx
+    let delayed_member = target.member(conversion.runtime_mut(), "delayed").unwrap();
+    let delayed = conversion
         .runtime_mut()
         .bind_interface_method_application::<(Object,), Function<(), Object>>(
-            &member,
+            &delayed_member,
             slice::from_ref(item.object_type().type_argument()),
         )
         .unwrap();
-    let mut cx = cx.runtime_mut().context(&owner).unwrap();
+    let mut cx = conversion.runtime_mut().context(&owner).unwrap();
     cx.runtime_mut().collect_garbage().unwrap();
     assert_eq!(target.call(&mut cx, &scalar, (42,)).unwrap(), 42);
     let returned = target.call(&mut cx, &object, (item.clone(),)).unwrap();
@@ -103,8 +102,20 @@ fn inherited_generic_interface_bindings_require_checked_applications_and_keep_re
     drop(scalar);
     drop(object);
     drop(delayed);
-    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(cx.runtime().gc().active_roots(), 0);
+    drop(field);
+    drop(identity_member);
+    drop(delayed_member);
+    drop(cx);
+    drop(conversion);
+    // Generic operation descriptions belong to the actual receiver revision.
+    // Retire that warmed owner before comparing the cold publication baseline.
+    publish_unused_version(&mut vm, &_owner_program);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -133,19 +144,8 @@ fn generic_interface_constraints_keep_selected_operations_alive_through_gc_and_r
     }
     .unwrap();
     let module = builder.finish().unwrap();
-    let source = r#"
-        use example::interface_applications::collect;
-        pub trait Read { fn read(self) -> i32; }
-        pub struct Key<T> { pub val tag: T, pub val value: i32 }
-        impl<T> Read for Key<T> { fn read(self) -> i32 { collect(); self.value } }
-        pub trait Invoke { fn invoke<T: Read>(self, value: T) -> i32 { value.read() } }
-        struct Worker {}
-        impl Invoke for Worker {}
-        pub fn make() -> Invoke { Worker {} }
-        pub fn key() -> Key<i32> { Key { tag: 1, value: 42 } }
-        pub fn wrong_key() -> Key<bool> { Key { tag: true, value: 42 } }
-        pub fn evidence(target: Invoke, value: Key<i32>) -> i32 { target.invoke(value) }
-    "#;
+    let source =
+        include_str!("../../../../../tests/fixtures/native/interface-application-reload.kgr");
     let (mut vm, old) = fixture_without_foundation(source, Some(&module));
     let _old_program = old;
     let old = vm.select_program(&_old_program).unwrap();
@@ -155,7 +155,7 @@ fn generic_interface_constraints_keep_selected_operations_alive_through_gc_and_r
     let key: Object = vm
         .execute_typed(&_old_program, "key", (), &Default::default())
         .unwrap();
-    let member = target.member(&vm, "invoke").unwrap();
+    let member = target.member(&mut vm, "invoke").unwrap();
     let invoke = vm
         .bind_interface_method_application::<(Object,), i32>(
             &member,
@@ -177,12 +177,13 @@ fn generic_interface_constraints_keep_selected_operations_alive_through_gc_and_r
             .unwrap(),
         42
     );
+    assert_eq!(source.matches("self.value").count(), 1);
     reload_bytecode(
         &mut vm,
         &_old_program,
         Some("functions".into()),
         compile_without_foundation(
-            &source.replace("collect(); self.value", "collect(); self.value + 1"),
+            &source.replace("self.value", "self.value + 1"),
             Some(&module),
         ),
     )
@@ -194,9 +195,10 @@ fn generic_interface_constraints_keep_selected_operations_alive_through_gc_and_r
     let new_key: Object = vm
         .execute_typed(&_old_program, "key", (), &Default::default())
         .unwrap();
+    let new_member = new_target.member(&mut vm, "invoke").unwrap();
     let new_invoke = vm
         .bind_interface_method_application::<(Object,), i32>(
-            &new_target.member(&vm, "invoke").unwrap(),
+            &new_member,
             slice::from_ref(new_key.object_type().type_argument()),
         )
         .unwrap();
@@ -220,39 +222,34 @@ fn generic_interface_constraints_keep_selected_operations_alive_through_gc_and_r
         43
     );
     assert_eq!(calls.load(Ordering::Relaxed), 4);
-    drop(invoke);
-    drop(target);
-    drop(key);
+    drop((invoke, target, key));
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(
+        duplicate.member().owner().program_root().key(),
+        old.program_root().key()
+    );
     assert!(
-        !cx.runtime_mut()
-            .collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&old.key())
+        cx.runtime().validate_executable_module(&old).is_ok(),
+        "the member owns its actual lexical revision"
     );
     drop(duplicate);
-    // Applying old lexical evidence to a new receiver publishes that evidence in
-    // the receiver publication's descriptor cache. Retire that actual owner too.
-    assert!(
-        !cx.runtime_mut()
-            .collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&old.key())
-    );
+    // The scalar receiver's current dispatch needs no persistent old environment.
+    // The last scoped member lease, rather than a duplicate cache, owns retirement.
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert!(cx.runtime().validate_executable_module(&old).is_err());
     drop(cx);
     reload_bytecode(
         &mut vm,
         &_old_program,
         None,
         compile_without_foundation(
-            &source.replace("collect(); self.value", "collect(); self.value + 1"),
+            &source.replace("self.value", "self.value + 1"),
             Some(&module),
         ),
     )
     .unwrap();
-    drop((new_invoke, new_target));
-    let reclaimed = vm.collect_garbage().unwrap().reclaimed_modules;
-    assert!(reclaimed.contains(&old.key()));
-    assert!(reclaimed.contains(&new.key()));
+    drop((new_invoke, new_target, new_member));
+    vm.collect_garbage().unwrap();
+    assert!(vm.validate_executable_module(&old).is_err());
+    assert!(vm.validate_executable_module(&new).is_err());
 }

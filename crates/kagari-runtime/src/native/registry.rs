@@ -45,7 +45,7 @@ use kagari_types::{
 use std::{
     collections::{BTreeMap, HashSet},
     slice,
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 #[derive(Debug, Clone)]
@@ -355,7 +355,7 @@ impl NativeRegistry {
                 .ok_or_else(|| RuntimeError::module_validation("native callable target"))?;
                 Ok(LinkedOperation::Ready(LinkedCallable {
                     environment: None,
-                    scoped_signature: None,
+                    scoped_signature: OnceLock::new(),
                     owner: CallableOwner::Program(ModuleRef::new(slot)),
                     target,
                     params: callable.signature.params.clone().into_boxed_slice(),

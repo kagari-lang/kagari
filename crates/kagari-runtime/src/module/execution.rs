@@ -12,6 +12,7 @@ pub mod instruction;
 pub(crate) mod interfaces;
 pub(crate) mod layout;
 pub mod managed;
+pub mod operands;
 pub(crate) mod scalar;
 
 use crate::{
@@ -26,7 +27,7 @@ use crate::{
         layout::{FrameLayout, Location},
         managed::{ManagedOperation, PreparedManagedOperation},
     },
-    value::{Value, scalar as scalar_value},
+    value::{carriers::ScopedValue, scalar as scalar_value},
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
@@ -36,42 +37,6 @@ use kagari_bytecode::{
 };
 use kagari_types::ty::Ty;
 use std::collections::BTreeMap;
-
-/// A bounded physical operand in a prepared function's value window.
-#[derive(Debug, Clone, Copy)]
-pub struct OperandSlot(u32);
-
-impl OperandSlot {
-    pub(crate) fn new(index: usize, managed: bool) -> Self {
-        // Sealed register/local counts are u16; this bit only classifies frame
-        // offsets and never truncates a runtime owner/slot/generation identity.
-        Self(index as u32 | if managed { 1 << 31 } else { 0 })
-    }
-
-    pub(crate) fn index(self) -> usize {
-        (self.0 & !(1 << 31)) as usize
-    }
-
-    pub(crate) fn managed(self) -> bool {
-        self.0 & (1 << 31) != 0
-    }
-
-    pub(crate) fn scalar(self) -> Option<ScalarSlot> {
-        (!self.managed()).then_some(ScalarSlot(self.0))
-    }
-}
-
-/// A sealed scalar-bank offset. General locations prove their class once during
-/// preparation; scalar execution cannot reinterpret a managed offset as payload.
-#[derive(Debug, Clone, Copy)]
-pub struct ScalarSlot(u32);
-
-impl ScalarSlot {
-    #[inline]
-    pub(crate) fn index(self) -> usize {
-        self.0 as usize
-    }
-}
 
 #[derive(Debug)]
 pub(crate) struct ExecutionModule {
@@ -254,15 +219,22 @@ impl ExecutionInstruction {
                 Self::managed(ManagedOperation::Native { index })
             }
             BytecodeInstruction::LoadConst { dst, constant } => {
+                if slot(dst).is_unit() {
+                    debug_assert!(matches!(
+                        module.constants[constant.index()],
+                        ConstantOperand::Unit
+                    ));
+                    return Self::Unit;
+                }
                 let value = match module.constants[constant.index()] {
-                    ConstantOperand::Unit => Value::Unit,
-                    ConstantOperand::Bool(v) => Value::Bool(v),
-                    ConstantOperand::Char(v) => Value::Char(v),
-                    ConstantOperand::I32(v) => Value::I32(v),
-                    ConstantOperand::I64(v) => Value::I64(v),
-                    ConstantOperand::U64(v) => Value::U64(v),
-                    ConstantOperand::F32(v) => Value::F32(v),
-                    ConstantOperand::F64(v) => Value::F64(v),
+                    ConstantOperand::Unit => ScopedValue::unit(),
+                    ConstantOperand::Bool(v) => ScopedValue::from(v),
+                    ConstantOperand::Char(v) => ScopedValue::from(v),
+                    ConstantOperand::I32(v) => ScopedValue::from(v),
+                    ConstantOperand::I64(v) => ScopedValue::from(v),
+                    ConstantOperand::U64(v) => ScopedValue::from(v),
+                    ConstantOperand::F32(v) => ScopedValue::from(v),
+                    ConstantOperand::F64(v) => ScopedValue::from(v),
                     ConstantOperand::Str(_) => {
                         return Self::managed(ManagedOperation::Constant {
                             dst: location(dst),
@@ -328,7 +300,14 @@ impl ExecutionInstruction {
                 Self::managed(ManagedOperation::Return { value: slot(value) })
             }
             BytecodeInstruction::Return(value) => Self::Return {
-                value: value.map(|value| slot(value).scalar().expect("classified scalar return")),
+                value: value.and_then(|value| {
+                    let operand = slot(value);
+                    if operand.is_unit() {
+                        None
+                    } else {
+                        Some(operand.scalar().expect("classified scalar return"))
+                    }
+                }),
                 representation: value.map_or(ValueType::Unit, |register| {
                     location(register).representation
                 }),
@@ -338,6 +317,9 @@ impl ExecutionInstruction {
     }
 
     fn move_slots(dst: Location, src: Location) -> Self {
+        if dst.operand.is_unit() && src.operand.is_unit() {
+            return Self::Unit;
+        }
         match (dst.operand.scalar(), src.operand.scalar()) {
             (Some(dst), Some(src)) => Self::Move { dst, src },
             _ => Self::managed(ManagedOperation::Copy { dst, src }),
@@ -361,7 +343,7 @@ mod tests {
             LinkedFunction, LinkedNativeCall,
             layouts::{AggregateLayout, AppliedLayouts, FunctionLayouts},
         },
-        native::primitive::PrimitiveResult,
+        value::{carriers::StoredValue, place::PublishedResult},
     };
     use std::{mem::size_of, sync::OnceLock};
 
@@ -379,7 +361,7 @@ mod tests {
             "linked native bytes: slot={}, operand={}, result={}",
             size_of::<LinkedNativeCall>(),
             size_of::<Location>(),
-            size_of::<PrimitiveResult>()
+            size_of::<PublishedResult<'static>>()
         );
         eprintln!(
             "region bytes: error={}, exit={}, result={}",
@@ -388,15 +370,14 @@ mod tests {
             size_of::<Result<RegionExit, RegionError>>()
         );
         eprintln!(
-            "execution metadata bytes: instruction={}, frame={}, linked_function={}, field_operation={}, index_operation={}, execution_function={}, constant_cell={}, previous_constant_cell={}",
+            "execution metadata bytes: instruction={}, frame={}, linked_function={}, field_operation={}, index_operation={}, execution_function={}, constant_cell={}",
             size_of::<ExecutionInstruction>(),
             size_of::<ExecutionFrame>(),
             size_of::<LinkedFunction>(),
             size_of::<PreparedFieldOperation>(),
             size_of::<PreparedIndexOperation>(),
             size_of::<ExecutionFunction>(),
-            size_of::<OnceLock<Value>>(),
-            size_of::<Option<Value>>()
+            size_of::<StoredValue>()
         );
     }
 }

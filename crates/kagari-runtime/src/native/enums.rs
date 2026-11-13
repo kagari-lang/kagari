@@ -8,13 +8,12 @@ use crate::{
     native::{
         binding::NativeResult,
         conversion::{
-            arguments::{IntoKagariArguments, PreparedArguments, encode_arguments},
+            arguments::{IntoKagariArguments, PreparedArguments},
             context::ConversionContext,
         },
         typed::NativeContext,
         value_handle::ScriptValue,
     },
-    value::{EnumTag, Value},
 };
 use kagari_common::identity::{DefinitionKind, DefinitionPath};
 use std::{marker::PhantomData, sync::Arc};
@@ -106,24 +105,15 @@ impl<A: IntoKagariArguments> EnumVariant<A> {
         let record = &self.record;
         let ty = &record.member.enum_type;
         let runtime = cx.runtime_mut();
-        runtime.gc().ensure_no_native_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
         runtime.validate_executable_module(ty.owner())?;
         runtime.resources().poll_execution()?;
         let mut conversion = ConversionContext::new(runtime, ty.owner())?;
         let mapping = PreparedArguments::<A>::from_binding(&conversion, &record.payload);
-        let (_roots, values) = encode_arguments(&mut conversion, mapping, payload)?;
-        let id = conversion
-            .runtime_mut()
-            .alloc_enum(EnumTag::Declared(record.member.layout.clone()), values)?;
-        let root = conversion
-            .runtime()
-            .root_value(Value::Enum(id))
-            .ok_or_else(|| RuntimeError::module_validation("enum construction retention"))?;
+        let values = mapping.encode(&mut conversion, payload)?;
+        let value = conversion.allocate_enum_pack(record.member.layout.clone(), values)?;
+        let result = conversion.decode_prepared(ty.type_argument(), &value)?;
         conversion.runtime_mut().gc_safepoint()?;
-        let value = root
-            .value(conversion.runtime().gc())
-            .ok_or_else(|| RuntimeError::module_validation("constructed enum value"))?;
-        conversion.decode_prepared(ty.type_argument(), &value)
+        Ok(result)
     }
 }

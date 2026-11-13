@@ -3,8 +3,11 @@
 use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime, RuntimeConfig,
-    error::{RuntimeErrorKind, reason::IndexError, trap::TrapReason},
-    gc::roots::RootedValue,
+    error::{
+        RuntimeErrorKind,
+        reason::{ErrorReason, IndexError},
+        trap::TrapReason,
+    },
     module::ExecutableModule,
     native::{
         adapter::Async,
@@ -21,7 +24,7 @@ use crate::{
         views::ValueHandle,
     },
     session::ExecutionOptions,
-    value::Value,
+    value::{carriers::RootedValue, view::ValueView},
 };
 use crate::{
     error::RuntimeError,
@@ -208,18 +211,9 @@ impl Fixture {
                      values: ValueHandle<'_>,
                      index: i32|
                      -> NativeResult<i32> {
-                        let Value::Array(values) = values.value(cx)? else {
-                            unreachable!("checked array argument")
-                        };
-                        cx.heap()
-                            .array_get(values, index)
-                            .and_then(|value| {
-                                if let Value::I32(value) = value {
-                                    Some(value)
-                                } else {
-                                    None
-                                }
-                            })
+                        let values = values.value(cx)?;
+                        cx.array_element(&values, index)?
+                            .and_then(ValueView::as_i32)
                             .ok_or_else(|| {
                                 RuntimeError::from(IndexError::SequenceIndexIsOutOfBounds)
                             })
@@ -369,7 +363,7 @@ impl Fixture {
             .start_fixture(
                 &self.module,
                 FunctionRef::new(0),
-                &[array.value(self.vm.gc()).unwrap()],
+                from_ref(&array),
                 ExecutionOptions::default(),
             )
             .unwrap();
@@ -465,53 +459,53 @@ fn async_wait_live_storage_contract() {
             .collect();
         functions.push(function);
     });
+    f.vm.collect_garbage().unwrap();
+    let baseline = f.vm.gc_stats();
     for exit in 0..3 {
         let future = f.cold(12);
-        let allocate = |value| {
-            let id =
-                f.vm.alloc_array(
-                    &f.module,
-                    Ty::Builtin(BuiltinType::I32),
-                    vec![Value::I32(value)],
-                )
-                .unwrap();
-            f.vm.root_value(Value::Array(id)).unwrap()
+        let mut allocate = |value| {
+            f.vm.alloc_array(
+                &f.module,
+                Ty::Builtin(BuiltinType::I32),
+                &[RootedValue::from(value)],
+            )
+            .unwrap()
         };
-        let live_root = allocate(41i32);
-        let dead_root = allocate(99i32);
-        let Value::Array(live) = live_root.value(f.vm.gc()).unwrap() else {
-            panic!("live array fixture")
-        };
-        let Value::Array(dead) = dead_root.value(f.vm.gc()).unwrap() else {
-            panic!("dead array fixture")
-        };
+        let live = allocate(41i32);
+        let dead = allocate(99i32);
         let execution =
             f.vm.start_fixture(
                 &f.module,
                 FunctionRef::new(2),
-                &[
-                    future.value(f.vm.gc()).unwrap(),
-                    Value::Array(live),
-                    Value::Array(dead),
-                ],
+                &[future, live.clone(), dead.clone()],
                 ExecutionOptions::default(),
             )
             .unwrap();
-        drop(dead_root);
         assert!(matches!(
             f.vm.drive(&execution, slice()).unwrap(),
             DriveResult::Waiting
         ));
+        // Stabilize all unrelated garbage while this one Host root still owns
+        // the dead operand. No execution/allocation occurs between these GCs.
         f.vm.collect_garbage().unwrap();
-        assert!(
-            f.vm.gc().object_kind(dead).is_none(),
-            "dead slots must not keep objects alive"
+        let with_dead = f.vm.gc_stats();
+        drop(dead);
+        f.vm.collect_garbage().unwrap();
+        assert_eq!(
+            f.vm.gc_stats().objects,
+            with_dead.objects - 1,
+            "dead parked slots must not retain the scalar array"
         );
-        assert!(
-            f.vm.gc().array_set(live, 0, Value::I32(3)).is_ok(),
-            "parked values do not block writes"
+        assert_eq!(
+            f.vm.gc_stats().root_registrations,
+            with_dead.root_registrations - 1
         );
-        f.vm.gc().array_set(live, 0, Value::I32(42)).unwrap();
+        {
+            let mut cx = ConversionContext::new(&mut f.vm, &f.module).unwrap();
+            let live = cx.import(&live).unwrap();
+            cx.array_set(&live, 0, &ValueView::from(3i32)).unwrap();
+            cx.array_set(&live, 0, &ValueView::from(42i32)).unwrap();
+        }
         let (_, completion) = f.sent.lock().unwrap().pop().unwrap();
         match exit {
             0 => {
@@ -520,17 +514,18 @@ fn async_wait_live_storage_contract() {
                     panic!("resumed array read");
                 };
                 assert_eq!(
-                    result.unwrap().value(f.vm.gc()),
-                    Some(Value::I32(42)),
-                    "live aliases survive physical slot reuse"
+                    result.unwrap().as_i32(),
+                    Some(42),
+                    "live aliases survive parking and storage reuse"
                 );
             }
             1 => {
                 execution.cancel();
-                assert!(matches!(
-                    f.vm.drive(&execution, slice()).unwrap(),
-                    DriveResult::Complete(Err(_))
-                ));
+                let DriveResult::Complete(Err(error)) = f.vm.drive(&execution, slice()).unwrap()
+                else {
+                    panic!("cancelled waiter");
+                };
+                assert_eq!(error.kind(), RuntimeErrorKind::Cancelled);
             }
             _ => {
                 drop(execution);
@@ -538,10 +533,24 @@ fn async_wait_live_storage_contract() {
             }
         }
         assert_eq!(completion.complete(Ok(9)), CompletionStatus::Stale);
-        f.vm.gc().array_set(live, 0, Value::I32(3)).unwrap();
-        assert_eq!(live_root.value(f.vm.gc()), Some(Value::Array(live)));
+        {
+            let mut cx = ConversionContext::new(&mut f.vm, &f.module).unwrap();
+            let live = cx.import(&live).unwrap();
+            cx.array_set(&live, 0, &ValueView::from(3i32)).unwrap();
+            assert_eq!(cx.array_len(&live).unwrap(), 1);
+            assert_eq!(
+                cx.array_element(&live, 0).unwrap().unwrap().as_i32(),
+                Some(3)
+            );
+        }
         assert_eq!(f.vm.resources().counters().current_call_depth, 0);
     }
+    f.vm.collect_garbage().unwrap();
+    assert_eq!(f.vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        f.vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -550,7 +559,7 @@ fn async_native_completion_contract() {
     let future = f.cold(41);
     assert_eq!(f.starts.load(Ordering::Relaxed), 0);
     f.vm.collect_garbage().unwrap();
-    let value = future.value(f.vm.gc()).unwrap();
+    let value = future;
     let execution =
         f.vm.start_fixture(
             &f.module,
@@ -589,7 +598,7 @@ fn async_native_completion_contract() {
     let DriveResult::Complete(result) = f.vm.drive(&execution, slice()).unwrap() else {
         panic!("completion resumes");
     };
-    assert_eq!(result.unwrap().value(f.vm.gc()), Some(Value::I32(42)));
+    assert_eq!(result.unwrap().as_i32(), Some(42));
     assert_eq!(f.cancels.load(Ordering::Relaxed), 0);
     let duplicate =
         f.vm.start_fixture(
@@ -599,9 +608,13 @@ fn async_native_completion_contract() {
             ExecutionOptions::default(),
         )
         .unwrap();
+    let DriveResult::Complete(Err(error)) = f.vm.drive(&duplicate, slice()).unwrap() else {
+        panic!("completed Future cannot be claimed twice");
+    };
+    assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
     assert!(matches!(
-        f.vm.drive(&duplicate, slice()).unwrap(),
-        DriveResult::Complete(Err(_))
+        error.reason(),
+        ErrorReason::Trap(TrapReason::FutureHasAlreadyBeenAwaited)
     ));
     assert_eq!(f.starts.load(Ordering::Relaxed), 1);
 
@@ -611,21 +624,21 @@ fn async_native_completion_contract() {
             f.vm.start_fixture(
                 &f.module,
                 FunctionRef::new(1),
-                &[future.value(f.vm.gc()).unwrap()],
+                from_ref(&future),
                 ExecutionOptions::default(),
             )
             .unwrap();
         let DriveResult::Complete(result) = f.vm.drive(&execution, slice()).unwrap() else {
             panic!("immediate completion");
         };
-        assert_eq!(result.unwrap().value(f.vm.gc()), Some(Value::I32(expected)));
+        assert_eq!(result.unwrap().as_i32(), Some(expected));
     }
     let future = f.cold(5);
     let execution =
         f.vm.start_fixture(
             &f.module,
             FunctionRef::new(1),
-            &[future.value(f.vm.gc()).unwrap()],
+            from_ref(&future),
             ExecutionOptions::default(),
         )
         .unwrap();
@@ -652,8 +665,15 @@ fn async_native_completion_contract_retirement_and_admission() {
     assert_eq!(f.starts.load(Ordering::Relaxed), 0);
     assert_eq!(f.cancels.load(Ordering::Relaxed), 0);
     let cold = f.cold(11);
-    let value = cold.value(f.vm.gc()).unwrap();
-    assert!(Executor::new(&mut f.vm, &f.module, FunctionRef::new(1), from_ref(&value)).is_err());
+    let value = cold;
+    {
+        let mut cx = ConversionContext::new(&mut f.vm, &f.module).unwrap();
+        let view = cx.import(&value).unwrap();
+        let arguments = cx.argument_values(&[view]).unwrap();
+        assert!(
+            Executor::new(cx.runtime_mut(), &f.module, FunctionRef::new(1), arguments).is_err()
+        );
+    }
     assert_eq!(
         f.starts.load(Ordering::Relaxed),
         0,
@@ -679,16 +699,20 @@ fn async_native_completion_contract_retirement_and_admission() {
             ExecutionOptions::default(),
         )
         .unwrap();
+    let DriveResult::Complete(Err(error)) = f.vm.drive(&alias, slice()).unwrap() else {
+        panic!("pending Future cannot be claimed by a second waiter");
+    };
+    assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
     assert!(matches!(
-        f.vm.drive(&alias, slice()).unwrap(),
-        DriveResult::Complete(Err(_))
+        error.reason(),
+        ErrorReason::Trap(TrapReason::FutureHasAlreadyBeenAwaited)
     ));
     let other = f.cold(12);
     let full =
         f.vm.start_fixture(
             &f.module,
             FunctionRef::new(1),
-            &[other.value(f.vm.gc()).unwrap()],
+            from_ref(&other),
             ExecutionOptions::default(),
         )
         .unwrap();
@@ -712,21 +736,24 @@ fn async_native_completion_contract_retirement_and_admission() {
         f.vm.start_fixture(
             &f.module,
             FunctionRef::new(1),
-            &[failed.value(f.vm.gc()).unwrap()],
+            from_ref(&failed),
             ExecutionOptions::default(),
         )
         .unwrap();
-    assert!(matches!(
-        f.vm.drive(&execution, slice()).unwrap(),
-        DriveResult::Complete(Err(_))
-    ));
+    let DriveResult::Complete(Err(error)) = f.vm.drive(&execution, slice()).unwrap() else {
+        panic!("submission failure terminates its waiter");
+    };
+    assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
+    assert!(
+        matches!(error.reason(), ErrorReason::Trap(TrapReason::Provider(message)) if message == "submission failed")
+    );
     assert_eq!(f.starts.load(Ordering::Relaxed), 2);
     let failed = f.cold(14);
     let execution =
         f.vm.start_fixture(
             &f.module,
             FunctionRef::new(1),
-            &[failed.value(f.vm.gc()).unwrap()],
+            from_ref(&failed),
             ExecutionOptions::default(),
         )
         .unwrap();
@@ -752,7 +779,7 @@ fn async_native_completion_contract_retirement_and_admission() {
         f.vm.start_fixture(
             &f.module,
             FunctionRef::new(1),
-            &[last.value(f.vm.gc()).unwrap()],
+            from_ref(&last),
             ExecutionOptions::default(),
         )
         .unwrap();
@@ -775,7 +802,7 @@ fn async_native_completion_contract_cleanup_quarantine() {
         f.vm.start_fixture(
             &f.module,
             FunctionRef::new(1),
-            &[future.value(f.vm.gc()).unwrap()],
+            from_ref(&future),
             ExecutionOptions::default(),
         )
         .unwrap();

@@ -1,0 +1,13 @@
+use fixture::capture::capture;
+
+struct Item {
+    val value: i32
+}
+
+pub fn retained_recipe() {
+    capture([Item { value: 42 }]);
+}
+
+fn main() -> i32 {
+    99
+}

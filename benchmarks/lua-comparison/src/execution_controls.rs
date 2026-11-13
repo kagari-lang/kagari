@@ -3,7 +3,9 @@ use crate::Options;
 use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program, runtime::Runtime};
 use kagari_runtime::error::RuntimeErrorKind;
 use kagari_runtime::execution::owned::DriveResult;
-use kagari_runtime::{module::ExecutableModule, session::owned::OwnedExecution, value::Value};
+use kagari_runtime::{
+    module::ExecutableModule, session::owned::OwnedExecution, value::carriers::RootedValue,
+};
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
 use std::{hint::black_box, num::NonZeroUsize, time::Instant};
@@ -48,7 +50,7 @@ impl Fixture {
                 .start(
                     &self.module,
                     "hold",
-                    &[Value::I32(index as i32 + 1)],
+                    &[RootedValue::from(index as i32 + 1)],
                     self.context.interpreter_options().unwrap(),
                 )
                 .unwrap();
@@ -88,8 +90,8 @@ impl Fixture {
                 ));
                 checksum += 1;
             } else {
-                let value = result.unwrap().value(self.runtime.gc()).unwrap();
-                assert_eq!(value, Value::I32((index as i32 + 1) * 8));
+                let value = result.unwrap().as_i32();
+                assert_eq!(value, Some((index as i32 + 1) * 8));
                 checksum += i64::from((index as i32 + 1) * 8);
             }
         }
@@ -176,14 +178,14 @@ fn count(
 ) {
     // Warm global lazy initialization outside accounting, then measure a complete
     // independent runtime lifetime. All retained capacities remain included.
-    let fixture = Fixture::new(engine, program);
+    let mut fixture = Fixture::new(engine, program);
     let mut roots = Vec::with_capacity(population);
     fixture.park(&mut roots, population);
     fixture.retire(&mut roots, order, cancel);
     drop(fixture);
     let ((phases, counts), total) = allocations::measure(|| {
         diagnostics::measure(|| {
-            let fixture = Fixture::new(engine, program);
+            let mut fixture = Fixture::new(engine, program);
             let setup = allocations::current().unwrap();
             let mut phases = [(setup, setup); 3];
             for phase in &mut phases {

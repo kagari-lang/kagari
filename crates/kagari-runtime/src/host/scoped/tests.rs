@@ -4,8 +4,9 @@ use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
     error::RuntimeError,
+    execution::roots::ExecutionRoots,
     native::{builder::ModuleBuilder, catalog::DeclarationCatalog},
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
 use kagari_common::identity::map::DefinitionContext;
@@ -73,17 +74,54 @@ fn atomic_generated_path_packs_release_conflicts_errors_and_unwinds() {
             let inventory = whole.field(scope, &inventory_field)?;
             scope.execute(
                 &[whole.value(), stats.value(), inventory.value()],
-                |runtime, values| {
+                |runtime, arguments, destination| {
+                    let values = runtime
+                        .memory
+                        .scope(&runtime.resources, |cx, roots| {
+                            ExecutionRoots::with(roots, cx, |slots| {
+                                Ok([
+                                    arguments.view(slots, 0)?,
+                                    arguments.view(slots, 1)?,
+                                    arguments.view(slots, 2)?,
+                                ])
+                            })
+                        })
+                        .unwrap();
                     let whole = runtime.scoped_view(&values[0])?;
                     let stats = runtime.scoped_view(&values[1])?;
                     let inventory = runtime.scoped_view(&values[2])?;
                     let entered = Cell::new(false);
-                    let narrowed = runtime
-                        .narrow_scoped(&values[1], ReferenceAccess::Shared)?
-                        .unwrap();
-                    let roots = runtime.gc().root_execution_values(vec![narrowed]).unwrap();
+                    let roots = runtime.gc_stats().root_registrations;
+                    let narrowed = {
+                        let Runtime {
+                            resources,
+                            memory,
+                            host_borrows,
+                            ..
+                        } = &mut *runtime;
+                        memory
+                            .scope(resources, |cx, roots| {
+                                ExecutionRoots::with(roots, cx, |slots| {
+                                    let value = values[1].get(slots)?;
+                                    let narrowed = host_borrows
+                                        .narrow_scoped(
+                                            slots.scope(),
+                                            value,
+                                            ReferenceAccess::Shared,
+                                        )?
+                                        .unwrap()
+                                        .unwrap();
+                                    slots.protect_local(
+                                        values[1].location().unwrap().execution,
+                                        narrowed,
+                                    )
+                                })
+                            })
+                            .unwrap()
+                    };
                     runtime.collect_garbage()?;
-                    let shared = runtime.scoped_view(&roots.get(runtime.gc(), 0).unwrap())?;
+                    assert_eq!(runtime.gc_stats().root_registrations, roots);
+                    let shared = runtime.scoped_view(&narrowed)?;
                     assert!(
                         runtime
                             .host_borrows
@@ -194,7 +232,7 @@ fn atomic_generated_path_packs_release_conflicts_errors_and_unwinds() {
                             Ok(())
                         },
                     )?;
-                    Ok(Value::Unit)
+                    destination.publish(runtime, &ValueView::unit())
                 },
             )?;
             Ok(())

@@ -7,3 +7,10 @@ fn main() -> Cycle {
     node.next = Some(node);
     node
 }
+
+pub fn next(node: Cycle) -> Cycle {
+    match node.next {
+        Some(value) => value,
+        None => node
+    }
+}

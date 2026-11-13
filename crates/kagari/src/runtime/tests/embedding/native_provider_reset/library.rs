@@ -1,6 +1,5 @@
 use crate::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
 use {kagari_stdlib as foundation, kagari_stdlib::catalog as foundation_catalog};
 
@@ -32,9 +31,9 @@ fn foundation_algorithms_are_available_from_explicit_composition() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(1)
+            .as_i32()
+            .unwrap(),
+        1
     );
 }
 
@@ -76,9 +75,9 @@ fn explicit_library_composition_keeps_collection_algorithms() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
 }
 

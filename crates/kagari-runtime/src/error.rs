@@ -16,6 +16,7 @@ use crate::{
     },
     error_trace::{ErrorTrace, asynchronous::AsyncBoundary},
     host::HostError,
+    range::RangeError,
     task::TaskFailureOrigin,
 };
 use kagari_types::scalar::error::ScalarError;
@@ -284,6 +285,15 @@ impl fmt::Display for RuntimeError {
 impl Error for RuntimeError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         Some(&self.reason)
+    }
+}
+
+impl From<RangeError> for RuntimeError {
+    fn from(reason: RangeError) -> Self {
+        match reason {
+            RangeError::InvalidShape => Self::from(TrapReason::InvalidRangeValue),
+            RangeError::Endpoint(error) => Self::from(error),
+        }
     }
 }
 

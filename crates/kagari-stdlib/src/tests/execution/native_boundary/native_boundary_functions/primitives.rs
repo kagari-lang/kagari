@@ -5,7 +5,7 @@ use crate::{
 };
 use kagari_runtime::{
     Runtime, RuntimeConfig,
-    gc::GcHeapConfig,
+    execution::memory::GcHeapConfig,
     module::{VerifiedProgram, entry::ProgramEntry},
     native::{
         binding::{Codec, NativeBinding},
@@ -15,7 +15,7 @@ use kagari_runtime::{
         primitive::NativePrimitive,
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 
 use kagari_common::identity::map::DefinitionContext;
@@ -51,7 +51,7 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
         Codec::Exact(Type::u64()),
         move |_| {
             observed.fetch_add(1, Ordering::Relaxed);
-            Ok(Value::U64(41))
+            Ok(ValueView::from(41u64))
         },
     );
     let mut modules = Vec::new();
@@ -72,14 +72,8 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
         builder.bind(function, binding).unwrap();
         modules.push((builder.finish().unwrap(), id));
     }
-    let source = r#"
-        use example::primitives::count;
-        pub fn main() -> u64 {
-            val callable = |text: String| count(text);
-            count("discarded");
-            count("aé文") + callable("é")
-        }
-    "#;
+    let source =
+        include_str!("../../../../../tests/fixtures/native/function-string-primitives.kgr");
     let context = DefinitionContext::new().unwrap();
     let verified = VerifiedProgram::new(
         round_trip_program(compile_program(source, Some(&modules[0].0))),
@@ -108,8 +102,8 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
             .execute_module(&owner, ProgramEntry::Main, vm.execution_options())
             .unwrap();
         assert_eq!(
-            report.return_value.value(vm.gc()),
-            Some(Value::U64(if index == 0 { 8 } else { 82 }))
+            report.return_value.as_u64(),
+            Some(if index == 0 { 8 } else { 82 })
         );
         let bound = vm
             .bind_function_declaration::<(String,), usize>(&_owner_program.root(), function)

@@ -4,11 +4,11 @@ use super::*;
 use crate::program::native::NativeCompiler;
 use crate::{context::JitPolicy, program::Compilation};
 use kagari_bytecode::artifact::KbcArtifact;
-use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{
-    host::{HostCallContext, HostError, HostPathAdapter, PreparedHostPathWrite},
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
+    host::{HostError, HostPathAdapter, PreparedHostPathWrite},
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, host, types::Type},
 };
+use kagari_runtime::{module::entry::ProgramEntry, value::carriers::RootedValue};
 use kagari_stdlib as stdlib;
 
 use kagari_types::ty::Ty;
@@ -49,7 +49,7 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
             HostPathAdapter::new().with_read(move |context, _| {
                 calls.lock().unwrap().push("read");
                 context.runtime_mut().collect_garbage().unwrap();
-                Ok(Value::I32(42))
+                Ok(ValueView::from(42))
             }),
         )
         .unwrap();
@@ -128,6 +128,8 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
         let loaded = runtime
             .load_program(loaded_program.program(), Default::default())
             .unwrap();
+        runtime.collect_garbage().unwrap();
+        let roots = runtime.gc_stats().root_registrations;
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = NativeCompiler::default()
@@ -144,16 +146,12 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
             runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
-        assert_eq!(
-            report
-                .return_value
-                .value(runtime.gc())
-                .expect("retained execution result"),
-            Value::I32(42)
-        );
+        assert_eq!(report.return_value.as_i32().unwrap(), 42);
         assert_eq!(*trace.lock().unwrap(), ["root", "read"]);
         drop(report);
-        assert_eq!(runtime.gc().active_roots(), 0);
+        assert!(runtime.execution_root().is_none());
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc_stats().root_registrations, roots);
     }
 }
 
@@ -260,14 +258,18 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
         .unwrap();
     let calls = trace.clone();
     builder
-        .bind(make, move |cx: &mut HostCallContext<'_>, _: &[Value]| {
-            calls.lock().unwrap().push("make");
-            let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
-            cx.runtime()
-                .gc()
-                .alloc_host_root(root)
+        .bind(
+            make,
+            host::callback(move |cx, _| {
+                calls.lock().unwrap().push("make");
+                let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
+                {
+                    let root = cx.runtime_mut().host_root_value(root).unwrap();
+                    cx.import(&root)
+                }
                 .map_err(|error| HostError::new(error.to_string()))
-        })
+            }),
+        )
         .unwrap();
     for (name, result) in [("first", 1), ("second", 2), ("rhs", 3)] {
         let function = builder
@@ -280,10 +282,13 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
             .unwrap();
         let calls = trace.clone();
         builder
-            .bind(function, move |_: &mut HostCallContext<'_>, _: &[Value]| {
-                calls.lock().unwrap().push(name);
-                Ok(Value::I32(result))
-            })
+            .bind(
+                function,
+                host::callback(move |_, _| {
+                    calls.lock().unwrap().push(name);
+                    Ok(ValueView::from(result))
+                }),
+            )
             .unwrap();
     }
     let (reads, value) = (trace.clone(), state.clone());
@@ -298,20 +303,21 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
                         .dynamic_args
                         .as_slice()
                         .iter()
-                        .map(|arg| arg.value)
+                        .map(|arg| arg.value.as_i32())
                         .collect::<Vec<_>>();
-                    if values != [Value::I32(2), Value::I32(1)] {
+                    if values != [Some(2), Some(1)] {
                         return Err(HostError::new("unexpected indexes"));
                     }
                     reads.lock().unwrap().push("read");
-                    Ok(Value::I32(value.load(Ordering::SeqCst)))
+                    Ok(ValueView::from(value.load(Ordering::SeqCst)))
                 })
                 .with_prepare_write(move |cx, _, record| {
                     cx.runtime_mut().collect_garbage().unwrap();
                     writes.lock().unwrap().push("prepare");
-                    let Value::I32(next) = record.new_value else {
-                        return Err(HostError::new("expected i32"));
-                    };
+                    let next = record
+                        .new_value
+                        .as_i32()
+                        .ok_or_else(|| HostError::new("expected i32"))?;
                     let (writes, target) = (writes.clone(), target.clone());
                     Ok(PreparedHostPathWrite::new(move || {
                         writes.lock().unwrap().push("commit");
@@ -383,10 +389,7 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
             runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
-        assert_eq!(
-            report.return_value.value(runtime.gc()).unwrap(),
-            Value::I32(13)
-        );
+        assert_eq!(report.return_value.as_i32().unwrap(), 13);
         assert_eq!(state.load(Ordering::SeqCst), 13);
         assert_eq!(
             *trace.lock().unwrap(),
@@ -396,8 +399,11 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
         );
         let dirty = runtime.host_dirty_paths();
         assert_eq!(dirty.len(), 1);
-        assert_eq!(dirty[0].old_value, Some(Value::I32(10)));
-        assert_eq!(dirty[0].new_value, Value::I32(13));
+        assert_eq!(
+            dirty[0].old_value.as_ref().and_then(RootedValue::as_i32),
+            Some(10)
+        );
+        assert_eq!(dirty[0].new_value.as_i32(), Some(13));
     }
 }
 
@@ -443,16 +449,21 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
             let (calls, times) = (trace.clone(), root_calls.clone());
             schema
                 .builder
-                .bind(make, move |cx: &mut HostCallContext<'_>, _: &[Value]| {
-                    calls.lock().unwrap().push("root");
-                    let object = if times.fetch_add(1, Ordering::SeqCst) == 0 {
-                        7
-                    } else {
-                        8
-                    };
-                    let root = cx.runtime().host().root(HostObjectId(object)).unwrap();
-                    Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
-                })
+                .bind(
+                    make,
+                    host::callback(move |cx, _| {
+                        calls.lock().unwrap().push("root");
+                        let object = if times.fetch_add(1, Ordering::SeqCst) == 0 {
+                            7
+                        } else {
+                            8
+                        };
+                        let root = cx.runtime().host().root(HostObjectId(object)).unwrap();
+                        let root = cx.runtime_mut().host_root_value(root).unwrap();
+                        cx.import(&root)
+                            .map_err(|error| HostError::new(error.to_string()))
+                    }),
+                )
                 .unwrap();
             let rhs = schema
                 .builder
@@ -469,12 +480,15 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
             let (calls, value, absent) = (trace.clone(), state.clone(), removed.clone());
             schema
                 .builder
-                .bind(rhs, move |_: &mut HostCallContext<'_>, _: &[Value]| {
-                    calls.lock().unwrap().push("rhs");
-                    value.store(after_rhs, Ordering::SeqCst);
-                    absent.store(deleted, Ordering::SeqCst);
-                    Ok(Value::I32(rhs_value))
-                })
+                .bind(
+                    rhs,
+                    host::callback(move |_, _| {
+                        calls.lock().unwrap().push("rhs");
+                        value.store(after_rhs, Ordering::SeqCst);
+                        absent.store(deleted, Ordering::SeqCst);
+                        Ok(ValueView::from(rhs_value))
+                    }),
+                )
                 .unwrap();
             let (reads, value, absent) = (trace.clone(), state.clone(), removed.clone());
             let (writes, target) = (trace.clone(), state.clone());
@@ -492,14 +506,15 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                             if absent.load(Ordering::SeqCst) {
                                 return Err(HostError::new("target removed by RHS"));
                             }
-                            Ok(Value::I32(value.load(Ordering::SeqCst)))
+                            Ok(ValueView::from(value.load(Ordering::SeqCst)))
                         })
                         .with_prepare_write(move |context, _, record| {
                             writes.lock().unwrap().push("prepare");
                             context.runtime_mut().collect_garbage().unwrap();
-                            let Value::I32(next) = record.new_value else {
-                                return Err(HostError::new("expected i32"));
-                            };
+                            let next = record
+                                .new_value
+                                .as_i32()
+                                .ok_or_else(|| HostError::new("expected i32"))?;
                             let (writes, target) = (writes.clone(), target.clone());
                             Ok(PreparedHostPathWrite::new(move || {
                                 writes.lock().unwrap().push("commit");
@@ -550,6 +565,8 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                 let loaded = runtime
                     .load_program(loaded_program.program(), Default::default())
                     .unwrap();
+                runtime.collect_garbage().unwrap();
+                let roots = runtime.gc_stats().root_registrations;
                 let result = if jit {
                     let mut backend = CraneliftBackend::for_host().unwrap();
                     let prepared = {
@@ -580,8 +597,11 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                     );
                     let records = runtime.host_dirty_paths();
                     assert_eq!(records.len(), 1);
-                    assert_eq!(records[0].old_value, Some(Value::I32(after_rhs)));
-                    assert_eq!(records[0].new_value, Value::I32(expected));
+                    assert_eq!(
+                        records[0].old_value.as_ref().and_then(RootedValue::as_i32),
+                        Some(after_rhs)
+                    );
+                    assert_eq!(records[0].new_value.as_i32(), Some(expected));
                 } else {
                     assert!(result.is_err());
                     assert_eq!(state.load(Ordering::SeqCst), after_rhs);
@@ -595,7 +615,9 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                     );
                     assert!(runtime.host_dirty_paths().is_empty());
                 }
-                assert_eq!(runtime.gc().active_roots(), 0);
+                assert!(runtime.execution_root().is_none());
+                runtime.collect_garbage().unwrap();
+                assert_eq!(runtime.gc_stats().root_registrations, roots);
             }
         }
     }

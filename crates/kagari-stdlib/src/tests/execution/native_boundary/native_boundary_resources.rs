@@ -3,18 +3,17 @@ use super::compile_program;
 use crate::tests::support::bytecode::load_bytecode;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
-    error::RuntimeError,
-    gc::roots::RootedValue,
     module::{ExecutableModule, entry::ProgramEntry},
     native::{
         binding::NativeResult, builder::ModuleBuilder, context::NativeCall,
-        declarations::FunctionDecl, views::ValueHandle,
+        conversion::context::ConversionContext, declarations::FunctionDecl, views::ValueHandle,
     },
     resource::RuntimeLimits,
-    value::Value,
+    value::carriers::RootedValue,
 };
 
 use crate::declarations::StandardDeclarations;
+use kagari_gc::heap::HeapStats;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::sync::{Arc, Mutex};
 
@@ -22,6 +21,7 @@ struct MutationFixture {
     vm: Runtime,
     loaded: ExecutableModule,
     retained: Arc<Mutex<Option<RootedValue>>>,
+    baseline: HeapStats,
 }
 
 impl MutationFixture {
@@ -47,11 +47,7 @@ impl MutationFixture {
             .bind(
                 function,
                 move |cx: &mut NativeCall<'_>, value: ValueHandle<'_>| -> NativeResult<()> {
-                    *keep.lock().unwrap() = Some(
-                        cx.heap()
-                            .root_value(value.value(cx)?)
-                            .ok_or_else(|| RuntimeError::module_validation("fixture root"))?,
-                    );
+                    *keep.lock().unwrap() = Some(value.root(cx)?);
                     Ok(())
                 },
             )
@@ -74,22 +70,18 @@ impl MutationFixture {
         let loaded = load_bytecode(&mut runtime, "removal", program).unwrap();
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
-        let vm = runtime;
+        runtime.collect_garbage().unwrap();
+        let baseline = runtime.gc_stats();
         Self {
-            vm,
+            vm: runtime,
             loaded,
             retained,
+            baseline,
         }
     }
 
-    fn value(&self) -> Value {
-        self.retained
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .value(self.vm.gc())
-            .unwrap()
+    fn value(&self) -> RootedValue {
+        self.retained.lock().unwrap().as_ref().unwrap().clone()
     }
 
     fn is_empty(&mut self) -> bool {
@@ -100,23 +92,20 @@ impl MutationFixture {
             "retained_is_empty",
             &[value],
         );
-        let Some(Value::Bool(empty)) = result.value(self.vm.gc()) else {
-            panic!("checked bool result")
-        };
-        empty
+        result.as_bool().expect("checked bool result")
     }
 }
 
 #[test]
 fn successful_removal_accounts_prepared_result_and_preserves_live_occupancy() {
     let mut fixture = MutationFixture::new(
-        "use test::roots::retain; fn main() -> Option<i32> { val array: Vec<i32> = Vec::new(); array.push(42); retain(array); array.pop() }",
+        include_str!("../../../../tests/fixtures/native/prepared-removal.kgr"),
         RuntimeLimits {
             ..Default::default()
         },
         "Vec<i32>",
     );
-    let Value::Enum(result) = fixture
+    let result = fixture
         .vm
         .execute_module(
             &fixture.loaded,
@@ -124,16 +113,12 @@ fn successful_removal_accounts_prepared_result_and_preserves_live_occupancy() {
             fixture.vm.execution_options(),
         )
         .unwrap()
-        .return_value
-        .value(fixture.vm.gc())
-        .expect("retained execution result")
-    else {
-        panic!("Option")
-    };
-    assert_eq!(
-        fixture.vm.gc().enum_snapshot(result).unwrap().fields,
-        vec![Value::I32(42)]
-    );
+        .return_value;
+    {
+        let mut conversion = ConversionContext::new(&mut fixture.vm, &fixture.loaded).unwrap();
+        assert_eq!(conversion.decode::<Option<i32>>(&result).unwrap(), Some(42));
+    }
+    drop(result);
     assert!(fixture.is_empty());
     let runtime = &mut fixture.vm;
     let counters = runtime.resources().counters();
@@ -144,8 +129,8 @@ fn successful_removal_accounts_prepared_result_and_preserves_live_occupancy() {
     runtime.collect_garbage().unwrap();
     assert_eq!(runtime.resources().counters().current_heap_units, 0);
 
-    runtime
-        .alloc_array(&fixture.loaded, Ty::Builtin(BuiltinType::I32), vec![])
+    let _ = runtime
+        .alloc_array(&fixture.loaded, Ty::Builtin(BuiltinType::I32), &[])
         .unwrap();
     assert_eq!(runtime.resources().counters().current_heap_units, 1);
 }
@@ -153,13 +138,7 @@ fn successful_removal_accounts_prepared_result_and_preserves_live_occupancy() {
 #[test]
 fn duplicate_native_insertions_preserve_final_container_contents() {
     let mut fixture = MutationFixture::new(
-        r#"use std::collections::{HashMap, HashSet};
-
-        fn main() -> bool {
-            val map: HashMap<i32,i32> = HashMap::new(); map.insert(1, 2); map.insert(1, 3);
-            val set: HashSet<i32> = HashSet::new(); set.insert(1); set.insert(1); map.get(1) == Some(3) && set.contains(1) && set.len() == 1u64
-        }
-    "#,
+        include_str!("../../../../tests/fixtures/native/duplicate-containers.kgr"),
         RuntimeLimits {
             ..Default::default()
         },
@@ -175,8 +154,8 @@ fn duplicate_native_insertions_preserve_final_container_contents() {
             )
             .unwrap()
             .return_value
-            .value(fixture.vm.gc()),
-        Some(Value::Bool(true))
+            .as_bool(),
+        Some(true)
     );
 }
 
@@ -184,20 +163,7 @@ fn duplicate_native_insertions_preserve_final_container_contents() {
 fn custom_map_removal_prepares_the_result_without_repeating_hash_callbacks() {
     {
         let mut fixture = MutationFixture::new(
-            r#"use std::collections::{HashMap};
-use std::hash::{Hash};
-
-            use test::roots::retain;
-            struct Key { val calls: Vec<i32>, val number: i32 }
-            impl PartialEq for Key { fn eq(self, other: Key) -> bool { self.number == other.number } }
-            impl Eq for Key {}
-            impl Hash for Key { fn hash(self) -> i64 { self.calls[0] = self.calls[0] + 1; 7 } }
-            fn main() -> i32 {
-                val key = Key { calls: Vec::from([0]), number: 1 };
-                val map: HashMap<Key, i32> = HashMap::new();
-                map.insert(key, 42); retain(map); map.remove(key); key.calls[0]
-            }
-        "#,
+            include_str!("../../../../tests/fixtures/native/hash-removal.kgr"),
             RuntimeLimits::default(),
             "HashMap<Key, i32>",
         );
@@ -211,16 +177,16 @@ use std::hash::{Hash};
                 )
                 .unwrap()
                 .return_value
-                .value(fixture.vm.gc())
-                .expect("retained execution result"),
-            Value::I32(2)
+                .as_i32(),
+            Some(2)
         );
         assert!(fixture.is_empty());
         fixture.retained.lock().unwrap().take();
         fixture.vm.collect_garbage().unwrap();
-        let heap = fixture.vm.gc();
-        assert_eq!(heap.allocated_objects(), 0);
-        assert_eq!(heap.stats().current_heap_units, 0);
-        assert_eq!(heap.active_roots(), 0);
+        let heap = fixture.vm.gc_stats();
+        assert_eq!(heap.objects, fixture.baseline.objects);
+        assert_eq!(heap.provider_units, fixture.baseline.provider_units);
+        assert_eq!(heap.root_registrations, fixture.baseline.root_registrations);
+        assert_eq!(fixture.vm.resources().counters().current_heap_units, 0);
     }
 }

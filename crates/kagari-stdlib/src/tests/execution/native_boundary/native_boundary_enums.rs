@@ -13,7 +13,7 @@ use crate::{
 use crate::tests::support::bytecode::load_bytecode;
 
 use kagari_runtime::{
-    error::RuntimeError,
+    error::{RuntimeError, RuntimeErrorKind},
     frame::types::arguments::TypeArgument,
     native::{
         assembly::{ModuleDefinition, ModuleSetBuilder},
@@ -25,7 +25,7 @@ use kagari_runtime::{
         types::Type,
         value_handle::ScriptValue,
     },
-    value::Value,
+    value::view::ValueView,
 };
 
 use kagari_common::identity::{ModuleIdentity, PackageId};
@@ -61,6 +61,8 @@ fn enum_factories_preserve_nominal_identity_payloads_and_empty_unit_distinction(
     let (mut vm, owner) = fixture_without_foundation(SOURCE, Some(&strings));
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let runtime = &mut vm;
     let item_type = runtime
         .bind_type(&_owner_program.root(), "Item", &[])
@@ -128,7 +130,7 @@ fn enum_factories_preserve_nominal_identity_payloads_and_empty_unit_distinction(
         .type_for::<i32>()
         .unwrap();
     assert!(
-        cx.runtime()
+        cx.runtime_mut()
             .bind_enum_type(&_owner_program.root(), "Packet", &[other])
             .is_err()
     );
@@ -141,8 +143,14 @@ fn enum_factories_preserve_nominal_identity_payloads_and_empty_unit_distinction(
             .is_err()
     );
     drop(value);
-    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(cx.runtime().gc().active_roots(), 0);
+    drop(cx);
+    drop((field, read, data, empty, unit, packet, item_type));
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -150,6 +158,8 @@ fn enum_variant_handles_keep_old_layouts_alive_and_release_them_after_reload() {
     let (mut vm, old) = fixture(SOURCE, None);
     let _old_program = old;
     let old = vm.select_program(&_old_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let item_type = vm.bind_type(&_old_program.root(), "Item", &[]).unwrap();
     let packet = vm
         .bind_enum_type(
@@ -175,13 +185,8 @@ fn enum_variant_handles_keep_old_layouts_alive_and_release_them_after_reload() {
     let new = vm.select_program(&_new_program).unwrap();
     let mut cx = vm.context(&new).unwrap();
     let value = data.create(&mut cx, (item, String::new())).unwrap();
-    assert!(
-        !cx.runtime_mut()
-            .collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&old.key())
-    );
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert!(cx.runtime().validate_executable_module(&old).is_ok());
     assert_eq!(
         cx.runtime_mut()
             .execute_typed::<_, i32>(&_new_program, "read", (value.clone(),), &Default::default())
@@ -189,12 +194,19 @@ fn enum_variant_handles_keep_old_layouts_alive_and_release_them_after_reload() {
         42
     );
     drop((value, data, packet, item_type));
-    let collected = cx.runtime_mut().collect_garbage().unwrap();
-    assert!(collected.reclaimed_modules.contains(&old.key()));
-    assert_eq!(collected.live_objects, 0);
+    drop(cx);
+    vm.collect_garbage().unwrap();
+    assert!(vm.validate_executable_module(&old).is_err());
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
-struct FailAfterGc;
+struct FailAfterGc {
+    live_objects: usize,
+}
 
 impl KagariType for FailAfterGc {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
@@ -203,8 +215,15 @@ impl KagariType for FailAfterGc {
 }
 
 impl IntoKagari for FailAfterGc {
-    fn into_kagari(self, cx: &mut ConversionContext<'_>, _: &TypeArgument) -> NativeResult<Value> {
-        assert_eq!(cx.runtime_mut().collect_garbage()?.live_objects, 1);
+    fn into_kagari<'call>(
+        self,
+        cx: &mut ConversionContext<'call>,
+        _: &TypeArgument,
+    ) -> NativeResult<ValueView<'call>> {
+        cx.runtime_mut().collect_garbage()?;
+        // The first Object argument has already moved into the conversion pack;
+        // this witness owns no root that could keep that earlier field alive.
+        assert_eq!(cx.runtime().gc_stats().objects, self.live_objects);
         Err(RuntimeError::module_validation(
             "payload conversion failure",
         ))
@@ -227,17 +246,28 @@ fn failed_enum_payload_conversion_roots_earlier_fields_and_publishes_nothing() {
     let data = vm
         .bind_enum_variant::<(Object, FailAfterGc)>(&packet, "Data")
         .unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let item: Object = vm
         .execute_typed(&_owner_program, "item", (42,), &Default::default())
         .unwrap();
-    let roots = vm.gc().active_roots();
-    assert!(roots > 0);
-    assert!(
-        data.create(&mut vm.context(&owner).unwrap(), (item, FailAfterGc))
-            .is_err()
+    vm.collect_garbage().unwrap();
+    let live_objects = vm.gc_stats().objects;
+    assert_eq!(live_objects, baseline.objects + 1);
+    let error = data
+        .create(
+            &mut vm.context(&owner).unwrap(),
+            (item, FailAfterGc { live_objects }),
+        )
+        .unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+    assert!(error.to_string().contains("payload conversion failure"));
+    vm.collect_garbage().unwrap();
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
     );
-    assert_eq!(vm.gc().active_roots(), 0);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
 }
 
 #[test]
@@ -245,6 +275,8 @@ fn registered_enum_templates_construct_without_script_constructor_roots() {
     let (mut vm, owner) = fixture("pub struct Item { pub var value: i32 }", None);
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let runtime = &mut vm;
     let item_type = runtime
         .bind_type(&_owner_program.root(), "Item", &[])
@@ -277,18 +309,19 @@ fn registered_enum_templates_construct_without_script_constructor_roots() {
     assert!(empty.decode::<Option<Object>>(&mut cx).unwrap().is_none());
     assert!(empty.decode::<Result<Object, String>>(&mut cx).is_err());
     drop((empty, decoded));
-    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
+    drop(cx);
+    drop((field, some, none, optional, item_type));
+    vm.collect_garbage().unwrap();
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
 }
 
 #[test]
 fn enum_bindings_reject_unwitnessed_bounds_and_incompatible_payload_scopes() {
-    let source = r#"
-        pub enum Restricted<T: Eq> { Empty, Data(T) }
-        pub fn evidence(value: Restricted<i32>) {}
-        trait Factory { fn wrap<T: Eq>(self, value: T) -> Restricted<T>; }
-        impl Factory for i32 { fn wrap<T: Eq>(self, value: T) -> Restricted<T> { Restricted::Data(value) } }
-        pub fn shared() -> Restricted<i32> { val factory: Factory = 0; factory.wrap(1) }
-    "#;
+    let source = include_str!("../../../../tests/fixtures/native/enum-restricted-applications.kgr");
     let (mut vm, owner) = fixture(source, None);
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
@@ -342,6 +375,8 @@ fn enum_bindings_reject_unwitnessed_bounds_and_incompatible_payload_scopes() {
         )
         .is_err()
     );
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let item: Object = vm
         .execute_typed(&_new_program, "item", (42i64,), &Default::default())
         .unwrap();
@@ -350,8 +385,12 @@ fn enum_bindings_reject_unwitnessed_bounds_and_incompatible_payload_scopes() {
             .create(&mut vm.context(&new).unwrap(), (item, String::new()))
             .is_err()
     );
-    assert_eq!(vm.gc().active_roots(), 0);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
 }
 
 #[test]
@@ -370,10 +409,7 @@ fn registered_variant_identities_bind_directly_and_move_with_the_runtime() {
     other.finish().unwrap();
     let module = module.finish().unwrap();
     let (mut vm, owner) = fixture(
-        r#"
-        use example::events::Event;
-        pub fn read(event: Event<i32>) -> i32 { match event { Event::Data(value) => value } }
-    "#,
+        include_str!("../../../../tests/fixtures/native/enum-registered-events.kgr"),
         Some(&module),
     );
     let _owner_program = owner;

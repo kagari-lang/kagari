@@ -5,18 +5,16 @@ use crate::test_support::bytecode::load_bytecode;
 use crate::{
     executor::Executor,
     interpreter_tests::common::{compile_test_bytecode, test_runtime},
+    native::conversion::context::ConversionContext,
 };
 
-use crate::{error::RuntimeErrorKind, value::Value};
+use crate::error::RuntimeErrorKind;
 
 #[test]
 fn scalar_field_overflow_preserves_prior_effects_and_does_not_commit() {
-    let program = compile_test_bytecode(
-        "struct State { var before: i32, var value: i8, var after: i32 }
-         pub fn main() -> State { State { before: 0, value: 127i8, after: 0 } }
-         fn update(s: State) { s.before += 1; s.value += 1i8; s.after += 1; }
-         fn check(s: State) -> bool { s.before == 1 && s.value == 127i8 && s.after == 0 }",
-    );
+    let program = compile_test_bytecode(include_str!(
+        "../../tests/fixtures/execution/scalar-field-overflow.kgr"
+    ));
     let decoded = round_trip_bytecode(program.clone());
     for program in [program, decoded] {
         let mut runtime = test_runtime(Default::default());
@@ -36,19 +34,27 @@ fn scalar_field_overflow_preserves_prior_effects_and_does_not_commit() {
         let kept = vm
             .execute_module(&loaded, "main", vm.execution_options())
             .unwrap();
-        let value = kept.return_value.value(vm.gc()).unwrap();
-        let result = Executor::new(&mut vm, &loaded, function("update"), &[value])
+        let baseline_roots = vm.gc_stats().root_registrations;
+        let mut cx = ConversionContext::new(&mut vm, &loaded).unwrap();
+        let value = cx.import(&kept.return_value).unwrap();
+        let arguments = cx.argument_values(&[value]).unwrap();
+        let result = Executor::new(cx.runtime_mut(), &loaded, function("update"), arguments)
             .unwrap()
-            .run();
+            .run(|runtime, stack, result| stack.retain_result(runtime, result));
         assert!(matches!(result, Err(error) if error.kind() == RuntimeErrorKind::ScriptTrap));
+        drop(cx);
+        assert_eq!(vm.gc_stats().root_registrations, baseline_roots);
         vm.collect_garbage().unwrap();
-        assert_eq!(
-            Executor::new(&mut vm, &loaded, function("check"), &[value])
-                .unwrap()
-                .run()
-                .unwrap(),
-            Value::Bool(true)
-        );
+        let mut cx = ConversionContext::new(&mut vm, &loaded).unwrap();
+        let value = cx.import(&kept.return_value).unwrap();
+        let arguments = cx.argument_values(&[value]).unwrap();
+        let checked = Executor::new(cx.runtime_mut(), &loaded, function("check"), arguments)
+            .unwrap()
+            .run(|runtime, stack, result| stack.retain_result(runtime, result))
+            .unwrap();
+        assert!(cx.decode::<bool>(&checked).unwrap());
+        drop(cx);
+        assert_eq!(vm.gc_stats().root_registrations, baseline_roots);
         assert_eq!(vm.resources().counters().current_call_depth, 0);
     }
 }

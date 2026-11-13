@@ -1,0 +1,5 @@
+use game::serde::Request;
+
+pub fn inspect(input: Request) -> i32 {
+    input.power
+}

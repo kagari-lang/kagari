@@ -2,18 +2,50 @@ use super::fixture;
 use crate::{
     declarations::StandardDeclarations, tests::execution::native_boundary::publish_unused_version,
 };
-use kagari_runtime::native::{
-    binding::NativeResult,
-    builder::ModuleBuilder,
-    declarations::{CallableRequirement, FunctionDecl, MethodDecl},
-    function_handle::Function,
-    interfaces::Interface,
-    objects::Object,
-    typed::NativeContext,
-    value_handle::ScriptValue,
+use kagari_runtime::{
+    error::RuntimeErrorKind,
+    frame::types::arguments::TypeArgument,
+    native::{
+        binding::NativeResult,
+        builder::ModuleBuilder,
+        catalog::DeclarationCatalog,
+        conversion::{FromKagari, KagariType, context::ConversionContext},
+        declarations::{CallableRequirement, FunctionDecl, MethodDecl},
+        function_handle::Function,
+        interfaces::Interface,
+        objects::Object,
+        typed::NativeContext,
+        types::Type,
+        value_handle::ScriptValue,
+    },
+    value::view::ValueView,
+};
+use std::{
+    slice,
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
-use std::slice;
+static STRING_DECODES: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Debug)]
+struct ObservedString(String);
+
+impl KagariType for ObservedString {
+    fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
+        String::kagari_type(catalog)
+    }
+}
+
+impl FromKagari for ObservedString {
+    fn from_kagari(
+        cx: &mut ConversionContext<'_>,
+        expected: &TypeArgument,
+        value: &ValueView<'_>,
+    ) -> NativeResult<Self> {
+        STRING_DECODES.fetch_add(1, Ordering::Relaxed);
+        String::from_kagari(cx, expected, value).map(Self)
+    }
+}
 
 #[test]
 fn generic_value_handles_forward_selected_results_without_erasing_type_access_or_roots() {
@@ -72,6 +104,8 @@ fn generic_value_handles_forward_selected_results_without_erasing_type_access_or
     );
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     {
         let number = vm
             .bind_function::<(), ScriptValue>(&_owner_program.root(), "number")
@@ -105,8 +139,15 @@ fn generic_value_handles_forward_selected_results_without_erasing_type_access_or
         vm.collect_garbage().unwrap();
         let mut cx = vm.context(&owner).unwrap();
         assert_eq!(number.decode::<i32>(&mut cx).unwrap(), 42);
-        assert!(number.decode::<String>(&mut cx).is_err());
-        assert_eq!(text.decode::<String>(&mut cx).unwrap(), "retained");
+        STRING_DECODES.store(0, Ordering::Relaxed);
+        let error = number.decode::<ObservedString>(&mut cx).unwrap_err();
+        assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+        assert_eq!(STRING_DECODES.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            text.decode::<ObservedString>(&mut cx).unwrap().0,
+            "retained"
+        );
+        assert_eq!(STRING_DECODES.load(Ordering::Relaxed), 1);
         assert_eq!(
             cx.runtime_mut()
                 .call(&string_argument, (text.clone(),))
@@ -145,8 +186,12 @@ fn generic_value_handles_forward_selected_results_without_erasing_type_access_or
         drop((callback, result, cx));
     }
     publish_unused_version(&mut vm, &_owner_program);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(vm.gc().active_roots(), 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -191,27 +236,13 @@ fn selected_associated_tuple_results_keep_their_supplying_scope() {
     contract.finish().unwrap();
     let module = module.finish().unwrap();
     let (mut vm, owner) = fixture(
-        r#"
-        use example::associated_values::Producer;
-        pub struct Item { pub var value: i32 }
-        pub struct Holder<T> { val item: T }
-        impl<T> Producer for Holder<T> {
-            type Items = (T,);
-            fn items(self) -> (T,) { (self.item,) }
-        }
-        pub trait Relay { fn relay<P: Producer>(self, source: P) -> P::Items { source.again() } }
-        impl Relay for i32 {}
-        pub fn target() -> Relay { 0 }
-        pub fn holder() -> Holder<Item> { Holder { item: Item { value: 42 } } }
-        pub fn make() -> (Item,) {
-            val r: Relay = 0;
-            r.relay(Holder { item: Item { value: 42 } })
-        }
-    "#,
+        include_str!("../../../../../tests/fixtures/native/function-associated-tuple-scope.kgr"),
         Some(&module),
     );
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let make = vm
         .bind_function::<(), (Object,)>(&_owner_program.root(), "make")
         .unwrap();
@@ -232,7 +263,7 @@ fn selected_associated_tuple_results_keep_their_supplying_scope() {
         .runtime_mut()
         .execute_typed(&_owner_program, "holder", (), &Default::default())
         .unwrap();
-    let member = target.member(cx.runtime(), "relay").unwrap();
+    let member = target.member(cx.runtime_mut(), "relay").unwrap();
     let relay = cx
         .runtime_mut()
         .bind_interface_method_application::<(Object,), (Object,)>(
@@ -245,7 +276,12 @@ fn selected_associated_tuple_results_keep_their_supplying_scope() {
     let returned_item = returned.0.clone();
     assert_eq!(returned_item.get(&mut cx, &field).unwrap(), 43);
     drop((target, relay, returned, returned_item));
-    drop((item, values, cx));
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(vm.gc().active_roots(), 0);
+    drop((item, values, cx, make, field, member));
+    publish_unused_version(&mut vm, &_owner_program);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }

@@ -4,30 +4,39 @@ use crate::{
     RootedInterfaceMethod, Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     execution_metadata::{
-        MetadataRoot, application_key::ApplicationArguments, call_contracts::InterfaceCallSite,
+        application_key::{ApplicationArguments, ApplicationKey},
+        applications::{ApplicationId, ApplicationRecord},
+        call_contracts::InterfaceCallSite,
+        managed::sources::MetadataSource,
     },
+    executor::Executor,
     frame::{
         driver::ReturnAction,
         transfer::ReturnValue,
         types::{
-            EnvironmentRecord,
+            EnvironmentRecord, TypeEnvironment,
             compatibility::TypeView,
             construction::ConstructionScope,
             operations::{OperationBindings, OperationSegment},
         },
     },
-    module::{ExecutableModule, InstalledProgram, linked_execution::calls::LinkedCall},
+    module::{
+        ExecutableModule, InstalledProgram, linked_execution::calls::LinkedCall,
+        managed::source::RevisionSource,
+    },
     native::{
         binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
+        conversion::{arguments::ArgumentValues, context::ConversionContext},
         declarations::MethodDecl,
         module::NativeModule,
         types::Type,
     },
-    objects::invocation::MethodInvocation,
-    value::Value,
+    objects::{application::MethodApplicationInput, invocation::MethodInvocation},
+    value::{carriers::RootedValue, view::ValueView},
 };
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::module::CallableTarget;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::{
@@ -36,7 +45,6 @@ use kagari_contract::{
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{
-    declaration::requirement::NativeCallableRequirement,
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
 };
@@ -76,10 +84,24 @@ fn load_source(
     (runtime, loaded_program, loaded)
 }
 
+fn application_id(method: &RootedInterfaceMethod) -> ApplicationId {
+    method.invocation.application.as_ref().unwrap().id()
+}
+
+fn semantic_environment(runtime: &mut Runtime, method: &RootedInterfaceMethod) -> TypeEnvironment {
+    let record = runtime
+        .application_record_in(&method.sources().unwrap(), application_id(method))
+        .unwrap();
+    let ApplicationRecord::Semantic(application) = record.as_ref() else {
+        panic!("semantic method application");
+    };
+    application.environment.as_ref().unwrap().clone()
+}
+
 #[rstest]
 #[case::collect(false)]
 #[case::teardown(true)]
-fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cycle(
+fn protected_native_applications_reuse_environment_and_release_their_old_graphs(
     #[case] teardown: bool,
 ) {
     let mut module =
@@ -101,23 +123,21 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
             NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::i32()), move |cx| {
                 let receiver = cx.argument(0)?;
                 let target = cx.selected(&selected)?;
-                let Value::I32(value) = cx.call_values(target, &[receiver])? else {
+                let Some(value) = cx.call_values(target, &[receiver])?.as_i32() else {
                     return Err(RuntimeError::module_validation("checked Read result"));
                 };
-                Ok(Value::I32(value * 2))
+                Ok(ValueView::from(value * 2))
             }),
         )
         .unwrap();
     declaration.finish().unwrap();
     let module = module.finish().unwrap();
-    let (mut runtime, loaded_program, loaded) = load_source(
-        r#"
-    use example::defaults::Read;
-    impl Read for i32 { fn read(self) -> i32 { self } }
-    fn main() -> Read { 7 }
-    "#,
+    let (mut runtime, program, loaded) = load_source(
+        include_str!("../../../tests/fixtures/metadata/native-application.kgr"),
         Some(&module),
     );
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     let table = loaded
         .bytecode
         .interface_tables
@@ -129,142 +149,106 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
                 .any(|method| loaded.definition_name(method.method) == Some("twice"))
         })
         .unwrap();
-    let Value::Interface(id) = runtime
-        .make_interface(&loaded, table, Value::I32(7))
-        .unwrap()
-    else {
-        panic!("interface fixture");
-    };
-    let snapshot = runtime.gc.interface_snapshot(id).unwrap();
-    let group = runtime
-        .bind_table_operations(&snapshot.description.receiver_table)
+    let value = runtime
+        .make_interface(&loaded, table, &RootedValue::from(7i32))
         .unwrap();
-    let member = snapshot
-        .description
+    let description = runtime.interface_description(&value).unwrap();
+    let slot = description
         .methods
         .iter()
-        .flatten()
-        .find(|method| loaded.definition_name(method.method) == Some("twice"))
-        .unwrap()
-        .method;
-    let requirement = NativeCallableRequirement {
-        receiver: snapshot.description.concrete_type.clone(),
-        interface: snapshot.description.interface_type().clone(),
-        member,
-        arguments: vec![],
-    };
-    let operation_id = runtime
-        .gc
-        .operation_group(group)
-        .unwrap()
-        .operation(
-            &requirement,
-            &TypeView::new(&requirement.receiver, &loaded, None)
-                .identity()
-                .unwrap(),
-        )
+        .position(|method| {
+            method
+                .as_ref()
+                .is_some_and(|method| loaded.definition_name(method.method) == Some("twice"))
+        })
         .unwrap();
-    let operation = runtime.gc.bound_operation(operation_id).unwrap();
-    let prepare = || {
-        let method = MethodInvocation::from_operation(&runtime, operation_id).unwrap();
-        let method = runtime
-            .apply_method_invocation(
-                method,
-                &ApplicationArguments::new(&loaded, vec![], ConstructionScope::new(&loaded))
-                    .unwrap(),
-                Default::default(),
-            )
-            .unwrap();
-        let mut edges = Vec::new();
-        method.append_metadata(&mut edges);
-        (runtime.root_metadata(edges).unwrap(), method)
-    };
-    let (first_root, first) = prepare();
-    let (second_root, second) = prepare();
-    let environment = first
-        .view(&runtime)
-        .unwrap()
-        .environment()
-        .cloned()
+    let first = runtime
+        .resolve_interface_method_slot(&value, description.interface_type(), slot, &[])
         .unwrap();
-    assert_eq!(
-        environment.id,
-        second.view(&runtime).unwrap().environment().unwrap().id
-    );
-    assert_eq!(
-        environment.id,
+    let second = {
+        let sources = first.sources().unwrap();
         runtime
-            .gc
-            .method_application(first.application.unwrap())
+            .prepare_interface_method_slot(
+                &value,
+                description.interface_type(),
+                slot,
+                MethodApplicationInput {
+                    arguments: &[],
+                    operations: Default::default(),
+                    constructions: Default::default(),
+                    sources: &sources,
+                },
+            )
             .unwrap()
-            .environment
-            .as_ref()
-            .unwrap()
-            .id
+    };
+    assert_eq!(application_id(&first), application_id(&second));
+    let environment = semantic_environment(&mut runtime, &first);
+    assert_eq!(
+        environment.id,
+        semantic_environment(&mut runtime, &second).id
     );
-    assert!(
-        environment
-            .operation(&runtime.gc, &requirement, &operation.receiver_identity)
-            .is_some()
+    let snapshot = runtime
+        .environment_snapshot_in(&second.sources().unwrap(), &environment)
+        .unwrap();
+    assert_eq!(snapshot.groups.len(), 1);
+    let (operation_id, operation) = snapshot
+        .groups
+        .values()
+        .flat_map(|group| {
+            group
+                .operation_ids()
+                .map(move |id| (id, group.get(id).unwrap()))
+        })
+        .find(|(_, operation)| loaded.definition_name(operation.requirement.member) == Some("read"))
+        .unwrap();
+    assert_eq!(
+        snapshot.operation(&operation.requirement_key, &operation.receiver_identity),
+        Some(operation_id)
     );
-    let environment_id = environment.id;
+    let record = first.invocation.application.as_ref().unwrap();
+    let expired = Arc::downgrade(record.record());
     let runtime_owner = runtime.resources().lifetime_probe();
-    let application_id = first.application.unwrap();
-    assert_eq!(first.application, Some(application_id));
-    assert_eq!(second.application, Some(application_id));
-    drop((operation, snapshot, first_root));
+    drop((snapshot, description, first, value));
     runtime.collect_garbage().unwrap();
-    assert_eq!(runtime.gc.stats().operation_groups, 1);
-    assert!(runtime.gc.environment(environment_id).is_some());
-    assert!(runtime.gc.method_application(application_id).is_some());
-    assert_eq!(runtime.gc.stats().method_applications, 1);
+    assert_eq!(
+        semantic_environment(&mut runtime, &second).id,
+        environment.id
+    );
+    assert!(expired.upgrade().is_some());
     if teardown {
-        // A prepared identity can survive runtime teardown without owning the
-        // operation or its cached application. This handle has no applied view.
-        let retained = MethodInvocation::from_operation(&runtime, operation_id).unwrap();
-        let mut edges = Vec::new();
-        retained.append_metadata(&mut edges);
-        let retained_root = runtime.root_metadata(edges).unwrap();
-        drop(second_root);
         drop(runtime);
         assert!(runtime_owner.upgrade().is_none());
-        let foreign = Runtime::default();
-        assert!(retained.view(&foreign).is_err());
-        drop(retained_root);
+        let mut foreign = Runtime::default();
+        assert_eq!(
+            second.return_type(&mut foreign).unwrap_err().kind(),
+            RuntimeErrorKind::ModuleValidation
+        );
+        assert!(!foreign.is_quarantined());
+        drop(second);
     } else {
         let candidate = runtime
-            .stage_reload_verified_program(&loaded_program, None, loaded.verified_program().clone())
+            .stage_reload_verified_program(&program, None, loaded.verified_program().clone())
             .unwrap();
         runtime.publish_staged_reload(candidate).unwrap();
-        // The retained method protects the old program/application cycle;
-        // after its last root is dropped, the entire retired cycle is dead.
+        let current = runtime.select_program(&program).unwrap();
         runtime.collect_garbage().unwrap();
-        assert!(runtime.gc.method_application(application_id).is_some());
-        drop(second_root);
+        assert!(runtime.modules().loaded(loaded.key()).is_some());
         assert_eq!(
-            runtime
-                .collect_garbage()
-                .unwrap()
-                .reclaimed_operation_groups,
-            1
+            semantic_environment(&mut runtime, &second).id,
+            environment.id
         );
-        assert!(runtime.gc.environment(environment_id).is_none());
-        assert!(runtime.gc.method_application(application_id).is_none());
-        assert_eq!(runtime.gc.stats().method_applications, 0);
+        drop(second);
+        runtime.collect_garbage().unwrap();
+        assert!(expired.upgrade().is_none());
+        assert!(runtime.modules().loaded(loaded.key()).is_none());
+        assert!(runtime.modules().loaded(current.key()).is_some());
+        assert_eq!(runtime.gc_stats().root_registrations, roots);
     }
 }
 
 fn generic_fixture() -> (Runtime, InstalledProgram, ExecutableModule, usize) {
     let (runtime, loaded_program, loaded) = load_source(
-        r#"
-        struct Marker {}
-        fn marker() -> Marker { Marker {} }
-        trait Forward { fn forward<T>(self, value: T) -> T { value } }
-        impl Forward for i32 {}
-        impl Forward for i64 {}
-        fn main() -> i32 { val receiver: Forward = 1; receiver.forward(7) }
-        fn other() -> Forward { 2i64 }
-        "#,
+        include_str!("../../../tests/fixtures/metadata/application-generics.kgr"),
         None,
     );
     let table = loaded
@@ -277,58 +261,61 @@ fn generic_fixture() -> (Runtime, InstalledProgram, ExecutableModule, usize) {
 }
 
 fn apply_generic(
-    runtime: &Runtime,
+    runtime: &mut Runtime,
     loaded: &ExecutableModule,
-    value: Value,
+    value: &RootedValue,
     ty: Ty,
 ) -> RootedInterfaceMethod {
-    let Value::Interface(id) = value else {
-        panic!("interface fixture")
-    };
-    let interface = runtime
-        .gc
-        .interface_snapshot(id)
-        .unwrap()
-        .description
-        .interface_type()
-        .clone();
+    let description = runtime.interface_description(value).unwrap();
     let arguments = runtime.resolve_type_arguments(loaded, &[ty]).unwrap();
     runtime
-        .resolve_interface_method_slot(&value, &interface, 0, &arguments)
+        .resolve_interface_method_slot(value, description.interface_type(), 0, &arguments)
         .unwrap()
 }
 
 #[test]
-fn applied_facts_reuse_receiver_independent_identity_and_distinguish_types_and_versions() {
+fn protected_applications_reuse_facts_across_receivers_and_distinguish_types_and_versions() {
     let (mut runtime, loaded_program, loaded, table) = generic_fixture();
     let first_value = runtime
-        .make_interface(&loaded, table, Value::I32(1))
+        .make_interface(&loaded, table, &RootedValue::from(1i32))
         .unwrap();
     let second_value = runtime
-        .make_interface(&loaded, table, Value::I32(2))
+        .make_interface(&loaded, table, &RootedValue::from(2i32))
         .unwrap();
     let first = apply_generic(
-        &runtime,
+        &mut runtime,
         &loaded,
-        first_value,
+        &first_value,
         Ty::Builtin(BuiltinType::I32),
     );
-    let second = apply_generic(
-        &runtime,
-        &loaded,
-        second_value,
-        Ty::Builtin(BuiltinType::I32),
-    );
-    assert_eq!(first.invocation.application, second.invocation.application);
+    let second = {
+        let arguments = runtime
+            .resolve_type_arguments(&loaded, &[Ty::Builtin(BuiltinType::I32)])
+            .unwrap();
+        runtime
+            .prepare_interface_method_slot(
+                &second_value,
+                first.interface_type(),
+                0,
+                MethodApplicationInput {
+                    arguments: &arguments,
+                    operations: Default::default(),
+                    constructions: Default::default(),
+                    sources: &first.sources().unwrap(),
+                },
+            )
+            .unwrap()
+    };
+    assert_eq!(application_id(&first), application_id(&second));
     let wide = apply_generic(
-        &runtime,
+        &mut runtime,
         &loaded,
-        second_value,
+        &second_value,
         Ty::Builtin(BuiltinType::I64),
     );
-    assert_ne!(first.invocation.application, wide.invocation.application);
+    assert_ne!(application_id(&first), application_id(&wide));
     assert_eq!(
-        wide.return_type(&runtime).unwrap(),
+        wide.return_type(&mut runtime).unwrap(),
         Ty::Builtin(BuiltinType::I64)
     );
     let other_table = loaded
@@ -338,15 +325,15 @@ fn applied_facts_reuse_receiver_independent_identity_and_distinguish_types_and_v
         .position(|table| loaded.bytecode.public_items.iter().any(|item| matches!(item, PublicItem::InterfaceTable(template) if template.declaration == table.declaration && template.for_type == Ty::Builtin(BuiltinType::I64))))
         .unwrap();
     let other_value = runtime
-        .make_interface(&loaded, other_table, Value::I64(3))
+        .make_interface(&loaded, other_table, &RootedValue::from(3i64))
         .unwrap();
     let other = apply_generic(
-        &runtime,
+        &mut runtime,
         &loaded,
-        other_value,
+        &other_value,
         Ty::Builtin(BuiltinType::I32),
     );
-    assert_ne!(first.invocation.application, other.invocation.application);
+    assert_ne!(application_id(&first), application_id(&other));
     let candidate = runtime
         .stage_reload_verified_program(&loaded_program, None, loaded.verified_program().clone())
         .unwrap();
@@ -354,24 +341,24 @@ fn applied_facts_reuse_receiver_independent_identity_and_distinguish_types_and_v
 
     let latest = runtime.select_program(&loaded_program).unwrap();
     let fresh_value = runtime
-        .make_interface(&latest, table, Value::I32(4))
+        .make_interface(&latest, table, &RootedValue::from(4i32))
         .unwrap();
     let fresh = apply_generic(
-        &runtime,
+        &mut runtime,
         &latest,
-        fresh_value,
+        &fresh_value,
         Ty::Builtin(BuiltinType::I32),
     );
-    assert_ne!(first.invocation.application, fresh.invocation.application);
+    assert_ne!(application_id(&first), application_id(&fresh));
     let nominal = Ty::Struct(NominalTy {
         declaration: loaded.bytecode.structures[0].declaration,
         arguments: vec![],
         associated_types: Default::default(),
     });
     let old_type = apply_generic(
-        &runtime,
+        &mut runtime,
         &loaded,
-        first_value,
+        &first_value,
         Ty::Tuple(vec![nominal.clone()]),
     );
     let new_arguments = runtime
@@ -382,41 +369,26 @@ fn applied_facts_reuse_receiver_independent_identity_and_distinguish_types_and_v
         .unwrap();
     // Identical printed types and declarations retain distinct supplying scopes.
     assert_eq!(
-        old_type.return_type(&runtime).unwrap(),
-        new_type.return_type(&runtime).unwrap()
+        old_type.return_type(&mut runtime).unwrap(),
+        new_type.return_type(&mut runtime).unwrap()
     );
-    assert_ne!(
-        old_type.invocation.application,
-        new_type.invocation.application
-    );
+    assert_ne!(application_id(&old_type), application_id(&new_type));
 
     runtime.collect_garbage().unwrap();
-    assert!(first.return_type(&runtime).is_ok());
-    let application = first.invocation.application.unwrap();
+    assert!(first.return_type(&mut runtime).is_ok());
+    let expired = Arc::downgrade(first.invocation.application.as_ref().unwrap().record());
     drop((first, second, wide, other, old_type, new_type));
     runtime.collect_garbage().unwrap();
-    assert!(runtime.gc.method_application(application).is_none());
-    assert!(fresh.return_type(&runtime).is_ok());
+    assert!(expired.upgrade().is_none());
+    assert!(fresh.return_type(&mut runtime).is_ok());
 }
 
 #[test]
 fn retained_method_transports_binders_witnesses_and_constructions_after_impl_reordering() {
-    let first_impl =
-        "impl Forward for i32 { fn forward<T: Read>(self, value: T) -> Read { value } }";
-    let second_impl =
-        "impl Forward for i64 { fn forward<T: Read>(self, value: T) -> Read { value } }";
-    let source = format!(
-        r#"
-        trait Read {{ fn read(self) -> i32; }}
-        impl Read for i32 {{ fn read(self) -> i32 {{ self }} }}
-        trait Forward {{ fn forward<T: Read>(self, value: T) -> Read; }}
-        {first_impl}
-        {second_impl}
-        fn main() -> i32 {{ val receiver: Forward = 0; receiver.forward(7).read() }}
-        fn other() -> Forward {{ 2i64 }}
-    "#
+    let (mut runtime, program, old) = load_source(
+        include_str!("../../../tests/fixtures/metadata/application-transport.kgr"),
+        None,
     );
-    let (mut runtime, program, old) = load_source(&source, None);
     let table = old
         .bytecode
         .interface_tables
@@ -431,8 +403,9 @@ fn retained_method_transports_binders_witnesses_and_constructions_after_impl_reo
             })
         })
         .unwrap();
-    let value = runtime.make_interface(&old, table, Value::I32(0)).unwrap();
-    let root = runtime.root_value(value).unwrap();
+    let value = runtime
+        .make_interface(&old, table, &RootedValue::from(0i32))
+        .unwrap();
     let call = old
         .bytecode
         .functions
@@ -445,14 +418,9 @@ fn retained_method_transports_binders_witnesses_and_constructions_after_impl_reo
             })
         })
         .unwrap();
-    let Value::Interface(id) = value else {
-        unreachable!()
-    };
     let interface = runtime
-        .gc
-        .interface_snapshot(id)
+        .interface_description(&value)
         .unwrap()
-        .description
         .interface_type()
         .clone();
     let method = runtime
@@ -460,18 +428,37 @@ fn retained_method_transports_binders_witnesses_and_constructions_after_impl_reo
             &value,
             &interface,
             0,
-            call.arguments.values(),
-            call.operations.clone(),
-            call.arguments.constructions().clone(),
+            MethodApplicationInput {
+                arguments: call.arguments.values(),
+                operations: call.operations.clone(),
+                constructions: call.arguments.constructions().clone(),
+                sources: &[MetadataSource::Revision {
+                    owner: &old,
+                    source: RevisionSource::Current,
+                }],
+            },
         )
         .unwrap();
-    let semantic_application = method.invocation.application;
-    let before = method.view(&runtime).unwrap();
+    let semantic_application = application_id(&method);
+    let before = method.view(&mut runtime).unwrap();
     let old_body = before.selected.generic().unwrap().clone();
     let old_target = before.target();
+    assert!(
+        before.environment().is_none(),
+        "live selection does not prepare admission"
+    );
     drop(before);
-    let admitted = method.admit(&runtime).unwrap();
-    let admitted_environment = admitted.view(&runtime).unwrap().environment().unwrap().id;
+    let admitted = method.admit(&mut runtime).unwrap();
+    let old_environment = admitted
+        .view(&mut runtime)
+        .unwrap()
+        .environment()
+        .unwrap()
+        .clone();
+    let admitted_environment = old_environment.id;
+    let old_snapshot = runtime
+        .environment_snapshot_in(&admitted.sources().unwrap(), &old_environment)
+        .unwrap();
     let independent = runtime
         .load_verified_program("independent", old.verified_program().clone())
         .unwrap();
@@ -481,7 +468,7 @@ fn retained_method_transports_binders_witnesses_and_constructions_after_impl_reo
         .unwrap();
     assert!(
         call.operations
-            .transported(&runtime, &foreign_selection)
+            .transported(&runtime, &foreign_selection, &old_snapshot.groups)
             .is_err()
     );
     assert!(
@@ -501,13 +488,10 @@ fn retained_method_transports_binders_witnesses_and_constructions_after_impl_reo
                     .unwrap()
             )
     );
-    let changed = source
-        .replace(
-            &format!("{first_impl}\n        {second_impl}"),
-            &format!("{second_impl}\n        {first_impl}"),
-        )
-        .replace("{ self }", "{ self + 10 }");
-    let (_, _, candidate) = load_source(&changed, None);
+    let (_, _, candidate) = load_source(
+        include_str!("../../../tests/fixtures/metadata/application-transport-reloaded.kgr"),
+        None,
+    );
     let candidate = runtime
         .stage_reload_verified_program(&program, None, candidate.verified_program().clone())
         .unwrap();
@@ -523,7 +507,7 @@ fn retained_method_transports_binders_witnesses_and_constructions_after_impl_reo
     let current = runtime.select_program(&program).unwrap();
     runtime.collect_garbage().unwrap();
     {
-        let exact = admitted.view(&runtime).unwrap();
+        let exact = admitted.view(&mut runtime).unwrap();
         assert_eq!(
             exact.implementation().publication_token(),
             old.publication_token()
@@ -532,7 +516,8 @@ fn retained_method_transports_binders_witnesses_and_constructions_after_impl_reo
         assert_eq!(exact.environment().unwrap().id, admitted_environment);
         assert!(exact.environment().unwrap().types.matches(&old_body));
     }
-    let view = method.view(&runtime).unwrap();
+    let current_admitted = method.admit(&mut runtime).unwrap();
+    let view = current_admitted.view(&mut runtime).unwrap();
     assert_eq!(
         view.implementation().publication_token(),
         current.publication_token()
@@ -541,7 +526,7 @@ fn retained_method_transports_binders_witnesses_and_constructions_after_impl_reo
         view.proof_implementation().publication_token(),
         old.publication_token()
     );
-    assert_eq!(method.invocation.application, semantic_application);
+    assert_eq!(application_id(&method), semantic_application);
     let environment = view.environment().unwrap().clone();
     let body = view.selected.generic().unwrap();
     assert!(environment.types.matches(body));
@@ -559,21 +544,28 @@ fn retained_method_transports_binders_witnesses_and_constructions_after_impl_reo
     let OperationSegment::Selected(operation_id) = operation_ids[0] else {
         panic!("fixture must carry an explicit checked witness")
     };
-    let operation = runtime.gc.bound_operation(operation_id).unwrap();
+    let operation = old_snapshot.groups[&operation_id.group]
+        .get(operation_id)
+        .unwrap();
     let requirement = view
         .selected
         .mapping()
         .remap_closed(&operation.requirement_key, &Default::default())
         .unwrap();
+    let snapshot = runtime
+        .environment_snapshot_in(&current_admitted.sources().unwrap(), &environment)
+        .unwrap();
     assert_eq!(
-        environment.operation(&runtime.gc, &requirement, &operation.receiver_identity),
+        snapshot.operation(&requirement, &operation.receiver_identity),
         Some(operation_id)
     );
-    drop(operation);
-    let selected_operation = MethodInvocation::from_operation(&runtime, operation_id).unwrap();
+    let execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let sources = current_admitted.sources().unwrap();
+    let selected_operation =
+        MethodInvocation::from_operation(&mut runtime, execution, operation_id, &sources).unwrap();
     assert_eq!(
         selected_operation
-            .view(&runtime)
+            .view(&mut runtime, &sources)
             .unwrap()
             .implementation()
             .publication_token(),
@@ -586,35 +578,49 @@ fn retained_method_transports_binders_witnesses_and_constructions_after_impl_reo
     };
     let selected_owner = view.implementation().clone();
     let selected_target = view.target();
-    let environment_root = runtime
-        .root_metadata(vec![MetadataRoot::Environment(environment.id)])
+    drop((view, sources));
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, execution)
         .unwrap();
-    drop(view);
     runtime.collect_garbage().unwrap();
-    let result = runtime
-        .make_bound_interface(&selected_owner, &environment, &required, Value::I32(7))
+    let execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let result = {
+        let root = current_admitted.computation_root.as_ref().unwrap();
+        let mut conversion = ConversionContext::for_selected(
+            &mut runtime,
+            &selected_owner,
+            execution,
+            RevisionSource::HostApplication(root),
+            Some(MetadataSource::HostApplication(root)),
+        )
         .unwrap();
-    let result_root = runtime.root_value(result).unwrap();
-    let Value::Interface(result_id) = result else {
-        unreachable!()
+        let value = conversion
+            .make_bound_interface(&environment, &required, &ValueView::from(7i32))
+            .unwrap();
+        conversion.retain(&value).unwrap()
     };
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, execution)
+        .unwrap();
     let result_interface = runtime
-        .gc
-        .interface_snapshot(result_id)
+        .interface_description(&result)
         .unwrap()
-        .description
         .interface_type()
         .clone();
     let read = runtime
         .resolve_interface_method_slot(&result, &result_interface, 0, &[])
         .unwrap();
     assert_eq!(
-        read.implementation(&runtime).unwrap().publication_token(),
+        read.implementation(&mut runtime)
+            .unwrap()
+            .publication_token(),
         current.publication_token()
     );
     // The exact retained construction proof still belongs to the old publication.
     assert_eq!(
-        read.view(&runtime)
+        read.view(&mut runtime)
             .unwrap()
             .proof_implementation()
             .publication_token(),
@@ -626,8 +632,8 @@ fn retained_method_transports_binders_witnesses_and_constructions_after_impl_reo
             stack
                 .push_interface_method(
                     runtime,
-                    method.clone(),
-                    &[Value::I32(0), Value::I32(7)],
+                    &method,
+                    ArgumentValues::scalars(&[ValueView::from(7i32)]),
                     None,
                 )
                 .unwrap();
@@ -639,12 +645,14 @@ fn retained_method_transports_binders_witnesses_and_constructions_after_impl_reo
             assert!(matches!(selected_target, CallableTarget::Script(_)));
             drop((
                 stack,
-                environment_root,
-                result_root,
+                result,
+                current_admitted,
+                old_snapshot,
+                snapshot,
                 read,
                 admitted,
                 method,
-                root,
+                value,
             ));
             runtime.collect_garbage().unwrap();
             assert!(!runtime.is_quarantined());
@@ -652,61 +660,116 @@ fn retained_method_transports_binders_witnesses_and_constructions_after_impl_reo
             Ok(())
         })
         .unwrap();
+    let result = Executor::from_activation(stack_activation)
+        .run(|runtime, stack, value| stack.retain_result(runtime, value))
+        .unwrap();
+    let description = runtime.interface_description(&result).unwrap();
+    let method = description.methods[0].as_ref().unwrap().method;
+    assert_eq!(
+        runtime
+            .invoke_interface_method(&result, &method, &[])
+            .unwrap()
+            .as_i32(),
+        Some(17)
+    );
 }
 
 #[test]
-fn polymorphic_retention_is_bounded_and_eviction_preserves_active_applications() {
-    let (mut runtime, _loaded_program, loaded, table) = generic_fixture();
+fn bounded_application_indexes_do_not_retain_nodes_and_active_frames_keep_their_computation() {
+    let (mut runtime, _program, loaded, table) = generic_fixture();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     let value = runtime
-        .make_interface(&loaded, table, Value::I32(1))
+        .make_interface(&loaded, table, &RootedValue::from(1i32))
         .unwrap();
-    let retained = apply_generic(&runtime, &loaded, value, Ty::Builtin(BuiltinType::I32));
-    let application = retained.invocation.application.unwrap();
-    let mut stack_activation = runtime.enter_execution_stack(&loaded).unwrap();
-    stack_activation
+    let retained = apply_generic(&mut runtime, &loaded, &value, Ty::Builtin(BuiltinType::I32));
+    let application = application_id(&retained);
+    let expired = Arc::downgrade(retained.invocation.application.as_ref().unwrap().record());
+    let arguments = runtime
+        .resolve_type_arguments(&loaded, &[Ty::Builtin(BuiltinType::I32)])
+        .unwrap();
+    let key = ApplicationKey::new(
+        retained.view(&mut runtime).unwrap().identity(),
+        &ApplicationArguments::new(&loaded, arguments, ConstructionScope::new(&loaded)).unwrap(),
+        None,
+        &Default::default(),
+    );
+    assert_eq!(
+        runtime.modules.method_application(&loaded, &key),
+        Some(application)
+    );
+    let mut activation = runtime.enter_execution_stack(&loaded).unwrap();
+    activation
         .with(|runtime, stack| {
             stack
                 .push_interface_method(
                     runtime,
-                    retained.clone(),
-                    &[Value::I32(1), Value::I32(7)],
+                    &retained,
+                    ArgumentValues::scalars(&[ValueView::from(7i32)]),
                     None,
                 )
                 .unwrap();
-            // More distinct applications than the retention limit. The older call stays
-            // rooted through its host handle even when the program evicts its index edge.
+            let computation = stack
+                .current(runtime)
+                .unwrap()
+                .invocation()
+                .unwrap()
+                .computation()
+                .unwrap()
+                .clone();
+            let mut unrooted = Vec::new();
             for length in 0..160 {
-                drop(apply_generic(
+                let method = apply_generic(
                     runtime,
                     &loaded,
-                    value,
+                    &value,
                     Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); length]),
+                );
+                unrooted.push(Arc::downgrade(
+                    method.invocation.application.as_ref().unwrap().record(),
                 ));
             }
-            runtime.collect_garbage().unwrap();
-            assert!(runtime.gc.method_application(application).is_some());
-            // The active frame also retains its separately admitted computation.
-            assert_eq!(runtime.gc.stats().method_applications, 130);
-            drop(retained);
-            runtime.collect_garbage().unwrap();
-            // With the external lease gone and the cache entry evicted, only the active
-            // window protects the applied signature and exact computation needed on return.
-            assert!(runtime.gc.method_application(application).is_some());
-            assert_eq!(runtime.gc.stats().method_applications, 130);
-            assert_eq!(
-                stack
-                    .finish_return(runtime, ReturnValue::general(Value::I32(7)))
-                    .unwrap(),
-                ReturnAction::Complete(Value::I32(7))
+            assert!(
+                runtime.modules.method_application(&loaded, &key).is_none(),
+                "bounded index eviction must not depend on an old handle's liveness"
             );
             runtime.collect_garbage().unwrap();
-            assert!(runtime.gc.method_application(application).is_none());
-            assert_eq!(runtime.gc.stats().method_applications, 128);
-            let Value::Interface(id) = value else {
-                unreachable!()
+            assert!(
+                unrooted.iter().all(|record| record.upgrade().is_none()),
+                "pure application indexes cannot keep expired providers alive"
+            );
+            drop((retained, value));
+            runtime.collect_garbage().unwrap();
+            let record = runtime
+                .application_record_in(
+                    &[MetadataSource::AdmittedApplication(&computation)],
+                    application,
+                )
+                .unwrap();
+            assert!(matches!(record.as_ref(), ApplicationRecord::Semantic(_)));
+            drop(record);
+            let result = stack
+                .finish_return(runtime, ReturnValue::scalar(ValueType::I32, 7))
+                .unwrap();
+            let ReturnAction::Complete(result) = result else {
+                panic!("root generic return");
             };
-            assert!(runtime.gc.interface_snapshot(id).is_none());
-
+            assert_eq!(
+                stack.retain_result(runtime, result).unwrap().as_i32(),
+                Some(7)
+            );
+            assert_eq!(
+                runtime.application_record(&computation).unwrap_err().kind(),
+                RuntimeErrorKind::ModuleValidation
+            );
+            drop(computation);
+            runtime.collect_garbage().unwrap();
+            assert!(expired.upgrade().is_none());
+            assert_eq!(runtime.gc_stats().objects, baseline.objects);
+            assert_eq!(
+                runtime.gc_stats().root_registrations,
+                baseline.root_registrations
+            );
             Ok(())
         })
         .unwrap();
@@ -715,218 +778,324 @@ fn polymorphic_retention_is_bounded_and_eviction_preserves_active_applications()
 #[rstest]
 #[case::abandoned(false)]
 #[case::published(true)]
-fn optional_application_retention_expires_with_abandoned_witness_providers(#[case] publish: bool) {
+fn retained_environments_reject_abandoned_transitive_witness_providers(#[case] publish: bool) {
     let (mut runtime, loaded_program, loaded, table) = generic_fixture();
     let value = runtime
-        .make_interface(&loaded, table, Value::I32(1))
+        .make_interface(&loaded, table, &RootedValue::from(1i32))
         .unwrap();
-    let root = runtime.root_value(value).unwrap();
     let candidate = runtime
         .stage_reload_verified_program(&loaded_program, None, loaded.verified_program().clone())
         .unwrap();
     let supplier = candidate.module().clone();
-    let Value::Interface(id) = runtime
-        .make_interface(&supplier, table, Value::I32(2))
-        .unwrap()
-    else {
-        unreachable!()
+    let execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let (supplier_value, group) = {
+        let mut session = runtime.begin_candidate_initialization(&candidate).unwrap();
+        let runtime = session.runtime_mut();
+        let value = runtime
+            .make_interface(&supplier, table, &RootedValue::from(2i32))
+            .unwrap();
+        let description = runtime.interface_description(&value).unwrap();
+        let group = runtime
+            .bind_table_operations(
+                execution,
+                &description.receiver_table,
+                &[MetadataSource::RootedInterface(&value)],
+            )
+            .unwrap();
+        (value, group)
     };
-    let snapshot = runtime.gc.interface_snapshot(id).unwrap();
-    let group = runtime
-        .bind_table_operations(&snapshot.description.receiver_table)
-        .unwrap();
-    let interface = snapshot.description.interface_type().clone();
-    drop(snapshot);
     let mut operations = OperationBindings::default();
-    operations.receiver(&runtime.gc, group).unwrap();
+    operations.receiver(group.record()).unwrap();
     let arguments = runtime
         .resolve_type_arguments(&loaded, &[Ty::Builtin(BuiltinType::I32)])
         .unwrap();
+    let interface = runtime
+        .interface_description(&value)
+        .unwrap()
+        .interface_type()
+        .clone();
     let method = runtime
         .prepare_interface_method_slot(
             &value,
             &interface,
             0,
-            &arguments,
-            operations,
-            Default::default(),
+            MethodApplicationInput {
+                arguments: &arguments,
+                operations,
+                constructions: Default::default(),
+                sources: &[MetadataSource::AdmittedOperations(&group)],
+            },
         )
         .unwrap();
-    let application = method.invocation.application.unwrap();
-    let environment = runtime
-        .gc
-        .method_application(application)
+    let environment = semantic_environment(&mut runtime, &method);
+    let admitted = runtime
+        .copy_environment_in(execution, &environment, &method.sources().unwrap())
         .unwrap()
-        .environment
-        .clone()
         .unwrap();
-    let pending = runtime.gc.environment(environment.id).unwrap().clone();
-    runtime.validate_environment(environment.id).unwrap();
-    drop(method);
+    let root = runtime.retain_environment(&admitted).unwrap();
+    let pending = runtime
+        .environment_snapshot(&admitted)
+        .unwrap()
+        .record
+        .as_ref()
+        .clone();
+    runtime.validate_environment(&admitted).unwrap();
+    let expired = Arc::downgrade(method.invocation.application.as_ref().unwrap().record());
+    drop((method, supplier_value, group));
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, execution)
+        .unwrap();
     if publish {
         runtime.publish_staged_reload(candidate).unwrap();
     } else {
         drop(candidate);
     }
-    // A still-live environment ID must not admit an abandoned transitive
-    // witness provider. Re-publication must reject it before installing an ID.
-    assert_eq!(
-        runtime.validate_environment(environment.id).is_ok(),
-        publish
-    );
-    let before = runtime.gc.stats();
-    assert_eq!(runtime.alloc_environment(pending).is_ok(), publish);
-    if !publish {
-        assert_eq!(runtime.gc.stats(), before);
+    // Physical retention cannot authorize an abandoned transitive program.
+    let sources = [MetadataSource::HostEnvironment(&root)];
+    let validation = runtime.validate_environment_in(&sources, &environment);
+    if publish {
+        validation.unwrap();
+    } else {
+        assert_eq!(
+            validation.unwrap_err().kind(),
+            RuntimeErrorKind::StaleHandle
+        );
     }
+    let execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let before = runtime.gc_stats();
+    let allocation = runtime.alloc_environment(execution, pending, &sources);
+    if publish {
+        runtime.validate_environment(&allocation.unwrap()).unwrap();
+    } else {
+        assert_eq!(
+            allocation.unwrap_err().kind(),
+            RuntimeErrorKind::StaleHandle
+        );
+        assert_eq!(runtime.gc_stats(), before);
+    }
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, execution)
+        .unwrap();
     runtime.collect_garbage().unwrap();
-    assert_eq!(
-        runtime.gc.method_application(application).is_some(),
-        publish
+    assert!(
+        expired.upgrade().is_none(),
+        "an index cannot retain a semantic application"
     );
     assert!(!runtime.is_quarantined());
-    drop(root);
+    drop((root, value));
     runtime.collect_garbage().unwrap();
-    assert!(runtime.gc.method_application(application).is_none());
 }
 
 #[test]
 fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() {
-    let (mut runtime, loaded_program, mut loaded) = load_source(
-        r#"
-        trait Read { fn read(self) -> i32; }
-        impl Read for i32 { fn read(self) -> i32 { self } }
-        trait Forward { fn forward<T: Read>(self, value: T) -> i32 { value.read() } }
-        impl Forward for i32 {}
-        fn main() -> i32 { val receiver: Forward = 0; receiver.forward(7) }
-        "#,
+    let (mut runtime, program, loaded) = load_source(
+        include_str!("../../../tests/fixtures/metadata/interface-witnesses.kgr"),
         None,
     );
-    for _ in 0..3 {
-        let site = loaded
-            .bytecode
-            .functions
-            .iter()
-            .find_map(|function| {
-                let links = runtime
-                    .modules
-                    .linked_function(&loaded, function.id, None)?;
-                let count = loaded.execution().functions[function.id.index()]
-                    .calls
-                    .len();
-                (0..count).find_map(|ordinal| match links.call_contract(ordinal) {
-                    Some(LinkedCall::Interface { contract, .. })
-                        if !contract.operations.is_empty() =>
-                    {
-                        Some(InterfaceCallSite {
-                            function: function.id,
-                            ordinal,
-                        })
+    let (closed_site, first_call) = loaded
+        .bytecode
+        .functions
+        .iter()
+        .find_map(|function| {
+            let links = runtime
+                .modules
+                .linked_function(&loaded, function.id, None)?;
+            (0..loaded.execution().functions[function.id.index()]
+                .calls
+                .len())
+                .find_map(|ordinal| {
+                    let call = links.call(ordinal)?;
+                    (!call.operations.is_empty()).then(|| {
+                        (
+                            InterfaceCallSite {
+                                function: function.id,
+                                ordinal,
+                            },
+                            call.clone(),
+                        )
+                    })
+                })
+        })
+        .unwrap();
+    let (site, parameters) = loaded
+        .bytecode
+        .functions
+        .iter()
+        .find_map(|function| {
+            let generic = function.metadata.semantic.generic.as_ref()?;
+            let links = runtime
+                .modules
+                .linked_function(&loaded, function.id, None)?;
+            (0..loaded.execution().functions[function.id.index()]
+                .calls
+                .len())
+                .find_map(|ordinal| match links.call_contract(ordinal) {
+                    Some(LinkedCall::Interface { contract, .. }) if contract.receiver.is_some() => {
+                        Some((
+                            InterfaceCallSite {
+                                function: function.id,
+                                ordinal,
+                            },
+                            generic.parameters.clone(),
+                        ))
                     }
                     _ => None,
                 })
-            })
+        })
+        .unwrap();
+    let second = runtime
+        .modules
+        .linked_function(&loaded, closed_site.function, None)
+        .unwrap()
+        .call(closed_site.ordinal)
+        .unwrap()
+        .clone();
+    assert!(Arc::ptr_eq(&first_call, &second));
+    let lexical = MetadataSource::Revision {
+        owner: &loaded,
+        source: RevisionSource::Current,
+    };
+    assert!(
+        runtime
+            .interface_call_is_protected(&[lexical], &first_call)
+            .unwrap()
+    );
+    runtime.collect_garbage().unwrap();
+    assert!(
+        runtime
+            .interface_call_is_protected(&[lexical], &first_call)
+            .unwrap()
+    );
+    let arguments = runtime
+        .resolve_type_arguments(&loaded, &[Ty::Builtin(BuiltinType::I32)])
+        .unwrap();
+    let execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let mut record =
+        EnvironmentRecord::new(loaded.definitions(), parameters.clone(), arguments.clone())
             .unwrap();
-        let closed = || {
-            runtime
-                .modules
-                .linked_function(&loaded, site.function, None)
-                .unwrap()
-                .call(site.ordinal)
-                .unwrap()
-                .clone()
-        };
-        let first_call = closed();
-        let second_call = closed();
-        assert!(Arc::ptr_eq(&first_call, &second_call));
-        let first = first_call.operations.clone();
-        assert!(!first.is_empty());
-        runtime.collect_garbage().unwrap();
-        assert!(first.validate(&runtime.gc));
-        // A caller-owned environment roots the selected old provider independently
-        // of the optional program index. Retiring the index must not break it.
+    record.extend_operations(first_call.operations.clone());
+    record.set_constructions(first_call.arguments.constructions().clone());
+    let environment = runtime
+        .alloc_environment(execution, record, &[lexical])
+        .unwrap();
+    let root = runtime.retain_environment(&environment).unwrap();
+    let mut protected = vec![lexical, MetadataSource::AdmittedEnvironment(&environment)];
+    let first = runtime
+        .prepare_scoped_interface_call(
+            execution,
+            &loaded,
+            environment.facts().clone(),
+            site,
+            &mut protected,
+        )
+        .unwrap();
+    let repeated = runtime
+        .prepare_scoped_interface_call(
+            execution,
+            &loaded,
+            environment.facts().clone(),
+            site,
+            &mut protected,
+        )
+        .unwrap();
+    assert!(Arc::ptr_eq(&first, &repeated));
+    assert!(first.operation.is_some());
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, execution)
+        .unwrap();
+    assert_eq!(
+        runtime
+            .environment_snapshot(&environment)
+            .err()
+            .expect("retired environment source")
+            .kind(),
+        RuntimeErrorKind::ModuleValidation
+    );
+    // Exceed the single 128-entry scope index. Each execution retires independently;
+    // bounded cache facts must not retain its actual environment record.
+    let mut expired = Vec::new();
+    for _ in 0..128 {
+        let execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
         let mut record =
-            EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![])
+            EnvironmentRecord::new(loaded.definitions(), parameters.clone(), arguments.clone())
                 .unwrap();
-        record.extend_operations(first.clone());
-        let environment = runtime.alloc_environment(record).unwrap();
-        let root = runtime
-            .root_metadata(vec![MetadataRoot::Environment(environment.id)])
+        record.extend_operations(first_call.operations.clone());
+        record.set_constructions(first_call.arguments.constructions().clone());
+        let environment = runtime
+            .alloc_environment(execution, record, &[lexical])
             .unwrap();
-        // The bound applies across lexical scopes, not separately to each scope.
-        // The explicitly rooted first selection survives eviction from the index.
-        let mut evicted_scope = None;
-        let mut last_scope = None;
-        for _ in 0..160 {
-            let scope = runtime
-                .alloc_environment(
-                    EnvironmentRecord::new(
-                        &runtime.definition_context().snapshot(),
-                        vec![],
-                        vec![],
-                    )
-                    .unwrap(),
-                )
-                .unwrap();
-            let call = runtime
-                .prepare_scoped_interface_call(&loaded, scope.clone(), site)
-                .unwrap();
-            assert_ne!(first.identity(), call.operations.identity());
-            evicted_scope.get_or_insert_with(|| scope.clone());
-            last_scope = Some(scope);
-        }
-        runtime.collect_garbage().unwrap();
-        let groups = runtime.gc.stats().operation_groups;
-        assert_eq!(groups, 129);
-        assert!(first.validate(&runtime.gc));
-        // Retained construction capabilities trace their supplying environment.
-        // An evicted call has no such edge; its stale scope cannot be resurrected.
-        let last_scope = last_scope.unwrap();
-        let evicted_scope = evicted_scope.unwrap();
-        assert!(runtime.gc.environment(last_scope.id).is_some());
-        assert!(runtime.gc.environment(evicted_scope.id).is_none());
-        assert!(
-            runtime
-                .prepare_scoped_interface_call(&loaded, last_scope.clone(), site)
-                .is_ok()
-        );
-        assert!(
-            runtime
-                .prepare_scoped_interface_call(&loaded, evicted_scope, site)
-                .is_err()
-        );
-        let candidate = runtime
-            .stage_reload_verified_program(&loaded_program, None, loaded.verified_program().clone())
+        let snapshot = runtime.environment_snapshot(&environment).unwrap();
+        expired.push(Arc::downgrade(&snapshot.record));
+        drop(snapshot);
+        let mut sources = vec![lexical, MetadataSource::AdmittedEnvironment(&environment)];
+        let prepared = runtime
+            .prepare_scoped_interface_call(
+                execution,
+                &loaded,
+                environment.facts().clone(),
+                site,
+                &mut sources,
+            )
             .unwrap();
-        let retired = loaded.clone();
-        runtime.publish_staged_reload(candidate).unwrap();
-        loaded = runtime.select_program(&loaded_program).unwrap();
-        runtime.collect_garbage().unwrap();
-        assert!(first.validate(&runtime.gc));
-        drop(root);
-        let collected = runtime.collect_garbage().unwrap();
-        assert_eq!(collected.reclaimed_operation_groups, groups);
-        assert!(runtime.gc.environment(last_scope.id).is_none());
-        // Linking prepares the new program's closed witness before publication.
-        // All old groups are gone; only that distinct live program's group remains.
-        assert_eq!(runtime.gc.stats().operation_groups, 1);
-        assert!(
-            runtime
-                .modules
-                .linked_function(&retired, site.function, None)
-                .is_none()
-        );
-        let linked = runtime
-            .modules
-            .linked_function(&loaded, site.function, None)
+        assert_eq!(prepared.operation, first.operation);
+        runtime
+            .memory
+            .retire_execution(&runtime.resources, execution)
             .unwrap();
-        assert!(linked.call(0).unwrap().operations.validate(&runtime.gc));
-        assert_ne!(
-            first.identity(),
-            linked.call(0).unwrap().operations.identity()
-        );
-        assert_eq!(runtime.gc.stats().environments, 0);
-        assert!(!first.validate(&runtime.gc));
-        assert!(!runtime.is_quarantined());
     }
+    assert!(
+        runtime
+            .modules
+            .interface_call(&loaded, environment.facts().id, site)
+            .is_none()
+    );
+    runtime.collect_garbage().unwrap();
+    assert!(expired.iter().all(|record| record.upgrade().is_none()));
+    assert!(
+        runtime
+            .interface_call_is_protected(&[MetadataSource::HostEnvironment(&root)], &first)
+            .unwrap()
+    );
+    let candidate = runtime
+        .stage_reload_verified_program(&program, None, loaded.verified_program().clone())
+        .unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
+    let current = runtime.select_program(&program).unwrap();
+    assert_ne!(current.program_identity(), loaded.program_identity());
+    runtime.collect_garbage().unwrap();
+    assert!(
+        runtime
+            .interface_call_is_protected(&[MetadataSource::HostEnvironment(&root)], &first)
+            .unwrap()
+    );
+    drop(root);
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.modules.loaded(loaded.key()).is_none());
+    assert!(runtime.modules.loaded(current.key()).is_some());
+    let current_call = runtime
+        .modules
+        .linked_function(&current, closed_site.function, None)
+        .unwrap()
+        .call(closed_site.ordinal)
+        .unwrap()
+        .clone();
+    assert_ne!(
+        first_call.operations.identity(),
+        current_call.operations.identity()
+    );
+    assert!(
+        runtime
+            .interface_call_is_protected(
+                &[MetadataSource::Revision {
+                    owner: &current,
+                    source: RevisionSource::Current
+                }],
+                &current_call
+            )
+            .unwrap()
+    );
+    assert!(!runtime.is_quarantined());
 }

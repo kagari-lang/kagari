@@ -18,7 +18,6 @@ use kagari_runtime::{
     frame::ExecutionFrame,
     module::ExecutableModule,
     session::{ExecutionEvent, ExecutionObserver},
-    value::Value,
 };
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
@@ -110,14 +109,15 @@ fn native_context() -> ExecutionContext {
 }
 
 fn result(
-    runtime: &Runtime,
+    runtime: &mut Runtime,
     loaded: &ExecutableModule,
     prepared: &PreparedNativeEntry,
     expected: i32,
 ) {
-    let _session = runtime
+    let mut session = runtime
         .begin_execution(loaded, native_context().runtime_options())
         .unwrap();
+    let runtime = session.runtime_mut();
     let report = runtime
         .execute_prepared_module(
             loaded,
@@ -130,10 +130,7 @@ fn result(
         report.jit.as_ref().unwrap().status,
         JitExecutionStatus::Native
     );
-    assert_eq!(
-        report.return_value.value(runtime.gc()),
-        Some(Value::I32(expected))
-    );
+    assert_eq!(report.return_value.as_i32(), Some(expected));
 }
 
 #[test]
@@ -161,9 +158,13 @@ fn installed_images_pin_versions_share_bindings_and_release_after_last_owner() {
     let other = second
         .load_program(old_bundle.program(), Default::default())
         .unwrap();
-    let old_native = old_bundle.install(&first, &old).unwrap();
-    let other_native = old_bundle.install(&second, &other).unwrap();
-    assert!(old_bundle.install(&second, &old).is_err());
+    first.collect_garbage().unwrap();
+    second.collect_garbage().unwrap();
+    let first_roots = first.gc_stats().root_registrations;
+    let second_roots = second.gc_stats().root_registrations;
+    let old_native = old_bundle.install(&mut first, &old).unwrap();
+    let other_native = old_bundle.install(&mut second, &other).unwrap();
+    assert!(old_bundle.install(&mut second, &old).is_err());
     let old_selected = first.select_program(&old).unwrap();
     first
         .program(&old)
@@ -172,8 +173,8 @@ fn installed_images_pin_versions_share_bindings_and_release_after_last_owner() {
         .and_then(|candidate| first.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let new = old.clone();
-    assert!(old_bundle.install(&first, &new).is_err());
-    let new_native = new_bundle.install(&first, &new).unwrap();
+    assert!(old_bundle.install(&mut first, &new).is_err());
+    let new_native = new_bundle.install(&mut first, &new).unwrap();
     let incompatible = engine
         .compile_to_artifact(
             SourceFile::new("deployment.kgr", "fn main() -> bool { true }"),
@@ -202,26 +203,20 @@ fn installed_images_pin_versions_share_bindings_and_release_after_last_owner() {
     assert!(
         matches!(stale, ref error if error.to_string().contains("different function or execution version"))
     );
-    result(
-        &second,
-        &second.select_program(&other).unwrap(),
-        &other_native,
-        42,
-    );
-    result(
-        &first,
-        &first.select_program(&new).unwrap(),
-        &new_native,
-        43,
-    );
+    let other_selected = second.select_program(&other).unwrap();
+    result(&mut second, &other_selected, &other_native, 42);
+    let new_selected = first.select_program(&new).unwrap();
+    result(&mut first, &new_selected, &new_native, 43);
     drop(old_native);
     assert!(old_owner.upgrade().is_some());
     drop(other_native);
     assert!(old_owner.upgrade().is_none());
     drop(new_native);
     assert!(new_owner.upgrade().is_none());
-    assert_eq!(first.gc().active_roots(), 0);
-    assert_eq!(second.gc().active_roots(), 0);
+    first.collect_garbage().unwrap();
+    second.collect_garbage().unwrap();
+    assert_eq!(first.gc_stats().root_registrations, first_roots);
+    assert_eq!(second.gc_stats().root_registrations, second_roots);
 }
 
 #[derive(Debug)]
@@ -252,7 +247,7 @@ fn deployed_failures_keep_origins_cleanup_and_pre_entry_observer_routing() {
     let loaded = runtime
         .load_program(overflow.program(), Default::default())
         .unwrap();
-    let prepared = overflow.install(&runtime, &loaded).unwrap();
+    let prepared = overflow.install(&mut runtime, &loaded).unwrap();
     let expected_origin = *overflow.manifest.overflow_points.last().unwrap() as usize;
     let bytecode = overflow.program().bytecode();
     let function = bytecode.modules()[bytecode.root().index()]
@@ -261,6 +256,8 @@ fn deployed_failures_keep_origins_cleanup_and_pre_entry_observer_routing() {
         .find(|function| function.name == "main")
         .unwrap();
     let origin = &function.metadata.origins[expected_origin];
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     let native_error = runtime
         .execute_prepared(
             &loaded,
@@ -295,7 +292,8 @@ fn deployed_failures_keep_origins_cleanup_and_pre_entry_observer_routing() {
         interpreted_error.trace().unwrap().frames[0].source_span
     );
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
 
     let good = bundle(
         &engine,
@@ -305,7 +303,7 @@ fn deployed_failures_keep_origins_cleanup_and_pre_entry_observer_routing() {
     let loaded = runtime
         .load_program(good.program(), Default::default())
         .unwrap();
-    let prepared = good.install(&runtime, &loaded).unwrap();
+    let prepared = good.install(&mut runtime, &loaded).unwrap();
     let context = native_context();
     context.cancellation.cancel();
     assert!(
@@ -314,19 +312,18 @@ fn deployed_failures_keep_origins_cleanup_and_pre_entry_observer_routing() {
             .is_err()
     );
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
-    result(
-        &runtime,
-        &runtime.select_program(&loaded).unwrap(),
-        &prepared,
-        42,
-    );
+    let selected = runtime.select_program(&loaded).unwrap();
+    result(&mut runtime, &selected, &prepared, 42);
     runtime.set_execution_observer(Observer).unwrap();
     let selected = runtime.select_program(&loaded).unwrap();
-    let session = runtime
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
+    let mut session = runtime
         .begin_execution(&selected, runtime.execution_options())
         .unwrap();
-    runtime.attach_execution_observer().unwrap();
-    let report = runtime
+    session.runtime_mut().attach_execution_observer().unwrap();
+    let report = session
+        .runtime_mut()
         .execute_prepared(
             &loaded,
             ProgramEntry::Main,
@@ -339,13 +336,11 @@ fn deployed_failures_keep_origins_cleanup_and_pre_entry_observer_routing() {
         report.jit.as_ref().unwrap().status,
         JitExecutionStatus::InterpreterFallback
     );
-    assert_eq!(
-        report.return_value.value(runtime.gc()),
-        Some(Value::I32(42))
-    );
+    assert_eq!(report.return_value.as_i32(), Some(42));
     drop(report);
     drop(session);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
 }
 
 #[test]
@@ -479,7 +474,7 @@ fn publication_is_complete_and_build_errors_preserve_existing_deployments() {
     let module = runtime
         .load_program(loaded.program(), Default::default())
         .unwrap();
-    let prepared = loaded.install(&runtime, &module).unwrap();
+    let prepared = loaded.install(&mut runtime, &module).unwrap();
     let report = runtime
         .execute_prepared(&module, loaded.entry(), &[], &native_context(), &prepared)
         .unwrap();
@@ -487,10 +482,7 @@ fn publication_is_complete_and_build_errors_preserve_existing_deployments() {
         report.jit.as_ref().unwrap().status,
         JitExecutionStatus::Native
     );
-    assert_eq!(
-        report.return_value.value(runtime.gc()),
-        Some(Value::I32(42))
-    );
+    assert_eq!(report.return_value.as_i32(), Some(42));
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(

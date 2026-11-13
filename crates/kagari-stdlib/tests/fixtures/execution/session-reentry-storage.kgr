@@ -1,0 +1,10 @@
+fn main() -> i32 {
+    val kept = [42];
+    print("outer");
+    kept[0]
+}
+
+fn make(n: i32) -> [i32] {
+    print("inner");
+    [n, 8]
+}

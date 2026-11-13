@@ -5,7 +5,6 @@ use crate::foundation::{
     interface, override_entry,
 };
 use kagari_runtime::{
-    error::RuntimeError,
     native::{
         assembly::{
             authoring::PendingBinding,
@@ -16,7 +15,7 @@ use kagari_runtime::{
         scalar::NativeScalar,
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_types::scalar::BuiltinType;
 
@@ -26,7 +25,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         module,
         character.clone(),
         NativeBinding::new(vec![], Codec::Exact(character.clone()), |_| {
-            Ok(Value::Char('\0'))
+            Ok('\0'.encode())
         }),
         "Return the NUL Unicode scalar U+0000.",
     )?;
@@ -95,26 +94,26 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     })
 }
 
-fn argument(cx: &NativeCall<'_>) -> NativeResult<char> {
-    let Value::Char(value) = cx.argument(0)? else {
-        return Err(RuntimeError::module_validation("character argument"));
-    };
-    Ok(value)
+fn argument(cx: &mut NativeCall<'_>) -> NativeResult<char> {
+    char::decode(cx.argument(0)?)
 }
 
-fn to_u32(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
+fn to_u32<'call>(cx: &mut NativeCall<'call>) -> NativeResult<ValueView<'call>> {
     Ok(u32::from(argument(cx)?).encode())
 }
 
-fn to_string(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
+fn to_string<'call>(cx: &mut NativeCall<'call>) -> NativeResult<ValueView<'call>> {
     let text = argument(cx)?.to_string();
-    cx.encode_result(text)
+    cx.allocate_string(text)
 }
 
-fn try_from_u32(symbols: &EnumSymbols, cx: &mut NativeCall<'_>) -> NativeResult<Value> {
+fn try_from_u32<'call>(
+    symbols: &EnumSymbols,
+    cx: &mut NativeCall<'call>,
+) -> NativeResult<ValueView<'call>> {
     let scalar = u32::decode(cx.argument(0)?)?;
     let (member, value) = match char::from_u32(scalar) {
-        Some(value) => ("Ok", Value::Char(value)),
+        Some(value) => ("Ok", value.encode()),
         None => (
             "Err",
             enums::allocate(
@@ -123,21 +122,17 @@ fn try_from_u32(symbols: &EnumSymbols, cx: &mut NativeCall<'_>) -> NativeResult<
                 &cx.result_type_parameter(1)?,
                 "CharTryFromError",
                 "InvalidScalar",
-                vec![],
+                &[],
             )?,
         ),
     };
-    let _root = cx
-        .heap()
-        .root_value(value)
-        .ok_or_else(|| RuntimeError::module_validation("character conversion result"))?;
     enums::allocate(
         symbols,
         cx,
         &cx.result_type_argument()?,
         "Result",
         member,
-        vec![value],
+        &[value],
     )
 }
 

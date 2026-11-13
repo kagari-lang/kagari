@@ -1,5 +1,5 @@
 use crate::{context::ExecutionContext, engine::KagariEngine, program::Program};
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
 
@@ -31,19 +31,22 @@ pub fn healthy()->i32{42}
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     assert!(
         runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .is_err()
     );
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
     assert_eq!(
         runtime
             .execute(&loaded, "healthy", &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
 }

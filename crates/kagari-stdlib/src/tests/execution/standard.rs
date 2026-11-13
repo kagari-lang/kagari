@@ -3,8 +3,8 @@ use crate::tests::execution::common::{
     logging_module, round_trip_bytecode, standard_runtime,
 };
 use kagari_runtime::{
-    RuntimeConfig, host::HostError, module::entry::ProgramEntry, value::Value,
-    value_semantics::script_equal,
+    RuntimeConfig, host::HostError, module::entry::ProgramEntry,
+    native::conversion::context::ConversionContext, value::view::ValueView,
 };
 use std::sync::{Arc, Mutex};
 
@@ -18,17 +18,22 @@ fn executes_source_lowered_declared_host_log() {
 
     let mut runtime = standard_runtime(RuntimeConfig::default());
     logging_module(move |cx, args| {
-        let Some(Value::Str(message)) = args.first() else {
+        let Some(message) = args.first() else {
             return Err(HostError::new("host.log expects one string argument"));
         };
-        sink.lock()
-            .expect("message sink should lock")
-            .push(cx.runtime().gc().string(*message).unwrap().to_owned());
-        Ok(Value::Unit)
+        cx.read_string(message, |text| {
+            sink.lock()
+                .expect("message sink should lock")
+                .push(text.to_owned());
+        })
+        .map_err(|error| HostError::new(error.to_string()))?;
+        Ok(ValueView::unit())
     })
     .install(&mut runtime)
     .expect("host function should register");
-    let bytecode = compile_logging_test_bytecode(r#"use host::log; fn main() { log("hello"); }"#);
+    let bytecode = compile_logging_test_bytecode(include_str!(
+        "../../../tests/fixtures/execution/host-log.kgr"
+    ));
     let loaded =
         load_bytecode(&mut runtime, "print.kgr", bytecode).expect("print module should load");
     let _loaded_program = loaded;
@@ -39,13 +44,10 @@ fn executes_source_lowered_declared_host_log() {
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
 
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::Unit
-    );
+    ConversionContext::new(&mut vm, &loaded)
+        .unwrap()
+        .decode::<()>(&report.return_value)
+        .unwrap();
     assert_eq!(
         *messages.lock().expect("message sink should lock"),
         vec!["hello".to_string()]
@@ -54,16 +56,9 @@ fn executes_source_lowered_declared_host_log() {
 
 #[test]
 fn executes_bytecode_foundation_collection_bindings() {
-    let program = compile_test_bytecode(
-        r#"use std::collections::{HashMap, HashSet};
-
-fn main()->(u64,bool,u64,bool){
- val map:HashMap<String,i32> =HashMap::new();map.insert("k",7);
- val set:HashSet<String> =HashSet::new();set.insert("k");
- (map.len(),map.contains_key("k"),map.len(),set.contains("k"))
-}
-"#,
-    );
+    let program = compile_test_bytecode(include_str!(
+        "../../../tests/fixtures/execution/foundation-collections.kgr"
+    ));
     let decoded = round_trip_bytecode(program);
     let (runtime, loaded) = load_bytecode_program("standard_collections.kbc", decoded);
     let _loaded_program = loaded;
@@ -73,38 +68,20 @@ fn main()->(u64,bool,u64,bool){
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
 
-    assert!(
-        script_equal(
-            vm.gc(),
-            &(report
-                .return_value
-                .value(vm.gc())
-                .expect("retained execution result")),
-            &(vm.gc()
-                .alloc_tuple(vec![
-                    Value::U64(1),
-                    Value::Bool(true),
-                    Value::U64(1),
-                    Value::Bool(true),
-                ])
-                .unwrap())
-        )
-        .unwrap()
+    assert_eq!(
+        ConversionContext::new(&mut vm, &loaded)
+            .unwrap()
+            .decode::<(u64, bool, u64, bool)>(&report.return_value)
+            .unwrap(),
+        (1, true, 1, true),
     );
 }
 
 #[test]
 fn standard_vec_mutation_updates_shared_sequence_handles() {
-    let (runtime, loaded) = load_test_module(
-        r#"
-fn main() -> u64 {
-    val values = Vec::from([1, 2]);
-    val alias = values;
-    values.push(3);
-    alias.len()
-}
-"#,
-    );
+    let (runtime, loaded) = load_test_module(include_str!(
+        "../../../tests/fixtures/execution/vec-alias.kgr"
+    ));
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = runtime;
@@ -112,31 +89,16 @@ fn main() -> u64 {
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
 
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::U64(3)
-    );
+    assert_eq!(report.return_value.as_u64(), Some(3));
 }
 
 #[test]
 fn struct_field_updates_mutate_shared_struct_handle_in_place() {
     let (runtime, loaded) = load_bytecode_program(
         "test.kgr",
-        compile_test_bytecode(
-            r#"
-struct Point { var x: i32 }
-
-fn main() -> i32 {
-    val point = Point { x: 1 };
-    val alias = point;
-    set_field(point, "x", 9);
-    alias.x
-}
-"#,
-        ),
+        compile_test_bytecode(include_str!(
+            "../../../tests/fixtures/execution/struct-alias.kgr"
+        )),
     );
     let program = loaded;
     let loaded = runtime.select_program(&program).unwrap();
@@ -145,11 +107,5 @@ fn main() -> i32 {
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
 
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(9)
-    );
+    assert_eq!(report.return_value.as_i32(), Some(9));
 }

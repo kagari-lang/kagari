@@ -3,7 +3,6 @@ use kagari::engine::{KagariEngine, source::ArtifactOptions};
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_runtime::{
     Runtime, module::VerifiedProgram, module::entry::ProgramEntry, native::module::NativeModule,
-    value::Value,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_stdlib as standard;
@@ -174,14 +173,13 @@ fn main() {
         Arc::ptr_eq(&first.bytecode, &second.bytecode)
     );
     let mut vm = first_runtime;
-    assert!(matches!(
+    assert_eq!(
         vm.execute_module(&first, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(31)
-    ));
+            .as_i32(),
+        Some(31)
+    );
     black_box((vm, second_runtime, first, second));
 }
 

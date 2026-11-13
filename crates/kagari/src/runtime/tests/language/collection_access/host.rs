@@ -1,10 +1,10 @@
 use crate::{BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_common::identity::map::DefinitionContext;
 use kagari_runtime::{
-    host::HostCallContext,
+    host::HostError,
     module::entry::ProgramEntry,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
-    value::Value,
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, host, types::Type},
+    value::carriers::RootedValue,
 };
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
@@ -32,18 +32,23 @@ fn host_results_preserve_builtin_array_shape_through_artifacts_and_binding_check
             ))
             .unwrap();
         builder
-            .bind(values, |context: &mut HostCallContext<'_>, _: &[Value]| {
-                Ok(Value::Array(
-                    context
-                        .runtime()
+            .bind(
+                values,
+                host::callback(|context, _| {
+                    let owner = context.runtime().execution_root().unwrap();
+                    let root = context
+                        .runtime_mut()
                         .alloc_array(
-                            &context.runtime().execution_root().unwrap(),
+                            &owner,
                             Ty::Builtin(BuiltinType::I32),
-                            vec![Value::I32(40)],
+                            &[RootedValue::from(40_i32)],
                         )
-                        .unwrap(),
-                ))
-            })
+                        .unwrap();
+                    context
+                        .import(&root)
+                        .map_err(|error| HostError::new(error.to_string()))
+                }),
+            )
             .unwrap();
         builder.finish().unwrap()
     };
@@ -92,9 +97,9 @@ fn host_results_preserve_builtin_array_shape_through_artifacts_and_binding_check
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
     let changed = module(Type::tuple([Type::i32()]).unwrap());
     let changed = KagariEngine::with_native_modules(

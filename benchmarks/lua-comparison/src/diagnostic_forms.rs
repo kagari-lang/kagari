@@ -168,11 +168,10 @@ pub(super) fn run() {
                 })
                 .sum();
             diagnostics::measure(
-                &runtime,
+                &mut runtime,
                 &loaded,
                 &context,
                 format!("{entry}_{n}").as_str().into(),
-                &[],
                 expected,
             );
         }

@@ -7,14 +7,14 @@ use crate::{
 };
 
 use crate::{
-    module::entry::ProgramEntry,
     native::{
         binding::NativeResult, builder::ModuleBuilder, declarations::FunctionDecl,
         typed::NativeContext,
     },
     session::ExecutionOptions,
-    value::Value,
+    value::carriers::RootedValue,
 };
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::{
     num::NonZeroUsize,
     sync::{
@@ -24,25 +24,7 @@ use std::{
 };
 
 #[test]
-fn resumed_frames_select_current_direct_recursive_shared_and_module_calls() {
-    let source = |base, step, local, remote, shared| {
-        format!(
-            r#"
-        mod dependency {{ pub fn value() -> i32 {{ {remote} }} }}
-        fn local() -> i32 {{ {local} }}
-        fn shared<T>(value: T, delta: i32) -> i32 {{ delta + {shared} }}
-        fn recursive(n: i32) -> i32 {{
-            example::steps::step();
-            if n == 0 {{ 2 }} else {{ {step} + recursive(n - 1) }}
-        }}
-        fn main() -> i32 {{
-            val kept = {base};
-            val result = recursive(2);
-            kept + result + local() + dependency::value() + shared(0, 4)
-        }}
-        "#
-        )
-    };
+fn submitted_arguments_and_resumed_frames_preserve_retained_and_current_calls() {
     let effects = Arc::new(AtomicUsize::new(0));
     let observed = effects.clone();
     let mut runtime = test_runtime(Default::default());
@@ -62,14 +44,39 @@ fn resumed_frames_select_current_direct_recursive_shared_and_module_calls() {
     let program = load_bytecode(
         &mut runtime,
         "current-calls",
-        compile_with_provider(&source(100, 10, 1, 1, 1), Some(&module)),
+        compile_with_provider(
+            include_str!("../../tests/fixtures/owned/submitted-calls.kgr"),
+            Some(&module),
+        ),
     )
     .unwrap();
     let old = runtime.select_program(&program).unwrap();
     let mut vm = runtime;
-    let execution = vm
-        .start(&old, ProgramEntry::Main, &[], ExecutionOptions::default())
+    let argument = vm
+        .alloc_array(
+            &old,
+            Ty::Builtin(BuiltinType::I32),
+            &[RootedValue::from(0i32)],
+        )
         .unwrap();
+    let roots = vm.gc_stats().root_registrations;
+    let execution = vm
+        .start(
+            &old,
+            "run",
+            std::slice::from_ref(&argument),
+            ExecutionOptions::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        roots,
+        "submission copies into execution storage without another Host root"
+    );
+    drop(argument);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().root_registrations + 1, roots);
+
     let slice = NonZeroUsize::new(1).unwrap();
     for _ in 0..100 {
         assert!(matches!(
@@ -89,7 +96,10 @@ fn resumed_frames_select_current_direct_recursive_shared_and_module_calls() {
         &mut vm,
         &program,
         None,
-        compile_with_provider(&source(1000, 20, 4, 3, 2), Some(&module)),
+        compile_with_provider(
+            include_str!("../../tests/fixtures/owned/submitted-calls-next.kgr"),
+            Some(&module),
+        ),
     )
     .unwrap();
     vm.collect_garbage().unwrap();
@@ -99,7 +109,7 @@ fn resumed_frames_select_current_direct_recursive_shared_and_module_calls() {
             DriveResult::Runnable => {}
             DriveResult::Waiting => panic!("synchronous calls cannot wait"),
             DriveResult::Complete(value) => {
-                result = value.unwrap().value(vm.gc());
+                result = value.unwrap().as_i32();
                 break;
             }
         }
@@ -107,7 +117,7 @@ fn resumed_frames_select_current_direct_recursive_shared_and_module_calls() {
     }
     // Both suspended bodies keep their state: 100 + (10 + 20 + 2).
     // Their subsequent ordinary calls use the new local/module/shared bodies.
-    assert_eq!(result, Some(Value::I32(145)));
+    assert_eq!(result, Some(145));
     assert_eq!(
         effects.load(Ordering::Relaxed),
         3,

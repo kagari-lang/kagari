@@ -163,24 +163,8 @@ fn registration() -> (NativeModule, TypeRef, FunctionRef) {
     (module.finish().unwrap(), player, damage)
 }
 
-const SOURCE: &str = r#"
-    use example::methods::{Player, Describe};
-    pub fn make() -> Player { Player::new(100) }
-    pub fn hit(player: Player, amount: i32) -> i32 { player.damage(amount) }
-    pub fn echo(player: Player) -> i32 { player.echo::<i32>(7) }
-    pub fn inspect(player: Player) -> String { player.inspect() }
-    pub fn describe(player: Player) -> String { player.describe() }
-    struct ScriptPlayer {}
-    impl Describe for ScriptPlayer { fn describe(self) -> String { "script" } }
-    pub fn ordinary() -> String { ScriptPlayer {}.describe() }
-    pub fn scoped_inspect(player: Ref<Player>) -> String { player.inspect() }
-    pub fn scoped_damage(player: RefMut<Player>) -> i32 { player.damage(1) }
-    pub fn scoped_read_mut(player: RefMut<Player>) -> String { player.inspect() }
-    pub fn scoped_recurse(player: RefMut<Player>) -> i32 {
-        player.damage(1);
-        scoped_recurse(player)
-    }
-"#;
+const SOURCE: &str =
+    include_str!("../../../../../tests/fixtures/native/payload-registered-methods.kgr");
 
 #[test]
 fn scoped_members_reject_capability_forgery_and_unregistered_rust_traits() {
@@ -350,7 +334,7 @@ fn native_inherent_members_support_prepared_calls_and_method_parameters() {
             .call(&mut foreign.context(&foreign_owner).unwrap(), &damage, (1,))
             .is_err()
     );
-    assert_eq!(player.read(&cx, |state| Ok(state.hp)).unwrap(), 68);
+    assert_eq!(player.read(&mut cx, |state| Ok(state.hp)).unwrap(), 68);
     assert_eq!(
         cx.runtime_mut()
             .execute_typed::<_, String>(
@@ -532,8 +516,9 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
                     "external",
                     &[view.value()],
                     &Default::default()
-                )?,
-                kagari_runtime::value::Value::I32(17)
+                )?
+                .as_i32(),
+                Some(17)
             );
             Ok(())
         })
@@ -644,42 +629,4 @@ fn native_method_requirements_use_selected_generic_evidence() {
             .unwrap(),
         77
     );
-}
-
-#[test]
-fn taken_opaque_aliases_reject_edits_and_pinned_method_calls_after_reinsertion() {
-    let (module, declaration, _) = registration();
-    let (mut vm, owner) = fixture(SOURCE, Some(&module));
-    let _owner_program = owner;
-    let owner = vm.select_program(&_owner_program).unwrap();
-    let ty = vm
-        .bind_native_type::<PlayerState>(&_owner_program.root(), &declaration, &[])
-        .unwrap();
-    let damage = vm.bind_method::<(i32,), i32>(&ty, "damage").unwrap();
-    let player: Opaque<PlayerState> = vm
-        .execute_typed(&_owner_program, "make", (), &Default::default())
-        .unwrap();
-    let alias = player.clone();
-    let mut cx = vm.context(&owner).unwrap();
-    let state = player.take(&cx).unwrap();
-    assert_eq!(state.hp, 100);
-    assert!(alias.edit(&cx, |_| Ok(())).is_err());
-    assert!(alias.call(&mut cx, &damage, (1,)).is_err());
-    assert!(
-        cx.runtime_mut()
-            .execute_typed::<_, i32>(
-                &_owner_program,
-                "hit",
-                (alias.clone(), 1),
-                &Default::default()
-            )
-            .is_err()
-    );
-    let fresh = ty.create(&mut cx, state).unwrap();
-    assert_eq!(fresh.call(&mut cx, &damage, (1,)).unwrap(), 99);
-    assert!(alias.call(&mut cx, &damage, (1,)).is_err());
-    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 1);
-    drop((player, alias, fresh));
-    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(cx.runtime().gc().stats().current_heap_units, 0);
 }

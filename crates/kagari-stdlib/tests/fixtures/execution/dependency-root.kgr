@@ -1,0 +1,5 @@
+use pkg::dependency::answer;
+
+fn main() -> i32 {
+    answer()
+}

@@ -7,11 +7,16 @@ use kagari_bytecode::{
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::reload::ReloadValidationError;
-use kagari_runtime::{module::ModuleEpochRetention, session::TraceValue};
+use kagari_runtime::{
+    error::RuntimeErrorKind,
+    execution::owned::DriveResult,
+    module::{ModuleEpochRetention, retention::RetentionOrigin},
+    session::TraceValue,
+};
 use kagari_stdlib as stdlib;
 
 use crate::program::Program;
-use std::collections::HashSet;
+use std::num::NonZeroUsize;
 
 #[test]
 fn unused_dependency_body_errors_prevent_compilation_with_owned_locations() {
@@ -64,13 +69,7 @@ fn execution_report_records_code_inputs_and_ordered_host_results() {
         let report = runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap();
-        assert_eq!(
-            report
-                .return_value
-                .value(runtime.gc())
-                .expect("retained execution result"),
-            Value::I32(42)
-        );
+        assert_eq!(report.return_value.as_i32().unwrap(), 42);
         let trace = report.trace.unwrap();
         assert_eq!(
             trace.code_fingerprint,
@@ -142,9 +141,9 @@ fn dependency_bindings_are_checked_before_execution() {
             )
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
     assert!(calls.lock().unwrap().is_empty());
 }
@@ -196,9 +195,9 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
                 .execute(&active, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+                .as_i32()
+                .unwrap(),
+            42
         );
         // Rejection leaves the baseline active, so a valid reload can still publish.
         runtime
@@ -247,16 +246,32 @@ fn selected_program_bodies_call_current_dependencies_and_reject_stale_reload() {
         })
         .unwrap();
     let retention = runtime
-        .retain_module(&dependency, ModuleEpochRetention::ActiveCall)
+        .retain_module(
+            &dependency,
+            ModuleEpochRetention::ActiveCall,
+            RetentionOrigin::Current,
+        )
         .unwrap();
     let stale = runtime
         .stage_reload_verified_program(&old, None, second.program().bytecode().clone())
         .unwrap();
-    let staged_members: HashSet<_> = stale
+    let staged_members: Vec<_> = stale
         .module()
         .members()
         .map(|module| module.key())
         .collect();
+    let queued = (0..2)
+        .map(|_| {
+            runtime
+                .start(
+                    &_selected_old,
+                    ProgramEntry::Main,
+                    &[],
+                    context.runtime_options(),
+                )
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
     runtime
         .program(&old)
         .map_err(ReloadValidationError::Runtime)
@@ -264,52 +279,62 @@ fn selected_program_bodies_call_current_dependencies_and_reject_stale_reload() {
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let new = old.clone();
-    assert!(
-        runtime
-            .collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .is_empty()
-    );
+    runtime.collect_garbage().unwrap();
+    for member in _selected_old.members() {
+        runtime.validate_executable_module(&member).unwrap();
+    }
     let selected_new = runtime.select_program(&new).unwrap();
-    for (module, value) in [(&_selected_old, 2), (&selected_new, 2), (&_selected_old, 2)] {
-        let mut _session = runtime
-            .begin_execution(module, context.runtime_options())
-            .unwrap();
-        let _session_options = _session.runtime().execution_options();
+    for execution in queued {
+        let DriveResult::Complete(result) = runtime
+            .drive(&execution, NonZeroUsize::new(1024).unwrap())
+            .unwrap()
+        else {
+            panic!("queued scalar body must complete");
+        };
         assert_eq!(
-            _session
-                .runtime_mut()
-                .execute_module(module, ProgramEntry::Main, _session_options.clone())
-                .unwrap()
-                .return_value
-                .value(_session.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(value)
+            result.unwrap().as_i32(),
+            Some(2),
+            "admitted old body calls the current dependency"
         );
     }
+    assert_eq!(
+        runtime
+            .execute_module(&selected_new, ProgramEntry::Main, context.runtime_options())
+            .unwrap()
+            .return_value
+            .as_i32(),
+        Some(2)
+    );
+    let before_retirement = runtime.modules().loaded_count();
+    let old_members = _selected_old.members().count();
     assert!(runtime.publish_staged_reload(stale).is_err());
     drop(retention);
-    let collected: HashSet<_> = runtime
-        .collect_garbage()
-        .unwrap()
-        .reclaimed_modules
-        .into_iter()
-        .collect();
-    let old_members: HashSet<_> = _selected_old
-        .members()
-        .map(|module| module.key())
-        .chain(staged_members)
-        .collect();
-    assert_eq!(collected, old_members);
+    runtime.collect_garbage().unwrap();
+    for member in _selected_old.members() {
+        assert_eq!(
+            runtime
+                .validate_executable_module(&member)
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::StaleHandle
+        );
+        assert!(runtime.modules().loaded(member.key()).is_none());
+    }
+    for key in &staged_members {
+        assert!(runtime.modules().loaded(*key).is_none());
+    }
+    assert_eq!(
+        runtime.modules().loaded_count(),
+        before_retirement - old_members - staged_members.len()
+    );
     assert_eq!(
         runtime
             .execute(&new, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(2)
+            .as_i32()
+            .unwrap(),
+        2
     );
 }
 

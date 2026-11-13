@@ -620,7 +620,10 @@ A bytecode Await stores the continuation destination in the session and advances
 the PC once. A pending poll requires a fresh safety proof of post-poll state before
 parking: an earlier admission check cannot authorize state changed by polling.
 Waiting commit neither sets nor clears readiness, so an already racing completion/
-cancellation wake remains durable. Missing or non-suspendable pending state is an
+cancellation wake remains durable. Its closed safety proof checks Runtime health and
+already admitted termination, without consuming a newly signaled cancellation.
+The next driver activation observes that cancellation before execution or accepting
+a result. Missing or non-suspendable pending state is an
 error, with the activation retained for diagnostics and cleanup. Subsequent driver
 activations poll the existing operation, never claim the Future or submit again.
 Successful conversion writes the checked destination and resumes at the saved PC.

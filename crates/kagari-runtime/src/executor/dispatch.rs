@@ -1,21 +1,11 @@
 use crate::{
     error::{RuntimeError, fault::EngineFault, trap::TrapReason},
     executor::Interpreter,
-    frame::transfer::ReturnValue,
+    frame::{paths::PathAction, transfer::ReturnValue},
     host::HostPathDescriptorId,
-    numeric,
-    range::RangeValue,
-    value::Value,
 };
 
-use kagari_bytecode::instruction::{
-    BytecodeInstruction, CallTarget, ConstructionTarget as BytecodeConstruction, PathId,
-    RuntimeHelper, ScalarOperand, Slot,
-};
-use kagari_contract::standard::RuntimePrimitive;
-
-use kagari_types::ty::Ty;
-use std::{ops::Bound, slice};
+use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget, PathId, ScalarOperand, Slot};
 
 pub(super) enum InstructionProgress {
     Continue,
@@ -24,59 +14,16 @@ pub(super) enum InstructionProgress {
 }
 
 impl<'a> Interpreter<'a> {
-    fn dispatch_range_bound(
-        &mut self,
-        value: Value,
-        range: &Ty,
-        bound: &Ty,
-        upper: bool,
-        dst: Option<Slot>,
-    ) -> Result<(), RuntimeError> {
-        let Value::Range(value) = value else {
-            return Err(RuntimeError::from(TrapReason::Provider(
-                ("invalid range value").into(),
-            )));
-        };
-        let value =
-            self.runtime
-                .gc()
-                .range(value)
-                .ok_or(RuntimeError::from(TrapReason::Provider(
-                    ("invalid range value").into(),
-                )))?;
-        let owner = self.current_frame()?.loaded().clone();
-        let (member, fields) = match value.bound(owner.definitions(), range, bound, upper)? {
-            Bound::Included(value) => ("Included", vec![value]),
-            Bound::Excluded(value) => ("Excluded", vec![value]),
-            Bound::Unbounded => ("Unbounded", vec![]),
-        };
-        let applied = self
-            .runtime
-            .resolve_type_arguments(&owner, slice::from_ref(bound))?
-            .pop()
-            .ok_or(RuntimeError::from(TrapReason::Provider(
-                ("range bound type scope").into(),
-            )))?;
-        let result = self
-            .runtime
-            .make_enum_member(&owner, &applied, member, fields)?;
-        if let Some(dst) = dst {
-            self.current_frame_mut()?
-                .write_slot(self.runtime, dst, result)?;
-        }
-        Ok(())
-    }
-
     pub(super) fn dispatch_instruction(
         &mut self,
         instruction: &BytecodeInstruction,
     ) -> Result<InstructionProgress, RuntimeError> {
         match *instruction {
             BytecodeInstruction::Unary { dst, op, operand } => {
-                let value = self.current_frame()?.read_slot(self.runtime, operand)?;
-                let value = Self::apply_unary(op, value)?;
-                self.current_frame_mut()?
-                    .write_slot(self.runtime, dst, value)?;
+                self.stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .apply_scalar_unary(self.runtime, dst, op, operand)?;
             }
             BytecodeInstruction::PredicateBranch {
                 op,
@@ -86,37 +33,32 @@ impl<'a> Interpreter<'a> {
                 then_target,
                 else_target,
             } => {
-                let lhs = self.current_frame()?.read_slot(self.runtime, lhs)?;
-                let rhs = self.current_frame()?.read_slot(self.runtime, rhs)?;
-                let Value::Bool(value) = self.apply_binary(op, lhs, rhs)? else {
-                    return Err(RuntimeError::from(TrapReason::Provider(
-                        ("predicate result must be bool").into(),
-                    )));
-                };
-                let target = if value != negated {
-                    then_target
-                } else {
-                    else_target
-                };
-                self.current_frame_mut()?
-                    .jump_to(self.runtime, target.index())?;
+                self.stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .branch_scalar_predicate(
+                        self.runtime,
+                        op,
+                        [lhs, rhs],
+                        negated,
+                        (then_target.index(), else_target.index()),
+                    )?;
             }
             BytecodeInstruction::Binary { dst, op, lhs, rhs } => {
-                let lhs = self.current_frame()?.read_slot(self.runtime, lhs)?;
-                let rhs = self.current_frame()?.read_slot(self.runtime, rhs)?;
-                let value = self.apply_binary(op, lhs, rhs)?;
-                self.current_frame_mut()?
-                    .write_slot(self.runtime, dst, value)?;
+                self.stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .apply_scalar_binary(self.runtime, dst, op, lhs, rhs)?;
             }
             BytecodeInstruction::Convert {
                 dst,
                 src,
                 conversion,
             } => {
-                let value = self.current_frame()?.read_slot(self.runtime, src)?;
-                let value = numeric::convert(conversion, value)?;
-                self.current_frame_mut()?
-                    .write_slot(self.runtime, dst, value)?;
+                self.stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .convert_scalar(self.runtime, dst, conversion, src)?;
             }
             BytecodeInstruction::Numeric {
                 dst,
@@ -124,43 +66,39 @@ impl<'a> Interpreter<'a> {
                 lhs,
                 rhs,
             } => {
-                let lhs = self.current_frame()?.read_slot(self.runtime, lhs)?;
-                let rhs = rhs
-                    .map(|r| self.current_frame()?.read_slot(self.runtime, r))
-                    .transpose()?;
-                let value = numeric::fixed_integer(operation, lhs, rhs)?;
-                self.current_frame_mut()?
-                    .write_slot(self.runtime, dst, value)?;
+                self.stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .apply_numeric(self.runtime, dst, operation, lhs, rhs)?;
             }
 
             BytecodeInstruction::TestEnumVariant { dst, value, .. } => {
-                let result = self.test_enum_variant(value)?;
-                self.current_frame_mut()?
-                    .write_slot(self.runtime, dst, result)?;
+                self.stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .test_enum_variant(self.runtime, dst, value)?;
             }
             BytecodeInstruction::ReadEnumPayload {
                 dst, value, index, ..
             } => {
-                let result = self.read_enum_payload(value, index)?;
-                self.current_frame_mut()?
-                    .write_slot(self.runtime, dst, result)?;
+                self.stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .read_enum_payload(self.runtime, dst, value, index)?;
             }
             BytecodeInstruction::LoadModule { dst, slot } => {
-                if !self.stack().ensure_static_ready(self.runtime, slot)? {
+                let stack = self.stack.as_ref().expect("active interpreter");
+                if !stack.ensure_static_ready(self.runtime, slot)? {
                     return Ok(InstructionProgress::Continue);
                 }
-                let loaded = self.current_loaded()?;
-                let value = self.runtime.read_module_slot(&loaded, slot)?;
-                self.current_frame_mut()?
-                    .write_slot(self.runtime, dst, value)?;
+                stack.load_module_slot(self.runtime, dst, slot)?;
             }
             BytecodeInstruction::StoreModule { slot, src } => {
-                if !self.stack().ensure_static_ready(self.runtime, slot)? {
+                let stack = self.stack.as_ref().expect("active interpreter");
+                if !stack.ensure_static_ready(self.runtime, slot)? {
                     return Ok(InstructionProgress::Continue);
                 }
-                let value = self.current_frame()?.read_slot(self.runtime, src)?;
-                let loaded = self.current_loaded()?;
-                self.runtime.write_module_slot(&loaded, slot, value)?;
+                stack.store_module_slot(self.runtime, slot, src)?;
             }
             BytecodeInstruction::Call {
                 dst,
@@ -175,9 +113,10 @@ impl<'a> Interpreter<'a> {
                 )));
             }
             BytecodeInstruction::MakeTuple { dst, ref elements } => {
-                let value = self.make_tuple(elements)?;
-                self.current_frame_mut()?
-                    .write_slot(self.runtime, dst, value)?;
+                self.stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .make_tuple(self.runtime, dst, elements)?;
             }
             BytecodeInstruction::RangeBound {
                 dst,
@@ -186,8 +125,10 @@ impl<'a> Interpreter<'a> {
                 ref bound,
                 upper,
             } => {
-                let value = self.current_frame()?.read_slot(self.runtime, value)?;
-                self.dispatch_range_bound(value, range, bound, upper, Some(dst))?;
+                self.stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .range_bound(self.runtime, dst, value, range, bound, upper)?;
             }
             BytecodeInstruction::MakeRange {
                 dst,
@@ -195,16 +136,10 @@ impl<'a> Interpreter<'a> {
                 end,
                 ref ty,
             } => {
-                let frame = self.current_frame()?;
-                let start = start
-                    .map(|r| frame.read_slot(self.runtime, r))
-                    .transpose()?;
-                let end = end.map(|r| frame.read_slot(self.runtime, r)).transpose()?;
-                drop(frame);
-                let value = RangeValue::new(ty, start.as_ref(), end.as_ref())?;
-                let value = self.runtime.gc().alloc_range(value)?;
-                self.current_frame_mut()?
-                    .write_slot(self.runtime, dst, value)?;
+                self.stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .make_range(self.runtime, dst, ty, start, end)?;
             }
             BytecodeInstruction::RepeatArray {
                 dst,
@@ -212,30 +147,20 @@ impl<'a> Interpreter<'a> {
                 count,
                 ref element,
             } => {
-                let value = self.current_frame()?.read_slot(self.runtime, value)?;
-                let Value::U64(count) = self.current_frame()?.read_slot(self.runtime, count)?
-                else {
-                    return Err(RuntimeError::from(TrapReason::Provider(
-                        ("invalid repeat array count").into(),
-                    )));
-                };
-                let array = self.current_frame()?.alloc_array_repeat(
-                    self.runtime,
-                    element,
-                    value,
-                    count,
-                )?;
-                self.current_frame_mut()?
-                    .write_slot(self.runtime, dst, Value::Array(array))?;
+                self.stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .repeat_array(self.runtime, dst, element, value, count)?;
             }
             BytecodeInstruction::MakeArray {
                 dst,
                 ref elements,
                 ref element,
             } => {
-                let value = self.make_array(element, elements)?;
-                self.current_frame_mut()?
-                    .write_slot(self.runtime, dst, value)?;
+                self.stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .make_array(self.runtime, dst, element, elements)?;
             }
             BytecodeInstruction::MakeFuture {
                 dst,
@@ -243,46 +168,40 @@ impl<'a> Interpreter<'a> {
                 ref arguments,
                 ref future,
             } => {
-                let values = self.read_path_args(arguments)?;
-                let value = self
-                    .stack()
-                    .make_future(self.runtime, function, values, future)?;
-                self.current_frame_mut()?
-                    .write_slot(self.runtime, dst, value)?;
+                self.stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .make_future(self.runtime, function, arguments, dst, future)?;
             }
             BytecodeInstruction::MakeClosure {
                 dst,
                 function,
                 ref captures,
             } => {
-                let values = self.read_path_args(captures)?;
-                let loaded = self.current_loaded()?;
-                let environment = self.current_frame()?.environment();
-                let closure = self
-                    .runtime
-                    .make_closure(&loaded, function, values, environment)?;
-                self.current_frame_mut()?
-                    .write_slot(self.runtime, dst, closure)?;
+                self.stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .make_closure(self.runtime, function, captures, dst)?;
             }
             BytecodeInstruction::MakeCell { dst, value } => {
-                let ty = self.current_frame()?.slot_type(self.runtime, value)?;
-                let value = self.current_frame()?.read_slot(self.runtime, value)?;
-                let cell = self.runtime.make_capture_cell(ty, value)?;
-                self.current_frame_mut()?
-                    .write_slot(self.runtime, dst, cell)?;
+                self.stack.as_ref().expect("active interpreter").make_cell(
+                    self.runtime,
+                    dst,
+                    value,
+                )?;
             }
             BytecodeInstruction::ReadCell { dst, cell } => {
-                let ty = self.current_frame()?.slot_type(self.runtime, dst)?;
-                let cell = self.current_frame()?.read_slot(self.runtime, cell)?;
-                let value = self.runtime.read_capture_cell(&cell, ty)?;
-                self.current_frame_mut()?
-                    .write_slot(self.runtime, dst, value)?;
+                self.stack.as_ref().expect("active interpreter").read_cell(
+                    self.runtime,
+                    dst,
+                    cell,
+                )?;
             }
             BytecodeInstruction::WriteCell { cell, value } => {
-                let ty = self.current_frame()?.slot_type(self.runtime, value)?;
-                let cell = self.current_frame()?.read_slot(self.runtime, cell)?;
-                let value = self.current_frame()?.read_slot(self.runtime, value)?;
-                self.runtime.write_capture_cell(&cell, ty, value)?;
+                self.stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .write_cell(self.runtime, cell, value)?;
             }
             BytecodeInstruction::UpcastInterface { .. } => {
                 return Err(self.runtime.quarantine_execution_invariant(
@@ -292,69 +211,29 @@ impl<'a> Interpreter<'a> {
             BytecodeInstruction::MakeInterface {
                 dst,
                 value,
-                target: BytecodeConstruction::Bound(ref required),
+                ref target,
             } => {
-                let frame = self.current_frame()?;
-                let receiver = frame.read_slot(self.runtime, value)?;
-                let environment =
-                    frame
-                        .environment()
-                        .ok_or(RuntimeError::from(EngineFault::HostInvariant(
-                            "missing construction environment",
-                        )))?;
-                let owner = frame.loaded().clone();
-                drop(frame);
-                let interface =
-                    self.runtime
-                        .make_bound_interface(&owner, &environment, required, receiver)?;
-                self.current_frame_mut()?
-                    .write_slot(self.runtime, dst, interface)?;
-            }
-            BytecodeInstruction::MakeInterface {
-                dst,
-                value,
-                target:
-                    BytecodeConstruction::Declared {
-                        module,
-                        implementation,
-                        ref arguments,
-                        ..
-                    },
-            } => {
-                let receiver = self.current_frame()?.read_slot(self.runtime, value)?;
-                let arguments = self
-                    .current_frame()?
-                    .type_arguments(self.runtime, arguments)?;
-                let loaded = self
-                    .current_loaded()?
-                    .member(module)
-                    .ok_or(RuntimeError::from(EngineFault::HostInvariant(
-                        "invalid interface module slot",
-                    )))?;
-                let environment = self.current_frame()?.environment();
-                let interface = self.runtime.make_interface_applied(
-                    &loaded,
-                    implementation.index(),
-                    &arguments,
-                    environment.as_ref(),
-                    receiver,
-                )?;
-                self.current_frame_mut()?
-                    .write_slot(self.runtime, dst, interface)?;
+                self.stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .make_interface(self.runtime, dst, value, target)?;
             }
             BytecodeInstruction::MakeEnum {
                 dst, ref fields, ..
             } => {
-                let value = self.make_enum(fields)?;
-                self.current_frame_mut()?
-                    .write_slot(self.runtime, dst, value)?;
+                self.stack.as_ref().expect("active interpreter").make_enum(
+                    self.runtime,
+                    dst,
+                    fields,
+                )?;
             }
             BytecodeInstruction::MakeStruct {
                 dst, ref fields, ..
             } => {
-                let value = self.make_struct(fields)?;
-                self.current_frame_mut()?
-                    .write_slot(self.runtime, dst, value)?;
+                self.stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .make_struct(self.runtime, dst, fields)?;
             }
             BytecodeInstruction::ReadPath {
                 dst,
@@ -362,17 +241,17 @@ impl<'a> Interpreter<'a> {
                 path,
                 ref dynamic_args,
             } => {
-                let root_or_view = self
-                    .current_frame()?
-                    .read_slot(self.runtime, root_or_view)?;
-                let dynamic_args = self.read_path_args(dynamic_args)?;
-                let value = self.runtime.read_host_path(
-                    &root_or_view,
-                    self.descriptor_id(path)?,
-                    dynamic_args,
-                )?;
-                self.current_frame_mut()?
-                    .write_slot(self.runtime, dst, value)?;
+                let descriptor = self.descriptor_id(path)?;
+                self.stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .access_host_path(
+                        self.runtime,
+                        descriptor,
+                        root_or_view,
+                        dynamic_args,
+                        PathAction::Read(dst),
+                    )?;
             }
             BytecodeInstruction::SetPath {
                 root_or_view,
@@ -380,17 +259,17 @@ impl<'a> Interpreter<'a> {
                 ref dynamic_args,
                 value,
             } => {
-                let root_or_view = self
-                    .current_frame()?
-                    .read_slot(self.runtime, root_or_view)?;
-                let dynamic_args = self.read_path_args(dynamic_args)?;
-                let value = self.current_frame()?.read_slot(self.runtime, value)?;
-                self.runtime.set_host_path(
-                    &root_or_view,
-                    self.descriptor_id(path)?,
-                    dynamic_args,
-                    value,
-                )?;
+                let descriptor = self.descriptor_id(path)?;
+                self.stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .access_host_path(
+                        self.runtime,
+                        descriptor,
+                        root_or_view,
+                        dynamic_args,
+                        PathAction::Set(value),
+                    )?;
             }
             BytecodeInstruction::ModifyPath {
                 dst,
@@ -400,22 +279,21 @@ impl<'a> Interpreter<'a> {
                 op,
                 value,
             } => {
-                let root_or_view = self
-                    .current_frame()?
-                    .read_slot(self.runtime, root_or_view)?;
-                let dynamic_args = self.read_path_args(dynamic_args)?;
-                let value = self.current_frame()?.read_slot(self.runtime, value)?;
-                let value = self.runtime.modify_host_path(
-                    &root_or_view,
-                    self.descriptor_id(path)?,
-                    dynamic_args,
-                    op,
-                    value,
-                )?;
-                if let Some(dst) = dst {
-                    self.current_frame_mut()?
-                        .write_slot(self.runtime, dst, value)?;
-                }
+                let descriptor = self.descriptor_id(path)?;
+                self.stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .access_host_path(
+                        self.runtime,
+                        descriptor,
+                        root_or_view,
+                        dynamic_args,
+                        PathAction::Modify {
+                            destination: dst,
+                            operation: op,
+                            value,
+                        },
+                    )?;
             }
             BytecodeInstruction::MakePathView {
                 dst,
@@ -423,25 +301,23 @@ impl<'a> Interpreter<'a> {
                 path,
                 ref dynamic_args,
             } => {
-                let root_or_view = self
-                    .current_frame()?
-                    .read_slot(self.runtime, root_or_view)?;
-                let dynamic_args = self.read_path_args(dynamic_args)?;
-                let view = self.runtime.make_host_path_view_from_value(
-                    &root_or_view,
-                    self.descriptor_id(path)?,
-                    dynamic_args,
-                )?;
-                let value = self.runtime.gc().alloc_host_path(view)?;
-                self.current_frame_mut()?
-                    .write_slot(self.runtime, dst, value)?;
+                let descriptor = self.descriptor_id(path)?;
+                self.stack
+                    .as_ref()
+                    .expect("active interpreter")
+                    .access_host_path(
+                        self.runtime,
+                        descriptor,
+                        root_or_view,
+                        dynamic_args,
+                        PathAction::MakeView(dst),
+                    )?;
             }
             BytecodeInstruction::Await {
                 dst,
                 value,
                 ref future,
             } => {
-                let value = self.current_frame()?.read_slot(self.runtime, value)?;
                 self.stack
                     .as_ref()
                     .expect("active interpreter")
@@ -468,12 +344,6 @@ impl<'a> Interpreter<'a> {
         Ok(InstructionProgress::Continue)
     }
 
-    fn read_path_args(&self, args: &[Slot]) -> Result<Vec<Value>, RuntimeError> {
-        args.iter()
-            .map(|arg| self.current_frame()?.read_slot(self.runtime, *arg))
-            .collect()
-    }
-
     fn dispatch_call(
         &mut self,
         dst: Option<Slot>,
@@ -493,118 +363,16 @@ impl<'a> Interpreter<'a> {
                 EngineFault::PreparedCallReachedCanonicalDispatch,
             ));
         }
-        let arg_values = args
-            .iter()
-            .map(|arg| self.current_frame()?.read_slot(self.runtime, *arg))
-            .collect::<Result<Vec<_>, _>>()?;
-
-        match *callee {
-            CallTarget::Native(_)
-            | CallTarget::ModuleFunction { .. }
-            | CallTarget::Function(_)
-            | CallTarget::Shared { .. }
-            | CallTarget::InterfaceMethod { .. }
-            | CallTarget::ClosureRegister { .. } => {
-                unreachable!("prepared calls use frame windows")
-            }
-            CallTarget::Slot(_) => Err(RuntimeError::from(
+        if matches!(callee, CallTarget::Slot(_)) {
+            return Err(RuntimeError::from(
                 EngineFault::VerifiedCallTargetIsUnsupported,
-            )),
-            CallTarget::RuntimePrimitive(intrinsic) => self
-                .dispatch_standard_intrinsic(intrinsic, dst, arg_values)
-                .map(|()| InstructionProgress::Continue),
-            CallTarget::RuntimeHelper(ref helper) => self
-                .dispatch_runtime_helper(helper, dst, arg_values)
-                .map(|()| InstructionProgress::Continue),
+            ));
         }
-    }
-
-    fn dispatch_standard_intrinsic(
-        &mut self,
-        intrinsic: RuntimePrimitive,
-        dst: Option<Slot>,
-        args: Vec<Value>,
-    ) -> Result<(), RuntimeError> {
-        let owner = self.current_loaded()?;
-        let value = self
-            .runtime
-            .invoke_standard_builtin(&owner, intrinsic, &args)
-            .map_err(RuntimeError::from)?;
-        if let Some(dst) = dst {
-            self.current_frame_mut()?
-                .write_slot(self.runtime, dst, value)?;
-        }
-        Ok(())
-    }
-
-    fn dispatch_runtime_helper(
-        &mut self,
-        helper: &RuntimeHelper,
-        dst: Option<Slot>,
-        args: Vec<Value>,
-    ) -> Result<(), RuntimeError> {
-        match helper {
-            RuntimeHelper::ReflectTypeOf => {
-                let Some(value) = args.first() else {
-                    return Err(RuntimeError::from(TrapReason::Provider(
-                        ("reflect_type_of expects one argument").into(),
-                    )));
-                };
-                let reflected = self.runtime.reflect_type_of(value)?;
-                if let Some(dst) = dst {
-                    self.current_frame_mut()?
-                        .write_slot(self.runtime, dst, reflected)?;
-                }
-                Ok(())
-            }
-            RuntimeHelper::ReflectGetField(field_name) => {
-                let Some(base) = args.first() else {
-                    return Err(RuntimeError::from(TrapReason::Provider(
-                        ("reflect_get_field expects struct argument").into(),
-                    )));
-                };
-                let reflected = self.runtime.reflect_get_field(base, field_name)?;
-                if let Some(dst) = dst {
-                    self.current_frame_mut()?
-                        .write_slot(self.runtime, dst, reflected)?;
-                }
-                Ok(())
-            }
-            RuntimeHelper::ReflectSetField(field_name) => {
-                let [base, next_value] = args.as_slice() else {
-                    return Err(RuntimeError::from(TrapReason::Provider(
-                        ("reflect_set_field expects struct and value arguments").into(),
-                    )));
-                };
-                let reflected = self
-                    .runtime
-                    .reflect_set_field(base, field_name, *next_value)?;
-                if let Some(dst) = dst {
-                    self.current_frame_mut()?
-                        .write_slot(self.runtime, dst, reflected)?;
-                }
-                Ok(())
-            }
-            RuntimeHelper::ReflectSetIndex => {
-                let [base, index, next_value] = args.as_slice() else {
-                    return Err(RuntimeError::from(TrapReason::Provider(
-                        ("reflect_set_index expects value, index and next value arguments").into(),
-                    )));
-                };
-                let reflected = self.runtime.reflect_set_index(base, index, *next_value)?;
-                if let Some(dst) = dst {
-                    self.current_frame_mut()?
-                        .write_slot(self.runtime, dst, reflected)?;
-                }
-                Ok(())
-            }
-            RuntimeHelper::DynamicCall => {
-                self.runtime.resources().ensure_execution_allowed()?;
-                Err(RuntimeError::from(EngineFault::HostInvariant(
-                    "runtime_helper_dynamic_call",
-                )))
-            }
-        }
+        self.stack
+            .as_ref()
+            .expect("active interpreter")
+            .invoke_runtime_call(self.runtime, callee, args, dst)?;
+        Ok(InstructionProgress::Continue)
     }
 }
 

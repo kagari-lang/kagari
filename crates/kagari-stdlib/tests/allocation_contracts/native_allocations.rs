@@ -16,12 +16,16 @@ use kagari_runtime::{
         binding::NativeResult,
         builder::ModuleBuilder,
         context::{NativeCall, ScriptCall},
+        conversion::{arguments::ArgumentValues, context::ConversionContext},
         declarations::FunctionDecl,
         module::NativeModule,
         types::Type,
         views::ValueHandle,
     },
-    value::Value,
+    value::{
+        place::{PublishedResult, ResultPlace},
+        view::ValueView,
+    },
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::{catalog as foundation_catalog, declarations::StandardDeclarations};
@@ -74,15 +78,15 @@ fn module() -> NativeModule {
                     cx.argument_type_parameter(0, 0)?.ty(),
                     &Ty::Builtin(BuiltinType::I32)
                 );
-                let Value::Array(id) = values.value(cx)? else {
-                    panic!("checked array")
-                };
+                let values = values.value(cx)?;
+                let len = cx.array_len(&values)?;
                 let mut sum = 0;
-                for index in 0..cx.heap().array_len(id).unwrap() {
-                    let Value::I32(value) = cx.heap().array_get(id, index).unwrap() else {
-                        panic!("checked i32 element")
-                    };
-                    sum += value;
+                for index in 0..len {
+                    sum += cx
+                        .array_element(&values, index)?
+                        .expect("in-bounds array element")
+                        .as_i32()
+                        .expect("checked i32 element");
                 }
                 Ok(sum)
             },
@@ -97,14 +101,7 @@ fn load() -> (Runtime, ExecutableModule) {
     let root = sources
         .set(
             "allocation.kgr",
-            r#"
-        use measure::native::{add, sum};
-        fn scalar(a: i32, b: i32) -> i32 { add(a, b) }
-        fn bulk(values: [i32]) -> i32 { sum(values) }
-        fn script_add(a: i32, b: i32, c: i32) -> i32 { a + b + c }
-        fn script_caller(a: i32, b: i32) -> i32 { script_add(b, a, b) }
-    "#
-            .into(),
+            include_str!("../fixtures/native/allocation-native-boundaries.kgr").into(),
             SourceLayer::Base,
         )
         .unwrap();
@@ -174,12 +171,13 @@ impl CallSite {
     }
 }
 
-fn unexpected_callback(
+fn unexpected_callback<'result>(
     _: &mut Runtime,
     _: &ExecutableModule,
-    _: ScriptCall<'_>,
-    _: &[Value],
-) -> NativeResult<Value> {
+    _: ScriptCall<'_, '_>,
+    _: ArgumentValues<'_>,
+    _: ResultPlace<'result>,
+) -> NativeResult<PublishedResult<'result>> {
     panic!("the measured scalar and bulk entries have no script callbacks")
 }
 
@@ -187,7 +185,7 @@ fn sample(
     runtime: &mut Runtime,
     loaded: &ExecutableModule,
     site: &CallSite,
-    arguments: &[Value],
+    arguments: &[ValueView<'_>],
     calls: usize,
     expected: i32,
 ) -> (Counts, Duration) {
@@ -198,11 +196,7 @@ fn sample(
                 .push(runtime, loaded.slot(), site.function, arguments, None)
                 .unwrap();
             for (register, value) in site.arguments.iter().zip(arguments) {
-                stack
-                    .current_mut(runtime)
-                    .unwrap()
-                    .write_slot(runtime, *register, *value)
-                    .unwrap();
+                stack.write_slot(runtime, *register, value).unwrap();
             }
             let invoke = |runtime: &mut Runtime| {
                 stack
@@ -222,17 +216,17 @@ fn sample(
                         .unwrap(),
                     ExecutionAction::NativeReturn
                 );
-                assert_eq!(
+                assert!(matches!(
                     stack.finish_native_return(runtime).unwrap(),
                     ReturnAction::Continue(ExecutionAction::Script)
-                );
+                ));
             };
             // Warm the boundary and initialize every thread-local/cache outside accounting.
             for _ in 0..128 {
                 invoke(runtime);
             }
-            let roots = runtime.gc().active_roots();
-            let occupancy = runtime.gc().stats().current_heap_units;
+            let roots = runtime.gc_stats().root_registrations;
+            let occupancy = runtime.gc_stats().provider_units;
             let sample = measured(|| {
                 for _ in 0..calls {
                     black_box(&invoke)(runtime);
@@ -243,15 +237,16 @@ fn sample(
                 Counts::default(),
                 "prepared boundary must not allocate or release Rust heap storage"
             );
-            assert_eq!(runtime.gc().active_roots(), roots);
-            assert_eq!(runtime.gc().stats().current_heap_units, occupancy);
+            assert_eq!(runtime.gc_stats().root_registrations, roots);
+            assert_eq!(runtime.gc_stats().provider_units, occupancy);
             assert_eq!(
                 stack
                     .current(runtime)
                     .unwrap()
                     .read_slot(runtime, site.destination.unwrap())
-                    .unwrap(),
-                Value::I32(expected)
+                    .unwrap()
+                    .as_i32(),
+                Some(expected)
             );
             Ok(sample)
         })
@@ -267,7 +262,7 @@ fn warmed_scalar_and_array_read_boundaries_add_no_allocations() {
         &mut runtime,
         &loaded,
         &scalar,
-        &[Value::I32(20), Value::I32(22)],
+        &[ValueView::from(20), ValueView::from(22)],
         100_000,
         42,
     );
@@ -275,21 +270,19 @@ fn warmed_scalar_and_array_read_boundaries_add_no_allocations() {
         "scalar,calls=100000,{counts:?},elapsed_ns={}",
         elapsed.as_nanos()
     );
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     let bulk = CallSite::find(&loaded, "bulk");
     for length in [0, 16, 16_384] {
-        let array = runtime
-            .alloc_array(
-                &loaded,
-                Ty::Builtin(BuiltinType::I32),
-                vec![Value::I32(1); length],
-            )
-            .unwrap();
+        let mut cx = ConversionContext::new(&mut runtime, &loaded).unwrap();
+        let item = cx.type_for::<i32>().unwrap();
+        let values = vec![ValueView::from(1i32); length];
+        let array = cx.allocate_array(&item, &values).unwrap();
         let (counts, elapsed) = sample(
-            &mut runtime,
+            cx.runtime_mut(),
             &loaded,
             &bulk,
-            &[Value::Array(array)],
+            &[array],
             1_000,
             length as i32,
         );
@@ -297,8 +290,13 @@ fn warmed_scalar_and_array_read_boundaries_add_no_allocations() {
             "bulk_i32,elements={length},calls=1000,{counts:?},elapsed_ns={}",
             elapsed.as_nanos()
         );
-        assert_eq!(runtime.gc().active_roots(), 0);
-        assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
+        drop(cx);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(
+            runtime.gc_stats().root_registrations,
+            baseline.root_registrations
+        );
+        assert_eq!(runtime.gc_stats().objects, baseline.objects);
     }
 }
 
@@ -306,6 +304,8 @@ fn warmed_scalar_and_array_read_boundaries_add_no_allocations() {
 fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
     verify_counter();
     let (mut runtime, loaded) = load();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats().root_registrations;
     let caller = loaded
         .bytecode
         .functions
@@ -338,7 +338,7 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
                     runtime,
                     loaded.slot(),
                     caller.id,
-                    &[Value::I32(20), Value::I32(11)],
+                    &[ValueView::from(20), ValueView::from(11)],
                     None,
                 )
                 .unwrap();
@@ -348,14 +348,19 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
                     .unwrap(),
                 RegionExit::Call(ExecutionAction::Script)
             ));
-            for (index, expected) in [11, 20, 11].into_iter().enumerate() {
+            let callee_owner = loaded.member(module).unwrap();
+            let parameters = &callee_owner.bytecode.functions[callee.index()]
+                .metadata
+                .parameter_slots;
+            for (&parameter, expected) in parameters.iter().zip([11, 20, 11]) {
                 assert_eq!(
                     stack
                         .current(runtime)
                         .unwrap()
-                        .read_slot(runtime, Slot::new(index))
-                        .unwrap(),
-                    Value::I32(expected)
+                        .read_slot(runtime, parameter)
+                        .unwrap()
+                        .as_i32(),
+                    Some(expected)
                 );
             }
             let RegionExit::Return(value) = stack
@@ -365,7 +370,11 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
                 panic!("concrete scalar callee must remain in its prepared region");
             };
             stack.finish_return(runtime, value).unwrap();
-            let external = [Value::I32(11), Value::I32(20), Value::I32(11)];
+            let external = [
+                ValueView::from(11),
+                ValueView::from(20),
+                ValueView::from(11),
+            ];
             stack
                 .push(runtime, module, callee, &external, None)
                 .unwrap();
@@ -392,11 +401,7 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
             let (returned, _) = measured(|| {
                 for _ in 0..1000 {
                     for (register, value) in arguments.iter().zip(&external) {
-                        stack
-                            .current_mut(runtime)
-                            .unwrap()
-                            .write_slot(runtime, *register, *value)
-                            .unwrap();
+                        stack.write_slot(runtime, *register, value).unwrap();
                     }
                     enter(runtime);
                     let RegionExit::Return(value) = stack
@@ -405,17 +410,18 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
                     else {
                         panic!("scalar return");
                     };
-                    assert_eq!(
+                    assert!(matches!(
                         stack.finish_return(runtime, value).unwrap(),
                         ReturnAction::Continue(ExecutionAction::Script)
-                    );
+                    ));
                     assert_eq!(
                         stack
                             .current(runtime)
                             .unwrap()
                             .read_slot(runtime, destination.unwrap())
-                            .unwrap(),
-                        Value::I32(42)
+                            .unwrap()
+                            .as_i32(),
+                        Some(42)
                     );
                 }
             });
@@ -449,5 +455,6 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
         })
         .unwrap();
     drop(stack_activation);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, baseline);
 }

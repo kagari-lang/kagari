@@ -33,12 +33,15 @@ use kagari_contract::{
 use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     host::{
-        HostCallContext, HostError, HostObjectId, HostPathAdapter, HostPathDescriptor,
-        HostPathDescriptorId, HostSchemaEpoch, PreparedHostPathWrite,
+        HostError, HostObjectId, HostPathAdapter, HostPathDescriptor, HostPathDescriptorId,
+        HostSchemaEpoch, PreparedHostPathWrite,
     },
     module::entry::ProgramEntry,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, module::NativeModule},
-    value::Value,
+    native::{
+        builder::ModuleBuilder, conversion::context::ConversionContext, declarations::FunctionDecl,
+        host, module::NativeModule,
+    },
+    value::view::ValueView,
 };
 use kagari_stdlib as stdlib;
 
@@ -115,10 +118,10 @@ fn embedding_host_path_module(path_access: PathAccess) -> NativeModule {
                 .unwrap(),
             )
             .unwrap();
-        let mut adapter = HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(10)));
+        let mut adapter = HostPathAdapter::new().with_read(|_, _| Ok(ValueView::from(10_i32)));
         if access == PathAccess::ReadWrite {
             adapter = adapter.with_prepare_write(|_, _, record| {
-                if matches!(record.new_value, Value::I32(_)) {
+                if record.new_value.as_i32().is_some() {
                     Ok(PreparedHostPathWrite::new(|| {}))
                 } else {
                     Err(HostError::new("hp expects i32"))
@@ -141,10 +144,15 @@ fn embedding_host_path_module(path_access: PathAccess) -> NativeModule {
         )
         .unwrap();
     builder
-        .bind(make, |cx: &mut HostCallContext<'_>, _: &[Value]| {
-            let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
-            Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
-        })
+        .bind(
+            make,
+            host::callback(|cx, _| {
+                let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
+                let root = cx.runtime_mut().host_root_value(root).unwrap();
+                cx.import(&root)
+                    .map_err(|error| HostError::new(error.to_string()))
+            }),
+        )
         .unwrap();
     builder.finish().unwrap()
 }
@@ -481,15 +489,14 @@ fn installed_host_path_mutation_uses_declared_access() {
         )
         .expect("module should load");
 
-    assert_eq!(
-        runtime
-            .execute(&loaded, ProgramEntry::Main, &[], &context)
-            .unwrap()
-            .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::Unit
-    );
+    let result = runtime
+        .execute(&loaded, ProgramEntry::Main, &[], &context)
+        .unwrap();
+    let owner = runtime.select_program(&loaded).unwrap();
+    ConversionContext::new(&mut runtime, &owner)
+        .unwrap()
+        .decode::<()>(&result.return_value)
+        .unwrap();
 }
 
 #[test]
@@ -547,8 +554,8 @@ fn installed_host_path_reads_need_no_permission_flags() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(10)
+            .as_i32()
+            .unwrap(),
+        10
     );
 }

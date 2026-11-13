@@ -2,10 +2,16 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::{RuntimeError, fault::EngineFault},
-    frame::{ExecutionFrame, FrameDispatch, FrameEntry, FrameStack, arguments::FrameArguments},
-    module::ExecutableModule,
-    session::{SessionState, store::SessionId},
-    value::Value,
+    execution::roots::SessionId,
+    execution_metadata::managed::sources::MetadataSource,
+    frame::{
+        ExecutionFrame, FrameDispatch, FrameEntry, FrameEnvironment, FrameStack,
+        arguments::FrameArguments,
+    },
+    module::{ExecutableModule, managed::source::RevisionSource},
+    native::conversion::arguments::ArgumentValues,
+    session::SessionState,
+    value::{carriers::RootedValue, view::ValueView},
 };
 use kagari_bytecode::{instruction::Slot, module::CallableTarget, program::ModuleRef};
 use kagari_contract::ids::FunctionRef;
@@ -140,10 +146,10 @@ impl FrameStack {
 
     pub fn push(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         module: ModuleRef,
         function: FunctionRef,
-        args: &[Value],
+        args: &[ValueView<'_>],
         return_dst: Option<Slot>,
     ) -> Result<(), RuntimeError> {
         self.validate_top(runtime)?;
@@ -164,32 +170,52 @@ impl FrameStack {
         };
         let route = loaded.bind_call_route(CallableTarget::Script(function))?;
         let selected = runtime.select_call_route(&route)?;
-        self.push_callable(
+        let origin = runtime.selection_origin(selected.owner())?;
+        self.push_arguments(
             runtime,
             selected.owner().clone(),
             selected.target(),
-            args,
+            FrameArguments::plain(args),
             return_dst,
+            FrameDispatch {
+                origin,
+                metadata: None,
+                prepared: None,
+                entry: FrameEntry::Call,
+                invocation: None,
+                environment: None,
+            },
         )
     }
 
     /// Enters the current method selected by the rooted interface's checked evidence.
     pub fn push_interface_method(
         &self,
-        runtime: &Runtime,
-        method: RootedInterfaceMethod,
-        args: &[Value],
+        runtime: &mut Runtime,
+        method: &RootedInterfaceMethod,
+        args: ArgumentValues<'_>,
         return_dst: Option<Slot>,
     ) -> Result<(), RuntimeError> {
         self.validate_top(runtime)?;
         let method = method.admit(runtime)?;
         let view = method.view(runtime)?;
         runtime.validate_executable_module(view.implementation())?;
-        let arguments = FrameArguments::plain(args);
+        let arguments = FrameArguments::pack(args.reborrow())
+            .with_interface_receiver(&method._root)
+            .map_err(|error| runtime.managed_memory_error(error))?;
         view.validate_arguments(runtime, arguments)?;
         let loaded = view.implementation().clone();
         let target = view.target();
-        let environment = view.environment().cloned();
+        let source = method
+            .computation_root
+            .as_ref()
+            .ok_or_else(|| RuntimeError::module_validation("method computation root"))?;
+        let metadata = MetadataSource::HostApplication(source);
+        let environment = view.environment().map(|facts| FrameEnvironment {
+            facts: facts.clone(),
+            source: metadata,
+        });
+        let origin = method.body_origin()?;
         drop(view);
         // The host lease remains alive until the window has published all edges.
         self.push_admitted_arguments(
@@ -199,9 +225,11 @@ impl FrameStack {
             arguments,
             return_dst,
             FrameDispatch {
+                origin,
+                metadata: Some(metadata),
                 prepared: None,
                 entry: FrameEntry::Call,
-                invocation: Some(method.invocation),
+                invocation: Some(method.invocation.clone()),
                 environment,
             },
         )
@@ -212,19 +240,58 @@ impl FrameStack {
     /// host entries must not resolve current code again at this admission boundary.
     pub fn push_callable(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         loaded: ExecutableModule,
         target: CallableTarget,
-        args: &[Value],
+        args: ArgumentValues<'_>,
         return_dst: Option<Slot>,
     ) -> Result<(), RuntimeError> {
+        // This low-level exact entry borrows an already admitted execution body.
+        // A detached descriptor alone cannot reopen a retired publication.
+        let origin = RevisionSource::Execution(
+            runtime
+                .admitted_origin(&loaded)?
+                .ok_or_else(|| RuntimeError::module_validation("callable body is not admitted"))?,
+        );
         self.push_arguments(
             runtime,
             loaded,
             target,
-            FrameArguments::plain(args),
+            FrameArguments::pack(args),
             return_dst,
             FrameDispatch {
+                origin,
+                metadata: None,
+                prepared: None,
+                entry: FrameEntry::Call,
+                invocation: None,
+                environment: None,
+            },
+        )
+    }
+
+    /// Admit an already selected Host submission directly from genuine roots.
+    /// Its first callee owns copied fields before this borrowed slice can expire.
+    pub(crate) fn push_rooted_callable(
+        &self,
+        runtime: &mut Runtime,
+        loaded: ExecutableModule,
+        target: CallableTarget,
+        args: &[RootedValue],
+    ) -> Result<(), RuntimeError> {
+        let origin =
+            RevisionSource::Execution(runtime.admitted_origin(&loaded)?.ok_or_else(|| {
+                RuntimeError::module_validation("submitted body is not admitted")
+            })?);
+        self.push_arguments(
+            runtime,
+            loaded,
+            target,
+            FrameArguments::retained(args),
+            None,
+            FrameDispatch {
+                origin,
+                metadata: None,
                 prepared: None,
                 entry: FrameEntry::Call,
                 invocation: None,
@@ -235,10 +302,10 @@ impl FrameStack {
 
     pub(super) fn push_arguments(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         loaded: ExecutableModule,
         target: CallableTarget,
-        args: FrameArguments<'_>,
+        args: FrameArguments<'_, '_>,
         return_dst: Option<Slot>,
         dispatch: FrameDispatch<'_>,
     ) -> Result<(), RuntimeError> {
@@ -247,7 +314,7 @@ impl FrameStack {
             .map(|_| ())
     }
 
-    pub fn pop(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
+    pub fn pop(&self, runtime: &mut Runtime) -> Result<(), RuntimeError> {
         self.validate_top(runtime)?;
         let mut frames = runtime
             .resources()
@@ -263,8 +330,10 @@ impl FrameStack {
                 .resources()
                 .quarantine(EngineFault::FrameScopeAttemptedToPopItsCaller));
         }
-        if let Some(frame) = frames.pop() {
-            frame.release_values(runtime.resources());
+        let retired = frames.pop();
+        drop(frames);
+        if let Some(mut frame) = retired {
+            frame.release_values(&mut runtime.memory, &runtime.resources);
         }
         runtime.resources().leave_call();
         Ok(())
@@ -276,32 +345,34 @@ impl FrameStack {
 }
 
 impl FrameStack {
-    pub(crate) fn retire(&mut self, runtime: &Runtime) {
-        let state = self.session_state(runtime);
+    pub(crate) fn retire(&mut self, runtime: &mut Runtime) {
+        let Runtime {
+            memory, resources, ..
+        } = runtime;
+        let state = resources
+            .sessions
+            .get(self.session)
+            .expect("live execution scope");
         let mut scopes = state.frame_scopes.borrow_mut();
         let Some(position) = scopes.iter().position(|id| *id == self.id) else {
             return;
         };
         if position + 1 != scopes.len() {
-            runtime
-                .resources()
-                .quarantine(EngineFault::FrameScopesDroppedOutOfOrder);
+            resources.quarantine(EngineFault::FrameScopesDroppedOutOfOrder);
         }
         scopes.truncate(position);
         if self.parked {
             return;
         }
-        let Some(mut frames) = runtime.resources().sessions.frames_mut(self.session) else {
-            runtime
-                .resources()
-                .quarantine(EngineFault::FrameStackRemainedBorrowedDuringCleanup);
+        let Some(mut frames) = resources.sessions.frames_mut(self.session) else {
+            resources.quarantine(EngineFault::FrameStackRemainedBorrowedDuringCleanup);
             return;
         };
         while frames.len() > self.base {
-            if let Some(frame) = frames.pop() {
-                frame.release_values(runtime.resources());
+            if let Some(mut frame) = frames.pop() {
+                frame.release_values(memory, resources);
             }
-            runtime.resources().leave_call();
+            resources.leave_call();
         }
     }
 }

@@ -1,6 +1,6 @@
 //! Explicit Kagari trait registration can use a Rust trait as its callback body.
-//! Run with `cargo run -p kagari-runtime --example host_trait_table`.
-use kagari_bytecode::{artifact::KbcArtifact, instruction::NativeImportId, module::CallableTarget};
+//! Run with `cargo run -p kagari-stdlib --example host_trait_table`.
+use kagari_bytecode::artifact::KbcArtifact;
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::types::PublicItem;
@@ -8,17 +8,14 @@ use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedComp
 use kagari_runtime::module::VerifiedProgram;
 use kagari_runtime::{
     Runtime,
-    frame::driver::ReturnAction,
     native::{
         builder::ModuleBuilder,
-        conversion::context::ConversionContext,
         declarations::MethodDecl,
         module::NativeModule,
         payload::Opaque,
         typed::{NativeContext, loans::LoanContext},
         types::Type,
     },
-    value::Value,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::{declarations::StandardDeclarations, modules};
@@ -64,8 +61,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut sources = SourceDatabase::default();
     let root = sources.set(
         "trait-table.kgr",
-        "use demo::Counter; use demo::Readable; pub fn read(value: Counter) -> i32 { value.get() }"
-            .into(),
+        include_str!("host-trait-table.kgr").into(),
         SourceLayer::Base,
     )?;
     let snapshot = analysis.snapshot(sources.snapshot(), &Default::default())?;
@@ -126,6 +122,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         })
         .sum();
     assert_eq!(tables, 1);
+    runtime.collect_garbage()?;
+    let baseline = runtime.gc_stats().root_registrations;
     let Ty::NativeObject(nominal) = counter.abi() else {
         unreachable!("registered Opaque type")
     };
@@ -139,49 +137,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         &mut NativeContext::new(&mut runtime, &loaded)?,
         Counter { value: 42 },
     )?;
-    let encoded = ConversionContext::new(&mut runtime, &loaded)?.encode(owned.clone())?;
-    let value = encoded.value(runtime.gc()).expect("retained Counter");
-    let (owner, slot) = loaded
-        .members()
-        .find_map(|member| {
-            member
-                .bytecode
-                .native_imports
-                .iter()
-                .position(|import| {
-                    member
-                        .definitions()
-                        .resolve(import.instance.declaration)
-                        .ok()
-                        .and_then(|id| id.last())
-                        .is_some_and(|part| part.name == "get")
-                })
-                .map(|slot| (member, slot))
-        })
-        .expect("checked Readable::get application");
-    let mut stack_activation = runtime.enter_execution_stack(&owner)?;
-    stack_activation.with(|runtime, stack| {
-        stack.push_callable(
-            runtime,
-            owner.clone(),
-            CallableTarget::Native(NativeImportId::new(slot)),
-            &[value],
-            None,
-        )?;
-        stack.start_native_entry(runtime, |_, _, _, _| {
-            unreachable!("Rust read never calls script")
-        })?;
-        assert_eq!(
-            stack.finish_native_return(runtime)?,
-            ReturnAction::Complete(Value::I32(42))
-        );
-
-        Ok(())
-    })?;
-    drop(stack_activation);
-    drop(encoded);
-    drop(owned);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    let read = runtime.bind_function::<(Opaque<Counter>,), i32>(&loaded_program.root(), "read")?;
+    assert_eq!(runtime.call(&read, (owned.clone(),))?, 42);
+    drop((owned, descriptor, read));
+    runtime.collect_garbage()?;
+    assert_eq!(runtime.gc_stats().root_registrations, baseline);
     println!("linked one explicit Kagari trait impl; its Rust trait callback returned 42");
     Ok(())
 }

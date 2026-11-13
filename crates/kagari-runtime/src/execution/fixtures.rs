@@ -9,7 +9,7 @@ use crate::execution::{ExecutionReport, Runtime, native::PreparedNativeExecution
 use crate::{
     module::ExecutableModule,
     session::{ExecutionOptions, owned::OwnedExecution},
-    value::Value,
+    value::carriers::RootedValue,
 };
 use kagari_contract::ids::FunctionRef;
 
@@ -31,7 +31,7 @@ pub(crate) trait FixtureExecution {
         &mut self,
         owner: &ExecutableModule,
         function: FunctionRef,
-        arguments: &[Value],
+        arguments: &[RootedValue],
         options: ExecutionOptions,
     ) -> Result<OwnedExecution, RuntimeError>;
 }
@@ -70,10 +70,9 @@ impl FixtureExecution for Runtime {
         &mut self,
         owner: &ExecutableModule,
         function: FunctionRef,
-        arguments: &[Value],
+        arguments: &[RootedValue],
         options: ExecutionOptions,
     ) -> Result<OwnedExecution, RuntimeError> {
-        let (owner, function) = self.select_function(owner, function)?;
-        self.start_owned_execution(&owner, function, arguments, options)
+        self.start_owned_execution(owner, function, arguments, options)
     }
 }

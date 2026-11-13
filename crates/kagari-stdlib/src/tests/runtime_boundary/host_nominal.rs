@@ -1,5 +1,5 @@
 //! Nominal host identity and path validation retain one shared declaration owner.
-use crate::tests::support::bytecode::load_bytecode;
+use crate::tests::{runtime_boundary::support::compile_program, support::bytecode::load_bytecode};
 
 use crate::declarations::StandardDeclarations;
 use crate::tests::support::native::{invoke::invoke, program::free_function_program};
@@ -16,15 +16,17 @@ use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
     host::{
-        DynamicPathArguments, HostCallContext, HostError, HostObjectId, HostPathAdapter,
-        HostPathDescriptorRegistration, HostPathSegment, HostSchemaEpoch, PreparedHostPathWrite,
+        HostError, HostObjectId, HostPathAdapter, HostPathDescriptorRegistration, HostPathSegment,
+        HostSchemaEpoch, PreparedHostPathWrite,
     },
     metadata::{TypeId, TypeKind, TypeRegistration},
+    module::InstalledProgram,
     native::{
-        builder::ModuleBuilder, catalog::DeclarationCatalog, declarations::FunctionDecl,
+        builder::ModuleBuilder, catalog::DeclarationCatalog,
+        conversion::context::ConversionContext, declarations::FunctionDecl, host::callback,
         module::NativeModule, types::Type,
     },
-    value::Value,
+    value::{carriers::RootedValue, view::ValueView},
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{
@@ -97,12 +99,25 @@ fn schema(module: &NativeModule) -> TypeDeclaration {
     }
 }
 
-fn root(runtime: &mut Runtime, name: &str, object: u64) -> (TypeId, Value) {
+fn root(runtime: &mut Runtime, name: &str, object: u64) -> (TypeId, RootedValue) {
     let ty = runtime.types().get_by_name(name).unwrap().id;
     let root = runtime
         .register_host_root(HostObjectId(object), ty, HostSchemaEpoch::new(0))
         .unwrap();
-    (ty, runtime.gc().alloc_host_root(root).unwrap())
+    (ty, runtime.host_root_value(root).unwrap())
+}
+
+// External-ID values use synchronous Host scope admission; the owned scheduler
+// deliberately rejects them because a parked invocation cannot retain Host state.
+fn wrap_root(runtime: &mut Runtime, factory: &InstalledProgram, root: &RootedValue) -> RootedValue {
+    runtime
+        .with_host_scope(|scope| {
+            let root = scope.import(root)?;
+            let tuple =
+                Runtime::execute_scoped(scope, factory, "wrap", &[root], &Default::default())?;
+            scope.retain(&tuple)
+        })
+        .unwrap()
 }
 
 fn function(name: &str, parameter: Type, passing: HostPassingStyle) -> FunctionDecl {
@@ -178,11 +193,16 @@ fn with_path(module: &NativeModule, path: DefinitionMetadata<HostPathDeclaration
     .unwrap();
     let path = builder.define_path(path).unwrap();
     let mut adapter = HostPathAdapter::new().with_read(move |cx, path| {
-        Ok(if host_result {
-            cx.runtime().gc().alloc_host_root(path.root).unwrap()
+        if host_result {
+            let value = cx
+                .runtime_mut()
+                .host_root_value(path.root)
+                .map_err(|error| HostError::new(error.to_string()))?;
+            cx.import(&value)
+                .map_err(|error| HostError::new(error.to_string()))
         } else {
-            Value::I32(10)
-        })
+            Ok(ValueView::from(10i32))
+        }
     });
     if path.records().access == PathAccess::ReadWrite {
         adapter = adapter.with_prepare_write(|_, _, _| Ok(PreparedHostPathWrite::new(|| {})));
@@ -234,8 +254,8 @@ fn declaration_conflicts_and_invalid_identities_do_not_partially_register_metada
             .index(),
         before
     );
-    root(&mut runtime, "game::Player", 1);
-    root(&mut runtime, "other::Player", 2);
+    drop(root(&mut runtime, "game::Player", 1));
+    drop(root(&mut runtime, "other::Player", 2));
 }
 
 #[test]
@@ -253,9 +273,7 @@ fn nested_signature_types_must_be_bound_before_program_publication() {
     module
         .bind(
             take,
-            |_: &mut HostCallContext<'_>, _: &[Value]| -> Result<Value, HostError> {
-                panic!("linking cannot invoke callbacks")
-            },
+            callback(|_, _| panic!("linking cannot invoke callbacks")),
         )
         .unwrap();
     let module = module.finish().unwrap();
@@ -311,11 +329,11 @@ fn nested_signature_types_must_be_bound_before_program_publication() {
 }
 
 #[test]
-fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories() {
+fn roots_match_nominal_declarations_and_callback_results_keep_complete_types() {
     let (first, a) = object_module("first", vec![]);
     let (second, _) = object_module("second", vec![]);
     let calls = Arc::new(AtomicUsize::new(0));
-    let wrong = Arc::new(Mutex::new(Value::Unit));
+    let wrong: Arc<Mutex<Option<RootedValue>>> = Arc::default();
     let providers = DeclarationCatalog::from_modules(&[&first, &second]).unwrap();
     let mut module = ModuleBuilder::new("host", &providers).unwrap();
     let take = module
@@ -323,10 +341,13 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
         .unwrap();
     let observed = calls.clone();
     module
-        .bind(take, move |_: &mut HostCallContext<'_>, _: &[Value]| {
-            observed.fetch_add(1, Ordering::SeqCst);
-            Ok(Value::Unit)
-        })
+        .bind(
+            take,
+            callback(move |_, _| {
+                observed.fetch_add(1, Ordering::SeqCst);
+                Ok(ValueView::unit())
+            }),
+        )
         .unwrap();
     let result = module
         .define_function(
@@ -344,53 +365,69 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
     let captured = wrong.clone();
     let observed = calls.clone();
     module
-        .bind(result, move |cx: &mut HostCallContext<'_>, _: &[Value]| {
-            observed.fetch_add(1, Ordering::SeqCst);
-            Ok(cx
-                .runtime()
-                .gc()
-                .alloc_tuple(vec![*captured.lock().unwrap()])
-                .unwrap())
-        })
+        .bind(
+            result,
+            callback(move |cx, _| {
+                observed.fetch_add(1, Ordering::SeqCst);
+                cx.import(captured.lock().unwrap().as_ref().unwrap())
+                    .map_err(|error| HostError::new(error.to_string()))
+            }),
+        )
         .unwrap();
     let module = module.finish().unwrap();
     let program = program(&module, &[&first, &second]);
+    let tuple_program = compile_program(
+        std::slice::from_ref(&second),
+        "second-tuple.kgr",
+        include_str!("../../../tests/fixtures/runtime_boundary/nominal-second-tuple.kgr"),
+    );
     let mut runtime = Runtime::default();
     NativeModule::install_all(&[first, second, module], &mut runtime).unwrap();
+    let installed = load_bytecode(&mut runtime, "nominal", program).unwrap();
+    let loaded = runtime.select_program(&installed).unwrap();
+    let tuple_installed = load_bytecode(&mut runtime, "second-tuple", tuple_program).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     let (a_ty, a_value) = root(&mut runtime, "first::Player", 1);
     let (b_ty, b_value) = root(&mut runtime, "second::Player", 2);
     assert_ne!(a_ty, b_ty);
-    *wrong.lock().unwrap() = b_value;
-    let loaded = load_bytecode(&mut runtime, "nominal", program).unwrap();
-    let _loaded_program = loaded;
-    let loaded = runtime.select_program(&_loaded_program).unwrap();
-    invoke(&mut runtime, &loaded, 0, &[a_value]).unwrap();
-    assert!(invoke(&mut runtime, &loaded, 0, &[b_value]).is_err());
-    let mut scope = runtime.host_scope(&[]).unwrap();
-    let a_token = scope
-        .borrows()
-        .borrow_shared(HostObjectId(1), a_ty)
+    *wrong.lock().unwrap() = Some(wrap_root(&mut runtime, &tuple_installed, &b_value));
+    let returned = invoke(&mut runtime, &loaded, 0, std::slice::from_ref(&a_value)).unwrap();
+    ConversionContext::new(&mut runtime, &loaded)
+        .unwrap()
+        .decode::<()>(&returned)
         .unwrap();
-    let b_token = scope
-        .borrows()
-        .borrow_shared(HostObjectId(2), b_ty)
-        .unwrap();
-    let a_value = scope.runtime().gc().alloc_host_ref(a_token).unwrap();
-    let b_value = scope.runtime().gc().alloc_host_ref(b_token).unwrap();
-    invoke(scope.runtime_mut(), &loaded, 0, &[a_value]).unwrap();
-    assert!(invoke(scope.runtime_mut(), &loaded, 0, &[b_value]).is_err());
+    let error = invoke(&mut runtime, &loaded, 0, std::slice::from_ref(&b_value)).unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::HostCallFailure);
+    assert!(
+        error
+            .to_string()
+            .contains("host arguments do not match the declared signature")
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let error = invoke(&mut runtime, &loaded, 1, &[]).unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::HostCallFailure);
+    assert!(
+        error
+            .to_string()
+            .contains("host result does not match the declared signature")
+    );
     assert_eq!(calls.load(Ordering::SeqCst), 2);
-    drop(scope);
-    assert!(invoke(&mut runtime, &loaded, 1, &[]).is_err());
-    assert_eq!(calls.load(Ordering::SeqCst), 3);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    wrong.lock().unwrap().take();
+    drop((a_value, b_value));
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
     assert!(!runtime.is_quarantined());
 }
 
 #[test]
 fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
     let (owner, player) = object_module("game", vec![]);
-    let foreign_value = Arc::new(Mutex::new(Value::Unit));
+    let foreign_value: Arc<Mutex<Option<RootedValue>>> = Arc::default();
     let calls = Arc::new(AtomicUsize::new(0));
     let mut module = ModuleBuilder::new(
         "host",
@@ -406,10 +443,13 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
         .unwrap();
     let observed = calls.clone();
     module
-        .bind(take, move |_: &mut HostCallContext<'_>, _: &[Value]| {
-            observed.fetch_add(1, Ordering::SeqCst);
-            Ok(Value::Unit)
-        })
+        .bind(
+            take,
+            callback(move |_, _| {
+                observed.fetch_add(1, Ordering::SeqCst);
+                Ok(ValueView::unit())
+            }),
+        )
         .unwrap();
     let result =
         module
@@ -423,49 +463,75 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
     let captured = foreign_value.clone();
     let observed = calls.clone();
     module
-        .bind(result, move |_: &mut HostCallContext<'_>, _: &[Value]| {
-            observed.fetch_add(1, Ordering::SeqCst);
-            Ok(*captured.lock().unwrap())
-        })
+        .bind(
+            result,
+            callback(move |cx, _| {
+                observed.fetch_add(1, Ordering::SeqCst);
+                cx.import(captured.lock().unwrap().as_ref().unwrap())
+                    .map_err(|error| HostError::new(error.to_string()))
+            }),
+        )
         .unwrap();
     let module = module.finish().unwrap();
     let program = program(&module, &[&owner]);
+    let tuple_program = compile_program(
+        std::slice::from_ref(&owner),
+        "game-tuple.kgr",
+        include_str!("../../../tests/fixtures/runtime_boundary/nominal-game-tuple.kgr"),
+    );
     let mut local = Runtime::default();
     let mut foreign = Runtime::default();
     for runtime in [&mut local, &mut foreign] {
         NativeModule::install_all(&[owner.clone(), module.clone()], runtime).unwrap();
     }
-    let (_, local_value) = root(&mut local, "game::Player", 1);
-    let (_, other) = root(&mut foreign, "game::Player", 1);
-    *foreign_value.lock().unwrap() = other;
-    let (Value::HostRoot(a), Value::HostRoot(b)) = (local_value, other) else {
-        unreachable!()
-    };
-    let a = local.gc().host_root(a).unwrap();
-    let b = foreign.gc().host_root(b).unwrap();
+    let type_id = local.types().get_by_name("game::Player").unwrap().id;
+    let a = local
+        .register_host_root(HostObjectId(1), type_id, HostSchemaEpoch::new(0))
+        .unwrap();
+    let b = foreign
+        .register_host_root(HostObjectId(1), type_id, HostSchemaEpoch::new(0))
+        .unwrap();
     assert_eq!(a.object_id(), b.object_id());
     assert_eq!(a.type_id(), b.type_id());
     assert_eq!(a.schema_epoch(), b.schema_epoch());
     assert_eq!(a.abi_fingerprint(), b.abi_fingerprint());
     assert_ne!(a, b);
-    let loaded = load_bytecode(&mut local, "owner", program).unwrap();
-    let _loaded_program = loaded;
-    let loaded = local.select_program(&_loaded_program).unwrap();
-    let argument = local.gc().alloc_tuple(vec![local_value]).unwrap();
-    invoke(&mut local, &loaded, 0, &[argument]).unwrap();
-    assert!(
-        invoke(
-            &mut local,
-            &loaded,
-            0,
-            &[foreign.gc().alloc_tuple(vec![other]).unwrap()]
-        )
-        .is_err()
+    assert_eq!(
+        local.host_root_value(b).unwrap_err().kind(),
+        RuntimeErrorKind::TypedPathValidation
+    );
+    let installed = load_bytecode(&mut local, "owner", program).unwrap();
+    let loaded = local.select_program(&installed).unwrap();
+    let tuple_installed = load_bytecode(&mut local, "tuple", tuple_program.clone()).unwrap();
+    let foreign_installed = load_bytecode(&mut foreign, "tuple", tuple_program).unwrap();
+    local.collect_garbage().unwrap();
+    let baseline = local.gc_stats();
+    let local_value = local.host_root_value(a).unwrap();
+    let other = foreign.host_root_value(b).unwrap();
+    *foreign_value.lock().unwrap() = Some(other.clone());
+    let argument = wrap_root(&mut local, &tuple_installed, &local_value);
+    assert!(invoke(&mut local, &loaded, 0, &[argument]).is_ok());
+    let argument = wrap_root(&mut foreign, &foreign_installed, &other);
+    assert_eq!(
+        invoke(&mut local, &loaded, 0, &[argument])
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::ModuleValidation
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    assert!(invoke(&mut local, &loaded, 1, &[]).is_err());
+    assert_eq!(
+        invoke(&mut local, &loaded, 1, &[]).unwrap_err().kind(),
+        RuntimeErrorKind::HostCallFailure
+    );
     assert_eq!(calls.load(Ordering::SeqCst), 2);
-    assert_eq!(local.gc().active_roots(), 0);
+    foreign_value.lock().unwrap().take();
+    drop((local_value, other));
+    local.collect_garbage().unwrap();
+    assert_eq!(local.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        local.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
     assert!(!local.is_quarantined());
 }
 
@@ -488,43 +554,34 @@ fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
     let mut local = Runtime::default();
     let mut foreign = Runtime::default();
     let mut views = Vec::new();
+    let mut descriptors = Vec::new();
     for runtime in [&mut local, &mut foreign] {
         module.install(runtime).unwrap();
-        let (_, Value::HostRoot(root_id)) = root(runtime, "game::Player", 1) else {
-            unreachable!()
-        };
+        let (_, root) = root(runtime, "game::Player", 1);
         let descriptor = runtime.resolve_host_path(&declaration).unwrap();
-        views.push(
-            runtime
-                .host()
-                .make_path_view(
-                    runtime.gc(),
-                    runtime.gc().host_root(root_id).unwrap(),
-                    descriptor,
-                    DynamicPathArguments::empty(),
-                )
-                .unwrap(),
-        );
+        descriptors.push(runtime.host().path_descriptor(descriptor).unwrap().clone());
+        views.push(runtime.make_host_path_view(&root, descriptor, &[]).unwrap());
     }
-    assert_eq!(views[0].descriptor_id(), views[1].descriptor_id());
-    assert_eq!(views[0].result_type(), views[1].result_type());
-    let id = views[0].descriptor_id();
-    let local_view = local.gc().alloc_host_path(views[0].clone()).unwrap();
-    let foreign_view = foreign.gc().alloc_host_path(views[1].clone()).unwrap();
-    assert!(
+    assert_eq!(descriptors[0].id, descriptors[1].id);
+    assert_eq!(descriptors[0].result_type, descriptors[1].result_type);
+    let id = descriptors[0].id;
+    assert!(local.make_host_path_view(&views[0], id, &[]).is_ok());
+    assert_eq!(
         local
-            .host()
-            .make_path_view_from_value(local.gc(), &local_view, id, vec![])
-            .is_ok()
+            .make_host_path_view(&views[1], id, &[])
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::TypedPathValidation
     );
-    assert!(
+    assert!(local.host_scope(std::slice::from_ref(&views[0])).is_ok());
+    assert_eq!(
         local
-            .host()
-            .make_path_view_from_value(local.gc(), &foreign_view, id, vec![])
-            .is_err()
+            .host_scope(std::slice::from_ref(&views[1]))
+            .err()
+            .unwrap()
+            .kind(),
+        RuntimeErrorKind::ModuleValidation
     );
-    assert!(local.host_scope(&[local_view]).is_ok());
-    assert!(local.host_scope(&[foreign_view]).is_err());
 }
 
 #[test]
@@ -592,7 +649,7 @@ fn path_fields_are_derived_from_nominal_declarations() {
         )
         .unwrap();
         let bad = builder.define_path(bad).unwrap();
-        let mut adapter = HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(10)));
+        let mut adapter = HostPathAdapter::new().with_read(|_, _| Ok(ValueView::from(10i32)));
         if access == PathAccess::ReadWrite {
             adapter = adapter.with_prepare_write(|_, _, _| Ok(PreparedHostPathWrite::new(|| {})));
         }
@@ -701,7 +758,7 @@ fn path_fingerprints_ignore_runtime_slots_and_track_contract_changes() {
         builder
             .bind_path(
                 &declaration,
-                HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(10))),
+                HostPathAdapter::new().with_read(|_, _| Ok(ValueView::from(10i32))),
             )
             .unwrap();
         let module = builder.finish().unwrap();
@@ -770,7 +827,7 @@ fn paths_reject_types_without_portable_contracts_before_publication() {
     builder
         .bind_path(
             &DefinitionMetadata::checked(context.snapshot(), path, &Default::default()).unwrap(),
-            HostPathAdapter::new().with_read(|_, _| Ok(Value::Unit)),
+            HostPathAdapter::new().with_read(|_, _| Ok(ValueView::unit())),
         )
         .unwrap();
     assert!(builder.finish().is_err());

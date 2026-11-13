@@ -29,15 +29,7 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
     let module = generic_identity_module();
     let declaration = declaration_query(&module, DefinitionKind::Function, "identity");
     let program = compile_program(
-        r#"
-        use example::generic_helper::identity;
-        trait Forward { fn forward<T>(self, value: T) -> T { identity(value) } }
-        impl Forward for i32 {}
-        pub fn evidence() -> i32 { identity(42) }
-        pub fn shared() -> i32 { val forward: Forward = 0; forward.forward(7) }
-        pub fn echo(f: fn(i32) -> i32) -> fn(i32) -> i32 { f }
-        pub fn invoke(f: fn(i32) -> i32) -> i32 { f(43) }
-    "#,
+        include_str!("../../../../../tests/fixtures/native/function-shared-application.kgr"),
         Some(&module),
     );
     let (definitions, mut program) = program.into_parts();
@@ -131,6 +123,8 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
     let _owner_program = owner;
     let owner = runtime.select_program(&_owner_program).unwrap();
     let mut vm = runtime;
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     assert_eq!(
         vm.execute_typed::<(), i32>(&_owner_program, "evidence", (), &Default::default())
             .unwrap(),
@@ -142,8 +136,12 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
         7
     );
     vm.collect_garbage().unwrap();
-    let prepared_environments = vm.gc().stats().environments;
-    assert!(prepared_environments > 0);
+    let prepared = vm.gc_stats();
+    // This closed scalar application is edge-free. Its checked facts do not
+    // require a managed environment or a persistent Host root after invocation.
+    assert_eq!(prepared.objects, baseline.objects);
+    assert_eq!(prepared.provider_units, baseline.provider_units);
+    assert_eq!(prepared.root_registrations, baseline.root_registrations);
     let argument = ConversionContext::new(&mut vm, &owner)
         .unwrap()
         .type_for::<i32>()
@@ -163,7 +161,12 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
         )
         .unwrap();
     vm.collect_garbage().unwrap();
-    assert_eq!(vm.gc().stats().environments, prepared_environments);
+    assert_eq!(vm.gc_stats().objects, prepared.objects);
+    assert_eq!(vm.gc_stats().provider_units, prepared.provider_units);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        prepared.root_registrations
+    );
     assert_eq!(vm.call(&identity, (41,)).unwrap(), 41);
     drop(identity);
     vm.collect_garbage().unwrap();
@@ -202,20 +205,22 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
     vm.collect_garbage().unwrap();
     assert_eq!(vm.call(&boxed, (45,)).unwrap(), 45);
     drop(boxed);
-    let collected = vm.collect_garbage().unwrap();
-    assert_eq!(collected.live_objects, 0);
-    // Calling after publication populated the current native application cache.
-    // Its environment retires with that publication, not with the last handle.
-    assert!(vm.gc().stats().environments > 0);
+    vm.collect_garbage().unwrap();
+    // The named callable's actual retained owner ends with its last alias.
+    // Scalar preparation itself must not keep the obsolete revision alive.
+    assert!(vm.validate_executable_module(&owner).is_err());
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
     let current = vm.select_program(&_owner_program).unwrap();
-    let current_key = current.key();
     let candidate = vm
         .stage_reload_verified_program(&_owner_program, None, current.verified_program().clone())
         .unwrap();
     vm.publish_staged_reload(candidate).unwrap();
-    drop(current);
-    let collected = vm.collect_garbage().unwrap();
-    assert!(collected.reclaimed_modules.contains(&current_key));
-    assert!(collected.reclaimed_environments > 0);
-    assert_eq!(vm.gc().stats().environments, 0);
+    vm.collect_garbage().unwrap();
+    assert!(vm.validate_executable_module(&current).is_err());
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(vm.gc_stats().provider_units, baseline.provider_units);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }

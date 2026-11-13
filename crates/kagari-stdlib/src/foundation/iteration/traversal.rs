@@ -1,35 +1,33 @@
 //! Ordered construction traversal through explicit checked iterator calls.
 use crate::foundation::enumerations::value::{self as enums, EnumSymbols};
 use kagari_runtime::{
-    error::RuntimeError,
     native::{binding::NativeResult, context::NativeCall},
-    value::Value,
+    value::view::ValueView,
 };
 use std::slice;
 
-fn invalid() -> RuntimeError {
-    RuntimeError::module_validation("foundation construction contract")
-}
-
-pub(crate) fn for_each(
+pub(crate) fn for_each<'call>(
     symbols: &EnumSymbols,
-    cx: &mut NativeCall<'_>,
+    cx: &mut NativeCall<'call>,
     first: usize,
-    mut visit: impl FnMut(&mut NativeCall<'_>, Value) -> NativeResult<()>,
+    mut visit: impl for<'step> FnMut(&mut NativeCall<'step>, ValueView<'step>) -> NativeResult<()>,
 ) -> NativeResult<()> {
     let source = cx.argument(0)?;
 
     let iter = cx.selected_at(first)?;
     let next = cx.selected_at(first + 1)?;
     let cursor = cx.call_values(iter, &[source])?;
-    let _root = cx.heap().root_value(cursor).ok_or_else(invalid)?;
     loop {
-        cx.poll()?;
-        let value = cx.call_values(next, slice::from_ref(&cursor))?;
-        let Some(item) = enums::read_option(symbols, cx, &value)? else {
+        let done = cx.with_temporaries(|cx| {
+            let value = cx.call_values(next, slice::from_ref(&cursor))?;
+            let Some(item) = enums::read_option(symbols, cx, &value)? else {
+                return Ok(true);
+            };
+            visit(cx, item)?;
+            Ok(false)
+        })?;
+        if done {
             return Ok(());
-        };
-        let _item = cx.heap().root_value(item).ok_or_else(invalid)?;
-        visit(cx, item)?;
+        }
     }
 }

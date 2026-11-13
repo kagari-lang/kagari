@@ -1,16 +1,25 @@
-//! Runtime-owned method applications, addressed by checked identities.
+//! Semantic applications and exact computations have execution-owned providers.
 use crate::{
+    Runtime,
     error::RuntimeError,
-    execution_metadata::MetadataEdge,
+    execution::roots::{DependencyId, ExecutionRoots, LocalMark, SessionId, Slots},
+    execution_metadata::{
+        MetadataEdge,
+        identity::MetadataIdentity,
+        managed::{
+            ProtectedMetadata,
+            applications::ApplicationObject,
+            sources::{MetadataError, MetadataSource},
+        },
+    },
     frame::types::{TypeEnvironment, arguments::ScopedSignature},
-    gc::{GcHeap, interfaces::InterfaceResultBinding},
     module::dispatch::SelectedTarget,
+    native::{application::NativeApplication, stored_selection::StoredSelection},
+    objects::{interfaces::description::InterfaceResultBinding, method_view::MethodFacts},
 };
+use kagari_gc::{error::GcError, object::Gc, root::Root};
 use kagari_types::callable::Signature;
-use std::{
-    cell::Ref,
-    collections::{HashSet, TryReserveError},
-};
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub(crate) struct MethodApplication {
@@ -26,6 +35,7 @@ pub(crate) struct MethodApplication {
 /// Its owner publishes this graph edge before enqueueing or entering execution.
 #[derive(Debug, Clone)]
 pub(crate) struct MethodComputation {
+    pub(crate) relationship: MethodFacts,
     pub(crate) selected: SelectedTarget,
     pub(crate) environment: Option<TypeEnvironment>,
 }
@@ -34,182 +44,261 @@ pub(crate) struct MethodComputation {
 pub(crate) enum ApplicationRecord {
     Semantic(MethodApplication),
     Admitted(MethodComputation),
+    Native(Arc<NativeApplication>),
+    StoredSelections(Arc<[StoredSelection]>),
 }
 
 impl ApplicationRecord {
-    pub(crate) fn trace<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
+    pub(crate) fn trace<'a, E, F>(&'a self, visit: &mut F) -> Result<(), E>
+    where
+        F: FnMut(MetadataEdge<'a>) -> Result<(), E> + ?Sized,
+    {
         let environment = match self {
             Self::Semantic(application) => {
                 if let Some(adapter) = &application.result_adapter {
-                    pending.push(MetadataEdge::Binding(adapter));
+                    visit(MetadataEdge::Binding(adapter))?;
                 }
                 &application.environment
             }
             Self::Admitted(computation) => {
-                pending.push(MetadataEdge::Program(computation.selected.owner()));
+                computation.relationship.trace(visit)?;
+                visit(MetadataEdge::Program(computation.selected.owner()))?;
                 &computation.environment
             }
-        };
-        pending.extend(
-            environment
-                .iter()
-                .map(|environment| MetadataEdge::Environment(environment.id)),
-        );
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct ApplicationId {
-    owner: u64,
-    slot: usize,
-    generation: u64,
-}
-
-#[derive(Debug)]
-struct Slot {
-    generation: u64,
-    application: Option<ApplicationRecord>,
-}
-
-#[derive(Debug)]
-pub(crate) struct ApplicationStore {
-    owner: u64,
-    slots: Vec<Slot>,
-    free: Vec<usize>,
-    count: usize,
-}
-
-impl ApplicationStore {
-    pub(crate) fn new(owner: u64) -> Self {
-        Self {
-            owner,
-            slots: Vec::new(),
-            free: Vec::new(),
-            count: 0,
-        }
-    }
-
-    pub(crate) fn insert(
-        &mut self,
-        application: MethodApplication,
-    ) -> Result<ApplicationId, TryReserveError> {
-        self.insert_record(ApplicationRecord::Semantic(application))
-    }
-
-    fn insert_record(
-        &mut self,
-        application: ApplicationRecord,
-    ) -> Result<ApplicationId, TryReserveError> {
-        let slot = match self.free.pop() {
-            Some(slot) => slot,
-            None => {
-                self.slots.try_reserve(1)?;
-                self.slots.push(Slot {
-                    generation: 0,
-                    application: None,
-                });
-                self.slots.len() - 1
+            Self::Native(application) => return application.trace(visit),
+            Self::StoredSelections(selections) => {
+                for selection in selections.iter() {
+                    selection.trace(visit)?;
+                }
+                return Ok(());
             }
         };
-        let record = &mut self.slots[slot];
-        let id = ApplicationId {
-            owner: self.owner,
-            slot,
-            generation: record.generation,
-        };
-        record.application = Some(application);
-        self.count += 1;
-        Ok(id)
-    }
-
-    pub(crate) fn get(&self, id: ApplicationId) -> Option<&MethodApplication> {
-        match self.record(id)? {
-            ApplicationRecord::Semantic(application) => Some(application),
-            ApplicationRecord::Admitted(_) => None,
+        if let Some(environment) = environment {
+            visit(MetadataEdge::EnvironmentFacts(environment))?;
         }
+        Ok(())
+    }
+}
+
+/// A never-reused semantic identity, not a managed-state locator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ApplicationId(MetadataIdentity);
+
+/// Application facts and their actual execution-owned source. Keeping this
+/// descriptor after retirement preserves facts, never access to managed state.
+#[derive(Debug, Clone)]
+pub(crate) struct AdmittedApplication {
+    id: ApplicationId,
+    record: Arc<ApplicationRecord>,
+    source: DependencyId<ApplicationObject>,
+}
+
+impl AdmittedApplication {
+    pub(crate) fn publish<'gc>(
+        slots: &mut Slots<'_, 'gc>,
+        execution: SessionId,
+        value: Gc<'gc, ApplicationObject>,
+    ) -> Result<Self, GcError> {
+        let (id, record) = slots
+            .scope()
+            .read(value, |value| (value.id(), value.record().clone()));
+        let source = slots.push_dependency(execution, value)?;
+        Ok(Self { id, record, source })
     }
 
-    pub(crate) fn record(&self, id: ApplicationId) -> Option<&ApplicationRecord> {
-        if id.owner != self.owner {
-            return None;
+    pub(crate) fn preserve<'gc>(
+        slots: &mut Slots<'_, 'gc>,
+        mark: &mut LocalMark,
+        expected: &Self,
+    ) -> Result<Self, GcError> {
+        let value = expected.resolve(slots)?;
+        let source = slots.preserve_dependency(mark, value)?;
+        Ok(Self {
+            id: expected.id,
+            record: expected.record.clone(),
+            source,
+        })
+    }
+
+    pub(crate) fn id(&self) -> ApplicationId {
+        self.id
+    }
+
+    pub(crate) fn record(&self) -> &Arc<ApplicationRecord> {
+        &self.record
+    }
+
+    pub(crate) fn source(&self) -> DependencyId<ApplicationObject> {
+        self.source
+    }
+
+    pub(crate) fn resolve<'gc>(
+        &self,
+        slots: &mut Slots<'_, 'gc>,
+    ) -> Result<Gc<'gc, ApplicationObject>, GcError> {
+        let value = slots.dependency(self.source)?;
+        if !slots.scope().read(value, |value| {
+            value.id() == self.id && Arc::ptr_eq(value.record(), &self.record)
+        }) {
+            return Err(GcError::Representation);
         }
-        let slot = self.slots.get(id.slot)?;
-        (slot.generation == id.generation)
-            .then_some(slot.application.as_ref())
-            .flatten()
+        Ok(value)
     }
+}
 
-    pub(crate) fn count(&self) -> usize {
-        self.count
-    }
-
-    /// The whole graph has been marked and validated before any store detaches.
-    pub(crate) fn detach(&mut self, live: &HashSet<ApplicationId>) -> Vec<ApplicationRecord> {
-        let mut retired = Vec::new();
-        for (index, slot) in self.slots.iter_mut().enumerate() {
-            let id = ApplicationId {
-                owner: self.owner,
-                slot: index,
-                generation: slot.generation,
+impl Runtime {
+    /// Copy one authenticated application into a destination preparation suffix.
+    /// A missing optional cache target does not recover state from its ID.
+    pub(crate) fn copy_application_in(
+        &mut self,
+        execution: SessionId,
+        id: ApplicationId,
+        protected: &[MetadataSource<'_>],
+    ) -> Result<Option<AdmittedApplication>, RuntimeError> {
+        self.with_metadata_slots(protected, |slots, graph, resources| {
+            let Some(ProtectedMetadata::Application(value)) =
+                graph.find(slots.scope(), MetadataEdge::Application(id), resources)?
+            else {
+                return Ok(None);
             };
-            if !live.contains(&id)
-                && let Some(application) = slot.application.take()
-            {
-                retired.push(application);
-                self.count -= 1;
-                if let Some(generation) = slot.generation.checked_add(1) {
-                    slot.generation = generation;
-                    self.free.push(index);
+            let record = slots.scope().read(value, |value| value.record().clone());
+            let source = slots.push_dependency(execution, value)?;
+            Ok(Some(AdmittedApplication { id, record, source }))
+        })
+    }
+
+    pub(crate) fn application_in(
+        &mut self,
+        execution: SessionId,
+        id: ApplicationId,
+        protected: &[MetadataSource<'_>],
+    ) -> Result<AdmittedApplication, RuntimeError> {
+        self.copy_application_in(execution, id, protected)?
+            .ok_or_else(|| RuntimeError::module_validation("application is not protected"))
+    }
+
+    pub(crate) fn retain_application(
+        &mut self,
+        application: &AdmittedApplication,
+    ) -> Result<Root<ApplicationObject>, RuntimeError> {
+        self.resources.ensure_synchronous_thread()?;
+        self.resources.ensure_execution_allowed()?;
+        let result = self.memory.scope(&self.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                let value = application.resolve(slots)?;
+                slots.scope().retain(value)
+            })
+        });
+        result.map_err(|error| self.metadata_input_error(error))
+    }
+
+    /// Publish semantic application facts or an exact admitted computation into
+    /// the destination preparation/frame/Native dependency suffix. Every required
+    /// environment/provider/body is resolved from the supplied actual sources.
+    pub(crate) fn alloc_application(
+        &mut self,
+        execution: SessionId,
+        record: ApplicationRecord,
+        protected: &[MetadataSource<'_>],
+    ) -> Result<AdmittedApplication, RuntimeError> {
+        self.resources.ensure_synchronous_thread()?;
+        self.resources.poll_execution()?;
+        // Storage retention does not authorize revoked transitive providers.
+        // Finish admission with no source/payload loan before allocating a node.
+        self.with_metadata_graph(protected, |_, _, _| Ok(()))?;
+        match &record {
+            ApplicationRecord::Admitted(computation) => {
+                self.validate_executable_module(computation.selected.owner())?
+            }
+            ApplicationRecord::Semantic(application) => {
+                if let Some(adapter) = &application.result_adapter {
+                    self.validate_executable_module(&adapter.owner)?;
+                }
+            }
+            ApplicationRecord::Native(application) => {
+                self.validate_executable_module(&application.owner)?
+            }
+            ApplicationRecord::StoredSelections(selections) => {
+                for (index, selection) in selections.iter().enumerate() {
+                    if index.is_multiple_of(1024) {
+                        self.resources.poll_execution()?;
+                    }
+                    self.validate_executable_module(selection.owner())?;
                 }
             }
         }
-        retired
+        let Runtime {
+            memory,
+            modules,
+            metadata_ids,
+            resources,
+            ..
+        } = self;
+        let result = memory.scope(resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                Ok((|| -> Result<AdmittedApplication, MetadataError> {
+                    slots.storage(execution)?;
+                    let mut targets = Vec::new();
+                    targets.try_reserve_exact(protected.len())?;
+                    for (index, source) in protected.iter().enumerate() {
+                        if index.is_multiple_of(1024) {
+                            resources.poll_closed()?;
+                        }
+                        targets.push(source.resolve(modules, slots)?);
+                    }
+                    let id = ApplicationId(metadata_ids.fresh()?);
+                    let record = Arc::new(record);
+                    let value = ApplicationObject::alloc(
+                        slots.scope(),
+                        id,
+                        record.clone(),
+                        &targets,
+                        resources,
+                    )?;
+                    let source = slots.push_dependency(execution, value)?;
+                    Ok(AdmittedApplication { id, record, source })
+                })())
+            })
+        });
+        result
+            .map_err(|error| self.metadata_input_error(error))?
+            .map_err(|error| match error {
+                MetadataError::Memory(error) => self.metadata_input_error(error),
+                MetadataError::Execution(error) => self.resources.admit_execution_error(error),
+            })
     }
-}
 
-impl GcHeap {
-    pub(crate) fn alloc_method_computation(
-        &self,
-        computation: MethodComputation,
-    ) -> Result<ApplicationId, RuntimeError> {
-        self.ensure_execution_allowed()?;
-        self.applications
-            .try_borrow_mut()
-            .map_err(|_| RuntimeError::module_validation("method application store is borrowed"))?
-            .insert_record(ApplicationRecord::Admitted(computation))
-            .map_err(|_| self.resource_limit("method computation storage"))
+    #[cfg(test)]
+    pub(crate) fn application_record(
+        &mut self,
+        application: &AdmittedApplication,
+    ) -> Result<Arc<ApplicationRecord>, RuntimeError> {
+        self.with_metadata_graph(
+            &[MetadataSource::AdmittedApplication(application)],
+            |cx, graph, _| {
+                let Some(ProtectedMetadata::Application(value)) = graph.single_root() else {
+                    return Err(GcError::Representation.into());
+                };
+                Ok(cx.read(value, |value| value.record().clone()))
+            },
+        )
     }
 
-    pub(crate) fn method_computation(
-        &self,
+    /// Select only inside the explicitly protected actual graph. The ID alone
+    /// cannot recover a managed application or authorize execution.
+    pub(crate) fn application_record_in(
+        &mut self,
+        protected: &[MetadataSource<'_>],
         id: ApplicationId,
-    ) -> Option<Ref<'_, MethodComputation>> {
-        Ref::filter_map(self.applications.try_borrow().ok()?, |store| {
-            match store.record(id)? {
-                ApplicationRecord::Admitted(computation) => Some(computation),
-                ApplicationRecord::Semantic(_) => None,
-            }
+    ) -> Result<Arc<ApplicationRecord>, RuntimeError> {
+        self.with_metadata_graph(protected, |cx, graph, resources| {
+            let Some(ProtectedMetadata::Application(value)) =
+                graph.find(cx, MetadataEdge::Application(id), resources)?
+            else {
+                return Err(RuntimeError::module_validation("application is not protected").into());
+            };
+            Ok(cx.read(value, |value| value.record().clone()))
         })
-        .ok()
-    }
-
-    pub(crate) fn alloc_method_application(
-        &self,
-        application: MethodApplication,
-    ) -> Result<ApplicationId, RuntimeError> {
-        self.ensure_execution_allowed()?;
-        self.applications
-            .try_borrow_mut()
-            .map_err(|_| RuntimeError::module_validation("method application store is borrowed"))?
-            .insert(application)
-            .map_err(|_| self.resource_limit("method application storage"))
-    }
-
-    pub(crate) fn method_application(
-        &self,
-        id: ApplicationId,
-    ) -> Option<Ref<'_, MethodApplication>> {
-        Ref::filter_map(self.applications.try_borrow().ok()?, |store| store.get(id)).ok()
     }
 }
 

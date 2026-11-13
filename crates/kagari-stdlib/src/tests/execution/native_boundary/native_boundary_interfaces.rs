@@ -15,9 +15,11 @@ use kagari_runtime::{
         context::NativeCall,
         declarations::{CallableRequirement, FunctionDecl, MethodDecl},
         module::NativeModule,
+        typed::NativeContext,
         types::Type,
+        value_handle::ScriptValue,
     },
-    value::Value,
+    value::view::ValueView,
 };
 
 use kagari_bytecode::{program::verify_program, verifier::BytecodeVerificationError};
@@ -113,34 +115,30 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
     assert_eq!(
         vm.execute_module(&loaded, "overridden", vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(
         vm.execute_module(&loaded, "nested", vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
     assert_eq!(
         vm.execute_module(&loaded, "bounded", vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
@@ -171,24 +169,17 @@ fn registered_default_calls_the_selected_receiver_operation() {
             NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::i32()), move |cx| {
                 let receiver = cx.argument(0)?;
                 let target = cx.selected(&selected)?;
-                let Value::I32(value) = cx.call_values(target, &[receiver])? else {
+                let Some(value) = cx.call_values(target, &[receiver])?.as_i32() else {
                     return Err(RuntimeError::module_validation("checked Read result"));
                 };
-                Ok(Value::I32(value * 2))
+                Ok(ValueView::from(value * 2))
             }),
         )
         .unwrap();
     declaration.finish().unwrap();
     let module = module.finish().unwrap();
     let (mut vm, loaded) = compile(
-        r#"
-        use example::defaults::Read;
-        struct Number {}
-        impl Read for Number { fn read(self) -> i32 { 21 } }
-        fn main() -> i32 { Number {}.twice() }
-        fn dynamic(value: Read) -> i32 { value.twice() }
-        pub fn run_dynamic() -> i32 { dynamic(Number {}) }
-        "#,
+        include_str!("../../../../tests/fixtures/native/interface-selected-default.kgr"),
         Some(&module),
     );
     let _loaded_program = loaded;
@@ -198,9 +189,8 @@ fn registered_default_calls_the_selected_receiver_operation() {
             vm.execute_module(&loaded, entry, vm.execution_options())
                 .unwrap()
                 .return_value
-                .value(vm.gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+                .as_i32(),
+            Some(42)
         );
     }
 }
@@ -208,15 +198,7 @@ fn registered_default_calls_the_selected_receiver_operation() {
 #[test]
 fn dynamic_list_iteration_adapts_the_concrete_cursor_result() {
     let (mut vm, loaded) = compile(
-        r#"use std::collections::{List};
-
-        fn sum(values: List<i32>) -> i32 {
-            var result = 0;
-            for value in values { result += value; }
-            result
-        }
-        fn main() -> i32 { sum(Vec::from([20, 22])) }
-        "#,
+        include_str!("../../../../tests/fixtures/native/dynamic-list.kgr"),
         None,
     );
     let _loaded_program = loaded;
@@ -225,16 +207,15 @@ fn dynamic_list_iteration_adapts_the_concrete_cursor_result() {
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
 }
 
 #[test]
 fn dynamic_iterator_adapters_round_trip_and_reject_forged_tables() {
     let program = compile_program(
-        "use std::collections::{List};\nfn sum(values: List<i32>) -> i32 { var n = 0; for x in values { n += x; } n } fn main() -> i32 { sum(Vec::from([20, 22])) }",
+        include_str!("../../../../tests/fixtures/native/dynamic-forged-table.kgr"),
         None,
     );
     let decoded = round_trip_program(program.clone());
@@ -252,9 +233,8 @@ fn dynamic_iterator_adapters_round_trip_and_reject_forged_tables() {
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
     let (owner, table) = program
         .records()
@@ -314,34 +294,19 @@ fn dynamic_iteration_preserves_gc_roots_and_detects_invalidation() {
         .unwrap();
     let module = builder.finish().unwrap();
     let (mut vm, loaded) = compile(
-        r#"use std::collections::{List, MutableList};
-
-        use example::collection_gc::collect;
-        struct Node { val value: i32 }
-        fn sum(values: MutableList<Node>) -> i32 {
-            val view: List<Node> = values;
-            var sum = 0;
-            for node in view { collect(); sum += node.value; }
-            sum
-        }
-        fn main() -> i32 { sum(Vec::from([Node { value: 20 }, Node { value: 22 }])) }
-        fn mutate(values: MutableList<i32>) {
-            val view: List<i32> = values;
-            for item in view { values.push(item); }
-        }
-        pub fn trap() { mutate(Vec::from([1, 2])); }
-    "#,
+        include_str!("../../../../tests/fixtures/native/dynamic-list-gc.kgr"),
         Some(&module),
     );
     let _loaded_program = loaded;
     let loaded = vm.select_program(&_loaded_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     assert_eq!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
     assert!(
         vm.execute_module(&loaded, "trap", vm.execution_options())
@@ -351,39 +316,21 @@ fn dynamic_iteration_preserves_gc_roots_and_detects_invalidation() {
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
 fn script_iterator_results_use_the_same_dynamic_adapter() {
     let (mut vm, loaded) = compile(
-        r#"
-        struct Cursor { var current: i32 }
-        impl Iterator for Cursor {
-            type Item = i32;
-            fn next(self) -> Option<i32> {
-                if self.current < 2 { self.current += 1; Some(21) } else { None }
-            }
-        }
-        struct Items {}
-        impl Iterable for Items {
-            type Item = i32;
-            type Iter = Cursor;
-            fn iter(self) -> Cursor { Cursor { current: 0 } }
-        }
-        trait Bag: Iterable<Item = i32> {}
-        impl Bag for Items {}
-        fn sum(values: Bag) -> i32 {
-            var result = 0;
-            for item in values { result += item; }
-            result
-        }
-        fn main() -> i32 { sum(Items {}) }
-    "#,
+        include_str!("../../../../tests/fixtures/native/dynamic-script-iterator.kgr"),
         None,
     );
     let _loaded_program = loaded;
@@ -392,37 +339,15 @@ fn script_iterator_results_use_the_same_dynamic_adapter() {
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
 }
 
 #[test]
 fn default_map_and_set_iterate_through_readonly_parent_views() {
     let (mut vm, loaded) = compile(
-        r#"use std::collections::{HashMap, HashSet, Map, MutableMap, MutableSet, Set};
-
-        fn map_sum(values: MutableMap<i32, i32>) -> i32 {
-            val view: Map<i32, i32> = values;
-            var result = 0;
-            for (key, value) in view { result += key + value; }
-            result
-        }
-        fn set_sum(values: MutableSet<i32>) -> i32 {
-            val view: Set<i32> = values;
-            var result = 0;
-            for value in view { result += value; }
-            result
-        }
-        fn main() -> i32 {
-            val map: HashMap<i32, i32> = HashMap::new();
-            map.insert(1, 19);
-            val set: HashSet<i32> = HashSet::new();
-            set.insert(10); set.insert(12);
-            map_sum(map) + set_sum(set)
-        }
-    "#,
+        include_str!("../../../../tests/fixtures/native/dynamic-map-set.kgr"),
         None,
     );
     let _loaded_program = loaded;
@@ -431,9 +356,8 @@ fn default_map_and_set_iterate_through_readonly_parent_views() {
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
 }
 
@@ -478,25 +402,7 @@ fn generic_native_default_uses_the_callers_ordering_operation() {
     declaration.finish().unwrap();
     let module = module.finish().unwrap();
     let program = compile_program(
-        r#"use std::cmp::{Ordering};
-
-        use example::comparison::Compare;
-        struct Source {}
-        impl Compare for Source {}
-        struct Rank { val value: i32 }
-        impl PartialEq for Rank { fn eq(self, other: Self) -> bool { self.value == other.value } }
-        impl Eq for Rank {}
-        impl PartialOrd for Rank { fn partial_cmp(self, other: Self) -> Option<Ordering> { self.value.partial_cmp(other.value) } }
-        impl Ord for Rank { fn cmp(self, other: Self) -> Ordering { other.value.cmp(self.value) } }
-        fn main() -> i32 {
-            val source: Compare = Source {};
-            if source.compare(10, 20) != Ordering::Less { return 0; };
-            val left = Rank { value: 10 };
-            val right = Rank { value: 20 };
-            if source.compare(left, right) != Ordering::Greater { return 0; };
-            if source.compare("a", "b") == Ordering::Less { 42 } else { 0 }
-        }
-    "#,
+        include_str!("../../../../tests/fixtures/native/interface-ordering.kgr"),
         Some(&module),
     );
     let decoded = round_trip_program(program);
@@ -515,9 +421,8 @@ fn generic_native_default_uses_the_callers_ordering_operation() {
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
 }
 
@@ -525,17 +430,7 @@ fn generic_native_default_uses_the_callers_ordering_operation() {
 fn a_shared_method_calls_an_ordinary_generic_native_function() {
     let module = generic_identity_module();
     let program = compile_program(
-        r#"
-use example::generic_helper::identity;
-trait Forward { fn forward<T>(self, value: T) -> T { identity(value) } }
-struct Source {}
-impl Forward for Source {}
-struct Item { val value: i32 }
-fn main() -> i32 {
-    val source: Forward = Source {};
-    source.forward(21) + source.forward(Item { value: 21 }).value
-}
-"#,
+        include_str!("../../../../tests/fixtures/native/shared-generic-native.kgr"),
         Some(&module),
     );
     let decoded = round_trip_program(program);
@@ -554,9 +449,8 @@ fn main() -> i32 {
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
 }
 
@@ -598,9 +492,9 @@ pub(super) fn generic_identity_module() -> NativeModule {
     module
         .bind(
             singleton,
-            NativeBinding::new(vec![Codec::Value], Codec::Value, |cx| {
-                cx.heap().alloc_tuple(vec![cx.argument(0)?])
-            }),
+            |_cx: &mut NativeContext<'_>,
+             (item,): (ScriptValue,)|
+             -> NativeResult<(ScriptValue,)> { Ok((item,)) },
         )
         .unwrap();
     module.finish().unwrap()
@@ -609,18 +503,7 @@ pub(super) fn generic_identity_module() -> NativeModule {
 #[test]
 fn shared_native_returns_preserve_the_callers_layout_generation() {
     let module = generic_identity_module();
-    let source = r#"
-use example::generic_helper::identity;
-use example::generic_helper::singleton;
-trait Forward { fn forward<T>(self, value: T) -> T { { val (item,) = singleton(identity(value)); item } } }
-struct Source {}
-impl Forward for Source {}
-struct Item { val value: i32 }
-pub fn receiver() -> Forward { Source {} }
-trait Run { fn run(self, source: Forward) -> i32 { source.forward(Item { value: 42 }).value } }
-impl Run for i32 {}
-pub fn runner() -> Run { 7 }
-"#;
+    let source = include_str!("../../../../tests/fixtures/native/shared-native-layout.kgr");
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
         &crate::modules().unwrap(),
@@ -640,10 +523,7 @@ pub fn runner() -> Run { 7 }
     let receiver = vm
         .execute_module(&old, "receiver", vm.execution_options())
         .unwrap()
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result");
-    let root = vm.root_value(receiver).unwrap();
+        .return_value;
     let next_source = source
         .replace("val value: i32", "val value: i32, val extra: bool")
         .replace("value: 42 }", "value: 42, extra: true }");
@@ -669,9 +549,7 @@ pub fn runner() -> Run { 7 }
     let runner = vm
         .execute_module(&current, "runner", vm.execution_options())
         .unwrap()
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result");
+        .return_value;
     let method = current
         .bytecode
         .interface_tables
@@ -691,11 +569,13 @@ pub fn runner() -> Run { 7 }
         .unwrap()
         .method;
     assert_eq!(
-        vm.invoke_interface_method(&runner, &method, &[receiver])
-            .unwrap(),
-        Value::I32(43)
+        vm.invoke_interface_method(&runner, &method, std::slice::from_ref(&receiver))
+            .unwrap()
+            .as_i32(),
+        Some(43)
     );
-    drop(root);
+    assert!(vm.validate_executable_module(&old).is_ok());
+    drop(receiver);
     // Retire the linked construction cache as well as its old receiver value.
     let candidate = vm
         .stage_reload_program(
@@ -705,12 +585,8 @@ pub fn runner() -> Run { 7 }
         )
         .unwrap();
     vm.publish_staged_reload(candidate).unwrap();
-    assert!(
-        vm.collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&old.key())
-    );
+    vm.collect_garbage().unwrap();
+    assert!(vm.validate_executable_module(&old).is_err());
     assert_eq!(vm.resources().counters().current_call_depth, 0);
 }
 
@@ -745,7 +621,7 @@ fn generic_native_default_calls_the_selected_receiver_operation() {
             NativeBinding::new(vec![Codec::Value, Codec::Value], Codec::Value, move |cx| {
                 let receiver = cx.argument(0)?;
                 let target = cx.selected(&selected)?;
-                if cx.call_values(target, &[receiver])? != Value::I32(42) {
+                if cx.call_values(target, &[receiver])?.as_i32() != Some(42) {
                     return Err(RuntimeError::module_validation(
                         "selected receiver returned wrong value",
                     ));
@@ -757,25 +633,7 @@ fn generic_native_default_calls_the_selected_receiver_operation() {
     declaration.finish().unwrap();
     let module = module.finish().unwrap();
     let (mut vm, loaded) = compile(
-        r#"
-use example::receiver::Read;
-struct Source<R> { val value: R }
-impl<R> Read for Source<R> { fn read(self) -> i32 { 42 } }
-trait Relay {
-    fn echo<T>(self, value: T) -> T {
-        val source: Read = Source { value };
-        source.echo(value)
-    }
-}
-impl Relay for i32 {}
-struct Item { val value: i32 }
-fn main() -> i32 {
-    val source: Read = Source { value: 1 };
-    val relay: Relay = 0;
-    val result = relay.echo(Item { value: 42 });
-    if source.echo("ok") == "ok" { source.echo(result.value) } else { 0 }
-}
-"#,
+        include_str!("../../../../tests/fixtures/native/interface-selected-receiver.kgr"),
         Some(&module),
     );
     let _loaded_program = loaded;
@@ -784,9 +642,8 @@ fn main() -> i32 {
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
 }
 
@@ -838,22 +695,7 @@ fn a_shared_native_helper_calls_a_generic_constraint_member() {
         .unwrap();
     let module = module.finish().unwrap();
     let (mut vm, loaded) = compile(
-        r#"
-use example::generic_operation::{Identity, invoke};
-struct Source { var calls: i32 }
-impl Identity for Source { fn identity<T>(self, value: T) -> T { self.calls += 1; value } }
-trait Relay {
-    fn relay<S: Identity, T>(self, source: S, value: T) -> T { invoke(source, value) }
-}
-impl Relay for i32 {}
-struct Item { val value: i32 }
-fn main() -> i32 {
-    val relay: Relay = 0;
-    val source = Source { calls: 0 };
-    val result = relay.relay(source, Item { value: 42 });
-    if relay.relay(source, "ok") == "ok" && source.calls == 2 { result.value } else { 0 }
-}
-"#,
+        include_str!("../../../../tests/fixtures/native/shared-generic-constraint.kgr"),
         Some(&module),
     );
     let _loaded_program = loaded;
@@ -862,8 +704,7 @@ fn main() -> i32 {
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
 }

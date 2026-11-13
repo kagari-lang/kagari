@@ -9,7 +9,7 @@ use crate::{
         conversion::{FromKagari, context::ConversionContext},
         serde::deserializer::access::{Fields, Sequence, Variant},
     },
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use serde::{
@@ -17,16 +17,16 @@ use serde::{
     de::{DeserializeSeed, Visitor},
 };
 
-pub(super) struct Deserializer<'scope, 'runtime> {
+pub(super) struct Deserializer<'scope, 'runtime, 'value> {
     cx: &'scope mut ConversionContext<'runtime>,
     expected: &'scope TypeArgument,
-    value: Value,
+    value: ValueView<'value>,
 }
 
 pub(super) fn decode<'de, S: DeserializeSeed<'de>>(
     cx: &mut ConversionContext<'_>,
     expected: &TypeArgument,
-    value: &Value,
+    value: &ValueView<'_>,
     seed: S,
 ) -> NativeResult<S::Value> {
     cx.decode_scope(expected, value, |cx| {
@@ -34,11 +34,11 @@ pub(super) fn decode<'de, S: DeserializeSeed<'de>>(
     })
 }
 
-impl<'scope, 'runtime> Deserializer<'scope, 'runtime> {
+impl<'scope, 'runtime, 'value> Deserializer<'scope, 'runtime, 'value> {
     pub(super) fn new(
         cx: &'scope mut ConversionContext<'runtime>,
         expected: &'scope TypeArgument,
-        value: Value,
+        value: ValueView<'value>,
     ) -> Self {
         Self {
             cx,
@@ -61,7 +61,7 @@ macro_rules! scalar {
     )+ };
 }
 
-impl<'de> SerdeDeserializer<'de> for Deserializer<'_, '_> {
+impl<'de> SerdeDeserializer<'de> for Deserializer<'_, '_, '_> {
     type Error = RuntimeError;
 
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> NativeResult<V::Value> {
@@ -167,29 +167,15 @@ impl<'de> SerdeDeserializer<'de> for Deserializer<'_, '_> {
             return Err(unsupported("tuple schema mismatch"));
         }
         self.cx.check_elements(len)?;
-        let Value::Tuple(id) = self.value else {
-            return Err(unsupported("tuple value"));
-        };
-        let values = self
-            .cx
-            .runtime()
-            .gc()
-            .tuple(id)
-            .ok_or_else(|| unsupported("tuple identity"))?
-            .to_vec();
+        let mut cx = self.cx.scratch()?;
+        let values = cx.tuple_arguments(&self.value)?;
         if values.len() != len {
             return Err(unsupported("tuple arity"));
         }
-        let roots = self
-            .cx
-            .runtime()
-            .gc()
-            .root_execution_values(values)
-            .ok_or_else(|| unsupported("tuple snapshot roots"))?;
         let fields = (0..len)
-            .map(|i| self.cx.parameter(self.expected, i))
+            .map(|i| cx.parameter(self.expected, i))
             .collect::<NativeResult<_>>()?;
-        Sequence::visit(self.cx, roots, fields, visitor)
+        Sequence::visit(cx, values, fields, visitor)
     }
 
     fn deserialize_tuple_struct<V: Visitor<'de>>(

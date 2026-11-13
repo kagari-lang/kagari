@@ -717,7 +717,9 @@ values.push(3);      // Commits and invalidates the existing cursor.
 cursor.next();       // Traps: invalid or structurally modified iterator.
 ```
 
-Native payloads trace retained source cursors and callbacks through NativePayload::trace.
+Native payload providers trace retained source cursors and callbacks through their
+GcObject scanner; NativePayload selects schema registration rather than scanning.
+The Runtime execution plan owns the open RR03 consumer migration.
 Roots, checked call routes and exact retained computation bodies preserve GC and
 reload safety independently of
 iteration validity. Native storage borrows, sorting/mutation commits and hash

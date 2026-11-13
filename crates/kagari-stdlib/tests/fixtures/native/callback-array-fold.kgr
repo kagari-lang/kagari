@@ -1,0 +1,5 @@
+use example::fold::fold;
+
+fn main() -> i32 {
+    fold([9, 10], |value| (value + 1) * 2)
+}

@@ -3,12 +3,7 @@ use crate::{
     debug::{DebugPauseReason, DebugSession, DebugWatch, SourceBreakpoint},
     interpreter_tests::common::{compile_test_bytecode, load_test_module, test_runtime},
 };
-use crate::{
-    RuntimeConfig,
-    module::ModuleEpochRetention,
-    resource::RuntimeLimits,
-    value::{StructValueField, Value},
-};
+use crate::{RuntimeConfig, module::ModuleEpochRetention, resource::RuntimeLimits};
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::instruction::ConstructionTarget as BytecodeConstruction;
 use kagari_bytecode::instruction::Slot;
@@ -390,6 +385,7 @@ fn interface_program(
     }
 }
 
+mod conformance;
 mod debugger;
 mod frames;
 mod host_effects;

@@ -1,9 +1,12 @@
 use super::*;
 use crate::{
     Runtime,
-    frame::types::{bindings::TypeBindings, compatibility::TypeView},
+    execution::roots::ExecutionRoots,
+    frame::types::{arguments::TypeArgument, bindings::TypeBindings, compatibility::TypeView},
     module::VerifiedProgram,
     native::{builder::ModuleBuilder, typed::NativeContext},
+    value::carriers::RootedValue,
+    value_check,
 };
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_common::identity::{DefinitionKind, metadata::DefinitionMetadata, table::DefinitionId};
@@ -29,17 +32,7 @@ fn fixture() -> (Runtime, VerifiedProgram, DefinitionId, DefinitionId) {
     let root = sources
         .set(
             "interface-authority.kgr",
-            r#"
-        use authority::native::Shared;
-        pub trait Counter { fn next(self) -> i32; }
-        impl Counter for i32 { fn next(self) -> i32 { self + 1 } }
-        impl Shared<i32> for i32 {}
-        pub fn accept(value: Counter) -> i32 { value.next() }
-        pub fn shared(value: Shared<i32>) -> Shared<i32> { value }
-        pub fn make_shared() -> Shared<i32> { 7 }
-        fn main() -> Counter { 7 }
-    "#
-            .into(),
+            include_str!("../../../tests/fixtures/native/interface-authority.kgr").into(),
             SourceLayer::Base,
         )
         .unwrap();
@@ -137,10 +130,10 @@ fn trait_type(declaration: DefinitionId, arguments: Vec<Ty>) -> Ty {
 }
 
 fn interface_value(
-    runtime: &Runtime,
+    runtime: &mut Runtime,
     owner: &ExecutableModule,
     declaration: DefinitionId,
-) -> Value {
+) -> RootedValue {
     let (owner, table) = owner.members().find_map(|owner| {
         let implementation = owner.bytecode.public_items.iter().find_map(|item| match item {
             PublicItem::InterfaceTable(table) if matches!(&table.trait_type, Ty::Trait(ty) if ty.declaration == declaration) => Some(table.declaration),
@@ -150,8 +143,45 @@ fn interface_value(
         Some((owner, table))
     }).unwrap();
     runtime
-        .make_interface(&owner, table, Value::I32(7))
+        .make_interface(&owner, table, &RootedValue::from(7i32))
         .unwrap()
+}
+
+fn decode_interface(
+    runtime: &mut Runtime,
+    owner: &ExecutableModule,
+    expected: &TypeArgument,
+    root: &RootedValue,
+) -> Interface {
+    let mut cx = ConversionContext::new(runtime, owner).unwrap();
+    let value = cx.import(root).unwrap();
+    cx.decode_value(expected, &value).unwrap()
+}
+
+fn assert_encoded_alias(
+    runtime: &mut Runtime,
+    owner: &ExecutableModule,
+    expected: &TypeArgument,
+    handle: Interface,
+    root: &RootedValue,
+) {
+    let mut cx = ConversionContext::new(runtime, owner).unwrap();
+    let encoded = cx.encode_value(expected, handle).unwrap();
+    assert!(
+        {
+            let Runtime {
+                memory, resources, ..
+            } = cx.runtime_mut();
+            memory.scope(resources, |scope, roots| {
+                ExecutionRoots::with(roots, scope, |slots| {
+                    let encoded = encoded.get(slots)?.object().unwrap();
+                    let original = root.get(slots.scope())?.object().unwrap();
+                    Ok(encoded.ptr_eq(original))
+                })
+            })
+        }
+        .unwrap()
+    );
 }
 
 #[test]
@@ -186,18 +216,17 @@ fn script_interface_admission_is_installation_scoped_across_conversion_and_reloa
             .view(&right)
             .compatible(right_argument.view(&right))
     );
-    let value = interface_value(&runtime, &left, counter);
-    let handle: Interface = ConversionContext::new(&mut runtime, &left)
-        .unwrap()
-        .decode_value(&left_argument, &value)
-        .unwrap();
-    assert!(!runtime.matches_type_in(&value, &ty, &right, None));
-    assert!(
-        ConversionContext::new(&mut runtime, &right)
-            .unwrap()
-            .decode_value::<Interface>(&right_argument, &value)
-            .is_err()
-    );
+    let value = interface_value(&mut runtime, &left, counter);
+    let handle = decode_interface(&mut runtime, &left, &left_argument, &value);
+    assert!(!value_check::matches_rooted(&mut runtime, &right, &right_argument, &value).unwrap());
+    {
+        let mut cx = ConversionContext::new(&mut runtime, &right).unwrap();
+        let value = cx.import(&value).unwrap();
+        assert!(
+            cx.decode_value::<Interface>(&right_argument, &value)
+                .is_err()
+        );
+    }
     assert!(
         ConversionContext::new(&mut runtime, &right)
             .unwrap()
@@ -207,7 +236,7 @@ fn script_interface_admission_is_installation_scoped_across_conversion_and_reloa
     let accept = runtime
         .bind_function::<(Interface,), i32>(&right_program.root(), "accept")
         .unwrap();
-    let mut context = NativeContext::with_invoker(&mut runtime, &right, |_, _, _, _| {
+    let mut context = NativeContext::with_invoker(&mut runtime, &right, |_, _, _, _, _| {
         panic!("cross-installation interface reached script execution")
     })
     .unwrap();
@@ -226,15 +255,9 @@ fn script_interface_admission_is_installation_scoped_across_conversion_and_reloa
         .remove(0);
     assert_ne!(left_argument.identity(&left), fresh.identity(&current));
     assert!(left_argument.view(&left).compatible(fresh.view(&current)));
-    assert!(runtime.matches_type_in(&value, &ty, &current, None));
-    assert_eq!(
-        ConversionContext::new(&mut runtime, &current)
-            .unwrap()
-            .encode_value(&fresh, handle)
-            .unwrap(),
-        value
-    );
-    assert!(!runtime.matches_type_in(&value, &ty, &right, None));
+    assert!(value_check::matches_rooted(&mut runtime, &current, &fresh, &value).unwrap());
+    assert_encoded_alias(&mut runtime, &current, &fresh, handle, &value);
+    assert!(!value_check::matches_rooted(&mut runtime, &right, &right_argument, &value).unwrap());
 }
 
 #[test]
@@ -268,19 +291,10 @@ fn shared_native_interfaces_keep_nested_script_trait_provenance() {
             .compatible(right_argument.view(&right))
     );
     assert!(TypeView::new(&scalar, &left, None).compatible(TypeView::new(&scalar, &right, None)));
-    let value = interface_value(&runtime, &left, shared);
-    let handle: Interface = ConversionContext::new(&mut runtime, &left)
-        .unwrap()
-        .decode_value(&left_argument, &value)
-        .unwrap();
-    assert!(runtime.matches_type_in(&value, &ty, &right, None));
-    assert_eq!(
-        ConversionContext::new(&mut runtime, &right)
-            .unwrap()
-            .encode_value(&right_argument, handle)
-            .unwrap(),
-        value
-    );
+    let value = interface_value(&mut runtime, &left, shared);
+    let handle = decode_interface(&mut runtime, &left, &left_argument, &value);
+    assert!(value_check::matches_rooted(&mut runtime, &right, &right_argument, &value).unwrap());
+    assert_encoded_alias(&mut runtime, &right, &right_argument, handle, &value);
 
     let script = trait_type(counter, vec![]);
     let nested = trait_type(shared, vec![Ty::Array(Box::new(script.clone()))]);

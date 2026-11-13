@@ -1,0 +1,34 @@
+trait Factory {
+    fn make() -> Self;
+    fn shift(value: Self, by: i32) -> Self;
+    fn read(self) -> i32;
+}
+
+struct Item {
+    val value: i32
+}
+
+impl Factory for Item {
+    fn make() -> Self {
+        Item { value: 20 }
+    }
+    fn shift(value: Self, by: i32) -> Self {
+        Item { value: value.value + by }
+    }
+    fn read(self) -> i32 {
+        self.value
+    }
+}
+
+trait Relay {
+    fn relay<T: Factory>(self, value: T) -> i32 {
+        T::shift(value, 2).read() + T::make().read()
+    }
+}
+
+impl Relay for i32 {}
+
+fn main() -> i32 {
+    val relay: Relay = 0;
+    relay.relay(Item { value: 20 })
+}

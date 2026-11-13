@@ -19,14 +19,21 @@ fn native_enum_operations_reject_wrong_payloads_members_and_indices(#[case] body
     .unwrap();
     let mut runtime = engine.runtime(Default::default());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     assert!(
         runtime
             .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
             .is_err(),
         "{body}"
     );
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert!(runtime.execution_root().is_none());
+    runtime.collect_garbage().unwrap();
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     runtime.collect_garbage().unwrap();
-    assert_eq!(runtime.gc().allocated_objects(), 0);
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
 }

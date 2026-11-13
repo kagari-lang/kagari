@@ -733,13 +733,38 @@ probe now starts with a freshly linked runtime; preparation/linking stay outside
 these counters. Host entry/result retention and ordinary GC are included. Counts cover successful system
 allocation/reallocation requests, bytes requested and net allocated bytes on the
 current thread; net bytes may be negative when GC frees earlier allocations.
-They are not peak memory or bytes retained after collection. Heap object counts
-include reclaimed objects; environment/application deltas report live records.
+They are not peak memory or bytes retained after collection. `live_objects_delta`,
+`provider_units_delta` and `root_registrations_delta` are signed retained-occupancy
+differences, not cumulative allocations or reclamations. `completed_cycles` is a
+completed-cycle difference. Dropped Host leases remain registered until collector
+service drains their notices; reading these snapshots performs no cleanup.
 Runtime counters report method/shared and scoped interface-call preparation attempts,
-environment allocation attempts, non-program metadata graph validation entries and prepared-region exits
+environment allocation attempts, closed metadata graph admission attempts and prepared-region exits
 to ordinary dispatch. They include same-thread synchronous reentry. Cold counts include first-call descriptor preparation; they do not measure
 instruction cost or time saved. The HP00 warm baseline used one shared runtime
 for source forms, so differences in GC/live deltas require that context.
+
+`TRANSITION` reports actual successful value/scalar/initialization bank capacity
+changes, initialized cell bytes, committed frame parameter assignments and new
+Runtime memory-scope Host registrations. Cloning/importing an existing Host lease
+does not register it again. Execution-root examinations count directory/bank/
+dependency reads, including holes and retries, rather than unique live roots.
+`reallocated_capacity_bytes` counts old bank capacity offered to realloc on
+successful growth; it does not measure physical copying or force a move.
+Borrowed direct Native arguments are not counted as frame copies. Scalar paths
+without collection can legitimately report zero root examinations/admissions.
+
+The `runtime_storage` example uses the nonallocating `execution_backing` snapshot
+for initialized/reserved execution and control buffers, active and parked. Runtime
+inline size already includes resource and heap/source headers; do not add their
+individual descriptive sizes again. Collector metadata is reported separately;
+managed payload backing, individual Arc allocations, immutable code, external Rust
+state and allocator overhead are outside those buffer totals. This is retained
+backing at a boundary, not peak memory or RSS. The detailed `execution_usage`
+description allocates its output Vec and must stay outside allocation samples.
+The existing complete storage workload currently fails source analysis at missing
+`Vec` providers, before Runtime execution; the backing observation itself is
+covered by its Runtime owner test. Do not infer whole-workload results from it.
 
 Source-form diagnostics also run a separate 2,500/5,000-iteration protocol matrix:
 fixed versus alternating interface receivers, and fixed versus alternating receiver
@@ -766,6 +791,14 @@ On macOS, use the ordinary release binary for stack sampling:
 DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/profile_lua_macos.py arrays maps
 DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/profile_lua_macos.py --source-forms shared_generic interface byte_state string_calls
 ```
+
+The current `PROFILE_DONE` record reports completed GC cycles and changes in live
+objects, root registrations and collector backing bytes, plus provider units
+before/after the window. These are retained-state observations, not cumulative
+allocation counts or total Runtime memory. `PROFILE_LAYOUT` separates stored-cell,
+Host-root carrier and scoped-view sizes; frame payload estimates use the actual
+stored-cell type. The historical allocation tables above used the retired
+collector's cumulative counters and cannot be regenerated from these net deltas.
 
 The driver records hashes/environment and samples five seconds inside a ten-second
 warmed execution window (three Kagari warmups for original workloads, six for

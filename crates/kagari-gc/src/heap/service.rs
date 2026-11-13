@@ -7,7 +7,7 @@ use crate::{
     marking::{ActiveScan, RootCursor},
     root::RootId,
     root_source::RootScan,
-    scan::{EdgeVisitor, ScanBudget, ScanKind, ScanStatus},
+    scan::{EdgeVisitor, ScanBudget, ScanKind, ScanStatus, VisitTarget},
     sweep::{RETIREMENT_CAP, RetirementBatch},
 };
 use std::sync::Arc;
@@ -70,7 +70,7 @@ impl Heap {
         if self.root_cursor.next >= self.root_cursor.end {
             let mut visitor = EdgeVisitor {
                 physical: &self.physical,
-                marking: &mut self.marking,
+                target: VisitTarget::Mark(&mut self.marking),
             };
             if source.scan(budget, &mut visitor)? == ScanStatus::Pending {
                 return Ok(false);
@@ -165,7 +165,7 @@ impl Heap {
         let available = budget.remaining();
         let mut visitor = EdgeVisitor {
             physical: &self.physical,
-            marking: &mut self.marking,
+            target: VisitTarget::Mark(&mut self.marking),
         };
         // SAFETY: owner, initialized state and split visitor services are held through call.
         let status = unsafe {
@@ -243,13 +243,10 @@ impl Heap {
                     assert!(budget.take(next - slot - 1));
                     self.physical.cursor.slot = next;
                     if let Some(dead) = dead {
-                        let charge = batch.detach(
-                            &mut self.physical,
-                            id,
-                            dead,
-                            Some(self.ledger.indirect),
-                        )?;
-                        self.ledger.indirect -= charge;
+                        let charge =
+                            batch.detach(&mut self.physical, id, dead, Some(&self.ledger))?;
+                        self.ledger.indirect -= charge.bytes;
+                        self.ledger.units -= charge.units as u128;
                     }
                 }
                 SweepStage::Roots { remaining } => {

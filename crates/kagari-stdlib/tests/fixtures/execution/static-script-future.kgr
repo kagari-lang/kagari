@@ -1,0 +1,14 @@
+async fn later() -> i32 {
+    1
+}
+
+fn helper() -> i32 {
+    val pending = later();
+    7
+}
+
+static val value: i32 = helper();
+
+pub fn read() -> i32 {
+    value
+}

@@ -26,9 +26,12 @@ use kagari_runtime::{
     frame::driver::ReturnAction,
     host::HostCallContext,
     module::ExecutableModule,
-    native::{binding::NativeResult, builder::ModuleBuilder, catalog::DeclarationCatalog},
+    native::{
+        binding::NativeResult, builder::ModuleBuilder, catalog::DeclarationCatalog,
+        conversion::context::ConversionContext, host::callback,
+    },
     session::TraceValue,
-    value::Value,
+    value::{carriers::RootedValue, view::ValueView},
 };
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy, Signature},
@@ -79,23 +82,25 @@ fn cold_declarations() -> Result<DefinitionMetadata<ModuleDecl>, Box<dyn Error>>
     )?)
 }
 
-fn invoke_limit(runtime: &mut Runtime, owner: &ExecutableModule) -> NativeResult<Value> {
-    let mut stack_activation = runtime.enter_execution_stack(owner)?;
+fn invoke_limit(runtime: &mut Runtime, owner: &ExecutableModule) -> NativeResult<RootedValue> {
+    let mut conversion = ConversionContext::new(runtime, owner)?;
+    let arguments = conversion.argument_values(&[])?;
+    let mut stack_activation = conversion.runtime_mut().enter_execution_stack(owner)?;
     stack_activation.with(|runtime, stack| {
         stack.push_callable(
             runtime,
             owner.clone(),
             CallableTarget::Native(NativeImportId::new(0)),
-            &[],
+            arguments,
             None,
         )?;
-        stack.start_native_entry(runtime, |_, _, _, _| {
+        stack.start_native_entry(runtime, |_, _, _, _, _| {
             unreachable!("limit never calls script")
         })?;
         let ReturnAction::Complete(value) = stack.finish_native_return(runtime)? else {
             panic!("root native return");
         };
-        Ok(value)
+        stack.retain_result(runtime, value)
     })
 }
 
@@ -178,9 +183,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         ModuleBuilder::from_declaration(cold, &DeclarationCatalog::default(), BTreeMap::new())?;
     let function = builder.declared_function("limit")?;
     let immutable_limit = 42;
-    builder.bind(function, move |_: &mut HostCallContext<'_>, _: &[Value]| {
-        Ok(Value::I32(immutable_limit))
-    })?;
+    builder.bind(
+        function,
+        callback(move |_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
+            Ok(ValueView::from(immutable_limit))
+        }),
+    )?;
     let installed = builder.finish()?;
     let mut runtime = Runtime::default();
     installed.install(&mut runtime)?;
@@ -199,13 +207,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         )?,
     )?;
     let loaded = runtime.select_program(&loaded_program)?;
+    runtime.collect_garbage()?;
+    let root_baseline = runtime.gc_stats().root_registrations;
     let mut options = runtime.execution_options();
     options.record_host_calls = true;
     options.inputs.unix_time_millis = 1_000;
     let mut session = runtime.begin_execution(&loaded, options)?;
     assert_eq!(
-        invoke_limit(session.runtime_mut(), &loaded)?,
-        Value::I32(42)
+        invoke_limit(session.runtime_mut(), &loaded)?.as_i32(),
+        Some(42)
     );
     let trace = session.trace().expect("recording was enabled");
     assert_eq!(trace.code_fingerprint, loaded.program_fingerprint());
@@ -233,12 +243,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     )?;
     let mut initialization = runtime.begin_candidate_initialization(&candidate)?;
     assert_eq!(
-        invoke_limit(initialization.runtime_mut(), candidate.module())?,
-        Value::I32(42)
+        invoke_limit(initialization.runtime_mut(), candidate.module())?.as_i32(),
+        Some(42)
     );
     drop(initialization);
     runtime.publish_staged_reload(candidate)?;
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage()?;
+    assert_eq!(runtime.gc_stats().root_registrations, root_baseline);
+    assert!(runtime.execution_id().is_none());
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
     println!(
         "common offline contract: {} bytes; immutable configuration returned 42",
         bytes.len()

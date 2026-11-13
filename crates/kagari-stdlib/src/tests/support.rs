@@ -4,8 +4,7 @@ pub(super) mod bytecode;
 pub(super) mod native;
 
 use kagari_runtime::{
-    Runtime, execution::owned::DriveResult, gc::roots::RootedValue, module::ExecutableModule,
-    value::Value,
+    Runtime, execution::owned::DriveResult, module::ExecutableModule, value::carriers::RootedValue,
 };
 use std::num::NonZeroUsize;
 
@@ -14,7 +13,7 @@ pub(super) fn invoke(
     runtime: &mut Runtime,
     module: &ExecutableModule,
     name: &str,
-    arguments: &[Value],
+    arguments: &[RootedValue],
 ) -> RootedValue {
     let execution = runtime
         .start(module, name, arguments, Default::default())

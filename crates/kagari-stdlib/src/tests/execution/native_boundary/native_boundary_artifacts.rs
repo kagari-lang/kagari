@@ -1,7 +1,5 @@
 use crate::tests::execution::native_boundary::support::round_trip_program;
-use kagari_runtime::{
-    Runtime, module::entry::ProgramEntry, native::module::NativeModule, value::Value,
-};
+use kagari_runtime::{Runtime, module::entry::ProgramEntry, native::module::NativeModule};
 
 #[cfg(test)]
 use crate::tests::support::bytecode::load_bytecode;
@@ -119,15 +117,20 @@ fn direct_native_imports_run_from_source_and_decoded_artifacts() {
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
         let mut vm = runtime;
+        vm.collect_garbage().unwrap();
+        let baseline = vm.gc_stats();
         assert_eq!(
             vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
                 .unwrap()
                 .return_value
-                .value(vm.gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+                .as_i32(),
+            Some(42)
         );
-        assert_eq!(vm.gc().active_roots(), 0);
+        vm.collect_garbage().unwrap();
+        assert_eq!(
+            vm.gc_stats().root_registrations,
+            baseline.root_registrations
+        );
     }
 }
 
@@ -230,6 +233,8 @@ fn forged_native_imports_reject_bindings_signatures_and_obligations(#[case] corr
     );
     let mut runtime = Runtime::default();
     NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     assert!(
         load_bytecode(
             &mut runtime,
@@ -239,7 +244,11 @@ fn forged_native_imports_reject_bindings_signatures_and_obligations(#[case] corr
         .is_err(),
         "runtime accepted corruption {corrupt}"
     );
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -279,15 +288,20 @@ fn concrete_collection_native_signatures_preserve_element_types() {
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
         let mut vm = runtime;
+        vm.collect_garbage().unwrap();
+        let baseline = vm.gc_stats();
         assert_eq!(
             vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
                 .unwrap()
                 .return_value
-                .value(vm.gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+                .as_i32(),
+            Some(42)
         );
-        assert_eq!(vm.gc().active_roots(), 0);
+        vm.collect_garbage().unwrap();
+        assert_eq!(
+            vm.gc_stats().root_registrations,
+            baseline.root_registrations
+        );
     }
 }
 
@@ -355,6 +369,8 @@ fn native_storage_writes_reject_element_type_forgery() {
     );
     let mut runtime = Runtime::default();
     NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     assert!(
         load_bytecode(
             &mut runtime,
@@ -363,7 +379,11 @@ fn native_storage_writes_reject_element_type_forgery() {
         )
         .is_err()
     );
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 fn renamed(context: &DefinitionContext, id: DefinitionId, name: &str) -> DefinitionId {

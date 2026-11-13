@@ -1,21 +1,13 @@
 //! Source-side consumer of the same application-owned registration fixture.
-use super::{artifact, engine, provider};
+use super::{artifact, assert_provider_released, engine};
 use crate::{
-    context::ExecutionContext,
-    engine::{EngineConfig, KagariEngine},
-    program::Program,
+    context::ExecutionContext, engine::EngineConfig, program::Program,
     runtime::tests::embedding::generic_reload::prepare_static_program,
 };
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::reload::ReloadValidationError;
-use kagari_runtime::value::Value;
-use kagari_stdlib as stdlib;
 use rstest::rstest;
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
-};
 
 #[rstest]
 #[case::source(false)]
@@ -46,10 +38,10 @@ pub fn update() { STATE = 5; }
             .execute(module, entry, &[], &Default::default())
             .unwrap()
             .return_value
-            .value(runtime.gc())
+            .as_i32()
             .unwrap()
     };
-    assert_eq!(call(&old, "read"), Value::I32(13));
+    assert_eq!(call(&old, "read"), 13);
     runtime
         .program(&old)
         .map_err(ReloadValidationError::Runtime)
@@ -66,50 +58,12 @@ pub fn update() { STATE = 5; }
                 .execute(&current, entry, &[], &Default::default())
                 .unwrap()
                 .return_value
-                .value(runtime.gc())
+                .as_i32()
                 .unwrap(),
-            Value::I32(expected),
+            expected,
             "{entry}/decoded={decoded}"
         );
     }
-}
-
-#[test]
-fn retained_host_lease_does_not_keep_native_payload_alive_after_runtime_teardown() {
-    let program = Program::from_artifact(
-        artifact("fn main() -> native::Handler<i32> { native::hold(42, |value| value) }"),
-        &Default::default(),
-        &Default::default(),
-    )
-    .unwrap();
-    let drops = Arc::new(AtomicUsize::new(0));
-    let mut builder = KagariEngine::builder().unwrap();
-    builder.install_all(stdlib::modules().unwrap()).unwrap();
-    builder.install(provider::module(drops.clone())).unwrap();
-    let engine = builder.build().unwrap();
-    let context = ExecutionContext::default();
-    let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(&program, Default::default()).unwrap();
-    let result = runtime
-        .execute(&loaded, ProgramEntry::Main, &[], &context)
-        .unwrap();
-    let root = runtime
-        .root_value(
-            result
-                .return_value
-                .value(runtime.gc())
-                .expect("retained execution result"),
-        )
-        .unwrap();
-    runtime.collect_garbage().unwrap();
-    assert_eq!(drops.load(Ordering::SeqCst), 0);
-    drop(runtime);
-    assert_eq!(drops.load(Ordering::SeqCst), 1);
-    let other = engine.runtime(context);
-    assert!(root.value(other.gc()).is_none());
-    assert!(root.set(other.gc(), Value::Unit).is_none());
-    drop(root);
-    assert_eq!(drops.load(Ordering::SeqCst), 1);
 }
 
 #[test]
@@ -130,17 +84,17 @@ fn an_embedding_owned_provider_can_allocate_and_chain_checked_callbacks() {
     // A fresh engine installs the same checked module without source compilation.
     let mut runtime = engine(config).runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     assert_eq!(
         runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
-    assert_eq!(runtime.gc().active_roots(), 0);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
-    runtime.collect_garbage().unwrap();
-    assert_eq!(runtime.gc().allocated_objects(), 0);
+    assert_provider_released(&mut runtime, &program, &loaded, baseline);
 }

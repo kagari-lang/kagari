@@ -2,23 +2,27 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    execution_metadata::application_key::AdapterIdentity,
+    execution::roots::SessionId,
+    execution_metadata::{application_key::AdapterIdentity, managed::sources::MetadataSource},
     frame::types::{
         EnvironmentRecord, TypeEnvironment,
-        arguments::TypeArgument,
         bindings::AssociatedInterface,
         construction::{ConstructionBinding, ConstructionKey, ConstructionScope},
     },
     module::ExecutableModule,
     objects::calls::interface_binding,
-    value::Value,
 };
 use kagari_contract::callable::{
-    construction::evidence::{ConstructionRequirement, ConstructionSelection, ConstructionWitness},
+    construction::evidence::{ConstructionSelection, ConstructionWitness},
     witness::OperationWitness,
 };
 use kagari_types::ty::Ty;
 use std::collections::BTreeMap;
+
+pub(crate) struct ConstructionEvidence<'evidence> {
+    pub(crate) operations: &'evidence [OperationWitness],
+    pub(crate) constructions: &'evidence [ConstructionWitness],
+}
 
 fn invalid() -> RuntimeError {
     RuntimeError::module_validation("generic construction capability")
@@ -26,14 +30,19 @@ fn invalid() -> RuntimeError {
 
 impl Runtime {
     pub(crate) fn bind_constructions_in(
-        &self,
+        &mut self,
+        execution: SessionId,
         owner: &ExecutableModule,
         environment: Option<TypeEnvironment>,
         witnesses: &[ConstructionWitness],
+        protected: &mut Vec<MetadataSource<'_>>,
     ) -> Result<ConstructionScope, RuntimeError> {
-        let caller = self.construction_scope(owner, environment.as_ref())?;
+        let caller = self.construction_scope(owner, environment.as_ref(), protected)?;
         let mut scope = caller.clone();
-        for witness in witnesses {
+        for (index, witness) in witnesses.iter().enumerate() {
+            if index.is_multiple_of(1024) {
+                self.resources.poll_execution()?;
+            }
             let types = environment
                 .as_ref()
                 .map(|environment| environment.types.clone());
@@ -63,10 +72,14 @@ impl Runtime {
                     constructions,
                 } => {
                     let environment = self.construction_dependencies(
+                        execution,
                         owner,
                         environment.clone(),
-                        operations,
-                        constructions,
+                        ConstructionEvidence {
+                            operations,
+                            constructions,
+                        },
+                        protected,
                     )?;
                     Some(interface_binding(owner, implementation, environment)?)
                 }
@@ -129,81 +142,34 @@ impl Runtime {
 
     /// Receiver-bound dependencies use the same environment owner as shared calls.
     /// Immutable parent type facts and explicit executable edges retain provenance.
-    pub(super) fn construction_dependencies(
-        &self,
+    pub(crate) fn construction_dependencies(
+        &mut self,
+        execution: SessionId,
         owner: &ExecutableModule,
         parent: Option<TypeEnvironment>,
-        operations: &[OperationWitness],
-        constructions: &[ConstructionWitness],
+        evidence: ConstructionEvidence<'_>,
+        protected: &mut Vec<MetadataSource<'_>>,
     ) -> Result<Option<TypeEnvironment>, RuntimeError> {
+        let ConstructionEvidence {
+            operations,
+            constructions,
+        } = evidence;
         if operations.is_empty() && constructions.is_empty() {
             return Ok(parent);
         }
-        let operations = self.bind_operations_in(owner, parent.clone(), operations)?;
-        let constructions = self.bind_constructions_in(owner, parent.clone(), constructions)?;
+        let operations =
+            self.bind_operations_in(execution, owner, parent.clone(), operations, protected)?;
+        let constructions =
+            self.bind_constructions_in(execution, owner, parent.clone(), constructions, protected)?;
         let mut environment = EnvironmentRecord::new(owner.definitions(), vec![], vec![])?;
         environment.include(parent)?;
         environment.set_constructions(constructions);
         environment.extend_operations(operations);
-        Ok(Some(self.alloc_environment(environment)?))
-    }
-
-    /// Construct using a checked body's exact capability and supplying generation.
-    /// Returns an error for stale environments, foreign values or absent evidence.
-    pub fn make_bound_interface(
-        &self,
-        owner: &ExecutableModule,
-        environment: &TypeEnvironment,
-        required: &ConstructionRequirement,
-        data: Value,
-    ) -> Result<Value, RuntimeError> {
-        self.validate_executable_module(owner)?;
-        let types = self.type_arguments(
-            owner,
-            Some(environment.types.clone()),
-            &[
-                required.receiver.clone(),
-                Ty::Trait(required.interface.clone()),
-            ],
-        )?;
-        let receiver = types[0].identity(owner).ok_or_else(invalid)?;
-        let interface = types[1].identity(owner).ok_or_else(invalid)?;
-        let binding = self
-            .gc
-            .environment(environment.id)
-            .ok_or_else(invalid)?
-            .constructions
-            .selected(&receiver, &interface)
-            .ok_or_else(invalid)?
-            .clone();
-        let Ty::Trait(target) = binding.interface.ty() else {
-            return Err(invalid());
-        };
-        if let Some(selection) = &binding.selection {
-            let arguments: Vec<TypeArgument> = self.type_arguments(
-                &binding.owner,
-                selection
-                    .environment
-                    .as_ref()
-                    .map(|environment| environment.types.clone()),
-                &selection.arguments,
-            )?;
-            let snapshot = self.prepare_interface_snapshot(
-                &selection.owner,
-                selection.table,
-                &arguments,
-                selection.environment.as_ref(),
-                data,
-                false,
-            )?;
-            let source = snapshot.description.interface_type().clone();
-            let value = self.publish_interface(snapshot)?;
-            self.upcast_interface(&value, &source, target)
-        } else {
-            let Ty::Trait(source) = types[0].ty() else {
-                return Err(invalid());
-            };
-            self.upcast_interface(&data, source, target)
-        }
+        protected
+            .try_reserve(1)
+            .map_err(|_| RuntimeError::resource_limit("construction metadata sources"))?;
+        let environment = self.alloc_environment(execution, environment, protected)?;
+        protected.push(MetadataSource::Environment(environment.source()));
+        Ok(Some(environment.facts().clone()))
     }
 }

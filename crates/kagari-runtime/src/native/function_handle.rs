@@ -9,16 +9,18 @@ mod selected;
 use crate::{
     Runtime,
     error::RuntimeError,
+    execution_metadata::managed::environments::EnvironmentObject,
     frame::types::arguments::ScopedSignature,
-    gc::roots::RootedValue,
-    module::{ExecutableModule, dispatch::CallRoute, retention::ProgramLease},
+    module::{
+        ExecutableModule, dispatch::CallRoute, managed::source::RevisionSource,
+        retention::ProgramLease,
+    },
     native::{
         binding::NativeResult,
-        callable::PreparedClosure,
         context::{LinkedCallable, ScriptCall},
         conversion::{
             FromKagari,
-            arguments::{IntoKagariArguments, PreparedArguments, encode_arguments},
+            arguments::{IntoKagariArguments, PreparedArguments},
             context::ConversionContext,
         },
         function_handle::{evidence::EntryBinding, selected::SelectedBinding},
@@ -26,8 +28,10 @@ use crate::{
     },
     session::ExecutionOptions,
     source::FunctionSourceTarget,
+    value::carriers::RootedValue,
 };
 use kagari_bytecode::module::CallableTarget;
+use kagari_gc::root::Root;
 use std::{marker::PhantomData, sync::Arc};
 
 /// One admitted executable selection. Clones of its Arc retain the same body,
@@ -39,15 +43,13 @@ pub struct PreparedFunction {
     signature: Arc<ScopedSignature>,
     target: Target,
     _program: ProgramLease,
+    environment: Option<Root<EnvironmentObject>>,
 }
 
 #[derive(Debug)]
 enum Target {
     Entry(LinkedCallable),
-    Closure {
-        prepared: PreparedClosure,
-        root: RootedValue,
-    },
+    Closure { root: RootedValue },
 }
 
 #[derive(Debug)]
@@ -155,7 +157,8 @@ impl<A, R> Function<A, R> {
     /// Select once, before argument conversion, and retain that exact entry until
     /// execution and result conversion finish. Admission validates Runtime ownership.
     pub fn prepare_call(&self, runtime: &mut Runtime) -> NativeResult<PreparedHostCall<A, R>> {
-        runtime.gc().ensure_no_native_borrow()?;
+        runtime.resources().ensure_synchronous_thread()?;
+        runtime.resources().ensure_execution_allowed()?;
         let selection = match self.binding.as_ref() {
             FunctionBinding::Entry(entry) => entry.prepare(runtime).map(Arc::new),
             FunctionBinding::Selected(binding) => binding.prepare(runtime).map(Arc::new),
@@ -195,10 +198,14 @@ impl PreparedFunction {
     pub fn owner(&self) -> &ExecutableModule {
         &self.owner
     }
+
+    pub(crate) fn body_origin(&self) -> RevisionSource<'_> {
+        RevisionSource::Host(self._program.revision())
+    }
 }
 
 impl<A: IntoKagariArguments, R: FromKagari> PreparedHostCall<A, R> {
-    /// Execute this exact selection, including conversions and result retention.
+    /// Execute this exact selection, including conversions and result publication.
     /// This never resolves a live route a second time.
     pub fn call_with_options(
         &self,
@@ -207,7 +214,7 @@ impl<A: IntoKagariArguments, R: FromKagari> PreparedHostCall<A, R> {
         options: ExecutionOptions,
     ) -> NativeResult<R> {
         let selected = self.selection();
-        selected.validate(cx.runtime())?;
+        selected.validate(cx.runtime_mut())?;
         let invoke = cx.invoke_script.ok_or_else(|| {
             RuntimeError::module_validation("call context has no execution backend")
         })?;
@@ -216,20 +223,28 @@ impl<A: IntoKagariArguments, R: FromKagari> PreparedHostCall<A, R> {
             .begin_pinned_execution_with_options(selected, options)?;
         let mut conversion = ConversionContext::new(session.runtime_mut(), self.owner())?;
         let mapping = PreparedArguments::<A>::from_binding(&conversion, &selected.signature.params);
-        let (_roots, values) = encode_arguments(&mut conversion, mapping, arguments)?;
-        let value = match &selected.target {
+        let values = mapping.encode(&mut conversion, arguments)?;
+        let (location, destination) = conversion.result_place()?;
+        let published = match &selected.target {
             Target::Entry(target) if target.primitive.is_some() => conversion
                 .runtime_mut()
-                .invoke_standard_builtin(self.owner(), target.primitive.unwrap(), &values)
+                .invoke_standard_builtin(
+                    self.owner(),
+                    target.primitive.unwrap(),
+                    values,
+                    destination,
+                )
                 .map_err(|error| error.into_runtime_error())?,
             _ => invoke(
                 conversion.runtime_mut(),
                 self.owner(),
                 ScriptCall::Pinned(selected),
-                &values,
+                values,
+                destination,
             )?,
         };
-        // Retention is established before conversion can poll, collect or reenter.
+        let value = conversion.published_result(published, location)?;
+        // The caller destination protects the result before conversion can poll or reenter.
         conversion.decode_prepared(&selected.signature.result, &value)
     }
 }

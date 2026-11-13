@@ -1,0 +1,21 @@
+use example::defaults::Read;
+
+struct Number {}
+
+impl Read for Number {
+    fn read(self) -> i32 {
+        21
+    }
+}
+
+fn main() -> i32 {
+    Number {}.twice()
+}
+
+fn dynamic(value: Read) -> i32 {
+    value.twice()
+}
+
+pub fn run_dynamic() -> i32 {
+    dynamic(Number {})
+}

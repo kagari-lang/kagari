@@ -14,7 +14,7 @@ use kagari_package::{
     snapshot::ProgramInputs,
     workspace::MemberSelection,
 };
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_stdlib as stdlib;
 use serde_json::{Value as JsonValue, from_slice};
 use std::{fs, process::Output};
@@ -155,7 +155,7 @@ fn workspace_tools_preserve_semantics_and_agree_with_direct_sdk_checking() {
     let before = ProjectInputs::load(&input, "", &options, &Default::default()).unwrap();
     let engine =
         KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
-    assert_eq!(execute(&engine, &before.programs()["app"]), Value::I32(43));
+    assert_eq!(execute(&engine, &before.programs()["app"]), 43);
     assert_eq!(
         project
             .run(&["fmt", "--workspace", "--check"])
@@ -182,7 +182,7 @@ fn workspace_tools_preserve_semantics_and_agree_with_direct_sdk_checking() {
         formatted
     );
     let after = ProjectInputs::load(&input, "", &options, &Default::default()).unwrap();
-    assert_eq!(execute(&engine, &after.programs()["app"]), Value::I32(43));
+    assert_eq!(execute(&engine, &after.programs()["app"]), 43);
     let cli = project.run(&["check", "--workspace", "--message-format", "json"]);
     assert_eq!(cli.status.code(), Some(1));
     let json = records(&cli);
@@ -216,7 +216,7 @@ fn workspace_tools_preserve_semantics_and_agree_with_direct_sdk_checking() {
     assert!(!project.0.join("target/kagari/programs").exists());
 }
 
-fn execute(engine: &KagariEngine, inputs: &ProgramInputs) -> Value {
+fn execute(engine: &KagariEngine, inputs: &ProgramInputs) -> i32 {
     let checked = engine.compile_package(inputs, &Default::default()).unwrap();
     let artifact = engine
         .emit_artifact(&checked, ArtifactOptions::default())
@@ -236,6 +236,6 @@ fn execute(engine: &KagariEngine, inputs: &ProgramInputs) -> Value {
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap()
         .return_value
-        .value(runtime.gc())
+        .as_i32()
         .unwrap()
 }

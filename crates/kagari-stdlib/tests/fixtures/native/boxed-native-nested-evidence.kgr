@@ -1,0 +1,22 @@
+use example::generic_helper::identity;
+
+trait Relay {
+    fn relay<T>(self, value: T) -> T {
+        identity(value)
+    }
+}
+
+impl Relay for i32 {}
+
+pub fn evidence() -> i32 {
+    val relay: Relay = 0;
+    relay.relay(42)
+}
+
+pub fn invoke(f: fn(i32) -> i32) -> i32 {
+    f(42)
+}
+
+pub fn echo(f: fn(i32) -> i32) -> fn(i32) -> i32 {
+    f
+}

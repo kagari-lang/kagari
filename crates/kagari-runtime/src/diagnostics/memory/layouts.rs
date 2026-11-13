@@ -81,7 +81,7 @@ fn layout_lifecycle(
                 (ty, arguments)
             })
             .collect::<Vec<_>>();
-        let (setup, cold, warm, repeated) = preparation(&runtime, || {
+        let (setup, cold, warm, repeated) = preparation(&mut runtime, |runtime| {
             if prepare {
                 for (ty, arguments) in &inputs {
                     let scope = runtime
@@ -182,7 +182,7 @@ fn admission_lifecycle(
                 )
             })
             .collect::<Vec<_>>();
-        let (setup, cold, warm, repeated) = preparation(&runtime, || {
+        let (setup, cold, warm, repeated) = preparation(&mut runtime, |_runtime| {
             if prepare {
                 for (producer, consumer, producer_enum, consumer_enum) in &inputs {
                     assert!(consumer.matches(producer));

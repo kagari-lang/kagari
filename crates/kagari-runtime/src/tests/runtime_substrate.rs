@@ -1,117 +1,32 @@
+mod ownership;
+
 #[cfg(test)]
 use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
-    gc::GcHeap,
-    host::{
-        DynamicPathArguments, HostObjectId, HostPathAdapter, HostPathDescriptorId, HostSchemaEpoch,
-        PreparedHostPathWrite,
-    },
+    error::RuntimeErrorKind,
+    host::HostObjectId,
     metadata::{AbiFingerprint, TypeKind, TypeRegistration},
-    native::builder::ModuleBuilder,
-    value::Value,
+    test_support::layouts,
+    value::{
+        aggregates::{structures::StructObject, tuples::TupleObject},
+        arrays::ArrayObject,
+        carriers::{RootedValue, ScopedValue},
+        host_values::{HostRootObject, paths::HostPathObject},
+        scalar,
+    },
 };
 use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
-use kagari_common::identity::{
-    DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata,
+use kagari_common::identity::map::DefinitionContext;
+
+use kagari_gc::{
+    error::GcError,
+    object::GcObject,
+    scan::{EdgeVisitor, ScanBudget, ScanKind, ScanStatus},
 };
-
-use kagari_types::{
-    declaration::{
-        FieldDef,
-        host::{
-            HostFieldPolicy, HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess,
-        },
-        path::{HostPathDeclaration, HostPathSegmentDeclaration},
-    },
-    scalar::BuiltinType,
-    ty::Ty,
-    visibility::Visibility,
-};
-
-use crate::test_support::layouts;
-
-fn host_root_value(heap: &GcHeap, object_id: u64) -> Value {
-    let Value::HostPathView(view) = path_view_value(heap, object_id) else {
-        unreachable!()
-    };
-    heap.alloc_host_root(heap.host_path(view).unwrap().root())
-        .unwrap()
-}
-
-fn path_view_value(heap: &GcHeap, object_id: u64) -> Value {
-    let mut module = ModuleBuilder::new("game", &Default::default()).unwrap();
-    let mut player = module.define_type("Player").unwrap();
-    player
-        .external(HostTypePolicy {
-            ownership: HostTypeOwnership::HostRoot,
-            reflection: HostReflectionPolicy::Hidden,
-            path_access: PathAccess::ReadWrite,
-        })
-        .unwrap();
-    player
-        .field(
-            DefinitionMetadata::checked(
-                DefinitionContext::new().unwrap().snapshot(),
-                FieldDef {
-                    name: "hp".into(),
-                    ty: Ty::Builtin(BuiltinType::I32),
-                    visibility: Visibility::Public,
-                    mutable: true,
-                    host_policy: Some(HostFieldPolicy {
-                        readable: true,
-                        path_access: PathAccess::ReadWrite,
-                    }),
-                },
-                &Default::default(),
-            )
-            .unwrap(),
-        )
-        .unwrap();
-    let player = player.finish().unwrap();
-    let hp = player
-        .definitions()
-        .lookup_child(player.id(), DefinitionKind::Field, "hp", 0)
-        .unwrap();
-    let path = module
-        .define_path(
-            DefinitionMetadata::checked(
-                player.definitions().clone(),
-                HostPathDeclaration {
-                    root: player.id(),
-                    segments: vec![HostPathSegmentDeclaration::Field(hp)],
-                    access: PathAccess::ReadWrite,
-                    schema_epoch: 0,
-                },
-                &Default::default(),
-            )
-            .unwrap(),
-        )
-        .unwrap();
-    module
-        .bind_path(
-            &path,
-            HostPathAdapter::new()
-                .with_read(|_, _| Ok(Value::I32(10)))
-                .with_prepare_write(|_, _, _| Ok(PreparedHostPathWrite::new(|| {}))),
-        )
-        .unwrap();
-    let mut runtime = Runtime::default();
-    module.finish().unwrap().install(&mut runtime).unwrap();
-    let root_type = runtime.types().get_by_name("game::Player").unwrap().id;
-    let root = runtime
-        .register_host_root(HostObjectId(object_id), root_type, HostSchemaEpoch::new(0))
-        .unwrap();
-    let descriptor = HostPathDescriptorId::new(0);
-    heap.alloc_host_path(
-        runtime
-            .host()
-            .make_path_view(heap, root, descriptor, DynamicPathArguments::empty())
-            .unwrap(),
-    )
-    .unwrap()
-}
+use kagari_types::{scalar::BuiltinType, ty::Ty};
+use std::slice;
 
 #[test]
 fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
@@ -121,41 +36,90 @@ fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
         "Record",
         &[(
             "leaf",
-            Ty::Array(Box::new(Ty::Builtin(
-                kagari_types::scalar::BuiltinType::I32,
-            ))),
+            Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
             true,
         )],
     );
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     let leaf = runtime
         .alloc_array(
             record_layout.module(),
             Ty::Builtin(BuiltinType::I32),
-            vec![Value::I32(1)],
+            &[1i32.into()],
         )
         .unwrap();
     let record = runtime
-        .alloc_struct(record_layout, vec![Value::Array(leaf)])
+        .alloc_struct(record_layout, slice::from_ref(&leaf))
         .unwrap();
-
-    let root = runtime
-        .root_value(
-            runtime
-                .gc()
-                .alloc_tuple(vec![Value::Struct(record), Value::Unit])
-                .unwrap(),
-        )
+    let tuple = runtime
+        .memory
+        .scope(&runtime.resources, |cx, _| {
+            let record = record.get(cx)?;
+            let tuple = TupleObject::alloc(cx, &[record, record])?;
+            ScopedValue::managed(tuple).retain(cx)
+        })
         .unwrap();
-
-    let Value::Tuple(tuple) = root.value(runtime.gc()).unwrap() else {
-        unreachable!()
-    };
-    assert_eq!(runtime.trace_roots().unwrap(), vec![tuple, record, leaf]);
-    root.set(runtime.gc(), Value::GcHandle(leaf)).unwrap();
-    assert_eq!(runtime.trace_roots().unwrap(), vec![leaf]);
-    assert_eq!(root.value(runtime.gc()).unwrap(), Value::GcHandle(leaf));
-    drop(root);
-    assert!(runtime.trace_roots().unwrap().is_empty());
+    drop((leaf, record));
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects + 3);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations + 1
+    );
+    let record = runtime
+        .memory
+        .scope(&runtime.resources, |cx, _| {
+            let tuple = cx.downcast::<TupleObject>(tuple.get(cx)?.object().unwrap())?;
+            TupleObject::get(cx, tuple, 0)?.retain(cx)
+        })
+        .unwrap();
+    let leaf = runtime.reflect_get_field(&record, "leaf").unwrap();
+    let changed = runtime
+        .reflect_set_index(&leaf, &0i32.into(), &9i32.into())
+        .unwrap();
+    let (host, path) = layouts::host_values(&mut runtime, 11);
+    assert_eq!(
+        runtime
+            .reflect_set_field(&record, "leaf", &host)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::InvalidReflectiveWrite
+    );
+    assert_eq!(
+        runtime
+            .reflect_set_index(&leaf, &0i32.into(), &path)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::InvalidReflectiveWrite
+    );
+    drop((host, path));
+    drop((record, leaf, changed));
+    runtime.collect_garbage().unwrap();
+    runtime
+        .memory
+        .scope(&runtime.resources, |cx, _| {
+            let tuple = cx.downcast::<TupleObject>(tuple.get(cx)?.object().unwrap())?;
+            let left = TupleObject::get(cx, tuple, 0)?.object().unwrap();
+            let right = TupleObject::get(cx, tuple, 1)?.object().unwrap();
+            assert!(left.ptr_eq(right));
+            let record = cx.downcast::<StructObject>(right)?;
+            let leaf = StructObject::get(cx, record, 0)?.object().unwrap();
+            let leaf = cx.downcast::<ArrayObject>(leaf)?;
+            assert_eq!(
+                scalar::read_integer(BuiltinType::I32, ArrayObject::get(cx, leaf, 0)?).unwrap(),
+                9
+            );
+            Ok(())
+        })
+        .unwrap();
+    drop(tuple);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -221,60 +185,121 @@ fn runtime_type_registry_facade_preserves_registered_metadata() {
 #[test]
 fn host_objects_are_not_gc_payloads_or_trace_targets() {
     let mut runtime = Runtime::default();
-
     let record_layout = layouts::layout(
         &mut runtime,
         "HostBacked",
         &[(
             "path",
-            Ty::Array(Box::new(Ty::Builtin(
-                kagari_types::scalar::BuiltinType::I32,
-            ))),
+            Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
             true,
         )],
     );
-    assert!(
+    let (host, path) = layouts::host_values(&mut runtime, 7);
+    runtime.collect_garbage().unwrap();
+    let before = runtime.gc_stats();
+    for error in [
         runtime
             .alloc_array(
                 record_layout.module(),
                 Ty::Builtin(BuiltinType::I32),
-                vec![host_root_value(runtime.gc(), 1)]
+                slice::from_ref(&host),
             )
-            .is_err()
-    );
-    let script = runtime
-        .alloc_array(
-            record_layout.module(),
-            Ty::Builtin(BuiltinType::I32),
-            vec![Value::I32(1)],
-        )
+            .unwrap_err(),
+        runtime
+            .alloc_struct(record_layout, slice::from_ref(&path))
+            .unwrap_err(),
+    ] {
+        assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
+    }
+    let after = runtime.gc_stats();
+    assert_eq!(after.objects, before.objects);
+    assert_eq!(after.indirect_bytes, before.indirect_bytes);
+    let tuple = runtime
+        .memory
+        .scope(&runtime.resources, |cx, _| {
+            let host = host.get(cx)?;
+            let path = path.get(cx)?;
+            let tuple = TupleObject::alloc(cx, &[host, path])?;
+            assert!(!cx.read(tuple, TupleObject::properties).storable);
+            ScopedValue::managed(tuple).retain(cx)
+        })
         .unwrap();
-    assert!(
-        runtime
-            .alloc_struct(record_layout, vec![path_view_value(runtime.gc(), 2)])
-            .is_err()
-    );
-    assert!(
-        runtime
-            .root_value(host_root_value(runtime.gc(), 3))
-            .is_none()
-    );
-    assert!(
-        runtime
-            .root_value(path_view_value(runtime.gc(), 4))
-            .is_none()
-    );
-    let root = runtime
-        .root_value(
-            runtime
-                .gc()
-                .alloc_tuple(vec![Value::Array(script), Value::Unit])
-                .unwrap(),
-        )
+    drop((host, path));
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, before.objects + 1);
+    runtime
+        .memory
+        .scope(&runtime.resources, |cx, _| {
+            let tuple = cx.downcast::<TupleObject>(tuple.get(cx)?.object().unwrap())?;
+            let host =
+                cx.downcast::<HostRootObject>(TupleObject::get(cx, tuple, 0)?.object().unwrap())?;
+            let path =
+                cx.downcast::<HostPathObject>(TupleObject::get(cx, tuple, 1)?.object().unwrap())?;
+            let handle = cx.read(host, HostRootObject::handle);
+            assert_eq!(handle.object_id(), HostObjectId(7));
+            assert_eq!(cx.read(path, |path| path.facts().root), handle);
+            Ok(())
+        })
         .unwrap();
+    drop(tuple);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, before.objects - 2);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        before.root_registrations - 2
+    );
+}
 
-    let Value::Tuple(tuple) = root.value(runtime.gc()).unwrap() else {
-        unreachable!()
-    };
-    assert_eq!(runtime.trace_roots().unwrap(), vec![tuple, script]);
+struct ScanFailure;
+
+// SAFETY: no fields or edges. The explicit scanner error exercises failure
+// containment; no partial pointer or invalid managed representation is exposed.
+unsafe impl GcObject for ScanFailure {
+    type ScanState = ();
+    const SCAN_KIND: ScanKind = ScanKind::Bounded { max_work: 1 };
+
+    fn begin_scan(&self) {}
+
+    fn scan(
+        &self,
+        _: &mut (),
+        _: &mut ScanBudget,
+        _: &mut EdgeVisitor<'_>,
+    ) -> Result<ScanStatus, GcError> {
+        Err(GcError::Storage("injected Runtime scan failure"))
+    }
+}
+
+#[test]
+fn collection_failure_quarantines_before_any_owner_is_swept() {
+    let mut runtime = Runtime::default();
+    let root = runtime
+        .memory
+        .scope(&runtime.resources, |cx, _| {
+            let _dead = cx.alloc_leaf(41u64)?;
+            // SAFETY: an edge-free initialized failure-injection provider.
+            let failing = unsafe { cx.alloc_with(|_| Ok(ScanFailure)) }?;
+            cx.retain(failing)
+        })
+        .unwrap();
+    let before = runtime.gc_stats();
+    let counters = runtime.resources().counters();
+    let error = runtime.collect_garbage().unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
+    assert!(runtime.is_quarantined());
+    assert_eq!(runtime.gc_stats().objects, before.objects);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        before.root_registrations
+    );
+    assert_eq!(runtime.resources().counters(), counters);
+    assert_eq!(
+        runtime
+            .reflect_set_index(&RootedValue::unit(), &0i32.into(), &1i32.into())
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::EngineFault
+    );
+    assert_eq!(runtime.gc_stats().objects, before.objects);
+    drop(root);
 }

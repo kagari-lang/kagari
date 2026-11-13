@@ -1,0 +1,13 @@
+use example::payload::Edge;
+
+pub struct Item {
+    pub val value: i32
+}
+
+pub fn item() -> Item {
+    Item { value: 42 }
+}
+
+pub fn accept(value: Edge<Item>) -> i32 {
+    42
+}

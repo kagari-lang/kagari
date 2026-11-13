@@ -9,8 +9,8 @@ use kagari_runtime::{
     error::RuntimeError,
     frame::ExecutionFrame,
     module::entry::ProgramEntry,
+    native::conversion::context::ConversionContext,
     session::{ExecutionEvent, ExecutionObserver},
-    value::Value,
 };
 use kagari_stdlib as stdlib;
 use std::sync::{
@@ -204,6 +204,8 @@ fn disabled_installation_validates_before_choosing_local_fallback() {
         )
         .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
         .unwrap();
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     let PreparedNativeEntry::Unsupported { diagnostics, .. } = &prepared else {
         panic!("disabled installation must not admit native code");
     };
@@ -257,7 +259,8 @@ fn disabled_installation_validates_before_choosing_local_fallback() {
     ));
     // Explicit detached compilation is independent of each recipient's policy.
     assert_eq!(backend.calls, 2);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
 }
 
 #[derive(Debug)]
@@ -301,6 +304,8 @@ fn execution_policy_preserves_cancellation_observers_and_native_failures() {
         .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
         .unwrap();
     assert!(matches!(prepared, PreparedNativeEntry::Native(_)));
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     // The fixture traps on native entry; the interpreter body simply returns Unit.
     let report = runtime
         .execute_prepared(
@@ -311,7 +316,10 @@ fn execution_policy_preserves_cancellation_observers_and_native_failures() {
             &prepared,
         )
         .unwrap();
-    assert_eq!(report.return_value.value(runtime.gc()), Some(Value::Unit));
+    ConversionContext::new(&mut runtime, &_selected_loaded)
+        .unwrap()
+        .decode::<()>(&report.return_value)
+        .unwrap();
     let jit = report.jit.unwrap();
     assert_eq!(jit.status, JitExecutionStatus::InterpreterFallback);
     assert_eq!(
@@ -366,7 +374,8 @@ fn execution_policy_preserves_cancellation_observers_and_native_failures() {
     assert!(observed.load(Ordering::SeqCst) > 0);
     drop(report.return_value);
     drop(session);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
 }
 

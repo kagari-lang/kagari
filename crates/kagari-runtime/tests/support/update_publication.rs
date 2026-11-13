@@ -11,6 +11,7 @@ pub fn publish_without_execution(
 ) {
     let loaded = runtime.select_program(loaded_program).unwrap();
     let history = loaded.retained_demands().metadata().records().clone();
+    let roots = runtime.gc_stats().root_registrations;
     let staged = runtime
         .stage_reload_verified_program(loaded_program, None, candidate)
         .unwrap();
@@ -22,7 +23,7 @@ pub fn publish_without_execution(
     let published = runtime.select_program(loaded_program).unwrap();
     assert_ne!(published.key(), loaded.key());
     assert_eq!(runtime.resources().counters().peak_call_depth, 0);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
     for member in published.members() {
         assert!(
             runtime

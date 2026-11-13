@@ -2,13 +2,19 @@
 use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault},
+    execution::roots::ExecutionRoots,
+    execution_metadata::managed::sources::MetadataSource,
     frame::{
         FrameStack, NativeEntryState,
         driver::{ExecutionAction, ReturnAction},
         transfer::ReturnValue,
     },
-    module::linked_execution::LinkedNativeBody,
-    native::context::{ArgumentSlots, ArgumentView, NativeCall, ScriptInvoker},
+    module::{linked_execution::LinkedNativeBody, managed::source::RevisionSource},
+    native::{
+        context::{NativeCall, NativeEntry, ScriptInvoker},
+        conversion::{arguments::ArgumentValues, context::ConversionContext},
+    },
+    value::place::ResultPlace,
 };
 
 use kagari_bytecode::module::CallableTarget;
@@ -20,7 +26,7 @@ impl FrameStack {
         invoke_script: ScriptInvoker,
     ) -> Result<ExecutionAction, RuntimeError> {
         self.validate_top(runtime)?;
-        let (loaded, import, roots, environment) = {
+        let (loaded, import, roots, environment, layout) = {
             let mut frame = self.current_mut(runtime)?;
             let CallableTarget::Native(import) = frame.target else {
                 return Err(RuntimeError::module_validation(
@@ -36,77 +42,119 @@ impl FrameStack {
             (
                 frame.loaded.clone(),
                 import,
-                frame.slots,
-                frame.environment(),
+                frame.slots(),
+                frame.admitted_environment().cloned(),
+                frame
+                    .slot_layout
+                    .clone()
+                    .ok_or_else(|| RuntimeError::module_validation("native frame slot layout"))?,
             )
         };
         let function = runtime
             .modules
             .native_binding(&loaded, import)
             .ok_or_else(|| RuntimeError::module_validation("unlinked native callable"))?;
-        let application =
-            if loaded.bytecode.native_imports[import.index()]
-                .generic
-                .is_some()
-            {
-                Some(runtime.prepare_native_application(
-                    &loaded,
-                    import,
-                    environment.ok_or_else(|| {
-                        RuntimeError::module_validation("shared native environment")
-                    })?,
-                )?)
-            } else {
-                None
-            };
-        if let Some(application) = &application {
-            roots.publish_native_application(&runtime.gc, application.clone())?;
-        }
-        let function = application
-            .as_ref()
-            .map_or(function.as_ref(), |application| &application.function);
-        let mut context = NativeCall {
-            _thread: Default::default(),
-            pending: Default::default(),
-            runtime,
-            owner: &loaded,
-            function,
-            invoke_script,
-            arguments: ArgumentView::frame(
-                roots,
-                ArgumentSlots::Contiguous {
-                    start: 1,
-                    count: function.signature.params.len(),
-                },
-            ),
+        let location = layout.location(0).ok_or_else(|| {
+            runtime
+                .resources()
+                .quarantine(EngineFault::InvalidNativeReturnSlot)
+        })?;
+        let arguments = layout
+            .locations
+            .get(1..)
+            .ok_or_else(|| RuntimeError::module_validation("native frame parameter locations"))?;
+        let args = ArgumentValues::prepared(
+            roots.banks.execution,
+            roots.banks.managed,
+            roots.banks.scalars,
+            arguments,
+        );
+        let invoke = |runtime: &mut Runtime, entry: NativeEntry<'_>| {
+            let mut context = NativeCall::new(
+                runtime,
+                &loaded,
+                entry,
+                RevisionSource::Execution(roots.body),
+                args.reborrow(),
+                invoke_script,
+            )?;
+            let published = context.invoke(ResultPlace::frame(&roots, Some(&location)))?;
+            published.admit_frame(&roots, Some(&location))?;
+            Ok::<_, RuntimeError>(())
         };
-        let value = function.invoke(&mut context)?;
+        if loaded.bytecode.native_imports[import.index()]
+            .generic
+            .is_some()
+        {
+            let environment = environment
+                .ok_or_else(|| RuntimeError::module_validation("shared native environment"))?;
+            let mut preparation = ConversionContext::for_selected(
+                runtime,
+                &loaded,
+                roots.banks.execution,
+                RevisionSource::Execution(roots.body),
+                Some(MetadataSource::AdmittedEnvironment(&environment)),
+            )?;
+            let mut sources = vec![
+                MetadataSource::Revision {
+                    owner: &loaded,
+                    source: RevisionSource::Execution(roots.body),
+                },
+                MetadataSource::AdmittedEnvironment(&environment),
+            ];
+            let application = preparation.runtime_mut().prepare_native_application(
+                roots.banks.execution,
+                &loaded,
+                import,
+                environment.facts().clone(),
+                &mut sources,
+            )?;
+            invoke(
+                preparation.runtime_mut(),
+                NativeEntry::Applied(&application),
+            )?;
+        } else {
+            invoke(runtime, NativeEntry::Closed(&function))?;
+        }
         let mut frame = self.current_mut(runtime)?;
-        frame
-            .slots
-            .set(&runtime.gc, 0, value)
-            .ok_or_else(|| RuntimeError::module_validation("native return destination"))?;
         frame.native_entry = NativeEntryState::Complete;
         Ok(ExecutionAction::NativeReturn)
     }
 
     /// Consume a completed native frame at an explicit return transition.
-    pub fn finish_native_return(&self, runtime: &Runtime) -> Result<ReturnAction, RuntimeError> {
+    pub fn finish_native_return(
+        &self,
+        runtime: &mut Runtime,
+    ) -> Result<ReturnAction, RuntimeError> {
         self.validate_top(runtime)?;
-        let value = {
+        let (frame_slots, location) = {
             let frame = self.current(runtime)?;
             if !matches!(frame.native_entry, NativeEntryState::Complete) {
                 return Err(runtime
                     .resources()
                     .quarantine(EngineFault::NativeReturnBeforeCompletion));
             }
-            frame.slots.get(&runtime.gc, 0).ok_or_else(|| {
-                runtime
-                    .resources()
-                    .quarantine(EngineFault::InvalidNativeReturnSlot)
-            })?
+            let location = frame
+                .slot_layout
+                .as_ref()
+                .and_then(|layout| layout.location(0))
+                .ok_or_else(|| {
+                    runtime
+                        .resources()
+                        .quarantine(EngineFault::InvalidNativeReturnSlot)
+                })?;
+            (frame.slots(), location)
         };
-        self.finish_return(runtime, ReturnValue::general(value))
+        let packet = runtime
+            .memory
+            .scope(&runtime.resources, |cx, roots| {
+                ExecutionRoots::with(roots, cx, |slots| {
+                    let value = frame_slots.read(slots, location)?;
+                    ReturnValue::protect(slots, self.session, value)
+                })
+            })
+            .map_err(|error| runtime.managed_memory_error(error))?;
+        self.finish_return(runtime, packet)
     }
 
     pub(super) fn invoke_prepared_native(
@@ -120,7 +168,7 @@ impl FrameStack {
         // and bank borrows before invoking arbitrary Rust or reentrant script.
         let (loaded, roots, links) = {
             let frame = self.current(runtime)?;
-            (frame.loaded.clone(), frame.slots, frame.links.clone())
+            (frame.loaded.clone(), frame.slots(), frame.links.clone())
         };
         let operation = links
             .as_ref()
@@ -135,27 +183,24 @@ impl FrameStack {
                 .resources()
                 .quarantine(EngineFault::SealedNativeBodyReachedCallbackTransition));
         };
-        let mut context = NativeCall {
-            _thread: Default::default(),
-            pending: Default::default(),
+        let mut context = NativeCall::new(
             runtime,
-            owner: &loaded,
-            function: &callback.function,
+            &loaded,
+            NativeEntry::Closed(&callback.function),
+            RevisionSource::Execution(roots.body),
+            ArgumentValues::prepared(
+                roots.banks.execution,
+                roots.banks.managed,
+                roots.banks.scalars,
+                &callback.arguments,
+            ),
             invoke_script,
-            arguments: ArgumentView::frame(roots, ArgumentSlots::Prepared(&callback.arguments)),
-        };
-        let value = callback.function.invoke(&mut context)?;
+        )?;
+        let published =
+            context.invoke(ResultPlace::frame(&roots, operation.destination.as_ref()))?;
+        published.admit_frame(&roots, operation.destination.as_ref())?;
+        drop(context);
         let mut frame = self.current_mut(runtime)?;
-        if let Some(destination) = operation.destination {
-            frame
-                .slots
-                .set_location(&runtime.gc, destination, value)
-                .ok_or_else(|| {
-                    runtime
-                        .resources()
-                        .quarantine(EngineFault::InvalidNativeReturnDestination)
-                })?;
-        }
         frame.completed = frame.executing;
         Ok(())
     }

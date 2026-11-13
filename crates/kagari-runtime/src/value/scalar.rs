@@ -1,63 +1,68 @@
 //! Cold scalar admission/materialization. Hot kernels consume complete payloads.
-use crate::value::Value;
+pub(crate) mod domain;
+pub(crate) mod elements;
+pub(crate) mod fields;
+#[cfg(test)]
+use crate::value::scalar::domain::admits_payload;
+use crate::value::{
+    carriers::{Representation, ScopedValue},
+    scalar::domain::decode_char,
+    view::ValueView,
+};
 use kagari_abi::representation::ValueType;
-use kagari_types::scalar::BuiltinType;
+use kagari_contract::representation::builtin_representation;
+use kagari_types::scalar::{BuiltinType, error::ScalarError};
 
-pub(crate) fn encode(value: &Value) -> Option<u64> {
-    Some(match *value {
-        Value::Unit => 0,
-        Value::Bool(v) => u64::from(v),
-        Value::Char(v) => u64::from(u32::from(v)),
-        Value::I32(v) => v as i64 as u64,
-        Value::I64(v) => v as u64,
-        Value::U64(v) => v,
-        Value::F32(v) => u64::from(v.to_bits()),
-        Value::F64(v) => v.to_bits(),
-        _ => return None,
-    })
+/// Admit one exact script integer domain without widening managed transport.
+/// Signed carriers preserve two's-complement bits; unsigned u64 never narrows
+/// through i64. All invalid carriers/domains retain InvalidOperandDomain.
+pub(crate) fn read_integer(ty: BuiltinType, value: ScopedValue<'_>) -> Result<i128, ScalarError> {
+    read_integer_payload(ty, value.scalar_payload())
 }
 
-pub(crate) fn decode(ty: ValueType, bits: u64) -> Option<Value> {
-    Some(match ty {
-        ValueType::Unit => Value::Unit,
-        ValueType::Bool if bits <= 1 => Value::Bool(bits != 0),
-        ValueType::Char => Value::Char(decode_char(bits)?),
-        ValueType::I32 => Value::I32(bits as i32),
-        ValueType::I64 => Value::I64(bits as i64),
-        ValueType::U64 => Value::U64(bits),
-        ValueType::F32 => Value::F32(f32::from_bits(bits as u32)),
-        ValueType::F64 => Value::F64(f64::from_bits(bits)),
-        _ => return None,
-    })
+/// Apply the same domain admission to an inline scalar call view.
+pub(crate) fn read_integer_view(
+    ty: BuiltinType,
+    value: ValueView<'_>,
+) -> Result<i128, ScalarError> {
+    read_integer_payload(ty, value.scalar_payload())
 }
 
-fn decode_char(bits: u64) -> Option<char> {
-    char::from_u32(u32::try_from(bits).ok()?)
-}
-
-/// Shared scalar domain admission for banks and type-directed field storage.
-pub(crate) fn admits_payload(
-    representation: ValueType,
-    semantic: Option<BuiltinType>,
-    bits: u64,
-) -> bool {
-    if representation == ValueType::Char || semantic == Some(BuiltinType::Char) {
-        return representation == ValueType::Char
-            && semantic.is_none_or(|ty| ty == BuiltinType::Char)
-            && decode_char(bits).is_some();
+fn read_integer_payload(
+    ty: BuiltinType,
+    payload: Option<(ValueType, u64)>,
+) -> Result<i128, ScalarError> {
+    let invalid = ScalarError::InvalidOperandDomain;
+    let (representation, bits) = payload.ok_or(invalid)?;
+    if ty.integer_layout().is_none()
+        || representation != builtin_representation(ty)
+        || !domain::admits_payload(representation, Some(ty), bits)
+    {
+        return Err(invalid);
     }
-    if representation == ValueType::Bool && bits > 1 {
-        return false;
-    }
-    let Some((min, max)) = semantic.and_then(BuiltinType::integer_bounds) else {
-        return true;
-    };
-    let value = match representation {
+    Ok(match representation {
         ValueType::I32 | ValueType::I64 => i128::from(bits as i64),
         ValueType::U64 => i128::from(bits),
-        _ => return false,
-    };
-    value >= min && value <= max
+        _ => return Err(invalid),
+    })
+}
+
+pub(crate) fn encode(value: &ScopedValue<'_>) -> Option<u64> {
+    value.scalar_payload().map(|(_, bits)| bits)
+}
+
+pub(crate) fn decode<'gc>(ty: ValueType, bits: u64) -> Option<ScopedValue<'gc>> {
+    Some(ScopedValue::from_representation(match ty {
+        ValueType::Unit => Representation::Unit,
+        ValueType::Bool if bits <= 1 => Representation::Bool(bits != 0),
+        ValueType::Char => Representation::Char(decode_char(bits)?),
+        ValueType::I32 => Representation::I32(bits as i32),
+        ValueType::I64 => Representation::I64(bits as i64),
+        ValueType::U64 => Representation::U64(bits),
+        ValueType::F32 => Representation::F32(f32::from_bits(bits as u32)),
+        ValueType::F64 => Representation::F64(f64::from_bits(bits)),
+        _ => return None,
+    }))
 }
 
 #[cfg(test)]
@@ -67,9 +72,12 @@ mod tests {
     #[test]
     fn char_payloads_require_canonical_unicode_scalars_and_exact_domains() {
         for ch in ['\0', 'a', 'é', '\u{d7ff}', '\u{e000}', '🙂', char::MAX] {
-            let value = Value::Char(ch);
+            let value = ScopedValue::from(ch);
             let bits = encode(&value).unwrap();
-            assert_eq!(decode(ValueType::Char, bits), Some(value));
+            assert_eq!(
+                decode(ValueType::Char, bits).unwrap().scalar_payload(),
+                value.scalar_payload()
+            );
             assert!(admits_payload(
                 ValueType::Char,
                 Some(BuiltinType::Char),
@@ -87,10 +95,10 @@ mod tests {
                 bits
             ));
             assert!(!value.has_representation(ValueType::I64));
-            assert!(!Value::I64(bits as i64).has_representation(ValueType::Char));
+            assert!(!ScopedValue::from(bits as i64).has_representation(ValueType::Char));
         }
         for bits in [0xd800, 0xdfff, 0x110000, 0x1_0000_0061, u64::MAX] {
-            assert_eq!(decode(ValueType::Char, bits), None);
+            assert!(decode(ValueType::Char, bits).is_none());
             assert!(!admits_payload(
                 ValueType::Char,
                 Some(BuiltinType::Char),

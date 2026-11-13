@@ -3,16 +3,18 @@ pub(crate) mod builtin_results;
 pub(crate) mod calls;
 pub(crate) mod interfaces;
 pub(crate) mod layouts;
+mod metadata;
 mod native_calls;
 use crate::{
     Runtime,
     error::RuntimeError,
+    execution::roots::SessionId,
     execution_metadata::{
-        MetadataEdge, call_contracts::ScopedInterfaceCall, environments::EnvironmentId,
+        call_contracts::ScopedInterfaceCall, environments::EnvironmentId,
+        managed::sources::MetadataSource,
     },
     module::{
         ExecutableModule, ModuleStore,
-        constants::ConstantPool,
         descriptor_index::DescriptorIndex,
         dispatch::bindings::PublishedRoutes,
         execution::layout::Location,
@@ -30,7 +32,6 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub(crate) struct LinkedFunction {
-    pub(crate) constants: Arc<ConstantPool>,
     calls: Arc<[LinkedCall]>,
     pub(crate) layouts: Option<Arc<FunctionLayouts>>,
     native_calls: Arc<[LinkedNativeCall]>,
@@ -112,31 +113,16 @@ impl LinkedExecution {
             builtin_results: None,
         })
     }
-
-    pub(super) fn trace<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
-        pending.extend(self.functions.iter().flatten().flat_map(|function| {
-            function
-                .calls
-                .iter()
-                .filter_map(LinkedCall::interface)
-                .map(|call| MetadataEdge::InterfaceCall(call))
-        }));
-    }
 }
 
 impl Runtime {
-    pub(crate) fn link_execution(&self, owner: &ExecutableModule) -> Result<(), RuntimeError> {
-        let constants = self
-            .modules
-            .inner
-            .try_borrow()
-            .map_err(|_| {
-                RuntimeError::module_validation("module store borrowed during execution linking")
-            })?
-            .resolve(owner)
-            .ok_or_else(|| RuntimeError::module_validation("invalid execution link owner"))?
-            .constants
-            .clone();
+    pub(crate) fn link_execution(
+        &mut self,
+        execution: SessionId,
+        owner: &ExecutableModule,
+        protected: &mut Vec<MetadataSource<'_>>,
+    ) -> Result<Vec<Arc<ScopedInterfaceCall>>, RuntimeError> {
+        let mut closed_calls = Vec::new();
         let mut functions = Vec::with_capacity(owner.bytecode.functions.len());
         for function in &owner.bytecode.functions {
             let prepared = &owner.execution().functions[function.id.index()];
@@ -144,14 +130,17 @@ impl Runtime {
                 functions.push(None);
                 continue;
             }
-            let calls = self.link_calls(owner, function, prepared)?;
+            let calls = self.link_calls(execution, owner, function, prepared, protected)?;
+            closed_calls
+                .try_reserve(calls.len())
+                .map_err(|_| RuntimeError::resource_limit("closed call metadata"))?;
+            closed_calls.extend(calls.iter().filter_map(LinkedCall::interface).cloned());
             functions.push(Some(Arc::new(LinkedFunction {
                 native_calls: self.link_native_calls(owner, function, prepared)?.into(),
                 layouts: FunctionLayouts::link(self, owner, function, prepared)?,
                 applied_layouts: None,
                 upcasts: FunctionUpcasts::link(self, owner, &prepared.upcasts)?,
                 applied_upcasts: None,
-                constants: constants.clone(),
                 calls,
             })));
         }
@@ -169,7 +158,7 @@ impl Runtime {
             applications: None,
             builtin_results: None,
         });
-        Ok(())
+        Ok(closed_calls)
     }
 }
 

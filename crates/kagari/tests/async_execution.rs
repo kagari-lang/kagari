@@ -9,7 +9,6 @@ use kagari_runtime::error::RuntimeErrorKind;
 use kagari_runtime::execution::owned::DriveResult;
 use kagari_runtime::{
     frame::types::arguments::TypeArgument,
-    gc::roots::RootedValue,
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
@@ -17,11 +16,12 @@ use kagari_runtime::{
         conversion::{FromKagari, KagariType, context::ConversionContext},
         types::Type,
     },
-    value::Value,
+    value::{carriers::RootedValue, view::ValueView},
 };
 use std::{
     future::Future,
     pin::Pin,
+    slice::from_ref,
     sync::mpsc::{self, SyncSender, TrySendError},
     sync::{
         Arc,
@@ -48,7 +48,7 @@ impl Fixture {
             .start(
                 &self.runtime.select_program(&self.module).unwrap(),
                 "create",
-                &[Value::I32(input)],
+                &[RootedValue::from(input)],
                 Default::default(),
             )
             .unwrap();
@@ -91,7 +91,7 @@ impl FromKagari for ActiveI32 {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         ty: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
         assert!(cx.runtime().execution_root().is_some());
         Ok(Self(i32::from_kagari(cx, ty, value)?))
@@ -161,7 +161,7 @@ fn sdk_owned_native_wait_contract() {
         .start(
             &f.runtime.select_program(&f.module).unwrap(),
             "wait",
-            &[future.value(f.runtime.gc()).unwrap()],
+            from_ref(&future),
             Default::default(),
         )
         .unwrap();
@@ -199,7 +199,7 @@ fn sdk_owned_native_wait_contract() {
     let DriveResult::Complete(result) = f.runtime.drive(&execution, slice()).unwrap() else {
         panic!("ready continuation");
     };
-    assert_eq!(result.unwrap().value(f.runtime.gc()), Some(Value::I32(42)));
+    assert_eq!(result.unwrap().as_i32(), Some(42));
     assert!(!execution.is_ready());
     assert!(
         f.runtime.drive(&execution, slice()).is_err(),
@@ -207,17 +207,11 @@ fn sdk_owned_native_wait_contract() {
     );
     for (input, output) in [(0, 7), (1, 8)] {
         let future = f.cold(input);
-        let execution = f
-            .runtime
-            .start_future(&future.value(f.runtime.gc()).unwrap(), Default::default())
-            .unwrap();
+        let execution = f.runtime.start_future(&future, Default::default()).unwrap();
         let DriveResult::Complete(result) = f.runtime.drive(&execution, slice()).unwrap() else {
             panic!("immediate publication");
         };
-        assert_eq!(
-            result.unwrap().value(f.runtime.gc()),
-            Some(Value::I32(output))
-        );
+        assert_eq!(result.unwrap().as_i32(), Some(output));
     }
     let shared = ExecutionContext::default();
     let left_future = f.cold(15);
@@ -227,7 +221,7 @@ fn sdk_owned_native_wait_contract() {
         .start(
             &f.runtime.select_program(&f.module).unwrap(),
             "wait",
-            &[left_future.value(f.runtime.gc()).unwrap()],
+            from_ref(&left_future),
             shared.interpreter_options().unwrap(),
         )
         .unwrap();
@@ -236,7 +230,7 @@ fn sdk_owned_native_wait_contract() {
         .start(
             &f.runtime.select_program(&f.module).unwrap(),
             "wait",
-            &[right_future.value(f.runtime.gc()).unwrap()],
+            from_ref(&right_future),
             shared.interpreter_options().unwrap(),
         )
         .unwrap();
@@ -266,16 +260,13 @@ fn sdk_owned_native_wait_contract() {
     let DriveResult::Complete(result) = f.runtime.drive(&right, slice()).unwrap() else {
         panic!("uncancelled sibling execution");
     };
-    assert_eq!(result.unwrap().value(f.runtime.gc()), Some(Value::I32(43)));
+    assert_eq!(result.unwrap().as_i32(), Some(43));
     for abandon in [false, true] {
         let future = f.cold(10);
         let context = ExecutionContext::default();
         let execution = f
             .runtime
-            .start_future(
-                &future.value(f.runtime.gc()).unwrap(),
-                context.interpreter_options().unwrap(),
-            )
+            .start_future(&future, context.interpreter_options().unwrap())
             .unwrap();
         assert!(matches!(
             f.runtime.drive(&execution, slice()).unwrap(),
@@ -306,7 +297,10 @@ fn sdk_owned_native_wait_contract() {
 #[cfg(feature = "native")]
 mod native {
     use super::{Fixture, slice};
-    use kagari::program::native::NativeCompiler;
+    use kagari::{
+        context::{ExecutionContext, JitPolicy},
+        program::native::NativeCompiler,
+    };
     use kagari_abi::native::{BackendId, BackendTarget};
     use kagari_codegen::{
         BackendConfiguration, BackendFunctionInput, CodegenBackend, diagnostic::BackendCompileError,
@@ -314,7 +308,7 @@ mod native {
     use kagari_contract::native::NativeCompilationProduct;
     use kagari_runtime::execution::native::PreparedNativeEntry;
     use kagari_runtime::execution::owned::DriveResult;
-    use kagari_runtime::{native::completion::CompletionStatus, value::Value};
+    use kagari_runtime::native::completion::CompletionStatus;
     use std::sync::atomic::Ordering;
 
     struct Backend {
@@ -345,6 +339,12 @@ mod native {
     #[test]
     fn sdk_native_preparation_declines_resume_before_entry() {
         let mut f = Fixture::new();
+        // Runtime policy must admit JIT preparation so this witness reaches the
+        // resume-body capability decision rather than the disabled-policy guard.
+        f.runtime.set_default_context(ExecutionContext {
+            jit_policy: JitPolicy::Enabled,
+            ..Default::default()
+        });
         let mut backend = Backend { calls: 0 };
         let prepared = NativeCompiler::default()
             .prepare(&f.program, "run", &mut backend, &Default::default())
@@ -386,7 +386,7 @@ mod native {
         let DriveResult::Complete(result) = f.runtime.drive(&execution, slice()).unwrap() else {
             panic!("interpreter continuation");
         };
-        assert_eq!(result.unwrap().value(f.runtime.gc()), Some(Value::I32(42)));
+        assert_eq!(result.unwrap().as_i32(), Some(42));
         assert_eq!(backend.calls, 0);
     }
 }

@@ -25,8 +25,9 @@ payload editing and object/function/trait invocation described below.
 The [embedding guide](spec/embedding-api.md#typed-native-registration) owns ordinary
 Rust DTO derives and schema-backed Serde; [host interop](spec/host-interop.md) owns
 borrowed method adapters. Runtime-owned `Opaque<T>`
-uses the storage and roots described here; checked read, fixed-data edit and
-edge-free take are implemented. External Ref/RefMut scopes retain their separate
+uses the selected storage and roots described here. RR03 is moving checked read,
+fixed-data edit and managed fields to concrete GC providers; the complete Runtime
+consumer cutover is not yet runnable. Payload extraction is removed. External Ref/RefMut scopes retain their separate
 host ownership under the implemented branded scope contract. Shared resources
 inside a payload need their own Rust access guarantees.
 
@@ -524,9 +525,18 @@ receivers and owned returns; split collects Vec<String> through NativeContext.
 SDK host access uses `runtime.with_context(&loaded, &execution, |cx| ...)` so object
 operations and nested calls inherit the chosen execution policy. The runtime-only
 NativeContext constructor remains useful for access without a script backend.
-Host-retained callbacks use `Function`; the superseded RootedCallable wrapper
-is removed. Advanced traced StoredCallable descriptors remain heap edges and must
-be kept reachable by their owning payload, never mistaken for host roots.
+Host-retained callbacks use `Function`. Advanced providers allocate StoredCallable
+inside NativeInit and keep its returned scoped Gc in an ordinary traced edge.
+NativeCall::callable_payload publishes the stored callback into its call source
+before invoking it, with no payload loan across reentry. The managed provider is
+not a clonable unrooted descriptor or an independently owning Host handle.
+Concrete providers admit generic script values through NativeInit::value, store
+fields with unsafe StoredValue::initialize and scan every initialized field.
+NativeCall::value_payload publishes a selected managed field into its Native
+suffix; scalars stay inline. Field and callback projection share exact source and
+physical provider admission, with no source/payload loan across execution.
+Providers still own the unsafe GcObject contract; generic public access does not
+expose source-bank operations or unchecked managed tags.
 
 Managed Rust payload editing uses Opaque<T> and a short borrow. In this
 example PlayerState is registered as containing no script references:
@@ -585,23 +595,7 @@ same Rust representation under two type names does not make them interchangeable
 Handwritten `NativePayload` remains an advanced tracing interface and receives no
 unrestricted mutable access through these handles.
 
-`Opaque<T>::take` moves the original payload without Clone/Copy. It requires the
-explicit unsafe `NativeTake` edge-free proof and a `NativeStorage::takeable`
-registration (`NativeStorage::data` also grants it). Handwritten empty tracing
-receives no extraction capability. Active loans, mutation/key guards and native
-operations reject take before mutation. Successful take invalidates every old
-host/script/parked alias and pinned receiver; reinsertion creates a fresh heap
-generation and cannot revive them. Managed script-edge payloads cannot be taken.
-
-The GC detaches payload storage immediately and releases its payload units. An
-inert moved identity is terminal for collector traversal only; normal value
-validation and access continue to reject it. Its one header unit remains charged
-until no heap/root/metadata edge retains that identity, then collection prunes it.
-This permits slot reuse and collection with stale aliases while preserving strict
-foreign/fabricated ID rejection. Rust owns exactly-once destruction of the returned
-payload; collection no longer destroys it.
-
-This facility applies to a payload exclusively owned by runtime storage. Arbitrary
+These loans apply to a payload exclusively owned by runtime storage. Arbitrary
 KGR fields do not become Rust &mut T. Externally shared host state continues to use
 its declared host interface, typed paths or host-managed synchronization. Ordinary
 object setters cannot bypass host-path preparation/commit or borrow validation.

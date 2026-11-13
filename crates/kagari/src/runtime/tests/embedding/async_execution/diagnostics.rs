@@ -1,5 +1,5 @@
 //! Detached failure origins survive shared waits, report retirement and stripped debug records.
-use super::{Fixture, Value};
+use super::Fixture;
 use crate::{BytecodeArtifact, program::Compilation};
 use kagari_bytecode::{instruction::BytecodeInstruction, module::CallableTarget};
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
@@ -7,8 +7,8 @@ use kagari_runtime::execution::owned::DriveResult;
 use kagari_runtime::{
     error::RuntimeErrorKind,
     error_trace::asynchronous::{AsyncBoundary, MAX_ASYNC_BOUNDARIES},
-    gc::roots::RootedValue,
     task::{CancellationCause, TaskId, control::TaskScopeOwner, drive::TaskDriveResult},
+    value::carriers::RootedValue,
 };
 use kagari_source::source::SourceFile;
 use std::{
@@ -64,8 +64,8 @@ fn fixture(stripped: bool) -> Fixture {
     )
 }
 
-fn id(f: &Fixture, handle: &RootedValue) -> TaskId {
-    f.runtime.task_id(&f.value(handle)).unwrap()
+fn id(f: &mut Fixture, handle: &RootedValue) -> TaskId {
+    f.runtime.task_id(handle).unwrap()
 }
 
 fn drive(f: &mut Fixture, scope: &TaskScopeOwner, id: TaskId) -> TaskDriveResult {
@@ -95,14 +95,14 @@ fn async_failure_provenance_contract() {
                 Arc::new(|_| Ok(())),
             )
             .unwrap();
-        let capability = f.value(scope.capability());
+        let capability = (scope.capability()).clone();
         let producer = f.invoke("submit", slice::from_ref(&capability));
-        let producer_id = id(&f, &producer);
+        let producer_id = id(&mut f, &producer);
         assert_eq!(drive(&mut f, &scope, producer_id), TaskDriveResult::Waiting);
-        let left = f.invoke("observe", &[capability, f.value(&producer)]);
-        let right = f.invoke("other", &[capability, f.value(&producer)]);
+        let left = f.invoke("observe", &[capability.clone(), producer.clone()]);
+        let right = f.invoke("other", &[capability.clone(), producer.clone()]);
         for waiter in [&left, &right] {
-            let waiter = id(&f, waiter);
+            let waiter = id(&mut f, waiter);
             assert_eq!(drive(&mut f, &scope, waiter), TaskDriveResult::Waiting);
         }
         f.sent.lock().unwrap().pop().unwrap().complete(Ok(4));
@@ -138,7 +138,7 @@ fn async_failure_provenance_contract() {
         assert_eq!(trace.async_boundaries.len(), 1);
         let mut wait_sites = Vec::new();
         for (waiter, name) in [(&left, "observe"), (&right, "other")] {
-            let waiter_id = id(&f, waiter);
+            let waiter_id = id(&mut f, waiter);
             assert_eq!(drive(&mut f, &scope, waiter_id), TaskDriveResult::Complete);
             let failure = f
                 .runtime
@@ -192,7 +192,7 @@ fn async_failure_provenance_contract() {
             1,
             "waiters cannot mutate the cached failure"
         );
-        let future = f.invoke("direct", &[f.value(&producer)]);
+        let future = f.invoke("direct", slice::from_ref(&producer));
         let execution = f.start_future(&future);
         let DriveResult::Complete(Err(error)) = f
             .runtime
@@ -207,8 +207,8 @@ fn async_failure_provenance_contract() {
         drop((future, execution));
         // Cancellation before first drive has a spawn origin even without a body stack.
         let queued = f.invoke("submit", slice::from_ref(&capability));
-        let queued_id = id(&f, &queued);
-        f.runtime.cancel_task(&f.value(&queued)).unwrap();
+        let queued_id = id(&mut f, &queued);
+        f.runtime.cancel_task(&queued).unwrap();
         f.runtime.drain_cancelled_tasks().unwrap();
         let cancelled = f
             .runtime
@@ -219,8 +219,8 @@ fn async_failure_provenance_contract() {
             .unwrap_err();
         assert_eq!(cancelled.cancellation, Some(CancellationCause::Explicit));
         assert!(cancelled.error.trace().unwrap().frames.is_empty());
-        let dependent = f.invoke("observe", &[capability, f.value(&queued)]);
-        let dependent_id = id(&f, &dependent);
+        let dependent = f.invoke("observe", &[capability.clone(), queued.clone()]);
+        let dependent_id = id(&mut f, &dependent);
         assert_eq!(
             drive(&mut f, &scope, dependent_id),
             TaskDriveResult::Complete
@@ -243,8 +243,8 @@ fn async_failure_provenance_contract() {
         let mut tail = producer;
         let mut bounded = None;
         for _ in 0..MAX_ASYNC_BOUNDARIES {
-            let next = f.invoke("observe", &[capability, f.value(&tail)]);
-            let next_id = id(&f, &next);
+            let next = f.invoke("observe", &[capability.clone(), tail.clone()]);
+            let next_id = id(&mut f, &next);
             assert_eq!(drive(&mut f, &scope, next_id), TaskDriveResult::Complete);
             bounded = Some(
                 f.runtime
@@ -269,10 +269,10 @@ fn async_failure_provenance_contract() {
         let factory = f.invoke("factory", &[]);
         let hosted = f
             .runtime
-            .spawn_task(&capability, &f.value(&factory))
+            .spawn_task(&capability, &factory)
             .unwrap()
             .unwrap();
-        let hosted_id = id(&f, &hosted);
+        let hosted_id = id(&mut f, &hosted);
         assert_eq!(drive(&mut f, &scope, hosted_id), TaskDriveResult::Complete);
         let host_report = f
             .runtime
@@ -287,19 +287,19 @@ fn async_failure_provenance_contract() {
                 .unwrap()
                 .program_fingerprint()
         );
-        assert_eq!(f.value(&host_report.outcome.unwrap()), Value::I32(7));
+        assert_eq!(host_report.outcome.unwrap().as_i32().unwrap(), 7);
         drop((factory, hosted, tail, left, right, queued, dependent));
         scope.close();
         f.runtime.drain_cancelled_tasks().unwrap();
         drop(scope);
         f.runtime.collect_garbage().unwrap();
         assert_eq!(
-            f.runtime.gc().active_roots(),
+            f.runtime.gc_stats().root_registrations,
             0,
             "retained diagnostics own no GC roots"
         );
         assert_eq!(
-            f.runtime.gc().allocated_objects(),
+            f.runtime.gc_stats().objects,
             0,
             "diagnostic sites own no script objects"
         );

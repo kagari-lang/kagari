@@ -10,7 +10,6 @@ use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionFrame,
     session::{ExecutionEvent, ExecutionObserver},
-    value::Value,
 };
 
 use kagari_bytecode::instruction::BytecodeInstruction;
@@ -19,15 +18,7 @@ use std::sync::{Arc, Mutex};
 
 #[test]
 fn rotated_loops_preserve_entry_control_flow_and_condition_effects() {
-    let source = "fn scan(n: i32) -> i32 { var i = 0; var sum = 0;
-         while i < n { i += 1; if i == 2 { continue; } if i == 5 { break; } sum += i; }
-         i * 100 + sum }
-         pub fn guards() -> bool { scan(-1) == 0 && scan(0) == 0 && scan(1) == 101 && scan(4) == 408 && scan(8) == 508 }
-         fn effects(n: i32) -> i32 { var checks = 0; var steps = 0;
-         while { checks += 1; steps < n } { steps += 1; } checks * 10 + steps }
-         pub fn effectful() -> bool { effects(0) == 10 && effects(3) == 43 }
-         pub fn nested() -> bool { var i = 0; var total = 0;
-         while i < 2 { var j = 0; while j < 3 { total += 1; j += 1; } i += 1; } total == 6 }";
+    let source = include_str!("../../../tests/fixtures/execution/numeric-loop-control.kgr");
     for optimization in [None, Some(Default::default())] {
         check_with_options(
             source,
@@ -44,11 +35,7 @@ fn rotated_loops_preserve_entry_control_flow_and_condition_effects() {
 #[test]
 fn local_reads_are_snapshots_across_later_writes_and_captured_calls() {
     check(
-        "pub fn later_write() -> bool { var x = 7; x = x + { x = 40; 2 }; x == 9 }
-         pub fn captured_call() -> bool { var x = 7; val f = || { x = 40; 2 }; x = x + f(); x == 9 }
-         fn saved_rhs(input: i32) -> bool { var x = input; val saved = x * 3;
-             x = saved; x += 1; saved == 21 && x == 22 }
-         pub fn overwritten_rhs() -> bool { saved_rhs(7) }",
+        include_str!("../../../tests/fixtures/execution/numeric-value-snapshots.kgr"),
         &[
             "later_write".into(),
             "captured_call".into(),
@@ -110,7 +97,7 @@ fn mixed_constant_sides_keep_nonloop_arithmetic_effects_and_boundaries() {
 }
 
 #[derive(Debug)]
-struct CommitObserver(Arc<Mutex<Vec<(Value, Value)>>>);
+struct CommitObserver(Arc<Mutex<Vec<(i32, i32)>>>);
 
 impl ExecutionObserver for CommitObserver {
     fn observe(
@@ -136,7 +123,11 @@ impl ExecutionObserver for CommitObserver {
                         && frame.instruction_offset() < range.end
                 })
                 .unwrap();
-            frame.read_slot(runtime, binding.slot).unwrap()
+            frame
+                .read_slot(runtime, binding.slot)
+                .unwrap()
+                .as_i32()
+                .unwrap()
         };
         self.0.lock().unwrap().push((read("s"), read("i")));
         Ok(())
@@ -145,9 +136,9 @@ impl ExecutionObserver for CommitObserver {
 
 #[test]
 fn direct_local_overflow_keeps_the_old_destination_and_prior_commit() {
-    let direct = compile_test_bytecode(
-        "pub fn main() { var s = 0i8; var i = 127i8; s = s + 1i8; i = i + 1i8; }",
-    );
+    let direct = compile_test_bytecode(include_str!(
+        "../../../tests/fixtures/execution/numeric-local-overflow.kgr"
+    ));
     assert!(
         direct
             .records()
@@ -168,6 +159,8 @@ fn direct_local_overflow_keeps_the_old_destination_and_prior_commit() {
         let loaded = load_bytecode(&mut runtime, "local-commit", program).unwrap();
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
+        runtime.collect_garbage().unwrap();
+        let roots = runtime.gc_stats().root_registrations;
         let mut vm = runtime;
         let mut session = vm.begin_execution(&loaded, Default::default()).unwrap();
         let session_options = session.runtime().execution_options();
@@ -177,10 +170,10 @@ fn direct_local_overflow_keeps_the_old_destination_and_prior_commit() {
             .execute_module(&loaded, "main", session_options.clone())
             .unwrap_err();
         assert!(matches!(error, ref error if error.kind() == RuntimeErrorKind::ScriptTrap));
-        assert_eq!(*states.lock().unwrap(), [(Value::I32(1), Value::I32(127))]);
+        assert_eq!(*states.lock().unwrap(), [(1, 127)]);
         drop(session);
         assert_eq!(vm.resources().counters().current_call_depth, 0);
-        assert_eq!(vm.gc().active_roots(), 0);
+        assert_eq!(vm.gc_stats().root_registrations, roots);
     }
 }
 
@@ -225,8 +218,8 @@ fn check_with_options(source: &str, entries: &[String], traps: bool, options: &M
             } else {
                 let result = result.unwrap();
                 assert_eq!(
-                    result.return_value.value(vm.gc()).unwrap(),
-                    Value::Bool(true),
+                    result.return_value.as_bool(),
+                    Some(true),
                     "{entry} ({route})",
                 );
             }
@@ -234,8 +227,8 @@ fn check_with_options(source: &str, entries: &[String], traps: bool, options: &M
                 .execute_module(&loaded, "numeric_ready", vm.execution_options())
                 .unwrap_or_else(|error| panic!("probe after {entry} ({route}): {error:?}"));
             assert_eq!(
-                ready.return_value.value(vm.gc()).unwrap(),
-                Value::Bool(true),
+                ready.return_value.as_bool(),
+                Some(true),
                 "probe after {entry} ({route})",
             );
         }

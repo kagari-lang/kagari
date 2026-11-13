@@ -3,13 +3,11 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::{ExecutionFrame, types::arguments::TypeArgument},
-    gc::HeapObjectId,
     module::{
         EnumVariantRef, StructLayoutRef, execution::aggregates::LayoutSite,
         linked_execution::layouts::AggregateLayout,
     },
     native::storage_type::StorageType,
-    value::Value,
 };
 use kagari_types::ty::Ty;
 use std::{slice, sync::Arc};
@@ -28,7 +26,7 @@ impl ExecutionFrame {
         )
     }
 
-    fn element_contract(
+    pub(super) fn element_contract(
         &self,
         runtime: &Runtime,
         element: &Ty,
@@ -43,33 +41,6 @@ impl ExecutionFrame {
             .pop()
             .ok_or_else(|| RuntimeError::module_validation("array element scope"))?;
         StorageType::prepare_scoped(argument, self.loaded()).map(Arc::new)
-    }
-
-    pub fn alloc_array(
-        &self,
-        runtime: &Runtime,
-        element: &Ty,
-        elements: Vec<Value>,
-    ) -> Result<HeapObjectId, RuntimeError> {
-        runtime.validate_heap_payloads(&elements)?;
-        runtime
-            .gc
-            .alloc_array_with_contract(self.element_contract(runtime, element)?, elements)
-    }
-
-    pub fn alloc_array_repeat(
-        &self,
-        runtime: &Runtime,
-        element: &Ty,
-        value: Value,
-        count: u64,
-    ) -> Result<HeapObjectId, RuntimeError> {
-        runtime.validate_heap_payloads(slice::from_ref(&value))?;
-        runtime.gc.alloc_array_repeat_with_contract(
-            self.element_contract(runtime, element)?,
-            value,
-            count,
-        )
     }
 
     fn aggregate_layout(
@@ -94,7 +65,9 @@ impl ExecutionFrame {
         layouts.resolve(
             runtime,
             self.loaded(),
-            self.environment.as_ref(),
+            self.environment
+                .as_ref()
+                .map(|environment| environment.facts()),
             links.applied_layouts.as_deref(),
             site,
         )

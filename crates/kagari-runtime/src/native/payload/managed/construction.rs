@@ -1,6 +1,5 @@
 use crate::{
     error::RuntimeError,
-    gc::roots::RootedValue,
     native::{
         binding::NativeResult,
         conversion::{IntoKagari, context::ConversionContext},
@@ -11,7 +10,7 @@ use crate::{
         },
         typed::NativeContext,
     },
-    value::Value,
+    value::carriers::RootedValue,
 };
 
 /// Unpublished field values own temporary roots until construction or replacement
@@ -48,48 +47,34 @@ impl<T: NativeData> ManagedBuilder<T> {
         field.check(&self.native_type)?;
         let mut conversion = ConversionContext::new(cx.runtime_mut(), self.native_type.owner())?;
         let value = conversion.encode_prepared(field.type_argument(), value)?;
-        let root = conversion.runtime().root_value(value).ok_or_else(invalid)?;
+        let root = conversion.retain(&value)?;
         self.fields[field.slot] = Some(root);
         Ok(())
     }
 
-    fn prepare(&self, cx: &NativeContext<'_>) -> NativeResult<Managed<T>> {
-        cx.runtime().gc().ensure_no_native_borrow()?;
-        cx.runtime().resources().ensure_execution_allowed()?;
-        cx.runtime()
-            .validate_executable_module(self.native_type.owner())?;
-        cx.poll()?;
-        let mut values = Vec::new();
-        values
-            .try_reserve_exact(self.fields.len())
-            .map_err(|_| RuntimeError::resource_limit("managed initializers"))?;
-        for field in &self.fields {
-            values.push(
-                field
-                    .as_ref()
-                    .and_then(|root| root.value(cx.runtime().gc()))
-                    .ok_or_else(invalid)?,
-            );
-        }
-        let schema = self.native_type.schema()?.clone();
-        for (field, value) in schema.fields.iter().zip(&values) {
-            if !value.is_default_heap_payload(cx.runtime().gc())
-                || !field.contract.accepts_value(cx.runtime().gc(), value)
-            {
-                return Err(invalid());
-            }
-        }
-        Ok(Managed {
-            data: self.data,
-            schema,
-            values,
-        })
-    }
-
     pub fn finish(self, cx: &mut NativeContext<'_>) -> NativeResult<Opaque<Managed<T>>> {
-        let payload = self.prepare(cx)?;
-        // self retains every initializer until the newly allocated object is rooted.
-        self.native_type.create(cx, payload)
+        let schema = self.native_type.schema()?.clone();
+        if self.fields.iter().any(Option::is_none) {
+            return Err(invalid());
+        }
+        let fields = self.fields;
+        let data = self.data;
+        // set() checks each field mapping and complete encoded value before
+        // retaining it. Those immutable type/storability facts cannot be revoked
+        // by mutating an alias; the owning roots protect all initializer targets.
+        self.native_type.create_with(cx, move |init| {
+            let mut values = Vec::new();
+            values.try_reserve_exact(fields.len())?;
+            for field in &fields {
+                values.push(
+                    field
+                        .as_ref()
+                        .expect("complete managed initializer")
+                        .get(init.scope())?,
+                );
+            }
+            Managed::alloc(init.scope(), data, schema, &values)
+        })
     }
 
     /// Replace data and all fields through the same checked commit boundary.
@@ -106,11 +91,24 @@ impl<T: NativeData> ManagedBuilder<T> {
         {
             return Err(invalid());
         }
-        let payload = self.prepare(cx)?;
-        let Value::GcHandle(id) = target.value(cx.runtime().gc())? else {
+        let schema = self.native_type.schema()?.clone();
+        if self.fields.iter().any(Option::is_none) {
             return Err(invalid());
-        };
-        cx.runtime().gc().replace_managed(id, payload)?;
-        cx.runtime_mut().gc_safepoint()
+        }
+        let fields = self.fields;
+        let data = self.data;
+        self.native_type.replace_with(cx, target, move |init| {
+            let mut values = Vec::new();
+            values.try_reserve_exact(fields.len())?;
+            for field in &fields {
+                values.push(
+                    field
+                        .as_ref()
+                        .expect("complete managed initializer")
+                        .get(init.scope())?,
+                );
+            }
+            Managed::alloc(init.scope(), data, schema, &values)
+        })
     }
 }

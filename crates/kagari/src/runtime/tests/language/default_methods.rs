@@ -12,7 +12,6 @@ use kagari_contract::{
     types::PublicItem,
 };
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_runtime::value::Value;
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_stdlib::identity as library;
 use kagari_types::{callable::CallableImplementation, scalar::BuiltinType, ty::Ty};
@@ -137,9 +136,9 @@ fn imported_defaults_preserve_private_helpers_and_definition_context() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
 }
 
@@ -513,9 +512,9 @@ fn main() -> i32 {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
 }
 

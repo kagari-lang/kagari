@@ -1,19 +1,24 @@
 //! An admitted interpreter scope cannot escape the closed execution operation.
 use crate::{
     Runtime,
-    error::{RuntimeError, fault::EngineFault},
+    error::{RuntimeError, fault::EngineFault, reason::ErrorReason},
+    execution::roots::ExecutionRoots,
     frame::{
         ExecutionFrame, FrameStack,
         cursor::kernel::{CursorExit, RegionError, RegionExit},
         values::operands::OperandWindow,
     },
-    module::{execution::ExecutionFunction, linked_execution::LinkedFunction},
+    host::{HostBorrowTable, HostRegistry},
+    module::{
+        ModuleStore, execution::ExecutionFunction, linked_execution::LinkedFunction,
+        managed::revision::RevisionState,
+    },
     native::context::ScriptInvoker,
+    resource::ResourceState,
     session::SessionState,
 };
-
-use kagari_bytecode::module::CallableTarget;
-use std::ptr;
+use kagari_bytecode::{module::CallableTarget, program::ModuleRef};
+use kagari_gc::{error::GcError, object::Gc};
 
 mod indices;
 pub mod kernel;
@@ -24,35 +29,34 @@ mod scalars;
 mod tests;
 mod transitions;
 
-/// All references live inside execute_region. No caller callback or supplied Value
-/// can intervene while admission is reused; exits release the frame and bank borrows.
-struct ExecutionCursor<'a> {
-    function: &'a ExecutionFunction,
-    links: Option<&'a LinkedFunction>,
-    ip: &'a mut usize,
-    executing: &'a mut Option<usize>,
-    values: OperandWindow<'a>,
-    runtime: &'a Runtime,
-    session: &'a SessionState,
+/// No frame, source or payload loan crosses a callback, collector step or cold
+/// transition. Exact body state comes from the frame's admitted dependency.
+struct ExecutionCursor<'code, 'access, 'source, 'gc> {
+    function: &'code ExecutionFunction,
+    links: Option<&'code LinkedFunction>,
+    ip: &'code mut usize,
+    executing: &'code mut Option<usize>,
+    values: OperandWindow<'access, 'source, 'gc>,
+    body: Gc<'gc, RevisionState>,
+    member: ModuleRef,
+    modules: &'code ModuleStore,
+    session: &'code SessionState,
+    host: &'code HostRegistry,
+    host_borrows: &'code HostBorrowTable,
+    resources: &'code ResourceState,
+    collection_due: bool,
+    automatic_collection: bool,
 }
 
 impl FrameStack {
-    /// Execute prepared operations, releasing transient views before callbacks or transitions.
-    /// The driver has already polled and observed the first logical instruction.
-    /// `invoke_script` supplies synchronous native-to-script reentry and never runs
-    /// while the cursor retains a frame, session-state or operand-bank borrow.
+    /// Execute prepared operations, ending all source/control loans before a
+    /// transition can allocate or lend mutable Runtime services to Native code.
     pub fn execute_region(
         &self,
         runtime: &mut Runtime,
         remaining: &mut Option<usize>,
         invoke_script: ScriptInvoker,
     ) -> Result<RegionExit, RegionError> {
-        if !ptr::eq(runtime.resources(), runtime.resources()) {
-            return Err(RuntimeError::module_validation(
-                "execution stack belongs to another runtime",
-            )
-            .into());
-        }
         match self.execute_admitted_region(runtime, remaining)? {
             CursorExit::Region(exit) => Ok(exit),
             CursorExit::Transition(transition) => {
@@ -66,75 +70,120 @@ impl FrameStack {
         runtime: &mut Runtime,
         remaining: &mut Option<usize>,
     ) -> Result<CursorExit, RegionError> {
-        // current_mut admits the active session/frame scope and sticky termination.
-        let mut frame = self.current_mut(runtime)?;
-        frame.completed = None;
-        runtime.gc().ensure_no_native_borrow()?;
-        let mut values = runtime
-            .resources()
-            .frame_values
-            .try_borrow_mut()
-            .map_err(|_| {
-                runtime
-                    .resources()
-                    .quarantine(EngineFault::ExecutionSlotsBorrowedAcrossInstruction)
-            })?;
-        let values = values.borrow_operands(frame.slots).ok_or_else(|| {
-            runtime
-                .resources()
-                .quarantine(EngineFault::InvalidExecutionFrameWindow)
-        })?;
-        let session = self.session_state(runtime);
-        // Split immutable execution facts from the only frame state a closed
-        // region may change. Every handler shares this admitted function view;
-        // calls, allocation and lazy preparation end the borrow before transition.
-        let ExecutionFrame {
-            loaded,
-            target,
-            links,
-            ip,
-            executing,
-            ..
-        } = &mut *frame;
-        let CallableTarget::Script(function) = *target else {
-            return Err(runtime
-                .resources()
-                .quarantine(EngineFault::ScalarRegionRequiresScriptFrame)
-                .into());
+        self.validate_top(runtime)?;
+        let frame_slots = {
+            let frame = self.current(runtime)?;
+            frame.validate_runtime(runtime)?;
+            frame.slots()
         };
-        let function = loaded
-            .execution()
-            .functions
-            .get(function.index())
-            .ok_or_else(|| {
-                runtime
-                    .resources()
-                    .quarantine(EngineFault::InvalidExecutionFunction)
-            })?;
-        let result = ExecutionCursor {
-            function,
-            links: links.as_deref(),
-            ip,
-            executing,
-            values,
-            runtime,
-            session: &session,
-        }
-        .execute_region(remaining)?;
+        let collection_due = runtime
+            .memory
+            .service_requested(runtime.modules.abandonment_pending());
+        let automatic_collection = runtime.memory.automatic_collection_enabled();
+        let Runtime {
+            memory,
+            resources,
+            modules,
+            host,
+            host_borrows,
+            ..
+        } = runtime;
+        let mut frames = resources.sessions.frames_mut(self.session).ok_or_else(|| {
+            resources.quarantine(EngineFault::ExecutionSlotsBorrowedAcrossInstruction)
+        })?;
+        let frame = frames
+            .last_mut()
+            .expect("admitted frame unchanged without execution");
+        frame.completed = None;
+        let session = resources
+            .sessions
+            .get(self.session)
+            .expect("admitted session");
+        let result = memory.scope(resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                let body = slots.dependency(frame_slots.body)?;
+                let ExecutionFrame {
+                    loaded,
+                    target,
+                    links,
+                    ip,
+                    executing,
+                    ..
+                } = frame;
+                if slots
+                    .scope()
+                    .read(body, |body| body.code().program_identity())
+                    != loaded.program_identity()
+                {
+                    return Err(GcError::Representation);
+                }
+                let CallableTarget::Script(function) = *target else {
+                    return Ok(Err(RuntimeError::from(
+                        EngineFault::ScalarRegionRequiresScriptFrame,
+                    )
+                    .into()));
+                };
+                let Some(function) = loaded.execution().functions.get(function.index()) else {
+                    return Ok(Err(RuntimeError::from(
+                        EngineFault::InvalidExecutionFunction,
+                    )
+                    .into()));
+                };
+                let values = frame_slots.operands(slots)?;
+                Ok(ExecutionCursor {
+                    function,
+                    links: links.as_deref(),
+                    ip,
+                    executing,
+                    values,
+                    body,
+                    member: loaded.slot(),
+                    modules,
+                    session: &session,
+                    host,
+                    host_borrows,
+                    resources,
+                    collection_due,
+                    automatic_collection,
+                }
+                .execute_region(remaining))
+            })
+        });
         if matches!(
             &result,
-            CursorExit::Region(RegionExit::Slice | RegionExit::Safepoint | RegionExit::Return(_))
+            Ok(Ok(CursorExit::Region(
+                RegionExit::Slice | RegionExit::Safepoint | RegionExit::Return(_)
+            )))
         ) {
             frame.completed = frame.executing;
         }
-        Ok(result)
+        drop(session);
+        drop(frames);
+        // Quarantine/termination and trace capture happen after every source,
+        // frame and session loan has ended, including partial-effect failures.
+        result
+            .map_err(|error| runtime.managed_memory_error(error))?
+            .map_err(|error| error.admit(runtime))
     }
 }
 
-impl ExecutionCursor<'_> {
-    fn invalid(&self) -> RuntimeError {
-        self.runtime
-            .resources()
-            .quarantine(EngineFault::InvalidExecutionOperandSlot)
+impl ExecutionCursor<'_, '_, '_, '_> {
+    fn invalid(&self) -> RegionError {
+        RuntimeError::from(EngineFault::InvalidExecutionOperandSlot).into()
+    }
+}
+
+impl RegionError {
+    fn admit(self, runtime: &Runtime) -> Self {
+        match self {
+            Self::Runtime(error) => {
+                if let ErrorReason::EngineFault(reason) = error.reason() {
+                    runtime.resources().quarantine(*reason).into()
+                } else {
+                    error.admit_execution_error(runtime.resources()).into()
+                }
+            }
+            error => error,
+        }
     }
 }

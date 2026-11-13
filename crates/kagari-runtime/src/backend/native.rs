@@ -4,11 +4,15 @@ use crate::{
     backend::BackendInvocationError,
     error::{RuntimeError, fault::EngineFault, reason::CancellationReason, trap::TrapReason},
     error_trace::ErrorTrace,
-    jit_abi::{NATIVE_HELPERS, decode_native_value},
+    jit_abi::{NATIVE_HELPERS, scalars::decode_native_value},
     module::{
-        ExecutableModule, ModuleEpochRetention, dispatch::CallRoute, retention::ProgramLease,
+        ExecutableModule, ModuleEpochRetention,
+        dispatch::CallRoute,
+        managed::source::RevisionSource,
+        retention::{ProgramLease, RetentionOrigin},
     },
-    value::Value,
+    native::conversion::arguments::ArgumentValues,
+    value::carriers::RootedValue,
 };
 use kagari_types::{arithmetic::ArithmeticError, scalar::error::ScalarError};
 use std::{mem, sync::Arc};
@@ -71,9 +75,10 @@ impl Runtime {
     /// of the product exists. Native code must not unwind through the C ABI.
     /// Descriptor validation cannot establish these properties for arbitrary pointers.
     pub unsafe fn install_native_function(
-        &self,
+        &mut self,
         module: &ExecutableModule,
         product: Arc<NativeCompilationProduct>,
+        origin: RetentionOrigin<'_>,
     ) -> Result<InstalledNativeFunction, BackendInvocationError> {
         self.validate_executable_module(module)
             .map_err(runtime_failure)?;
@@ -82,7 +87,11 @@ impl Runtime {
             .map_err(runtime_failure)?;
         validate_product(module, &product.artifact)?;
         let retention = self
-            .retain_program(module, ModuleEpochRetention::CompiledArtifact)
+            .retain_program(
+                module,
+                ModuleEpochRetention::CompiledArtifact,
+                origin.resolve(self, module).map_err(runtime_failure)?,
+            )
             .ok_or_else(|| {
                 runtime_failure(RuntimeError::module_validation(
                     "native dependency was released",
@@ -105,14 +114,18 @@ impl Runtime {
     pub fn invoke_native_function(
         &mut self,
         installed: &InstalledNativeFunction,
-    ) -> Result<Value, NativeInvocationFailure> {
+    ) -> Result<RootedValue, NativeInvocationFailure> {
         let failure = |runtime: &Runtime, error| NativeInvocationFailure {
             error,
             trace: runtime.capture_error_trace(),
         };
-        self.validate_executable_module(&installed.module)
-            .map_err(runtime_failure)
-            .map_err(|error| failure(self, error))?;
+        self.with_revision_origin(
+            &installed.module,
+            RevisionSource::Host(installed._retention.revision()),
+            |_, _| Ok(()),
+        )
+        .map_err(runtime_failure)
+        .map_err(|error| failure(self, error))?;
         self.resources()
             .ensure_execution_allowed()
             .map_err(runtime_failure)
@@ -162,7 +175,7 @@ impl Runtime {
                         runtime,
                         selected.owner().clone(),
                         selected.target(),
-                        &[],
+                        ArgumentValues::scalars(&[]),
                         None,
                     )
                     .map_err(|error| error.with_trace(runtime.capture_error_trace()))?;
@@ -182,7 +195,7 @@ impl Runtime {
     fn call_native_entry(
         &mut self,
         installed: &InstalledNativeFunction,
-    ) -> Result<Value, BackendInvocationError> {
+    ) -> Result<RootedValue, BackendInvocationError> {
         let ExecutableEntryPoint::Native { address, .. } = installed.artifact().code.entry else {
             unreachable!("installation validates the entry")
         };
@@ -199,7 +212,7 @@ impl Runtime {
             .ensure_execution_allowed()
             .map_err(runtime_failure)?;
         check_status(self, status)?;
-        let value = decode_native_value(result).ok_or_else(|| {
+        let (representation, value) = decode_native_value(result).ok_or_else(|| {
             runtime_failure(
                 self.resources()
                     .quarantine(EngineFault::CompiledFunctionReturnedAnInvalidValue),
@@ -208,7 +221,7 @@ impl Runtime {
         let expected = installed.module.bytecode.functions[installed.artifact().function.index()]
             .metadata
             .return_type;
-        if !value.has_representation(expected) {
+        if representation != expected {
             return Err(runtime_failure(self.resources().quarantine(
                 EngineFault::CompiledFunctionReturnedTheWrongRepresentation,
             )));

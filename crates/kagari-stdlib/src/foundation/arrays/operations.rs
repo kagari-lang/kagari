@@ -1,75 +1,63 @@
 //! Fixed arrays expose bounded element access; constructors copy into library storage.
 use kagari_runtime::{
     error::{RuntimeError, reason::IndexError},
-    gc::HeapObjectId,
     native::{binding::NativeResult, context::NativeCall, scalar::NativeScalar},
-    value::Value,
+    value::view::ValueView,
 };
 
 pub(crate) fn invalid() -> RuntimeError {
     RuntimeError::module_validation("builtin array contract")
 }
 
-pub(crate) fn source(cx: &NativeCall<'_>) -> NativeResult<HeapObjectId> {
-    let Value::Array(id) = cx.checked_argument(0)? else {
-        return Err(invalid());
-    };
-    cx.heap().array_len(id).ok_or_else(invalid)?;
-    Ok(id)
+pub(crate) fn source<'call>(cx: &mut NativeCall<'call>) -> NativeResult<ValueView<'call>> {
+    let source = cx.checked_argument(0)?;
+    cx.array_len(&source)?;
+    Ok(source)
 }
 
-pub(crate) fn length(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
-    cx.heap()
-        .array_len(source(cx)?)
-        .map(NativeScalar::encode)
-        .ok_or_else(invalid)
+pub(crate) fn length<'call>(cx: &mut NativeCall<'call>) -> NativeResult<ValueView<'call>> {
+    let source = source(cx)?;
+    Ok(cx.array_len(&source)?.encode())
 }
 
-pub(crate) fn is_empty(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
-    Ok(Value::Bool(u64::decode(length(cx)?)? == 0))
+pub(crate) fn is_empty<'call>(cx: &mut NativeCall<'call>) -> NativeResult<ValueView<'call>> {
+    let source = source(cx)?;
+    Ok((cx.array_len(&source)? == 0).encode())
 }
 
-pub(crate) fn index(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
+pub(crate) fn index<'call>(cx: &mut NativeCall<'call>) -> NativeResult<ValueView<'call>> {
     let source = source(cx)?;
     let index = index_argument(cx, 1)?;
-    let out_of_bounds = || {
+    cx.array_element(&source, index)?.ok_or_else(|| {
         RuntimeError::from(IndexError::Provider(format!(
             "array index {index} is out of bounds"
         )))
-    };
-
-    cx.heap()
-        .array_element(source, index)?
-        .ok_or_else(out_of_bounds)
+    })
 }
 
 /// Compare fixed arrays in order through the checked element operation.
-pub(crate) fn equal(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
+pub(crate) fn equal<'call>(cx: &mut NativeCall<'call>) -> NativeResult<ValueView<'call>> {
     let left = source(cx)?;
-    let Value::Array(right) = cx.checked_argument(1)? else {
-        return Err(invalid());
-    };
-    let count = cx.heap().array_len(left).ok_or_else(invalid)?;
-    if count != cx.heap().array_len(right).ok_or_else(invalid)? {
-        return Ok(Value::Bool(false));
+    let right = cx.checked_argument(1)?;
+    let count = cx.array_len(&left)?;
+    if count != cx.array_len(&right)? {
+        return Ok(false.encode());
     }
     let equal = cx.selected_at(0)?;
     for index in 0..count {
         cx.poll()?;
-        let a = cx.heap().array_get(left, index).ok_or_else(invalid)?;
-        let b = cx.heap().array_get(right, index).ok_or_else(invalid)?;
-        let _a = cx.heap().root_value(a).ok_or_else(invalid)?;
-        let _b = cx.heap().root_value(b).ok_or_else(invalid)?;
-        let Value::Bool(same) = cx.call_values(equal, &[a, b])? else {
-            return Err(invalid());
-        };
+        let same = cx.with_temporaries(|cx| {
+            let a = cx.array_element(&left, index)?.ok_or_else(invalid)?;
+            let b = cx.array_element(&right, index)?.ok_or_else(invalid)?;
+            bool::decode(cx.call_values(equal, &[a, b])?)
+        })?;
         if !same {
-            return Ok(Value::Bool(false));
+            return Ok(false.encode());
         }
     }
-    Ok(Value::Bool(true))
+    Ok(true.encode())
 }
 
-pub(crate) fn index_argument(cx: &NativeCall<'_>, slot: usize) -> NativeResult<u64> {
+pub(crate) fn index_argument(cx: &mut NativeCall<'_>, slot: usize) -> NativeResult<u64> {
     u64::decode(cx.argument(slot)?)
 }

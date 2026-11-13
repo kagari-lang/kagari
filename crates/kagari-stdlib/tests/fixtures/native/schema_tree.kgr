@@ -1,0 +1,5 @@
+use game::data::Tree;
+
+pub fn inspect(tree: Tree) -> i32 {
+    tree.leaf.value
+}

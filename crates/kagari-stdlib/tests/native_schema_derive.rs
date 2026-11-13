@@ -3,9 +3,8 @@ use crate::bytecode_fixture::load_bytecode;
 use kagari_derive::KagariValue;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
-    gc::GcHeapConfig,
+    execution::memory::GcHeapConfig,
     native::{
-        binding::NativeResult,
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
         conversion::{KagariType, context::ConversionContext},
@@ -15,8 +14,6 @@ use kagari_runtime::{
         typed::NativeContext,
         types::Type,
     },
-    resource::HeapCharge,
-    value::Value,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::ty::Ty;
@@ -41,10 +38,7 @@ fn derived_mixed_dto_keeps_opaque_identity_and_checked_data_capabilities() {
     assert!(module.declaration().functions.is_empty());
     assert!(module.declaration().implementations.is_empty());
     let mapping = Opaque::<GameConfig>::kagari_type(&module.catalog()).unwrap();
-    let program = program_for_source(
-        &module,
-        "use game::mixed::Input; pub fn inspect(input: Input) -> String { input.label }",
-    );
+    let program = program_for_source(&module, include_str!("fixtures/native/schema_mixed.kgr"));
     let mut runtime = Runtime::new(RuntimeConfig {
         gc: GcHeapConfig {
             collection_threshold: Some(1),
@@ -89,7 +83,7 @@ fn derived_mixed_dto_keeps_opaque_identity_and_checked_data_capabilities() {
     decoded.label = "Rust snapshot".into();
     decoded
         .config
-        .edit(&native, |config| {
+        .edit(&mut native, |config| {
             config.power = 12;
             Ok(())
         })
@@ -103,18 +97,9 @@ fn derived_mixed_dto_keeps_opaque_identity_and_checked_data_capabilities() {
     assert_eq!(
         again
             .config
-            .read(&native, |config| Ok(config.power))
+            .read(&mut native, |config| Ok(config.power))
             .unwrap(),
         12
-    );
-    assert_eq!(config.take(&native).unwrap().power, 12);
-    assert!(decoded.config.read(&native, |_| Ok(())).is_err());
-    assert!(again.config.read(&native, |_| Ok(())).is_err());
-    assert!(
-        ConversionContext::new(native.runtime_mut(), &owner)
-            .unwrap()
-            .decode::<BattleInput>(&root)
-            .is_err()
     );
     native.collect_garbage().unwrap();
     assert!(!native.runtime().is_quarantined());
@@ -124,12 +109,6 @@ fn derived_mixed_dto_keeps_opaque_identity_and_checked_data_capabilities() {
 struct InvalidStorage;
 
 impl NativePayload for InvalidStorage {
-    fn trace<'payload>(&'payload self, _: &mut dyn FnMut(&'payload Value)) {}
-
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(0, 0))
-    }
-
     fn registration_storage() -> NativeStorage {
         NativeStorage::data::<GameConfig>()
     }

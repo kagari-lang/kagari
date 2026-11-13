@@ -109,10 +109,13 @@ fn invalid_clamp_bounds_trap_after_arguments_and_release_roots_without_poisoning
         let loaded = runtime
             .load_program(program.program(), Default::default())
             .unwrap();
+        runtime.collect_garbage().unwrap();
+        let roots = runtime.gc_stats().root_registrations;
         let retained: Object = runtime
             .execute_typed(&loaded, ProgramEntry::Main, (), &context)
             .unwrap();
-        let baseline_roots = runtime.gc().active_roots();
+        runtime.collect_garbage().unwrap();
+        let baseline_roots = runtime.gc_stats().root_registrations;
         assert!(baseline_roots > 0);
         for (name, case) in &failures {
             let error = runtime
@@ -123,8 +126,9 @@ fn invalid_clamp_bounds_trap_after_arguments_and_release_roots_without_poisoning
                 "KG_RUNTIME_SCRIPT_TRAP",
                 "{route}: {case}: {error:?}"
             );
+            runtime.collect_garbage().unwrap();
             assert_eq!(
-                runtime.gc().active_roots(),
+                runtime.gc_stats().root_registrations,
                 baseline_roots,
                 "{route}: {case}"
             );
@@ -142,11 +146,13 @@ fn invalid_clamp_bounds_trap_after_arguments_and_release_roots_without_poisoning
                 .execute_typed(&loaded, "after", (), &context)
                 .unwrap();
             assert!(after, "{route}: {case}: execution can continue");
-            assert_eq!(runtime.gc().active_roots(), baseline_roots);
+            runtime.collect_garbage().unwrap();
+            assert_eq!(runtime.gc_stats().root_registrations, baseline_roots);
         }
-        assert!(runtime.gc().stats().collections > 0);
+        assert!(runtime.gc_stats().completed_cycles > 0);
         drop(retained);
-        assert_eq!(runtime.gc().active_roots(), 0, "{route}");
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc_stats().root_registrations, roots, "{route}");
         runtime.collect_garbage().unwrap();
     }
 }

@@ -18,7 +18,7 @@ use kagari_runtime::{
         typed::{NativeContext, loans::LoanContext},
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{
@@ -41,7 +41,7 @@ static SNAPSHOT: AtomicBool = AtomicBool::new(false);
 
 kagari_runtime::native_data! { struct Point { value: i32 } }
 
-fn provider(count: &Arc<AtomicUsize>) -> (NativeModule, NativeModule) {
+pub(super) fn string_provider() -> NativeModule {
     let mut modules = ModuleSetBuilder::new(&DeclarationCatalog::default()).unwrap();
     modules
         .add(ModuleDefinition::new(
@@ -55,13 +55,17 @@ fn provider(count: &Arc<AtomicUsize>) -> (NativeModule, NativeModule) {
             },
         ))
         .unwrap();
-    let strings = modules
+    modules
         .finish()
         .unwrap()
         .into_modules()
         .unwrap()
         .pop()
-        .unwrap();
+        .unwrap()
+}
+
+fn provider(count: &Arc<AtomicUsize>) -> (NativeModule, NativeModule) {
+    let strings = string_provider();
     let catalog = DeclarationCatalog::from_modules(&[&strings]).unwrap();
     let mut builder = ModuleBuilder::new("example::internal", &catalog).unwrap();
     for scalar in [false, true] {
@@ -89,7 +93,7 @@ fn provider(count: &Arc<AtomicUsize>) -> (NativeModule, NativeModule) {
                         if scalar {
                             cx.argument(0)
                         } else {
-                            Ok(Value::Unit)
+                            Ok(ValueView::unit())
                         }
                     },
                 ),

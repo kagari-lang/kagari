@@ -1,5 +1,5 @@
 //! Non-scalar operations retain physical operands and closed transition ordinals.
-use crate::module::execution::{OperandSlot, layout::Location};
+use crate::module::execution::{layout::Location, operands::OperandSlot};
 use kagari_bytecode::instruction::ConstantId;
 
 /// Only preparation can construct operations consumed by the admitted cursor.

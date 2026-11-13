@@ -1,0 +1,13 @@
+use example::functions::apply;
+
+pub fn divide(x: i32) -> i32 {
+    10 / x
+}
+
+pub fn recurse(x: i32) -> i32 {
+    apply(|value| recurse(value), x)
+}
+
+pub fn healthy() -> i32 {
+    42
+}

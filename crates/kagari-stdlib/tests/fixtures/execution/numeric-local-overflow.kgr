@@ -1,0 +1,6 @@
+pub fn main() {
+    var s = 0i8;
+    var i = 127i8;
+    s = s + 1i8;
+    i = i + 1i8;
+}

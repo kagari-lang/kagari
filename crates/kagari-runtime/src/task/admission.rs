@@ -3,9 +3,9 @@ use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::asynchronous::SpawnOrigin,
-    gc::roots::RootedValue,
+    frame::factory::QueuedFactory,
     module::ExecutableModule,
-    native::binding::NativeResult,
+    native::{binding::NativeResult, conversion::context::inputs::ValueInput},
     scheduler::{WorkKey, wake::WakeHub},
     session::{ExecutionOptions, ExecutionPhase},
     task::{
@@ -14,7 +14,7 @@ use crate::{
         payload::{ScopePayload, TaskPayload},
         store::{ScopeRecord, TaskRecord, TaskState},
     },
-    value::Value,
+    value::carriers::RootedValue,
 };
 use kagari_types::{
     declaration::native::NativeStorageLayout,
@@ -68,14 +68,9 @@ impl Runtime {
                 .type_arguments(owner, None, slice::from_ref(&ty))?
                 .pop()
                 .ok_or_else(|| RuntimeError::module_validation("TaskScope type"))?;
-            let capability = self.allocate_task_payload(
-                owner,
-                ty,
-                ScopePayload {
-                    id,
-                    control: control.clone(),
-                },
-            )?;
+            let capability = self.allocate_task_payload(owner, ty, |cx| {
+                ScopePayload::alloc(cx, control.status.clone())
+            })?;
             self.tasks.scopes.insert(
                 id.0,
                 ScopeRecord {
@@ -98,8 +93,18 @@ impl Runtime {
     /// callers remain execution errors. Publication commits before returning Ok.
     pub fn spawn_task(
         &mut self,
-        capability: &Value,
-        factory: &Value,
+        capability: &RootedValue,
+        factory: &RootedValue,
+    ) -> NativeResult<Result<RootedValue, SpawnError>> {
+        self.spawn_task_inner(ValueInput::Root(capability), |runtime| {
+            runtime.prepare_future_factory(factory)
+        })
+    }
+
+    pub(crate) fn spawn_task_inner(
+        &mut self,
+        capability: ValueInput<'_, '_>,
+        prepare: impl FnOnce(&mut Self) -> NativeResult<QueuedFactory>,
     ) -> NativeResult<Result<RootedValue, SpawnError>> {
         self.ensure_scheduler_open()?;
         self.resources().poll_execution()?;
@@ -107,25 +112,25 @@ impl Runtime {
         if self.execution_options().phase != ExecutionPhase::Ordinary {
             return Err(RuntimeError::execution_phase_violation("task spawn"));
         }
-        let control = self.gc().scope_control(capability)?;
-        if control.id.0.owner != self.tasks.owner {
+        let status = self.scope_status(capability)?;
+        if status.id.0.owner != self.tasks.owner {
             return Err(RuntimeError::module_validation("foreign TaskScope"));
         }
-        if control.closing.load(Ordering::Acquire) {
+        if status.closing.load(Ordering::Acquire) {
             return Ok(Err(SpawnError::ScopeClosed));
         }
-        if control.failed.load(Ordering::Acquire) {
+        if status.failed.load(Ordering::Acquire) {
             return Ok(Err(SpawnError::DispatchUnavailable));
         }
-        let options = self
+        let scope = self
             .tasks
             .scopes
-            .get(control.id.0)
-            .filter(|scope| Arc::ptr_eq(&scope.control, &control))
-            .ok_or_else(|| RuntimeError::module_validation("retired TaskScope"))?
-            .options
-            .clone();
-        let prepared = self.prepare_future_factory(factory)?;
+            .get(status.id.0)
+            .filter(|scope| Arc::ptr_eq(&scope.control.status, &status))
+            .ok_or_else(|| RuntimeError::module_validation("retired TaskScope"))?;
+        let options = scope.options.clone();
+        let control = scope.control.clone();
+        let prepared = prepare(self)?;
         let output = prepared.future.parameter(self, &prepared.owner, 0)?;
         let declaration = self.task_role(NativeStorageLayout::Task)?;
         let task_type = prepared.future.derive(self, &prepared.owner, |ty| {
@@ -143,11 +148,9 @@ impl Runtime {
             Ok(id) => TaskId(id),
             Err(error) => return Ok(Err(error)),
         };
-        let value = match self.allocate_task_payload(
-            &prepared.owner,
-            task_type,
-            TaskPayload { id, outcome: None },
-        ) {
+        let value = match self
+            .allocate_task_payload(&prepared.owner, task_type, |cx| TaskPayload::alloc(cx, id))
+        {
             Ok(value) => value,
             Err(error) => {
                 self.tasks.tasks.remove(id.0);
@@ -163,9 +166,7 @@ impl Runtime {
         };
         let signal = TaskSignal::new(id, &control);
         control.attach(&signal);
-        let retained = self
-            .root_value(value.value(self.gc()).expect("new Task root"))
-            .expect("new Task retention root");
+        let retained = value.clone();
         let origin = SpawnOrigin {
             factory: prepared.origin(),
             site: self.capture_async_site(),
@@ -174,7 +175,7 @@ impl Runtime {
             id.0,
             TaskRecord {
                 origin,
-                scope: control.id,
+                scope: control.status.id,
                 signal: signal.clone(),
                 value: retained,
                 owner: prepared.owner.clone(),
@@ -193,11 +194,11 @@ impl Runtime {
             drop(discarded);
             return Err(error);
         }
-        let failure = if control.failed.load(Ordering::Acquire)
+        let failure = if control.status.failed.load(Ordering::Acquire)
             || signal.cause() == Some(CancellationCause::DispatchFailure)
         {
             Some(SpawnError::DispatchUnavailable)
-        } else if control.closing.load(Ordering::Acquire) {
+        } else if control.status.closing.load(Ordering::Acquire) {
             Some(SpawnError::ScopeClosed)
         } else {
             None

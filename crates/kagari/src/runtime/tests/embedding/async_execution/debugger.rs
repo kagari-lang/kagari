@@ -1,5 +1,5 @@
 //! Debug observation follows an owned root across slices and observer replacement.
-use super::{Fixture, Value};
+use super::Fixture;
 use kagari_runtime::debug::{DebugPauseReason, DebugSession, SourceBreakpoint};
 use kagari_runtime::error::RuntimeErrorKind;
 use kagari_runtime::execution::owned::DriveResult;
@@ -112,7 +112,7 @@ fn async_debugger_drive_contract() {
     let DriveResult::Complete(result) = drive(&mut f, &left) else {
         panic!("left completes")
     };
-    assert_eq!(f.value(&result.unwrap()), Value::I32(5));
+    assert_eq!(result.unwrap().as_i32().unwrap(), 5);
     {
         let debug = f.runtime.execution_observer::<DebugSession>().unwrap();
         let step = debug
@@ -128,7 +128,7 @@ fn async_debugger_drive_contract() {
     let DriveResult::Complete(result) = drive(&mut f, &right) else {
         panic!("right completes after detach")
     };
-    assert_eq!(f.value(&result.unwrap()), Value::I32(8));
+    assert_eq!(result.unwrap().as_i32().unwrap(), 8);
     assert!(!f.runtime.is_quarantined());
     drop((left, right));
     let future = f.invoke("left", &[]);
@@ -148,7 +148,7 @@ fn async_debugger_drive_contract() {
     let DriveResult::Complete(result) = drive(&mut f, &resumed) else {
         panic!("reattached root completes")
     };
-    assert_eq!(f.value(&result.unwrap()), Value::I32(9));
+    assert_eq!(result.unwrap().as_i32().unwrap(), 9);
     {
         let debug = f.runtime.execution_observer::<DebugSession>().unwrap();
         assert!(
@@ -180,5 +180,5 @@ fn async_debugger_drive_contract() {
     f.runtime.clear_execution_observer().unwrap();
     drop(cancelled);
     f.runtime.collect_garbage().unwrap();
-    assert_eq!(f.runtime.gc().active_roots(), 0);
+    assert_eq!(f.runtime.gc_stats().root_registrations, 0);
 }

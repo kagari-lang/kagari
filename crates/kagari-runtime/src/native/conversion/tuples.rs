@@ -8,7 +8,7 @@ use crate::{
         schema::TypeRegistration,
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_types::ty::Ty;
 
@@ -20,9 +20,11 @@ macro_rules! tuple {
                 $(registration.dependency::<$ty>()?;)+
                 Self::kagari_type(registration.catalog())
             }
+
             fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
                 Type::tuple([$($ty::kagari_type(catalog)?),+])
             }
+
             fn check_type(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<()> {
                 if !matches!(expected.ty(), Ty::Tuple(items) if items.len() == $count) {
                     return Err(RuntimeError::module_validation("tuple conversion type"));
@@ -31,25 +33,26 @@ macro_rules! tuple {
                 Ok(())
             }
         }
+
         impl<$($ty: IntoKagari),+> IntoKagari for ($($ty,)+) {
-            fn into_kagari(self, cx: &mut ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<Value> {
+            fn into_kagari<'call>(self, cx: &mut ConversionContext<'call>, expected: &TypeArgument) -> NativeResult<ValueView<'call>> {
                 cx.check_elements($count)?;
-                let values = vec![$({
+                let values = [$({
                     let element = cx.parameter(expected, $slot)?;
                     cx.encode_value(&element, self.$slot)?
                 }),+];
-                cx.runtime().gc().alloc_tuple(values)
+                cx.allocate_tuple(&values)
             }
         }
+
         impl<$($ty: FromKagari),+> FromKagari for ($($ty,)+) {
-            fn from_kagari(cx: &mut ConversionContext<'_>, expected: &TypeArgument, value: &Value) -> NativeResult<Self> {
-                let Value::Tuple(elements) = value else { return Err(RuntimeError::module_validation("tuple conversion value")); };
-                let elements = cx.runtime().gc().tuple(*elements).ok_or_else(|| RuntimeError::module_validation("invalid tuple"))?.to_vec();
-                if elements.len() != $count { return Err(RuntimeError::module_validation("tuple conversion arity")); }
+            fn from_kagari(cx: &mut ConversionContext<'_>, expected: &TypeArgument, value: &ValueView<'_>) -> NativeResult<Self> {
+                if cx.tuple_len(value)? != $count { return Err(RuntimeError::module_validation("tuple conversion arity")); }
                 cx.check_elements($count)?;
                 Ok(($({
                     let element = cx.parameter(expected, $slot)?;
-                    cx.decode_value::<$ty>(&element, &elements[$slot])?
+                    let value = cx.tuple_element(value, $slot)?;
+                    cx.decode_value::<$ty>(&element, &value)?
                 },)+))
             }
         }

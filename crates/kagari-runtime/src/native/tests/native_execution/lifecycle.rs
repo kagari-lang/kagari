@@ -1,5 +1,6 @@
 //! Exact-version ownership and bounded R13 retention controls.
 use super::*;
+use crate::module::retention::RetentionOrigin;
 
 #[cfg(feature = "execution-diagnostics")]
 mod probes;
@@ -70,12 +71,15 @@ fn shared_code_survives_its_preparer_and_each_independent_installation() {
     assert!(intermediate.iter().all(|weak| weak.upgrade().is_some()));
     assert!(original.iter().all(|weak| weak.upgrade().is_some()));
     // SAFETY: the fixture implements the verified two-instruction Unit function.
-    let installed =
-        unsafe { second.install_native_function(&b, product(execute, Arc::default())) }.unwrap();
-    assert_eq!(
-        second.invoke_native_function(&installed).unwrap(),
-        Value::Unit
-    );
+    let installed = unsafe {
+        second.install_native_function(
+            &b,
+            product(execute, Arc::default()),
+            RetentionOrigin::Current,
+        )
+    }
+    .unwrap();
+    assert_unit(&mut second, &installed);
     drop((installed, b, second));
     assert!(original.iter().all(|weak| weak.upgrade().is_none()));
 }

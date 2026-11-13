@@ -4,16 +4,16 @@ use crate::{
     closure::{CallableObservation, ObservedCallableTarget},
     error::RuntimeError,
     frame::ExecutionFrame,
-    gc::roots::RootedValue,
     module::{
         ExecutableModule, InstalledProgram,
         dispatch::{CallRoute, CallRouteKind},
     },
+    native::future::claims::FutureContract,
     source::{
         FunctionSourceTarget, ProgramSourceSnapshot, SourceDeclaration, SourceQuery,
         SourceSelection, SourceUnavailableReason,
     },
-    value::Value,
+    value::carriers::RootedValue,
 };
 use kagari_bytecode::module::CallableTarget;
 use kagari_contract::source::{AuthoredDeclaration, ExecutableOrigin, ExecutableSource};
@@ -43,7 +43,10 @@ impl RootedInterfaceMethod {
     /// computation or body-owned adapter's exact target. Neither token retains a
     /// receiver root or code lease, and querying a live route does not repeat
     /// implementation lookup.
-    pub fn source_target(&self, runtime: &Runtime) -> Result<FunctionSourceTarget, RuntimeError> {
+    pub fn source_target(
+        &self,
+        runtime: &mut Runtime,
+    ) -> Result<FunctionSourceTarget, RuntimeError> {
         if let Some(route) = self.live_call_route(runtime)? {
             match route.kind() {
                 CallRouteKind::Named | CallRouteKind::Shared | CallRouteKind::Native => {
@@ -117,7 +120,7 @@ impl Runtime {
 
     /// Observe without polling/claiming a Future or retaining the root in the token.
     pub fn value_source_target(
-        &self,
+        &mut self,
         root: &RootedValue,
     ) -> Result<FunctionSourceTarget, RuntimeError> {
         let observation = self.observe_callable_value(root)?;
@@ -131,12 +134,13 @@ impl Runtime {
             self.validate_executable_module(&owner)?;
             owner.source_snapshot().query_entry(&owner, observation)
         } else {
-            let Some(Value::GcHandle(id)) = root.value(self.gc()) else {
-                return Err(RuntimeError::module_validation(
-                    "unavailable callable observation root",
-                ));
-            };
-            let (owner, _, _) = self.gc().future_contract(id)?;
+            let owner = self
+                .memory
+                .scope(&self.resources, |cx, _| {
+                    let value = root.get(cx)?;
+                    FutureContract::read(cx, value).map(|contract| contract.owner)
+                })
+                .map_err(|error| self.managed_input_error(error))?;
             owner
                 .source_snapshot()
                 .unavailable(SourceUnavailableReason::NoObservedBody)
@@ -155,7 +159,7 @@ impl Runtime {
         &self,
         frame: &ExecutionFrame,
     ) -> Result<FunctionSourceTarget, RuntimeError> {
-        self.gc().ensure_no_native_borrow()?;
+        self.resources().ensure_synchronous_thread()?;
         self.resources().ensure_execution_allowed()?;
         let session = self.resources().active_session().ok_or_else(|| {
             RuntimeError::module_validation("source frame requires an active observation session")

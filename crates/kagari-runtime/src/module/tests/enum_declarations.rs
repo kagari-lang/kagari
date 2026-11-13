@@ -8,7 +8,7 @@ use crate::{
         declarations::FunctionDecl,
         types::{Type, TypeRef},
     },
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_common::identity::map::DefinitionContext;
 use kagari_hir::{
@@ -302,7 +302,7 @@ fn declared_native_enum_signatures_reject_missing_provider_contracts() {
     module
         .bind(
             function,
-            NativeBinding::new(vec![Codec::Value], Codec::Value, |_| Ok(Value::Unit)),
+            NativeBinding::new(vec![Codec::Value], Codec::Value, |_| Ok(ValueView::unit())),
         )
         .unwrap();
     let error = module.finish().unwrap_err();

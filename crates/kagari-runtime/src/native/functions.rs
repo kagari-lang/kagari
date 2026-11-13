@@ -1,12 +1,14 @@
 //! Rust argument converters checked against explicit Kagari declarations.
-use crate::native::{
-    binding::{Codec, NativeBinding, NativeResult},
-    callable::CallableHandle,
-    context::NativeCall,
-    returns::NativeOutput,
-    scalar::NativeScalar,
-    types::Type,
-    views::ValueHandle,
+use crate::{
+    native::{
+        binding::{Codec, NativeBinding, NativeResult},
+        callable::CallableHandle,
+        context::NativeCall,
+        scalar::NativeScalar,
+        types::Type,
+        views::ValueHandle,
+    },
+    value::view::ValueView,
 };
 
 pub trait NativeFunction<Arguments, Result> {
@@ -16,14 +18,32 @@ pub trait NativeFunction<Arguments, Result> {
 impl<F, R> NativeFunction<(), R> for F
 where
     F: for<'call> Fn(&mut NativeCall<'call>) -> NativeResult<R> + Send + Sync + 'static,
-    R: NativeOutput,
+    R: NativeScalar,
 {
     fn binding(self) -> NativeBinding {
-        let mut binding = NativeBinding::new(Vec::<Codec>::new(), R::codec(), move |cx| {
-            self(cx).map(R::encode)
-        });
-        binding.converted_result = R::SCALAR;
+        let mut binding = NativeBinding::new(
+            Vec::<Codec>::new(),
+            Codec::Exact(Type::scalar(R::abi_type())),
+            move |cx| self(cx).map(R::encode),
+        );
+        binding.converted_result = true;
         binding
+    }
+}
+
+/// Inference marker for a value returned with the Native call's lifetime.
+#[doc(hidden)]
+pub struct ValueResult;
+
+impl<F> NativeFunction<(), ValueResult> for F
+where
+    F: for<'call> Fn(&mut NativeCall<'call>) -> NativeResult<ValueView<'call>>
+        + Send
+        + Sync
+        + 'static,
+{
+    fn binding(self) -> NativeBinding {
+        NativeBinding::new(Vec::<Codec>::new(), Codec::Value, move |cx| self(cx))
     }
 }
 
@@ -31,15 +51,28 @@ macro_rules! function {
     ($($argument:ident:$local:ident:$slot:expr),+) => {
         impl<F, R, $($argument),+> NativeFunction<($($argument,)+), R> for F
         where F: for<'call> Fn(&mut NativeCall<'call>, $($argument),+) -> NativeResult<R> + Send + Sync + 'static,
-            R: NativeOutput, $($argument: NativeScalar),+ {
+            R: NativeScalar, $($argument: NativeScalar),+ {
             fn binding(self) -> NativeBinding {
                 let mut binding = NativeBinding::new(vec![$(Codec::Exact(Type::scalar($argument::abi_type()))),+],
-                    R::codec(), move |cx| {
+                    Codec::Exact(Type::scalar(R::abi_type())), move |cx| {
                         $(let $local = $argument::decode(cx.argument($slot)?)?;)+
                         self(cx, $($local),+).map(R::encode)
                     });
-                binding.converted_result = R::SCALAR;
+                binding.converted_result = true;
                 binding
+            }
+        }
+
+        impl<F, $($argument),+> NativeFunction<($($argument,)+), ValueResult> for F
+        where F: for<'call> Fn(&mut NativeCall<'call>, $($argument),+) -> NativeResult<ValueView<'call>>
+                + Send + Sync + 'static,
+            $($argument: NativeScalar),+ {
+            fn binding(self) -> NativeBinding {
+                NativeBinding::new(vec![$(Codec::Exact(Type::scalar($argument::abi_type()))),+],
+                    Codec::Value, move |cx| {
+                        $(let $local = $argument::decode(cx.argument($slot)?)?;)+
+                        self(cx, $($local),+)
+                    })
             }
         }
     };
@@ -76,15 +109,28 @@ macro_rules! view_function {
     ([$($scalar:ident),*]; $($marker:ty => $kind:ident $type:ident, $codec:ident, $local:ident:$slot:expr);+) => {
         impl<F, R, $($scalar),*> NativeFunction<($($marker,)+), R> for F
         where F: for<'call> Fn(&mut NativeCall<'call>, $(view_type!('call; $kind $type)),+) -> NativeResult<R> + Send + Sync + 'static,
-            R: NativeOutput, $($scalar: NativeScalar),* {
+            R: NativeScalar, $($scalar: NativeScalar),* {
             fn binding(self) -> NativeBinding {
                 let mut binding = NativeBinding::new(
-                    vec![$(argument_codec!($kind $codec)),+], R::codec(), move |cx| {
+                    vec![$(argument_codec!($kind $codec)),+], Codec::Exact(Type::scalar(R::abi_type())), move |cx| {
                         $(let $local = argument_value!(cx, $slot; $kind $type);)+
                         self(cx, $($local),+).map(R::encode)
                     });
-                binding.converted_result = R::SCALAR;
+                binding.converted_result = true;
                 binding
+            }
+        }
+
+        impl<F, $($scalar),*> NativeFunction<($($marker,)+), ValueResult> for F
+        where F: for<'call> Fn(&mut NativeCall<'call>, $(view_type!('call; $kind $type)),+) -> NativeResult<ValueView<'call>>
+                + Send + Sync + 'static,
+            $($scalar: NativeScalar),* {
+            fn binding(self) -> NativeBinding {
+                NativeBinding::new(
+                    vec![$(argument_codec!($kind $codec)),+], Codec::Value, move |cx| {
+                        $(let $local = argument_value!(cx, $slot; $kind $type);)+
+                        self(cx, $($local),+)
+                    })
             }
         }
     };

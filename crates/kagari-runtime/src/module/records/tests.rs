@@ -6,6 +6,7 @@ use crate::{
     error::RuntimeErrorKind,
     module::{
         InstalledProgram, LinkedModule, ModuleEpochRetention, ProgramDescriptor, VerifiedProgram,
+        managed::source::RevisionSource, retention::RetentionOrigin,
     },
     native::{
         binding::{BindingEntry, Codec, NativeBinding},
@@ -14,7 +15,7 @@ use crate::{
         declarations::FunctionDecl,
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_bytecode::{
     instruction::{EnumId, StructId},
@@ -43,7 +44,9 @@ fn fixture() -> (
     builder
         .bind(
             function,
-            NativeBinding::new(vec![], Codec::Exact(Type::i32()), |_| Ok(Value::I32(3))),
+            NativeBinding::new(vec![], Codec::Exact(Type::i32()), |_| {
+                Ok(ValueView::from(3i32))
+            }),
         )
         .unwrap();
     let provider = builder.finish().unwrap();
@@ -53,18 +56,7 @@ fn fixture() -> (
     let root = sources
         .set(
             "records.kgr",
-            r#"
-        use test::probe::read;
-        struct Holder<T> { val value: T }
-        enum Wrapped<T> { Some(T), None }
-        trait Build {
-            fn make<T>(self, value: T) -> Holder<T> { Holder { value: value } }
-            fn wrap<T>(self, value: T) -> Wrapped<T> { Wrapped::Some(value) }
-        }
-        impl Build for i32 {}
-        fn main() -> i32 { val b: Build = 0; val h = b.make(7); val w = b.wrap(h.value); read() }
-    "#
-            .into(),
+            include_str!("../../../tests/fixtures/module/record-consumers.kgr").into(),
             SourceLayer::Base,
         )
         .unwrap();
@@ -258,11 +250,11 @@ fn installed_layout_applications_reuse_caches_but_old_type_facts_survive_collect
     runtime.publish_staged_reload(candidate).unwrap();
 
     let latest = runtime.select_program(&loaded_program).unwrap();
-    let reclaimed = runtime.collect_garbage().unwrap().reclaimed_modules;
+    runtime.collect_garbage().unwrap();
     assert!(
         loaded
             .members()
-            .all(|module| reclaimed.contains(&module.key()))
+            .all(|module| runtime.modules().loaded(module.key()).is_none())
     );
     assert!(probe.upgrade().is_none());
     assert!(
@@ -397,11 +389,11 @@ fn layout_scopes_preserve_provenance_across_bounded_retention_and_retirement() {
         .unwrap();
     assert!(!Arc::ptr_eq(&old_scope, &new_scope));
     assert_ne!(arguments[0].identity(&latest), fresh[0].identity(&latest));
-    let collected = runtime.collect_garbage().unwrap();
+    runtime.collect_garbage().unwrap();
     assert!(
         loaded
             .members()
-            .all(|member| collected.reclaimed_modules.contains(&member.key()))
+            .all(|member| runtime.modules().loaded(member.key()).is_none())
     );
     assert!(runtime.validate_executable_module(&loaded).is_err());
     assert_eq!(
@@ -848,7 +840,7 @@ fn abandoned_candidates_release_links_even_when_their_descriptors_are_retained()
 
 #[test]
 fn matching_keys_and_copied_bindings_do_not_authorize_an_uninstalled_descriptor() {
-    let (runtime, _loaded_program, loaded, _) = fixture();
+    let (mut runtime, _loaded_program, loaded, _) = fixture();
     let forged = detached_copy(&loaded);
     assert_eq!(loaded.key(), forged.key());
     assert!(forged.belongs_to(runtime.host.owner()));
@@ -862,12 +854,20 @@ fn matching_keys_and_copied_bindings_do_not_authorize_an_uninstalled_descriptor(
     );
     assert!(
         runtime
-            .retain_program(&forged, ModuleEpochRetention::ActiveCall)
+            .retain_program(
+                &forged,
+                ModuleEpochRetention::ActiveCall,
+                RevisionSource::Current
+            )
             .is_none()
     );
     assert!(
         runtime
-            .retain_module(&forged, ModuleEpochRetention::RuntimeValue)
+            .retain_module(
+                &forged,
+                ModuleEpochRetention::RuntimeValue,
+                RetentionOrigin::Current
+            )
             .is_none()
     );
     assert!(

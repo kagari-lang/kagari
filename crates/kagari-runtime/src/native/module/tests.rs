@@ -6,17 +6,17 @@ use crate::{
     },
     metadata::{TypeKind, TypeRegistration},
     native::{
-        binding::{Codec, NativeBinding, NativeResult},
+        binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
         catalog::{DeclarationCatalog, import::CatalogImports},
         declarations::{FunctionDecl, MethodDecl},
+        host,
         installation::NativeInstallation,
         module::NativeModule,
-        storage::{NativePayload, NativeStorage},
+        storage::NativeStorage,
         types::Type,
     },
-    resource::HeapCharge,
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_common::identity::{DefinitionKind, metadata::DefinitionMetadata};
 use kagari_types::{
@@ -34,16 +34,7 @@ use kagari_types::{
 };
 use std::slice;
 
-#[derive(Debug)]
-struct CatalogOnlyPayload;
-
-impl NativePayload for CatalogOnlyPayload {
-    fn trace<'payload>(&'payload self, _visit: &mut dyn FnMut(&'payload Value)) {}
-
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(0, 0))
-    }
-}
+crate::native_data! { struct CatalogOnlyPayload {} }
 
 fn assert_catalog_eq(left: &DeclarationCatalog, right: &DeclarationCatalog) {
     let mut imports = CatalogImports::new(left.types.context().clone());
@@ -75,7 +66,7 @@ fn binding_specific_foreign_dependencies_do_not_leak_to_other_bindings() {
     consumer
         .bind(
             inspect,
-            NativeBinding::new(vec![Codec::Value], Codec::Value, |_| Ok(Value::Unit)),
+            NativeBinding::new(vec![Codec::Value], Codec::Value, |_| Ok(ValueView::unit())),
         )
         .unwrap();
     let local = consumer
@@ -84,7 +75,7 @@ fn binding_specific_foreign_dependencies_do_not_leak_to_other_bindings() {
     consumer
         .bind(
             local,
-            NativeBinding::new(vec![], Codec::Value, |_| Ok(Value::Unit)),
+            NativeBinding::new(vec![], Codec::Value, |_| Ok(ValueView::unit())),
         )
         .unwrap();
     let module = consumer.finish().unwrap();
@@ -132,7 +123,9 @@ fn application(names: &[&str]) -> NativeModule {
         module
             .bind(
                 function,
-                NativeBinding::new(vec![], Codec::Exact(Type::i32()), |_| Ok(Value::I32(42))),
+                NativeBinding::new(vec![], Codec::Exact(Type::i32()), |_| {
+                    Ok(ValueView::from(42i32))
+                }),
             )
             .unwrap();
     }
@@ -172,8 +165,8 @@ fn shared_registrations_keep_installation_and_failure_state_runtime_local() {
             .last()
             .is_some_and(|segment| segment.name == "added")
     }));
-    assert_eq!(first.gc().active_roots(), 0);
-    assert_eq!(second.gc().active_roots(), 0);
+    assert_eq!(first.gc_stats().root_registrations, 0);
+    assert_eq!(second.gc_stats().root_registrations, 0);
 }
 
 #[test]
@@ -259,8 +252,11 @@ fn registration_scope_survives_catalog_growth_and_module_drop() {
 
 #[test]
 fn external_authoring_uses_common_type_and_member_binding_policies() {
-    fn callback(_: &mut HostCallContext<'_>, _: &[Value]) -> Result<Value, HostError> {
-        Ok(Value::I32(0))
+    fn callback<'call>(
+        _: &mut HostCallContext<'call>,
+        _: &[ValueView<'call>],
+    ) -> Result<ValueView<'call>, HostError> {
+        Ok(ValueView::from(0i32))
     }
 
     let policy = |passing| HostCallPolicy {
@@ -294,7 +290,7 @@ fn external_authoring_uses_common_type_and_member_binding_policies() {
     assert!(player.type_parameter("T").is_err());
     assert!(
         player
-            .native_storage(NativeStorage::payload::<CatalogOnlyPayload>())
+            .native_storage(NativeStorage::data::<CatalogOnlyPayload>())
             .is_err()
     );
     player.field(field).unwrap();
@@ -315,7 +311,7 @@ fn external_authoring_uses_common_type_and_member_binding_policies() {
                         .host_policy(policy(HostPassingStyle::UniqueBorrow))
                         .returns(Type::i32()),
                 )?;
-                methods.bind(method, callback)
+                methods.bind(method, host::callback(callback))
             })?;
             group.trait_impl(interface.apply([])?, |methods| {
                 methods.host_policy("hp", policy(HostPassingStyle::SharedBorrow))?;
@@ -326,12 +322,12 @@ fn external_authoring_uses_common_type_and_member_binding_policies() {
                             NativeBinding::new(
                                 vec![Codec::Value],
                                 Codec::Exact(Type::i32()),
-                                |_| Ok(Value::I32(0))
+                                |_| Ok(ValueView::from(0i32))
                             )
                         )
                         .is_err()
                 );
-                methods.bind("hp", callback)?;
+                methods.bind("hp", host::callback(callback))?;
                 assert!(
                     methods
                         .host_policy("hp", policy(HostPassingStyle::UniqueBorrow))
@@ -381,7 +377,7 @@ fn external_authoring_uses_common_type_and_member_binding_policies() {
         module
             .bind_path(
                 &path,
-                HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(0)))
+                HostPathAdapter::new().with_read(|_, _| Ok(ValueView::from(0i32)))
             )
             .is_err()
     );
@@ -389,7 +385,7 @@ fn external_authoring_uses_common_type_and_member_binding_policies() {
         .bind_path(
             &path,
             HostPathAdapter::new()
-                .with_read(|_, _| Ok(Value::I32(0)))
+                .with_read(|_, _| Ok(ValueView::from(0i32)))
                 .with_prepare_write(|_, _, _| Ok(PreparedHostPathWrite::new(|| {}))),
         )
         .unwrap();

@@ -7,7 +7,7 @@ use kagari_runtime::{
     error::RuntimeErrorKind,
     module::ExecutableModule,
     native::{conversion::context::ConversionContext, module::NativeModule},
-    value::Value,
+    value::carriers::RootedValue,
 };
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::collections::BTreeMap;
@@ -17,10 +17,7 @@ fn fixture() -> (Runtime, ExecutableModule, BTreeMap<String, usize>) {
     let program = compile_program(
         &modules,
         "collection_indices.kgr",
-        r#"
-fn array_index(values: [u64], index: u64) -> u64 { values.index(index) }
-fn slice(value: String, start: u64, end: u64) -> String { value.slice(start, end) }
-"#,
+        include_str!("../../../tests/fixtures/runtime_boundary/collection_indices.kgr"),
     );
     let slots = program.records().modules[program.records().root.index()]
         .native_imports
@@ -53,24 +50,25 @@ fn wide_array_indices_preserve_bounds_and_source_values() {
         .alloc_array(
             &owner,
             Ty::Builtin(BuiltinType::U64),
-            vec![Value::U64(1u64 << 32)],
+            &[RootedValue::from(1u64 << 32)],
         )
         .unwrap();
-    let root = runtime.root_value(Value::Array(array)).unwrap();
-    let value = root.value(runtime.gc()).unwrap();
     for index in [1, 1u64 << 32, u64::MAX] {
         let error = invoke(
             &mut runtime,
             &owner,
             slots["index"],
-            &[value, Value::U64(index)],
+            &[array.clone(), RootedValue::from(index)],
         )
         .unwrap_err();
         assert_eq!(error.kind(), RuntimeErrorKind::IndexOutOfBounds);
         assert!(error.to_string().contains(&index.to_string()));
+        let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
+        let value = cx.import(&array).unwrap();
+        assert_eq!(cx.array_len(&value).unwrap(), 1);
         assert_eq!(
-            runtime.gc().array_snapshot(array).unwrap(),
-            vec![Value::U64(1u64 << 32)]
+            cx.array_element(&value, 0).unwrap().unwrap().as_u64(),
+            Some(1u64 << 32)
         );
     }
 }
@@ -80,7 +78,6 @@ fn string_slice_preserves_wide_range_and_utf8_errors() {
     let (mut runtime, owner, slots) = fixture();
     let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
     let text = cx.encode("a火".to_owned()).unwrap();
-    let value = text.value(cx.runtime().gc()).unwrap();
     let slot = slots["slice"];
     for (start, end) in [
         (0, 1u64 << 32),
@@ -93,7 +90,11 @@ fn string_slice_preserves_wide_range_and_utf8_errors() {
             cx.runtime_mut(),
             &owner,
             slot,
-            &[value, Value::U64(start), Value::U64(end)],
+            &[
+                text.clone(),
+                RootedValue::from(start),
+                RootedValue::from(end),
+            ],
         )
         .unwrap_err();
         assert_eq!(error.kind(), RuntimeErrorKind::IndexOutOfBounds);
@@ -104,10 +105,13 @@ fn string_slice_preserves_wide_range_and_utf8_errors() {
             cx.runtime_mut(),
             &owner,
             slot,
-            &[value, Value::U64(start), Value::U64(end)],
+            &[
+                text.clone(),
+                RootedValue::from(start),
+                RootedValue::from(end),
+            ],
         )
         .unwrap();
-        let result = cx.runtime().root_value(result).unwrap();
         assert_eq!(cx.decode::<String>(&result).unwrap(), expected);
     }
 }

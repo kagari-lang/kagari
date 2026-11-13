@@ -2,18 +2,19 @@
 use crate::{
     Runtime,
     error::RuntimeError,
+    execution::roots::ExecutionRoots,
+    execution_metadata::{environments::AdmittedEnvironment, managed::sources::MetadataSource},
     frame::{
         factory::{FactoryEntry, QueuedFactory},
         types::arguments::TypeArgument,
     },
+    module::managed::source::RevisionSource,
     native::{
         binding::NativeResult,
         composition::future_output,
         conversion::{
             FromKagari, KagariType,
-            arguments::{
-                IntoKagariArguments, KagariArguments, PreparedArguments, encode_arguments,
-            },
+            arguments::{IntoKagariArguments, KagariArguments, PreparedArguments},
             context::ConversionContext,
         },
         function_handle::asynchronous::FutureOutput,
@@ -25,7 +26,10 @@ use crate::{
     scheduler::result::ScheduledResult,
     session::{ExecutionOptions, ExecutionPhase},
     source::FunctionSourceTarget,
+    value_check::data::async_protected,
 };
+
+use std::slice;
 
 /// A checked interface member returning one Future layer. The descriptor retains
 /// dispatch type evidence and the lexical output scope, not a particular receiver.
@@ -92,39 +96,87 @@ impl<S> Interface<S> {
         let external = options.cancellation.clone();
         options.cancellation = Default::default();
         let session = runtime.begin_interface_execution(&method, options)?;
+        let mut completion = None;
         let execution = Runtime::initialize_owned_factory(session, external, |runtime| {
-            let mut cx = ConversionContext::new(runtime, &member.owner)?;
+            let invocation = runtime
+                .resources()
+                .active_session()
+                .ok_or_else(|| RuntimeError::module_validation("interface factory execution"))?
+                .id;
+            let body =
+                runtime.with_revision_origin(&member.owner, member.origin(), |slots, body| {
+                    slots.push_dependency(invocation, body)
+                })?;
+            let environment = binding
+                .binding
+                .record
+                .application
+                .as_ref()
+                .map(|application| {
+                    runtime
+                        .memory
+                        .scope(&runtime.resources, |cx, roots| {
+                            ExecutionRoots::with(roots, cx, |slots| {
+                                let value = slots.scope().get(&application.environment)?;
+                                AdmittedEnvironment::publish(slots, invocation, value)
+                            })
+                        })
+                        .map_err(|error| runtime.managed_memory_error(error))
+                })
+                .transpose()?;
+            let mut cx = ConversionContext::for_selected(
+                runtime,
+                &member.owner,
+                invocation,
+                RevisionSource::Execution(body),
+                environment
+                    .as_ref()
+                    .map(MetadataSource::AdmittedEnvironment),
+            )?;
+            let receiver = cx.import(&method._root)?;
+            async_protected(cx.runtime_mut(), slice::from_ref(&receiver))?;
             let mapping =
                 PreparedArguments::<A>::from_binding(&cx, &binding.binding.record.signature.params);
-            let (_arguments, mut values) = encode_arguments(&mut cx, mapping, arguments)?;
-            values
-                .try_reserve(1)
-                .map_err(|_| RuntimeError::resource_limit("interface receiver argument"))?;
-            values.insert(0, *method.receiver());
-            cx.runtime().gc().validate_async_values(&values)?;
-            let roots = cx
-                .runtime()
-                .gc()
-                .root_execution_values(values.clone())
-                .ok_or_else(|| RuntimeError::resource_limit("async interface arguments"))?;
+            let values = mapping.encode(&mut cx, arguments)?;
+            let values = cx.queue_arguments(values)?;
             cx.poll()?;
+            drop(cx);
+            completion = Some((invocation, body, environment));
             Ok(QueuedFactory {
                 owner: member.owner.clone(),
                 future: binding.binding.record.signature.result.clone(),
                 entry: FactoryEntry::Interface {
                     method: Box::new(method),
                     arguments: values,
-                    roots,
                 },
             })
         })?;
         let owner = member.owner.clone();
         let output = binding.output.clone();
+        let (invocation, body, environment) = completion
+            .ok_or_else(|| RuntimeError::module_validation("interface completion sources"))?;
         runtime.schedule_execution(execution, move |runtime, root| {
-            let value = root
-                .value(runtime.gc())
-                .ok_or_else(|| RuntimeError::module_validation("async interface output root"))?;
-            ConversionContext::new(runtime, &owner)?.decode_prepared(&output, &value)
+            if runtime
+                .resources()
+                .active_session()
+                .map(|session| session.id)
+                != Some(invocation)
+            {
+                return Err(RuntimeError::module_validation(
+                    "interface completion execution",
+                ));
+            }
+            let mut conversion = ConversionContext::for_selected(
+                runtime,
+                &owner,
+                invocation,
+                RevisionSource::Execution(body),
+                environment
+                    .as_ref()
+                    .map(MetadataSource::AdmittedEnvironment),
+            )?;
+            let value = conversion.import(root)?;
+            conversion.decode_prepared(&output, &value)
         })
     }
 }
@@ -133,6 +185,7 @@ impl<S> Interface<S> {
 mod tests {
     use super::*;
     use crate::{
+        execution_metadata::applications::ApplicationRecord,
         frame::ExecutionStack,
         module::{ExecutableModule, VerifiedProgram, dispatch::PublicationToken},
         native::{
@@ -145,7 +198,7 @@ mod tests {
             types::Type,
         },
         scheduler::ScheduledWork,
-        value::Value,
+        value::carriers::RootedValue,
     };
     use kagari_compiler::{
         bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir,
@@ -155,7 +208,7 @@ mod tests {
     use kagari_types::ty::Ty;
     use std::{
         slice,
-        sync::Arc,
+        sync::{Arc, Weak},
         task::{Context, Poll, Waker},
     };
 
@@ -209,16 +262,13 @@ mod tests {
     }
 
     fn interface(runtime: &mut Runtime, owner: &ExecutableModule) -> Interface {
-        let value = runtime.make_interface(owner, 0, Value::I32(7)).unwrap();
-        let Value::Interface(id) = value else {
-            unreachable!()
-        };
+        let value = runtime
+            .make_interface(owner, 0, &RootedValue::from(7_i32))
+            .unwrap();
         let ty = Ty::Trait(
             runtime
-                .gc
-                .interface_snapshot(id)
+                .interface_description(&value)
                 .unwrap()
-                .description
                 .interface_type()
                 .clone(),
         );
@@ -226,10 +276,22 @@ mod tests {
             .resolve_type_arguments(owner, slice::from_ref(&ty))
             .unwrap()
             .remove(0);
-        ConversionContext::new(runtime, owner)
-            .unwrap()
-            .decode_value(&argument, &value)
-            .unwrap()
+        let mut conversion = ConversionContext::new(runtime, owner).unwrap();
+        let value = conversion.import(&value).unwrap();
+        conversion.decode_value(&argument, &value).unwrap()
+    }
+
+    fn computation(runtime: &Runtime, ticket: &ScheduledResult<i32>) -> Weak<ApplicationRecord> {
+        let state = runtime
+            .resources()
+            .sessions
+            .get(ticket.execution_id().0)
+            .unwrap();
+        let factory = state.queued_factory.borrow();
+        let FactoryEntry::Interface { method, .. } = &factory.as_ref().unwrap().entry else {
+            panic!("interface factory")
+        };
+        Arc::downgrade(method.invocation.computation().unwrap().record())
     }
 
     fn dequeue(runtime: &mut Runtime, ticket: &ScheduledResult<i32>, expected: PublicationToken) {
@@ -242,7 +304,10 @@ mod tests {
         work.with_execution(|runtime, owner| {
             let mut activation = Some(runtime.resume_owned_execution(owner)?);
             activation.as_mut().unwrap().with(|runtime, stack| {
-                assert_eq!(stack.poll_await(runtime).unwrap(), Poll::Ready(None));
+                assert!(matches!(
+                    stack.poll_await(runtime).unwrap(),
+                    Poll::Ready(None)
+                ));
                 assert_eq!(
                     stack.current(runtime).unwrap().loaded().publication_token(),
                     expected,
@@ -266,12 +331,7 @@ mod tests {
 
     #[test]
     fn queued_interface_admission_is_exact_while_retained_method_handles_stay_live() {
-        let source = r#"
-            use fixture::queue::{Future, ready};
-            pub trait Queue { fn run(self) -> Future<i32>; }
-            impl Queue for i32 { fn run(self) -> Future<i32> { ready(1) } }
-            fn main() -> Queue { 7 }
-        "#;
+        let source = include_str!("../../../tests/fixtures/metadata/interface-queue.kgr");
         let provider = provider();
         let prepared = compile(source, &provider);
         let mut runtime = Runtime::default();
@@ -286,14 +346,14 @@ mod tests {
         let unrelated = runtime.select_program(&unrelated_program).unwrap();
         let receiver = interface(&mut runtime, &old);
         let other_receiver = interface(&mut runtime, &unrelated);
-        let member = receiver.member(&runtime, "run").unwrap();
+        let member = receiver.member(&mut runtime, "run").unwrap();
         let binding = runtime
             .bind_async_interface_method::<(), i32>(&member)
             .unwrap();
         let live_binding = runtime
             .bind_interface_method::<(), FutureOutput<i32>>(&member)
             .unwrap();
-        let live = receiver.prepare_call(&runtime, &live_binding).unwrap();
+        let live = receiver.prepare_call(&mut runtime, &live_binding).unwrap();
         let live_clone = live.clone();
         let queued = receiver
             .schedule_async(&mut runtime, &binding, (), Default::default())
@@ -301,12 +361,15 @@ mod tests {
         let cancelled = receiver
             .schedule_async(&mut runtime, &binding, (), Default::default())
             .unwrap();
-        let roots_before = runtime.gc.stats().method_applications;
+        let queued_computation = computation(&runtime, &queued);
+        let cancelled_computation = computation(&runtime, &cancelled);
+        let roots_before = runtime.gc_stats().root_registrations;
         assert!(
             other_receiver
                 .schedule_async(&mut runtime, &binding, (), Default::default())
                 .is_err()
         );
+        assert_eq!(runtime.gc_stats().root_registrations, roots_before);
         let candidate = runtime
             .stage_reload_verified_program(
                 &program,
@@ -319,33 +382,36 @@ mod tests {
         assert_ne!(old.publication_token(), current.publication_token());
         // The ordinary handle and a pre-admission clone must both stay live.
         assert_eq!(
-            live.implementation(&runtime).unwrap().publication_token(),
+            live.implementation(&mut runtime)
+                .unwrap()
+                .publication_token(),
             current.publication_token()
         );
         assert_eq!(
             live_clone
-                .implementation(&runtime)
+                .implementation(&mut runtime)
                 .unwrap()
                 .publication_token(),
             current.publication_token()
         );
         runtime.cancel_scheduled_execution(&cancelled).unwrap();
         runtime.collect_garbage().unwrap();
-        assert_eq!(runtime.gc.stats().method_applications, roots_before - 1);
+        assert!(cancelled_computation.upgrade().is_none());
+        assert!(queued_computation.upgrade().is_some());
         let fresh = receiver
             .schedule_async(&mut runtime, &binding, (), Default::default())
             .unwrap();
+        let fresh_computation = computation(&runtime, &fresh);
         runtime.collect_garbage().unwrap();
         dequeue(&mut runtime, &queued, old.publication_token());
         dequeue(&mut runtime, &fresh, current.publication_token());
         runtime.collect_garbage().unwrap();
+        assert!(queued_computation.upgrade().is_none());
+        assert!(fresh_computation.upgrade().is_none());
         assert_eq!(
-            runtime.gc.stats().method_applications,
-            0,
-            "live handles must not retain completed/cancelled admitted computations"
-        );
-        assert_eq!(
-            live.implementation(&runtime).unwrap().publication_token(),
+            live.implementation(&mut runtime)
+                .unwrap()
+                .publication_token(),
             current.publication_token()
         );
         assert!(!runtime.is_quarantined());

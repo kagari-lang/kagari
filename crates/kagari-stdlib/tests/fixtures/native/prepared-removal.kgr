@@ -1,0 +1,8 @@
+use test::roots::retain;
+
+fn main() -> Option<i32> {
+    val array: Vec<i32> = Vec::new();
+    array.push(42);
+    retain(array);
+    array.pop()
+}

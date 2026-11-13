@@ -4,6 +4,7 @@ use std::{
     borrow::Borrow,
     collections::{HashMap, VecDeque},
     hash::Hash,
+    mem,
 };
 
 const RETAINED_DESCRIPTORS: usize = 128;
@@ -24,15 +25,32 @@ impl<S, K, V> Default for DescriptorIndex<S, K, V> {
 }
 
 impl<S: Eq + Hash + Clone, K: Eq + Hash + Clone, V> DescriptorIndex<S, K, V> {
-    pub(super) fn values(&self) -> impl Iterator<Item = &V> {
-        self.scopes.values().flat_map(|entries| entries.values())
-    }
-
     pub(super) fn get<Q: Eq + Hash + ?Sized>(&self, scope: &S, key: &Q) -> Option<&V>
     where
         K: Borrow<Q>,
     {
         self.scopes.get(scope)?.get(key)
+    }
+
+    /// Replace optional cache backing after the owner has checked expiration.
+    /// Preserve its existing eviction position and return the old pure facts.
+    pub(super) fn replace<Q: Eq + Hash + ?Sized>(
+        &mut self,
+        scope: &S,
+        key: &Q,
+        value: V,
+    ) -> Result<V, V>
+    where
+        K: Borrow<Q>,
+    {
+        match self
+            .scopes
+            .get_mut(scope)
+            .and_then(|entries| entries.get_mut(key))
+        {
+            Some(previous) => Ok(mem::replace(previous, value)),
+            None => Err(value),
+        }
     }
 
     pub(super) fn insert(&mut self, scope: S, key: K, value: V) -> Result<(), RuntimeError> {

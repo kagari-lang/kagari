@@ -77,7 +77,7 @@ fn fixture() -> (Runtime, ExecutableModule) {
     let module = module();
     let program = program_for_source(
         &module,
-        "use game::serde::Transformed; pub fn inspect(input: Transformed) -> i32 { input.value }",
+        include_str!("../fixtures/native/serde_transformed.kgr"),
     );
     let mut runtime = Runtime::default();
     let mut modules = kagari_stdlib::modules().unwrap();
@@ -91,6 +91,8 @@ fn fixture() -> (Runtime, ExecutableModule) {
 #[test]
 fn serde_formatted_output_is_bounded_and_duplicate_fields_skip_child_effects() {
     let (mut runtime, owner) = fixture();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     let calls = Rc::new(Cell::new(0));
     let mut cx = ConversionContext::with_limits(
         &mut runtime,
@@ -104,10 +106,20 @@ fn serde_formatted_output_is_bounded_and_duplicate_fields_skip_child_effects() {
     let error = cx.encode(Serde(Formatted(Rc::clone(&calls)))).unwrap_err();
     assert!(error.to_string().contains("string byte limit"));
     assert_eq!(calls.get(), 2);
-    assert_eq!(cx.runtime().gc().active_roots(), 0);
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert_eq!(cx.runtime().gc_stats().objects, baseline.objects);
     calls.set(0);
     let error = cx.encode(Serde(Duplicate(Rc::clone(&calls)))).unwrap_err();
     assert!(error.to_string().contains("duplicate object initializer"));
     assert_eq!(calls.get(), 0);
-    assert_eq!(cx.runtime().gc().active_roots(), 0);
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert_eq!(cx.runtime().gc_stats().objects, baseline.objects);
 }

@@ -1,0 +1,10 @@
+use example::results::Factory;
+
+struct F {}
+
+impl Factory for F {}
+
+fn main() -> i32 {
+    val f: Factory = F {};
+    f.one([42]).value()[0u64]
+}

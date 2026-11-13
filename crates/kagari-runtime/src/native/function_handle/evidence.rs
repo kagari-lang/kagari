@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    execution_metadata::MetadataRoot,
+    execution_metadata::managed::sources::MetadataSource,
     frame::types::{
         arguments::{ScopedSignature, TypeArgument},
         compatibility::TypeView,
@@ -14,6 +14,7 @@ use crate::{
     native::{
         binding::NativeResult,
         context::{CallableOwner, LinkedCallable},
+        conversion::context::ConversionContext,
         function_handle::PreparedFunction,
     },
 };
@@ -24,7 +25,10 @@ use kagari_bytecode::{
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{callable::shared::SharedCall, ids::FunctionRef};
 use kagari_types::{callable::Signature, ty::Ty};
-use std::{slice, sync::Arc};
+use std::{
+    slice,
+    sync::{Arc, OnceLock},
+};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct EvidenceKey {
@@ -73,28 +77,40 @@ impl EntryBinding {
                 .pop()
                 .ok_or_else(missing)?,
         });
-        let environment = shared
-            .as_ref()
-            .map(|contract| {
-                runtime.prepare_selected_shared_environment(owner, None, &selected, contract)
-            })
-            .transpose()?;
-        let mut roots = vec![MetadataRoot::Program(owner.clone())];
-        roots.extend(
-            environment
-                .iter()
-                .map(|environment| MetadataRoot::Environment(environment.id)),
-        );
+        let origin = runtime.selection_origin(owner)?;
+        let (environment, environment_root) = match &shared {
+            Some(contract) => {
+                let mut conversion = ConversionContext::new(runtime, owner)?;
+                let execution = conversion.execution_id()?;
+                let mut protected = vec![MetadataSource::Revision {
+                    owner,
+                    source: origin,
+                }];
+                let environment = conversion
+                    .runtime_mut()
+                    .prepare_selected_shared_environment(
+                        execution,
+                        owner,
+                        None,
+                        &selected,
+                        contract,
+                        &mut protected,
+                    )?;
+                let root = conversion.runtime_mut().retain_environment(&environment)?;
+                (Some(environment.facts().clone()), Some(root))
+            }
+            None => (None, None),
+        };
         let target = LinkedCallable {
             environment,
-            scoped_signature: Some(scoped_signature),
-            owner: CallableOwner::Pinned(owner.clone(), runtime.root_metadata(roots)?),
+            scoped_signature: OnceLock::from(scoped_signature),
+            owner: CallableOwner::Resolved(owner.clone()),
             target: selected.target(),
             params: signature.params.clone().into_boxed_slice(),
             result: signature.result.clone(),
             primitive: None,
         };
-        PreparedFunction::selected(runtime, owner, target)
+        PreparedFunction::selected(runtime, owner, target, origin, environment_root)
     }
 }
 

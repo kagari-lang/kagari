@@ -1,0 +1,13 @@
+use test::probe::keep;
+
+fn main() {
+    val values = Vec::from([3, 1, 2]);
+    keep(values);
+    val cursor = values.iter();
+    values.sort_by(
+        |a, b| {
+            cursor.next();
+            a.cmp(b)
+        }
+    );
+}

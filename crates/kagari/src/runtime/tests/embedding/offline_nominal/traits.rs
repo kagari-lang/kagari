@@ -4,7 +4,12 @@ use crate::program::native::NativeCompiler;
 use crate::{context::JitPolicy, program::Compilation};
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_contract::types::PublicItem;
-use kagari_runtime::module::entry::ProgramEntry;
+use kagari_runtime::{
+    error::RuntimeErrorKind,
+    module::entry::ProgramEntry,
+    native::host,
+    value::{carriers::RootedValue, kind::ObjectKind},
+};
 use kagari_source::diagnostic::DiagnosticKind;
 use kagari_stdlib as stdlib;
 use kagari_types::declaration::{TraitDef, host::PathAccess};
@@ -99,10 +104,7 @@ fn anonymous_source_trait_qualifiers_remain_scoped_to_native_importers() {
 
 #[test]
 fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
-    use kagari_runtime::{
-        host::HostCallContext,
-        native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
-    };
+    use kagari_runtime::native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type};
     use kagari_types::declaration::host::{
         HostCallPolicy, HostFunctionEffects, HostReflectionPolicy, HostTypePolicy,
     };
@@ -222,17 +224,21 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
                     )?;
                     methods.bind(
                         "get",
-                        |context: &mut HostCallContext<'_>, values: &[Value]| {
+                        host::callback(|context, values| {
                             context.runtime_mut().collect_garbage().unwrap();
-                            let [Value::HostRoot(id)] = values else {
-                                panic!("root")
-                            };
+                            assert_eq!(values.len(), 1);
+                            assert_eq!(values[0].kind(), Some(ObjectKind::HostRoot));
+                            let root = context.runtime().host().root(HostObjectId(7)).unwrap();
                             assert_eq!(
-                                context.runtime().gc().host_root(*id).unwrap().object_id(),
-                                HostObjectId(7)
+                                context
+                                    .borrows()
+                                    .borrow_unique(root.object_id(), root.type_id())
+                                    .unwrap_err()
+                                    .kind(),
+                                RuntimeErrorKind::HostBorrowConflict
                             );
-                            Ok(Value::I32(42))
-                        },
+                            Ok(ValueView::from(42))
+                        }),
                     )
                 })
             })
@@ -251,14 +257,17 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
             )
             .unwrap();
         builder
-            .bind(make, |context: &mut HostCallContext<'_>, _: &[Value]| {
-                let root = context.runtime().host().root(HostObjectId(7)).unwrap();
-                context
-                    .runtime()
-                    .gc()
-                    .alloc_host_root(root)
+            .bind(
+                make,
+                host::callback(|context, _| {
+                    let root = context.runtime().host().root(HostObjectId(7)).unwrap();
+                    {
+                        let root = context.runtime_mut().host_root_value(root).unwrap();
+                        context.import(&root)
+                    }
                     .map_err(|error| HostError::new(error.to_string()))
-            })
+                }),
+            )
             .unwrap();
         builder.finish().unwrap()
     };
@@ -345,10 +354,7 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
     let report = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap();
-    assert_eq!(
-        report.return_value.value(runtime.gc()),
-        Some(Value::I32(42))
-    );
+    assert_eq!(report.return_value.as_i32(), Some(42));
     // Public lookup still works without a reference record, but the installed
     // module must not accept omission of its declared requirement.
     let definitions = DefinitionContext::new().unwrap();
@@ -477,9 +483,8 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
 
 #[test]
 fn host_trait_table_is_checked_against_script_trait_signatures() {
-    use kagari_runtime::{
-        host::HostCallContext,
-        native::{builder::ModuleBuilder, catalog::DeclarationCatalog, types::Type},
+    use kagari_runtime::native::{
+        builder::ModuleBuilder, catalog::DeclarationCatalog, types::Type,
     };
     use kagari_types::{
         declaration::host::{HostCallPolicy, HostReflectionPolicy, HostTypePolicy},
@@ -556,9 +561,7 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
             builder
                 .implement(counter.clone(), |group| {
                     group.trait_impl(readable.apply([ty.clone()])?, |methods| {
-                        methods.bind("extra", |_: &mut HostCallContext<'_>, _: &[Value]| {
-                            Ok(Value::Unit)
-                        })
+                        methods.bind("extra", host::callback(|_, _| Ok(ValueView::unit())))
                     })
                 })
                 .unwrap_err()
@@ -575,9 +578,7 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
                             effects: Default::default(),
                         },
                     )?;
-                    methods.bind("get", |_: &mut HostCallContext<'_>, args: &[Value]| {
-                        Ok(args[1])
-                    })
+                    methods.bind("get", host::callback(|_, args| Ok(args[1])))
                 })
             })
             .unwrap();
@@ -706,10 +707,7 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
 
 #[test]
 fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
-    use kagari_runtime::{
-        host::HostCallContext,
-        native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
-    };
+    use kagari_runtime::native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type};
     use kagari_types::declaration::host::{
         HostCallPolicy, HostFunctionEffects, HostReflectionPolicy, HostTypePolicy,
     };
@@ -782,8 +780,8 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
             builder
                 .implement(counter.clone(), |group| {
                     for (ty, name, result) in [
-                        (Type::i32(), "number", Value::I32(42)),
-                        (Type::bool(), "flag", Value::Bool(true)),
+                        (Type::i32(), "number", RootedValue::from(42_i32)),
+                        (Type::bool(), "flag", RootedValue::from(true)),
                     ] {
                         let trace = calls.clone();
                         group.trait_impl(readable.apply([ty])?, |methods| {
@@ -796,11 +794,13 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
                             )?;
                             methods.bind(
                                 "get",
-                                move |_: &mut HostCallContext<'_>, args: &[Value]| {
+                                host::callback(move |cx, args| {
                                     trace.lock().unwrap().push(name);
-                                    assert!(matches!(args, [Value::HostRoot(_)]));
-                                    Ok(result)
-                                },
+                                    assert_eq!(args.len(), 1);
+                                    assert_eq!(args[0].kind(), Some(ObjectKind::HostRoot));
+                                    cx.import(&result)
+                                        .map_err(|error| HostError::new(error.to_string()))
+                                }),
                             )
                         })?;
                     }
@@ -825,15 +825,15 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         builder
             .bind(
                 make,
-                move |context: &mut HostCallContext<'_>, _: &[Value]| {
+                host::callback(move |context, _| {
                     trace.lock().unwrap().push("make");
                     let root = context.runtime().host().root(HostObjectId(7)).unwrap();
-                    context
-                        .runtime()
-                        .gc()
-                        .alloc_host_root(root)
-                        .map_err(|error| HostError::new(error.to_string()))
-                },
+                    {
+                        let root = context.runtime_mut().host_root_value(root).unwrap();
+                        context.import(&root)
+                    }
+                    .map_err(|error| HostError::new(error.to_string()))
+                }),
             )
             .unwrap();
         builder.finish().unwrap()
@@ -937,10 +937,7 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
             runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
-        assert_eq!(
-            report.return_value.value(runtime.gc()).unwrap(),
-            Value::I32(42)
-        );
+        assert_eq!(report.return_value.as_i32().unwrap(), 42);
         assert_eq!(*calls.lock().unwrap(), ["make", "flag", "make", "number"]);
     }
     engine.set_source("mem://host-trait-bound", format!(

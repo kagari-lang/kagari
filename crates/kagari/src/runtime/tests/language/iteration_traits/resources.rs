@@ -39,6 +39,8 @@ pub fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
         .load_program(&loaded_program, Default::default())
         .unwrap();
     let _selected_loaded = runtime.select_program(&loaded).unwrap();
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     for entry in ["fail", "nested", "manual", "trap", "exhaust"] {
         let options = context.clone();
         let error = if entry == "exhaust" {
@@ -57,6 +59,7 @@ pub fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
         );
         assert!(!format!("{error:?}").contains("UnsupportedExecution"));
         assert!(!runtime.is_quarantined());
-        assert_eq!(runtime.gc().active_roots(), 0, "{entry}");
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc_stats().root_registrations, roots, "{entry}");
     }
 }

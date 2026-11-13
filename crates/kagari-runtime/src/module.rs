@@ -9,16 +9,19 @@ use crate::{
             PublicationDispatch, PublicationToken, bindings::PublishedRoutes, facts::DispatchFacts,
         },
         execution::ExecutionModule,
+        installation::CurrentPublication,
         layout_admission::{AggregateKind, LayoutAdmissions, LayoutEndpoint},
         layout_identity::{LayoutFacts, LayoutIdentity, ProgramLayouts},
         layout_scope::LayoutScope,
+        managed::revision::RevisionState,
         records::ModuleRecord,
-        retention::{ProgramLease, Retentions},
+        retention::{ProgramLease, RetentionRegistration, Retentions},
+        retirement::Retirements,
         revision::ProgramRevision,
-        staging::{CandidateLease, StagedProgram},
+        staging::{CandidateLease, PreparedProgramMetadata},
         state::{
             StaticState,
-            cells::{CellId, StaticCell},
+            cells::{CellId, StaticBinding},
         },
     },
     native::binding::LinkedNativeFunction,
@@ -31,7 +34,6 @@ use crate::{
 };
 pub(crate) mod admission;
 mod applied_layout_identity;
-pub(crate) mod collection;
 pub(crate) mod constants;
 mod descriptor_index;
 pub(crate) mod descriptors;
@@ -47,8 +49,10 @@ pub(crate) mod layout_scope;
 pub(crate) mod layout_storage;
 mod layouts;
 pub(crate) mod linked_execution;
+pub(crate) mod managed;
 mod records;
 pub mod retention;
+mod retirement;
 pub mod revision;
 pub(crate) mod staging;
 pub mod state;
@@ -85,6 +89,7 @@ use kagari_common::{
         table::{DefinitionId, DefinitionTable, DefinitionView},
     },
 };
+use kagari_gc::root::Root;
 use std::{
     cell::{BorrowError, Cell, RefCell},
     collections::{HashMap, HashSet},
@@ -632,7 +637,7 @@ impl ExecutableModule {
     }
 }
 
-/// A verified layout that retains its immutable executable generation.
+/// A checked layout with immutable type provenance, without an executable-state root.
 #[derive(Debug, Clone)]
 pub struct EnumVariantRef {
     module: ExecutableModule,
@@ -674,7 +679,7 @@ impl PartialEq for EnumVariantRef {
     }
 }
 
-/// A verified layout that retains its immutable executable generation.
+/// A checked layout with immutable type provenance, without an executable-state root.
 #[derive(Debug, Clone)]
 pub struct StructLayoutRef {
     module: ExecutableModule,
@@ -759,13 +764,14 @@ pub struct ModuleStore {
     // Separate from executable storage so teardown can revoke metadata authority
     // even while storage is borrowed by a failing execution/collection path.
     installations: HashMap<InstallationId, Arc<Installation>>,
-    current: RefCell<HashMap<InstallationId, Arc<ProgramDescriptor>>>,
+    current: RefCell<HashMap<InstallationId, CurrentPublication>>,
     next_declaration: Cell<u64>,
     // Global installation revocation also invalidates an active admission proof.
     // Publication does not change this flag or require a per-call version check.
     retired: Cell<bool>,
     inner: RefCell<ModuleStoreInner>,
     abandoned: Arc<AtomicBool>,
+    retirements: Retirements,
 }
 
 #[derive(Debug, Default)]
@@ -773,7 +779,7 @@ struct ModuleStoreInner {
     routes: PublishedRoutes,
     epochs: ModuleEpochAllocator,
     next_cell: u64,
-    cells: HashMap<CellId, StaticCell>,
+    cells: HashMap<CellId, StaticBinding>,
     next_id: u64,
     next_installation: u64,
     ids_by_member: HashMap<(InstallationId, ModuleIdentity), ModuleId>,
@@ -818,6 +824,7 @@ impl ModuleStore {
         &self,
         module: &ExecutableModule,
         kind: ModuleEpochRetention,
+        revision: Root<RevisionState>,
     ) -> Option<ProgramLease> {
         let mut inner = self.inner.try_borrow_mut().ok()?;
         if !module
@@ -830,7 +837,7 @@ impl ModuleStore {
             inner
                 .retentions
                 .get_mut(&module.program_key())?
-                .retain_program(kind),
+                .retain_program(kind, revision),
         )
     }
 
@@ -842,7 +849,8 @@ impl ModuleStore {
         program: VerifiedProgram,
         bindings: LinkedProgramBindings,
         admission: Option<ReloadAdmission>,
-    ) -> Result<StagedProgram, RuntimeError> {
+    ) -> Result<PreparedProgramMetadata, RuntimeError> {
+        self.validate_installation(&installation, installation.registry_owner)?;
         let LinkedProgramBindings {
             definitions,
             members: host_bindings,
@@ -987,7 +995,7 @@ impl ModuleStore {
         // Allocation is fallible. Install abandonment authority first so a failure
         // cannot leave partially prepared records available as an ordinary load.
         inner.allocate_statics(&loaded)?;
-        Ok(StagedProgram {
+        Ok(PreparedProgramMetadata {
             installation,
             module: loaded,
             lease,
@@ -1003,32 +1011,20 @@ impl ModuleStore {
         Ok(self.inner.try_borrow()?.resolve(module).is_some())
     }
 
-    pub(crate) fn instance_snapshot(&self, key: ModuleKey) -> Option<ModuleInstance> {
-        let inner = self.inner.try_borrow().ok()?;
-        inner.available(key)?;
-        let record = inner.records.get(&key)?;
-        if record.bindings.len() != record.module.bytecode.module_slots.len() {
-            return None;
-        }
-        Some(ModuleInstance {
-            id: record.module.id,
-            name: record.module.name.clone(),
-            epoch: record.module.epoch,
-            module_slots: record
-                .bindings
-                .iter()
-                .enumerate()
-                .map(|(slot, _)| inner.bound_cell(record, slot).map(|cell| cell.snapshot()))
-                .collect::<Option<_>>()?,
-        })
-    }
-
     pub(crate) fn is_staged(&self, module: &ExecutableModule) -> bool {
         self.inner
             .borrow()
             .staged
             .get(&module.program_key())
             .is_some_and(|lease| lease.strong_count() != 0)
+    }
+
+    pub(crate) fn take_abandonment(&self) -> bool {
+        self.abandoned.swap(false, Ordering::AcqRel)
+    }
+
+    pub(crate) fn restore_abandonment(&self) {
+        self.abandoned.store(true, Ordering::Release);
     }
 
     pub(crate) fn abandonment_pending(&self) -> bool {
@@ -1058,10 +1054,30 @@ impl ModuleStore {
         &self,
         module: &ExecutableModule,
         kind: ModuleEpochRetention,
+        revision: Root<RevisionState>,
     ) -> Option<ProgramLease> {
         let mut inner = self.inner.try_borrow_mut().ok()?;
         inner.resolve(module)?;
-        Some(inner.retentions.get_mut(&module.key())?.retain_member(kind))
+        Some(
+            inner
+                .retentions
+                .get_mut(&module.key())?
+                .retain_member(kind, revision),
+        )
+    }
+
+    pub(crate) fn register_execution(
+        &self,
+        module: &ExecutableModule,
+    ) -> Option<RetentionRegistration> {
+        let mut inner = self.inner.try_borrow_mut().ok()?;
+        inner.resolve(module)?;
+        Some(
+            inner
+                .retentions
+                .get_mut(&module.key())?
+                .register_execution(),
+        )
     }
 
     pub fn retention_counts(&self, key: ModuleKey) -> ModuleEpochRetentionCounts {
@@ -1085,30 +1101,4 @@ impl ModuleStore {
             compiled_artifacts: member.compiled_artifacts + program.compiled_artifacts,
         }
     }
-
-    #[cfg(test)]
-    fn is_program_root(&self, key: ModuleKey) -> bool {
-        let inner = self.inner.borrow();
-        let Some(module) = inner.available(key) else {
-            return false;
-        };
-        root_programs(&inner, self.current_roots().unwrap()).contains(&module.program_key())
-    }
-}
-
-fn root_programs(
-    inner: &ModuleStoreInner,
-    current: impl IntoIterator<Item = ModuleKey>,
-) -> HashSet<ModuleKey> {
-    current
-        .into_iter()
-        .chain(inner.staged.keys().copied())
-        .chain(
-            inner
-                .retentions
-                .iter()
-                .filter_map(|(key, counts)| counts.is_retained().then_some(*key)),
-        )
-        .filter_map(|key| inner.available(key).map(ExecutableModule::program_key))
-        .collect()
 }

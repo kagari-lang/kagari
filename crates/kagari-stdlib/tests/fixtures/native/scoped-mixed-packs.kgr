@@ -1,0 +1,13 @@
+use example::mixed_packs::{ Treasury, Inventory };
+
+pub fn owned(treasury: Treasury, inventory: RefMut<Inventory>) -> i32 {
+    treasury.transfer(inventory, 30)
+}
+
+pub fn external(treasury: RefMut<Treasury>, inventory: RefMut<Inventory>) -> i32 {
+    treasury.transfer(inventory, 30)
+}
+
+pub fn fail(treasury: Treasury, inventory: RefMut<Inventory>) -> i32 {
+    treasury.transfer(inventory, -1)
+}

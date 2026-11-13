@@ -1,92 +1,102 @@
 use super::*;
-use crate::frame::types::EnvironmentRecord;
 use crate::{
-    Runtime, RuntimeConfig,
-    error::RuntimeErrorKind,
-    execution_metadata::{MetadataEdge, MetadataRoot},
-    value::Value,
+    RuntimeConfig, error::RuntimeErrorKind, frame::types::EnvironmentRecord,
+    module::managed::source::RevisionSource, test_support::update_programs as programs,
+    value::carriers::RootedValue,
 };
-use kagari_abi::representation::ValueType;
 use kagari_types::ty::Ty;
 use rstest::rstest;
 
-fn application() -> MethodApplication {
-    MethodApplication {
+fn application(environment: Option<TypeEnvironment>) -> ApplicationRecord {
+    ApplicationRecord::Semantic(MethodApplication {
         signature: Signature {
             params: vec![],
             result: Ty::Tuple(vec![]),
         },
         scoped_signature: None,
-        environment: None,
+        environment,
         result_adapter: None,
-    }
+    })
 }
 
 #[test]
-fn foreign_stale_out_of_bounds_and_exhausted_application_ids_cannot_alias() {
-    let mut store = ApplicationStore::new(1);
-    let mut other = ApplicationStore::new(2);
-    let old = store.insert(application()).unwrap();
-    let foreign = other.insert(application()).unwrap();
-    assert!(store.get(foreign).is_none());
-    assert!(other.get(old).is_none());
-    assert!(
-        store
-            .get(ApplicationId {
-                slot: usize::MAX,
-                ..old
-            })
-            .is_none()
-    );
-    assert_eq!(store.detach(&HashSet::new()).len(), 1);
-    let next = store.insert(application()).unwrap();
-    assert_eq!(next.slot, old.slot);
-    assert_ne!(next.generation, old.generation);
-    assert!(store.get(old).is_none());
-    store.slots[next.slot].generation = u64::MAX;
-    assert_eq!(store.detach(&HashSet::new()).len(), 1);
-    let fresh = store.insert(application()).unwrap();
-    assert_ne!(fresh.slot, next.slot);
-    assert_eq!(store.count(), 1);
-}
-
-#[test]
-fn rooted_application_keeps_its_environment_edges_until_last_lease() {
+fn rooted_application_keeps_its_actual_environment_edges_until_last_lease() {
     let mut runtime = Runtime::default();
-    let group = runtime.gc.alloc_operation_group(vec![]).unwrap();
-    let mut environment =
+    let execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let group = runtime
+        .alloc_operation_group(execution, vec![], &[])
+        .unwrap();
+    let mut record =
         EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap();
-    environment.add_receiver(&runtime.gc, group).unwrap();
-    let environment = runtime.alloc_environment(environment).unwrap();
-    let environment_id = environment.id;
-    let mut prepared = application();
-    prepared.environment = Some(environment);
-    let id = runtime.gc.alloc_method_application(prepared).unwrap();
+    record.add_receiver(group.record()).unwrap();
+    let environment = runtime
+        .alloc_environment(
+            execution,
+            record,
+            &[MetadataSource::AdmittedOperations(&group)],
+        )
+        .unwrap();
+    let prepared = runtime
+        .alloc_application(
+            execution,
+            application(Some(environment.facts().clone())),
+            &[MetadataSource::AdmittedEnvironment(&environment)],
+        )
+        .unwrap();
     let root = runtime
-        .root_metadata(vec![MetadataRoot::Application(id)])
+        .memory
+        .scope(&runtime.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                let value = slots.dependency(prepared.source())?;
+                slots.scope().retain(value)
+            })
+        })
+        .unwrap();
+    let last_lease = root.clone();
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, execution)
         .unwrap();
     runtime.collect_garbage().unwrap();
-    assert!(runtime.gc.method_application(id).is_some());
-    assert!(runtime.gc.operation_group(group).is_some());
-    assert!(runtime.gc.environment(environment_id).is_some());
-    drop(root);
-    let collected = runtime.collect_garbage().unwrap();
-    assert_eq!(collected.reclaimed_method_applications, 1);
-    assert_eq!(collected.reclaimed_operation_groups, 1);
-    assert!(runtime.gc.method_application(id).is_none());
-    assert!(runtime.gc.environment(environment_id).is_none());
-    let replacement = runtime.gc.alloc_method_application(application()).unwrap();
-    assert_eq!(replacement.slot, id.slot);
-    assert_ne!(replacement.generation, id.generation);
-    let before = runtime.gc.stats();
+    assert_eq!(runtime.gc_stats().objects, 3);
+    assert_eq!(runtime.gc_stats().root_registrations, 1);
     assert_eq!(
-        runtime
-            .validate_metadata(MetadataEdge::Application(id))
-            .unwrap_err()
-            .kind(),
+        runtime.application_record(&prepared).unwrap_err().kind(),
         RuntimeErrorKind::ModuleValidation
     );
-    assert_eq!(runtime.gc.stats(), before);
+    let facts = runtime
+        .application_record_in(&[MetadataSource::HostApplication(&root)], prepared.id())
+        .unwrap();
+    let ApplicationRecord::Semantic(facts) = facts.as_ref() else {
+        panic!("semantic application")
+    };
+    assert!(facts.signature.params.is_empty());
+    assert_eq!(facts.signature.result, Ty::Tuple(vec![]));
+    assert_eq!(
+        facts.environment.as_ref().unwrap().id,
+        environment.facts().id
+    );
+    let detached = runtime
+        .environment_snapshot_in(
+            &[MetadataSource::HostApplication(&root)],
+            environment.facts(),
+        )
+        .unwrap();
+    assert_eq!(detached.groups.len(), 1);
+    assert!(Arc::ptr_eq(
+        &detached.groups[&group.record().id()],
+        group.record()
+    ));
+    drop(root);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, 3);
+    assert_eq!(runtime.gc_stats().root_registrations, 1);
+    drop(last_lease);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, 0);
+    assert_eq!(runtime.gc_stats().root_registrations, 0);
+    // Pure descriptor snapshots retain values/types, never the managed graph.
+    assert_eq!(detached.groups.len(), 1);
     assert!(!runtime.is_quarantined());
 }
 
@@ -100,95 +110,198 @@ fn application_only_growth_is_collected_at_safepoints_unless_disabled(
     config.gc.collection_threshold = threshold;
     let mut runtime = Runtime::new(config);
     for _ in 0..64 {
-        runtime.gc.alloc_method_application(application()).unwrap();
+        let execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
+        runtime
+            .alloc_application(execution, application(None), &[])
+            .unwrap();
+        runtime
+            .memory
+            .retire_execution(&runtime.resources, execution)
+            .unwrap();
         runtime.gc_safepoint().unwrap();
-        if threshold.is_some() {
-            assert!(runtime.gc.stats().method_applications < 4);
-        }
     }
-    let stats = runtime.gc.stats();
-    assert_eq!(stats.allocated_objects, 0);
-    assert_eq!(stats.operation_groups, 0);
-    assert_eq!(
-        stats.method_applications,
-        if threshold.is_some() { 0 } else { 64 }
-    );
-    assert_eq!(stats.collections, if threshold.is_some() { 16 } else { 0 });
+    let stats = runtime.gc_stats();
+    if threshold.is_some() {
+        assert!(stats.completed_cycles > 0);
+        assert!(stats.objects < 64);
+    } else {
+        assert_eq!(stats.completed_cycles, 0);
+        assert_eq!(stats.objects, 64);
+    }
+    assert_eq!(stats.root_registrations, 0);
     runtime.collect_garbage().unwrap();
-    assert_eq!(runtime.gc.stats().method_applications, 0);
+    assert_eq!(runtime.gc_stats().objects, 0);
 }
 
 #[test]
-fn borrowed_application_view_prevents_allocation_and_any_partial_sweep() {
-    let runtime = Runtime::default();
-    let cell = runtime
-        .gc
-        .alloc_cell(ValueType::I32, Value::I32(7))
+fn application_sources_reject_foreign_reused_and_mismatched_facts_before_mutation() {
+    let mut runtime = Runtime::default();
+    let mut foreign = Runtime::default();
+    let execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let prepared = runtime
+        .alloc_application(execution, application(None), &[])
         .unwrap();
-    let group = runtime.gc.alloc_operation_group(vec![]).unwrap();
-    let id = runtime.gc.alloc_method_application(application()).unwrap();
-    let view = runtime.gc.method_application(id).unwrap();
-    let before = runtime.gc.stats();
+    assert_eq!(
+        foreign.application_record(&prepared).unwrap_err().kind(),
+        RuntimeErrorKind::ModuleValidation
+    );
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, execution)
+        .unwrap();
+    let replacement_execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let replacement = runtime
+        .alloc_application(replacement_execution, application(None), &[])
+        .unwrap();
+    assert_ne!(prepared.id(), replacement.id());
+    assert_eq!(
+        runtime.application_record(&prepared).unwrap_err().kind(),
+        RuntimeErrorKind::ModuleValidation
+    );
+    let wrong_id = AdmittedApplication {
+        id: prepared.id(),
+        ..replacement.clone()
+    };
+    let wrong_record = AdmittedApplication {
+        record: prepared.record.clone(),
+        ..replacement.clone()
+    };
+    let before = runtime.gc_stats();
+    for invalid in [&wrong_id, &wrong_record] {
+        assert_eq!(
+            runtime.application_record(invalid).unwrap_err().kind(),
+            RuntimeErrorKind::ModuleValidation
+        );
+        assert_eq!(runtime.gc_stats(), before);
+    }
     assert_eq!(
         runtime
-            .gc
-            .alloc_method_application(application())
+            .application_record_in(&[], replacement.id())
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::ModuleValidation
     );
-    assert_eq!(
-        runtime
-            .gc
-            .collect(&runtime.modules, &[])
-            .unwrap_err()
-            .kind(),
-        RuntimeErrorKind::EngineFault
-    );
-    assert_eq!(runtime.gc.stats(), before);
-    drop(view);
-    assert!(runtime.gc.method_application(id).is_some());
-    assert!(runtime.gc.operation_group(group).is_some());
-    assert_eq!(
-        runtime.gc.cell_get(cell, ValueType::I32).unwrap(),
-        Value::I32(7)
-    );
+    assert_eq!(runtime.gc_stats(), before);
+    assert!(Arc::ptr_eq(
+        &runtime.application_record(&replacement).unwrap(),
+        replacement.record()
+    ));
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, replacement_execution)
+        .unwrap();
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, 0);
+    assert!(!runtime.is_quarantined());
+    assert!(!foreign.is_quarantined());
 }
 
 #[test]
-fn invalid_application_root_aborts_before_other_records_are_detached() {
-    let runtime = Runtime::default();
-    let cell = runtime
-        .gc
-        .alloc_cell(ValueType::I32, Value::I32(7))
+fn admitted_application_retains_exact_body_without_using_current_as_an_old_source() {
+    let mut runtime = Runtime::default();
+    let installed = runtime
+        .load_verified_program(
+            "application-body",
+            programs::source_code(include_str!(
+                "../../../tests/fixtures/metadata/interface-parents.kgr"
+            )),
+        )
         .unwrap();
-    let group = runtime.gc.alloc_operation_group(vec![]).unwrap();
-    let id = runtime.gc.alloc_method_application(application()).unwrap();
-    let invalid = ApplicationId {
-        generation: id.generation + 1,
-        ..id
+    let old = runtime.select_program(&installed).unwrap();
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
+    let interface = runtime
+        .make_interface(&old, 0, &RootedValue::from(7_i32))
+        .unwrap();
+    let description = runtime.interface_description(&interface).unwrap();
+    let selected_method = runtime
+        .resolve_interface_method_slot(&interface, description.interface_type(), 0, &[])
+        .unwrap();
+    let method = selected_method.admit(&mut runtime).unwrap();
+    drop(selected_method);
+    let record = method.invocation.computation().unwrap().record().clone();
+    let ApplicationRecord::Admitted(computation) = record.as_ref() else {
+        panic!("method computation")
     };
-    assert!(
-        runtime
-            .root_metadata(vec![MetadataRoot::Application(invalid)])
-            .is_err()
+    let computation = computation.clone();
+    let selected_target = computation.selected.target();
+    let route = computation
+        .selected
+        .owner()
+        .bind_call_route(selected_target)
+        .unwrap();
+    let old_execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let admitted = runtime
+        .application_in(
+            old_execution,
+            method.invocation.computation().unwrap().id(),
+            &method.sources().unwrap(),
+        )
+        .unwrap();
+    drop((interface, method));
+    let candidate = runtime
+        .stage_reload_verified_program(&installed, None, old.verified_program().clone())
+        .unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
+    let current = runtime.select_program(&installed).unwrap();
+    assert_ne!(current.program_identity(), old.program_identity());
+    let fresh_selection = runtime.select_call_route(&route).unwrap();
+    assert_eq!(
+        fresh_selection.owner().program_identity(),
+        current.program_identity()
     );
-    let root = runtime.root_metadata(vec![]).unwrap();
-    root.corrupt_metadata_for_test(&runtime.gc, vec![MetadataRoot::Application(invalid)]);
-    let before = runtime.gc.stats();
+    let destination = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let before = runtime.gc_stats();
     assert_eq!(
         runtime
-            .gc
-            .collect(&runtime.modules, &[])
+            .alloc_application(
+                destination,
+                ApplicationRecord::Admitted(computation.clone()),
+                &[MetadataSource::Revision {
+                    owner: &old,
+                    source: RevisionSource::Current
+                }]
+            )
             .unwrap_err()
             .kind(),
-        RuntimeErrorKind::EngineFault
+        RuntimeErrorKind::ModuleValidation
     );
-    assert_eq!(runtime.gc.stats(), before);
-    assert!(runtime.gc.method_application(id).is_some());
-    assert!(runtime.gc.operation_group(group).is_some());
+    assert_eq!(runtime.gc_stats(), before);
+    // The actual admitted node supplies the old revision after publication.
+    let copied = runtime
+        .alloc_application(
+            destination,
+            ApplicationRecord::Admitted(computation),
+            &[MetadataSource::AdmittedApplication(&admitted)],
+        )
+        .unwrap();
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, old_execution)
+        .unwrap();
+    runtime.collect_garbage().unwrap();
     assert_eq!(
-        runtime.gc.cell_get(cell, ValueType::I32).unwrap(),
-        Value::I32(7)
+        runtime.application_record(&admitted).unwrap_err().kind(),
+        RuntimeErrorKind::ModuleValidation
     );
+    let record = runtime.application_record(&copied).unwrap();
+    let ApplicationRecord::Admitted(computation) = record.as_ref() else {
+        panic!("admitted computation")
+    };
+    assert_eq!(
+        computation.selected.owner().program_identity(),
+        old.program_identity()
+    );
+    assert_eq!(computation.selected.target(), selected_target);
+    assert!(runtime.modules.loaded(old.key()).is_some());
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, destination)
+        .unwrap();
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.modules.loaded(old.key()).is_none());
+    assert!(runtime.modules.loaded(current.key()).is_some());
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
+    assert!(!runtime.is_quarantined());
 }

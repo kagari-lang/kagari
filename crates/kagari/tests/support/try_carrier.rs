@@ -42,7 +42,7 @@ pub fn module() -> NativeResult<NativeModule> {
                         if !cx.enum_argument_is(0, &none)? {
                             return Err(RuntimeError::module_validation("uninhabited residual"));
                         }
-                        cx.allocate_enum(&cx.result_type_argument()?, &stop, vec![])
+                        cx.allocate_enum(&cx.result_type_argument()?, &stop, &[])
                     }),
                 )
             },
@@ -54,11 +54,8 @@ pub fn module() -> NativeResult<NativeModule> {
             methods.bind(
                 "from_output",
                 NativeBinding::new([Codec::Value], carrier.codec(), move |cx| {
-                    cx.allocate_enum(
-                        &cx.result_type_argument()?,
-                        &from_data,
-                        vec![cx.argument(0)?],
-                    )
+                    let value = cx.argument(0)?;
+                    cx.allocate_enum(&cx.result_type_argument()?, &from_data, &[value])
                 }),
             )?;
             methods.documentation(
@@ -72,18 +69,16 @@ pub fn module() -> NativeResult<NativeModule> {
                     cx.collect_garbage()?;
                     if cx.enum_argument_is(0, &data)? {
                         let value = cx.enum_argument_field(0, &data, 0)?;
-                        return cx.allocate_enum(&result, &continued, vec![value]);
+                        return cx.allocate_enum(&result, &continued, &[value]);
                     }
                     if !cx.enum_argument_is(0, &stop)? {
                         return Err(RuntimeError::module_validation("carrier member"));
                     }
                     let applied_residual = cx.type_parameter(&result, 0)?;
-                    let residual = cx.allocate_enum(&applied_residual, &none, vec![])?;
-                    let _root = cx
-                        .heap()
-                        .root_value(residual)
-                        .ok_or_else(|| RuntimeError::module_validation("residual root"))?;
-                    cx.allocate_enum(&result, &stopped, vec![residual])
+                    let residual = cx.allocate_enum(&applied_residual, &none, &[])?;
+                    // The Native local source protects this intermediate until
+                    // the outer enum is published; it needs no escaping Host root.
+                    cx.allocate_enum(&result, &stopped, &[residual])
                 }),
             )
         })

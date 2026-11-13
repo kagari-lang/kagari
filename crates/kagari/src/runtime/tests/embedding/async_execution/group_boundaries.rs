@@ -12,7 +12,6 @@ use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind, fault::EngineFault},
     error_trace::ErrorTrace,
     frame::ExecutionFrame,
-    host::HostCallContext,
     module::ExecutableModule,
     native::{
         adapter::Async,
@@ -21,11 +20,12 @@ use kagari_runtime::{
         completion::{Completion, CompletionStatus},
         declarations::FunctionDecl,
         future::NativeStart,
+        host,
         types::Type,
     },
     scheduler::tasks::TaskEvent,
     session::{ExecutionEvent, ExecutionObserver},
-    value::Value,
+    value::view::ValueView,
 };
 
 use kagari_source::source::SourceFile;
@@ -86,7 +86,7 @@ pub fn factory() -> fn()->Future<i32> { || nested() }
             let factory = f.invoke("factory", &[]);
             drop(
                 f.runtime
-                    .spawn_task(&f.value(scope.capability()), &f.value(&factory))
+                    .spawn_task(&(scope.capability()).clone(), &factory)
                     .unwrap()
                     .unwrap(),
             );
@@ -144,7 +144,7 @@ pub fn factory() -> fn()->Future<i32> { || nested() }
         assert!(Arc::ptr_eq(terminal_trace.as_ref().unwrap(), &selected));
         drop(scope);
         f.runtime.drain_cancelled_tasks().unwrap();
-        assert_eq!(f.runtime.gc().active_roots(), 0);
+        assert_eq!(f.runtime.gc_stats().root_registrations, 0);
     }
 }
 
@@ -248,7 +248,7 @@ pub async fn run() -> Result<(i32,i32),String> {
         assert_eq!(late.complete(Ok(9)), CompletionStatus::Stale);
     }
     assert_eq!(
-        f.runtime.gc().active_roots(),
+        f.runtime.gc_stats().root_registrations,
         1,
         "only retained outer Future remains"
     );
@@ -281,7 +281,7 @@ pub async fn waiting() -> i32 { val (a,b)=join(request(10),request(20)).await; a
     let future = f.invoke("waiting", &[]);
     let execution = f
         .runtime
-        .start_future(&f.value(&future), context.interpreter_options().unwrap())
+        .start_future(&future, context.interpreter_options().unwrap())
         .unwrap();
     let mut ticket = f.runtime.schedule_execution(execution, decode).unwrap();
     host.until(&mut f.runtime, || f.starts.load(Ordering::SeqCst) == 3);
@@ -323,14 +323,14 @@ pub async fn serial() -> i32 { probe(); val a=probe(); val b=probe(); probe()+a+
             module
                 .bind(
                     function,
-                    move |cx: &mut HostCallContext<'_>, _: &[Value]| {
+                    host::callback(move |cx, _| {
                         assert_eq!(cx.execution_time_millis().unwrap(), 123);
                         random
                             .lock()
                             .unwrap()
                             .push(cx.next_execution_random_u64().unwrap());
-                        Ok(Value::I32(1))
-                    },
+                        Ok(ValueView::from(1_i32))
+                    }),
                 )
                 .unwrap();
             engine.install(module.finish().unwrap()).unwrap();
@@ -349,7 +349,7 @@ pub async fn serial() -> i32 { probe(); val a=probe(); val b=probe(); probe()+a+
         let future = f.invoke(entry, &[]);
         let execution = f
             .runtime
-            .start_future(&f.value(&future), context.interpreter_options().unwrap())
+            .start_future(&future, context.interpreter_options().unwrap())
             .unwrap();
         let mut ticket = f
             .runtime
@@ -437,7 +437,7 @@ pub async fn run() -> i32 { val (a,b)=core::task::join(branch(),branch()).await;
     assert_eq!(result(&mut retained).unwrap(), 320);
     f.runtime.collect_garbage().unwrap();
     assert_eq!(f.runtime.modules().retention_counts(old).runtime_values, 0);
-    assert_eq!(f.runtime.gc().active_roots(), 0);
+    assert_eq!(f.runtime.gc_stats().root_registrations, 0);
     assert!(
         f.runtime
             .poll(&mut Context::from_waker(Waker::noop()))

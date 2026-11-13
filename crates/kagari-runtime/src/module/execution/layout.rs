@@ -1,12 +1,14 @@
 //! Sealed canonical locations map into disjoint scalar and managed banks.
-#[cfg(test)]
-use crate::test_support::bytecode::load_bytecode;
 use crate::{
     module::execution::{
-        OperandSlot,
         allocation::{SlotAllocation, SlotColor},
+        operands::OperandSlot,
     },
-    value::{Value, scalar},
+    value::{
+        carriers::ScopedValue,
+        kind::ObjectKind,
+        scalar::{self, domain},
+    },
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{instruction::Slot, module::BytecodeFunction};
@@ -23,19 +25,28 @@ pub(crate) struct Location {
 }
 
 impl Location {
+    #[cfg(test)]
     pub(crate) fn admits_payload(self, representation: ValueType, bits: u64) -> bool {
-        if self.operand.managed() || self.representation != representation {
+        if self.operand.scalar().is_none() || self.representation != representation {
             return false;
         }
-        scalar::admits_payload(representation, self.semantic, bits)
+        domain::admits_payload(representation, self.semantic, bits)
     }
 
-    pub(crate) fn admits(self, value: &Value) -> bool {
+    pub(crate) fn admits(self, value: ScopedValue<'_>) -> bool {
+        if self.operand.is_unit() {
+            return self.representation == ValueType::Unit
+                && self.semantic.is_none_or(|ty| ty == BuiltinType::Unit)
+                && value.is_unit();
+        }
         // The checked native receiver contract admits scoped views alongside owned
         // storage. Both use the managed bank; loan validation stays at native entry.
         if self.borrowed_receiver
             && self.operand.managed()
-            && matches!(value, Value::Ephemeral(_) | Value::HostPathView(_))
+            && matches!(
+                value.kind(),
+                Some(ObjectKind::Ephemeral | ObjectKind::HostPath)
+            )
         {
             return true;
         }
@@ -48,8 +59,8 @@ impl Location {
         if self.operand.managed() {
             return true;
         }
-        scalar::encode(value)
-            .is_some_and(|bits| scalar::admits_payload(self.representation, self.semantic, bits))
+        scalar::encode(&value)
+            .is_some_and(|bits| domain::admits_payload(self.representation, self.semantic, bits))
     }
 }
 
@@ -89,11 +100,15 @@ impl FrameLayout {
             .map(|(index, ty)| {
                 let representation = semantic_representation(ty);
                 Location {
-                    operand: allocate(
-                        scalar_type(representation).is_none(),
-                        &mut scalar_count,
-                        &mut managed_count,
-                    ),
+                    operand: if representation == ValueType::Unit {
+                        OperandSlot::unit()
+                    } else {
+                        allocate(
+                            scalar_type(representation).is_none(),
+                            &mut scalar_count,
+                            &mut managed_count,
+                        )
+                    },
                     representation,
                     semantic: builtin(Some(ty)),
                     borrowed_receiver: index == 1 && import.receiver_access.is_some(),
@@ -102,7 +117,7 @@ impl FrameLayout {
             .collect();
         Self {
             locations,
-            count: 0,
+            count: scalar_count + managed_count,
             scalar_count,
             managed_count,
             reused_slots: Box::default(),
@@ -116,6 +131,7 @@ impl FrameLayout {
         let mut locations = Vec::new();
         for (logical, &representation) in function.metadata.slots.iter().enumerate() {
             let operand = match slot_layout.slots[logical] {
+                SlotColor::Unit => OperandSlot::unit(),
                 SlotColor::Managed => allocate(true, &mut scalar_count, &mut managed_count),
                 SlotColor::Scalar(color) => {
                     debug_assert!(color < scalar_count);
@@ -131,7 +147,7 @@ impl FrameLayout {
         }
         let mut aliases = vec![0usize; scalar_count];
         for location in &locations {
-            if !location.operand.managed() {
+            if location.operand.scalar().is_some() {
                 aliases[location.operand.index()] += 1;
             }
         }
@@ -139,7 +155,7 @@ impl FrameLayout {
             .iter()
             .enumerate()
             .filter(|(_, location)| {
-                !location.operand.managed() && aliases[location.operand.index()] > 1
+                location.operand.scalar().is_some() && aliases[location.operand.index()] > 1
             })
             .map(|(logical, _)| {
                 let range = slot_layout.ranges.get(logical).copied().flatten();
@@ -278,22 +294,19 @@ pub(crate) fn scalar_type(ty: ValueType) -> Option<BuiltinType> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::native::program::ProgramFixture;
     use crate::{
-        Runtime,
-        frame::{
-            arguments::FrameArguments,
-            values::{ExecutionValues, FrameMetadata},
+        execution::{
+            memory::{GcHeapConfig, ManagedMemory},
+            roots::{ExecutionRoots, ValueBank},
         },
-        module::ExecutableModule,
+        resource::ResourceState,
+        value::cells::CellObject,
     };
     use kagari_bytecode::{
         instruction::{BytecodeInstruction as I, ConstantId, JumpTarget},
-        module::{BytecodeModule, FunctionMetadata, LocalLiveRange},
-        program::ModuleRef,
+        module::{FunctionMetadata, LocalLiveRange},
     };
-
-    use std::sync::Arc;
+    use kagari_gc::error::GcError;
 
     fn storage_control(types: Vec<ValueType>, debug: bool) -> BytecodeFunction {
         let mut function = BytecodeFunction {
@@ -358,26 +371,12 @@ mod tests {
         function
     }
 
-    fn storage_module(runtime: &mut Runtime) -> ExecutableModule {
-        let program = load_bytecode(
-            runtime,
-            "rl01",
-            ProgramFixture {
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-                exports: Default::default(),
-            }
-            .metadata(runtime.host().definitions(), &Default::default())
-            .unwrap(),
-        )
-        .unwrap();
-        runtime.select_program(&program).unwrap()
-    }
-
     #[test]
-    fn storage_classes_determine_actual_bank_capacity_without_losing_ranges() {
-        let mut runtime = Runtime::default();
-        let module = storage_module(&mut runtime);
+    fn storage_classes_determine_actual_bank_capacity_without_losing_ranges() -> Result<(), GcError>
+    {
+        let resources = &ResourceState::default();
+        let mut memory = ManagedMemory::new(GcHeapConfig::default());
+        let execution = memory.enter_execution(resources)?;
         let mixed = vec![
             ValueType::I32,
             ValueType::HeapObject,
@@ -441,119 +440,117 @@ mod tests {
                     "debug use and definition at PC 5 have closed overlapping endpoints"
                 );
             }
-            let mut values = ExecutionValues::default();
-            let frame = values
-                .allocate(
-                    6,
-                    &[],
-                    &FrameArguments::plain(&[]),
-                    FrameMetadata {
-                        program: module.clone(),
-                        environment: None,
-                        invocation: None,
-                    },
-                    Some(Arc::new(layout)),
-                )
-                .unwrap();
-            assert_eq!(
-                (
-                    values.payloads.len(),
-                    values.initialized.len(),
-                    values.values.len()
-                ),
-                (expected.0, expected.0, expected.1)
-            );
-            values.release(frame).unwrap();
+            memory.scope(resources, |cx, roots| {
+                ExecutionRoots::with(roots, cx, |slots| {
+                    let frame = slots.enter_frame(
+                        execution,
+                        layout.managed_count,
+                        layout.scalar_count,
+                        || Ok::<_, GcError>(()),
+                    )?;
+                    let managed = slots.len(execution, ValueBank::Managed)?;
+                    let storage = slots.storage(execution)?;
+                    assert_eq!(
+                        (storage.scalars.len(), storage.initialized.len(), managed),
+                        (expected.0, expected.0, expected.1)
+                    );
+                    slots.retire_frame(frame)
+                })
+            })?;
         }
+        memory.retire_execution(resources, execution)?;
+        Ok(())
     }
 
     #[test]
-    fn unused_unit_char_and_managed_capture_slots_keep_their_physical_class() {
-        let runtime = Runtime::default();
-        let cell = Value::Cell(
-            runtime
-                .gc()
-                .alloc_cell(ValueType::Char, Value::Char('🙂'))
-                .unwrap(),
-        );
-        for types in [
-            vec![],
-            vec![ValueType::HeapObject; 2],
-            vec![
-                ValueType::Unit,
+    fn unit_is_payload_free_and_capture_contents_do_not_change_storage_class() -> Result<(), GcError>
+    {
+        let resources = &ResourceState::default();
+        let mut memory = ManagedMemory::new(GcHeapConfig::default());
+        memory.scope(resources, |cx, _| {
+            let cell = CellObject::alloc(
+                cx,
                 ValueType::Char,
-                ValueType::HeapObject,
-                ValueType::HeapObject,
-            ],
-        ] {
-            let mut function = BytecodeFunction {
-                slot_count: types.len() as u32,
-                metadata: FunctionMetadata {
-                    slots: types,
+                ScopedValue::from('🙂'),
+                Default::default(),
+            )?;
+            let cell = ScopedValue::managed(cell);
+            for (types, expected) in [
+                (vec![], (0, 0)),
+                (vec![ValueType::Unit; 2], (0, 0)),
+                (vec![ValueType::HeapObject; 2], (0, 2)),
+                (
+                    vec![
+                        ValueType::Unit,
+                        ValueType::Char,
+                        ValueType::HeapObject,
+                        ValueType::HeapObject,
+                    ],
+                    (1, 2),
+                ),
+            ] {
+                let mut function = BytecodeFunction {
+                    slot_count: types.len() as u32,
+                    metadata: FunctionMetadata {
+                        slots: types,
+                        ..Default::default()
+                    },
+                    instructions: vec![I::Return(None)],
                     ..Default::default()
-                },
-                instructions: vec![I::Return(None)],
-                ..Default::default()
-            };
-            for (slot, &representation) in function.metadata.slots.iter().enumerate() {
-                if representation == ValueType::HeapObject {
-                    // Capture cells keep a scalar content type, not scalar storage.
-                    function
-                        .metadata
-                        .semantic
-                        .slots
-                        .insert(slot, Ty::Builtin(BuiltinType::Char));
-                }
-            }
-            for initial_work in [0, usize::MAX] {
-                let mut work = initial_work;
-                let layout = FrameLayout::prepare(&function, &mut work);
-                let has_scalars = function.slot_count == 4;
-                assert_eq!(
-                    layout.scalar_count,
-                    if has_scalars {
-                        if initial_work == 0 { 1 } else { 2 }
-                    } else {
-                        0
-                    }
-                );
-                assert_eq!(
-                    layout.managed_count,
-                    if function.slot_count == 0 { 0 } else { 2 }
-                );
-                for (logical, location) in layout.locations.iter().enumerate() {
-                    if function.metadata.slots[logical] == ValueType::HeapObject {
-                        assert!(location.operand.managed());
-                        assert_eq!(location.semantic, Some(BuiltinType::Char));
-                        assert!(location.admits(&cell));
-                        assert!(!location.admits(&Value::Char('🙂')));
-                    } else if initial_work == 0 {
-                        assert!(!layout.admits_logical_access(
-                            logical,
-                            0,
-                            true,
-                            false,
-                            AccessPhase::Pending
-                        ));
+                };
+                for (slot, &representation) in function.metadata.slots.iter().enumerate() {
+                    if representation == ValueType::HeapObject {
+                        // Capture cells keep a scalar content type, not scalar storage.
+                        function
+                            .metadata
+                            .semantic
+                            .slots
+                            .insert(slot, Ty::Builtin(BuiltinType::Char));
                     }
                 }
+                for initial_work in [0, usize::MAX] {
+                    let mut work = initial_work;
+                    let layout = FrameLayout::prepare(&function, &mut work);
+                    assert_eq!((layout.scalar_count, layout.managed_count), expected);
+                    assert_eq!(layout.count, expected.0 + expected.1);
+                    for (logical, location) in layout.locations.iter().enumerate() {
+                        if function.metadata.slots[logical] == ValueType::HeapObject {
+                            assert!(location.operand.managed());
+                            assert_eq!(location.semantic, Some(BuiltinType::Char));
+                            assert!(location.admits(cell));
+                            assert!(!location.admits(ScopedValue::from('🙂')));
+                        } else if location.operand.is_unit() {
+                            assert!(location.admits(ScopedValue::unit()));
+                            assert!(location.operand.scalar().is_none());
+                            assert!(!location.admits_payload(ValueType::Unit, 0));
+                        } else {
+                            assert_eq!(location.representation, ValueType::Char);
+                            assert!(location.operand.scalar().is_some());
+                        }
+                    }
+                    // Unit has no home to alias the unused Char location. Cold
+                    // reads may observe its ordinary uninitialized Unit; reused
+                    // lifetimes constrain only locations that actually alias.
+                    assert!(layout.reused_slots.is_empty());
+                }
+                if function.slot_count == 4 {
+                    function.metadata.parameter_slots = vec![Slot::new(0), Slot::new(1)];
+                    let allocation = SlotAllocation::prepare(&function, &mut 0);
+                    let layout = FrameLayout::prepare(&function, &mut 0);
+                    assert_eq!(
+                        layout.scalar_count, 1,
+                        "Unit parameters require no payload cell at PC 0"
+                    );
+                    assert_eq!(
+                        allocation.ranges.as_ref(),
+                        &[Some((0, 0)), Some((0, 0)), None, None]
+                    );
+                    assert!(layout.locations[0].admits(ScopedValue::unit()));
+                    assert!(layout.locations[1].admits(ScopedValue::from('🙂')));
+                }
             }
-            if function.slot_count == 4 {
-                function.metadata.parameter_slots = vec![Slot::new(0), Slot::new(1)];
-                let allocation = SlotAllocation::prepare(&function, &mut 0);
-                let layout = FrameLayout::prepare(&function, &mut 0);
-                assert_eq!(
-                    layout.scalar_count, 2,
-                    "unused entry parameters still overlap at PC 0"
-                );
-                assert_eq!(
-                    allocation.ranges.as_ref(),
-                    &[Some((0, 0)), Some((0, 0)), None, None]
-                );
-                assert!(layout.locations[0].admits(&Value::Unit));
-                assert!(layout.locations[1].admits(&Value::Char('🙂')));
-            }
-        }
+            Ok(())
+        })
     }
 
     #[test]
@@ -565,8 +562,8 @@ mod tests {
             semantic: Some(BuiltinType::Char),
             borrowed_receiver: false,
         };
-        assert!(location.admits(&Value::Char('🙂')));
-        assert!(!location.admits(&Value::I64(0x1f642)));
+        assert!(location.admits(ScopedValue::from('🙂')));
+        assert!(!location.admits(ScopedValue::from(0x1f642_i64)));
         assert!(location.admits_payload(ValueType::Char, 0x1f642));
         assert!(!location.admits_payload(ValueType::I64, 0x1f642));
         for bits in [0xd800, 0xdfff, 0x110000, 0x1_0000_0061] {
@@ -576,7 +573,7 @@ mod tests {
             semantic: Some(BuiltinType::U32),
             ..location
         };
-        assert!(!incompatible.admits(&Value::Char('a')));
+        assert!(!incompatible.admits(ScopedValue::from('a')));
         assert!(!incompatible.admits_payload(ValueType::Char, 97));
     }
 

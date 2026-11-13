@@ -12,16 +12,17 @@ use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::identity::{PackageId, map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::{representation::semantic_representation, types::PublicItem};
 use kagari_hir::declarations::DeclarationId;
-use kagari_runtime::execution::reentry::reenter;
+use kagari_runtime::{error::RuntimeErrorKind, execution::reentry::reenter};
 use kagari_runtime::{
-    host::{HostCallContext, HostObjectId, HostSchemaEpoch},
+    host::{HostObjectId, HostSchemaEpoch},
     module::entry::ProgramEntry,
     native::{
         adapter::NativeAdapter,
         declarations::{FunctionDecl, MethodDecl},
+        host,
         types::Type,
     },
-    value::Value,
+    value::{kind::ObjectKind, view::ValueView},
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_stdlib as stdlib;
@@ -106,10 +107,13 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
     let calls = trace.clone();
     schema
         .builder
-        .bind(rhs, move |_: &mut HostCallContext<'_>, _: &[Value]| {
-            calls.lock().unwrap().push("argument");
-            Ok(Value::I32(2))
-        })
+        .bind(
+            rhs,
+            host::callback(move |_, _| {
+                calls.lock().unwrap().push("argument");
+                Ok(ValueView::from(2))
+            }),
+        )
         .unwrap();
     let method_policy = HostCallPolicy {
         passing: vec![HostPassingStyle::UniqueBorrow, HostPassingStyle::Owned],
@@ -166,13 +170,12 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
                     ],
                     return_type: Ty::Builtin(BuiltinType::I32),
                 };
-                let wrong =
-                    (|_: &mut HostCallContext<'_>, _: &[Value]| panic!("invalid member binding"))
-                        .prepare(&wrong, &catalog)?;
+                let wrong = host::callback(|_, _| panic!("invalid member binding"))
+                    .prepare(&wrong, &catalog)?;
                 assert!(methods.bind(method.clone(), wrong).is_err());
                 methods.bind(
                     method.clone(),
-                    move |context: &mut HostCallContext<'_>, args: &[Value]| {
+                    host::callback(move |context, args| {
                         calls.lock().unwrap().push("method");
                         let root = context.runtime().execution_root().unwrap();
                         let nested = root
@@ -182,17 +185,18 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
                             .find(|function| function.name == "nested")
                             .unwrap()
                             .id;
-                        assert!(
-                            reenter(context, &root, nested, &args[..1]).is_err(),
+                        let nested_args = context.retain_temporaries(&args[..1]).unwrap();
+                        let error = reenter(context, &root, nested, nested_args).unwrap_err();
+                        assert_eq!(
+                            error.kind(),
+                            RuntimeErrorKind::HostBorrowConflict,
                             "the receiver's exclusive lease prevents recursive access"
                         );
-                        let Value::I32(amount) = args[1] else {
-                            panic!("checked parameter")
-                        };
+                        let amount = args[1].as_i32().expect("checked i32");
                         state.fetch_add(amount, Ordering::SeqCst);
                         context.runtime_mut().collect_garbage().unwrap();
-                        Ok(Value::I32(state.load(Ordering::SeqCst)))
-                    },
+                        Ok(ValueView::from(state.load(Ordering::SeqCst)))
+                    }),
                 )?;
                 Ok(method)
             })
@@ -245,6 +249,8 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
         let loaded = runtime
             .load_program(program.program(), Default::default())
             .unwrap();
+        runtime.collect_garbage().unwrap();
+        let roots = runtime.gc_stats().root_registrations;
         let mut backend = jit.then(|| CraneliftBackend::for_host().unwrap());
         for expected in [42, 44] {
             let result = if let Some(backend) = &mut backend {
@@ -263,10 +269,7 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
                 runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
             }
             .unwrap();
-            assert_eq!(
-                result.return_value.value(runtime.gc()).unwrap(),
-                Value::I32(expected)
-            );
+            assert_eq!(result.return_value.as_i32().unwrap(), expected);
         }
         assert_eq!(
             *trace.lock().unwrap(),
@@ -274,7 +277,9 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
                 "receiver", "argument", "method", "receiver", "argument", "method"
             ]
         );
-        assert_eq!(runtime.gc().active_roots(), 0);
+        assert!(runtime.execution_root().is_none());
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc_stats().root_registrations, roots);
     }
 }
 
@@ -303,12 +308,12 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
         .builder
         .bind(
             take,
-            move |context: &mut HostCallContext<'_>, args: &[Value]| {
+            host::callback(move |context, args| {
                 calls.lock().unwrap().push("take");
-                assert!(matches!(args[0], Value::HostRoot(_)));
+                assert_eq!(args[0].kind(), Some(ObjectKind::HostRoot));
                 context.runtime_mut().collect_garbage().unwrap();
-                Ok(Value::I32(42))
-            },
+                Ok(ValueView::from(42))
+            }),
         )
         .unwrap();
     let definitions = DefinitionContext::new().unwrap();
@@ -359,6 +364,8 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
             .load_program(program.program(), Default::default())
             .unwrap();
         assert!(trace.lock().unwrap().is_empty());
+        runtime.collect_garbage().unwrap();
+        let roots = runtime.gc_stats().root_registrations;
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = NativeCompiler::default()
@@ -375,13 +382,12 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
             runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
-        assert_eq!(
-            report.return_value.value(runtime.gc()).unwrap(),
-            Value::I32(42)
-        );
+        assert_eq!(report.return_value.as_i32().unwrap(), 42);
         assert_eq!(*trace.lock().unwrap(), ["make", "take"]);
         drop(report);
-        assert_eq!(runtime.gc().active_roots(), 0);
+        assert!(runtime.execution_root().is_none());
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc_stats().root_registrations, roots);
     }
 }
 
@@ -419,9 +425,9 @@ fn annotation_only_host_dependencies_are_verified_and_linked() {
             .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
             .unwrap()
             .return_value
-            .value(runtime.gc())
+            .as_i32()
             .unwrap(),
-        Value::I32(7)
+        7
     );
     let mut invalid = artifact.records().program.clone();
     invalid.modules[invalid.root.index()].external_types.clear();

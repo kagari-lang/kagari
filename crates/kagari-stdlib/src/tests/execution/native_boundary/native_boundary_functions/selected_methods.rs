@@ -145,21 +145,8 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
         )
         .unwrap();
     let module = module.finish().unwrap();
-    let source = r#"
-        use example::selected::{Read, capture, tick};
-        pub struct Counter<T> { pub val amount: i32, pub val marker: T }
-        impl<T> Read for Counter<T> {
-            fn read(self, divisor: i32) -> i32 { tick(); self.amount / divisor }
-            fn base() -> i32 { 20 }
-        }
-        trait Relay {
-            fn relay<T: Read>(self, item: T) -> i32 { capture(item) }
-        }
-        impl Relay for i32 {}
-        pub fn make() -> Counter<i32> { Counter { amount: 21, marker: 7 } }
-        pub fn wrong_receiver() -> Counter<bool> { Counter { amount: 21, marker: true } }
-        pub fn run() -> i32 { val relay: Relay = 0; relay.relay(make()) }
-    "#;
+    let source =
+        include_str!("../../../../../tests/fixtures/native/function-selected-retained.kgr");
     let (mut vm, old) = fixture_without_foundation(source, Some(&module));
     let _old_program = old;
     let old = vm.select_program(&_old_program).unwrap();
@@ -181,6 +168,7 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
     assert_eq!(twice.call(&mut cx, (receiver.clone(),)).unwrap(), 42);
     assert_eq!(base.call(&mut cx, ()).unwrap(), 20);
     drop(cx);
+    assert_eq!(source.matches("self.amount / divisor").count(), 1);
     let updated = source.replace("self.amount / divisor", "(self.amount + 1) / divisor");
     let staged = vm
         .stage_reload_program(
@@ -241,19 +229,11 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
     drop(cx);
     // Receiver/type evidence retains the old publication; the ordinary static
     // method binding alone must not keep its obsolete code alive.
-    assert!(
-        !vm.collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&old.key())
-    );
+    vm.collect_garbage().unwrap();
+    assert!(vm.validate_executable_module(&old).is_ok());
     drop((run, make, receiver, read, twice));
-    assert!(
-        vm.collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&old.key())
-    );
+    vm.collect_garbage().unwrap();
+    assert!(vm.validate_executable_module(&old).is_err());
     assert_eq!(
         base.call(&mut vm.context(&published).unwrap(), ()).unwrap(),
         20
@@ -320,6 +300,8 @@ fn typed_generic_native_selected_member_keeps_applied_object_results_and_rejects
     );
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     {
         let run = vm
             .bind_function::<(), Object>(&_owner_program.root(), "run")
@@ -341,7 +323,12 @@ fn typed_generic_native_selected_member_keeps_applied_object_results_and_rejects
         drop(item);
     }
     publish_unused_version(&mut vm, &_owner_program);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -375,17 +362,20 @@ fn selected_primitive_operations_use_checked_typed_arguments() {
         .unwrap();
     let module = module.finish().unwrap();
     let (mut vm, owner) = fixture(
-        r#"
-        use example::selected_hash::repeat;
-        pub fn run() -> bool { repeat(42) == 42.hash() }
-    "#,
+        include_str!("../../../../../tests/fixtures/native/function-selected-primitive.kgr"),
         Some(&module),
     );
     let _owner_program = owner;
     let _owner = vm.select_program(&_owner_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     assert!(
         vm.execute_typed::<_, bool>(&_owner_program, "run", (), &Default::default())
             .unwrap()
     );
-    assert_eq!(vm.gc().active_roots(), 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }

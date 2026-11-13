@@ -1,11 +1,8 @@
-use crate::tests::execution::native_boundary::compile;
+use crate::tests::{execution::native_boundary::compile, support::invoke};
 use kagari_runtime::{
-    error::RuntimeErrorKind,
-    gc::{GcObjectKind, HeapObjectId},
-    module::entry::ProgramEntry,
-    range::index_bound,
-    reflection,
-    value::{Value, ValueCategory},
+    error::RuntimeErrorKind, module::entry::ProgramEntry,
+    native::conversion::context::ConversionContext, value::kind::ObjectKind,
+    value_semantics::identity_equal,
 };
 
 use std::ops::Bound;
@@ -13,32 +10,21 @@ use std::ops::Bound;
 #[test]
 fn index_bounds_validate_the_applied_type_even_without_a_payload() {
     let (mut vm, loaded) = compile(
-        r#"use core::ops::Bound;
-        enum ForeignBound { Unbounded }
-        pub fn valid() -> Bound<u64> { Bound::Unbounded }
-                pub fn included() -> Bound<u64> { Bound::Included(18446744073709551615u64) }
-                pub fn excluded() -> Bound<u64> { Bound::Excluded(4294967296u64) }
-        pub fn wrong_argument() -> Bound<i32> { Bound::Unbounded }
-        pub fn wrong_owner() -> ForeignBound { ForeignBound::Unbounded }
-        "#,
+        include_str!("../../../../tests/fixtures/native/index_bounds.kgr"),
         None,
     );
     let _loaded_program = loaded;
     let loaded = vm.select_program(&_loaded_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let valid = vm
         .execute_module(&loaded, "valid", vm.execution_options())
         .unwrap();
-    assert_eq!(
-        index_bound(
-            vm.gc(),
-            &valid
-                .return_value
-                .value(vm.gc())
-                .expect("retained execution result")
-        )
-        .unwrap(),
-        Bound::Unbounded
-    );
+    {
+        let mut cx = ConversionContext::new(&mut vm, &loaded).unwrap();
+        let value = cx.import(&valid.return_value).unwrap();
+        assert_eq!(cx.index_bound(&value).unwrap(), Bound::Unbounded);
+    }
     for (name, expected) in [
         ("included", Bound::Included(u64::MAX)),
         ("excluded", Bound::Excluded(1_u64 << 32)),
@@ -46,28 +32,31 @@ fn index_bounds_validate_the_applied_type_even_without_a_payload() {
         let report = vm
             .execute_module(&loaded, name, vm.execution_options())
             .unwrap();
-        assert_eq!(
-            index_bound(vm.gc(), &report.return_value.value(vm.gc()).unwrap()).unwrap(),
-            expected
-        );
+        vm.collect_garbage().unwrap();
+        let mut cx = ConversionContext::new(&mut vm, &loaded).unwrap();
+        let value = cx.import(&report.return_value).unwrap();
+        assert_eq!(cx.index_bound(&value).unwrap(), expected);
     }
     for name in ["wrong_argument", "wrong_owner"] {
         let invalid = vm
             .execute_module(&loaded, name, vm.execution_options())
             .unwrap();
+        vm.collect_garbage().unwrap();
+        let mut cx = ConversionContext::new(&mut vm, &loaded).unwrap();
+        let value = cx.import(&invalid.return_value).unwrap();
         assert_eq!(
-            index_bound(
-                vm.gc(),
-                &invalid
-                    .return_value
-                    .value(vm.gc())
-                    .expect("retained execution result")
-            )
-            .unwrap_err()
-            .kind(),
+            cx.index_bound(&value).unwrap_err().kind(),
             RuntimeErrorKind::ScriptTrap
         );
     }
+    drop(valid);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert!(!vm.is_quarantined());
 }
 
 #[test]
@@ -77,28 +66,42 @@ fn assigns_stable_object_identity_and_kind() {
         None,
     );
     let loaded = vm.select_program(&program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .unwrap();
-    let heap = vm.gc();
-    let Value::Tuple(values) = report.return_value.value(heap).unwrap() else {
-        panic!("tuple")
+    let (first, second) = {
+        let mut cx = ConversionContext::new(&mut vm, &loaded).unwrap();
+        let tuple = cx.import(&report.return_value).unwrap();
+        assert_eq!(cx.tuple_len(&tuple).unwrap(), 2);
+        let first = cx.tuple_element(&tuple, 0).unwrap();
+        let second = cx.tuple_element(&tuple, 1).unwrap();
+        assert_eq!(first.kind(), Some(ObjectKind::Array));
+        assert_eq!(second.kind(), Some(ObjectKind::Struct));
+        (cx.retain(&first).unwrap(), cx.retain(&second).unwrap())
     };
-    let values = heap.tuple(values).unwrap().to_vec();
-    let [Value::Array(first), Value::Struct(second)] = values.as_slice() else {
-        panic!("handles")
-    };
-    assert_ne!(first, second);
-    assert_eq!(heap.object_kind(*first), Some(GcObjectKind::Array));
-    assert_eq!(heap.object_kind(*second), Some(GcObjectKind::Struct));
-    for value in [Value::Array(*first), Value::Struct(*second)] {
-        assert_eq!(value.category(), ValueCategory::ScriptOwned);
-        assert!(value.is_default_heap_payload(heap));
-    }
-    let Value::Str(name) = reflection::type_of(heap, &Value::Array(*first)).unwrap() else {
-        panic!("type name")
-    };
-    assert_eq!(&*heap.string(name).unwrap(), "array");
+    let alias = first.clone();
+    assert!(!identity_equal(&mut vm, &first, &second).unwrap());
+    drop(report);
+    vm.collect_garbage().unwrap();
+    assert!(identity_equal(&mut vm, &first, &alias).unwrap());
+    assert!(!identity_equal(&mut vm, &first, &second).unwrap());
+    let name = vm.reflect_type_of(&first).unwrap();
+    assert_eq!(
+        ConversionContext::new(&mut vm, &loaded)
+            .unwrap()
+            .decode::<String>(&name)
+            .unwrap(),
+        "array"
+    );
+    drop((first, second, alias, name));
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -108,52 +111,59 @@ fn root_scanning_traces_only_gc_managed_boundaries() {
         None,
     );
     let loaded = vm.select_program(&program).unwrap();
-    let Value::Tuple(values) = vm
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
+    let root = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .unwrap()
-        .return_value
-        .value(vm.gc())
-        .unwrap()
-    else {
-        panic!("tuple")
+        .return_value;
+    vm.collect_garbage().unwrap();
+    // The revision already owns its two String constants. The result adds one
+    // tuple, record, leaf array and String array; the unit field adds no object.
+    assert_eq!(vm.gc_stats().objects, baseline.objects + 4);
+    let (record, strings) = {
+        let mut cx = ConversionContext::new(&mut vm, &loaded).unwrap();
+        let tuple = cx.import(&root).unwrap();
+        assert_eq!(cx.tuple_len(&tuple).unwrap(), 3);
+        assert!(cx.tuple_element(&tuple, 2).unwrap().is_unit());
+        let record = cx.tuple_element(&tuple, 0).unwrap();
+        let strings = cx.tuple_element(&tuple, 1).unwrap();
+        (cx.retain(&record).unwrap(), cx.retain(&strings).unwrap())
     };
-    let heap = vm.gc();
-    let values = heap.tuple(values).unwrap().to_vec();
-    let [Value::Struct(record), Value::Array(strings)] = values.as_slice() else {
-        panic!("handles")
-    };
-    let layout = heap.struct_layout(*record).unwrap();
-    let Value::Array(leaf) = heap.struct_get_slot(*record, &layout, 0).unwrap() else {
-        panic!("leaf array")
-    };
-    let Value::Str(name) = heap.struct_get_slot(*record, &layout, 1).unwrap() else {
-        panic!("name")
-    };
-    let Value::Str(seen) = heap.array_get(*strings, 0).unwrap() else {
-        panic!("seen")
-    };
-    let root = heap
-        .root_value(
-            heap.alloc_tuple(vec![
-                Value::Struct(*record),
-                Value::Array(*strings),
-                Value::Unit,
-            ])
-            .unwrap(),
-        )
-        .unwrap();
-    let Value::Tuple(tuple) = root.value(heap).unwrap() else {
-        panic!("root tuple")
-    };
+    let leaf = invoke(&mut vm, &loaded, "leaf", std::slice::from_ref(&record));
+    let name = invoke(&mut vm, &loaded, "name", std::slice::from_ref(&record));
+    {
+        let mut cx = ConversionContext::new(&mut vm, &loaded).unwrap();
+        assert_eq!(cx.decode::<String>(&name).unwrap(), "leaf");
+        let values = cx.import(&strings).unwrap();
+        assert_eq!(cx.array_len(&values).unwrap(), 1);
+        let seen = cx.array_element(&values, 0usize).unwrap().unwrap();
+        let text = cx.type_for::<String>().unwrap();
+        assert_eq!(cx.decode_value::<String>(&text, &seen).unwrap(), "seen");
+    }
+    drop((root, record, strings, name));
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects + 1);
     assert_eq!(
-        heap.trace_roots().unwrap(),
-        vec![tuple, *record, leaf, name, *strings, seen]
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations + 1
     );
-    root.set(heap, Value::Array(leaf)).unwrap();
-    assert_eq!(heap.trace_roots().unwrap(), vec![leaf]);
-    assert_eq!(root.value(heap).unwrap(), Value::Array(leaf));
-    drop(root);
-    assert_eq!(heap.trace_roots().unwrap(), Vec::<HeapObjectId>::new());
+    {
+        let mut cx = ConversionContext::new(&mut vm, &loaded).unwrap();
+        let value = cx.import(&leaf).unwrap();
+        assert_eq!(cx.array_len(&value).unwrap(), 1);
+        assert_eq!(
+            cx.array_element(&value, 0usize).unwrap().unwrap().as_i32(),
+            Some(1)
+        );
+    }
+    drop(leaf);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -163,42 +173,51 @@ fn root_scanning_handles_cycles_without_duplicate_identity() {
         None,
     );
     let loaded = vm.select_program(&program).unwrap();
-    let report = vm
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
+    let root = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
-        .unwrap();
-    let heap = vm.gc();
-    let Value::Struct(record) = report.return_value.value(heap).unwrap() else {
-        panic!("record")
-    };
-    let layout = heap.struct_layout(record).unwrap();
-    let Value::Enum(next) = heap.struct_get_slot(record, &layout, 0).unwrap() else {
-        panic!("cycle edge")
-    };
-    assert_eq!(heap.trace_roots().unwrap(), vec![record, next]);
+        .unwrap()
+        .return_value;
+    vm.collect_garbage().unwrap();
+    let live_objects = vm.gc_stats().objects;
+    assert_eq!(live_objects, baseline.objects + 2);
+    let next = invoke(&mut vm, &loaded, "next", std::slice::from_ref(&root));
+    assert!(identity_equal(&mut vm, &root, &next).unwrap());
+    drop(root);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, live_objects);
+    let another = invoke(&mut vm, &loaded, "next", std::slice::from_ref(&next));
+    assert!(identity_equal(&mut vm, &next, &another).unwrap());
+    drop((next, another));
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
 fn custom_set_absent_removal_does_not_invalidate_iteration() {
     let (mut vm, loaded) = compile(
-        r#"use std::collections::{HashSet};
-use std::hash::{Hash};
-
-        struct Key { val number: i32 }
-        impl PartialEq for Key { fn eq(self, other: Key) -> bool { self.number == other.number } }
-        impl Eq for Key {}
-        impl Hash for Key { fn hash(self) -> i64 { 7 } }
-        fn main() {
-            val set: HashSet<Key> = HashSet::new(); set.insert(Key { number: 1 });
-            for item in set { set.remove(Key { number: 2 }); }
-        }
-    "#,
+        include_str!("../../../../tests/fixtures/native/set-absent-removal.kgr"),
         None,
     );
-    let _loaded_program = loaded;
-    let loaded = vm.select_program(&_loaded_program).unwrap();
-    vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
-        .unwrap();
-    assert_eq!(vm.gc().active_roots(), 0);
+    let loaded = vm.select_program(&loaded).unwrap();
     vm.collect_garbage().unwrap();
-    assert_eq!(vm.gc().allocated_objects(), 0);
+    let baseline = vm.gc_stats();
+    assert_eq!(
+        vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
+            .unwrap()
+            .return_value
+            .as_i32(),
+        Some(1)
+    );
+    vm.collect_garbage().unwrap();
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
 }

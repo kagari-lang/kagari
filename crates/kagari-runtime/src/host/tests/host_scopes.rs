@@ -3,12 +3,21 @@ use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime, RuntimeConfig,
     error::{RuntimeErrorKind, fault::EngineFault},
+    execution::roots::ExecutionRoots,
     host::{HostBorrowKind, HostCallContext, HostError, HostObjectId, HostSchemaEpoch},
     metadata::TypeId,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
+    module::managed::source::RevisionSource,
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, host, types::Type},
     session::TraceValue,
     test_support::{self as support, native::program::ProgramFixture},
-    value::Value,
+    value::{
+        EphemeralValue,
+        aggregates::tuples::TupleObject,
+        arrays::ArrayObject,
+        carriers::{RootedValue, ScopedValue},
+        host_values::EphemeralObject,
+        view::ValueView,
+    },
 };
 
 mod scoped_loans;
@@ -79,12 +88,26 @@ fn same_frame_numbers_in_different_runtimes_do_not_authorize_foreign_borrows() {
             .kind(),
         RuntimeErrorKind::ExpiredHostBorrow
     );
-    let foreign = a
-        .runtime()
-        .gc()
-        .alloc_tuple(vec![a.runtime().gc().alloc_host_ref(bt).unwrap()])
-        .unwrap();
-    assert!(a.runtime_mut().host_scope(&[foreign]).is_err());
+    let foreign = {
+        let Runtime {
+            memory, resources, ..
+        } = a.runtime_mut();
+        memory.scope(resources, |cx, _| {
+            let foreign = EphemeralObject::alloc(cx, EphemeralValue::HostRef(bt))?;
+            let tuple = TupleObject::alloc(cx, &[foreign])?;
+            ScopedValue::managed(tuple).retain(cx)
+        })
+    }
+    .unwrap();
+    assert_eq!(
+        a.runtime_mut()
+            .host_scope(std::slice::from_ref(&foreign))
+            .err()
+            .expect("foreign Host token")
+            .kind(),
+        RuntimeErrorKind::ExpiredHostBorrow
+    );
+    drop(foreign);
     a.borrows().validate(at, HostBorrowKind::Shared).unwrap();
     drop(a);
     assert_eq!(
@@ -115,16 +138,22 @@ fn unwinding_host_scopes_releases_roots_borrows_and_session_retention() {
         )
         .unwrap();
         let loaded = runtime.select_program(&loaded_program).unwrap();
-        let value = Value::Array(
-            runtime
-                .alloc_array(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
-                .unwrap(),
-        );
+        runtime.collect_garbage().unwrap();
+        let baseline = runtime.gc_stats();
+        let value = runtime
+            .alloc_array(
+                &loaded,
+                Ty::Builtin(BuiltinType::I32),
+                &[RootedValue::from(7i32)],
+            )
+            .unwrap();
         let token = Cell::new(None);
         assert!(
             catch_unwind(AssertUnwindSafe(|| {
                 let run = |runtime: &mut Runtime| {
                     let mut scope = runtime.host_scope(std::slice::from_ref(&value)).unwrap();
+                    let protected = scope.import(&value).unwrap();
+                    drop(value);
                     token.set(Some(
                         scope
                             .borrows()
@@ -145,7 +174,31 @@ fn unwinding_host_scopes_releases_roots_borrows_and_session_retention() {
                         );
                     }
                     scope.runtime_mut().collect_garbage().unwrap();
-                    assert!(scope.runtime().gc().validate_value(&value));
+                    assert_eq!(
+                        scope.runtime().gc_stats().root_registrations,
+                        baseline.root_registrations
+                    );
+                    {
+                        let Runtime {
+                            memory, resources, ..
+                        } = scope.runtime_mut();
+                        memory.scope(resources, |cx, roots| {
+                            ExecutionRoots::with(roots, cx, |slots| {
+                                let value = protected.get(slots)?.object().unwrap();
+                                let array = slots.scope().downcast::<ArrayObject>(value)?;
+                                assert_eq!(slots.scope().read(array, ArrayObject::len), 1);
+                                assert_eq!(
+                                    ArrayObject::get(slots.scope(), array, 0)?
+                                        .scalar_payload()
+                                        .unwrap()
+                                        .1,
+                                    7
+                                );
+                                Ok(())
+                            })
+                        })
+                    }
+                    .unwrap();
                     panic!("host unwind");
                 };
                 if with_session {
@@ -161,7 +214,10 @@ fn unwinding_host_scopes_releases_roots_borrows_and_session_retention() {
         );
         assert!(runtime.execution_root().is_none());
         assert_eq!(runtime.resources().counters().current_call_depth, 0);
-        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(
+            runtime.gc_stats().root_registrations,
+            baseline.root_registrations
+        );
         assert_eq!(
             runtime
                 .modules()
@@ -182,7 +238,7 @@ fn unwinding_host_scopes_releases_roots_borrows_and_session_retention() {
             .unwrap();
         drop(next);
         runtime.collect_garbage().unwrap();
-        assert!(!runtime.gc().validate_value(&value));
+        assert_eq!(runtime.gc_stats().objects, baseline.objects);
         assert!(!runtime.is_quarantined());
     }
 }
@@ -204,23 +260,36 @@ fn host_scopes_keep_root_cancellation_until_all_resources_are_released() {
     )
     .unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     let options = runtime.execution_options();
 
     let cancel = options.cancellation.clone();
     let mut session = runtime
-        .admit_execution(&loaded, options, crate::session::ExecutionEntry::Program)
+        .admit_execution(
+            &loaded,
+            options,
+            crate::session::ExecutionEntry::Program,
+            RevisionSource::Current,
+        )
         .unwrap();
-    let a = Value::Array(
-        runtime
-            .alloc_array(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(1)])
-            .unwrap(),
-    );
-    let b = Value::Array(
-        runtime
-            .alloc_array(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(2)])
-            .unwrap(),
-    );
+    let a = runtime
+        .alloc_array(
+            &loaded,
+            Ty::Builtin(BuiltinType::I32),
+            &[RootedValue::from(1i32)],
+        )
+        .unwrap();
+    let b = runtime
+        .alloc_array(
+            &loaded,
+            Ty::Builtin(BuiltinType::I32),
+            &[RootedValue::from(2i32)],
+        )
+        .unwrap();
     let mut outer = runtime.host_scope(std::slice::from_ref(&a)).unwrap();
+    let a_view = outer.import(&a).unwrap();
+    drop(a);
     let token = outer
         .borrows()
         .borrow_unique(HostObjectId(1), TypeId::new(0))
@@ -229,6 +298,8 @@ fn host_scopes_keep_root_cancellation_until_all_resources_are_released() {
         .runtime_mut()
         .host_scope(std::slice::from_ref(&b))
         .unwrap();
+    let b_view = inner.import(&b).unwrap();
+    drop(b);
     assert_eq!(
         inner
             .runtime()
@@ -241,9 +312,30 @@ fn host_scopes_keep_root_cancellation_until_all_resources_are_released() {
         2
     );
     inner.runtime_mut().collect_garbage().unwrap();
-    assert!(inner.runtime().gc().validate_value(&a));
-    assert!(inner.runtime().gc().validate_value(&b));
-    session.retire(inner.runtime().resources());
+    assert_eq!(
+        inner.runtime().gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    {
+        let Runtime {
+            memory, resources, ..
+        } = inner.runtime_mut();
+        memory.scope(resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                for (view, expected) in [(a_view.reborrow(), 1), (b_view.reborrow(), 2)] {
+                    let value = view.get(slots)?;
+                    let array = slots
+                        .scope()
+                        .downcast::<ArrayObject>(value.object().unwrap())?;
+                    let value = ArrayObject::get(slots.scope(), array, 0)?;
+                    assert_eq!(value.scalar_payload().unwrap().1, expected);
+                }
+                Ok(())
+            })
+        })
+    }
+    .unwrap();
+    session.retire(inner.runtime_mut());
     inner.runtime().resources().poll_execution().unwrap();
     cancel.cancel();
     assert_eq!(
@@ -266,7 +358,10 @@ fn host_scopes_keep_root_cancellation_until_all_resources_are_released() {
     assert!(outer.runtime().execution_root().is_some());
     drop(outer);
     assert!(runtime.execution_root().is_none());
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
     assert_eq!(
         runtime
             .modules()
@@ -282,8 +377,7 @@ fn host_scopes_keep_root_cancellation_until_all_resources_are_released() {
         RuntimeErrorKind::ExpiredHostBorrow
     );
     runtime.collect_garbage().unwrap();
-    assert!(!runtime.gc().validate_value(&a));
-    assert!(!runtime.gc().validate_value(&b));
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
     assert!(!runtime.is_quarantined());
 }
 
@@ -327,23 +421,29 @@ fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
     module
         .bind(
             write,
-            move |context: &mut HostCallContext<'_>, args: &[Value]| {
-                called.fetch_add(1, Ordering::SeqCst);
-                let owner = context.runtime().execution_root().unwrap();
-                assert_eq!(
-                    invoke(context.runtime_mut(), &owner, 1, args)
-                        .unwrap_err()
-                        .kind(),
-                    RuntimeErrorKind::HostBorrowConflict
-                );
-                Err(HostError::new("business failure"))
-            },
+            host::callback(
+                move |context: &mut HostCallContext<'_>, args: &[ValueView<'_>]| {
+                    called.fetch_add(1, Ordering::SeqCst);
+                    let owner = context.runtime().execution_root().unwrap();
+                    let root = context.retain(&args[0]).unwrap();
+                    assert_eq!(
+                        invoke(context.runtime_mut(), &owner, 1, &[root])
+                            .unwrap_err()
+                            .kind(),
+                        RuntimeErrorKind::HostBorrowConflict
+                    );
+                    Err(HostError::new("business failure"))
+                },
+            ),
         )
         .unwrap();
     module
-        .bind(read, |_: &mut HostCallContext<'_>, _: &[Value]| {
-            Ok(Value::Unit)
-        })
+        .bind(
+            read,
+            host::callback(
+                |_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| Ok(ValueView::unit()),
+            ),
+        )
         .unwrap();
     let module = module.finish().unwrap();
     let program = free_function_program(&module.to_declaration());
@@ -353,7 +453,7 @@ fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
     let object = runtime
         .register_host_root(HostObjectId(1), ty, HostSchemaEpoch::new(0))
         .unwrap();
-    let object = runtime.gc().alloc_host_root(object).unwrap();
+    let object = runtime.host_root_value(object).unwrap();
     let loaded_program = load_bytecode(&mut runtime, "borrows", program).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     assert_eq!(
@@ -363,27 +463,53 @@ fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
         RuntimeErrorKind::HostCallFailure
     );
     assert_eq!(invoked.load(Ordering::SeqCst), 1);
-    invoke(&mut runtime, &loaded, 1, &[object]).unwrap();
+    let _ = invoke(&mut runtime, &loaded, 1, std::slice::from_ref(&object)).unwrap();
+    let baseline = runtime.gc_stats().root_registrations;
     let mut scope = runtime.host_scope(&[]).unwrap();
     let token = scope.borrows().borrow_shared(HostObjectId(1), ty).unwrap();
-    let borrowed_value = scope.runtime().gc().alloc_host_ref(token).unwrap();
+    let borrowed_value = {
+        let Runtime {
+            memory, resources, ..
+        } = scope.runtime_mut();
+        memory.scope(resources, |cx, _| {
+            EphemeralObject::alloc(cx, EphemeralValue::HostRef(token))?.retain(cx)
+        })
+    }
+    .unwrap();
     assert_eq!(
-        invoke(scope.runtime_mut(), &loaded, 0, &[borrowed_value])
-            .unwrap_err()
-            .kind(),
+        invoke(
+            scope.runtime_mut(),
+            &loaded,
+            0,
+            std::slice::from_ref(&borrowed_value)
+        )
+        .unwrap_err()
+        .kind(),
         RuntimeErrorKind::HostBorrowConflict
     );
-    invoke(scope.runtime_mut(), &loaded, 1, &[borrowed_value]).unwrap();
+    let _ = invoke(
+        scope.runtime_mut(),
+        &loaded,
+        1,
+        std::slice::from_ref(&borrowed_value),
+    )
+    .unwrap();
     drop(scope);
-    let expired_value = runtime.gc().alloc_host_ref(token).unwrap();
-    let error = invoke(&mut runtime, &loaded, 1, &[expired_value]).unwrap_err();
+    let error = invoke(
+        &mut runtime,
+        &loaded,
+        1,
+        std::slice::from_ref(&borrowed_value),
+    )
+    .unwrap_err();
     assert_eq!(
         error.kind(),
         RuntimeErrorKind::ExpiredHostBorrow,
         "{error:?}"
     );
     assert_eq!(invoked.load(Ordering::SeqCst), 1);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    drop(borrowed_value);
+    assert_eq!(runtime.gc_stats().root_registrations, baseline);
 }
 
 #[test]
@@ -403,16 +529,24 @@ fn quarantine_does_not_block_host_scope_cleanup() {
     )
     .unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats().root_registrations;
     let mut session = runtime
         .begin_execution(&loaded, runtime.execution_options())
         .unwrap();
-    let value = Value::Array(
-        session
-            .runtime()
-            .alloc_array(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(3)])
-            .unwrap(),
-    );
-    let mut scope = session.runtime_mut().host_scope(&[value]).unwrap();
+    let value = session
+        .runtime_mut()
+        .alloc_array(
+            &loaded,
+            Ty::Builtin(BuiltinType::I32),
+            &[RootedValue::from(3i32)],
+        )
+        .unwrap();
+    let mut scope = session
+        .runtime_mut()
+        .host_scope(std::slice::from_ref(&value))
+        .unwrap();
+    drop(value);
     scope
         .borrows()
         .borrow_unique(HostObjectId(1), TypeId::new(0))
@@ -432,7 +566,7 @@ fn quarantine_does_not_block_host_scope_cleanup() {
         })
         .unwrap();
     drop(stack_activation);
-    assert!(scope.retain_values(&[Value::I32(4)]).is_err());
+    assert!(scope.retain_values(&[ValueView::from(4i32)]).is_err());
     assert!(
         scope
             .borrows()
@@ -442,7 +576,7 @@ fn quarantine_does_not_block_host_scope_cleanup() {
 
     drop(scope);
     assert_eq!(session.host_scope_count(), 0);
-    assert_eq!(session.runtime().gc().active_roots(), 0);
+    assert_eq!(session.runtime().gc_stats().root_registrations, baseline);
     assert_eq!(
         session.runtime().resources().counters().current_call_depth,
         0
@@ -459,39 +593,71 @@ fn quarantine_does_not_block_host_scope_cleanup() {
 }
 
 #[test]
-fn callback_temporaries_survive_nested_collection_and_drop_on_error() {
-    let raw = Arc::new(Mutex::new(None));
-    let saved = raw.clone();
+fn callback_values_survive_collection_and_retire_at_their_own_boundaries() {
+    let observed = Arc::new(AtomicUsize::new(0));
+    let saved = observed.clone();
     let mut module = ModuleBuilder::new("game", &Default::default()).unwrap();
     let make = module
-        .define_function(FunctionDecl::new("make").host_policy(HostCallPolicy {
-            passing: vec![],
-            effects: HostFunctionEffects {
-                may_allocate: true,
-                may_trap: true,
-                ..Default::default()
-            },
-        }))
+        .define_function(
+            FunctionDecl::new("make")
+                .parameter("fail", Type::bool())
+                .returns(Type::array(Type::i32()).unwrap())
+                .host_policy(HostCallPolicy {
+                    passing: vec![HostPassingStyle::Owned],
+                    effects: HostFunctionEffects {
+                        may_allocate: true,
+                        may_trap: true,
+                        ..Default::default()
+                    },
+                }),
+        )
         .unwrap();
     module
         .bind(
             make,
-            move |context: &mut HostCallContext<'_>, _: &[Value]| {
-                let owner = context.runtime().execution_root().unwrap();
-                let value = Value::Array(
-                    context
-                        .runtime()
-                        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
-                        .unwrap(),
-                );
-                context
-                    .retain_temporaries(std::slice::from_ref(&value))
+            host::callback(
+                move |context: &mut HostCallContext<'_>, args: &[ValueView<'_>]| {
+                    let owner = context.runtime().execution_root().unwrap();
+                    let roots = context.runtime().gc_stats().root_registrations;
+                    let value = context
+                        .convert_value(&owner, |cx| {
+                            let element = cx.type_for::<i32>()?;
+                            cx.allocate_array(&element, &[ValueView::from(7i32)])
+                        })
+                        .unwrap();
+                    assert_eq!(context.runtime().gc_stats().root_registrations, roots);
+                    context.runtime_mut().collect_garbage().unwrap();
+                    {
+                        let Runtime {
+                            memory, resources, ..
+                        } = context.runtime_mut();
+                        memory.scope(resources, |cx, roots| {
+                            ExecutionRoots::with(roots, cx, |slots| {
+                                let value = value.get(slots)?;
+                                let object = slots
+                                    .scope()
+                                    .downcast::<ArrayObject>(value.object().unwrap())?;
+                                assert_eq!(slots.scope().read(object, ArrayObject::len), 1);
+                                assert_eq!(
+                                    ArrayObject::get(slots.scope(), object, 0)?
+                                        .scalar_payload()
+                                        .unwrap()
+                                        .1,
+                                    7
+                                );
+                                Ok(())
+                            })
+                        })
+                    }
                     .unwrap();
-                context.runtime_mut().collect_garbage().unwrap();
-                assert!(context.runtime().gc().validate_value(&value));
-                *saved.lock().unwrap() = Some(value);
-                Err(HostError::new("stop"))
-            },
+                    saved.fetch_add(1, Ordering::SeqCst);
+                    if args[0].as_bool() == Some(true) {
+                        Err(HostError::new("stop"))
+                    } else {
+                        Ok(value)
+                    }
+                },
+            ),
         )
         .unwrap();
     let module = module.finish().unwrap();
@@ -500,17 +666,47 @@ fn callback_temporaries_survive_nested_collection_and_drop_on_error() {
     module.install(&mut runtime).unwrap();
     let loaded_program = load_bytecode(&mut runtime, "temporaries", program).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     assert_eq!(
-        invoke(&mut runtime, &loaded, 0, &[]).unwrap_err().kind(),
+        invoke(&mut runtime, &loaded, 0, &[RootedValue::from(true)])
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::HostCallFailure
     );
-    assert_eq!(runtime.gc().active_roots(), 0);
-    runtime.collect_garbage().unwrap();
-    assert!(
-        !runtime
-            .gc()
-            .validate_value(raw.lock().unwrap().as_ref().unwrap())
+    assert_eq!(observed.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
     );
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
+    let value = invoke(&mut runtime, &loaded, 0, &[RootedValue::from(false)]).unwrap();
+    assert_eq!(observed.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations + 1
+    );
+    runtime.collect_garbage().unwrap();
+    runtime
+        .memory
+        .scope(&runtime.resources, |cx, _| {
+            let object = cx.downcast::<ArrayObject>(value.get(cx)?.object().unwrap())?;
+            assert_eq!(cx.read(object, ArrayObject::len), 1);
+            assert_eq!(
+                ArrayObject::get(cx, object, 0)?.scalar_payload().unwrap().1,
+                7
+            );
+            Ok(())
+        })
+        .unwrap();
+    drop(value);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
 }
 
 #[test]
@@ -524,13 +720,15 @@ fn host_callbacks_observe_replayable_root_inputs() {
     module
         .bind(
             sample,
-            move |context: &mut HostCallContext<'_>, _: &[Value]| {
-                captured.lock().unwrap().push((
-                    context.execution_time_millis().unwrap(),
-                    context.next_execution_random_u64().unwrap(),
-                ));
-                Ok(Value::Unit)
-            },
+            host::callback(
+                move |context: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
+                    captured.lock().unwrap().push((
+                        context.execution_time_millis().unwrap(),
+                        context.next_execution_random_u64().unwrap(),
+                    ));
+                    Ok(ValueView::unit())
+                },
+            ),
         )
         .unwrap();
     let module = module.finish().unwrap();
@@ -544,8 +742,8 @@ fn host_callbacks_observe_replayable_root_inputs() {
     options.inputs.random_seed = 52;
     for _ in 0..2 {
         let mut session = runtime.begin_execution(&loaded, options.clone()).unwrap();
-        invoke(session.runtime_mut(), &loaded, 0, &[]).unwrap();
-        invoke(session.runtime_mut(), &loaded, 0, &[]).unwrap();
+        let _ = invoke(session.runtime_mut(), &loaded, 0, &[]).unwrap();
+        let _ = invoke(session.runtime_mut(), &loaded, 0, &[]).unwrap();
         drop(session);
     }
     let records = observed.lock().unwrap();
@@ -575,24 +773,35 @@ fn host_trace_keeps_invocation_order_across_reentry() {
         ))
         .unwrap();
     builder
-        .bind(inner, |_: &mut HostCallContext<'_>, _: &[Value]| {
-            Ok(Value::I32(2))
-        })
+        .bind(
+            inner,
+            host::callback(|_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
+                Ok(ValueView::from(2))
+            }),
+        )
         .unwrap();
     builder
-        .bind(outer, |context: &mut HostCallContext<'_>, _: &[Value]| {
-            let owner = context.runtime().execution_root().unwrap();
-            assert_eq!(
-                invoke(context.runtime_mut(), &owner, 0, &[]).unwrap(),
-                Value::I32(2)
-            );
-            Ok(Value::I32(3))
-        })
+        .bind(
+            outer,
+            host::callback(|context: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
+                let owner = context.runtime().execution_root().unwrap();
+                assert_eq!(
+                    invoke(context.runtime_mut(), &owner, 0, &[])
+                        .unwrap()
+                        .as_i32(),
+                    Some(2)
+                );
+                Ok(ValueView::from(3))
+            }),
+        )
         .unwrap();
     builder
-        .bind(fail, |_: &mut HostCallContext<'_>, _: &[Value]| {
-            Err(HostError::new("expected failure"))
-        })
+        .bind(
+            fail,
+            host::callback(|_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
+                Err(HostError::new("expected failure"))
+            }),
+        )
         .unwrap();
     let declarations = builder.finish().unwrap();
     let program = free_function_program(&declarations.to_declaration());
@@ -605,8 +814,10 @@ fn host_trace_keeps_invocation_order_across_reentry() {
     options.inputs.unix_time_millis = 10;
     let mut session = runtime.begin_execution(&module, options).unwrap();
     assert_eq!(
-        invoke(session.runtime_mut(), &module, 1, &[]).unwrap(),
-        Value::I32(3)
+        invoke(session.runtime_mut(), &module, 1, &[])
+            .unwrap()
+            .as_i32(),
+        Some(3)
     );
     assert_eq!(
         invoke(session.runtime_mut(), &module, 2, &[])

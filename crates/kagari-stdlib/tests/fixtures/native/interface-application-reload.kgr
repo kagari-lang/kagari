@@ -1,0 +1,43 @@
+use example::interface_applications::collect;
+
+pub trait Read {
+    fn read(self) -> i32;
+}
+
+pub struct Key<T> {
+    pub val tag: T,
+    pub val value: i32
+}
+
+impl<T> Read for Key<T> {
+    fn read(self) -> i32 {
+        collect();
+        self.value
+    }
+}
+
+pub trait Invoke {
+    fn invoke<T: Read>(self, value: T) -> i32 {
+        value.read()
+    }
+}
+
+struct Worker {}
+
+impl Invoke for Worker {}
+
+pub fn make() -> Invoke {
+    Worker {}
+}
+
+pub fn key() -> Key<i32> {
+    Key { tag: 1, value: 42 }
+}
+
+pub fn wrong_key() -> Key<bool> {
+    Key { tag: true, value: 42 }
+}
+
+pub fn evidence(target: Invoke, value: Key<i32>) -> i32 {
+    target.invoke(value)
+}

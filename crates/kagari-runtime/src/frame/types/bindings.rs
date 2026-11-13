@@ -2,6 +2,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
+    execution_metadata::groups::{OperationGroupId, group::OperationGroup},
     frame::types::{EnvironmentRecord, arguments::TypeArgument, compatibility::TypeView},
     module::{
         ExecutableModule,
@@ -20,7 +21,11 @@ use kagari_types::{
         substitution::{normalize_projections, substitute_parameters},
     },
 };
-use std::{collections::BTreeMap, slice, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    slice,
+    sync::Arc,
+};
 
 /// Checked associated-type facts; contains no selected operation or environment.
 #[derive(Debug, Clone)]
@@ -93,12 +98,13 @@ impl EnvironmentRecord {
         runtime: &Runtime,
         selected: &SelectedTarget,
         mapping: &PublicationMapping,
+        groups: &HashMap<OperationGroupId, Arc<OperationGroup>>,
     ) -> Result<Self, RuntimeError> {
         Ok(Self {
             types: Arc::new(self.types.transported(runtime, selected, mapping)?),
             constructions: self.constructions.transported(runtime, selected)?,
             parent: self.parent,
-            operations: self.operations.transported(runtime, selected)?,
+            operations: self.operations.transported(runtime, selected, groups)?,
         })
     }
 }

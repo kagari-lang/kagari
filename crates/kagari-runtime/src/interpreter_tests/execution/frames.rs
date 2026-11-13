@@ -2,13 +2,13 @@ use super::*;
 use crate::error::RuntimeErrorKind;
 use crate::error::reason::ErrorReason;
 use crate::error::trap::TrapReason;
-use crate::module::entry::ProgramEntry;
+use crate::module::{entry::ProgramEntry, retention::RetentionOrigin};
 #[cfg(test)]
 use crate::test_support::bytecode::load_bytecode;
-use crate::value_semantics::script_equal;
 use crate::{
     execution::fixtures::FixtureExecution, interpreter_tests::common::test_runtime,
-    test_support::native::program::ProgramFixture,
+    native::conversion::context::ConversionContext, test_support::native::program::ProgramFixture,
+    value::carriers::RootedValue,
 };
 use kagari_bytecode::{
     instruction::{ConstantId, StructId},
@@ -36,9 +36,8 @@ fn foreign_loaded_module_is_rejected_before_execution() {
         vm.execute_module(&local, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(7)
+            .as_i32(),
+        Some(7)
     );
 }
 
@@ -53,11 +52,11 @@ fn executes_simple_arithmetic_function() {
         .expect("vm should execute");
 
     assert_eq!(
-        report
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(3)
+        ConversionContext::new(&mut vm, &loaded)
+            .unwrap()
+            .decode::<i32>(&report.return_value)
+            .unwrap(),
+        3
     );
     assert_eq!(vm.modules().retention_counts(loaded.key()).active_calls, 0);
 }
@@ -182,13 +181,7 @@ fn executes_if_control_flow() {
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
 
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(1)
-    );
+    assert_eq!(report.return_value.as_i32(), Some(1));
 }
 
 #[test]
@@ -206,13 +199,7 @@ fn main() -> i32 { callee() }
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
 
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(7)
-    );
+    assert_eq!(report.return_value.as_i32(), Some(7));
 }
 
 #[test]
@@ -227,13 +214,7 @@ fn deterministic_frames_keep_caller_and_callee_storage_isolated() {
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
 
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(12)
-    );
+    assert_eq!(report.return_value.as_i32(), Some(12));
     assert_eq!(vm.resources().counters().current_call_depth, 0);
 }
 
@@ -314,117 +295,106 @@ fn unreachable_instruction_is_a_script_trap() {
 
 #[test]
 fn executes_array_index_access() {
-    let (runtime, loaded) =
-        load_test_module("fn main() -> i32 { val values = [1, 2, 3]; values[1] }");
-    let _loaded_program = loaded;
-    let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let mut vm = runtime;
-    let report = vm
-        .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
-        .expect("vm should execute");
-
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(2)
-    );
+    let (mut runtime, installed) = load_test_module(include_str!(
+        "../../../tests/fixtures/execution/array-index.kgr"
+    ));
+    let loaded = runtime.select_program(&installed).unwrap();
+    let report = runtime
+        .execute_module(&loaded, ProgramEntry::Main, runtime.execution_options())
+        .unwrap();
+    let mut conversion = ConversionContext::new(&mut runtime, &loaded).unwrap();
+    assert_eq!(conversion.decode::<i32>(&report.return_value).unwrap(), 2);
 }
 
 #[test]
 fn executes_struct_field_access() {
-    let (runtime, loaded) = load_test_module(
-        r#"
-struct Point { var x: i32, var y: i32 }
-
-fn main() -> i32 {
-    val point = Point { x: 1, y: 2 };
-    point.y
-}
-"#,
-    );
-    let _loaded_program = loaded;
-    let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let mut vm = runtime;
-    let report = vm
-        .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
-        .expect("vm should execute");
-
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(2)
-    );
+    let (mut runtime, installed) = load_test_module(include_str!(
+        "../../../tests/fixtures/execution/struct-field.kgr"
+    ));
+    let loaded = runtime.select_program(&installed).unwrap();
+    let report = runtime
+        .execute_module(&loaded, ProgramEntry::Main, runtime.execution_options())
+        .unwrap();
+    let mut conversion = ConversionContext::new(&mut runtime, &loaded).unwrap();
+    assert_eq!(conversion.decode::<i32>(&report.return_value).unwrap(), 2);
 }
 
 #[test]
 fn executes_tuple_literal_return() {
-    let (runtime, loaded) = load_test_module("fn main() -> (bool, bool) { (true, false) }");
-    let _loaded_program = loaded;
-    let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let mut vm = runtime;
-    let report = vm
-        .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
-        .expect("vm should execute");
-
-    assert!(
-        script_equal(
-            vm.gc(),
-            &(report
-                .return_value
-                .value(vm.gc())
-                .expect("retained execution result")),
-            &(vm.gc()
-                .alloc_tuple(vec![Value::Bool(true), Value::Bool(false)])
-                .unwrap())
-        )
-        .unwrap()
+    let (mut runtime, installed) = load_test_module(include_str!(
+        "../../../tests/fixtures/execution/tuple-return.kgr"
+    ));
+    let loaded = runtime.select_program(&installed).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
+    let report = runtime
+        .execute_module(&loaded, ProgramEntry::Main, runtime.execution_options())
+        .unwrap();
+    runtime.collect_garbage().unwrap();
+    let mut conversion = ConversionContext::new(&mut runtime, &loaded).unwrap();
+    assert_eq!(
+        conversion
+            .decode::<(bool, bool)>(&report.return_value)
+            .unwrap(),
+        (true, false)
+    );
+    drop((conversion, report));
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
     );
 }
 
 #[test]
 fn executes_struct_literal_return() {
-    let (runtime, loaded) = load_test_module(
-        r#"
-struct Point { var x: i32, var y: i32 }
-
-fn main() -> Point {
-    Point { x: 1, y: 2 }
-}
-"#,
-    );
-    let _loaded_program = loaded;
-    let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let mut vm = runtime;
-    let report = vm
-        .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
-        .expect("vm should execute");
-
-    let Value::Struct(handle) = report
-        .return_value
-        .value(vm.gc())
-        .expect("retained execution result")
-    else {
-        panic!("expected struct return value");
-    };
+    let (mut runtime, installed) = load_test_module(include_str!(
+        "../../../tests/fixtures/execution/struct-return.kgr"
+    ));
+    let loaded = runtime.select_program(&installed).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
+    let report = runtime
+        .execute_module(&loaded, ProgramEntry::Main, runtime.execution_options())
+        .unwrap();
+    runtime.collect_garbage().unwrap();
+    let mut conversion = ConversionContext::new(&mut runtime, &loaded).unwrap();
+    let value = conversion.import(&report.return_value).unwrap();
+    let layout = conversion.struct_layout(&value).unwrap();
     assert_eq!(
-        vm.gc().struct_snapshot(handle),
-        Some((
-            "Point".to_owned(),
-            vec![
-                StructValueField {
-                    name: "x".to_owned(),
-                    value: Value::I32(1),
-                },
-                StructValueField {
-                    name: "y".to_owned(),
-                    value: Value::I32(2),
-                },
-            ],
-        ))
+        layout.layout().name(layout.module().definitions()),
+        Some("Point")
+    );
+    assert_eq!(
+        layout
+            .layout()
+            .fields
+            .iter()
+            .map(|field| field.name.as_str())
+            .collect::<Vec<_>>(),
+        ["x", "y"]
+    );
+    assert_eq!(
+        conversion
+            .struct_field(&value, &layout, 0)
+            .unwrap()
+            .as_i32(),
+        Some(1)
+    );
+    assert_eq!(
+        conversion
+            .struct_field(&value, &layout, 1)
+            .unwrap()
+            .as_i32(),
+        Some(2)
+    );
+    drop((conversion, report));
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
     );
 }
 
@@ -448,25 +418,28 @@ fn lazy_static_driver_enters_hidden_initializer_but_stores_cannot_initialize() {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = runtime;
+    let roots_before = vm.gc_stats().root_registrations;
     assert!(vm.execute_fixture(&loaded, FunctionRef::new(0)).is_err());
     assert!(
-        vm.write_module_slot(&loaded, ModuleSlot::new(0), Value::I32(9))
+        vm.write_module_slot(&loaded, ModuleSlot::new(0), &RootedValue::from(9i32))
             .is_err()
     );
     assert!(vm.read_module_slot(&loaded, ModuleSlot::new(0)).is_err());
     let result = vm.execute_fixture(&loaded, FunctionRef::new(1)).unwrap();
-    assert_eq!(result.return_value.value(vm.gc()), Some(Value::I32(7)));
+    assert_eq!(result.return_value.as_i32(), Some(7));
     drop(result);
-    vm.write_module_slot(&loaded, ModuleSlot::new(0), Value::I32(9))
+    vm.write_module_slot(&loaded, ModuleSlot::new(0), &RootedValue::from(9i32))
         .unwrap();
     assert_eq!(
-        vm.read_module_slot(&loaded, ModuleSlot::new(0)).unwrap(),
-        Value::I32(9)
+        vm.read_module_slot(&loaded, ModuleSlot::new(0))
+            .unwrap()
+            .as_i32(),
+        Some(9)
     );
     assert!(!vm.is_quarantined());
     assert!(vm.execution_root().is_none());
     assert_eq!(vm.resources().counters().current_call_depth, 0);
-    assert_eq!(vm.gc().active_roots(), 0);
+    assert_eq!(vm.gc_stats().root_registrations, roots_before);
 }
 
 #[test]
@@ -490,7 +463,11 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
     let _first_loaded_program = first_loaded;
     let first_loaded = runtime.select_program(&_first_loaded_program).unwrap();
     let retention = runtime
-        .retain_module(&first_loaded, ModuleEpochRetention::ActiveCall)
+        .retain_module(
+            &first_loaded,
+            ModuleEpochRetention::ActiveCall,
+            RetentionOrigin::Current,
+        )
         .unwrap();
 
     let second_loaded = runtime
@@ -514,10 +491,18 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
     runtime.publish_staged_reload(staged).unwrap();
     let _second_loaded_program = _first_loaded_program.clone();
 
+    runtime.collect_garbage().unwrap();
+    assert!(
+        runtime.modules().loaded(first_loaded.key()).is_some(),
+        "the actual retained old revision must remain reachable after reload"
+    );
+    assert!(runtime.modules().loaded(second_loaded.key()).is_some());
     assert_eq!(
-        runtime.collect_garbage().unwrap().reclaimed_modules,
-        Vec::new(),
-        "old active-call epoch must remain reachable after reload"
+        runtime
+            .modules()
+            .retention_counts(first_loaded.key())
+            .active_calls,
+        1
     );
 
     let mut vm = runtime;
@@ -533,27 +518,14 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
 
     assert_eq!(second_loaded.epoch, latest.epoch);
     assert_eq!(old_report.epoch, second_loaded.epoch.0);
-    assert_eq!(
-        old_report
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(2)
-    );
+    assert_eq!(old_report.return_value.as_i32(), Some(2));
     assert_eq!(latest_report.epoch, second_loaded.epoch.0);
-    assert_eq!(
-        latest_report
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(2)
-    );
+    assert_eq!(latest_report.return_value.as_i32(), Some(2));
 
     drop(retention);
-    assert_eq!(
-        vm.collect_garbage().unwrap().reclaimed_modules,
-        vec![first_loaded.key()]
-    );
+    vm.collect_garbage().unwrap();
+    assert!(vm.modules().loaded(first_loaded.key()).is_none());
+    assert!(vm.modules().loaded(second_loaded.key()).is_some());
 }
 
 #[test]

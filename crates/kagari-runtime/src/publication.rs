@@ -159,8 +159,9 @@ impl Runtime {
     /// Admit a host-top-level update before preparation or candidate effects.
     ///
     /// Rejects synchronous execution/driver scopes and another publication with
-    /// `ExecutionPhaseViolation`. Foreign/retired targets, native borrows and
-    /// closed/faulted runtimes retain their existing error categories.
+    /// `ExecutionPhaseViolation`. Foreign/retired targets and closed/faulted
+    /// runtimes retain their existing error categories. Scoped payload reads
+    /// must end before borrowing Runtime for publication.
     pub fn begin_publication(
         &mut self,
         target: &InstalledProgram,
@@ -192,7 +193,7 @@ impl Runtime {
         }
         self.resources().ensure_execution_allowed()?;
         self.ensure_scheduler_open()?;
-        self.gc().ensure_no_native_borrow()
+        self.resources().ensure_synchronous_thread()
     }
 }
 

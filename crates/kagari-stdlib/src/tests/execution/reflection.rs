@@ -1,28 +1,35 @@
 use crate::tests::execution::common::{compile_test_bytecode, load_bytecode_program};
-use kagari_runtime::{module::entry::ProgramEntry, value_semantics::script_equal};
+use kagari_runtime::{module::entry::ProgramEntry, native::conversion::context::ConversionContext};
 #[test]
 fn executes_source_lowered_type_of_helper() {
     let (runtime, loaded) = load_bytecode_program(
         "test.kgr",
-        compile_test_bytecode("fn main() -> String { type_of(7) }"),
+        compile_test_bytecode(include_str!(
+            "../../../tests/fixtures/execution/reflection-scalar-category.kgr"
+        )),
     );
     let program = loaded;
     let loaded = runtime.select_program(&program).unwrap();
     let mut vm = runtime;
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
 
-    assert!(
-        script_equal(
-            vm.gc(),
-            &(report
-                .return_value
-                .value(vm.gc())
-                .expect("retained execution result")),
-            &(vm.gc().alloc_string("i32".to_owned()).unwrap())
-        )
-        .unwrap()
+    assert_eq!(
+        ConversionContext::new(&mut vm, &loaded)
+            .unwrap()
+            .decode::<String>(&report.return_value)
+            .unwrap(),
+        "i32"
+    );
+    drop(report);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
     );
 }
 
@@ -30,39 +37,32 @@ fn executes_source_lowered_type_of_helper() {
 fn standard_collection_reflection_metadata_reports_runtime_categories() {
     let (runtime, loaded) = load_bytecode_program(
         "test.kgr",
-        compile_test_bytecode(
-            r#"use std::collections::{HashMap, HashSet};
-
-        fn main() -> (String, String) {
-            val map: HashMap<i32,i32> = HashMap::new();
-            val set: HashSet<i32> = HashSet::new();
-            (type_of(map), type_of(set))
-        }
-    "#,
-        ),
+        compile_test_bytecode(include_str!(
+            "../../../tests/fixtures/execution/reflection-collection-categories.kgr"
+        )),
     );
     let program = loaded;
     let loaded = runtime.select_program(&program).unwrap();
 
     let mut vm = runtime;
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let report = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("vm should execute");
 
-    assert!(
-        script_equal(
-            vm.gc(),
-            &(report
-                .return_value
-                .value(vm.gc())
-                .expect("retained execution result")),
-            &(vm.gc()
-                .alloc_tuple(vec![
-                    vm.gc().alloc_string("map".to_owned()).unwrap(),
-                    vm.gc().alloc_string("set".to_owned()).unwrap()
-                ])
-                .unwrap())
-        )
-        .unwrap()
+    assert_eq!(
+        ConversionContext::new(&mut vm, &loaded)
+            .unwrap()
+            .decode::<(String, String)>(&report.return_value)
+            .unwrap(),
+        ("map".to_owned(), "set".to_owned())
+    );
+    drop(report);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
     );
 }

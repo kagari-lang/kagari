@@ -5,7 +5,7 @@ use crate::{
     program::Program,
     test_support::cancellation as support,
 };
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
 
@@ -42,6 +42,8 @@ fn main()->i32 {Number{value:42}+1}
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     for entry in ["fail_add", "fail_index", "exhaust"] {
         let options = context.clone();
         let error = if entry == "exhaust" {
@@ -64,16 +66,17 @@ fn main()->i32 {Number{value:42}+1}
             "KG_RUNTIME_SCRIPT_TRAP"
         };
         assert_eq!(error.code(), expected, "{entry}: {error:?}");
-        assert_eq!(runtime.gc().active_roots(), 0);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc_stats().root_registrations, roots);
         assert!(!runtime.is_quarantined());
         assert_eq!(
             runtime
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+                .as_i32()
+                .unwrap(),
+            42
         );
     }
 }

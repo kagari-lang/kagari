@@ -16,21 +16,16 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-const SOURCE: &str = r#"
-    pub trait Read<T> { fn get(self) -> T; }
-    pub struct Holder<T> { pub var value: T }
-    impl<T> Read<T> for Holder<T> { fn get(self) -> T { self.value } }
-    pub fn make() -> Read<i32> { Holder { value: 42 } }
-    pub fn read(value: Read<i32>) -> i32 { value.get() }
-    pub fn read_string(value: Read<String>) -> String { value.get() }
-    pub fn wrap(value: Read<i32>) -> Option<Read<i32>> { Some(value) }
-"#;
+const SOURCE: &str =
+    include_str!("../../../../../tests/fixtures/native/interface-retained-handles.kgr");
 
 #[test]
 fn retained_interface_round_trips_preserve_application_and_aliases() {
     let (mut vm, owner) = fixture(SOURCE, None);
     let _owner_program = owner;
     let _owner = vm.select_program(&_owner_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let make = vm
         .bind_function::<(), Interface>(&_owner_program.root(), "make")
         .unwrap();
@@ -62,8 +57,12 @@ fn retained_interface_round_trips_preserve_application_and_aliases() {
     let value = vm.call(&make, ()).unwrap();
     assert!(foreign.call(&foreign_read, (value.clone(),)).is_err());
     drop(value);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(vm.gc().active_roots(), 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 struct IntList;
@@ -114,17 +113,13 @@ fn typed_native_interfaces_keep_readonly_views_and_survive_collection() {
     .unwrap();
     let module = builder.finish().unwrap();
     let (mut vm, owner) = fixture(
-        r#"
-        use example::interface_handles::retain;
-        use std::collections::{List, MutableList};
-        pub fn make() -> List<i32> { val value: List<i32> = Vec::from([42]); retain(value) }
-        pub fn read(value: List<i32>) -> i32 { value[0] }
-        pub fn write(value: MutableList<i32>) { value[0] = 0; }
-    "#,
+        include_str!("../../../../../tests/fixtures/native/interface-readonly-handles.kgr"),
         Some(&module),
     );
     let _owner_program = owner;
     let _owner = vm.select_program(&_owner_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let list: Interface<IntList> = vm
         .execute_typed(&_owner_program, "make", (), &Default::default())
         .unwrap();
@@ -161,7 +156,12 @@ fn typed_native_interfaces_keep_readonly_views_and_survive_collection() {
             .unwrap(),
         42
     );
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -172,6 +172,8 @@ fn retained_interfaces_select_current_dispatch_after_reload_and_thread_transfer(
     let (mut vm, old) = fixture_without_foundation(source, None);
     let _old_program = old;
     let old = vm.select_program(&_old_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let value: Interface = vm
         .execute_typed(&_old_program, "make", (), &Default::default())
         .unwrap();
@@ -207,20 +209,16 @@ fn retained_interfaces_select_current_dispatch_after_reload_and_thread_transfer(
                 .unwrap(),
             9
         );
-        assert!(
-            !vm.collect_garbage()
-                .unwrap()
-                .reclaimed_modules
-                .contains(&old.key())
-        );
+        vm.collect_garbage().unwrap();
+        assert!(vm.validate_executable_module(&old).is_ok());
         drop(alias);
-        assert!(
-            vm.collect_garbage()
-                .unwrap()
-                .reclaimed_modules
-                .contains(&old.key())
+        vm.collect_garbage().unwrap();
+        assert!(vm.validate_executable_module(&old).is_err());
+        assert_eq!(vm.gc_stats().objects, baseline.objects);
+        assert_eq!(
+            vm.gc_stats().root_registrations,
+            baseline.root_registrations
         );
-        assert_eq!(vm.gc().active_roots(), 0);
     })
     .join()
     .unwrap();

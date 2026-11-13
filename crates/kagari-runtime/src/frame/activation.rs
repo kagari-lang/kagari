@@ -54,7 +54,7 @@ impl<'runtime> ExecutionStack<'runtime> {
         if let Some(mut stack) = self.stack.take() {
             stack.retire(self.session.runtime);
         }
-        self.session.scope.retire(self.session.runtime.resources());
+        self.session.scope.retire(self.session.runtime);
         finish(self.session.runtime)
     }
 

@@ -1,7 +1,8 @@
-use super::{Fixture, Value, slice};
+use super::{Fixture, slice};
 use kagari_runtime::error::RuntimeErrorKind;
 use kagari_runtime::execution::owned::DriveResult;
-use kagari_runtime::{gc::roots::RootedValue, native::completion::CompletionStatus};
+use kagari_runtime::{native::completion::CompletionStatus, value::carriers::RootedValue};
+use std::slice as slices;
 use std::{num::NonZeroUsize, sync::atomic::Ordering};
 
 #[test]
@@ -12,19 +13,19 @@ fn sdk_owned_future_factory_contract() {
     let events = f.invoke("events", &[]);
     let start = |factory: &RootedValue, f: &mut Fixture| {
         f.runtime
-            .start_owned_factory(&f.value(factory), Default::default())
+            .start_owned_factory(factory, Default::default())
             .unwrap()
     };
     for (entry, expected) in [("ordinary", 1), ("explicit", 2)] {
-        let factory = f.invoke(entry, &[f.value(&events)]);
+        let factory = f.invoke(entry, slices::from_ref(&events));
         let owner = start(&factory, &mut f);
         drop(factory);
         assert_eq!(f.starts.load(Ordering::SeqCst), expected - 1);
         assert_eq!(
-            f.invoke("count", &[f.value(&events)])
-                .value(f.runtime.gc())
+            f.invoke("count", slices::from_ref(&events))
+                .as_u64()
                 .unwrap(),
-            Value::U64((expected - 1) as u64)
+            (expected - 1) as u64
         );
         let mut waited = false;
         for _ in 0..1000 {
@@ -45,33 +46,30 @@ fn sdk_owned_future_factory_contract() {
         assert!(waited);
         assert_eq!(f.starts.load(Ordering::SeqCst), expected);
         assert_eq!(
-            f.invoke("count", &[f.value(&events)])
-                .value(f.runtime.gc())
+            f.invoke("count", slices::from_ref(&events))
+                .as_u64()
                 .unwrap(),
-            Value::U64(expected as u64)
+            expected as u64
         );
         assert_eq!(
             f.sent.lock().unwrap().pop().unwrap().complete(Ok(42)),
             CompletionStatus::Accepted
         );
+        assert_eq!(f.complete(&owner).as_i32().unwrap(), 42);
         assert_eq!(
-            f.complete(&owner).value(f.runtime.gc()).unwrap(),
-            Value::I32(42)
-        );
-        assert_eq!(
-            f.invoke("count", &[f.value(&events)])
-                .value(f.runtime.gc())
+            f.invoke("count", slices::from_ref(&events))
+                .as_u64()
                 .unwrap(),
-            Value::U64(expected as u64)
+            expected as u64
         );
     }
     let wrong = f.invoke("wrong", &[]);
     assert!(
         f.runtime
-            .start_owned_factory(&f.value(&wrong), Default::default())
+            .start_owned_factory(&wrong, Default::default())
             .is_err()
     );
-    let factory = f.invoke("trapped", &[f.value(&events)]);
+    let factory = f.invoke("trapped", slices::from_ref(&events));
     let owner = start(&factory, &mut f);
     assert!(matches!(
         f.runtime.drive(&owner, slice()).unwrap(),
@@ -79,10 +77,10 @@ fn sdk_owned_future_factory_contract() {
     ));
     assert_eq!(f.starts.load(Ordering::SeqCst), 2);
     assert_eq!(
-        f.invoke("count", &[f.value(&events)])
-            .value(f.runtime.gc())
+        f.invoke("count", slices::from_ref(&events))
+            .as_u64()
             .unwrap(),
-        Value::U64(3)
+        3
     );
     let owner = start(&factory, &mut f);
     owner.cancel();
@@ -91,10 +89,10 @@ fn sdk_owned_future_factory_contract() {
         DriveResult::Complete(Err(error)) if matches!(error.clone(), ref error if error.kind() == RuntimeErrorKind::Cancelled)
     ));
     assert_eq!(
-        f.invoke("count", &[f.value(&events)])
-            .value(f.runtime.gc())
+        f.invoke("count", slices::from_ref(&events))
+            .as_u64()
             .unwrap(),
-        Value::U64(3)
+        3
     );
 
     let factory = f.invoke("captured", &[]);
@@ -112,10 +110,7 @@ fn sdk_owned_future_factory_contract() {
         f.sent.lock().unwrap().pop().unwrap().complete(Ok(9)),
         CompletionStatus::Accepted
     );
-    assert_eq!(
-        f.complete(&first).value(f.runtime.gc()).unwrap(),
-        Value::I32(9)
-    );
+    assert_eq!(f.complete(&first).as_i32().unwrap(), 9);
     let factory = f.invoke("nested", &[]);
     let execution = start(&factory, &mut f);
     let inner = f.complete(&execution);
@@ -134,29 +129,23 @@ fn sdk_owned_future_factory_contract() {
         f.sent.lock().unwrap().pop().unwrap().complete(Ok(8)),
         CompletionStatus::Accepted
     );
-    assert_eq!(
-        f.complete(&owner).value(f.runtime.gc()).unwrap(),
-        Value::I32(8)
-    );
+    assert_eq!(f.complete(&owner).as_i32().unwrap(), 8);
     let events = f.invoke("events", &[]);
-    let factory = f.invoke("reentry", &[f.value(&events)]);
+    let factory = f.invoke("reentry", slices::from_ref(&events));
     let owner = start(&factory, &mut f);
     assert!(matches!(
         f.runtime.drive(&owner, slice()).unwrap(),
         DriveResult::Waiting
     ));
     assert_eq!(
-        f.invoke("count", &[f.value(&events)])
-            .value(f.runtime.gc())
+        f.invoke("count", slices::from_ref(&events))
+            .as_u64()
             .unwrap(),
-        Value::U64(3)
+        3
     );
     assert_eq!(
         f.sent.lock().unwrap().pop().unwrap().complete(Ok(5)),
         CompletionStatus::Accepted
     );
-    assert_eq!(
-        f.complete(&owner).value(f.runtime.gc()).unwrap(),
-        Value::I32(5)
-    );
+    assert_eq!(f.complete(&owner).as_i32().unwrap(), 5);
 }

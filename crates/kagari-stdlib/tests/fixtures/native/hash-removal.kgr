@@ -1,0 +1,34 @@
+use std::collections::{ HashMap };
+
+use std::hash::{ Hash };
+
+use test::roots::retain;
+
+struct Key {
+    val calls: Vec<i32>,
+    val number: i32
+}
+
+impl PartialEq for Key {
+    fn eq(self, other: Key) -> bool {
+        self.number == other.number
+    }
+}
+
+impl Eq for Key {}
+
+impl Hash for Key {
+    fn hash(self) -> i64 {
+        self.calls[0] = self.calls[0] + 1;
+        7
+    }
+}
+
+fn main() -> i32 {
+    val key = Key { calls: Vec::from([0]), number: 1 };
+    val map: HashMap<Key, i32> = HashMap::new();
+    map.insert(key, 42);
+    retain(map);
+    map.remove(key);
+    key.calls[0]
+}

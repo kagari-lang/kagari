@@ -7,8 +7,9 @@ use crate::{
     execution::{ExecutionReport, JitExecutionReport, JitExecutionStatus},
     executor::Executor,
     module::{ExecutableModule, InstalledProgram, entry::ProgramEntry},
+    native::conversion::arguments::ArgumentValues,
     session::{ExecutionOptions, SessionScope},
-    value::Value,
+    value::carriers::RootedValue,
 };
 
 use kagari_abi::native::BackendId;
@@ -51,7 +52,7 @@ impl Runtime {
         &mut self,
         program: &InstalledProgram,
         entry: impl Into<ProgramEntry<'a>>,
-        args: &[Value],
+        args: &[RootedValue],
         context: &ExecutionContext,
         prepared: &PreparedNativeEntry,
     ) -> Result<ExecutionReport, RuntimeError> {
@@ -159,15 +160,13 @@ impl Runtime {
         let (return_value, status, artifact) = match native {
             Some(value) => (value, JitExecutionStatus::Native, artifact),
             None => (
-                Executor::new(self, module, function, &[])?.run()?,
+                Executor::new(self, module, function, ArgumentValues::scalars(&[]))?
+                    .run(|runtime, stack, value| stack.retain_result(runtime, value))?,
                 JitExecutionStatus::InterpreterFallback,
                 None,
             ),
         };
         let failure = self.result_failure(&return_value);
-        let return_value = self
-            .root_value(return_value)
-            .ok_or_else(|| RuntimeError::module_validation("execution result root"))?;
         Ok(ExecutionReport {
             module_name: module.name.clone(),
             epoch: module.epoch.0,

@@ -1,0 +1,9 @@
+use std::collections::{ HashMap, HashSet };
+
+fn main() ->(u64, bool, u64, bool) {
+    val map: HashMap<String, i32> = HashMap::new();
+    map.insert("k", 7);
+    val set: HashSet<String> = HashSet::new();
+    set.insert("k");
+    (map.len(), map.contains_key("k"), map.len(), set.contains("k"))
+}

@@ -12,7 +12,7 @@ use kagari_runtime::{
         typed::NativeContext,
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 
 use crate::declarations::StandardDeclarations;
@@ -40,11 +40,11 @@ impl KagariType for Packet {
 }
 
 impl IntoKagari for Packet {
-    fn into_kagari(
+    fn into_kagari<'call>(
         self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ValueView<'call>> {
         let mut fields = cx.write_struct(expected)?;
         fields.field("hp", self.hp)?;
         fields.field("shared", self.shared)?;
@@ -56,7 +56,7 @@ impl FromKagari for Packet {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
         let mut fields = cx.read_struct(expected, value)?;
         Ok(Self {
@@ -120,23 +120,22 @@ fn nominal_dtos_use_typed_callbacks_while_explicit_handles_keep_shared_identity(
         )
         .unwrap();
     let (mut vm, owner) = source_free_vm(
-        r#"
-        use example::dto::{Packet, update, shared, len};
-        pub fn main() -> (i32, i32, u64) {
-            val input = Packet { hp: 7, shared: shared() };
-            val output = update(input);
-            (input.hp, output.hp, len(input.shared))
-        }
-        "#,
+        include_str!("../../../../../tests/fixtures/native/conversion-packet-identity.kgr"),
         &module.finish().unwrap(),
     );
     let _owner_program = owner;
     let _owner = vm.select_program(&_owner_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     assert_eq!(
         vm.execute_typed::<_, (i32, i32, usize)>(&_owner_program, "main", (), &Default::default())
             .unwrap(),
         (7, 8, 2)
     );
-    assert_eq!(vm.gc().active_roots(), 0);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }

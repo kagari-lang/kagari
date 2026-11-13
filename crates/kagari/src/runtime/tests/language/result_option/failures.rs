@@ -4,7 +4,7 @@ use crate::{
     program::Program,
     test_support::cancellation as support,
 };
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
 
@@ -43,6 +43,8 @@ pub fn after() -> i32 { 42 }
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     let error = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap_err();
@@ -58,16 +60,17 @@ pub fn after() -> i32 { 42 }
             .iter()
             .any(|frame| frame.function_name.contains("from"))
     );
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
     runtime.collect_garbage().unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, "after", &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
 }
 
@@ -94,6 +97,8 @@ pub fn after()->i32 { 42 }
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     let error = runtime
         .execute(
             &loaded,
@@ -103,7 +108,8 @@ pub fn after()->i32 { 42 }
         )
         .unwrap_err();
     assert!(format!("{error:?}").contains("division by zero"));
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
     let limited = ExecutionContext::default();
     let selected = runtime.select_program(&loaded).unwrap();
     let mut cancellation = support::cancel_after(&mut runtime, &selected, 1);
@@ -116,7 +122,8 @@ pub fn after()->i32 { 42 }
             .code(),
         "KG_RUNTIME_CANCELLED"
     );
-    assert_eq!(cancellation.runtime().gc().active_roots(), 0);
+    cancellation.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(cancellation.runtime().gc_stats().root_registrations, roots);
     drop(cancellation);
     let cancelled = ExecutionContext::default();
     cancelled.cancellation.cancel();
@@ -127,15 +134,16 @@ pub fn after()->i32 { 42 }
             .code(),
         "KG_RUNTIME_CANCELLED"
     );
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
     assert_eq!(
         runtime
             .execute(&loaded, "after", &[], &ExecutionContext::default())
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
     assert!(!runtime.is_quarantined());
 }

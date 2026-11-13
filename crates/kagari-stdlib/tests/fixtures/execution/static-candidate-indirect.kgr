@@ -1,0 +1,25 @@
+static var count: i32 = 0;
+
+static val cold: i32 = 7;
+
+pub fn tick() -> i32 {
+    count += 1;
+    count
+}
+
+pub fn indirect_write() -> i32 {
+    val action: fn() -> i32 = || {
+        count += 1;
+        count
+    };
+    action()
+}
+
+pub fn indirect_read() -> i32 {
+    val action: fn() -> i32 = || cold;
+    action()
+}
+
+pub fn indirect_added() -> i32 {
+    0
+}

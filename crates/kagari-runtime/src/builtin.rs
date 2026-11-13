@@ -1,8 +1,12 @@
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind, context::ErrorLocation, trap::TrapReason},
+    error::{
+        RuntimeError, RuntimeErrorKind, context::ErrorLocation, reason::ErrorReason,
+        trap::TrapReason,
+    },
     module::ExecutableModule,
-    value::Value,
+    native::conversion::{arguments::ArgumentValues, context::ConversionContext},
+    value::place::{PublishedResult, ResultPlace},
 };
 pub mod standard;
 
@@ -41,13 +45,52 @@ impl From<RuntimeError> for BuiltinError {
     }
 }
 
-pub fn invoke_standard(
-    runtime: &Runtime,
+pub fn invoke_standard<'result>(
+    runtime: &mut Runtime,
     owner: &ExecutableModule,
     intrinsic: RuntimePrimitive,
-    args: &[Value],
-) -> Result<Value, BuiltinError> {
-    standard::invoke(runtime, owner, intrinsic, args).map_err(|err| err.with_context(intrinsic))
+    args: ArgumentValues<'_>,
+    destination: ResultPlace<'result>,
+) -> Result<PublishedResult<'result>, BuiltinError> {
+    runtime
+        .resources()
+        .poll_execution()
+        .map_err(|error| attach_error(runtime, error, intrinsic))?;
+    let mut conversion = ConversionContext::new(runtime, owner)
+        .map_err(|error| BuiltinError::from(error).with_context(intrinsic))?;
+    invoke_in(&mut conversion, intrinsic, args.reborrow(), destination)
+}
+
+/// Caller-selected execution keeps its real lexical/body origin through builtin
+/// construction. Host entry above supplies its own explicit conversion owner.
+pub(crate) fn invoke_in<'call, 'result>(
+    conversion: &mut ConversionContext<'call>,
+    intrinsic: RuntimePrimitive,
+    args: ArgumentValues<'call>,
+    destination: ResultPlace<'result>,
+) -> Result<PublishedResult<'result>, BuiltinError> {
+    let result = (|| {
+        conversion.poll()?;
+        let result = standard::invoke(conversion, intrinsic, args);
+        // Post-call termination precedes a business failure; completed effects remain.
+        conversion.poll()?;
+        let value = result?;
+        destination.publish(conversion.runtime_mut(), &value)
+    })();
+    result.map_err(|error| attach_error(conversion.runtime(), error, intrinsic))
+}
+
+fn attach_error(
+    runtime: &Runtime,
+    error: RuntimeError,
+    intrinsic: RuntimePrimitive,
+) -> BuiltinError {
+    let error = if let ErrorReason::EngineFault(reason) = error.reason() {
+        runtime.resources().quarantine(*reason)
+    } else {
+        error.admit_execution_error(runtime.resources())
+    };
+    BuiltinError::from(error).with_context(intrinsic)
 }
 
 #[cfg(test)]

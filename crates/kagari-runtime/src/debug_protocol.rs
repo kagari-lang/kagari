@@ -5,7 +5,7 @@ use crate::{
         SourceBreakpoint,
     },
     error::{RuntimeError, fault::EngineFault},
-    value::Value,
+    value::carriers::RootedValue,
 };
 
 use std::cell::{Ref, RefMut};
@@ -58,7 +58,7 @@ pub enum DebugAdapterRequest {
     FlushEvents,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum DebugAdapterResponse {
     Attached {
         capabilities: DebugAdapterCapabilities,
@@ -70,14 +70,14 @@ pub enum DebugAdapterResponse {
     PauseRequested,
     StepConfigured,
     WatchValue {
-        value: Value,
+        value: RootedValue,
     },
     EventsFlushed {
         emitted: usize,
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum DebugAdapterEvent {
     Attached {
         capabilities: DebugAdapterCapabilities,
@@ -95,7 +95,7 @@ pub trait DebugAdapterEventSink {
     fn emit(&mut self, event: DebugAdapterEvent);
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone)]
 pub struct RecordingDebugAdapterSink {
     events: Vec<DebugAdapterEvent>,
 }
@@ -194,13 +194,14 @@ impl<S: DebugAdapterEventSink> DebugProtocolAdapter<S> {
                 frame_id,
                 watch,
             } => {
-                let value = session(vm)?
+                let pause = session(vm)?
                     .pauses()
                     .get(pause_index)
                     .ok_or(RuntimeError::from(EngineFault::HostInvariant(
                         "debug_pause_index",
                     )))?
-                    .evaluate_watch(vm, frame_id, &watch)?;
+                    .clone();
+                let value = pause.evaluate_watch(vm, frame_id, &watch)?;
                 Ok(DebugAdapterResponse::WatchValue { value })
             }
             DebugAdapterRequest::FlushEvents => {

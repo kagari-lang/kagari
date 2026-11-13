@@ -6,7 +6,7 @@ use crate::{
 };
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_runtime::execution::{JitExecutionStatus, native::PreparedNativeEntry};
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::module::entry::ProgramEntry;
 
 #[test]
 fn math_body_is_rejected_before_native_entry_then_runs_in_interpreter_fallback() {
@@ -25,6 +25,8 @@ fn math_body_is_rejected_before_native_entry_then_runs_in_interpreter_fallback()
     let loaded = runtime
         .load_program(program.program(), Default::default())
         .unwrap();
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     let mut backend = CraneliftBackend::for_host().unwrap();
     let prepared = NativeCompiler::default()
         .prepare(
@@ -53,12 +55,14 @@ fn math_body_is_rejected_before_native_entry_then_runs_in_interpreter_fallback()
     assert_eq!(jit.status, JitExecutionStatus::InterpreterFallback);
     assert!(jit.artifact.is_none(), "fallback is not native execution");
     assert_eq!(&jit.diagnostics, diagnostics);
-    let Value::F64(value) = report.return_value.value(runtime.gc()).unwrap() else {
-        panic!("math fallback must return f64");
-    };
+    let value = report
+        .return_value
+        .as_f64()
+        .expect("math fallback must return f64");
     assert_eq!(value.to_bits(), 0.0_f64.to_bits());
     drop(report);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     assert!(!runtime.is_quarantined());
 }

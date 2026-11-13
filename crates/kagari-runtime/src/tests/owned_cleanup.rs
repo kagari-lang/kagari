@@ -4,6 +4,7 @@ use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
+    execution::roots::{ExecutionRoots, ValueLocation},
     frame::{ExecutionStack, types::arguments::TypeArgument},
     module::{ExecutableModule, InstalledProgram},
     native::{
@@ -23,7 +24,7 @@ use crate::{
         invoke::invoke,
         program::{ProgramFixture, free_function_program},
     },
-    value::Value,
+    value::{carriers::RootedValue, strings::StringObject, view::ValueView},
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
@@ -36,6 +37,7 @@ use kagari_bytecode::{
 };
 use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
 use kagari_contract::{ids::FunctionRef, types::PublicItem};
+use kagari_gc::error::GcError;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
@@ -68,11 +70,11 @@ impl KagariType for Reply {
 }
 
 impl IntoKagari for Reply {
-    fn into_kagari(
+    fn into_kagari<'call>(
         self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ValueView<'call>> {
         self.probe.converted.fetch_add(1, Ordering::SeqCst);
         cx.encode_value(expected, 7_i32)
     }
@@ -144,12 +146,12 @@ fn owned_initializer_unwind_releases_session_and_cancellation_owner_immediately(
         owner.unwrap().upgrade().is_none(),
         "owner and its two cancellation subscriptions must be released"
     );
-    assert_eq!(
-        f.runtime.resources().frame_values.borrow().active_windows(),
-        0
-    );
+    assert!(matches!(
+        f.runtime.memory.inspect_scalar(id, 0),
+        Err(GcError::Index)
+    ));
     assert_eq!(f.runtime.resources().counters().current_call_depth, 0);
-    assert_eq!(f.runtime.gc().active_roots(), 0);
+    assert_eq!(f.runtime.gc_stats().root_registrations, f.roots);
     external.cancel();
     assert!(f.runtime.check_scheduler_health().is_ok());
 }
@@ -160,6 +162,8 @@ struct Fixture {
     module: ExecutableModule,
     request: usize,
     probe: Arc<Probe>,
+    roots: usize,
+    saved: Vec<ValueLocation>,
 }
 
 impl Fixture {
@@ -208,7 +212,7 @@ impl Fixture {
                     Codec::Exact(Type::unit()),
                     move |_| {
                         continuation.continued.fetch_add(1, Ordering::SeqCst);
-                        Ok(Value::Unit)
+                        Ok(ValueView::unit())
                     },
                 ),
             )
@@ -323,16 +327,20 @@ impl Fixture {
         )
         .unwrap();
         let module = runtime.select_program(&module_program).unwrap();
+        runtime.collect_garbage().unwrap();
+        let roots = runtime.gc_stats().root_registrations;
         Self {
             runtime,
             program: module_program,
             module,
             request,
             probe,
+            roots,
+            saved: Vec::new(),
         }
     }
 
-    fn park(&mut self, index: i32) -> (OwnedExecution, Value) {
+    fn park(&mut self, index: i32) -> (OwnedExecution, ValueLocation) {
         self.park_after_poll(index, |_| {})
     }
 
@@ -340,19 +348,17 @@ impl Fixture {
         &mut self,
         index: i32,
         after_poll: impl FnOnce(&OwnedExecution),
-    ) -> (OwnedExecution, Value) {
+    ) -> (OwnedExecution, ValueLocation) {
         let future = invoke(
             &mut self.runtime,
             &self.module,
             self.request,
-            &[Value::I32(index)],
+            &[RootedValue::from(index)],
         )
         .unwrap();
-        let future_root = self.runtime.root_value(future).unwrap();
-        let saved = self
-            .runtime
-            .gc()
-            .alloc_string(format!("live parked frame {index}"))
+        let saved = ConversionContext::new(&mut self.runtime, &self.module)
+            .unwrap()
+            .encode(format!("live parked frame {index}"))
             .unwrap();
         let owner = self
             .runtime
@@ -363,10 +369,18 @@ impl Fixture {
                 Default::default(),
             )
             .unwrap();
-        drop(future_root);
+        // The argument array temporary has dropped both Host roots. The frame
+        // is now the only owner of its saved String and Future.
         let mut stack_activation = self.runtime.resume_owned_execution(&owner).unwrap();
-        stack_activation
+        let saved = stack_activation
             .with(|runtime, stack| {
+                let saved = stack
+                    .current(runtime)
+                    .unwrap()
+                    .read_slot(runtime, Slot::new(1))
+                    .unwrap()
+                    .location()
+                    .unwrap();
                 let I::Await { dst, value, future } = stack
                     .current_mut(runtime)
                     .unwrap()
@@ -375,23 +389,20 @@ impl Fixture {
                 else {
                     panic!("fixture starts with await");
                 };
-                let value = stack
-                    .current(runtime)
-                    .unwrap()
-                    .read_slot(runtime, value)
-                    .unwrap();
                 stack.begin_await(runtime, value, dst, &future).unwrap();
                 assert!(matches!(stack.poll_await(runtime).unwrap(), Poll::Pending));
                 assert_eq!(runtime.resources().counters().current_call_depth, 1);
                 after_poll(&owner);
-                Ok(())
+                Ok(saved)
             })
             .unwrap();
         ExecutionStack::park_waiting(&mut Some(stack_activation)).unwrap();
         self.runtime.collect_garbage().unwrap();
-        assert!(
-            self.runtime.gc().validate_value(&saved),
-            "only the parked frame retains this string"
+        self.assert_saved(saved, index);
+        self.saved.push(saved);
+        assert_eq!(
+            self.runtime.gc_stats().root_registrations,
+            self.roots + self.registry().active_count()
         );
         assert_eq!(
             self.runtime
@@ -404,6 +415,19 @@ impl Fixture {
             1
         );
         (owner, saved)
+    }
+
+    fn assert_saved(&mut self, saved: ValueLocation, index: i32) {
+        let expected = format!("live parked frame {index}");
+        self.runtime
+            .memory
+            .scope(&self.runtime.resources, |cx, roots| {
+                ExecutionRoots::with(roots, cx, |slots| {
+                    let value = slots.get(saved)?;
+                    StringObject::read(slots.scope(), value, |text| assert_eq!(text, expected))
+                })
+            })
+            .unwrap();
     }
 
     fn registry(&self) -> CompletionRegistry {
@@ -421,15 +445,22 @@ impl Fixture {
     }
 
     fn assert_released(&self, registry: &CompletionRegistry) {
-        assert_eq!(self.runtime.gc().active_roots(), 0);
+        // Quarantine forbids collector service. Each dropped TypedPending queues
+        // its cold source's root-release notification; registered slots are drained
+        // only by later GC service or shutdown. Execution sources expire now.
         assert_eq!(
-            self.runtime
-                .resources()
-                .frame_values
-                .borrow()
-                .active_windows(),
-            0
+            self.runtime.gc_stats().root_registrations,
+            self.roots + self.saved.len()
         );
+        for &saved in &self.saved {
+            assert!(
+                matches!(
+                    self.runtime.memory.inspect_value(saved),
+                    Err(GcError::Index)
+                ),
+                "the original parked source must expire after retirement"
+            );
+        }
         assert_eq!(self.runtime.resources().counters().current_call_depth, 0);
         assert!(self.runtime.resources().active_session().is_none());
         assert_eq!(registry.active_count(), 0);
@@ -508,7 +539,7 @@ fn publication_queues_completions_without_polling_a_parked_future() {
     assert_eq!(f.probe.converted.load(Ordering::SeqCst), 0);
     assert_eq!(f.probe.continued.load(Ordering::SeqCst), 0);
     assert_eq!(f.probe.cancelled[0].load(Ordering::SeqCst), 0);
-    assert!(guard.runtime().gc().validate_value(&saved));
+    assert!(guard.runtime().memory.inspect_value(saved).is_ok());
     let candidate = guard
         .stage_reload_verified_program(None, f.module.verified_program().clone())
         .unwrap();
@@ -551,12 +582,18 @@ fn owned_retirement_drains_all_parked_roots_after_payload_drop_fault() {
     let registry = f.registry();
     let completions = f.take_completions();
     assert_eq!(registry.active_count(), 2);
-    assert_eq!(
-        f.runtime.resources().frame_values.borrow().active_windows(),
-        2
-    );
-    assert!(f.runtime.gc().validate_value(&first_saved));
-    assert!(f.runtime.gc().validate_value(&second_saved));
+    for (saved, index) in [(first_saved, 0), (second_saved, 1)] {
+        assert_eq!(
+            f.runtime
+                .resources()
+                .sessions
+                .frames(saved.execution)
+                .unwrap()
+                .len(),
+            1
+        );
+        f.assert_saved(saved, index);
+    }
     assert_eq!(
         completions[0].complete(Ok(Reply {
             probe: f.probe.clone(),
@@ -613,12 +650,18 @@ fn owned_retirement_drains_all_parked_roots_after_control_waker_drop_fault() {
     first.set_waker(&waker);
     drop(waker);
     assert_eq!(registry.active_count(), 2);
-    assert_eq!(
-        f.runtime.resources().frame_values.borrow().active_windows(),
-        2
-    );
-    assert!(f.runtime.gc().validate_value(&first_saved));
-    assert!(f.runtime.gc().validate_value(&second_saved));
+    for (saved, index) in [(first_saved, 0), (second_saved, 1)] {
+        assert_eq!(
+            f.runtime
+                .resources()
+                .sessions
+                .frames(saved.execution)
+                .unwrap()
+                .len(),
+            1
+        );
+        f.assert_saved(saved, index);
+    }
     drop(first);
     // Notifications are harmless; only retirement owns the last control-waker reference.
     assert_eq!(dropped.load(Ordering::SeqCst), 0);

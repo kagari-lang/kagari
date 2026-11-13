@@ -1,0 +1,19 @@
+struct Source {
+    var done: bool
+}
+
+impl Iterator for Source {
+    type Item = i32;
+    fn next(self) -> Option<i32> {
+        if self.done {
+            None
+        } else {
+            self.done = true;
+            Some(42)
+        }
+    }
+}
+
+pub fn make() -> Iterator<Item = i32> {
+    Source { done: false }.map(|item| item)
+}

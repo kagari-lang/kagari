@@ -1,0 +1,14 @@
+use test::boundary;
+
+use host;
+
+fn main() -> i32 {
+    boundary::choose(
+        true,
+        || {
+            host::log("effect");
+            val n = 2147483647;
+            n + 1
+        }
+    )
+}

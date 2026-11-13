@@ -86,7 +86,7 @@ impl Runtime {
     /// quarantined and do not prevent retiring other owners. Repeated close is safe.
     pub fn close(&mut self) -> NativeResult<()> {
         self.require_idle_driver()?;
-        self.gc().ensure_no_native_borrow()?;
+        self.resources.ensure_synchronous_thread()?;
         if self.scheduler.driving {
             return Err(RuntimeError::module_validation(
                 "close during scheduler turn",
@@ -98,8 +98,10 @@ impl Runtime {
         }
         // Mark teardown before callbacks: a reentrant close cannot repeat it.
         self.scheduler.closed = true;
-        self.modules().retire_installations();
-        let mut failure = self.check_scheduler_fault().err();
+        let mut failure = self.retire_installations().err();
+        if let Err(error) = self.check_scheduler_fault() {
+            failure.get_or_insert(error);
+        }
         let controls = self
             .tasks
             .scopes

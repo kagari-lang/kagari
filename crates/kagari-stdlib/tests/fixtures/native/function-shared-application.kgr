@@ -1,0 +1,26 @@
+use example::generic_helper::identity;
+
+trait Forward {
+    fn forward<T>(self, value: T) -> T {
+        identity(value)
+    }
+}
+
+impl Forward for i32 {}
+
+pub fn evidence() -> i32 {
+    identity(42)
+}
+
+pub fn shared() -> i32 {
+    val forward: Forward = 0;
+    forward.forward(7)
+}
+
+pub fn echo(f: fn(i32) -> i32) -> fn(i32) -> i32 {
+    f
+}
+
+pub fn invoke(f: fn(i32) -> i32) -> i32 {
+    f(43)
+}

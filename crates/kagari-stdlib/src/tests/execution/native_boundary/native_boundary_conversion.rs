@@ -14,8 +14,8 @@ use crate::{
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind},
+    execution::memory::GcHeapConfig,
     frame::types::arguments::TypeArgument,
-    gc::{GcHeapConfig, roots::RootedValue},
     module::{InstalledProgram, entry::ProgramEntry},
     native::{
         binding::{Codec, NativeBinding, NativeResult},
@@ -32,8 +32,7 @@ use kagari_runtime::{
         typed::NativeContext,
         types::Type,
     },
-    value::Value,
-    value_semantics::script_equal,
+    value::{carriers::RootedValue, view::ValueView},
 };
 
 use kagari_common::{
@@ -56,10 +55,14 @@ fn conversion_limits_terminate_only_active_sessions_and_release_scratch_roots() 
     .unwrap()
     .finish()
     .unwrap();
-    let (mut vm, owner) = source_free_vm("pub fn main() {}", &module);
+    let (mut vm, owner) = source_free_vm(
+        include_str!("../../../../tests/fixtures/native/typed-empty-entry.kgr"),
+        &module,
+    );
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
     let runtime = &mut vm;
+    let baseline = runtime.gc_stats();
     let input = ConversionContext::new(runtime, &owner)
         .unwrap()
         .encode(("a".to_owned(), "b".to_owned()))
@@ -80,7 +83,8 @@ fn conversion_limits_terminate_only_active_sessions_and_release_scratch_roots() 
     ] {
         for active in [false, true] {
             for decode in [false, true] {
-                let roots = runtime.gc().active_roots();
+                runtime.collect_garbage().unwrap();
+                let roots = runtime.gc_stats().root_registrations;
                 let run = |runtime: &mut Runtime| {
                     let error = {
                         let mut cx =
@@ -90,7 +94,7 @@ fn conversion_limits_terminate_only_active_sessions_and_release_scratch_roots() 
                         } else {
                             cx.encode(("a".to_owned(), "b".to_owned())).unwrap_err()
                         };
-                        assert_eq!(cx.runtime().gc().active_roots(), roots);
+                        assert_eq!(cx.runtime().gc_stats().root_registrations, roots);
                         error
                     };
                     assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
@@ -115,16 +119,20 @@ fn conversion_limits_terminate_only_active_sessions_and_release_scratch_roots() 
                     .unwrap()
                     .encode(7i32)
                     .unwrap();
-                assert_eq!(value.value(runtime.gc()), Some(Value::I32(7)));
+                assert_eq!(value.as_i32(), Some(7));
                 drop(value);
-                assert_eq!(runtime.gc().active_roots(), roots);
+                assert_eq!(runtime.gc_stats().root_registrations, roots);
                 assert_eq!(runtime.resources().counters().current_call_depth, 0);
             }
         }
     }
     drop(input);
-    assert_eq!(runtime.gc().active_roots(), 0);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
 }
 
 #[test]
@@ -135,15 +143,13 @@ fn script_objects_cross_typed_entries_without_exposing_heap_ids() {
         .finish()
         .unwrap();
     let (mut vm, loaded) = source_free_vm(
-        r#"
-        pub struct Player { pub var hp: i32 }
-        pub fn make() -> Player { Player { hp: 100 } }
-        pub fn damage(player: Player, damage: i32) -> i32 { player.hp -= damage; player.hp }
-    "#,
+        include_str!("../../../../tests/fixtures/native/typed-object-entries.kgr"),
         &module,
     );
     let _loaded_program = loaded;
     let loaded = vm.select_program(&_loaded_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let player: Object = vm
         .execute_typed(&_loaded_program, "make", (), &Default::default())
         .unwrap();
@@ -174,7 +180,8 @@ fn script_objects_cross_typed_entries_without_exposing_heap_ids() {
         40
     );
     drop(player);
-    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
+    cx.collect_garbage().unwrap();
+    assert_eq!(cx.runtime().gc_stats().objects, baseline.objects);
 }
 
 #[test]
@@ -203,19 +210,11 @@ fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments()
     impl FromKagari for Label {
         fn from_kagari(
             cx: &mut ConversionContext<'_>,
-            _: &TypeArgument,
-            value: &Value,
+            expected: &TypeArgument,
+            value: &ValueView<'_>,
         ) -> NativeResult<Self> {
-            let Value::Enum(id) = value else {
-                return Err(RuntimeError::module_validation("Label receiver"));
-            };
-            let payload = cx
-                .runtime()
-                .gc()
-                .enum_snapshot(*id)
-                .ok_or_else(|| RuntimeError::module_validation("Label payload"))?;
-            let ty = cx.type_for::<String>()?;
-            cx.decode_value(&ty, &payload.fields[0]).map(Self)
+            let (text,): (String,) = cx.decode_variant(expected, value, "Text")?;
+            Ok(Self(text))
         }
     }
     let catalog = StandardDeclarations::default().catalog().unwrap();
@@ -249,10 +248,7 @@ fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments()
         .unwrap();
     let module = module.finish().unwrap();
     let (mut vm, loaded) = source_free_vm(
-        r#"
-        use example::typed::Label;
-        fn main() -> String { Label::Text("雪").append(("🌱", "!")) }
-    "#,
+        include_str!("../../../../tests/fixtures/native/typed-label-receiver.kgr"),
         &module,
     );
     let _loaded_program = loaded;
@@ -261,13 +257,12 @@ fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments()
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .unwrap()
         .return_value;
-    assert!(
-        script_equal(
-            vm.gc(),
-            &result.value(vm.gc()).expect("retained execution result"),
-            &(vm.gc().alloc_string("雪🌱!".into()).unwrap())
-        )
-        .unwrap()
+    assert_eq!(
+        ConversionContext::new(&mut vm, &loaded)
+            .unwrap()
+            .decode::<String>(&result)
+            .unwrap(),
+        "雪🌱!"
     );
 }
 
@@ -284,6 +279,7 @@ fn source_free_vm(source: &str, module: &NativeModule) -> (Runtime, InstalledPro
     NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
     module.install(&mut runtime).unwrap();
     let loaded = load_bytecode(&mut runtime, "typed-native", program).unwrap();
+    runtime.collect_garbage().unwrap();
     (runtime, loaded)
 }
 
@@ -357,27 +353,27 @@ fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loadin
     .unwrap();
     let module = module.finish().unwrap();
     let (mut vm, loaded) = source_free_vm(
-        r#"
-        use example::typed::{wrap, inspect};
-        fn main() -> i32 {
-            val values = Some(("雪", "🌱"));
-            inspect(wrap(values)) + inspect(wrap(None))
-        }
-    "#,
+        include_str!("../../../../tests/fixtures/native/typed-business-results.kgr"),
         &module,
     );
     let _loaded_program = loaded;
     let loaded = vm.select_program(&_loaded_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     assert_eq!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
     publish_unused_version(&mut vm, &_loaded_program);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -397,7 +393,9 @@ fn typed_concrete_result_uses_the_compiler_selected_interface_adapter() {
                 methods.bind(
                     "len",
                     NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::u64()), |cx| {
-                        cx.with_payload::<FieldCount, _>(0, |fields| Ok(Value::U64(fields.len)))
+                        cx.with_payload::<FieldCount, _>(0, |fields| {
+                            Ok(ValueView::from(fields.len))
+                        })
                     }),
                 )
             })
@@ -453,12 +451,12 @@ fn failed_output_preserves_callback_effects_and_traps_release_conversion_roots()
     }
 
     impl IntoKagari for Invalid {
-        fn into_kagari(
+        fn into_kagari<'call>(
             self,
-            _: &mut ConversionContext<'_>,
+            _: &mut ConversionContext<'call>,
             _: &TypeArgument,
-        ) -> NativeResult<Value> {
-            Ok(Value::Bool(true))
+        ) -> NativeResult<ValueView<'call>> {
+            Ok(ValueView::from(true))
         }
     }
     let catalog = StandardDeclarations::default().catalog().unwrap();
@@ -497,16 +495,13 @@ fn failed_output_preserves_callback_effects_and_traps_release_conversion_roots()
     .unwrap();
     let module = module.finish().unwrap();
     let (mut vm, loaded) = source_free_vm(
-        r#"
-        use example::typed::{broken, trap};
-        fn main() -> i32 { broken() }
-        pub fn fails() { trap(); }
-        pub fn healthy() -> i32 { 42 }
-    "#,
+        include_str!("../../../../tests/fixtures/native/typed-invalid-output.kgr"),
         &module,
     );
     let _loaded_program = loaded;
     let loaded = vm.select_program(&_loaded_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     assert!(
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .is_err()
@@ -520,11 +515,15 @@ fn failed_output_preserves_callback_effects_and_traps_release_conversion_roots()
         vm.execute_module(&loaded, "healthy", vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -539,15 +538,13 @@ fn typed_host_entries_convert_composites_and_retain_returned_handles() {
 
     impl FromKagari for RetainedTuple {
         const PRESERVES_IDENTITY: bool = true;
+
         fn from_kagari(
             cx: &mut ConversionContext<'_>,
             _: &TypeArgument,
-            value: &Value,
+            value: &ValueView<'_>,
         ) -> NativeResult<Self> {
-            cx.runtime()
-                .root_value(*value)
-                .map(Self)
-                .ok_or_else(|| RuntimeError::module_validation("retained array result"))
+            cx.retain(value).map(Self)
         }
     }
     let module = ModuleBuilder::new(
@@ -558,16 +555,13 @@ fn typed_host_entries_convert_composites_and_retain_returned_handles() {
     .finish()
     .unwrap();
     let (mut vm, loaded) = source_free_vm(
-        r#"
-        pub fn echo(value: Result<Option<((String, i32),)>, String>) -> Result<Option<((String, i32),)>, String> { value }
-        pub fn retain(value: (i32, i32)) -> (i32, i32) { value }
-        pub fn tuple(value: (i32, i32)) -> (i32, i32) { value }
-        pub fn unit() {}
-    "#,
+        include_str!("../../../../tests/fixtures/native/typed-host-composites.kgr"),
         &module,
     );
     let _loaded_program = loaded;
     let _loaded = vm.select_program(&_loaded_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     type Data = Result<Option<((String, i32),)>, String>;
     for value in [
         Ok(Some((("雪".into(), 42),))),
@@ -594,15 +588,20 @@ fn typed_host_entries_convert_composites_and_retain_returned_handles() {
         .execute_typed(&_loaded_program, "retain", ((20, 22),), &Default::default())
         .unwrap();
     vm.collect_garbage().unwrap();
-    let Value::Tuple(id) = retained.0.value(vm.gc()).unwrap() else {
-        panic!("array")
-    };
     assert_eq!(
-        vm.gc().tuple(id).unwrap().get(1).copied(),
-        Some(Value::I32(22))
+        ConversionContext::new(&mut vm, &_loaded)
+            .unwrap()
+            .decode::<(i32, i32)>(&retained.0)
+            .unwrap(),
+        (20, 22)
     );
     drop(retained);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -619,7 +618,7 @@ fn typed_entry_signature_rejection_precedes_effects_and_data_failure_preserves_t
         fn from_kagari(
             _: &mut ConversionContext<'_>,
             _: &TypeArgument,
-            _: &Value,
+            _: &ValueView<'_>,
         ) -> NativeResult<Self> {
             Err(RuntimeError::module_validation(
                 "data-dependent output rejection",
@@ -648,14 +647,13 @@ fn typed_entry_signature_rejection_precedes_effects_and_data_failure_preserves_t
     .unwrap();
     let module = module.finish().unwrap();
     let (mut vm, loaded) = source_free_vm(
-        r#"
-        use example::typed::effect;
-        pub fn run(value: i32) -> i32 { effect(); value }
-    "#,
+        include_str!("../../../../tests/fixtures/native/typed-output-effects.kgr"),
         &module,
     );
     let _loaded_program = loaded;
     let _loaded = vm.select_program(&_loaded_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     assert!(
         vm.execute_typed::<_, String>(&_loaded_program, "run", (42i32,), &Default::default())
             .is_err()
@@ -680,7 +678,12 @@ fn typed_entry_signature_rejection_precedes_effects_and_data_failure_preserves_t
         42
     );
     assert_eq!(effects.load(Ordering::SeqCst), 2);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -693,14 +696,13 @@ fn moving_a_result_out_of_its_report_keeps_it_rooted_without_manual_registration
     .finish()
     .unwrap();
     let (mut vm, loaded) = source_free_vm(
-        r#"
-        pub fn make() -> [i32] { [42] }
-        pub fn idle() {}
-    "#,
+        include_str!("../../../../tests/fixtures/native/typed-report-result.kgr"),
         &module,
     );
     let _loaded_program = loaded;
     let loaded = vm.select_program(&_loaded_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let result = vm
         .execute_module(&loaded, "make", vm.execution_options())
         .unwrap()
@@ -710,14 +712,32 @@ fn moving_a_result_out_of_its_report_keeps_it_rooted_without_manual_registration
     vm.execute_module(&loaded, "idle", vm.execution_options())
         .unwrap();
     vm.collect_garbage().unwrap();
-    let Value::Array(id) = clone.value(vm.gc()).unwrap() else {
-        panic!("array result")
-    };
-    assert_eq!(vm.gc().array_get(id, 0), Some(Value::I32(42)));
-    let other = Runtime::default();
-    assert!(clone.value(other.gc()).is_none());
+    {
+        let mut cx = ConversionContext::new(&mut vm, &loaded).unwrap();
+        let array = cx.import(&clone).unwrap();
+        assert_eq!(cx.array_len(&array).unwrap(), 1);
+        assert_eq!(
+            cx.array_element(&array, 0).unwrap().unwrap().as_i32(),
+            Some(42)
+        );
+    }
+    let mut other = Runtime::default();
+    assert_eq!(
+        other
+            .host_scope(std::slice::from_ref(&clone))
+            .err()
+            .unwrap()
+            .kind(),
+        RuntimeErrorKind::ModuleValidation
+    );
+    assert!(!other.is_quarantined());
     drop(clone);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -752,11 +772,13 @@ fn native_collect_polls_between_iterator_steps_and_releases_the_failed_call() {
     .unwrap();
     let module = module.finish().unwrap();
     let (mut vm, loaded) = source_free_vm(
-        "use example::typed::gather; fn main() -> i32 { gather() } pub fn healthy() -> i32 { 42 }",
+        include_str!("../../../../tests/fixtures/native/typed-native-collect.kgr"),
         &module,
     );
     let _loaded_program = loaded;
     let loaded = vm.select_program(&_loaded_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let mut options = vm.execution_options();
     options.cancellation = cancellation;
     let mut session = vm.begin_execution(&loaded, options).unwrap();
@@ -775,5 +797,10 @@ fn native_collect_polls_between_iterator_steps_and_releases_the_failed_call() {
             .unwrap(),
         42
     );
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }

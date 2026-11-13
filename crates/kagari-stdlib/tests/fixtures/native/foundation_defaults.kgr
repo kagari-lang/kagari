@@ -1,0 +1,23 @@
+use std::collections::{ HashMap, HashSet };
+
+fn main() -> i32 {
+    val values = Vec::new();
+    values.push(20);
+    values.push(22);
+    val map = HashMap::new();
+    map.insert(1, values[0]);
+    map.insert(2, values[1]);
+    val set = HashSet::new();
+    set.insert(1);
+    set.insert(1);
+    if values.len() == (2 as u64) && map.len() == (2 as u64) && set.len() == (1 as u64) &&
+        map.contains_key(2) {
+        var total = 0;
+        for value in values {
+            total = total + value;
+        }
+        total
+    } else {
+        0
+    }
+}

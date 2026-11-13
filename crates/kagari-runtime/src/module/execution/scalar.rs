@@ -1,9 +1,9 @@
 //! Select complete scalar operations and input shapes from verified code once.
 use crate::{
     module::execution::{
-        ScalarSlot,
         instruction::ExecutionInstruction,
         layout::{FrameLayout, scalar_type},
+        operands::ScalarSlot,
     },
     numeric::binary_operation,
 };

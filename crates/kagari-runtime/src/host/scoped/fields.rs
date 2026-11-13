@@ -5,13 +5,16 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::{arguments::TypeArgument, compatibility::TypeView},
-    gc::roots::RootSet,
     host::{HostBorrowTable, scoped::ScopedHostView},
     module::{ExecutableModule, StructLayoutRef},
     native::{
         binding::NativeResult, conversion::context::ConversionContext, projection::GeneratedField,
     },
-    value::{EphemeralValue, Value},
+    value::{
+        EphemeralValue,
+        place::{PublishedResult, ResultPlace},
+        view::ValueView,
+    },
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::{reference::ReferenceAccess, ty::Ty};
@@ -82,22 +85,21 @@ impl HostBorrowTable {
 }
 
 impl Runtime {
-    pub(crate) fn read_scoped_field(
+    pub(crate) fn read_scoped_field<'result>(
         &mut self,
         view: ScopedHostView,
         layout: &StructLayoutRef,
         slot: usize,
         access: ReferenceAccess,
-    ) -> NativeResult<RootSet> {
+        destination: ResultPlace<'result>,
+    ) -> NativeResult<PublishedResult<'result>> {
         let field = self.host_borrows.field(self, view, layout, slot, access)?;
         let mut child = self.host_borrows.project_field(self, view, &field)?;
         child.access = access.field_access(layout.layout().fields[slot].mutable);
         if matches!(field.target.ty(), Ty::Struct(_)) {
-            let value = self.gc().alloc_ephemeral(EphemeralValue::HostView(child))?;
-            return self
-                .gc()
-                .root_execution_values(vec![value])
-                .ok_or_else(super::invalid);
+            let mut cx = ConversionContext::new(self, &field.owner)?;
+            let value = cx.allocate_ephemeral(EphemeralValue::HostView(child))?;
+            return destination.publish(cx.runtime_mut(), &value);
         }
         if !matches!(field.target.ty(), Ty::Builtin(_) | Ty::NativeObject(_)) {
             return Err(RuntimeError::module_validation(
@@ -112,10 +114,7 @@ impl Runtime {
                 // this generated reader. Its output owns no borrowed Rust reference.
                 let value = unsafe { (field.projector.snapshot)(pointer, &mut cx, &field.target) }?;
                 cx.check_value(&field.target, &value)?;
-                cx.runtime()
-                    .gc()
-                    .root_execution_values(vec![value])
-                    .ok_or_else(super::invalid)
+                destination.publish(cx.runtime_mut(), &value)
             },
         )
     }
@@ -125,7 +124,7 @@ impl Runtime {
         view: ScopedHostView,
         layout: &StructLayoutRef,
         slot: usize,
-        value: Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<()> {
         let field = self
             .host_borrows
@@ -140,7 +139,7 @@ impl Runtime {
         // reference; the inert path resolves against the current root afterward.
         let decoded = {
             let mut cx = ConversionContext::new(self, &field.owner)?;
-            (field.projector.decode)(&mut cx, &field.target, &value)?
+            (field.projector.decode)(&mut cx, &field.target, value)?
         };
         let displaced = self.with_host_loans(
             [(child, field.projector.target, ReferenceAccess::Mutable)],

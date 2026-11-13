@@ -2,22 +2,22 @@ use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::update_programs::load_empty as load;
 use crate::{
     Runtime, StagedReload,
-    closure::{ClosureTarget, ClosureValueSnapshot},
+    closure::ClosureMode,
     error::{RuntimeError, RuntimeErrorKind},
+    execution::roots::ExecutionRoots,
     frame::{ExecutionFrame, ExecutionStack},
-    gc::arrays::ArrayPayload,
     host::HostCallContext,
-    module::{ExecutableModule, InstalledProgram},
+    module::{ExecutableModule, InstalledProgram, managed::source::RevisionSource},
     native::{
-        builder::ModuleBuilder, callable::PreparedClosure, declarations::FunctionDecl,
-        module::NativeModule,
+        builder::ModuleBuilder, conversion::context::ConversionContext, declarations::FunctionDecl,
+        host::callback, module::NativeModule,
     },
-    session::{ExecutionEvent, ExecutionObserver},
+    session::{ExecutionEntry, ExecutionEvent, ExecutionObserver},
     test_support::native::{
         invoke::invoke,
         program::{ProgramFixture, free_function_program},
     },
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
@@ -28,11 +28,12 @@ use kagari_bytecode::{
     program::ModuleRef,
 };
 use kagari_contract::ids::FunctionRef;
-use kagari_types::{
-    declaration::host::{HostCallPolicy, HostFunctionEffects},
-    scalar::BuiltinType,
-    ty::Ty,
+use kagari_gc::{
+    error::GcError,
+    object::GcObject,
+    scan::{EdgeVisitor, ScanBudget, ScanKind, ScanStatus},
 };
+use kagari_types::declaration::host::{HostCallPolicy, HostFunctionEffects};
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     sync::{
@@ -76,17 +77,19 @@ fn publication_counts_nested_and_hidden_sessions_not_just_the_visible_root() {
         .admit_execution(
             &module,
             Default::default(),
-            crate::session::ExecutionEntry::Program,
+            ExecutionEntry::Program,
+            RevisionSource::Current,
         )
         .unwrap();
     let mut nested = runtime
         .admit_execution(
             &module,
             Default::default(),
-            crate::session::ExecutionEntry::Program,
+            ExecutionEntry::Program,
+            RevisionSource::Current,
         )
         .unwrap();
-    outer.retire(runtime.resources());
+    outer.retire(&mut runtime);
     rejected(&runtime);
 
     // Candidate entry temporarily hides the ordinary session; neither identity
@@ -99,7 +102,7 @@ fn publication_counts_nested_and_hidden_sessions_not_just_the_visible_root() {
     let hidden = runtime.resources().replace_session(None);
     rejected(&runtime);
     runtime.resources().replace_session(hidden);
-    nested.retire(runtime.resources());
+    nested.retire(&mut runtime);
     runtime.publish_staged_reload(candidate).unwrap();
     assert_ne!(runtime.select_program(&target).unwrap().key(), module.key());
     assert!(!runtime.is_quarantined());
@@ -229,19 +232,27 @@ fn publication_allows_parked_frames_but_excludes_resume_and_scheduler_turns() {
     let mut runtime = Runtime::default();
     let target = parked_program(&mut runtime);
     let module = runtime.select_program(&target).unwrap();
-    let closure = Value::Closure(
-        runtime
-            .gc()
-            .alloc_closure(ClosureValueSnapshot {
-                environment: None,
-                implementation: module.clone(),
-                target: ClosureTarget::Script(FunctionRef::new(0)),
-                captures: vec![],
+    let closure_root = {
+        let mut cx = ConversionContext::new(&mut runtime, &module).unwrap();
+        let value = cx
+            .allocate_script_closure(FunctionRef::new(0), &[], None, ClosureMode::Retained)
+            .unwrap();
+        cx.retain(&value).unwrap()
+    };
+    // This source retains an already selected computation without a synchronous
+    // activation. Like parked frame storage, it does not bar publication itself.
+    let execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let location = runtime
+        .memory
+        .scope(&runtime.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                let value = closure_root.get(slots.scope())?;
+                slots.push_local(execution, value)
             })
-            .unwrap(),
-    );
-    let closure_root = runtime.root_value(closure).unwrap();
-    let closure = PreparedClosure::from_value(&runtime, closure).unwrap();
+        })
+        .unwrap();
+    let value = runtime.memory.inspect_value(location).unwrap();
+    let closure = runtime.select_closure_call(execution, &value).unwrap();
     let owner = runtime
         .start_owned_execution(&module, FunctionRef::new(0), &[], Default::default())
         .unwrap();
@@ -291,7 +302,14 @@ fn publication_allows_parked_frames_but_excludes_resume_and_scheduler_turns() {
         })
         .unwrap();
     drop(closure_stack_activation);
-    assert!(closure_root.value(runtime.gc()).is_some());
+    assert_eq!(
+        runtime
+            .resolve_closure(&value)
+            .unwrap()
+            .implementation
+            .key(),
+        module.key(),
+    );
     let mut activation = Some(runtime.resume_owned_execution(&owner).unwrap());
 
     activation
@@ -315,11 +333,43 @@ fn publication_allows_parked_frames_but_excludes_resume_and_scheduler_turns() {
     drop(turn);
     drop(runtime.begin_publication(&target).unwrap());
     runtime.finish_owned_execution(&owner).unwrap();
+    drop(closure);
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, execution)
+        .unwrap();
+    drop(closure_root);
     runtime.close().unwrap();
 }
 
+struct DisposalProbe(Arc<AtomicUsize>);
+
+impl Drop for DisposalProbe {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+// SAFETY: the owned diagnostic Arc has no managed edge or separate backing
+// charge. Its destructor increments only an inert external counter.
+unsafe impl GcObject for DisposalProbe {
+    type ScanState = ();
+    const SCAN_KIND: ScanKind = ScanKind::EdgeFree;
+
+    fn begin_scan(&self) {}
+
+    fn scan(
+        &self,
+        _: &mut (),
+        _: &mut ScanBudget,
+        _: &mut EdgeVisitor<'_>,
+    ) -> Result<ScanStatus, GcError> {
+        Ok(ScanStatus::Complete)
+    }
+}
+
 #[test]
-fn publication_rechecks_native_borrows_and_rejects_foreign_targets() {
+fn publication_rejects_foreign_targets_and_staging_defers_disposal() {
     let mut runtime = Runtime::default();
     let target = load(&mut runtime, "same-label");
     let mut foreign = Runtime::default();
@@ -333,16 +383,15 @@ fn publication_rechecks_native_borrows_and_rejects_foreign_targets() {
         RuntimeErrorKind::StaleHandle
     );
     let module = runtime.select_program(&target).unwrap();
-    let array = runtime
-        .alloc_array(&module, Ty::Builtin(BuiltinType::Unit), vec![])
-        .unwrap();
+    let drops = Arc::new(AtomicUsize::new(0));
     runtime
-        .gc()
-        .with_native::<ArrayPayload, _>(array, |_| {
-            assert_eq!(
-                runtime.check_initial_publication().err().unwrap().kind(),
-                RuntimeErrorKind::ModuleValidation
-            );
+        .memory
+        .scope(&runtime.resources, |cx, _| {
+            // SAFETY: this edge-free provider owns only its inert counter. No handle
+            // escapes the scope; the unrooted object stays eligible for collection.
+            unsafe {
+                cx.alloc_with(|_| Ok(DisposalProbe(drops.clone())))?;
+            }
             Ok(())
         })
         .unwrap();
@@ -350,32 +399,18 @@ fn publication_rechecks_native_borrows_and_rejects_foreign_targets() {
     let candidate = guard
         .stage_reload_verified_program(None, module.verified_program().clone())
         .unwrap();
-    guard
-        .runtime()
-        .gc()
-        .with_native::<ArrayPayload, _>(array, |_| {
-            assert_eq!(
-                guard.permit.recheck(guard.runtime()).unwrap_err().kind(),
-                RuntimeErrorKind::ModuleValidation
-            );
-            Ok(())
-        })
-        .unwrap();
-    drop(candidate);
-    drop(guard);
-    assert_eq!(runtime.select_program(&target).unwrap().key(), module.key());
-    let mut guard = runtime.begin_publication(&target).unwrap();
-    let candidate = guard
-        .stage_reload_verified_program(None, module.verified_program().clone())
-        .unwrap();
-    assert!(
-        guard.runtime().gc().array_len(array).is_some(),
+    guard.permit.recheck(guard.runtime()).unwrap();
+    assert_eq!(
+        drops.load(Ordering::SeqCst),
+        0,
         "metadata staging must defer collection and host destruction"
     );
     drop(candidate);
     drop(guard);
+    assert_eq!(runtime.select_program(&target).unwrap().key(), module.key());
+    assert_eq!(drops.load(Ordering::SeqCst), 0);
     runtime.collect_garbage().unwrap();
-    assert!(runtime.gc().array_len(array).is_none());
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
     assert!(!runtime.is_quarantined());
 }
 
@@ -432,7 +467,7 @@ fn publication_is_rejected_inside_observers_and_native_callbacks() {
     builder
         .bind(
             function,
-            move |cx: &mut HostCallContext<'_>, _: &[Value]| {
+            callback(move |cx: &mut HostCallContext<'_>, _| {
                 rejected(cx.runtime());
                 assert_eq!(
                     NativeModule::install_all(&[], cx.runtime_mut())
@@ -442,8 +477,8 @@ fn publication_is_rejected_inside_observers_and_native_callbacks() {
                 );
                 drop(candidate.lock().unwrap().take().unwrap());
                 callback_calls.fetch_add(1, Ordering::SeqCst);
-                Ok(Value::Unit)
-            },
+                Ok(ValueView::unit())
+            }),
         )
         .unwrap();
     let native = builder.finish().unwrap();
@@ -462,10 +497,10 @@ fn publication_is_rejected_inside_observers_and_native_callbacks() {
         .unwrap();
     session.runtime().attach_execution_observer().unwrap();
     session
-        .runtime()
+        .runtime_mut()
         .observe_execution(ExecutionEvent::BeforeInstruction)
         .unwrap();
-    invoke(session.runtime_mut(), &caller, 0, &[]).unwrap();
+    let _ = invoke(session.runtime_mut(), &caller, 0, &[]).unwrap();
     drop(session);
     assert_eq!(calls.load(Ordering::SeqCst), 3);
     drop(runtime.begin_publication(&target).unwrap());

@@ -1,0 +1,21 @@
+trait Tag {
+    fn tag(self) -> i32;
+}
+
+impl Tag for i32 {
+    fn tag(self) -> i32 {
+        helper() + self
+    }
+}
+
+fn helper() -> i32 {
+    1
+}
+
+fn read(value: Tag) -> i32 {
+    value.tag()
+}
+
+fn main() -> i32 {
+    read(7)
+}

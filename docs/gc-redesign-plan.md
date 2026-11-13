@@ -2,7 +2,12 @@
 
 The standalone library implements typed Rust and fixed dynamic objects, scoped
 access, host roots, direct execution-root adapters and incremental collection.
-Runtime still uses its existing collector. This document owns the remaining GC
+RR03's coordinated Runtime heap-owner/consumer cutover is complete locally.
+Default workspace all-target Clippy and selected diagnostic/AOT/serde/JIT consumers
+build/lint. Actual Runtime source/provider/cycle/reentry/failure proofs and
+committed resource/session/diagnostic observations have selected passing evidence.
+RR04 execution-space work, RR05 measured acceptance and required CI remain open;
+local phase exit is not full integrated acceptance. This document owns the remaining GC
 acceptance register and inherited measurements. The
 [Runtime execution plan](runtime-refactor-plan.md#order-and-build-boundaries) is the
 single coordinated implementation sequence and maps RR phases to the GCR groups
@@ -21,9 +26,404 @@ IDs, language typing, execution policy, hot reload and code selection stay in
 Runtime; host Rust state stays outside the script heap.
 
 The standalone implementation is usable without language crates. Runtime cutover
-and arbitrary erased providers remain deferred. Native payload extraction is
-selected for removal in the Runtime/Host refactor, not implementation in the new GC;
-its current API remains until that coordinated migration.
+has completed its selected local RR03 acceptance; full CI and measured acceptance remain pending. RR03 has
+removed Native payload extraction and its invalidation-identity storage from
+Runtime, rather than implementing extraction in the new GC.
+The new fixed-array storage kernel also owns compact primitive buffers and traced
+StoredValue cells, with scoped preparation and publish-before-commit bulk mutation.
+Its three focused native and strict-provenance Miri tests pass; actual Runtime
+array/nominal/Native acceptance remains incomplete in RR03.
+RangeValue now uses the edge-free provider directly and scoped range/Bound
+operations consume actual providers. Its existing scalar-domain witness passes
+natively and under strict-provenance Miri; Runtime and Bound metadata regressions
+still await selected integration runs, not a separate GC acceptance queue.
+Native identity and concrete payload providers now share ordinary typed GC edges;
+NativePayload selects registration instead of tracing old Value IDs. Fixed-data
+and managed-field paths are moved to scoped services. One fixed-data error/panic
+and cleanup witness passes natively and under strict-provenance Miri. Actual Native
+argument/loan/factory/result, callable/Future/Task and cycle acceptance remain open
+in the same RR03 build window; no integrated acceptance follows from that kernel.
+Closed physical edge inspection now reuses each provider's scanner through a
+read-only EdgeVisitor mode, with caller-owned reusable scratch and no marking/root
+mutation. Runtime Task/group output and cold Future/capture/park admission use it
+for actual transitive data,
+including unknown private payload fields and mutable aliases. Scoped graph-owner
+coverage and integrated Task/capture/queue scenarios are separate acceptance:
+standalone inspector and marking regressions can pass while Runtime remains
+non-building. Candidate allocations now carry Runtime-only immutable birth facts,
+and the same physical walk applies candidate-specific mutable ownership and
+Future/Task/scope rejection. Direct payload access and successful candidate output
+also recheck their actual providers. The GC has no semantic owner table or new
+root registration for this policy. Origin backing and traversal costs remain
+unmeasured. Candidate/async integration, remaining consumers and publication
+regressions remain RR03 obligations; this is not candidate-policy acceptance.
+Parking now submits frame ranges in control/data order through one closed walk,
+then checks auxiliary roots/dependencies. Runtime contains provider-scanner panics
+at its data-inspection boundary before error/quarantine admission. One actual
+Native-scratch integration case passes independent owned parking, collection,
+retirement and resumed result reclamation. The migrated private-alias/order/panic
+unit witnesses now pass, alongside selected data-walk, owned cleanup, publication,
+static initialization and interface/application regressions. These default Runtime
+samples do not close complete consumer acceptance, collector-phase failure proofs,
+Miri or performance gates. See the
+[RR03 parking evidence and limits](runtime-refactor-plan.md#rr03-owned-parking-order-and-provider-fault-containment).
+Closure and ordinary function factories now hand captures/converted arguments to
+actual rooted closure or Queued execution storage. The queue's linear owner survives
+conversion cleanup, then retires only after frame publication. Exact rooted-closure
+entry borrows the original graph directly, without keeping a redundant local closure
+copy. An invocation dependency prefix retains the selected executable environment
+through final typed conversion; a factory-returned Future moves directly to Pending.
+Pair policies now read genuine roots and construct through actual tuple/enum owners,
+preserving optional error origins. Task/group results share nominal and transitive
+admission. Selected interpreter interface/closure reload and actual wait/retirement
+owners now execute successfully. Complete Task/factory/queue and remaining consumer
+acceptance stays open under RR03; no integrated GCR03, footprint, latency or CI
+acceptance follows. Current evidence is maintained in the
+[RR03 execution ledger](runtime-refactor-plan.md#rr03-selected-wait-parking-and-cleanup-acceptance).
+Task result caches now use a concrete once-only provider and Scope capabilities
+retain inert status instead of Host control callbacks. Wait results target source
+coordinates, and typed argument packs use local source prefixes rather than root
+packs. The strengthened source-compaction/alias/scalar witness passes natively
+and under strict-provenance Miri. Actual Task, typed conversion, Native/queue and
+async transitive validation acceptance remain blocked by the same Runtime consumer
+cutover; this kernel result does not establish those contracts.
+Borrowed Native adapters now keep protected argument coordinates and share a
+closed GC/Host loan interval with poll-only resources, avoiding temporary owning
+Opaque handles and per-call NativeType preparation. Their actual Native entry and
+mixed error/unwind regressions remain unexecuted at the same build boundary;
+zero warm allocation/root/latency acceptance still requires integrated measurement.
+Host temporary scopes now own execution-source suffixes and revocable Host marks,
+with linear result publication before callee cleanup and explicit owning escape.
+Immutable Host path providers trace base and labeled dynamic fields directly;
+registry checks traverse actual providers without invoking Host code under a loan.
+The existing scope/unwind/cancellation/quarantine and actual-pointer scenarios are
+migrated/strengthened, but remain unexecuted while Runtime does not build. Native
+pending-return, SDK scoped entry and Host path callback consumers still require
+the same coherent RR03 migration; no integrated acceptance follows from these APIs.
+External-ID Host callbacks now borrow prepared Native/caller ValueViews and stage
+managed results before Host locals retire. Optional Host traces capture bounded
+detached data through closed provider reads without managed roots or payload/control
+loans across reentry; error outcomes need no heap read after termination. The
+existing Host registration, conflict/reentry, temporary/error/managed-return,
+source-free binding and trace scenarios are migrated, but remain build-gated and
+unexecuted. CLI/Web/AOT output consumers now borrow UTF-8 without old heap IDs;
+Web retains its bounded-copy policy. Candidate allocation provenance/transitive
+payload checks and async graph admission remain required RR03 repairs; the Host
+adapter does not substitute nominal or storable matching for those checks.
+Serde now consumes scoped providers and source-owned streaming/snapshot suffixes,
+without old collector accessors or RootSet snapshots. Existing alias/GC/unwind/cycle
+regressions use declared public mutable fields and genuine ownership; they and the
+conversion-budget boundary remain unexecuted at the Runtime build boundary. This
+consumer migration does not close frame/metadata, Native invocation or GCR03 gates.
+Native input conversion now shares caller-source/prepared/scalar ArgumentValues,
+and pending return protection is an execution-local cell owned by one Native mark.
+The source-pressure witness now appends a Native result behind the captured root
+frontier, removes its old root and checks survival/reclamation. Nested result-cell
+and conversion retirement assertions pass natively; the smaller suffix witness
+also passes strict-provenance Miri. Actual Native callback/Host/frame/backend/result
+adapter integration is still non-building under RR03 and remains unaccepted.
+Native shared capability aliases and ValueHandle now consume actual providers
+and source coordinates rather than old collector IDs/RootSets. Payload reads use
+the retained physical codec; operation guards reopen the source after reentry
+and clean up even after cancellation. Inferred managed outputs carry their call
+lifetime instead of the removed static Value/NativeOutput protocol. Existing Host
+alias and Native registration cases are migrated, with no new test binary. They
+and actual reentry/unwind/root acceptance remain unexecuted while Runtime does not
+build; this does not close GCR03, warm allocation or footprint gates.
+Raw Native enum/array allocation, enum payload reads and origin forwarding now
+transfer results from short conversion suffixes into the enclosing Native source.
+Public named-enum construction uses genuine Host roots. These services reuse
+physical source compaction and actual aggregate providers; their consumers,
+complete scoped matcher and integrated Native/Host/frame tests still require the
+same RR03 build repair. Existing physical-kernel evidence is reused, not promoted
+to a new Runtime, Miri or performance pass.
+Native body admission now uses an explicit current/execution/Host revision origin,
+checks exact program identity before growth and protects the body through source
+dependencies. Same-execution children may borrow the admitted caller prefix;
+independent sources copy an edge. Staged publication uses the same physical Host
+root authentication. The existing stale-publication scenario additionally checks
+old-body retention, current/retained mismatch rejection, root registrations and
+reclamation after source retirement. It remains unexecuted at the Runtime build
+boundary; frame/backend/Host and environment/provider integration are still open.
+Host ProgramLease now owns an actual revision root; clones and authenticated
+retention-kind changes share its registration. Execution sessions retain their
+body through one source dependency and keep only a diagnostic lifetime token.
+The Native source record exposes its innermost body coordinate for exact-origin
+admission; full typed/program authentication remains in the closed Runtime scope.
+Fresh ordinary selection excludes that generic candidate and uses current
+publication unless a matching frame/root already protects the selected body.
+The extended source-pressure witness passes natively and under strict-provenance
+Miri: a newly entered execution beyond the captured root frontier keeps its body
+after every old source is retired, and dropping its last dependency permits
+reclamation. Nested Native retirement restores the parent's body coordinate.
+Actual ProgramLease/session/backend/hot-reload owner tests remain unexecuted at
+the Runtime build boundary. This closes no GCR03 or integrated performance gate.
+Executable metadata now has actual environment, operation-group and application
+providers with traced direct edges resolved from protected source graphs. Runtime
+environment admission returns facts paired with an actual dependency; a monotonic
+identity supply replaces its old record table and cannot recover Gc/Root by ID.
+Physical source owner/slot/generation admission remains separate. Construction uses the
+existing mutation/barrier protocol for cancellable, scanned adjacency prefixes.
+The environment owner tests are migrated to real Runtime sources and Host roots,
+including metadata-only collection pressure, but remain unexecuted. Generic
+transport, dictionary/application producers, frame/callable consumers and old
+store/walk deletion still require RR03 integration; no new native/Miri/CI or
+performance acceptance follows from these non-building consumers.
+Dictionary admission and receiver-table production now use explicit execution
+sources; a monotonic identity supply replaces the strong dictionary record store.
+Environment member lookup/transport reads pure snapshots from authenticated actual
+graphs, with no ID-to-heap accessors. Conversion marks retire typed dependencies
+and reject crossing a live child call before mutation. The strengthened actual-source
+conversion witness passes natively and under strict-provenance Miri, and the affected
+caller-bank publication witness passes natively. These are source-kernel results.
+Dictionary/transport Runtime scenarios remain unexecuted at the same compiler
+boundary; application/revision-cycle, full preparation cleanup and complete metadata
+accounting remain RR03 owners. No integrated or performance gate is closed.
+Application admission now publishes semantic/admitted record kinds through actual
+execution sources and genuine escaping Host roots. Runtime's shared nonce supply
+replaces the three metadata record stores without granting ID-based GC access.
+Structural adapters and witness/construction preparation pass their actual source
+candidates along the same preparation suffix. Bounded witness caches reuse facts
+only with currently protected dictionaries, reconstruct missing optional backing,
+and preserve errors for invalid original sources. Application lifecycle, retained
+body and cache expiry tests are migrated but have not run at the Runtime compiler
+boundary. Outer call/Host/frame/source propagation, other caches, cycles and total
+metadata accounting remain RR03 requirements; no GCR03 or performance gate closes.
+Shared-call preparation now publishes source-owned environments and checks its
+bounded pure-fact cache against actual protected nodes. Source copying retains an
+existing environment in the destination suffix without creating another object
+or Host root; stale original inputs remain errors rather than cache misses. Host
+entry preparation retires conversion scratch after retaining its escaping optional
+environment root, alongside the selected body's actual ProgramLease. Same-version
+relationship preparation shares that environment lease. Validation-only paths do
+not prepare dictionary maps. Environment/shared-cache and Host route regressions
+remain unexecuted at the Runtime compiler boundary. Native promotion now retains
+its actual environment before scratch retirement. Native applications and stored
+callback relationships use actual ApplicationObject edges, including a typed edge
+from the Native header; no old Native selection table authorizes lookup. Closed
+Ready signature facts prepare once per immutable linked record, while ordinary
+body selection stays current. Fixed data and branded traced Native result
+construction publish into the call's source suffix. The new independent-source
+retirement/GC witness has not executed. Exact-origin frame transfer, general Native
+type/revision backing, other providers and complete accounting remain RR03 requirements;
+no new Miri, performance or integrated GC acceptance is claimed.
+Frame banks now use linear suffix marks in the authoritative execution source;
+ResourceState.frame_values and the independent window directory are removed.
+Source retirement checks frame/Native nesting, and bounded initialization rolls
+back every new bank length on polling rejection. Unit prepared operands allocate
+no payload cells, including preparation-budget fallback. Four actual source tests
+and eight actual allocation/layout selections pass; the nested frame witness also
+passes strict-provenance Miri. Cold source inspection has a passing borrow-escape
+compile-fail doctest. Diagnostic accounting reports source buffers/control and
+collector/root-channel metadata separately. Runtime admission/cursor/return and
+metadata/provider consumers still do not build, and their existing owner tests
+remain connected for migration. Neither GCR03 nor memory/latency acceptance closes
+from this isolated actual-module evidence; full footprint and CI remain unmeasured.
+Cold Frame observations now return source coordinates/scalars tied publicly to
+frame/Runtime loans; no stored edge or Host lease escapes inspection. Exclusive
+FrameStack slot write/copy uses paired source publication before completion-PC
+commit. The actual source witness covers cold queries and reclamation, and the
+physical Unit operand witness checks zero storage, neighbor preservation and
+expired execution rejection; both pass natively and under strict-provenance Miri.
+Public FrameStack/debug/backend and managed metadata integration still require the
+RR03 build repair. Their new lifetime rustdoc and full Runtime checks are unrun;
+these kernel results do not close GCR03 or performance acceptance.
+The interpreter cursor now opens the authoritative banks and exact revision under
+one paired scope; scalar segments borrow their payload/init slices once. Literal,
+field/index and sealed Native operations use actual providers, with full nominal
+matching still an explicit missing owner. Non-scalar return snapshots occupy the
+existing local bank, with pointer-free full-execution/index/sequence records for
+current-frame/stale/reuse authentication. Marks retire those records; they create
+no second value store or per-call Window directory. Source diagnostics account
+for the backing (ExecutionStorage=232 bytes; ReturnValue=48 bytes on the measured
+aarch64 harness; NativeSourceMark is now 64 bytes including its return suffix).
+Ordinary returns publish into the caller before retirement; local-stack Native
+reentry transfers its snapshot into the parent source prefix without a Host lease.
+Native and conversion marks also retire these records, including preparation
+records invalidated by result preservation/pack relocation, so reusing a local
+coordinate cannot revive an old packet. Interpreter completion now consumes the
+result before its activation/source retires: typed consumers decode, scoped
+consumers publish to ResultPlace, and escaping Host consumers explicitly retain
+once. ScriptInvoker uses the same argument pack/result publication protocol;
+compiled scalar ABI results are inline retained carriers with no root registration.
+Three return-owner tests and one ABI-domain test pass natively and under strict-
+provenance Miri. These include Host activation retirement, no duplicate lease,
+foreign-heap rejection, independent object/root counts and exact values after
+collection/cleanup. Four unchanged source regressions retain their passing evidence.
+Full matcher/adaptation/static/await/primitive/remaining Native consumers/metadata
+and public body-retention/old ConstantPool consumers still require RR03 build repair. Physical
+kernel evidence does not establish full Runtime, footprint, speed or CI acceptance.
+The active plan records exact carried diagnostics and proof limits.
+Actual ClosureObject and InterfaceObject providers have been added to the same
+unaccepted Runtime cutover. Closure facts contain no captured Value pack; captures,
+exact retained bodies and environments are traced edges. Ordinary named routes
+select current code without retaining their original mutable revision. Interface
+metadata lookup follows only its fixed dependencies/parent views, independently of
+receiver tracing. The new closure lifecycle scenario checks independent-source
+retention, named-current versus exact-body selection and old revision release, but
+has not executed while Runtime does not build. Description preparation and parent
+publication now consume actual InterfaceObject metadata/receiver sources. Immutable
+descriptions moved out of the collector; weak cache hits cannot recover retired
+binders and include operation/construction evidence. Declared/bound boxing, prepared
+upcast and linked Native result boxing publish through the same source-based service.
+Parent edges validate the exact receiver and checked relationship before a shaded,
+fixed-position commit. Their sharing/failure/reload/generic-lifecycle owner cases
+remain unexecuted at the same Runtime build boundary. Host method resolution,
+semantic application and exact admission now use actual interface/application
+leases and immutable facts, with no collector getter or root metadata setter.
+Receiver dictionaries moved from shared description IDs into an optional scanned
+InterfaceObject edge; actual graph copies preserve source retirement checks.
+The admitted computation now owns the actual relationship/application/body graph;
+Frame handoff rebinds that computation into the frame source and reads its receiver
+directly. Native calls and returns use shared pack/result publication, and Interface
+factories use the existing Queued bank with prefix-owned completion sources.
+Escaping Interface metadata and generic member witnesses retain actual lexical
+leases/environments. Their dictionary, frame handoff, exact-body and queue lifecycle
+owner scenarios remain unexecuted. Bytecode interface calls now consume actual
+caller sources; staged revisions own their finite closed-call dictionaries, and
+FrameMark adoption bounds per-call preparation lifetime. Scoped call caches retain
+pure facts and authenticate actual backing. Since admitted computations also own
+receiver data, parking now inspects their typed dependency cells rather than
+skipping every application as metadata. The new Host-receiver negative scenario
+uses normal nominal boxing/admission and remains unexecuted. Candidate provenance,
+remaining backend/SDK/reflection consumers and obsolete collector/store removal
+remain required. Metadata publication now preserves the whole provider's
+charge instead of replacing it with adjacency-only accounting; complete metadata
+backing and whole-lifecycle footprint measurement remain open.
+
+Scoped type matching now reads these actual providers and preserves lexical child
+type scopes. Closed polling returns inert execution errors; Host/matcher/metadata
+owners record cancellation only after source/control loans end. The existing sticky
+cancellation scenario now checks this ordering, and remains unexecuted. Task output
+now uses actual transitive data inspection. Cold providers, linear single/pair claims,
+queued-claim rechecks, Script resume and Native/Task wait completion now consume actual
+sources. Two fixed Pending cells protect each execution's awaitable/completion; source
+snapshots protect frameless async returns before those cells clear. Submission and
+pair handoff release captured data after the next genuine owner is installed. These
+consumers and migrated owner tests remain unexecuted in the non-building Runtime;
+Interface factory/dispatch and remaining async consumers still require migration
+and cannot use top-level storability as a substitute. The focused
+standalone inspector has strict-provenance Miri evidence, independently of still
+missing integrated GCR03, Runtime, CI and performance acceptance.
+
+Selected Native/retained Host frame entry now passes its sealed actual revision and
+environment sources through FrameDispatch. Frame admission uses FrameSlots::allocate
+over the authoritative banks; its environment coordinate is published under that
+frame mark, rather than borrowed from a conversion suffix that is about to retire.
+The existing environment-source lifecycle scenario now includes independent frame
+publication, original-source retirement and frame-coordinate expiration without
+extra Host roots. It remains unexecuted at the Runtime build boundary. Candidate
+provenance checks and old closure/interface/Future producers still block admission;
+no full frame, collector-cutover or end-to-end performance acceptance is claimed.
+
+Actual closure frame/Native handoff now uses SelectedClosure and a source-backed
+capture prefix. RevisionSource::Closure admits the supplying exact body edge;
+ordinary named calls select current code. StoredCallable is now a concrete
+single-edge GcObject constructed under NativeInit, with an explicit accounted
+unit. Reading a stored child publishes its closure into the Native suffix before
+payload loans end. Host conversion freezes named relationships only for genuine
+retained computations; prepared Host roots/leases and the added stored provider
+node still need whole-footprint measurement. Environment transport reads immutable
+source identity facts while separately validating its actual graph and selected
+live body, permitting scalar-generic named calls after old-body reclamation.
+The migrated stored-provider/frame transfer and Host teardown scenarios plus the
+new scalar-generic/frozen-computation scenario remain unexecuted while Runtime
+does not build. Old task factories, async data-graph admission, native providers
+and other consumers still require integration. No GCR03, Miri, CI or performance
+gate is closed by these source changes.
+The external artifact provider now constructs a real GcObject with a StoredValue
+field and an Edge<StoredCallable>. NativeInit::value admits the original source;
+public low-level StoredValue initialization/read/scan retain their existing unsafe
+provider obligations. Native value/callback projection shares physical provider
+admission and publishes the child before releasing loans; scalar field projection
+adds no local cell. The existing stored-callback integration case now constructs
+the actual provider and collects before invocation. Those Runtime-dependent tests
+remain unexecuted, including the independent source-free consumer; no public API
+or memory-safety acceptance is inferred from partial typechecking.
+
+Cold interpreter tuple/array/repeat/struct/enum creation and enum pattern/payload
+reads now use the actual providers and frame slots. Original inputs are admitted
+before layout preparation, and incoming publication precedes destination/PC commit.
+Host struct/enum constructors consume genuine roots, preserve initializer ScriptTrap
+classes and do not require executable-body retention for immutable layout facts.
+Enum diagnostic capture occurs after semantic field admission with all source/control
+loans released. Temporary location/scoped-field vectors and Host output roots remain
+real costs; no allocation or speedup gate is closed. Four existing interpreter
+scenarios and the Host initializer/old-layout lifecycle owners are migrated, but
+remain unexecuted while Runtime fails to build. Candidate allocation provenance,
+async graphs and the other recorded RR03 consumers still require integration.
+
+Capture-cell and range instruction consumers now read actual providers and publish
+directly into the frame source. Cold instruction admission is shared with aggregate
+handlers; zero/one/two-input location storage stays inline. Cell mutation preserves
+input/target trap ordering and publication before the fixed field commit. Its charge
+now includes the one logical stored field, and the existing physical lifecycle case
+expects that unit to remain until the cell/cycle is retired. Range Native bindings
+reuse the prepared type signature and canonical conversion/projection protocol,
+without EnumSymbols preparation or the old collector. Updated captured-cell/GC and
+wide/full-range bounds scenarios remain unexecuted at the Runtime build boundary.
+Static readiness, initialization begin/commit/cycle failure, return/cleanup and
+Host snapshots now follow actual managed cells. Attempts share only edge-free
+completion facts; a dirty signal requests closed settlement before collection or
+source retirement, without changing tracing from shared state. The exact initializer
+body is admitted from the actual recipe edge and retired after value publication;
+the parent does not retain a redundant recipe dependency. Public ready snapshots
+own genuine Host roots. Legacy mutable static state has been removed from the pure
+staging directory. These paths and their migrated real Runtime tests remain in the
+RR03 non-building window; no initializer/collector integration acceptance is claimed.
+
+Canonical scalar instructions now use protected frame slots and the actual scoped
+comparison providers. They publish results directly without legacy Value packs or
+comparison-local Host roots. Numeric kernels consume inline call values and no
+longer own a heap or allocate an overflowing tuple; the installed integer Native
+binding publishes that tuple through the shared conversion/provider path. Closed
+comparison/hash/preview and tuple loops defer cancellation/trace admission until
+source/payload loans end. Real numeric/native/source-free lifecycle tests remain
+unexecuted at the same RR03 Runtime build boundary; performance is unmeasured.
+
+Host paths now construct and inspect actual HostPathObject providers. Callback
+receiver/index/RHS snapshots use the Host scope's execution suffix; reads publish
+to the caller without intermediate Host result roots. Only durable dirty records
+retain genuine roots for base/arguments/old/new values. Detached ledger snapshots
+share those registrations and keep the actual base graph alive independently.
+The old detached path handle and HostRegistry's foreign gc_roots expansion are
+removed. Borrowed callback results still reject before escape, Host leases remain
+scoped and commit/ledger publication stay atomic under the existing commit guard.
+Remaining old collector, external Host adapter and path/native lifecycle consumers
+still block RR03 integration. No path GC/performance acceptance is inferred.
+
+Generated Host field snapshots/decoders now use source-backed ValueViews. Field
+reads publish to caller ResultPlace before conversion/loan retirement; nested
+struct views remain revocable Host capabilities rather than escaping Rust
+references. Ready/cold script fields share one actual-provider implementation,
+with scalar carrier/domain admission before payload erasure and no old frame-value
+table or temporary field RootSet. The existing generated-field lifecycle test now
+uses actual source destinations and checks unchanged Host root registrations,
+collection survival, disjoint writes and alias restrictions. The added scalar
+boundary case distinguishes unavailable/wrong carriers from zero. Neither test
+executes at the Runtime compiler boundary; complete scoped matching and integrated
+frame/provider validation remain RR03 requirements, with no new Miri/performance
+or GCR03 acceptance claim.
+Value operations now consume scoped providers rather than old heap snapshots;
+primitive output uses ResultPlace before conversion cleanup. Comparison scratch
+holds only branded handles during collection-free access; no per-member Root is
+introduced. Physical preview labels delegate to the existing pointer carrier,
+without a new directory/header field, and grant no persistent identity/retention.
+Five selected Runtime value-semantics tests now pass: Char behavior, nominal enum
+identity, NaN/unsupported object comparison, deep short-circuit comparison/format
+limits and bounded String output/escaping. Hash/join and remaining value-operation
+integration remain pending. The active execution plan records source mechanisms,
+the outstanding hash progress obligation and exact current compiler/check results.
+Prepared Native callback/entry results now use a borrowed frame ResultPlace as
+well as source-cell places. The destination writes the authoritative caller bank
+before the Native mark retires; discard validates its source without adding a local
+cell or Host root. A focused actual-source/provider publication test passes natively
+and under strict-provenance Miri via the bounded ordinary-module harness. It checks
+collection survival, scalar mismatch without overwrite, expired discarded-source
+rejection and reclamation after frame retirement. This excludes the non-building
+Runtime wrapper, actual Native callback, managed application and full type matcher;
+those integrated GCR03 gates remain open in RR03.
+
 Concurrent/moving collectors, foreign graph stores or Domain bindings, generic
 finalizers/resurrection, shared heaps across Runtimes, derive tooling and new
 container libraries are outside this scope. The current fixed dynamic API does
@@ -31,10 +431,10 @@ not enforce language nominal types or implement all Runtime storage needs.
 
 | Acceptance group | Current state and remaining exit condition |
 | --- | --- |
-| GCR00: contract closure | Typed/fixed dynamic access, typed schema keys, branded handles, provider mutation, cursor repair and direct root-source contracts are implemented. Close Runtime representation requirements, coordinate removal of the old extraction API and freeze comparable performance gates. General safe custom-object construction remains an explicitly reviewed provider responsibility. |
+| GCR00: contract closure | Typed/fixed dynamic access, typed schema keys, branded handles, provider mutation, cursor repair and direct root-source contracts are implemented. The old extraction API is removed. Close Runtime representation requirements and comparable performance gates. General safe custom-object construction remains an explicitly reviewed provider responsibility. |
 | GCR01: standalone heap | Allocation, roots, mutation, resumable collection, metadata reclamation and opt-in safepoints are implemented. Complete the remaining representation/diagnostic requirements selected for integration; do not invent placeholder APIs. |
-| GCR02: Runtime object-model proof | Standalone frame adapters exist. Map every genuine root and managed relationship, prove object/code-state cycles and pinned computation lifetime, then measure actual frame/layout adapters. |
-| GCR03: coherent Runtime cutover | Connect Value/layout/Native providers and direct frame scanning; rehome execution state and remove the replaced collector and graph owners. Not started. |
+| GCR02: Runtime object-model proof | RR01 records/source contracts now have selected actual Runtime publication, reentry, cycle and retained-body/current-inner-call proofs at RR03 exit. Fake Native services and simulated revision/static graphs are removed; independent carrier-bit/destructor oracles remain at the value owner. Actual frame/control/source footprint and paired cost acceptance continue in RR04/RR05. |
+| GCR03: coherent Runtime cutover | Complete locally under RR03: one production RootDriver owns execution storage; genuine Host/publication/revision roots and all actual providers share the graph. The replaced collector/root/metadata stores and Native extraction APIs are removed. Default workspace Clippy and selected diagnostic/AOT/serde/JIT consumers build/lint; selected actual lifecycle/fault/source-free proofs pass. Windows/full feature/backend CI and measured acceptance remain distinct GCR04 obligations. |
 | GCR04: integration and performance closure | Complete selected integration regressions, paired standalone/integrated gates and CI; reconcile inherited obligations at their existing owners. |
 | GCR05: documentation and cleanup | Move lasting behavior to architecture/spec/authoring owners, remove obsolete paths, transfer unresolved work and retire this plan. |
 
@@ -82,6 +482,290 @@ scoped cycle loans), with both field units also passing in release and strict-
 provenance Miri. Structure, fmt, workspace all-target Clippy, document/link and
 diff checks pass. Full workspace/platform/backend acceptance remains CI-only.
 No new API, state cache or performance claim is introduced.
+
+### RR03 rooted entry and Source progress
+
+Host owned submission now copies genuine root-slice inputs directly into the first
+callee's authoritative source. The caller may drop those roots after submission;
+parked execution owns their managed fields. Interface Host calls use one argument
+prefix and the admitted method's actual receiver graph. Callable Source observation
+reads actual providers without claiming Futures or retaining them in diagnostic
+tokens. Native task inputs and mutable binding/lifecycle boundaries no longer read
+the obsolete collector. The existing owned-drive and Source regressions are migrated
+and strengthened but still fail to reach execution because the affected Runtime
+graph remains non-building. Reflection now publishes actual scoped provider outputs
+directly to caller banks; Host reflection retains explicit escaping roots. Requested
+debug binding snapshots are captured by Runtime before readonly observation, share
+alias leases for that event and release temporary roots on callback unwind. Detached
+diagnostic records keep independent genuine leases. The
+[Runtime plan](runtime-refactor-plan.md#rr03-reflection-publication-and-requested-diagnostic-roots-2026-11-13)
+owns the pinned tooling comparison and selected unexecuted lifecycle regressions.
+Remaining raw consumers, collector removal and full integrated GCR acceptance remain
+RR03 obligations; this source migration supplies no Runtime or GCR acceptance.
+
+
+Host and interpreter constants now use the same actual RevisionState fields.
+Host reads borrow an explicit current/admitted/retained origin and retain escaping
+results, while internal loads publish to frame banks. The duplicate legacy
+ConstantPool and unused frame mutation-root vector are removed. Actual Native
+loan/source/Running-frame parking restrictions remain. The
+[Runtime plan](runtime-refactor-plan.md#rr03-shared-revision-constants-and-obsolete-frame-guards-2026-11-13)
+owns the migrated existing constant/foreign-frame/driver scenarios and their current
+build gate. Old ProgramGraph/MetadataTrace and collector consumers still require
+removal before integrated GCR03 acceptance; no acceptance group is closed here.
+
+
+Prepared nominal matching now authenticates genuine roots/source views and reads
+actual struct/enum providers, retaining only immutable admission facts. The existing
+nominal/type-origin tests are migrated to actual managed dictionaries/environments
+and source retirement, but remain build-gated with the rest of Runtime. The
+[Runtime plan](runtime-refactor-plan.md#rr03-actual-prepared-nominal-matching-2026-11-13)
+records that evidence; no GCR acceptance or performance gate is closed.
+
+
+Runtime ownership/Host-boundary and Native-revision regressions now use genuine
+roots and actual providers rather than the obsolete collector's naked IDs/RootSets.
+Live Host capabilities are created in the consuming Runtime and still expire at
+scope retirement independently of wrapper roots. Six focused current-core root,
+foreign/shutdown/thread-release and execution-source checks pass locally; migrated
+Runtime cases remain compile-gated. The
+[Runtime plan](runtime-refactor-plan.md#rr03-runtime-root-host-boundary-and-native-revision-consumers-2026-11-13)
+owns the finite old/current coverage mapping, exact commands and remaining audit.
+No integrated GCR03, Miri, performance or CI acceptance is inferred.
+
+
+The obsolete Runtime GcHeap, raw Value/ID transport, central RootSet/InterfaceStore
+and MetadataTrace/ProgramGraph owners are now removed. Default Runtime production
+builds against the sole actual provider/source graph; existing array and source-free
+offline Native examples execute. The latter exposed and now verifies matching
+candidate-body admission rather than reopening current publication. Seven current
+core failure/history tests and four selected Runtime lifetime/NativeData doctests
+pass locally. Remaining Runtime tests, stdlib/SDK/backend and diagnostic consumers
+still block integrated GCR03 acceptance. The
+[Runtime plan](runtime-refactor-plan.md#rr03-obsolete-collector-and-metadata-owner-removal-open-integration)
+owns coverage consolidation, exact commands and limitations; no GCR group,
+performance target or full CI acceptance is closed by this library cut.
+
+
+Standard-provider production consumers now use actual sources. Lazy adapters own
+resumably scanned source/callback edges, and nested Native regions reclaim each
+step's scratch while a reduction replaces one protected state cell. A selected
+actual-call test verifies collection between steps, alias reads, array child/bounds,
+shared result staging, error/unwind/cancellation cleanup and fresh-context reuse;
+a compile-fail witness verifies nonescape. Selected web owned-output and actual
+Cranelift/thread-lifetime contracts also execute. The Host-object example verifies
+that a queued old result can read/write through its real retained layout lease after
+reload, while ordinary calls continue selecting current implementations. These
+samples do not close GCR groups or substitute for the outstanding Runtime/stdlib/
+SDK/benchmark/diagnostic consumers and accounting/measurement gates. The
+[Runtime plan](runtime-refactor-plan.md#rr03-standard-providers-bounded-native-scratch-and-retained-object-access)
+owns commands, initially failing witnesses, repairs and local/CI limits.
+
+
+The source-owned frame test port now replaces the removed window directory's
+scalar/argument and managed-lifetime witnesses. A Native case now checks selected
+environments through an actual active application after pure-cache eviction;
+Native stored-selection and JIT/fallback fixtures also use actual sources and
+owning results. These authored cases remain unexecuted while the Runtime unit target fails
+to build. The
+[Runtime plan](runtime-refactor-plan.md#rr03-source-owned-frame-and-nativejit-test-consumers-open-integration)
+records the old/current coverage mapping, removed-model-only assertions and the
+new nested/independent storage controls. The controls are unrun and cannot serve
+as matched WINDOW speedup evidence or close measurement/Runtime acceptance gates.
+
+
+The independent stdlib native_schema target now supplies actual public-carrier
+DTO/Serde evidence: child snapshot retention through alias mutation/GC/unwind,
+recursive-enum cycle rejection, Char-domain checks, concrete opaque storage identity,
+source-free installed schemas and bounded/failed conversion cleanup. Its 16 cases
+have passing local evidence. This does not close the remaining stdlib/SDK consumer
+build window or establish root-free conversion, complete GCR03, Miri, timing or CI
+acceptance. See the
+[RR03 schema/consumer evidence](runtime-refactor-plan.md#rr03-standard-library-schemas-and-basic-execution-consumers).
+
+
+Selected Runtime formatting/comparison and Opaque::read loan proofs also have
+actual local evidence: five value-semantics cases and two compile-fail rustdoc
+cases pass. The migrated stdlib cyclic graph, transitive program/environment,
+provider-fault and opaque construction tests remain unexecuted behind its consumer
+build errors. Changed snapshots own facts only; actual links use script entries,
+NativeInit and the sole source graph. Fault assertions distinguish stopped sweeping
+from eventual shutdown disposal. This does not close GCR03, account/session or
+performance gates. The
+[RR03 cycle/payload evidence](runtime-refactor-plan.md#rr03-gc-cycles-provider-faults-and-opaque-construction-consumers)
+records coverage migration, actual commands and the remaining build boundary.
+
+
+Three focused Runtime array-conversion cases also pass: foreign/bulk rejection
+without partial writes, copy-within bounds and preparation cleanup, and repeat
+capacity rejection before publication with wide unsigned input. Managed-field,
+recursive owned/retained conversion and collection iterator/sort consumers have
+been migrated to source views and real Host ownership, but remain unexecuted
+behind the stdlib unit build boundary. Immediate child snapshots are preserved;
+post-collection retained charge is distinguished from transient replacement cost.
+The [RR03 conversion/field evidence](runtime-refactor-plan.md#rr03-managed-fields-conversion-packs-and-collection-observers)
+records scope, oracles and pending integration/accounting/diagnostic acceptance.
+
+Typed Native, external Host adapter and static-state consumers now use source views,
+genuine Host roots and explicit mutable snapshot services. The readonly initializer
+observer uses admitted immutable frame facts. These scenarios remain unexecuted:
+the stdlib library-test target still has 317 diagnostics, and workspace Clippy stops
+at other unmigrated consumers. The
+[RR03 Host/static evidence](runtime-refactor-plan.md#rr03-typed-native-external-host-and-static-state-consumers)
+records preserved effects, foreign-owner rejection and publication-aware cleanup
+baselines; it does not close integration, accounting, diagnostics or performance.
+
+The generic candidate-array contract now executes at Runtime's array-operation
+owner and passes: a preexisting protected view reaches each candidate read/write
+guard, local candidate data remains usable through collection, and the old array
+is unchanged and writable after session exit. The equivalent stdlib scenario and
+sole-use source fixture are removed. Reentry/owned execution/interface-method/
+Native-boxing stdlib consumers have migrated but remain unexecuted behind 212
+unit build diagnostics. The
+[RR03 execution-consumer evidence](runtime-refactor-plan.md#rr03-reentry-owned-execution-and-prepared-function-consumers)
+records the actual command, retained oracles and unresolved consumer/accounting/
+diagnostic gates. This does not close integrated GCR03 or performance acceptance.
+
+Five provider-independent conformance scenarios now pass in Runtime, including
+collected debugger binding/watch inspection through protected internal access.
+Numeric PartialOrd and array-length scenarios remain at their actual stdlib owner.
+Enum/Host-object/generic-application and storage graph consumers have migrated but
+remain unexecuted behind 153 stdlib diagnostics. Graph assertions now use actual
+identity, retained contents and collected narrowing/teardown, rather than rebuilding
+the removed collector's traversal list. The
+[RR03 enum/storage evidence](runtime-refactor-plan.md#rr03-enum-storage-and-host-object-consumers)
+records preserved oracles, real owner dependencies and remaining integration/
+accounting/diagnostic work. No complete GC or performance acceptance is inferred.
+
+The actual Runtime Native Host owner now passes nested shared/unique borrow
+protection through collection, Owned/retained escape rejection and scope expiry,
+with exactly three source-protected objects reclaimed after teardown. Native
+polling also passes with cancellation after three completed iterations and
+post-call termination preserved despite a swallowed poll error. Composite Host
+signature and logging/control stdlib consumers have migrated but remain unexecuted
+behind 116 unit diagnostics; logging needs the real standard String representation
+declaration, so no replacement provider is introduced in Runtime tests. The
+[RR03 Host/control evidence](runtime-refactor-plan.md#rr03-complete-host-signatures-and-native-control-consumers)
+records current owner boundaries, preserved oracles and remaining build/accounting/
+diagnostic gates. These two local cases do not close integrated GCR03 or performance.
+
+The no-standard core-entry contract now passes at Runtime's conformance owner:
+source-free Unit entry and an explicit application Native echo return correctly,
+and collected objects/provider units/roots match publication. Function/callback,
+resource-termination, reflection, retained-interface and shared-application stdlib
+consumers have migrated but remain unexecuted behind 68 unit build diagnostics.
+Array callbacks keep immediate reads; ordinary/prepared/closure selection and actual
+publication-owned preparation retain their independent lifecycle assertions. The
+[RR03 function-lifecycle evidence](runtime-refactor-plan.md#rr03-function-callback-and-reflection-lifecycle-consumers)
+distinguishes retained cleanup from transient costs and the still-open session
+attribution, diagnostic and integration gates. No full GC acceptance is inferred.
+
+
+The default stdlib unit build boundary is now repaired. Existing method/application,
+callback, Host signature/nominal, scoped conversion, floating-carrier and Native
+control oracles execute, with affected failure reruns recorded in the
+[RR03 build recovery evidence](runtime-refactor-plan.md#rr03-consumer-build-recovery-and-actual-admission-regressions).
+Public converted parameter packs now reject wrong scalar representations as input
+errors while verified frame banks keep fault containment. Object binding reuses
+scoped identity equivalence before its existing supplying-layout checks. Actual
+private Host tokens cover both nominal mismatch and nested Owned escape, and
+normal/unwind pointer revocation and frame-owned computation lifetime pass. Scalar
+SharedCall preparation has no additional retained managed state; current String
+constants retire with publication. These correct prior unexecuted environment/root
+assumptions, not establish allocation or speedup measurements. Three Vec-dependent
+scenarios still fail in analysis under the queued NC gap. Remaining allocation/SDK/
+backend/diagnostic consumers, session attribution and complete production proofs
+still gate RR03; CI/Miri and performance acceptance remain pending.
+
+
+Standalone SDK async/decoded-artifact and CLI consumers now run through real
+roots and source views; actual Native/fallback and Host scope/reentry samples
+pass. The stdlib allocation target builds. Warm prepared scalar/array Native and
+script argument/return windows pass their original zero-Rust-allocator assertions;
+whole dynamic interface Host calls still allocate. The inherited method ID lookup
+now uses its checked lexical-to-runtime parent correspondence. Runtime's private
+parent-provider oracle verifies identity reuse across real calls and complete
+retirement; the public width oracle no longer mistakes new admitted-computation
+metadata for parent wrappers. The
+[RR03 SDK/allocation evidence](runtime-refactor-plan.md#rr03-sdk-source-free-and-allocation-consumers)
+records methods, toolchain/machine/profile, actual results and the explicitly
+retired cumulative all-object assertion. These observations do not establish
+whole-Host zero allocation, complete backing size or matched latency acceptance.
+SDK unit, diagnostic/session accounting and remaining production proofs still gate
+RR03. Vec-dependent benchmark/default-library routes and full feature/platform CI
+remain pending under their existing owners.
+
+Public SDK typed-handle/source and Tokio transfer consumers now pass six local
+cases through genuine roots and protected reads, including actual old executable
+retirement with readable detached source diagnostics and final array-root release
+across a real worker await. The [SDK unit consumer evidence](runtime-refactor-plan.md#rr03-sdk-unit-consumers-and-retained-public-handles)
+records the moved existing test owners, changed cache-lifecycle oracle and exact
+selected commands. Async/cross-route unit consumers were ported before the SDK unit target recovered
+compilation; the previously unexecuted cases remain unclaimed until selected runs. The
+Task cache's Vec-dependent scenario, diagnostic/session attribution and complete
+production proofs remain open. No CI/Miri or performance gate is closed here.
+
+Host-interface and concrete managed Native-result consumers now pass twelve
+selected tests in the existing artifact_features target. The protected tuple
+constructor supports actual nested external-root results, and managed generic
+payload fields replace raw Value tracing. The [RR03 Host/result evidence](runtime-refactor-plan.md#rr03-generic-reload-host-interfaces-and-managed-native-results)
+records exact selected filters, the scoped method-ID fixture correction, retired
+unrepresentable raw-ID witnesses, retained Runtime-owned loan proofs and the
+foreign rooted-tuple sampling limit. The generic cold-graph release oracle remains unexecuted; its SDK unit target now
+builds. No resource-attribution, diagnostic,
+Miri/CI or performance gate is closed by these consumer results.
+
+The existing decoded application-payload oracle now includes Runtime shutdown
+while a Host lease remains: normal collection counts, forced payload destruction,
+foreign import rejection and inert-lease drop preserve exactly-once disposal.
+The [RR03 observer/shutdown evidence](runtime-refactor-plan.md#rr03-sdk-root-observers-callback-controls-and-shutdown)
+records the passing selected test, removed duplicate unit teardown and the root
+baselines at the earlier consumer checkpoint. Remaining composite/callback consumer
+ports are not claimed merely because the SDK unit target now builds. Resource/session attribution, diagnostics,
+complete production proofs, CI/Miri and measured acceptance remain open.
+
+Default SDK build recovery now permits selected unit integration: 21 distinct local
+cases pass for enum layout/data reclamation, error snapshot versus body lifetime,
+interface reload, exact Host loan conflict/reentry, Host path effect ordering,
+actual Native code/page ownership and safepoint progress. Workspace all-target
+Clippy, structure, fmt and diff checks pass with default features. The
+[RR03 default-build evidence](runtime-refactor-plan.md#rr03-sdk-default-build-recovery-and-selected-lifecycle-acceptance)
+records filters, the repaired scalar-Debug/pacing assumptions, the retired raw-ID
+point-in-time probe and its sampling limit. The additional shared-arithmetic case
+fails at the inherited `Vec::from` source-analysis gap; its Runtime cleanup path
+has not executed. Plain rooted enum data keeps immutable layout facts, not an old
+executable lease. Resource/session attribution, diagnostic emitters, outstanding
+actual production proofs and CI/Miri/performance acceptance remain open in RR03.
+
+Committed heap/session attribution now uses readonly access/service interval
+reports from the existing ledger. Actual allocation/mutation commits preserve
+within-interval peaks; a borrowed Runtime guard attributes them after physical
+loans close, including unwind. Current occupancy follows real retirement, and
+conversion preparation has its own scoped component. The
+[RR03 accounting evidence](runtime-refactor-plan.md#rr03-committed-heap-observations-and-session-attribution)
+records 17 distinct passing selected cases, including fresh-root +3/+2 increments,
+exact String unwind units/backing, generic grow/shrink/failure/forgotten-guard
+behavior, Native/Host cleanup and unchanged zero-allocation warm boundaries.
+Default workspace Clippy/structure/fmt/diff checks pass. The later
+[RR03 diagnostic evidence](runtime-refactor-plan.md#rr03-diagnostic-sources-events-and-backing-consumers)
+supersedes the 28 old consumer errors and unemitted-event warnings: actual sources,
+storage events and nonallocating retained backing observations are wired. Five
+selected release tests pass, including the twelve-row provenance probe; Runtime,
+Lua and SDK diagnostic all-target builds/lints pass. Two ordinary allocation
+contracts remain zero after instrumentation, and diagnostic arithmetic executes.
+The original complete storage workload still fails inherited Vec source analysis
+before Runtime execution. Complete actual production proofs and CI/Miri/matched
+performance remain open in RR03; footprint accounting must include the new
+interval records and wider counter/session fields. Retained buffer snapshots,
+occupancy deltas and cumulative events are distinct measurements, not full RSS.
+The subsequent [RR03 local exit audit](runtime-refactor-plan.md#rr03-production-proofs-and-local-phase-exit)
+closes those production-proof/build gates: 19 additional selected cases pass,
+including actual Native/script/Native staged-result collection, source-free
+single/cross-program cycles, old marker/current helper selection and four provider
+fault/shutdown cases. One Vec-dependent SDK scenario still fails before Runtime;
+it remains NC-owned. The reviewed Windows AOT ports are unexecuted locally.
+Earlier cutover paragraphs record intermediate evidence, superseded by this audit
+and the current acceptance rows; RR04-RR06 and final CI/performance remain open.
 
 ## Remaining decisions and work
 

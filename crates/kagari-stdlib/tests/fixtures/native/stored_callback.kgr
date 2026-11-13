@@ -1,0 +1,10 @@
+use example::stored::{ Handler, new, invoke };
+
+fn make() -> Handler {
+    val offset = [41];
+    new(|value| value + offset[0])
+}
+
+fn main() -> i32 {
+    invoke(make())
+}

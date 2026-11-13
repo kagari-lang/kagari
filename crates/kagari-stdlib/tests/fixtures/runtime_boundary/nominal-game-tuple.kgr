@@ -1,0 +1,5 @@
+use game::Player;
+
+pub fn wrap(value: Player) ->(Player,) {
+    (value,)
+}

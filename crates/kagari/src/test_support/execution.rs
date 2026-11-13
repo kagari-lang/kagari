@@ -11,7 +11,6 @@ use crate::{
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_runtime::value::Value;
 use kagari_stdlib as stdlib;
 use std::sync::{Mutex, OnceLock};
 
@@ -107,6 +106,8 @@ fn assert_prepared_returns_i32(
         let loaded = runtime
             .load_program(program.program(), Default::default())
             .unwrap();
+        runtime.collect_garbage().unwrap();
+        let roots = runtime.gc_stats().root_registrations;
         let result = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = NativeCompiler::default()
@@ -123,15 +124,9 @@ fn assert_prepared_returns_i32(
             runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
-        assert_eq!(
-            result
-                .return_value
-                .value(runtime.gc())
-                .expect("retained execution result"),
-            Value::I32(expected),
-            "{route:?}"
-        );
+        assert_eq!(result.return_value.as_i32().unwrap(), expected, "{route:?}");
         drop(result);
-        assert_eq!(runtime.gc().active_roots(), 0, "{route:?}");
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc_stats().root_registrations, roots, "{route:?}");
     }
 }

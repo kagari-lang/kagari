@@ -6,6 +6,7 @@ use crate::{
         FrameStack,
         cursor::kernel::RegionExit,
         driver::{ExecutionAction, ReturnAction},
+        transfer::ReturnValue,
     },
     session::ExecutionEvent,
 };
@@ -18,14 +19,17 @@ impl Interpreter<'_> {
     pub(super) fn run_inner(
         &mut self,
         remaining: Option<usize>,
-    ) -> Result<DriveOutcome, RuntimeError> {
+    ) -> Result<DriveOutcome<ReturnValue>, RuntimeError> {
         self.drive_inner(remaining).inspect_err(|error| {
             let cause = error.to_string();
             self.stack().fail_static_initializers(self.runtime, &cause);
         })
     }
 
-    fn drive_inner(&mut self, mut remaining: Option<usize>) -> Result<DriveOutcome, RuntimeError> {
+    fn drive_inner(
+        &mut self,
+        mut remaining: Option<usize>,
+    ) -> Result<DriveOutcome<ReturnValue>, RuntimeError> {
         // Initial/resumed activations and waits reclassify; internal frame
         // transitions provide their established action without another lookup.
         let mut action = None;
@@ -54,7 +58,11 @@ impl Interpreter<'_> {
             }
             match action.expect("classified activation") {
                 ExecutionAction::NativeReturn => {
-                    let result = self.stack().finish_native_return(self.runtime);
+                    let result = self
+                        .stack
+                        .as_ref()
+                        .expect("active interpreter")
+                        .finish_native_return(self.runtime);
                     match self.report_operation(result)? {
                         ReturnAction::Complete(value) => return Ok(DriveOutcome::Complete(value)),
                         ReturnAction::Continue(next) => action = Some(next),
@@ -131,7 +139,11 @@ impl Interpreter<'_> {
                 InstructionProgress::Continue => {}
                 InstructionProgress::Await => action = None,
                 InstructionProgress::Return(value) => {
-                    let result = self.stack().finish_return(self.runtime, value);
+                    let result = self
+                        .stack
+                        .as_ref()
+                        .expect("active interpreter")
+                        .finish_return(self.runtime, value);
                     match self.report_operation(result)? {
                         ReturnAction::Complete(value) => return Ok(DriveOutcome::Complete(value)),
                         ReturnAction::Continue(next) => action = Some(next),
@@ -141,7 +153,7 @@ impl Interpreter<'_> {
         }
     }
 
-    fn report_operation<T>(&self, result: Result<T, RuntimeError>) -> Result<T, RuntimeError> {
+    fn report_operation<T>(&mut self, result: Result<T, RuntimeError>) -> Result<T, RuntimeError> {
         result.map_err(|error| {
             if let Some(reason) = error.invariant_reason() {
                 return self.runtime.quarantine_execution_invariant(reason);
@@ -159,7 +171,10 @@ impl Interpreter<'_> {
 #[cfg(test)]
 mod tests {
     use crate::test_support::bytecode::load_bytecode;
-    use crate::{executor::Interpreter, test_support::native::program::ProgramFixture};
+    use crate::{
+        executor::Interpreter, native::conversion::arguments::ArgumentValues,
+        test_support::native::program::ProgramFixture,
+    };
     use kagari_abi::representation::ValueType;
     use kagari_bytecode::{
         instruction::BytecodeInstruction,
@@ -216,8 +231,14 @@ mod tests {
         .unwrap();
         let _owner_program = owner;
         let owner = runtime.select_program(&_owner_program).unwrap();
-        let mut executor =
-            crate::executor::Executor::new(&mut runtime, &owner, FunctionRef::new(0), &[]).unwrap();
+        let before = runtime.memory.stats();
+        let mut executor = crate::executor::Executor::new(
+            &mut runtime,
+            &owner,
+            FunctionRef::new(0),
+            ArgumentValues::scalars(&[]),
+        )
+        .unwrap();
         let error = executor
             .activation
             .drive(|runtime, stack| {
@@ -246,6 +267,12 @@ mod tests {
         drop(executor);
         assert!(runtime.resources().termination().is_none());
         assert_eq!(runtime.resources().counters().current_call_depth, 0);
-        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(
+            runtime.memory.stats().root_registrations,
+            before.root_registrations
+        );
+        assert!(runtime.resources().active_session().is_none());
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.memory.stats().objects, before.objects);
     }
 }

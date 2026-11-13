@@ -1,15 +1,12 @@
 //! Direct scalar dispatch; only the marked instruction arms are generated.
-use super::{InstructionSlice, ScalarExit, ScalarFailure};
-use crate::{
-    frame::{cursor::ExecutionCursor, transfer::ReturnValue},
-    module::execution::instruction::ExecutionInstruction,
-};
+use super::{InstructionSlice, ScalarCursor, ScalarExit, ScalarFailure};
+use crate::{frame::transfer::ReturnValue, module::execution::instruction::ExecutionInstruction};
 use kagari_types::{
     payload::{self, comparison, shared},
     scalar::BuiltinType,
 };
 
-impl<'code> ExecutionCursor<'code> {
+impl ScalarCursor<'_, '_> {
     // Keep object handlers out of this loop's register allocation and inlining
     // budget. An unbounded segment has no optional countdown to load or spill.
     #[inline(never)]
@@ -23,11 +20,11 @@ impl<'code> ExecutionCursor<'code> {
         // The common exit publishes both fields on success and failure.
         let mut next = *self.ip;
         let mut executing = *self.executing;
-        let automatic_collection = self.runtime.gc().automatic_collection_enabled();
+        let automatic_collection = self.automatic_collection;
         // Window admission takes both banks from the same range. Make
         // their shared bound visible across this non-inlined boundary.
         // All indexed accesses and initialization checks remain checked.
-        if self.values.payloads.len() != self.values.initialized.len() {
+        if self.payloads.len() != self.initialized.len() {
             return Err(ScalarFailure::InconsistentBanks);
         }
         let result = 'segment: loop {
@@ -60,6 +57,7 @@ impl<'code> ExecutionCursor<'code> {
             executing = Some(next);
             next += 1;
             let (dst, value) = match *instruction {
+                ExecutionInstruction::Unit => continue,
                 ExecutionInstruction::Constant { dst, value } => (dst, value),
                 ExecutionInstruction::Move { dst, src } => (
                     dst,

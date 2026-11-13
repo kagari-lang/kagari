@@ -1,0 +1,5 @@
+use test::polling;
+
+fn main() -> i32 {
+    polling::work()
+}

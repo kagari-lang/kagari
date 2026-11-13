@@ -1,14 +1,17 @@
-//! Prepared compound descriptors retain normal roots until publication.
+//! A compound owns one local suffix; finish promotes only its completed value.
 use crate::{
     error::{RuntimeError, context::ErrorLocation},
     frame::types::arguments::TypeArgument,
     module::EnumVariantRef,
     native::{
         binding::NativeResult,
-        conversion::{context::ConversionContext, structures::StructEncoder},
+        conversion::{
+            context::{ConversionContext, Frame, inputs::ValueInput},
+            structures::StructEncoder,
+        },
         serde::{serializer::encode, unsupported},
     },
-    value::{EnumTag, Value},
+    value::view::ValueView,
 };
 
 use kagari_types::{language::binding, ty::Ty};
@@ -44,29 +47,31 @@ enum PackKind {
     Variant(EnumVariantRef, Vec<TypeArgument>),
 }
 
+impl PackKind {
+    fn fields(&self) -> &[TypeArgument] {
+        match self {
+            Self::Tuple(fields) | Self::Variant(_, fields) => fields,
+        }
+    }
+}
+
 pub(crate) struct Pack<'scope, 'runtime> {
-    cx: &'scope mut ConversionContext<'runtime>,
+    cx: Frame<'scope, 'runtime>,
     kind: PackKind,
-    values: Vec<Value>,
-    length: Option<usize>,
+    values: Vec<ValueView<'runtime>>,
 }
 
 impl<'scope, 'runtime> Pack<'scope, 'runtime> {
-    fn new(
-        cx: &'scope mut ConversionContext<'runtime>,
-        kind: PackKind,
-        length: Option<usize>,
-    ) -> NativeResult<Self> {
-        cx.check_elements(length.unwrap_or(0))?;
+    fn new(cx: &'scope mut ConversionContext<'runtime>, kind: PackKind) -> NativeResult<Self> {
+        cx.check_elements(kind.fields().len())?;
         let mut values = Vec::new();
         values
-            .try_reserve(length.unwrap_or(0))
+            .try_reserve_exact(kind.fields().len())
             .map_err(|_| RuntimeError::resource_limit("Serde compound capacity"))?;
         Ok(Self {
-            cx,
+            cx: cx.scratch()?,
             kind,
             values,
-            length,
         })
     }
 
@@ -82,7 +87,7 @@ impl<'scope, 'runtime> Pack<'scope, 'runtime> {
         let fields = (0..length)
             .map(|i| cx.parameter(expected, i))
             .collect::<NativeResult<_>>()?;
-        Self::new(cx, PackKind::Tuple(fields), Some(length))
+        Self::new(cx, PackKind::Tuple(fields))
     }
 
     pub(crate) fn variant(
@@ -98,20 +103,17 @@ impl<'scope, 'runtime> Pack<'scope, 'runtime> {
         if fields.len() != length {
             return Err(unsupported("variant payload schema mismatch"));
         }
-        Self::new(cx, PackKind::Variant(layout, fields), Some(length))
+        Self::new(cx, PackKind::Variant(layout, fields))
     }
 
     pub(crate) fn push<T: Serialize + ?Sized>(&mut self, value: &T) -> NativeResult<()> {
         let slot = self.values.len();
-        if self.length.is_some_and(|length| slot >= length) {
-            return Err(unsupported("compound has extra elements"));
-        }
-        let expected = match &self.kind {
-            PackKind::Tuple(fields) | PackKind::Variant(_, fields) => fields
-                .get(slot)
-                .ok_or_else(|| unsupported("payload has extra elements"))?,
-        };
-        let value = encode(self.cx, expected, value)
+        let expected = self
+            .kind
+            .fields()
+            .get(slot)
+            .ok_or_else(|| unsupported("compound has extra elements"))?;
+        let value = encode(&mut self.cx, expected, value)
             .map_err(|error| error.at(ErrorLocation::Element(slot)))?;
         self.values
             .try_reserve(1)
@@ -120,35 +122,31 @@ impl<'scope, 'runtime> Pack<'scope, 'runtime> {
         Ok(())
     }
 
-    pub(crate) fn finish(self) -> NativeResult<Value> {
-        if self
-            .length
-            .is_some_and(|length| length != self.values.len())
-        {
+    pub(crate) fn finish(mut self) -> NativeResult<ValueView<'runtime>> {
+        if self.kind.fields().len() != self.values.len() {
             return Err(unsupported("compound has missing elements"));
         }
-        match self.kind {
-            PackKind::Tuple(_) => self.cx.runtime().gc().alloc_tuple(self.values),
+        let value = match self.kind {
+            PackKind::Tuple(_) => self.cx.allocate_tuple_values(&self.values)?,
             PackKind::Variant(layout, _) => self
                 .cx
-                .runtime()
-                .alloc_enum(EnumTag::Declared(layout), self.values)
-                .map(Value::Enum),
-        }
+                .allocate_enum_inputs(layout, self.values.into_iter().map(ValueInput::View))?,
+        };
+        self.cx.preserve(value)
     }
 }
 
 macro_rules! pack_trait {
     ($trait:ident, $method:ident) => {
-        impl $trait for Pack<'_, '_> {
-            type Ok = Value;
+        impl<'runtime> $trait for Pack<'_, 'runtime> {
+            type Ok = ValueView<'runtime>;
             type Error = RuntimeError;
 
             fn $method<T: Serialize + ?Sized>(&mut self, value: &T) -> NativeResult<()> {
                 self.push(value)
             }
 
-            fn end(self) -> NativeResult<Value> {
+            fn end(self) -> NativeResult<ValueView<'runtime>> {
                 self.finish()
             }
         }
@@ -172,8 +170,8 @@ impl<'scope, 'runtime> Record<'scope, 'runtime> {
     }
 }
 
-impl SerializeStruct for Record<'_, '_> {
-    type Ok = Value;
+impl<'runtime> SerializeStruct for Record<'_, 'runtime> {
+    type Ok = ValueView<'runtime>;
     type Error = RuntimeError;
 
     fn serialize_field<T: Serialize + ?Sized>(
@@ -190,7 +188,7 @@ impl SerializeStruct for Record<'_, '_> {
         Ok(())
     }
 
-    fn end(self) -> NativeResult<Value> {
+    fn end(self) -> NativeResult<ValueView<'runtime>> {
         if self.remaining != 0 {
             return Err(unsupported("struct has missing fields"));
         }

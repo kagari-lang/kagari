@@ -23,8 +23,10 @@ pub(super) struct Cursor {
 impl Reader {
     pub(super) fn interface(cx: &mut NativeContext<'_>, value: Interface) -> NativeResult<Self> {
         let runtime = cx.runtime_mut();
-        let len = runtime.bind_interface_method(&value.member(runtime, "len")?)?;
-        let iter = runtime.bind_interface_method(&value.member(runtime, "iter")?)?;
+        let len = value.member(runtime, "len")?;
+        let len = runtime.bind_interface_method(&len)?;
+        let iter = value.member(runtime, "iter")?;
+        let iter = runtime.bind_interface_method(&iter)?;
         Ok(Self { value, len, iter })
     }
 
@@ -34,7 +36,7 @@ impl Reader {
 
     pub(super) fn cursor(&self, cx: &mut NativeContext<'_>) -> NativeResult<Cursor> {
         let value = self.value.call(cx, &self.iter, ())?;
-        let member = value.member(cx.runtime(), "next")?;
+        let member = value.member(cx.runtime_mut(), "next")?;
         let next = cx.runtime_mut().bind_interface_method(&member)?;
         Ok(Cursor { value, next })
     }

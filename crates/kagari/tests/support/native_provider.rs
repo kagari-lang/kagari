@@ -1,6 +1,11 @@
 //! Application-owned provider shared by source emission and an independent
 //! source-free embedding consumer. No runtime-private APIs are used.
 
+use kagari_gc::{
+    error::GcError,
+    object::{Edge, GcObject, ObjectCharge},
+    scan::{EdgeVisitor, ScanBudget, ScanKind, ScanStatus},
+};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -9,42 +14,36 @@ use {
     kagari_runtime::{
         error::RuntimeError,
         native::{
-            binding::NativeResult,
+            binding::{Codec, NativeBinding, NativeResult},
             builder::ModuleBuilder,
             callable::{CallableHandle, StoredCallable},
             context::NativeCall,
             declarations::{FunctionDecl, MethodDecl},
             module::NativeModule,
-            storage::{NativePayload, NativeStorage},
+            storage::NativeStorage,
             types::Type,
             views::ValueHandle,
         },
-        resource::HeapCharge,
-        value::Value,
+        value::{carriers::StoredValue, view::ValueView},
     },
     kagari_stdlib::declarations::StandardDeclarations,
 };
 
-fn fill(
-    cx: &mut NativeCall<'_>,
+fn fill<'call>(
+    cx: &mut NativeCall<'call>,
     count: usize,
-    callback: CallableHandle<'_>,
-) -> NativeResult<Value> {
-    let mut roots = Vec::new();
+    callback: CallableHandle<'call>,
+) -> NativeResult<ValueView<'call>> {
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(count)
+        .map_err(|_| RuntimeError::resource_limit("callback output capacity"))?;
     for index in 0..count {
-        let value = callback.call_values(cx, &[Value::U64(index as u64)])?;
-        roots.push(
-            cx.heap()
-                .root_value(value)
-                .ok_or_else(|| RuntimeError::module_validation("callback result root"))?,
-        );
+        let value = callback.call_values(cx, &[ValueView::from(index as u64)])?;
+        values.push(value);
         cx.collect_garbage()?;
     }
-    let values = roots
-        .iter()
-        .map(|root| root.value(cx.heap()).unwrap())
-        .collect();
-    cx.allocate_array(cx.result_type_parameter(0)?, values)
+    cx.allocate_array(cx.result_type_parameter(0)?, &values)
 }
 
 pub fn module(drops: Arc<AtomicUsize>) -> NativeModule {
@@ -73,20 +72,68 @@ pub fn module(drops: Arc<AtomicUsize>) -> NativeModule {
 
 #[derive(Debug)]
 struct Handler {
-    value: Value,
-    callback: StoredCallable,
+    value: StoredValue,
+    callback: Edge<StoredCallable>,
     drops: Arc<AtomicUsize>,
 }
 
-impl NativePayload for Handler {
-    fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
-        visit(&self.value);
-        self.callback.trace(visit);
+// SAFETY: construction imports both initialized fields into this provider. The
+// fields never change; pending positions are retried before advancement. Drop
+// touches only the external probe and never reads a managed peer.
+unsafe impl GcObject for Handler {
+    type ScanState = usize;
+    const SCAN_KIND: ScanKind = ScanKind::Resumable;
+
+    fn begin_scan(&self) -> usize {
+        0
     }
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(2, 0))
+    fn scan(
+        &self,
+        next: &mut usize,
+        budget: &mut ScanBudget,
+        visitor: &mut EdgeVisitor<'_>,
+    ) -> Result<ScanStatus, GcError> {
+        while *next < 2 {
+            if !budget.take(1) {
+                return Ok(ScanStatus::Pending);
+            }
+            // SAFETY: this admitted provider owns both initialized fields.
+            let status = unsafe {
+                if *next == 0 {
+                    self.value.scan(budget, visitor)?
+                } else {
+                    visitor.try_visit_stored(&self.callback, budget)?
+                }
+            };
+            if status == ScanStatus::Pending {
+                return Ok(status);
+            }
+            *next += 1;
+        }
+        Ok(ScanStatus::Complete)
     }
+
+    fn charge(&self) -> ObjectCharge {
+        ObjectCharge { units: 2, bytes: 0 }
+    }
+}
+
+fn apply<'call>(
+    cx: &mut NativeCall<'call>,
+    receiver: ValueHandle<'call>,
+) -> NativeResult<ValueView<'call>> {
+    let receiver = receiver.value(cx)?;
+    let value = cx.value_payload::<Handler>(&receiver, |scope, handler| {
+        StoredValue::get_field(scope, handler, |handler| Some(&handler.value))
+    })?;
+    let callback = cx
+        .callable_payload::<Handler>(&receiver, |scope, handler| {
+            scope.follow(handler, |handler| Some(&handler.callback))
+        })?
+        .ok_or_else(|| RuntimeError::module_validation("missing stored callback"))?;
+    cx.collect_garbage()?;
+    callback.call_values(cx, &[value])
 }
 
 impl Drop for Handler {
@@ -103,17 +150,8 @@ fn register_handler(module: &mut ModuleBuilder, drops: Arc<AtomicUsize>) -> Nati
     module.implement(handler.clone(), |group| {
         let item = group.parameter("T")?.ty();
         group.inherent_impl(|methods| {
-            let apply = methods.define_method(MethodDecl::instance("apply").returns(item))?;
-            methods.bind(
-                apply,
-                |cx: &mut NativeCall<'_>, receiver: ValueHandle<'_>| -> NativeResult<Value> {
-                    let (value, callback) = receiver.with_payload::<Handler, _>(cx, |handler| {
-                        Ok((handler.value, handler.callback.clone()))
-                    })?;
-                    cx.collect_garbage()?;
-                    callback.call_values(cx, &[value])
-                },
-            )
+            let method = methods.define_method(MethodDecl::instance("apply").returns(item))?;
+            methods.bind(method, apply)
         })
     })?;
     let hold = module.define_function(FunctionDecl::new("hold"))?;
@@ -126,18 +164,29 @@ fn register_handler(module: &mut ModuleBuilder, drops: Arc<AtomicUsize>) -> Nati
     })?;
     module.bind(
         hold,
-        move |cx: &mut NativeCall<'_>,
-              value: ValueHandle<'_>,
-              callback: CallableHandle<'_>|
-              -> NativeResult<Value> {
-            cx.allocate_result_payload(
-                Handler {
-                    value: value.value(cx)?,
-                    callback: callback.store(),
-                    drops: drops.clone(),
-                },
-                &[],
-            )
-        },
+        NativeBinding::new(
+            vec![Codec::Value, Codec::Callable],
+            Codec::Value,
+            move |cx| {
+                let value = cx.argument(0)?;
+                let callback = cx.callable(1)?;
+                let drops = drops.clone();
+                cx.allocate_result_with(&[], |native| {
+                    let value = native.value(&value)?;
+                    let callback = callback.store(native)?;
+                    // SAFETY: same-brand admitted fields belong only to the returned
+                    // Handler, which scans both completely and reads no peers on Drop.
+                    unsafe {
+                        native.scope().alloc_with(|mut init| {
+                            Ok(Handler {
+                                value: StoredValue::initialize(&mut init, value)?,
+                                callback: init.edge_scoped(callback)?,
+                                drops,
+                            })
+                        })
+                    }
+                })
+            },
+        ),
     )
 }

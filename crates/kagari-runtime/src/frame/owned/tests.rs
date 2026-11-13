@@ -1,23 +1,24 @@
-#[cfg(test)]
-use crate::test_support::bytecode::load_bytecode;
-use crate::test_support::native::program::ProgramFixture;
+//! Owned parking checks actual frame roots and fresh provider graphs.
+mod graph;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
     frame::{ExecutionStack, FrameStack, NativeEntryState},
-    gc::retention_probe::{heap_owner, measure, replace_cell},
     module::ExecutableModule,
-    native::{
-        binding::NativeResult,
-        storage::{NativePayload, NativeStorage},
-    },
-    resource::HeapCharge,
+    native::conversion::context::ConversionContext,
     session::owned::OwnedExecution,
-    value::{EphemeralValueId, Value},
+    test_support::{bytecode::load_bytecode, native::program::ProgramFixture},
+    value::{
+        aggregates::tuples::TupleObject,
+        carriers::{RootedValue, ScopedValue},
+        ephemeral::EphemeralValueId,
+        view::ValueView,
+    },
 };
+use graph::{Graphs, Probe};
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
-    instruction::BytecodeInstruction,
+    instruction::{BytecodeInstruction, Slot},
     module::{
         BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, InstructionOrigin,
         RootSlotLayout,
@@ -26,13 +27,9 @@ use kagari_bytecode::{
 };
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_contract::ids::FunctionRef;
-use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::{
     hint::black_box,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, atomic::Ordering},
     time::Instant,
 };
 
@@ -92,31 +89,40 @@ pub(in crate::frame) fn module(
     runtime.select_program(&program).unwrap()
 }
 
-fn graph(runtime: &Runtime, size: usize, cyclic: bool) -> Value {
-    let cell = runtime
-        .gc()
-        .alloc_cell(ValueType::Unit, Value::Unit)
-        .unwrap();
-    let mut value = Value::Cell(cell);
-    for _ in 1..size {
-        value = runtime.gc().alloc_tuple(vec![value]).unwrap();
+fn set_frame(runtime: &mut Runtime, stack: &FrameStack, value: &ValueView<'_>) {
+    let count = stack.current(runtime).unwrap().slot_count;
+    for slot in 0..count {
+        stack.write_slot(runtime, Slot::new(slot), value).unwrap();
     }
-    if cyclic {
-        replace_cell(runtime.gc(), cell, value);
-    }
-    value
 }
 
-pub(in crate::frame) fn set_frame(runtime: &Runtime, stack: &FrameStack, value: Value) {
-    let frame = stack.current(runtime).unwrap();
-    let mut windows = runtime.resources().frame_values.borrow_mut();
-    let range = windows.ranges(frame.slots).unwrap().managed;
-    windows.values[range].fill(value);
+fn set_rooted(runtime: &mut Runtime, stack: &FrameStack, value: &RootedValue) {
+    let owner = stack.current(runtime).unwrap().loaded().clone();
+    let mut source = ConversionContext::new(runtime, &owner).unwrap();
+    let value = source.import(value).unwrap();
+    set_frame(source.runtime_mut(), stack, &value);
+}
+
+fn transient_tuple(runtime: &mut Runtime, ephemeral: bool) -> RootedValue {
+    runtime
+        .memory
+        .scope(&runtime.resources, |cx, _| {
+            let value = if ephemeral {
+                ScopedValue::runtime_ephemeral(EphemeralValueId(1))
+            } else {
+                ScopedValue::unit()
+            };
+            let tuple = TupleObject::alloc(cx, &[value])?;
+            ScopedValue::managed(tuple).retain(cx)
+        })
+        .unwrap()
 }
 
 fn fixture(
     runtime: &mut Runtime,
     module: &ExecutableModule,
+    graphs: &Graphs,
+    probe: &Arc<Probe>,
     shape: &str,
     depth: usize,
     aliases: usize,
@@ -124,40 +130,30 @@ fn fixture(
     let owner = runtime
         .start_owned_execution(module, FunctionRef::new(0), &[], Default::default())
         .unwrap();
-    let mut stack_activation = runtime.resume_owned_execution(&owner).unwrap();
-    stack_activation
+    let mut activation = runtime.resume_owned_execution(&owner).unwrap();
+    activation
         .with(|runtime, stack| {
-            let shared = if shape == "scalar" {
-                Value::Unit
-            } else {
-                graph(runtime, 8, shape == "cyclic")
-            };
+            let shared = matches!(shape, "shared" | "cyclic")
+                .then(|| graphs.allocate(runtime, 8, shape == "cyclic", probe));
             for index in 0..depth {
                 if index != 0 {
-                    stack
-                        .push(runtime, module.slot(), FunctionRef::new(0), &[], None)
-                        .unwrap();
+                    stack.push(runtime, module.slot(), FunctionRef::new(0), &[], None)?;
                 }
-                let value = if shape == "disjoint" {
-                    graph(runtime, 8, false)
-                } else {
-                    shared
-                };
-                if shape != "scalar" {
-                    set_frame(runtime, stack, value);
+                if shape == "disjoint" {
+                    let value = graphs.allocate(runtime, 8, false, probe);
+                    set_rooted(runtime, stack, &value);
+                } else if let Some(value) = &shared {
+                    set_rooted(runtime, stack, value);
                 }
-                let frame = stack.current(runtime).unwrap();
-                let windows = runtime.resources().frame_values.borrow();
-                let ranges = windows.ranges(frame.slots).unwrap();
                 assert_eq!(
-                    ranges.managed.len(),
+                    stack.current(runtime)?.storage_counts(runtime)?.1,
                     if shape == "scalar" { 0 } else { aliases }
                 );
             }
             Ok(())
         })
         .unwrap();
-    transition(stack_activation);
+    transition(activation);
     owner
 }
 
@@ -179,7 +175,8 @@ fn declined_parking_retains_activation_for_retry_and_errors_retain_trace() {
         .as_mut()
         .unwrap()
         .with(|runtime, stack| {
-            set_frame(runtime, stack, Value::RuntimeEphemeral(EphemeralValueId(1)));
+            let value = transient_tuple(runtime, true);
+            set_rooted(runtime, stack, &value);
             Ok(())
         })
         .unwrap();
@@ -188,47 +185,34 @@ fn declined_parking_retains_activation_for_retry_and_errors_retain_trace() {
     activation
         .as_mut()
         .unwrap()
-        .with(|runtime, _| {
+        .with(|runtime, stack| {
             assert_eq!(runtime.resources().counters().current_call_depth, 1);
+            assert_eq!(stack.current(runtime)?.instruction_offset(), 0);
             Ok(())
         })
         .unwrap();
-    assert_eq!(
-        activation
-            .as_mut()
-            .unwrap()
-            .with(|runtime, stack| Ok(stack.current(runtime)?.instruction_offset()))
-            .unwrap(),
-        0
-    );
     assert!(
         activation
             .as_mut()
             .unwrap()
-            .drive(|_, stack| FrameStack::try_park_ready(stack, &Runtime::default()))
+            .drive(|_, stack| { FrameStack::try_park_ready(stack, &mut Runtime::default()) })
             .is_err()
     );
     assert!(activation.is_some());
     activation
         .as_mut()
         .unwrap()
-        .with(|runtime, _| {
-            assert_eq!(runtime.capture_error_trace().frames.len(), 1);
-            Ok(())
-        })
-        .unwrap();
-    activation
-        .as_mut()
-        .unwrap()
         .with(|runtime, stack| {
-            set_frame(runtime, stack, Value::Unit);
+            assert_eq!(runtime.capture_error_trace().frames.len(), 1);
+            let value = transient_tuple(runtime, false);
+            set_rooted(runtime, stack, &value);
             Ok(())
         })
         .unwrap();
     assert!(ExecutionStack::park_waiting(&mut activation).is_err());
     assert!(
         activation.is_some(),
-        "strict wait without pending must preserve diagnostics"
+        "strict wait without pending preserves diagnostics"
     );
     assert!(ExecutionStack::try_park_ready(&mut activation).unwrap());
     assert!(activation.is_none());
@@ -236,68 +220,58 @@ fn declined_parking_retains_activation_for_retry_and_errors_retain_trace() {
     assert!(ExecutionStack::try_park_ready(&mut activation).is_err());
     drop(activation);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
-    let mut stack_activation = runtime.resume_owned_execution(&owner).unwrap();
-    stack_activation
+    let mut resumed = runtime.resume_owned_execution(&owner).unwrap();
+    resumed
         .with(|runtime, stack| {
             assert_eq!(
-                stack
-                    .current_mut(runtime)
-                    .unwrap()
-                    .next_instruction()
-                    .unwrap(),
+                stack.current_mut(runtime)?.next_instruction().unwrap(),
                 BytecodeInstruction::Return(None)
             );
-
             Ok(())
         })
         .unwrap();
-    drop(stack_activation);
+    drop(resumed);
     runtime.finish_owned_execution(&owner).unwrap();
+    assert!(!runtime.is_quarantined());
 }
 
 #[test]
 fn parking_rechecks_alias_mutation_and_preserves_frame_error_order() {
     let mut runtime = Runtime::default();
+    let graphs = Graphs::install(&mut runtime);
     let module = module(&mut runtime, 1, false);
+    let probe = Arc::new(Probe::default());
+    let value = graphs.allocate(&mut runtime, 1, false, &probe);
     let owner = runtime
         .start_owned_execution(&module, FunctionRef::new(0), &[], Default::default())
-        .unwrap();
-    let cell = runtime
-        .gc()
-        .alloc_cell(ValueType::Unit, Value::Unit)
         .unwrap();
     let mut stack = runtime.resume_owned_execution(&owner).unwrap();
     stack
         .with(|runtime, stack| {
-            set_frame(runtime, stack, Value::Cell(cell));
+            set_rooted(runtime, stack, &value);
             stack.push(runtime, module.slot(), FunctionRef::new(0), &[], None)?;
-            set_frame(runtime, stack, Value::Cell(cell));
+            set_rooted(runtime, stack, &value);
             Ok(())
         })
         .unwrap();
     transition(stack);
-    replace_cell(
-        runtime.gc(),
-        cell,
-        Value::RuntimeEphemeral(EphemeralValueId(1)),
-    );
-    let probe = heap_owner(runtime.gc());
+    graphs.hide_host_root(&mut runtime, &value);
     let mut activation = Some(runtime.resume_owned_execution(&owner).unwrap());
-
     activation
         .as_mut()
         .unwrap()
         .with(|runtime, stack| {
+            // Model the later control frame's synchronous Native restriction. The
+            // earlier frame's newly invalid data must be diagnosed first.
             stack.current_mut(runtime)?.native_entry = NativeEntryState::Running;
             Ok(())
         })
         .unwrap();
-    let (result, counts) = measure(probe, || ExecutionStack::try_park_ready(&mut activation));
-    assert_eq!(result.unwrap_err().kind(), RuntimeErrorKind::ScriptTrap);
-    assert_eq!(
-        counts.frames, 1,
-        "earlier graph error precedes later non-parkability"
-    );
+    probe.scans.store(0, Ordering::Relaxed);
+    let error = ExecutionStack::try_park_ready(&mut activation).unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
+    assert!(error.to_string().contains("async state retains"));
+    assert_eq!(probe.scans.load(Ordering::Relaxed), 1);
     assert!(activation.is_some());
     assert!(!owner.is_ready());
     activation
@@ -306,85 +280,57 @@ fn parking_rechecks_alias_mutation_and_preserves_frame_error_order() {
         .with(|runtime, _| {
             assert!(!runtime.is_quarantined());
             assert_eq!(runtime.capture_error_trace().frames.len(), 2);
+            assert_eq!(runtime.resources().counters().current_call_depth, 2);
             Ok(())
         })
         .unwrap();
-
     drop(activation);
     runtime.finish_owned_execution(&owner).unwrap();
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
 }
 
-#[derive(Debug)]
-struct TraceFailure(Arc<AtomicBool>);
-
-impl NativePayload for TraceFailure {
-    fn trace<'a>(&'a self, _: &mut dyn FnMut(&'a Value)) {
-        assert!(!self.0.load(Ordering::Relaxed), "parking trace failure");
-    }
-
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::default())
-    }
-}
-
 #[test]
 fn parking_trace_panic_is_an_error_not_a_declined_transition() {
     let mut runtime = Runtime::default();
+    let graphs = Graphs::install(&mut runtime);
     let module = module(&mut runtime, 1, false);
+    let probe = Arc::new(Probe::default());
+    let value = graphs.allocate(&mut runtime, 1, false, &probe);
     let owner = runtime
         .start_owned_execution(&module, FunctionRef::new(0), &[], Default::default())
         .unwrap();
-    let fail = Arc::new(AtomicBool::new(false));
-    let object = NativeStorage::payload::<TraceFailure>()
-        .prepare_payload(
-            runtime.gc(),
-            &Ty::Builtin(BuiltinType::Unit),
-            TraceFailure(fail.clone()),
-            &module,
-        )
-        .unwrap();
-    let value = Value::GcHandle(runtime.gc().alloc_native(object).unwrap());
     let mut stack = runtime.resume_owned_execution(&owner).unwrap();
     stack
         .with(|runtime, stack| {
-            set_frame(runtime, stack, value);
+            set_rooted(runtime, stack, &value);
             Ok(())
         })
         .unwrap();
     transition(stack);
     let mut activation = Some(runtime.resume_owned_execution(&owner).unwrap());
-
-    fail.store(true, Ordering::Relaxed);
+    probe.fail.store(true, Ordering::Relaxed);
     let error = ExecutionStack::try_park_ready(&mut activation).unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
-    activation
-        .as_mut()
-        .unwrap()
-        .with(|runtime, _| {
-            assert!(runtime.is_quarantined());
-            Ok(())
-        })
-        .unwrap();
     assert!(activation.is_some());
     assert!(!owner.is_ready());
     activation
         .as_mut()
         .unwrap()
-        .with(|runtime, _| {
+        .with(|runtime, stack| {
+            assert!(runtime.is_quarantined());
             assert_eq!(runtime.capture_error_trace().frames.len(), 1);
+            assert_eq!(stack.frames(runtime)?.len(), 1);
             Ok(())
         })
         .unwrap();
-
     drop(activation);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     let _ = runtime.finish_owned_execution(&owner);
-    assert_eq!(
-        runtime.resources().frame_values.borrow().active_windows(),
-        0
-    );
-    assert_eq!(runtime.gc().active_roots(), 0);
+    // Provider failure blocks Runtime services. Cleanup and destruction still
+    // retire each payload; an error never authorizes a successful transition.
+    drop(value);
+    drop(runtime);
+    assert_eq!(probe.drops.load(Ordering::Relaxed), 1);
 }
 
 #[test]
@@ -392,22 +338,30 @@ fn parking_transition_probe() {
     for shape in ["shared", "disjoint", "cyclic", "scalar"] {
         for (depth, aliases) in [(1, 1), (4, 1), (4, 3)] {
             let mut runtime = Runtime::default();
+            let graphs = Graphs::install(&mut runtime);
             let module = module(&mut runtime, aliases, shape == "scalar");
-            let owner = fixture(&mut runtime, &module, shape, depth, aliases);
-            let probe = heap_owner(runtime.gc());
-            let stack = runtime.resume_owned_execution(&owner).unwrap();
-            let (_, counts) = measure(probe, || transition(stack));
-            println!(
-                "RL02 {shape} D={depth} A={aliases}: proofs={} frames={} walks={} roots={} objects={}/{} edges={}/{}",
-                counts.proofs,
-                counts.frames,
-                counts.walks,
-                counts.roots,
-                counts.objects,
-                counts.distinct_objects.len(),
-                counts.edges,
-                counts.distinct_edges.len()
+            runtime.collect_garbage().unwrap();
+            let baseline = runtime.gc_stats();
+            let probe = Arc::new(Probe::default());
+            let owner = fixture(
+                &mut runtime,
+                &module,
+                &graphs,
+                &probe,
+                shape,
+                depth,
+                aliases,
             );
+            // Drain the fixture's dropped Host inputs before measuring parking.
+            // The parked execution must be the graph's only value owner here.
+            runtime.collect_garbage().unwrap();
+            assert_eq!(
+                runtime.gc_stats().root_registrations,
+                baseline.root_registrations
+            );
+            let stack = runtime.resume_owned_execution(&owner).unwrap();
+            probe.scans.store(0, Ordering::Relaxed);
+            transition(stack);
             let unique = if shape == "scalar" {
                 0
             } else if shape == "disjoint" {
@@ -415,21 +369,15 @@ fn parking_transition_probe() {
             } else {
                 8
             };
-            assert_eq!(counts.distinct_objects.len(), unique);
-            assert_eq!(counts.proofs, 1);
-            assert_eq!(counts.frames, depth);
-            assert_eq!(counts.walks, 1);
             assert_eq!(
-                counts.roots,
-                if shape == "scalar" {
-                    0
-                } else {
-                    depth * aliases
-                }
+                probe.scans.load(Ordering::Relaxed),
+                unique,
+                "one real provider scan per distinct data object across the operation"
             );
-            assert_eq!(counts.objects, unique);
-            assert_eq!(counts.edges, unique);
-            assert_eq!(counts.distinct_edges.len(), unique);
+            assert_eq!(
+                runtime.gc_stats().root_registrations,
+                baseline.root_registrations
+            );
             if std::env::var_os("KAGARI_PARK_TIMING").is_some() {
                 let mut samples = Vec::new();
                 for sample in 0..6 {
@@ -444,10 +392,14 @@ fn parking_transition_probe() {
                         samples.push(elapsed);
                     }
                 }
-                println!("RL02 TIME {shape} D={depth} A={aliases}: ns/1000={samples:?}");
+                println!("PARK_PROVIDER {shape} D={depth} A={aliases}: ns/1000={samples:?}");
             }
             runtime.finish_owned_execution(&owner).unwrap();
+            runtime.collect_garbage().unwrap();
+            assert_eq!(runtime.gc_stats().objects, baseline.objects);
+            assert_eq!(probe.drops.load(Ordering::Relaxed), unique);
             assert_eq!(runtime.resources().counters().current_call_depth, 0);
+            assert!(!runtime.is_quarantined());
         }
     }
 }

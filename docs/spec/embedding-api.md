@@ -709,8 +709,12 @@ other policies reject before callback effects. Scoped native reference bodies ha
 no implied native backend implementation. The same API is available without source
 or native features and reads only the installed source-free checked product.
 
-A returned raw Value is rooted until scope exit. Decode owned DTO/scalar data or
-retain an owning handle within the scope when a heap result must outlive it. Leaving
+A returned ValueView names protected execution storage until scope exit. Decode
+owned DTO/scalar data or explicitly call scope.retain within the scope when a heap
+result must outlive it. Backend invocation publishes through its linear ResultPlace
+before retiring callee scratch; a successful publication proof is consumed by the
+scope before argument cleanup. Temporary transport creates no owning Host root.
+Scoped Host/runtime ephemeral results reject before escape. Leaving
 the scope revokes every external view on success, failure and supported Rust unwind.
 The executable [scoped host example](../../crates/kagari/examples/scoped_host.rs)
 uses the SDK facade for the same explicitly registered Opaque/external method body.
@@ -740,6 +744,13 @@ Owned conversion copies data, bounds recursion/work and rejects unrepresentable
 cycles; identity-preserving adapters retain the original object instead. Input
 and output capabilities are independent, and no borrowed input reference escapes.
 NativeResult is the runtime-failure channel; a nested business Result remains data.
+NativeCall reads protected ArgumentValues and stages one result in its execution
+source. Raw scoped callbacks use set_result or encode_result; encoding commits into
+that pending cell before temporary conversion storage retires. Native invocation
+cannot retry a callback in the same admitted context after failure. The existing
+post-call cancellation check precedes caller publication through ResultPlace, and
+cleanup retires the pending cell and this call's suffix on all exits. Heap services
+are scoped mutable Runtime operations; NativeCall exposes no collector accessor.
 Conversion does not implicitly install nominal providers or ignore type origins.
 Portable `Ty::Array` carries its element schema; `Type::array` authors that
 signature and `NativeCall::allocate_array` allocates checked fixed storage. Native
@@ -751,7 +762,7 @@ indirection only and adds no script layout or recursive graph node.
 
 `ModuleBuilder::register_type::<T>()` stages a finite schema graph transactionally.
 `kagari_derive::KagariValue` supplies ordinary named structs and unit/tuple enums,
-using the existing rooted object/variant converters. It supports nongeneric owned
+using the existing scoped object/variant converters. It supports nongeneric owned
 fields with registered conversions; tuples/packed structs, unions and record enum
 variants require an explicitly authored adapter. Registering a data schema adds
 no Rust methods or Kagari trait impls. Opaque fields retain object identity instead
@@ -762,9 +773,13 @@ The optional runtime/SDK `serde` feature exposes `native::serde::Serde<T>` and
 then register `Serde<T>` explicitly. The wrapper is absent from script signatures;
 outbound requires `Serialize`, inbound requires `DeserializeOwned`, independently.
 The adapter invokes Serde directly against checked declarations, with normal
-conversion roots, complete immediate-child snapshots, cycle/depth/work/string
-limits and cancellation. It does not build JSON, byte buffers or a dynamic value tree.
-String formatting through `collect_str` is charged before buffer growth.
+execution-local storage, complete immediate-child snapshots, cycle/depth/work/string
+limits and cancellation. Streaming tuple/variant encoders and visitors own a local
+suffix: errors, unread payloads and supported unwind retire that suffix; success
+promotes only the finished aggregate. Finalization does not reserve the completed
+children's conversion work again. It does not build JSON, byte buffers or a dynamic
+value tree. String formatting through `collect_str` is charged before buffer growth
+and publishes through the same scoped String provider.
 
 Automatic Serde schemas support the same primitives, owned String, transparent Box, tuples,
 Option/Result, named structs and unit/newtype/tuple enum variants. Symmetric short
@@ -836,6 +851,12 @@ Runtime ownership, execution policy and actual values and executes its converter
 Explicit prepared calls retain their selected body across publication; ordinary
 calls on Function continue to select current implementations.
 
+`Runtime::retain_module` requires mutable Runtime access and an explicit
+`RetentionOrigin`: current publication, an admitted execution body, or an existing
+`ProgramLease`. Foreign, expired and mismatched origins reject; a code descriptor
+alone cannot resurrect retired state. Lease clones share their actual revision
+root, can be released without borrowing Runtime and become inert after shutdown.
+
 Prepare `Field<T>` and `Method<A, R>` once from the installed applied type, then
 reuse them. Native and script inherent members share declaration/name binding;
 method tuples exclude the receiver. Associated functions return `Function`.
@@ -860,15 +881,6 @@ writes; `edit_data` lends only the fixed data portion. Registered traversal hand
 new fields without changing the collector. Mutable references cannot escape a
 payload callback, and conflicting reentry fails before execution.
 
-`Opaque<T>::take` requires the explicit unsafe `NativeTake` edge-free proof and
-storage registered with `NativeStorage::takeable` (or `data`). It moves the original
-payload without Clone/Copy requirements. A failed take changes nothing; a successful
-take invalidates all old host/script aliases, parked values and method receivers.
-Reinsertion has a new generation, including when the same physical slot is reused.
-The collector retains only an inert, charged invalidation identity while old aliases
-remain; it cannot be accessed or published as a live object. Managed script-edge
-payloads do not receive extraction capability from an empty trace function.
-
 Collection-specific retain/dedup/edit adapters have been withdrawn. Their future
 library providers must reuse checked roots, loans, cancellation and explicit commit
 semantics; opaque payload access does not grant an unrestricted resizable edit API.
@@ -876,10 +888,30 @@ semantics; opaque payload access does not grant an unrestricted resizable edit A
 Preauthored native catalogs can use `NativeBinding::declared` and
 `SelectedCall::from_declaration`; ordinary registration uses `bind` and
 FunctionBuilder::requires. Both consume the same validated declaration, scope and
-selected-operation machinery. RootedCallable is removed; independently retained
-host callbacks use `Function`. NativeCall, borrowed native views and traced
-StoredCallable remain advanced adapters for concrete storage/iterator operations,
-with explicit rooting obligations. They are not a second ownership model.
+selected-operation machinery. Independently retained host callbacks use `Function`.
+NativeCall and borrowed native views use call-owned source protection. Advanced
+providers allocate StoredCallable through CallableHandle::store with NativeInit
+and store the returned scoped Gc in a traced edge. NativeCall::callable_payload
+publishes the selected stored child before releasing its payload loan and invoking
+it. A StoredCallable is not a clonable detached handle or an independent Host root.
+Runtime::alloc_struct and Runtime::alloc_enum take genuine RootedValue fields and
+return independent Host ownership. They validate source ownership, storability,
+layout provenance and semantic field types before constructing the result. Plain
+nominal data retains immutable layouts rather than mutable executable revisions;
+retaining an old layout does not require keeping its old body alive. Interpreter
+aggregate instructions publish directly into frame slots and create no Host root.
+
+NativeCall::range_bound projects an admitted range using the supplied lexical
+range/result TypeArguments. It validates range shape, integer domain and declared
+Bound member, then publishes the completed value into the invoking Native source.
+Standard range bindings reuse their prepared signature through this operation.
+
+Generic script fields in a reviewed concrete GcObject use NativeInit::value and
+StoredValue::initialize; the provider must scan them and never detach or clone
+stored edges. NativeCall::value_payload reads a selected field under its GC brand
+and publishes a managed result into the invoking call's source before the loan
+ends. Scalar results stay inline. These low-level APIs retain GcObject's unsafe
+initialization, tracing, mutation and destruction obligations.
 
 ## Host Registry API
 

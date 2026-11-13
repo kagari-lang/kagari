@@ -3,15 +3,21 @@ use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind, reason::CancellationReason},
     error_trace::ErrorTrace,
-    gc::roots::{RootSet, RootedValue},
-    native::{binding::NativeResult, composition::ColdComposition},
+    execution::roots::SessionId,
+    native::{
+        binding::NativeResult,
+        composition::ColdComposition,
+        future::{claims::ClaimedFuture, storage::ColdObject},
+    },
     scheduler::WorkKey,
-    session::{ExecutionId, owned::OwnedExecution, store::SessionId},
+    session::{ExecutionId, owned::OwnedExecution},
+    value::carriers::RootedValue,
 };
 mod admission;
 mod cleanup;
 mod drive;
 
+use kagari_gc::root::Root;
 use std::{
     collections::HashMap,
     marker::PhantomData,
@@ -32,7 +38,7 @@ struct GroupRecord {
 
 #[derive(Debug)]
 enum GroupState {
-    Admitting(ColdComposition, RootSet),
+    Admitting(ColdComposition, Root<ColdObject>),
     Running(Box<RunningGroup>),
     Ready(NativeResult<RootedValue>),
 }
@@ -40,7 +46,7 @@ enum GroupState {
 #[derive(Debug)]
 struct RunningGroup {
     contract: ColdComposition,
-    _inputs: RootSet,
+    inputs: Root<ColdObject>,
     branches: [Option<OwnedExecution>; 2],
     outputs: [Option<RootedValue>; 2],
     next: usize,
@@ -71,7 +77,7 @@ impl Runtime {
     pub(crate) fn request_group(
         &mut self,
         parent: SessionId,
-        cold: ColdComposition,
+        claim: ClaimedFuture,
         wake: Waker,
     ) -> NativeResult<()> {
         self.poll_group_parent(parent)?;
@@ -99,10 +105,7 @@ impl Runtime {
                 .map_err(|_| RuntimeError::resource_limit("structured groups"))?;
         }
         self.scheduler.reserve_work()?;
-        let inputs = self
-            .gc()
-            .root_execution_values(cold.values.to_vec())
-            .ok_or_else(|| RuntimeError::resource_limit("group input roots"))?;
+        let (cold, inputs) = claim.into_composition()?;
         self.groups.records.insert(
             parent,
             GroupRecord {

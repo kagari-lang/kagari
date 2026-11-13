@@ -3,7 +3,10 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    module::{ExecutableModule, Module, ModuleEpochRetention, retention::ProgramLease},
+    module::{
+        ExecutableModule, Module, ModuleEpochRetention, managed::source::RevisionSource,
+        retention::ProgramLease,
+    },
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
@@ -84,16 +87,16 @@ impl<T> RustType<T> {
 
 impl<T: Send + 'static> RustType<T> {
     pub(crate) fn prepare(
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         owner: &ExecutableModule,
         argument: TypeArgument,
+        origin: RevisionSource<'_>,
     ) -> NativeResult<Self> {
-        runtime.gc().ensure_no_native_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
         runtime.validate_executable_module(owner)?;
         check_mapping::<T>(runtime, owner, &argument)?;
         let program = runtime
-            .retain_program(owner, ModuleEpochRetention::RuntimeValue)
+            .retain_program(owner, ModuleEpochRetention::RuntimeValue, origin)
             .ok_or_else(invalid)?;
         Ok(Self {
             record: Arc::new(TypeRecord {
@@ -164,7 +167,7 @@ impl Runtime {
         let cx = ConversionContext::new(self, owner)?;
         let argument = cx.type_for::<T>()?;
         drop(cx);
-        RustType::prepare(self, owner, argument)
+        RustType::prepare(self, owner, argument, RevisionSource::Current)
     }
 }
 
@@ -173,7 +176,6 @@ pub(crate) fn check_mapping<T: Send + 'static>(
     owner: &ExecutableModule,
     expected: &TypeArgument,
 ) -> NativeResult<()> {
-    runtime.gc().ensure_no_native_borrow()?;
     runtime.resources().ensure_execution_allowed()?;
     runtime.validate_executable_module(owner)?;
     expected.validate(runtime)?;

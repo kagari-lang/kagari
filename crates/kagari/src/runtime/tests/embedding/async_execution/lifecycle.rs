@@ -1,16 +1,17 @@
 //! Parked, queued and cold executions retain their checked generation at reload.
-use super::{Fixture, Value};
+use super::Fixture;
 use crate::{BytecodeArtifact, engine::EngineConfig, program::Compilation};
 use kagari_runtime::execution::owned::DriveResult;
 use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     error::RuntimeErrorKind,
-    gc::roots::RootedValue,
     native::completion::CompletionStatus,
     session::owned::OwnedExecution,
     task::{TaskId, control::TaskScopeOwner, drive::TaskDriveResult},
+    value::carriers::RootedValue,
 };
 use kagari_source::source::SourceFile;
+use std::slice;
 use std::{
     num::NonZeroUsize,
     sync::{Arc, atomic::Ordering},
@@ -64,10 +65,10 @@ fn owned_boundary(f: &mut Fixture, execution: &OwnedExecution) -> DriveResult {
 fn spawn(f: &mut Fixture, scope: &TaskScopeOwner, factory: &RootedValue) -> TaskId {
     let task = f
         .runtime
-        .spawn_task(&f.value(scope.capability()), &f.value(factory))
+        .spawn_task(&(scope.capability()).clone(), factory)
         .unwrap()
         .unwrap();
-    f.runtime.task_id(&f.value(&task)).unwrap()
+    f.runtime.task_id(&task).unwrap()
 }
 
 fn reply(f: &Fixture, value: i32) {
@@ -89,12 +90,12 @@ fn finish_task(f: &mut Fixture, scope: &TaskScopeOwner, id: TaskId, version: i32
         .unwrap()
         .outcome
         .unwrap();
-    assert_eq!(f.value(&result), Value::I32(55 + 2 * version));
+    assert_eq!(result.as_i32().unwrap(), 55 + 2 * version);
 }
 
 fn reject_candidate_work(f: &mut Fixture, scope: &TaskScopeOwner, factory: &RootedValue) {
-    let capability = f.value(scope.capability());
-    let factory_value = f.value(factory);
+    let capability = (scope.capability()).clone();
+    let factory_value = factory.clone();
     let ready = f.runtime.ready_tasks(scope).unwrap();
     for entry in ["cold", "native_cold", "spawn"] {
         let candidate = f
@@ -145,7 +146,7 @@ fn string_cursor_retains_dynamic_source_across_native_waits() {
         config,
     );
     let cursor = f.invoke("cursor", &[]);
-    let future = f.invoke("traverse", &[f.value(&cursor)]);
+    let future = f.invoke("traverse", slice::from_ref(&cursor));
     let owner = f.start_future(&future);
     drop(cursor);
     drop(future);
@@ -166,12 +167,12 @@ fn string_cursor_retains_dynamic_source_across_native_waits() {
         panic!("String cursor must exhaust after three scalars")
     };
     let result = result.unwrap();
-    assert_eq!(f.value(&result), Value::I32(42));
+    assert_eq!(result.as_i32().unwrap(), 42);
     assert_eq!(*f.inputs.lock().unwrap(), [10, 20, 30]);
     drop(result);
     drop(owner);
     f.runtime.collect_garbage().unwrap();
-    assert_eq!(f.runtime.gc().active_roots(), 0);
+    assert_eq!(f.runtime.gc_stats().root_registrations, 0);
     assert_eq!(f.runtime.resources().counters().current_call_depth, 0);
     assert!(!f.runtime.is_quarantined());
 }
@@ -224,10 +225,7 @@ fn lifecycle_reload_contract() {
             .unwrap();
         assert_ne!(f.runtime.select_program(&f.module).unwrap().key(), old_key);
         f.program = replacement;
-        assert_eq!(
-            f.invoke("version", &[]).value(f.runtime.gc()).unwrap(),
-            Value::I32(version)
-        );
+        assert_eq!(f.invoke("version", &[]).as_i32().unwrap(), version);
     }
     assert_eq!(
         f.starts.load(Ordering::SeqCst),
@@ -266,7 +264,7 @@ fn lifecycle_reload_contract() {
     let DriveResult::Complete(result) = owned_boundary(&mut f, &execution) else {
         panic!("completed retained Future")
     };
-    assert_eq!(f.value(&result.unwrap()), Value::I32(455));
+    assert_eq!(result.unwrap().as_i32().unwrap(), 455);
     drop(execution);
     let fresh_factory = f.invoke("factory", &[]);
     let fresh = spawn(&mut f, &scope, &fresh_factory);
@@ -285,5 +283,5 @@ fn lifecycle_reload_contract() {
         f.runtime.modules().retention_counts(old_key).runtime_values,
         0
     );
-    assert_eq!(f.runtime.gc().active_roots(), 0);
+    assert_eq!(f.runtime.gc_stats().root_registrations, 0);
 }

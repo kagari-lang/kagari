@@ -1,7 +1,8 @@
 use super::fixture;
 use super::{compile_without_foundation, fixture_without_foundation};
 use crate::tests::{
-    execution::native_boundary::compile_program, support::bytecode::reload_bytecode,
+    execution::native_boundary::{compile_program, publish_unused_version},
+    support::bytecode::reload_bytecode,
 };
 use kagari_runtime::native::{conversion::context::ConversionContext, objects::Object};
 
@@ -10,28 +11,16 @@ use crate::tests::support::bytecode::load_bytecode;
 
 use std::slice;
 
-const SOURCE: &str = r#"
-    pub struct Holder<T> { pub var value: T, pub var calls: i32 }
-    impl<T> Holder<T> {
-        pub fn create(value: T) -> Holder<T> { Holder { value: value, calls: 0 } }
-        pub fn get(self) -> T { self.calls = self.calls + 1; self.value }
-        pub fn replace(self, value: T) -> T { val old = self.value; self.value = value; old }
-        pub fn choose<U>(self, value: U) -> U { value }
-        pub fn identity<U>(value: U) -> U { value }
-    }
-    pub fn other() -> Holder<String> { Holder { value: "other", calls: 0 } }
-    pub fn make() -> Holder<i32> { Holder::create(42) }
-    pub fn evidence() -> i32 {
-        val holder = make();
-        holder.get() + holder.replace(5) + holder.choose(2) + Holder::identity::<i32, i32>(3)
-    }
-"#;
+const SOURCE: &str =
+    include_str!("../../../../../tests/fixtures/native/function-holder-applications.kgr");
 
 #[test]
 fn inherent_applications_infer_impl_arguments_and_check_method_evidence() {
     let (mut vm, owner) = fixture(SOURCE, None);
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let runtime = &mut vm;
     let conversion = ConversionContext::new(runtime, &owner).unwrap();
     let i32_type = conversion.type_for::<i32>().unwrap();
@@ -114,9 +103,16 @@ fn inherent_applications_infer_impl_arguments_and_check_method_evidence() {
     assert_eq!(object.call(&mut cx, &again, (8,)).unwrap(), 8);
     drop(cx);
     assert_eq!(runtime.call(&identity, (9,)).unwrap(), 9);
-    drop(object);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    drop((
+        object, holder, get, replace, choose, again, identity, create, other,
+    ));
+    publish_unused_version(runtime, &_owner_program);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -184,21 +180,12 @@ fn inherent_application_handles_select_current_code_after_reload() {
 
 #[test]
 fn nested_inherent_arguments_retain_nominal_results_and_selected_bounds() {
-    let source = r#"
-        pub struct Item { pub var value: i32 }
-        pub trait Read { fn read(self) -> i32; }
-        impl Read for Item { fn read(self) -> i32 { self.value } }
-        pub struct Holder<T> { pub var value: T }
-        impl<T> Holder<Vec<T>> {
-            pub fn first(self) -> T { self.value[0] }
-            pub fn read<U: Read>(self, value: U) -> i32 { value.read() }
-        }
-        pub fn make() -> Holder<Vec<Item>> { Holder { value: Vec::from([Item { value: 42 }]) } }
-        pub fn evidence() -> i32 { val holder = make(); holder.read(holder.first()) }
-    "#;
+    let source = include_str!("../../../../../tests/fixtures/native/function-nested-holder.kgr");
     let (mut vm, owner) = fixture(source, None);
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let runtime = &mut vm;
     let object: Object = runtime
         .execute_typed(&_owner_program, "make", (), &Default::default())
@@ -234,27 +221,23 @@ fn nested_inherent_arguments_retain_nominal_results_and_selected_bounds() {
     drop(object);
     cx.runtime_mut().collect_garbage().unwrap();
     assert_eq!(result.get(&mut cx, &value).unwrap(), 43);
-    drop(result);
-    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(cx.runtime().gc().active_roots(), 0);
+    drop((result, item, first, read, value));
+    publish_unused_version(cx.runtime_mut(), &_owner_program);
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(cx.runtime().gc_stats().objects, baseline.objects);
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
 fn repeated_impl_parameters_reject_mixed_nominal_layout_scopes() {
-    let source = r#"
-        pub struct Item { pub val value: i32 }
-        pub struct Pair<A, B> { pub val left: A, pub val right: B }
-        impl<T> Pair<T, T> { pub fn same(self) -> i32 { 42 } }
-        pub fn make() -> Pair<Item, Item> { Pair { left: Item { value: 1 }, right: Item { value: 2 } } }
-        pub fn evidence() -> i32 { make().same() }
-    "#;
-    let shared = source.replace(
-        "pub fn make() -> Pair<Item, Item> { Pair { left: Item { value: 1 }, right: Item { value: 2 } } }",
-        "trait Factory { fn pair<A, B>(self, a: A, b: B) -> Pair<A, B>; }
-         impl Factory for i32 { fn pair<A, B>(self, a: A, b: B) -> Pair<A, B> { Pair { left: a, right: b } } }
-         pub fn make() -> Pair<Item, Item> { val factory: Factory = 0; factory.pair(Item { value: 1 }, Item { value: 2 }) }",
-    );
-    for (source, shared_layout) in [(source, false), (shared.as_str(), true)] {
+    let source =
+        include_str!("../../../../../tests/fixtures/native/function-pair-nominal-layout.kgr");
+    let shared =
+        include_str!("../../../../../tests/fixtures/native/function-pair-shared-layout.kgr");
+    for (source, shared_layout) in [(source, false), (shared, true)] {
         let (mut vm, old) = fixture(source, None);
         let _old_program = old;
         let old = vm.select_program(&_old_program).unwrap();

@@ -14,11 +14,8 @@ use crate::{
         bindings::TypeBindings,
         compatibility::{TypeIdentity, TypeView},
     },
-    gc::GcHeap,
     host::HostRegistryId,
     module::{EnumVariantRef, ExecutableModule, layout_admission::NominalAdmission},
-    value::Value,
-    value_check,
 };
 use kagari_types::{declaration::verify::types_in_scope, ty::Ty};
 use std::{
@@ -83,18 +80,6 @@ impl TypeArgument {
             .identity
             .get_or_init(|| self.view(fallback).identity().map(Arc::new))
             .clone()
-    }
-
-    pub(crate) fn matches_heap(
-        &self,
-        heap: &GcHeap,
-        value: &Value,
-        owner: &ExecutableModule,
-    ) -> bool {
-        if let Some(matches) = self.matches_admitted(heap, value, owner) {
-            return matches;
-        }
-        value_check::matches_view(heap, value, self.view(owner))
     }
 
     pub(crate) fn derive(
@@ -224,36 +209,6 @@ impl TypeArgument {
         }
         Ok(())
     }
-
-    fn matches_admitted(
-        &self,
-        heap: &GcHeap,
-        value: &Value,
-        owner: &ExecutableModule,
-    ) -> Option<bool> {
-        let admission = self.data.admission.get()?;
-        Some(match value {
-            Value::Struct(id) => heap
-                .struct_layout(*id)
-                .is_some_and(|actual| admission.matches_struct(&actual, self.view(owner))),
-            Value::Enum(id) => heap
-                .enum_layout(*id)
-                .is_some_and(|actual| admission.matches_enum(&actual, self.view(owner))),
-            _ => false,
-        })
-    }
-
-    pub(crate) fn matches(
-        &self,
-        runtime: &Runtime,
-        value: &Value,
-        owner: &ExecutableModule,
-    ) -> bool {
-        if let Some(matches) = self.matches_admitted(&runtime.gc, value, owner) {
-            return matches;
-        }
-        runtime.matches_type_view(value, self.view(owner))
-    }
 }
 
 pub(crate) fn type_parameter(ty: &Ty, index: usize) -> Option<&Ty> {
@@ -298,24 +253,6 @@ fn contains_scoped_nominal(ty: &Ty) -> bool {
 }
 
 impl Runtime {
-    pub(crate) fn matches_capture_type(
-        &self,
-        value: &Value,
-        ty: &Ty,
-        owner: &ExecutableModule,
-        environment: &TypeBindings,
-    ) -> bool {
-        // A mutable capture carries a cell handle; its semantic type describes
-        // the contained variable rather than that internal storage handle.
-        match value {
-            Value::Cell(id) => self
-                .gc
-                .captured_cell_value(*id)
-                .is_some_and(|value| self.matches_type_in(&value, ty, owner, Some(environment))),
-            _ => self.matches_type_in(value, ty, owner, Some(environment)),
-        }
-    }
-
     /// Prepare concrete scoped arguments against a specific loaded generation.
     /// Every identity must belong to the loaded module's retained definition prefix;
     /// this does not import foreign metadata or admit later definitions retroactively.
@@ -423,59 +360,5 @@ impl Runtime {
             arguments.push(argument);
         }
         Ok(arguments)
-    }
-
-    pub(crate) fn matches_type_in(
-        &self,
-        value: &Value,
-        ty: &Ty,
-        owner: &ExecutableModule,
-        environment: Option<&TypeBindings>,
-    ) -> bool {
-        self.matches_type_view(value, TypeView::new(ty, owner, environment))
-    }
-
-    pub(crate) fn matches_type_view(&self, value: &Value, view: TypeView<'_>) -> bool {
-        if !self.gc.validate_value(value) {
-            return false;
-        }
-        if let Ty::Parameter {
-            owner: binder,
-            position,
-        } = view.ty
-        {
-            return view
-                .environment
-                .and_then(|environment| environment.argument(binder, *position))
-                .is_some_and(|argument| argument.matches(self, value, view.owner));
-        }
-        let Some(view) = view.normalized() else {
-            return false;
-        };
-        if let Ty::Reference { access, .. } = view.ty {
-            return self.scoped_view(value).ok().is_some_and(|actual| {
-                view.reference_target().is_some_and(|target| {
-                    self.host_borrows
-                        .scoped_matches_view(actual, target, *access)
-                })
-            });
-        }
-        if let (Value::Tuple(id), Ty::Tuple(types)) = (value, view.ty) {
-            let Some(values) = self.gc.tuple(*id) else {
-                return false;
-            };
-            return values.len() == types.len()
-                && values.iter().enumerate().all(|(index, value)| {
-                    view.parameter(index)
-                        .is_some_and(|view| self.matches_type_view(value, view))
-                });
-        }
-        if let Ty::Host(id) = view.ty {
-            return view
-                .owner
-                .host_type(*id)
-                .is_some_and(|expected| self.matches_host_identity(value, expected));
-        }
-        value_check::matches_view(&self.gc, value, view)
     }
 }

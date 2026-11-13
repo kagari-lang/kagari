@@ -1794,7 +1794,7 @@ changed-store compaction retain their separate costs.
 its committed payload charge, excluding the heap identity. Preparation samples
 `NativePayload::charge()` once and adds the erased Box's shallow size exactly once.
 Checked storage owners update the record on mutation; relocation preserves it and
-sweep/take release it without resampling providers. Strings and native buffers use
+sweep releases it without resampling providers. Strings and native buffers use
 known capacities; hash tables use capacity-based estimates. Shared metadata,
 referenced objects, external host resources and runtime arenas are not attributed
 to a native payload. The byte ledger is deliberately partial, not RSS or a quota;

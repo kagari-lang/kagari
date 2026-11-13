@@ -15,6 +15,22 @@ Hosts inspect `Runtime::host_dirty_paths` after execution and clear consumed
 records explicitly. There is no synchronous dirty callback. A runnable example is
 `cargo run -p kagari-runtime --example atomic_host_path`; it declares and binds writable and readonly paths once, then checks atomic
 commit and dirty records without changing the readonly target.
+
+Read/prepare callbacks borrow ValueViews in their HostCallContext. Callback path
+contexts expose effective access, labeled dynamic arguments and an opaque protected
+base value; inspect_path reads that base's actual component without executing Host
+code. A read can return inline scalar values or text published with allocate_string.
+Borrowed Host/Runtime results cannot escape the callback scope.
+
+The direct Host API accepts genuine RootedValue inputs and returns genuine roots
+for reads/path construction. host_root_value wraps a registered external root;
+make_host_path_view builds the actual managed path from a root/path value and
+rooted dynamic arguments. The descriptor supplies dynamic-argument TypeId labels;
+Host source admission checks saved path labels against that registered descriptor.
+Inline scalar results have as_i32/as_i64 and corresponding
+typed getters. Dirty records own rooted base/argument/old/new values after commit.
+host_dirty_paths snapshots share that ownership; clearing Runtime's ledger does
+not release values still retained by a detached snapshot.
 Backend abstraction is defined in [codegen-backend.md](codegen-backend.md).
 Typed path mutation is defined in [typed-path-mutation.md](typed-path-mutation.md).
 
@@ -198,14 +214,32 @@ the enclosing function on every path produces no parameter value and does not
 invoke the host callback. Arity checks, inner diagnostics and incompatible values
 on normally completing paths still reject compilation.
 
-Callbacks receive `(&HostCallContext, &[Value])`. The context exposes the checked
-runtime and a call-scoped borrow guard; it cannot be constructed by hosts. Runtime
-entry registers a HostResourceScope in the active session and keeps argument roots
-and borrow leases there until the call ends. Callbacks can add temporary values with
-retain_temporaries; permanent retention still requires RootedValue. Borrowed
-results are rejected before their scope ends. The public registry/function invoke
-bypasses are removed; host invocation goes through Runtime effect, cancellation,
-signature and heap validation.
+External-ID callbacks are authored with `native::host::callback` and bound through
+`ModuleBuilder::bind`. They receive `(&mut HostCallContext<'call>,
+&[ValueView<'call>])` and return `Result<ValueView<'call>, HostError>`. The callback
+must work for every call lifetime; it cannot keep a call's view in persistent Rust
+state. The context exposes the exclusive Runtime and a call-scoped borrow guard;
+it cannot be constructed by hosts.
+
+The existing Native/caller source protects callback inputs. HostResourceScope
+owns callback locals and borrow leases without copying all parameters into another
+root pack. `protect` and `retain_temporaries` explicitly add local protection when
+needed; `retain` creates a genuine escaping RootedValue after scope validation.
+`convert_value` builds through the ordinary converter and publishes the result
+into the Host scope before conversion locals retire. A returned managed value
+enters the Native pending result before Host cleanup. Borrowed results reject
+before their scope ends, and cancellation/resource termination is checked after
+the callback even when it returns a business error or handles a nested error.
+
+`read_string` lends protected UTF-8 to a closed callback. That callback can print
+or copy a bounded prefix, but cannot retain the text or reenter Runtime while the
+payload is borrowed. CLI logging, compiler-free AOT logging and Web output use
+this access; Web output keeps its existing byte/message caps. Host call traces
+store bounded detached snapshots, not managed values or roots. Reentrant calls
+append to the logical root's trace in invocation order; recording an error stores
+its kind without reopening managed data after termination or quarantine.
+The public registry/function invoke bypasses are removed; Host invocation goes
+through Runtime effect, cancellation, signature and source validation.
 
 `kagari_runtime::execution::reentry::reenter(context, loaded, function, args)` drives the existing explicit
 frame executor synchronously. The loaded handle and FunctionRef select a linked
@@ -277,7 +311,8 @@ bit does not override any other forbidden effect.
 The source `print` entry and explicit CLI log binding use the common cold
 `kagari_types::declaration::logging::declaration()` ModuleDecl. Adopt it with
 `ModuleBuilder::from_declaration`, obtain `declared_function("log")`, bind a
-HostCallContext callback and install the resulting NativeModule. The declaration
+HostCallContext callback through `native::host::callback` and install the resulting
+NativeModule. The declaration
 owns its String parameter, shared passing capability and service/trap/mutation
 effects. No callback runs during authoring or compilation.
 
@@ -452,7 +487,7 @@ The registered representation determines conversion and borrowing:
 | Script input | Owned Rust `T` | Rust `&T` | Rust `&mut T` |
 | --- | --- | --- | --- |
 | Ordinary GC DTO | Independent schema-directed conversion | Rejected | Rejected |
-| Runtime-owned opaque target | Explicit host `Opaque::take` only | Checked payload loan | Checked payload loan with installed editing capability |
+| Runtime-owned opaque target | No implicit move | Checked payload loan | Checked payload loan with installed editing capability |
 | `Ref<T>` | No implicit snapshot | Checked scoped loan | Rejected |
 | `RefMut<T>` | No implicit snapshot | Checked scoped loan | Checked scoped loan |
 
@@ -466,26 +501,39 @@ the finite derive/Serde subset and directional converters.
 
 ## Native payload accounting
 
-Advanced runtime-owned storage implements
-`NativePayload::charge(&self) -> NativeResult<HeapCharge>` instead of `units()`.
-`HeapCharge` carries logical payload units excluding the heap identity, and bytes
-for exclusively owned indirect backing. The runtime adds the erased payload Box's
-shallow size exactly once; providers must not include it again. Referenced GC
-objects, shared metadata and external host resources do not belong to that charge.
-Report known capacities where available, distinguish estimates, and document
-unobservable allocations as excluded rather than asserting an exact zero.
-These are GC-pressure contributions, not process-memory totals or quotas.
+Runtime-owned custom payloads implement the standalone collector's unsafe
+`GcObject` provider contract, including their own resumable ScanState, complete
+edge enumeration, constant-time `ObjectCharge`, mutation and Drop rules.
+`NativePayload` selects an automatic schema registration; it no longer supplies a
+`trace(Value)` or fallible accounting callback. `NativeData` and `native_data!`
+retain the safe fixed-data route. Its payload is stored inline in an edge-free
+GC representation; arbitrary traced providers construct through branded
+`NativeType::create_with` and their reviewed GC constructors. NativeInit exposes
+scoped allocation and storable object admission, not Runtime execution services.
 
-The callback must be side-effect-free and must not reenter the runtime. Payload
-preparation samples it once before publication; a failure publishes no payload or
-charge. The runtime-owned native record then owns the authoritative charge.
-Installed logical units and attributed backing must remain stable except through
-checked runtime storage mutations; interior mutability is not permission to resize
-that backing. Fixed-data loans cannot change its size, and managed replacements
-prepare a new charge before committing. Sweep, extraction and cleanup release the
-recorded charge without calling the provider again, including cleanup after
-termination/quarantine. This does not authorize take or mutation after execution
-has been rejected. See [GC accounting](runtime.md#gc-heap) and the
+One Native script identity traces its concrete payload and actual executable
+dependencies. The GC identity retains a sealed payload descriptor, while the
+installation owns its factory closure and captured Host state. Payload metadata
+contains immutable type/provenance facts; data does not acquire a module-state
+edge merely for being nominal. A fixed-data payload
+and its identity are two physical GC objects, each shallow allocation accounted
+once. Provider bytes include only exclusively owned indirect backing; referenced
+objects, shared metadata and external host resources are separate. Report actual
+capacities where available and identify unobservable allocations as excluded.
+These contributions measure GC pressure, not process memory or a language quota.
+
+Accounting/scanning callbacks cannot allocate, panic, reenter or inspect managed
+peers. Allocation and checked mutation commit the actual owned charge. Sweep
+releases that ledger without calling the provider again. Replacements publish the
+new concrete payload before changing identity/revision; the old payload becomes
+ordinary GC garbage. No RootedValue lease is stored in a managed field to hide a
+missing edge. Fixed-data loans keep graph, scan coordinates and backing unchanged.
+Completed writes survive a user error or panic; heap loans end before panic is
+resumed. This grants no general mutable access to arbitrary traced fields.
+
+These APIs are in RR03's temporarily non-building consumer cutover. The
+[execution plan](../runtime-refactor-plan.md) owns remaining Runtime/loan/factory
+and integration acceptance. See [GC accounting](runtime.md#gc-heap) and the
 [reservation failure contract](failure-semantics.md#modification-guarantees).
 
 ## Registered payload loans
@@ -499,7 +547,10 @@ Owned/raw callbacks cannot silently claim the borrowed receiver contract.
 
 The borrowed callback takes `&mut LoanContext` and an outer argument tuple whose
 first element is `&T` or `&mut T`. It must work for every loan lifetime and return
-an owned, static result. `LoanContext::poll` provides cooperative cancellation;
+an owned, static result. Temporary Native receivers use the call's protected
+source slots rather than owning Opaque handles. All owned argument converters
+finish before Rust references are lent. LoanContext borrows only execution polling
+state; `LoanContext::poll` provides cooperative cancellation;
 it exposes no script invocation or heap allocation. Captured runtime handles
 still encounter the ordinary non-reentry checks during Opaque access.
 
@@ -509,7 +560,7 @@ arguments before acquiring the payload loan. Complete-pack roots remain until
 result conversion finishes. The existing GC guard releases access before result
 allocation and on errors/unwind; completed writes remain visible. Mutable access
 requires the installed fixed-data proof, not merely the callback's `&mut T` type.
-Traced, managed and take-only registrations do not gain arbitrary editing.
+Traced and managed registrations do not gain arbitrary editing.
 External scope and path adapters consume the same declaration and binding facts
 through the common invocation boundary described below.
 
@@ -527,12 +578,33 @@ Direct view parameters and locals may be forwarded with their checked capability
 An outer RefMut<T> may supply Ref<T> while retaining the same target; nested type
 parameters remain invariant. At native entry, a shared formal parameter (or a
 shared registered receiver) gets a distinct inert shared view. Raw callbacks,
-ValueHandle and ArgumentView all see that capability; forwarding it to a mutable
+ValueHandle and ArgumentValues all see that capability; forwarding it to a mutable
 callback rejects before effects. The caller's original mutable view is unchanged.
-The restricted argument pack stays rooted across conversion, collection and
-reentry, and its call-scoped root leases end on return, error or unwind. Calls
+The restricted argument pack stays in protected execution storage across conversion,
+collection and reentry, and its call-scoped source suffix ends on return, error or
+unwind. Temporary argument transport does not create Host root leases. Calls
 without actual capability narrowing keep their existing borrowed frame/scalar
-argument representation and do not create this root pack.
+argument representation and do not copy this parameter pack. An already shared
+capability still validates its live owner/frame/epoch before that fast return.
+Capability aliases use the Native call's source suffix rather than independent
+Host root leases; retaining an inert wrapper cannot extend the Host reservation.
+
+Ordinary inferred Native callbacks return scalars through NativeScalar or return
+a ValueView with their Native call's lifetime. ValueHandle reads use the same
+protected view; root() explicitly requests ownership and rejects non-storable
+borrowed/runtime values. Raw payload reads lend a higher-ranked reference to the
+actual provider's retained codec, excluding Runtime execution and collection for
+that reference's duration. Operation guards keep source coordinates across
+reentry and release their active flag on normal return, error and unwind.
+
+Native enum/array allocation and enum payload reads return protected call-lifetime
+views. A successful short conversion transfers only its result into the Native
+suffix before removing preparation; failure and unwind remove the whole child
+suffix. Ordinary scalar results need no source result cell. Enum field access
+validates the supplied variant identity and ordinal before exposing the field.
+Diagnostic origin forwarding preserves the target's layout/payload and the original
+carrier's detached trace. Runtime named-enum construction uses explicit owning
+inputs/results at the Host boundary instead of bare unrooted transport values.
 
 Explicitly loan-capable native inherent methods use
 the same registered member through Opaque, Ref and RefMut. Ordinary owned members
@@ -566,8 +638,12 @@ Scope/view values cannot transfer between threads. Execution stays within the sc
 `Runtime::with_host_scope` and static `Runtime::execute_scoped` use explicit
 ExecutionContext and the ordinary checked public entry, validating concrete parameters
 before execution. They forward cancellation, inputs and observation, and reject
-unsupported JIT policies before entering the interpreter. Heap results remain rooted
-until scope exit; an owning handle is required to retain them beyond that scope.
+unsupported JIT policies before entering the interpreter. Heap results remain in
+the complete execution source until scope exit; explicit scope.retain creates an
+owning handle when they must outlive that scope. Argument packs and temporary
+results create no Host root leases. A backend publishes its result through a linear
+ResultPlace before callee storage retires; the scope checks the returned publication
+proof and escape policy before promoting the result into its enclosing suffix.
 
 External addresses live in the existing host borrow frame owner. GC view headers
 contain only owner/frame/epoch/object/access identities, never an address. Rust
@@ -584,7 +660,9 @@ the owned result. External edits do not need the runtime-owned data edit flag,
 because their memory/accounting belongs to the host. Opaque edits retain that flag.
 Errors and supported Rust unwind release loans while preserving completed writes.
 Scope exit removes all external root records and revokes every old view identity;
-retaining a naked script Value does not extend its Rust lifetime or permit access.
+retaining an inert capability does not extend its Rust lifetime or permit access.
+Branded source views cannot escape their scope, and genuine ownership never grants
+authority to dereference revoked Host records.
 
 For derived ordinary inline structs, `Runtime::bind_rust_field::<T, F>(&target,
 "field")` resolves the generated field proof once. `view.field(scope, &field)`
@@ -1224,6 +1302,14 @@ Native `NativeCall` exposes these admission/control operations without exposing
 an independent task driver. `SpawnError` is the canonical `core::task` enum with
 ScopeClosed, CapacityExceeded and DispatchUnavailable variants; it describes only
 failed admission, not later execution or business failures.
+
+Task terminal publication is once-only and precedes notification. Consuming a Host
+report releases admission capacity; retained script Task aliases keep the same
+cached result and remain independently awaitable. A retained scope capability
+keeps closed-state observation, without extending the Host dispatcher's lifetime
+after owner drop and cleanup retirement. Async admission validates actual retained
+values transitively, including receivers hidden by interface views. Top-level
+storability alone does not authorize retention across suspension.
 
 Native Future registration separates cold typed input capture from an owned start
 adapter. An operation identity and one result slot are reserved before external

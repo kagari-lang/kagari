@@ -3,14 +3,15 @@
 This document owns the standalone library's data structures, safety invariants
 and operation protocols. The [redesign plan](gc-redesign-plan.md) owns remaining
 scope, integration phases and acceptance; the [crate guide](../crates/kagari-gc/README.md)
-provides executable usage examples. Runtime still uses its existing collector.
+provides executable usage examples. Runtime is in the RR03 coordinated consumer
+cutover; the active execution plan owns its current build errors.
 
 Implemented: typed Rust and fixed dynamic objects, host roots, pointer-sized
 scoped identities, checked field access, provider mutation/cursor repair,
 incremental collection, reclaimable metadata and opt-in driver safepoints.
 RootDriver supplies direct execution-root scanning, tested with a Rust frame
-adapter. Runtime packed-field integration, arbitrary erased providers, native
-extraction/tombstones, integrated pressure policy and complete performance
+adapter. Runtime packed-field integration, arbitrary erased providers,
+integrated pressure policy and complete performance
 instrumentation remain target contracts, explicitly identified below.
 
 GC traces only its own allocations through explicit roots and ordinary edges;
@@ -258,7 +259,6 @@ Descriptor {
     state_layout: Layout,
     drop_payload: Option<unsafe fn(payload_pointer)>,
     charge: unsafe fn(payload_pointer) -> ObjectCharge,
-    access_kind: Live | Taken,
 }
 
 DescriptorPool {
@@ -435,9 +435,6 @@ establish that proof; unsafe source_get must supply it under its provider contra
 No current operation changes the Rust representation during a scope. Root/erased
 admission and dynamic layout checks remain fallible. Gc and stored Edge each
 contain one pointer; there is no persistent pointer cache or new public unsafe API.
-Any future native
-take/tombstone implementation must revisit outstanding typed handles before
-allowing a representation change within a scope.
 
 Access::with_reference also asserts the established Rust type only in debug
 builds. Its callers are with_object (an admitted immutable Root<T>) and scoped
@@ -786,7 +783,6 @@ EdgeField<T,U>::get(&Scope, Gc) -> Option<Gc<U>>
 EdgeField<T,U>::set(&mut Scope, Gc, Option<Gc>) -> ()
 Access::create_roots(slot_count: usize) -> Result<RootSet, GcError>
 Access::replace_root(&RootSet, index, protected_object_or_empty) -> Result<(), GcError>
-Access::take<T: Takeable>(&Root<T>) -> Result<T, GcError>
 ```
 
 Root admission validates heap/slot/generation/lease identity before any header
@@ -949,9 +945,31 @@ is unsafe and records Continue only after the caller has proved the saved scan
 is still valid or all skipped/moved targets are covered. Any later edits must
 preserve that proof. There is no freely asserted safe continuation boolean.
 
-On all exits the mutation guard samples the infallible registered charge,
-commits accounting and applies Continue/Restart before releasing exclusion. An
-error before a destructive commit leaves logical contents intact; capacity changes
+On ordinary exits the mutation guard samples the infallible registered charge,
+commits accounting and applies Continue/Restart before releasing exclusion.
+`ObjectMut::commit_accounting` also commits while retaining the exclusive loan,
+without clearing the preinstalled scanner fallback. A provider changing charge
+must checkpoint before exposing a safe proxy that may be forgotten. Later
+`parts`/callback edits invalidate that checkpoint; finalization samples only if
+needed, so an already committed unchanged loan does not call the hook twice.
+The existing admitted snapshot becomes the next operation's old charge.
+Scalar-field loans remain charge-preserving and require no checkpoint.
+
+HeapStats reports committed `provider_units` as a u128 sum of usize declarations,
+separately from object count. Allocation, mutation and retirement update bytes
+and units together after complete checked preparation; shutdown clears both.
+Runtime owns peak/session policy, and these units do not affect collector pacing.
+A detached `heap::accounting::AccountingReport` records the latest access or service
+interval's before/after occupancy and independent committed unit/indirect-byte
+peaks. Logical occupancy includes object count plus provider units as a u128 sum.
+The report resets when a new access/service interval starts, including rejected
+admission, and reading it has no effect. Actual allocation/mutation commits update
+peaks; failed preflight requests do not. Collection/shutdown expose their reduced
+current occupancy. Runtime consumes reports after physical loans end, including
+unwinding, without installing a callback or shared ResourceState in the collector.
+No per-object charge directory, session identity or language graph is added.
+
+An error before a destructive commit leaves logical contents intact; capacity changes
 already committed remain honestly charged. An interrupted operation must have
 restored or retained scan-valid payload state before this finalization. Drop
 does not attempt a general rollback of arbitrary Rust edits. Broken storage,
@@ -1223,8 +1241,7 @@ An active owner remains Gray until its scanner finishes. Other gray slots in
 the same block remain queued. At most one descriptor state is initialized in
 ScanWorkspace. A provider Pending leaves its numeric cursor and active identity
 in Heap; all payload/page/graph loans are released. Completion reacquires the
-same identity/mark before changing it to Black. A taken native owner is completed
-as an edge-free tombstone after discarding its old Copy scanner state.
+same identity/mark before changing it to Black.
 
 Admitted Rust payloads and owned scan state must be Send + 'static, as in the
 current provider contract. Erased layout/scan/drop dispatch must preserve that
@@ -1256,6 +1273,42 @@ Do not preserve external records by turning every row into a permanent root,
 hide managed edges inside an unscanned Arc, scan arbitrary host Rust graphs,
 or weaken pinned-reload behavior. If the object model fails a concrete required
 scenario, bring that evidence to the existing plan before extending the API.
+
+### Closed physical edge inspection
+
+Scope::inspect_edges reuses registered begin/scan dispatch for read-only admission
+walks over erased/dynamic providers. EdgeVisitor selects marking or inspection;
+the marking path retains its existing publication kernel. Inspection validates
+same-heap live targets, brands them for the current closed scope and calls a
+read-only consumer. It neither sets mark bits nor adds roots. Only the inspector's
+private, pointer-free Copy state advances; the collector's suspended cursor and
+workspace remain untouched. Duplicate fields remain separate observations.
+
+EdgeInspector owns reusable aligned scanner scratch, excluding any object handle,
+root or result proof. Its capacity is external traversal memory and is observable
+separately. Each scan gets the normal 1,024-unit allowance, enforces provider bounds/
+progress and runs a caller checkpoint between turns, even without outgoing edges.
+An indivisible provider can exceed the allowance; an admission consumer can still
+poll during its edge visits. ControlFlow stops either consumer without a sentinel
+provider error. Storage/provider failures remain GcError. Shared callbacks cannot
+mutate or collect the scoped heap; callback panic unwinds as for Scope::read,
+leaving no collector state change. A later inspection initializes fresh scratch.
+
+This supports Runtime data validation without a second native tracing contract.
+For example, an opaque payload may contain a mutable link to a Host descriptor:
+Runtime enqueues each physical child and checks it after that provider scan. The
+collector never interprets the Host descriptor or executable relationship. The
+unsafe provider still owes complete edges and nonallocating/nonreentrant scanner
+code; the inspection consumer may reserve fallible Rust traversal scratch, with no
+managed allocation or mutation available through shared Scope.
+
+Reference mechanism: [OpenJDK 21+35 iterator.hpp](https://github.com/openjdk/jdk/blob/jdk-21%2B35/src/hotspot/share/memory/iterator.hpp)
+separates object-field iteration through OopClosure from GC-specific iteration
+services. Kagari similarly changes the edge consumer rather than asking providers
+for another tracer. Kagari uses invariant Rust scopes and pointer-free resumable
+state under exclusive heap ownership, not JVM safepoints, concurrent visitation or
+mutable oop addresses. No collector algorithm or Runtime type policy moves here,
+and this comparison does not establish correctness or performance.
 
 ## Mutation and scanner coordination
 
@@ -1323,8 +1376,7 @@ targets Gray (or Black for proven
 edge-free leaves) and reserves no new queue storage for admitted targets. In
 Sweep, existing targets must already be Black; new initialized allocations are
 admitted Black. Idle still checks heap/type/liveness admission before skipping
-mark work. New publication rejects taken objects; existing traced aliases are
-allowed to mark their edge-free tombstones.
+mark work.
 
 The core receives a generic continuation decision, not a container operation:
 
@@ -1543,21 +1595,6 @@ several entries before a callback,
 all removed live values must reside in rooted or traced scratch first. A Rust Vec
 of unrooted copied Edge values is insufficient scratch storage.
 
-### Take a native payload
-
-Require an installed Takeable representation and its current exclusion/operation
-proof. Takeable means recursively free of managed edges, roots, executable
-metadata and script callbacks, including through shared/interior mutable owners,
-as required by [NativeTake](https://github.com/kagari-lang/kagari/blob/0490f8a4071f11ffcb98679f0eb3dd67eb8c9854/crates/kagari-runtime/src/native/payload/take.rs).
-An empty scanner alone is not that proof. Do not return an arbitrary
-reference-bearing T to untraced host storage. Prepare the edge-free taken descriptor
-and move the Rust T once. Replace
-dispatch at the original header with Taken, preserving occupied slot, page mark,
-physical extent and address. Retire the removed native record/metadata outside
-storage borrows. Clear its indirect charge while physical backing remains charged.
-Old traced aliases retain the tombstone; inspect/new publication rejects it.
-The normal sweep later reclaims it. No separate moved-ID store is introduced.
-
 ## Cycle state machine and sweep
 
 | Phase | Work | Legal mutator interval | Completion/fault rule |
@@ -1668,7 +1705,7 @@ cycle-local committed allocation growth; PhysicalHeap owns backing bytes.
 Descriptor/control capacity remains outside the reported managed-byte ledger. Runtime combines core
 figures with non-GC Runtime resource pressure and enforces its own quotas. Reuse
 grow-before-commit and unwind-finalized charges. Count physical backing once,
-including retiring/taken extent, and release it after final disposal. Reports do
+including retiring extent, and release it after final disposal. Reports do
 not equate requested bytes with allocator usable bytes or process RSS.
 
 First-version accounting decision: generic T has no separate committed-charge
@@ -1813,6 +1850,14 @@ Internal relationships: ordinary Edge carriers
 Published installations and independently retained host handles: Root/RootSet
 Active/parked computations: direct execution root source
 ```
+
+RR03's execution source issues the canonical execution identity used by Runtime's
+control directory. Its typed internal-node dependencies are scanned Edge carriers,
+separate from tagged language values; internal code/environment/application nodes
+do not acquire a language Value tag or a Host Root merely for execution transport.
+Native suffix retirement clears its local values and typed dependencies together.
+The active plan distinguishes this implemented source protocol from the remaining
+non-building Runtime frame/provider consumers.
 
 Runtime's object operations borrow disjoint execution/semantic/memory fields;
 Heap/Access stores no persistent Runtime borrow. An interpreter region admits

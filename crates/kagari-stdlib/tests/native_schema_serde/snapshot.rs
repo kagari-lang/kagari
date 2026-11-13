@@ -6,18 +6,19 @@ use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
     frame::types::arguments::TypeArgument,
-    gc::{HeapObjectId, roots::RootedValue},
     module::ExecutableModule,
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
         conversion::{FromKagari, KagariType, context::ConversionContext},
         module::NativeModule,
+        objects::{Object, fields::Field},
         schema::TypeRegistration,
         serde::{KagariSchema as Schema, Serde},
+        typed::NativeContext,
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{
@@ -34,8 +35,11 @@ pub(super) struct Graph {
 #[derive(Debug, PartialEq)]
 struct Reentrant(i32);
 
+type GraphObject = Object<Serde<Graph>>;
+type ChildrenField = Field<Option<GraphObject>>;
+
 enum Hook {
-    Rewrite(HeapObjectId, RootedValue),
+    Rewrite(GraphObject, ChildrenField),
     Panic,
 }
 
@@ -82,7 +86,7 @@ impl FromKagari for Graph {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
         let mut fields = cx.read_struct(expected, value)?;
         Ok(Self {
@@ -102,19 +106,18 @@ impl FromKagari for Reentrant {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
         let value = cx.decode_value(expected, value)?;
         let hook = HOOK.with(|hook| hook.borrow_mut().take());
         match hook {
-            Some(Hook::Rewrite(parent, next)) => {
-                let runtime = cx.runtime_mut();
-                let layout = runtime.gc().struct_layout(parent).unwrap();
-                runtime
-                    .gc()
-                    .struct_set_slot(parent, &layout, 1, next.value(runtime.gc()).unwrap())
-                    .unwrap();
-                runtime.collect_garbage()?;
+            Some(Hook::Rewrite(parent, children)) => {
+                let owner = cx.owner().clone();
+                let mut native = NativeContext::new(cx.runtime_mut(), &owner)?;
+                // Use declared mutable field access, including actual conversion
+                // and publication, rather than reconstructing a bare heap ID.
+                parent.set(&mut native, &children, None)?;
+                native.collect_garbage()?;
             }
             Some(Hook::Panic) => panic!("owned child converter unwind"),
             None => {}
@@ -125,10 +128,7 @@ impl FromKagari for Reentrant {
 
 fn fixture() -> (Runtime, ExecutableModule) {
     let module = module();
-    let program = program_for_source(
-        &module,
-        "use game::serde::Graph; pub fn inspect(input: Graph) -> i32 { input.value }",
-    );
+    let program = program_for_source(&module, include_str!("../fixtures/native/serde_graph.kgr"));
     let mut runtime = Runtime::default();
     let mut modules = kagari_stdlib::modules().unwrap();
     modules.push(module);
@@ -141,6 +141,8 @@ fn fixture() -> (Runtime, ExecutableModule) {
 #[test]
 fn serde_snapshot_survives_alias_mutation_gc_and_visitor_unwind() {
     let (mut runtime, owner) = fixture();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
     let root = cx
         .encode(Serde(Graph {
@@ -151,11 +153,12 @@ fn serde_snapshot_survives_alias_mutation_gc_and_visitor_unwind() {
             })),
         }))
         .unwrap();
-    let Value::Struct(parent) = root.value(cx.runtime().gc()).unwrap() else {
-        panic!("Graph");
-    };
-    let empty = cx.encode(Serde(None::<Box<Graph>>)).unwrap();
-    HOOK.with(|hook| *hook.borrow_mut() = Some(Hook::Rewrite(parent, empty)));
+    let parent: GraphObject = cx.decode(&root).unwrap();
+    let children = cx
+        .runtime_mut()
+        .bind_field(parent.object_type(), "children")
+        .unwrap();
+    HOOK.with(|hook| *hook.borrow_mut() = Some(Hook::Rewrite(parent, children)));
     let decoded: Graph = cx.decode(&root).unwrap();
     assert_eq!(decoded.children.unwrap().value, Reentrant(2));
     assert!(
@@ -165,21 +168,26 @@ fn serde_snapshot_survives_alias_mutation_gc_and_visitor_unwind() {
             .children
             .is_none()
     );
-    let roots = cx.runtime().gc().active_roots();
+    cx.runtime_mut().collect_garbage().unwrap();
+    let roots = cx.runtime().gc_stats().root_registrations;
     HOOK.with(|hook| *hook.borrow_mut() = Some(Hook::Panic));
     assert!(catch_unwind(AssertUnwindSafe(|| cx.decode::<Serde<Graph>>(&root))).is_err());
-    assert_eq!(cx.runtime().gc().active_roots(), roots);
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(cx.runtime().gc_stats().root_registrations, roots);
     assert_eq!(
         cx.decode::<Serde<Graph>>(&root).unwrap().0.value,
         Reentrant(1)
     );
     drop(root);
-    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(cx.runtime().gc_stats().objects, baseline.objects);
 }
 
 #[test]
 fn serde_owned_graph_rejects_cycles_through_recursive_enums() {
     let (mut runtime, owner) = fixture();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
     let root = cx
         .encode(Serde(Graph {
@@ -187,32 +195,28 @@ fn serde_owned_graph_rejects_cycles_through_recursive_enums() {
             children: None,
         }))
         .unwrap();
-    let value = root.value(cx.runtime().gc()).unwrap();
-    let Value::Struct(parent) = value else {
-        panic!("Graph");
-    };
-    let layout = cx.runtime().gc().struct_layout(parent).unwrap();
-    let child = cx
-        .encode(Serde(Some(Box::new(Graph {
-            value: Reentrant(2),
-            children: None,
-        }))))
+    let parent: GraphObject = cx.decode(&root).unwrap();
+    let children: ChildrenField = cx
+        .runtime_mut()
+        .bind_field(parent.object_type(), "children")
         .unwrap();
-    let Value::Enum(child_id) = child.value(cx.runtime().gc()).unwrap() else {
-        panic!("Option");
-    };
-    let tag = cx.runtime().gc().enum_snapshot(child_id).unwrap().tag;
-    let cycle = Value::Enum(cx.runtime().alloc_enum(tag, vec![value]).unwrap());
-    cx.runtime()
-        .gc()
-        .struct_set_slot(parent, &layout, 1, cycle)
+    let mut native = NativeContext::new(cx.runtime_mut(), &owner).unwrap();
+    parent
+        .set(&mut native, &children, Some(parent.clone()))
         .unwrap();
-    drop(child);
+    drop(native);
+    drop(children);
+    drop(parent);
     let error = cx.decode::<Serde<Graph>>(&root).unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
     assert!(error.to_string().contains("cycle"));
     assert!(error.to_string().contains("field children"));
-    assert_eq!(cx.runtime().gc().active_roots(), 1);
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        baseline.root_registrations + 1
+    );
     drop(root);
-    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(cx.runtime().gc_stats().objects, baseline.objects);
 }

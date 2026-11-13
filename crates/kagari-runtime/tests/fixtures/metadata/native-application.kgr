@@ -1,0 +1,11 @@
+use example::defaults::Read;
+
+impl Read for i32 {
+    fn read(self) -> i32 {
+        self
+    }
+}
+
+fn main() -> Read {
+    7
+}

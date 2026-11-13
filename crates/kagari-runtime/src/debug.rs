@@ -2,10 +2,9 @@ use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault, reason::ErrorReason},
     frame::ExecutionFrame,
-    gc::roots::RootSet,
     module::{ExecutableModule, ModuleId},
     session::{ExecutionEvent, ExecutionId, ExecutionObserver},
-    value::Value,
+    value::carriers::RootedValue,
 };
 
 use kagari_bytecode::{
@@ -73,7 +72,7 @@ pub enum DebugPauseReason {
     Trap,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct DebugPause {
     pub execution: ExecutionId,
     pub reason: DebugPauseReason,
@@ -85,12 +84,14 @@ impl DebugPause {
         self.frames.last()
     }
 
+    /// Share a captured binding after authenticating its root in this Runtime.
+    /// The binding identity is captured; mutable descendants remain shared.
     pub fn evaluate_watch(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         frame_id: DebugFrameId,
         watch: &DebugWatch,
-    ) -> Result<Value, RuntimeError> {
+    ) -> Result<RootedValue, RuntimeError> {
         runtime.resources().ensure_execution_allowed()?;
         let frame = self
             .frames
@@ -106,7 +107,7 @@ impl DebugPause {
                 .find(|binding| binding.name == *name)
                 .map(|binding| {
                     runtime.validate_debug_value(&binding.value)?;
-                    Ok::<_, RuntimeError>(binding.value)
+                    Ok::<_, RuntimeError>(binding.value.clone())
                 })
                 .transpose()?
                 .ok_or(RuntimeError::new(ErrorReason::MissingField(name.clone()))),
@@ -114,7 +115,7 @@ impl DebugPause {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct DebugFrame {
     pub id: DebugFrameId,
     pub module_id: ModuleId,
@@ -127,13 +128,13 @@ pub struct DebugFrame {
     pub bindings: Vec<DebugBinding>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
+/// A captured live binding owns an opaque Host lease independent of its frame.
 pub struct DebugBinding {
     pub name: String,
     pub local: Slot,
-    pub value: Value,
+    pub value: RootedValue,
     pub is_parameter: bool,
-    roots: RootSet,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,6 +164,23 @@ struct RegisteredBreakpoint {
     id: BreakpointId,
 }
 
+/// One event's decision is consumed by the immediately following observation.
+/// It owns no frame, executable backing or managed value.
+#[derive(Debug, Clone, Copy)]
+enum PreparedPause {
+    Skip,
+    Pause(DebugPauseReason),
+}
+
+impl PreparedPause {
+    fn reason(self) -> Option<DebugPauseReason> {
+        match self {
+            Self::Skip => None,
+            Self::Pause(reason) => Some(reason),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DebugSession {
     breakpoints: Vec<RegisteredBreakpoint>,
@@ -171,6 +189,7 @@ pub struct DebugSession {
     next_breakpoint_id: u64,
     next_frame_id: u64,
     mode: StepMode,
+    pending_pause: Option<PreparedPause>,
 }
 
 impl DebugSession {
@@ -183,6 +202,7 @@ impl DebugSession {
             next_breakpoint_id: 0,
             next_frame_id: 0,
             mode: StepMode::Continue,
+            pending_pause: None,
         })
     }
 
@@ -294,25 +314,19 @@ impl DebugSession {
         Ok(())
     }
 
-    pub(crate) fn before_instruction(
+    fn prepare_instruction_pause(
         &mut self,
         runtime: &Runtime,
         frames: &[ExecutionFrame],
-    ) -> Result<(), RuntimeError> {
-        let Some(frame) = frames.last() else {
-            return Ok(());
-        };
+    ) -> Option<DebugPauseReason> {
+        let frame = frames.last()?;
         let member = frame.loaded();
         let module_id = member.id;
         let epoch = member.epoch.0;
         let _module_name = &member.name;
         let offset = frame.instruction_offset();
-        let Some(function) = frame.function() else {
-            return Ok(());
-        };
-        let Some(_point) = safe_debug_point(function, offset) else {
-            return Ok(());
-        };
+        let function = frame.function()?;
+        safe_debug_point(function, offset)?;
 
         let breakpoint = self
             .resolved
@@ -324,17 +338,29 @@ impl DebugSession {
                     && resolved.instruction_offset == offset
             })
             .map(|resolved| resolved.breakpoint_id);
-        let reason = match breakpoint {
-            Some(id) => {
-                runtime.resources().ensure_execution_allowed()?;
-                Some(DebugPauseReason::Breakpoint(id))
-            }
+        match breakpoint {
+            Some(id) => Some(DebugPauseReason::Breakpoint(id)),
             None => self.step_reason(runtime.execution_id(), frames.len()),
-        };
+        }
+    }
 
+    fn before_instruction(
+        &mut self,
+        runtime: &Runtime,
+        frames: &[ExecutionFrame],
+    ) -> Result<(), RuntimeError> {
+        let reason = self
+            .pending_pause
+            .take()
+            .ok_or_else(|| RuntimeError::module_validation("debug observation was not prepared"))?
+            .reason();
         if let Some(reason) = reason {
             self.record_pause(runtime, reason, frames)?;
         }
+        let breakpoint = match reason {
+            Some(DebugPauseReason::Breakpoint(id)) => Some(id),
+            _ => None,
+        };
         if let Some(id) = breakpoint {
             let temporary = self
                 .breakpoints
@@ -448,14 +474,8 @@ impl DebugSession {
             .flat_map(|function| &function.metadata.debug.local_live_ranges)
             .filter(|range| range.start <= instruction_offset && instruction_offset < range.end)
             .map(|range| {
-                let value = frame.read_slot(runtime, range.slot)?;
-                runtime.validate_debug_value(&value)?;
+                let value = runtime.observed_binding_value(frame, range.slot)?;
                 Ok(DebugBinding {
-                    roots: runtime.gc().root_execution_values(vec![value]).ok_or(
-                        RuntimeError::from(EngineFault::HostInvariant(
-                            "invalid heap reference in debug snapshot",
-                        )),
-                    )?,
                     name: range.name.clone(),
                     local: range.slot,
                     value,
@@ -552,6 +572,20 @@ impl ExecutionObserver for DebugSession {
         Ok(())
     }
 
+    fn capture_binding_values(
+        &mut self,
+        runtime: &Runtime,
+        event: ExecutionEvent,
+        frames: &[ExecutionFrame],
+    ) -> bool {
+        let reason = match event {
+            ExecutionEvent::BeforeInstruction => self.prepare_instruction_pause(runtime, frames),
+            ExecutionEvent::Trap => Some(DebugPauseReason::Trap),
+        };
+        self.pending_pause = Some(reason.map_or(PreparedPause::Skip, PreparedPause::Pause));
+        reason.is_some()
+    }
+
     fn observe(
         &mut self,
         runtime: &Runtime,
@@ -560,7 +594,12 @@ impl ExecutionObserver for DebugSession {
     ) -> Result<(), RuntimeError> {
         match event {
             ExecutionEvent::BeforeInstruction => self.before_instruction(runtime, frames),
-            ExecutionEvent::Trap => self.record_trap(runtime, frames),
+            ExecutionEvent::Trap => {
+                self.pending_pause.take().ok_or_else(|| {
+                    RuntimeError::module_validation("trap observation was not prepared")
+                })?;
+                self.record_trap(runtime, frames)
+            }
         }
     }
 }

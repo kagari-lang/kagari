@@ -1,0 +1,21 @@
+use example::functions::{ enter, fail, effect };
+
+fn main() -> i32 {
+    val kept = [42];
+    effect();
+    enter();
+    effect();
+    kept[0]
+}
+
+pub fn nested() -> i32 {
+    val kept = [1];
+    fail();
+    effect();
+    kept[0]
+}
+
+pub fn healthy() -> i32 {
+    effect();
+    7
+}

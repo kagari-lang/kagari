@@ -1,16 +1,18 @@
 //! Installed float imports retain checked carrier admission and domain errors.
 use crate::namespaces;
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
+use kagari_common::identity::map::DefinitionContext;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_gc::heap::HeapStats;
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
+    execution::memory::GcHeapConfig,
     frame::driver::ReturnAction,
-    gc::GcHeapConfig,
-    module::ExecutableModule,
-    native::{binding::NativeResult, module::NativeModule},
-    value::Value,
+    module::{ExecutableModule, VerifiedProgram},
+    native::{binding::NativeResult, conversion::context::ConversionContext, module::NativeModule},
+    value::{carriers::RootedValue, view::ValueView},
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
@@ -19,15 +21,17 @@ use std::{
     sync::Arc,
 };
 
-// Use the ordinary frame driver, as in tests/support/native/invoke.rs. Its
-// existing stdlib inclusion is private to the runtime-boundary test module.
+// Use the real Native frame driver, including complete scalar admission and
+// result retention before the execution source retires.
 fn invoke(
     runtime: &mut Runtime,
     owner: &ExecutableModule,
     slot: usize,
-    arguments: &[Value],
-) -> NativeResult<Value> {
-    let mut stack_activation = runtime.enter_execution_stack(owner)?;
+    arguments: &[ValueView<'_>],
+) -> NativeResult<RootedValue> {
+    let mut conversion = ConversionContext::new(runtime, owner)?;
+    let arguments = conversion.argument_values(arguments)?;
+    let mut stack_activation = conversion.runtime_mut().enter_execution_stack(owner)?;
     stack_activation.with(|runtime, stack| {
         stack.push_callable(
             runtime,
@@ -36,17 +40,17 @@ fn invoke(
             arguments,
             None,
         )?;
-        stack.start_native_entry(runtime, |_, _, _, _| {
+        stack.start_native_entry(runtime, |_, _, _, _, _| {
             panic!("float scalar methods must not reenter script")
         })?;
         let ReturnAction::Complete(value) = stack.finish_native_return(runtime)? else {
             panic!("expected root native return");
         };
-        Ok(value)
+        stack.retain_result(runtime, value)
     })
 }
 
-fn fixture() -> (Runtime, ExecutableModule) {
+fn fixture() -> (Runtime, ExecutableModule, HeapStats) {
     let modules = crate::modules().unwrap();
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(
@@ -59,16 +63,7 @@ fn fixture() -> (Runtime, ExecutableModule) {
     let root = sources
         .set(
             "float-carriers.kgr",
-            r#"
-pub fn unary32(value: f32) -> f32 { value.abs() }
-pub fn binary32(value: f32, other: f32) -> f32 { value.min(other) }
-pub fn clamp32(value: f32, min: f32, max: f32) -> f32 { value.clamp(min, max) }
-pub fn bits32(bits: u32) -> f32 { f32::from_bits(bits) }
-pub fn unary64(value: f64) -> f64 { value.abs() }
-pub fn binary64(value: f64, other: f64) -> f64 { value.min(other) }
-pub fn clamp64(value: f64, min: f64, max: f64) -> f64 { value.clamp(min, max) }
-"#
-            .into(),
+            include_str!("../../../../tests/fixtures/native/float-native-carriers.kgr").into(),
             SourceLayer::Base,
         )
         .unwrap();
@@ -92,17 +87,15 @@ pub fn clamp64(value: f64, min: f64, max: f64) -> f64 { value.clamp(min, max) }
         ..Default::default()
     });
     NativeModule::install_all(&modules, &mut runtime).unwrap();
-    let program = kagari_runtime::module::VerifiedProgram::new(
-        program,
-        &kagari_common::identity::map::DefinitionContext::new().unwrap(),
-    )
-    .unwrap();
+    let program = VerifiedProgram::new(program, &DefinitionContext::new().unwrap()).unwrap();
     let loaded = runtime
         .load_verified_program("float-carriers", program)
         .unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    (runtime, loaded)
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
+    (runtime, loaded, baseline)
 }
 
 fn import(
@@ -130,19 +123,35 @@ fn import(
     matches.pop().unwrap()
 }
 
-fn assert_idle(runtime: &mut Runtime) {
-    assert_eq!(runtime.gc().active_roots(), 0);
+fn assert_idle(runtime: &mut Runtime, baseline: &HeapStats) {
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     assert!(!runtime.is_quarantined());
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
+}
+
+fn assert_float(actual: &RootedValue, expected: ValueView<'_>) {
+    if let Some(expected) = expected.as_f32() {
+        assert_eq!(actual.as_f32(), Some(expected));
+    } else {
+        assert_eq!(
+            actual.as_f64(),
+            Some(expected.as_f64().expect("float witness"))
+        );
+    }
 }
 
 fn reject_then_call(
     runtime: &mut Runtime,
     target: &(ExecutableModule, usize),
-    malformed: &[Value],
-    valid: &[Value],
-    expected: Value,
+    malformed: &[ValueView<'_>],
+    valid: &[ValueView<'_>],
+    expected: ValueView<'_>,
+    baseline: &HeapStats,
 ) {
     let (owner, slot) = target;
     let error = catch_unwind(AssertUnwindSafe(|| {
@@ -159,30 +168,30 @@ fn reject_then_call(
     // constructing NativeCall; deliberately do not bypass that safety boundary.
     assert_eq!(
         error.to_string(),
-        "module validation failed: invalid frame argument type or window"
+        "module validation failed: the representation does not match the admitted type or layout"
     );
-    assert_idle(runtime);
-    assert_eq!(invoke(runtime, owner, *slot, valid).unwrap(), expected);
-    assert_idle(runtime);
+    assert_idle(runtime, baseline);
+    assert_float(&invoke(runtime, owner, *slot, valid).unwrap(), expected);
+    assert_idle(runtime, baseline);
 }
 
 #[test]
 fn installed_float_imports_reject_malformed_carriers_and_remain_callable() {
-    let (mut runtime, loaded) = fixture();
+    let (mut runtime, loaded, baseline) = fixture();
     for (ty, value, low, high, wrong) in [
         (
             BuiltinType::F32,
-            Value::F32(0.5),
-            Value::F32(-1.0),
-            Value::F32(1.0),
-            Value::F64(0.5),
+            ValueView::from(0.5f32),
+            ValueView::from(-1.0f32),
+            ValueView::from(1.0f32),
+            ValueView::from(0.5f64),
         ),
         (
             BuiltinType::F64,
-            Value::F64(0.5),
-            Value::F64(-1.0),
-            Value::F64(1.0),
-            Value::F32(0.5),
+            ValueView::from(0.5f64),
+            ValueView::from(-1.0f64),
+            ValueView::from(1.0f64),
+            ValueView::from(0.5f32),
         ),
     ] {
         for (method, valid, expected) in [
@@ -194,54 +203,76 @@ fn installed_float_imports_reject_malformed_carriers_and_remain_callable() {
             for index in 0..valid.len() {
                 let mut malformed = valid.clone();
                 malformed[index] = wrong;
-                reject_then_call(&mut runtime, &target, &malformed, &valid, expected);
+                reject_then_call(
+                    &mut runtime,
+                    &target,
+                    &malformed,
+                    &valid,
+                    expected,
+                    &baseline,
+                );
             }
         }
         let target = import(&loaded, "abs", ty);
-        reject_then_call(&mut runtime, &target, &[Value::Bool(true)], &[low], high);
+        reject_then_call(
+            &mut runtime,
+            &target,
+            &[ValueView::from(true)],
+            &[low],
+            high,
+            &baseline,
+        );
     }
     let target = import(&loaded, "from_bits", BuiltinType::U32);
     for malformed in [
-        Value::F32(1.0),
-        Value::U64(0),
-        Value::I32(0),
-        Value::I64(-1),
-        Value::I64(1i64 << 32),
+        ValueView::from(1.0f32),
+        ValueView::from(0u64),
+        ValueView::from(0i32),
+        ValueView::from(-1i64),
+        ValueView::from(1i64 << 32),
     ] {
         reject_then_call(
             &mut runtime,
             &target,
             &[malformed],
-            &[Value::I64(0x3f80_0000)],
-            Value::F32(1.0),
+            &[ValueView::from(0x3f80_0000i64)],
+            ValueView::from(1.0f32),
+            &baseline,
         );
     }
 }
 
 #[test]
 fn installed_clamp_distinguishes_carrier_errors_from_domain_traps() {
-    let (mut runtime, loaded) = fixture();
+    let (mut runtime, loaded, baseline) = fixture();
     for (ty, value, low, high, nan, wrong) in [
         (
             BuiltinType::F32,
-            Value::F32(0.5),
-            Value::F32(-1.0),
-            Value::F32(1.0),
-            Value::F32(f32::NAN),
-            Value::F64(1.0),
+            ValueView::from(0.5f32),
+            ValueView::from(-1.0f32),
+            ValueView::from(1.0f32),
+            ValueView::from(f32::NAN),
+            ValueView::from(1.0f64),
         ),
         (
             BuiltinType::F64,
-            Value::F64(0.5),
-            Value::F64(-1.0),
-            Value::F64(1.0),
-            Value::F64(f64::NAN),
-            Value::F32(1.0),
+            ValueView::from(0.5f64),
+            ValueView::from(-1.0f64),
+            ValueView::from(1.0f64),
+            ValueView::from(f64::NAN),
+            ValueView::from(1.0f32),
         ),
     ] {
         let target = import(&loaded, "clamp", ty);
         let valid = [value, low, high];
-        reject_then_call(&mut runtime, &target, &[value, nan, wrong], &valid, value);
+        reject_then_call(
+            &mut runtime,
+            &target,
+            &[value, nan, wrong],
+            &valid,
+            value,
+            &baseline,
+        );
         for arguments in [[value, nan, high], [value, high, low]] {
             let error = catch_unwind(AssertUnwindSafe(|| {
                 invoke(&mut runtime, &target.0, target.1, &arguments)
@@ -254,12 +285,12 @@ fn installed_clamp_distinguishes_carrier_errors_from_domain_traps() {
                     .to_string()
                     .contains("clamp requires non-NaN bounds with min <= max")
             );
-            assert_idle(&mut runtime);
-            assert_eq!(
-                invoke(&mut runtime, &target.0, target.1, &valid).unwrap(),
-                value
+            assert_idle(&mut runtime, &baseline);
+            assert_float(
+                &invoke(&mut runtime, &target.0, target.1, &valid).unwrap(),
+                value,
             );
-            assert_idle(&mut runtime);
+            assert_idle(&mut runtime, &baseline);
         }
     }
 }

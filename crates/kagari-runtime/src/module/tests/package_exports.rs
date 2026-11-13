@@ -5,12 +5,11 @@ use crate::{
     error::RuntimeErrorKind,
     module::{
         ExecutableModule, InstalledProgram, ModuleEpochRetention, VerifiedProgram,
-        state::StaticState,
+        managed::source::RevisionSource, retention::RetentionOrigin, state::StaticState,
     },
     native::function_handle::Function,
     reload::ReloadValidationError,
     test_support::update_programs::{bytecode, source_code, source_free_reload_results},
-    value::Value,
 };
 use kagari_bytecode::{instruction::BytecodeInstruction, module::CallableTarget};
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
@@ -41,11 +40,19 @@ fn member_counts_distinguish_local_and_whole_program_leases() {
         .find(|member| member.key() != root.key())
         .unwrap();
     let whole = runtime
-        .retain_program(&member, ModuleEpochRetention::CompiledArtifact)
+        .retain_program(
+            &member,
+            ModuleEpochRetention::CompiledArtifact,
+            RevisionSource::Current,
+        )
         .unwrap();
     let clone = whole.clone();
     let local = runtime
-        .retain_module(&member, ModuleEpochRetention::RuntimeValue)
+        .retain_module(
+            &member,
+            ModuleEpochRetention::RuntimeValue,
+            RetentionOrigin::Current,
+        )
         .unwrap();
     for loaded in root.members() {
         let counts = runtime.modules().retention_counts(loaded.key());
@@ -131,8 +138,12 @@ fn public_paths_remain_rooted_and_generation_pinned_after_identity_import() {
         assert_eq!(entry.bytecode.functions[function.index()].name, "main");
     }
     let (old_target, old_function) = loaded.exported_function("damage").unwrap();
-    let _lease = first
-        .retain_module(&old_target, ModuleEpochRetention::ActiveCall)
+    let lease = first
+        .retain_module(
+            &old_target,
+            ModuleEpochRetention::ActiveCall,
+            RetentionOrigin::Current,
+        )
         .unwrap();
     let staged = first
         .stage_reload_verified_program(&loaded_program, None, code(9))
@@ -150,9 +161,14 @@ fn public_paths_remain_rooted_and_generation_pinned_after_identity_import() {
         loaded.exported_function("damage").unwrap().0.key(),
         old_target.key()
     );
-    for (owner, function, expected) in [
-        (&old_target, old_function, 7),
-        (&new_target, new_function, 9),
+    for (owner, function, expected, origin) in [
+        (
+            &old_target,
+            old_function,
+            7,
+            RetentionOrigin::Retained(&lease),
+        ),
+        (&new_target, new_function, 9, RetentionOrigin::Current),
     ] {
         let BytecodeInstruction::LoadConst { constant, .. } =
             owner.bytecode.functions[function.index()].instructions[0]
@@ -160,8 +176,11 @@ fn public_paths_remain_rooted_and_generation_pinned_after_identity_import() {
             panic!("constant-return fixture");
         };
         assert_eq!(
-            first.read_constant(owner, constant).unwrap(),
-            Value::I32(expected)
+            first
+                .read_constant(owner, constant, origin)
+                .unwrap()
+                .as_i32(),
+            Some(expected)
         );
     }
     first.validate_executable_module(&old_target).unwrap();
@@ -286,8 +305,11 @@ fn retained_namespace_bindings_follow_current_declarations_not_retargeted_aliase
             panic!("constant-return fixture");
         };
         assert_eq!(
-            runtime.read_constant(target.owner(), constant).unwrap(),
-            Value::I32(expected)
+            runtime
+                .read_constant(target.owner(), constant, RetentionOrigin::Current)
+                .unwrap()
+                .as_i32(),
+            Some(expected)
         );
     }
 }
@@ -340,6 +362,7 @@ fn relative_object_aliases_share_exact_layout_and_reject_unsupported_leaves_with
         .unwrap();
     assert_eq!(closed.type_argument().ty(), advanced.type_argument().ty());
     assert_eq!(closed.owner().key(), advanced.owner().key());
+    let heap = runtime.gc_stats();
     let error = runtime.bind_type(&api, "Unused", &arguments).unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
     assert!(
@@ -358,8 +381,9 @@ fn relative_object_aliases_share_exact_layout_and_reject_unsupported_leaves_with
         );
     }
     assert_eq!(runtime.resources().counters().peak_call_depth, 0);
-    assert_eq!(runtime.gc().active_roots(), 0);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(runtime.gc_stats(), heap);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, heap.objects);
 }
 
 fn type_reload_source(object: &str, cell: &str, open: &str) -> String {
@@ -471,6 +495,7 @@ fn reload_rejects_changed_type_targets_arguments_and_marker_classes_without_effe
         .unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     let (owner, function) = loaded.exported_function("value").unwrap();
+    let heap = runtime.gc_stats();
     let source = candidate(&original);
     assert_source_free_reload(&loaded, &source, false);
     assert!(matches!(
@@ -492,7 +517,7 @@ fn reload_rejects_changed_type_targets_arguments_and_marker_classes_without_effe
         [StaticState::Uninitialized(_)]
     ));
     assert_eq!(runtime.resources().counters().peak_call_depth, 0);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.gc_stats(), heap);
 }
 
 fn reload_source(next: &str, target: &str, alias: &str, nominal: &str, entry: &str) -> String {
@@ -565,7 +590,11 @@ fn reload_accepts_equivalent_alias_cycles_and_same_signature_retargeting() {
     ));
     let old = loaded.exported_function("api::next::run").unwrap().0;
     let _lease = runtime
-        .retain_module(&old, ModuleEpochRetention::ActiveCall)
+        .retain_module(
+            &old,
+            ModuleEpochRetention::ActiveCall,
+            RetentionOrigin::Current,
+        )
         .unwrap();
     let staged = runtime
         .stage_reload_verified_program(&loaded_program, None, candidate)
@@ -677,6 +706,7 @@ fn reload_preserves_unused_private_nominal_and_trait_contracts_source_free(
     assert_eq!(root.trait_contracts.len(), 1);
     assert!(root.structures.is_empty());
     assert!(root.enumerations.is_empty());
+    let heap = runtime.gc_stats();
     let candidate = candidate(source);
     for result in source_free_reload_results(&loaded, &candidate)
         .into_iter()
@@ -693,7 +723,7 @@ fn reload_preserves_unused_private_nominal_and_trait_contracts_source_free(
     assert_eq!(latest.key(), loaded.key());
     assert_eq!(latest.program_fingerprint(), loaded.program_fingerprint());
     assert_eq!(runtime.resources().counters().peak_call_depth, 0);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.gc_stats(), heap);
 }
 
 #[test]
@@ -785,6 +815,7 @@ fn relative_object_binding_rejections_preserve_state_and_heap(
     } else {
         &[]
     };
+    let heap = runtime.gc_stats();
     let error = runtime.bind_type(&api, path, arguments).unwrap_err();
     assert_eq!(
         error.kind(),
@@ -803,8 +834,9 @@ fn relative_object_binding_rejections_preserve_state_and_heap(
         );
     }
     assert_eq!(runtime.resources().counters().peak_call_depth, 0);
-    assert_eq!(runtime.gc().active_roots(), 0);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(runtime.gc_stats(), heap);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, heap.objects);
 }
 
 #[rstest]

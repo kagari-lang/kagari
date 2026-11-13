@@ -35,6 +35,18 @@ registration require `&mut Scope`; conflicting accesses fail at compile time.
 `Scope::get/get_root/follow/downcast` and typed/dynamic field getters also accept
 shared access. Read callback results still cannot contain borrowed payload data.
 
+`Scope::inspect_edges` enumerates direct physical edges through the object's existing
+scanner, including erased Rust and dynamic providers. It does not traverse children,
+mark objects or register roots. Caller-owned `access::inspection::EdgeInspector`
+reuses pointer-free scan scratch; `capacity_bytes` reports its external capacity,
+separate from Heap's collection workspace. A closed visit receives same-scope Gc
+handles and can stop with ControlFlow. Checkpoints run between 1,024-unit turns,
+including turns that inspect empty fields; indivisible providers can exceed that
+allowance. Only shared Scope access is lent, so these callbacks cannot mutate or
+collect the heap. Language policy, cycle detection and fallible traversal queues
+remain with the caller. Gc equality/hashing observe allocation identity inside the
+same invariant scope; they create no persistent address or retention capability.
+
 Use `Root<T>` for owning host retention across scopes, `RootSet` for fixed replaceable
 root packs, and private `Edge<T>` fields for internal relationships. Root cloning shares
 one registration. Last-handle drop only queues a pre-reserved notification; it
@@ -51,6 +63,22 @@ edge imports and general mutation are unsafe provider APIs; they are not an ordi
 safe object builder. Stored Edge is neither Copy nor Clone and grants no safe
 independent dereference. `Access` retains low-level rooted/provider operations;
 both surfaces share allocation, mutation and publication kernels.
+
+`HeapStats::provider_units` sums committed provider logical costs separately from
+object count and bytes; units do not drive pacing. A provider changing charge
+must commit it before lending a forgettable safe proxy. Use
+`ObjectMut::commit_accounting` to checkpoint without ending the loan or clearing
+its scanner fallback; later edits need another checkpoint. Ordinary finish/Drop
+commits automatically. Scalar projections must preserve all charge quantities.
+
+`Heap::accounting()` and `RootDriver::accounting()` expose the latest access/service
+interval's committed before/after occupancy and independent peaks. Units combine
+object count and provider units as `u128`; bytes cover provider indirect backing.
+Growth followed by shrinkage inside the interval still contributes its peak;
+failed preflight requests do not. New access, step, collection, safepoint or shutdown
+starts an interval, including rejected access. Reading the detached report neither
+resets it nor grants heap access. Embedders attribute it after physical loans end;
+the collector contains no session policy or accounting callback.
 
 Providers declare `ScalarField` and `EdgeField` once with unsafe verified
 projections. Ordinary get/set/borrow_mut calls are safe: scalar fields preserve
@@ -272,10 +300,11 @@ include memory exclusions, retained partial blocks and measured throughput costs
 
 The library provides typed Rust and fixed dynamic allocation/access, roots,
 mutation, incremental tracing, sweep and contained disposal. Runtime cutover,
-arbitrary erased providers, native take/tombstones, integrated pressure/cancellation
+arbitrary erased providers, integrated pressure/cancellation
 policy, full performance instrumentation and comparative acceptance remain at their
 [plan](../../docs/gc-redesign-plan.md) owners. There are no placeholder production
-entrypoints for deferred capabilities. Existing Runtime behavior is unchanged.
+entrypoints for deferred capabilities. Runtime is in the RR03 coordinated
+consumer cutover; its active execution plan records intermediate build failures.
 
 ## Graph and memory-safety validation
 

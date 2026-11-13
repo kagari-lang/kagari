@@ -8,7 +8,7 @@ use kagari_runtime::{
     frame::ExecutionFrame,
     module::InstalledProgram,
     session::{ExecutionEvent, ExecutionObserver, owned::OwnedExecution},
-    value::Value,
+    value::carriers::RootedValue,
 };
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
@@ -99,14 +99,14 @@ impl Fixture {
             .start(
                 &_selected_module,
                 "hold",
-                &[Value::I32(1)],
+                &[RootedValue::from(1i32)],
                 context.interpreter_options().unwrap(),
             )
             .unwrap();
         let DriveResult::Complete(result) = runtime.drive(&owner, slice(10_000)).unwrap() else {
             panic!("bounded instruction count must complete");
         };
-        assert_eq!(result.unwrap().value(runtime.gc()).unwrap(), Value::I32(8));
+        assert_eq!(result.unwrap().as_i32(), Some(8));
         drop(owner);
         let instructions = count.load(Ordering::Relaxed);
         assert!(instructions > 2);
@@ -133,7 +133,7 @@ impl Fixture {
                 .start(
                     &self.runtime.select_program(&self.module).unwrap(),
                     "hold",
-                    &[Value::I32(index as i32 + 1)],
+                    &[RootedValue::from(index as i32 + 1)],
                     self.context.interpreter_options().unwrap(),
                 )
                 .unwrap();
@@ -161,10 +161,7 @@ impl Fixture {
             1
         } else {
             let expected = (index as i32 + 1) * 8;
-            assert_eq!(
-                result.unwrap().value(self.runtime.gc()).unwrap(),
-                Value::I32(expected)
-            );
+            assert_eq!(result.unwrap().as_i32(), Some(expected));
             i64::from(expected)
         }
     }

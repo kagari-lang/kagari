@@ -1,18 +1,18 @@
-//! Host retention and a repeatable baseline for nonmoving mark-sweep pauses.
+//! Host retention and complete collection timing for an explicit array graph.
 use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::updates::UpdateEvidence;
+use kagari_runtime::Runtime;
 use kagari_runtime::module::VerifiedProgram;
-use kagari_runtime::{Runtime, value::Value};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn main() {
     const LEAVES: usize = 10_000;
     const OBJECTS: usize = LEAVES + 1;
-    println!("repeat,objects,live_mark_ns,dead_sweep_ns,reclaimed_units");
+    println!("repeat,objects,live_collect_ns,dead_collect_ns,retired_owners,freed_provider_units");
     for repeat in 0..5 {
         let mut runtime = Runtime::default();
         let context = DefinitionContext::new().unwrap();
@@ -45,38 +45,44 @@ fn main() {
             )
             .unwrap();
         let owner = runtime.select_program(&owner_program).unwrap();
-        // A typed array of scalar arrays makes the graph shape and storage cost explicit.
+        runtime.collect_garbage().unwrap();
+        let baseline = runtime.gc_stats();
+        // Host allocations return genuine roots. After parent construction only
+        // its root retains the complete graph; child Host leases are released.
         let element = Ty::Builtin(BuiltinType::I32);
         let mut leaves = Vec::with_capacity(LEAVES);
         for _ in 0..LEAVES {
-            leaves.push(Value::Array(
+            leaves.push(
                 runtime
-                    .alloc_array(&owner, element.clone(), vec![Value::I32(1)])
+                    .alloc_array(&owner, element.clone(), &[1i32.into()])
                     .unwrap(),
-            ));
+            );
         }
-        let value = Value::Array(
-            runtime
-                .alloc_array(&owner, Ty::Array(Box::new(element)), leaves)
-                .unwrap(),
-        );
-        // A cloned naked Value is not a root. Host state retains this handle.
-        let retained = runtime.root_value(value).unwrap();
+        let retained = runtime
+            .alloc_array(&owner, Ty::Array(Box::new(element)), &leaves)
+            .unwrap();
+        drop(leaves);
         let live = runtime.collect_garbage().unwrap();
-        assert_eq!(live.live_objects, OBJECTS);
+        let live_stats = runtime.gc_stats();
+        assert_eq!(live_stats.objects, baseline.objects + OBJECTS);
+        assert_eq!(
+            live_stats.root_registrations,
+            baseline.root_registrations + 1
+        );
         drop(retained);
         let dead = runtime.collect_garbage().unwrap();
-        assert_eq!(dead.reclaimed_objects, OBJECTS);
-        assert_eq!(runtime.gc().allocated_objects(), 0);
-        // Collection releases live occupancy used by the collector.
-        let counters = runtime.resources().counters();
-        assert_eq!(counters.current_heap_units, 0);
-
+        let dead_stats = runtime.gc_stats();
+        assert_eq!(dead.retired_owners, OBJECTS);
+        assert_eq!(dead_stats.objects, baseline.objects);
+        assert_eq!(dead_stats.root_registrations, baseline.root_registrations);
+        // Times include complete Runtime collection and metadata maintenance.
+        // They are demo observations, not matched performance acceptance.
         println!(
-            "{repeat},{OBJECTS},{},{},{}",
-            live.pause.as_nanos(),
-            dead.pause.as_nanos(),
-            dead.reclaimed_units
+            "{repeat},{OBJECTS},{},{},{},{}",
+            live.elapsed.as_nanos(),
+            dead.elapsed.as_nanos(),
+            dead.retired_owners,
+            live_stats.provider_units - dead_stats.provider_units,
         );
     }
 }

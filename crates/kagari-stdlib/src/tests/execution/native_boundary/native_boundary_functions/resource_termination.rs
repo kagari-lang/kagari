@@ -19,7 +19,6 @@ use kagari_runtime::{
         typed::NativeContext,
     },
     session::{ExecutionEvent, ExecutionObserver},
-    value::Value,
 };
 
 use crate::declarations::StandardDeclarations;
@@ -177,17 +176,14 @@ fn conversion_reentry(failure: Failure, observer_error: Option<RuntimeErrorKind>
         )
         .unwrap();
     let (mut vm, owner) = fixture(
-        r#"
-        use example::functions::{enter, fail, effect};
-        fn main() -> i32 { val kept = [42]; effect(); enter(); effect(); kept[0] }
-        pub fn nested() -> i32 { val kept = [1]; fail(); effect(); kept[0] }
-        pub fn healthy() -> i32 { effect(); 7 }
-        "#,
+        include_str!("../../../../../tests/fixtures/native/function-resource-reentry.kgr"),
         Some(&module.finish().unwrap()),
     );
     let _owner_program = owner;
     root.set(_owner_program.root()).unwrap();
     let owner = vm.select_program(&_owner_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let terminations = Arc::new(Mutex::new(Vec::new()));
     let result = if let Some(error) = observer_error {
         vm.set_execution_observer(TrapObserver {
@@ -268,12 +264,11 @@ fn conversion_reentry(failure: Failure, observer_error: Option<RuntimeErrorKind>
         observed.poll.unwrap();
         assert_eq!(observed.follow_up.unwrap(), 7);
         let report = result.unwrap();
-        assert_eq!(report.return_value.value(vm.gc()), Some(Value::I32(42)));
+        assert_eq!(report.return_value.as_i32(), Some(42));
     }
     let completed_effects = if terminal { 1 } else { 3 };
     assert_eq!(effects.load(Ordering::Relaxed), completed_effects);
     assert_eq!(vm.resources().counters().current_call_depth, 0);
-    assert_eq!(vm.gc().active_roots(), 0);
     assert!(vm.execution_root().is_none());
     assert!(vm.resources().termination().is_none());
     assert_eq!(vm.modules().retention_counts(owner.key()).active_calls, 0);
@@ -288,14 +283,24 @@ fn conversion_reentry(failure: Failure, observer_error: Option<RuntimeErrorKind>
         );
         return;
     }
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
     let healthy = vm
         .bind_function::<(), i32>(&_owner_program.root(), "healthy")
         .unwrap();
     assert_eq!(vm.call(&healthy, ()).unwrap(), 7);
     assert_eq!(effects.load(Ordering::Relaxed), completed_effects + 1);
     assert_eq!(vm.resources().counters().current_call_depth, 0);
-    assert_eq!(vm.gc().active_roots(), 0);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]

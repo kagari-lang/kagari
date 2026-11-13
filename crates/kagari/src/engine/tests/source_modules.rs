@@ -6,9 +6,8 @@ use kagari_common::{
     identity::{ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata},
 };
 use kagari_runtime::{
-    host::HostCallContext,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
-    value::Value,
+    host::HostError,
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, host, types::Type},
 };
 use kagari_source::{identity::FileId, source_database::SourceLayer};
 use kagari_stdlib as stdlib;
@@ -39,12 +38,7 @@ fn insert(engine: &KagariEngine, name: &str, text: &str) -> FileId {
         .unwrap()
 }
 
-fn host_fixture() -> (
-    KagariEngine,
-    FileId,
-    ExecutionContext,
-    Arc<Mutex<Vec<Value>>>,
-) {
+fn host_fixture() -> (KagariEngine, FileId, ExecutionContext, Arc<Mutex<Vec<i32>>>) {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let recorded = calls.clone();
     let mut builder =
@@ -63,10 +57,13 @@ fn host_fixture() -> (
     builder
         .bind(
             record,
-            move |_: &mut HostCallContext<'_>, args: &[Value]| {
-                recorded.lock().unwrap().push(args[0]);
+            host::callback(move |_, args| {
+                let value = args[0]
+                    .as_i32()
+                    .ok_or_else(|| HostError::new("record expects i32"))?;
+                recorded.lock().unwrap().push(value);
                 Ok(args[0])
-            },
+            }),
         )
         .unwrap();
     let engine = KagariEngine::with_native_modules(

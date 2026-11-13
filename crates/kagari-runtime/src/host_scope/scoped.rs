@@ -1,14 +1,19 @@
 //! Branded host lending reserves Rust storage until deterministic scope exit.
 use crate::{
     Runtime,
-    error::RuntimeError,
-    host::{HostBorrowTable, HostCallGuard, HostFrameMark},
+    host::{HostCallGuard, HostFrameMark},
     host_scope::HostResourceScope,
     native::{
         binding::NativeResult,
+        conversion::arguments::ArgumentValues,
         rust_type::{RustField, RustType},
     },
-    value::{EphemeralValue, Value},
+    value::{
+        EphemeralValue,
+        carriers::RootedValue,
+        place::{PublishedResult, ResultPlace},
+        view::ValueView,
+    },
 };
 use kagari_types::reference::ReferenceAccess;
 use std::{any::TypeId, marker::PhantomData, rc::Rc};
@@ -42,14 +47,14 @@ impl Drop for HostViewLoan<'_, '_, '_> {
 
 /// A shared external view. It owns no Rust object and exposes no Rust reference.
 pub struct Ref<'scope, T> {
-    value: Value,
+    value: ValueView<'scope>,
     brand: PhantomData<(&'scope T, &'scope mut &'scope (), Rc<()>)>,
 }
 
 /// A mutable external view; copies of its script identity remain dynamically
 /// checked capabilities, rather than independent exclusive Rust references.
 pub struct RefMut<'scope, T> {
-    value: Value,
+    value: ValueView<'scope>,
     brand: PhantomData<(&'scope mut T, &'scope mut &'scope (), Rc<()>)>,
 }
 
@@ -119,18 +124,17 @@ impl Runtime {
 impl<'scope, 'host> HostScope<'scope, 'host> {
     fn project<T: Send + 'static, F: Send + 'static>(
         &mut self,
-        value: Value,
+        value: ValueView<'scope>,
         field: &RustField<T, F>,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ValueView<'scope>> {
+        let view = self.resources.runtime_mut().scoped_view(&value)?;
         let runtime = self.resources.runtime();
-        let view = runtime.scoped_view(&value)?;
         let projected = runtime.host_borrows.project_scoped(runtime, view, field)?;
-        let value = runtime
-            .gc()
-            .alloc_ephemeral(EphemeralValue::HostView(projected))?;
-        self.resources.retain_values(&[value])?;
+        let value = self
+            .resources
+            .ephemeral(EphemeralValue::HostView(projected))?;
         self.resources.runtime_mut().gc_safepoint()?;
-        Ok(value)
+        Ok(value.reborrow())
     }
 
     /// Reserve shared external storage for this scope, using its installed Rust target
@@ -172,7 +176,7 @@ impl<'scope, 'host> HostScope<'scope, 'host> {
         ty: &RustType<T>,
         pointer: *mut T,
         access: ReferenceAccess,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ValueView<'scope>> {
         let runtime = self.resources.runtime();
         // SAFETY: Forward the host loan and exclusive runtime reservation from
         // borrow/borrow_mut; this method is private and never accepts safe raw pointers.
@@ -185,45 +189,53 @@ impl<'scope, 'host> HostScope<'scope, 'host> {
                 access,
             )?
         };
-        let value = runtime
-            .gc()
-            .alloc_ephemeral(EphemeralValue::HostView(view))?;
-        self.resources.retain_values(&[value])?;
+        let value = self.resources.ephemeral(EphemeralValue::HostView(view))?;
         self.resources.runtime_mut().gc_safepoint()?;
-        Ok(value)
+        Ok(value.reborrow())
     }
 
-    /// Execute through the backend's ordinary checked synchronous entry. Arguments
-    /// are retained through invocation. Scoped values may never be returned, stored
-    /// in owning values or used by suspended execution. Heap results stay rooted
-    /// until this scope ends; retaining them beyond it requires an owning handle.
+    /// Import genuine Host ownership into this scope without cloning its root.
+    pub fn import(&mut self, value: &RootedValue) -> NativeResult<ValueView<'scope>> {
+        self.resources.import(value).map(ValueView::reborrow)
+    }
+
+    /// Copy an existing context's live view into this scope's protected lifetime.
+    pub fn protect(&mut self, value: &ValueView<'_>) -> NativeResult<ValueView<'scope>> {
+        self.resources.protect(value).map(ValueView::reborrow)
+    }
+
+    /// Retain an ordinary result beyond the scope. Borrowed Host/Runtime values
+    /// reject; this is the explicit owning escape rather than temporary transport.
+    pub fn retain(&mut self, value: &ValueView<'_>) -> NativeResult<RootedValue> {
+        self.resources.retain(value)
+    }
+
+    /// Invoke a backend with protected arguments and a linear result destination.
+    /// The backend publishes before retiring its own scratch and returns that
+    /// proof. The checked result remains local to this scope; no Host root pack
+    /// bridges entry/return. Scoped Host/Runtime temporaries cannot be returned.
     pub fn execute(
         &mut self,
-        arguments: &[Value],
-        invoke: impl FnOnce(&mut Runtime, &[Value]) -> NativeResult<Value>,
-    ) -> NativeResult<Value> {
-        self.resources.retain_values(arguments)?;
-        let result = invoke(self.resources.runtime_mut(), arguments)?;
-        HostBorrowTable::validate_no_escape(self.resources.runtime().gc(), &result)?;
-        if result.contains_ephemeral(self.resources.runtime().gc()) {
-            return Err(RuntimeError::host_borrow_escape(
-                "scoped execution result cannot retain an ephemeral value",
-            ));
-        }
-        self.resources.retain_values(&[result])?;
-        Ok(result)
+        arguments: &[ValueView<'_>],
+        invoke: impl for<'result> FnOnce(
+            &mut Runtime,
+            ArgumentValues<'scope>,
+            ResultPlace<'result>,
+        ) -> NativeResult<PublishedResult<'result>>,
+    ) -> NativeResult<ValueView<'scope>> {
+        self.resources.execute(arguments, invoke)
     }
 }
 
 impl<'scope, 'host: 'scope> HostScope<'scope, 'host> {
     fn lend<T: Send + 'static, R>(
         &mut self,
-        value: Value,
+        value: ValueView<'scope>,
         access: ReferenceAccess,
         operation: impl FnOnce(&mut Self, *mut T) -> NativeResult<R>,
     ) -> NativeResult<R> {
+        let view = self.resources.runtime_mut().scoped_view(&value)?;
         let runtime = self.resources.runtime();
-        let view = runtime.scoped_view(&value)?;
         let (mark, [pointer]) = runtime
             .host_borrows
             .prepare_scoped_loans(runtime, [(view, TypeId::of::<T>(), access)])?;
@@ -249,9 +261,9 @@ impl<'scope, T: Send + 'static> Ref<'scope, T> {
         })
     }
 
-    /// Raw script identity for a synchronous scoped argument. It becomes inert at
+    /// Protected view for a synchronous scoped argument. It becomes inert at
     /// scope exit and is checked again by execution and every access boundary.
-    pub fn value(&self) -> Value {
+    pub fn value(&self) -> ValueView<'scope> {
         self.value
     }
 
@@ -296,9 +308,9 @@ impl<'scope, T: Send + 'static> RefMut<'scope, T> {
         })
     }
 
-    /// Raw script identity for a synchronous scoped argument. Alias creation does
+    /// Protected view for a synchronous scoped argument. Alias creation does
     /// not bypass exclusive-loan conflict checks or extend the host lifetime.
-    pub fn value(&self) -> Value {
+    pub fn value(&self) -> ValueView<'scope> {
         self.value
     }
 

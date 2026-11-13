@@ -14,7 +14,7 @@ use kagari_contract::{
     },
 };
 use kagari_runtime::execution::native::PreparedNativeEntry;
-use kagari_runtime::module::{InstalledProgram, entry::ProgramEntry};
+use kagari_runtime::module::{InstalledProgram, entry::ProgramEntry, retention::RetentionOrigin};
 use libloading::Library;
 use std::{
     fs::File,
@@ -154,7 +154,7 @@ impl AotBundle {
     /// Installation is separate from execution and does not run script code.
     pub fn install(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         program: &InstalledProgram,
     ) -> Result<PreparedNativeEntry, AotError> {
         let loaded = runtime
@@ -180,8 +180,10 @@ impl AotBundle {
         }
         // SAFETY: load's caller guarantees code correctness; verified correspondence
         // and the retained library owner bind this exact immutable Program and entry.
-        let installed = unsafe { runtime.install_native_function(&owner, self.product.clone()) }
-            .map_err(|e| AotError(e.to_string()))?;
+        let installed = unsafe {
+            runtime.install_native_function(&owner, self.product.clone(), RetentionOrigin::Current)
+        }
+        .map_err(|e| AotError(e.to_string()))?;
         Ok(PreparedNativeEntry::Native(installed))
     }
 }

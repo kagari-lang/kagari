@@ -161,11 +161,11 @@ pub fn main() {
     // Script supplies the Interface; there is no arbitrary Rust Object-to-trait cast.
     let view = runtime.call(&reader, (player.clone(),)).unwrap();
     let read = view
-        .member(&runtime, "read")
+        .member(&mut runtime, "read")
         .and_then(|member| runtime.bind_interface_method::<(), i32>(&member))
         .unwrap();
     let later = view
-        .member(&runtime, "later")
+        .member(&mut runtime, "later")
         .and_then(|member| runtime.bind_async_interface_method::<(), Object>(&member))
         .unwrap();
     assert_eq!(runtime.call_interface_method(&view, &read, ()).unwrap(), 85);
@@ -224,6 +224,8 @@ pub fn main() {
         }))
         .unwrap();
     assert_eq!(runtime.get(&old_player, &hp).unwrap(), 123);
+    runtime.set(&old_player, &hp, 124).unwrap();
+    assert_eq!(runtime.get(&old_player, &hp).unwrap(), 124);
     // Retained and newly bound functions both select the current implementation;
     // neither the async factory nor the associated constructor needs rebinding.
     let retained_player = executor
@@ -256,6 +258,10 @@ pub fn main() {
         constructed,
         healed_new,
     ));
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    // Installation and retained layout providers are managed too. Collection
+    // preserves those owners; close retires scheduling rather than the heap.
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.execution_id().is_none());
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
     runtime.close().unwrap();
 }

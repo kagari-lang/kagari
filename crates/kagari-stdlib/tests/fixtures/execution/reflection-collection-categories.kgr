@@ -1,0 +1,7 @@
+use std::collections::{ HashMap, HashSet };
+
+fn main() ->(String, String) {
+    val map: HashMap<i32, i32> = HashMap::new();
+    val set: HashSet<i32> = HashSet::new();
+    (type_of(map), type_of(set))
+}

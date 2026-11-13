@@ -1,7 +1,9 @@
 use crate::test_support::bytecode::load_bytecode;
 use crate::{BytecodeArtifact, engine::EngineConfig, test_support::execution};
 use kagari_common::identity::metadata::DefinitionMetadata;
-use kagari_runtime::{Runtime, RuntimeConfig, native::module::NativeModule, value::Value};
+use kagari_runtime::{
+    Runtime, RuntimeConfig, native::module::NativeModule, value::carriers::RootedValue,
+};
 use kagari_source::source::SourceFile;
 use kagari_types::declaration::module::ModuleDecl;
 
@@ -77,8 +79,8 @@ fn alias(state: State, kind: i32) -> bool {
         .declaration;
     let method = |name| ModuleDecl::method_id(declaration, name, loaded.definitions()).unwrap();
     let mut vm = runtime;
-    assert_eq!(vm.gc().active_roots(), 0);
-    let baseline = vm.collect_garbage().unwrap().live_objects;
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     for kind in 1..=1 {
         for (entry, left, right, negated, expected_trace) in [
             ("compare", kind, 0, false, 1),
@@ -90,31 +92,48 @@ fn alias(state: State, kind: i32) -> bool {
                 .execute_module(&loaded, "make", vm.execution_options())
                 .unwrap()
                 .return_value;
-            let state = root.value(vm.gc()).unwrap();
+
             let arguments = if entry == "alias" {
-                vec![Value::I32(kind)]
+                vec![RootedValue::from(kind)]
             } else {
-                vec![Value::I32(left), Value::I32(right), Value::Bool(negated)]
+                vec![
+                    RootedValue::from(left),
+                    RootedValue::from(right),
+                    RootedValue::from(negated),
+                ]
             };
             let error = vm
-                .invoke_interface_method(&state, &method(entry), &arguments)
+                .invoke_interface_method(&root, &method(entry), &arguments)
                 .unwrap_err();
             assert!(
                 format!("{error:?}").contains("division by zero"),
                 "{error:?}"
             );
-            assert_eq!(vm.gc().active_roots(), 1);
+            vm.collect_garbage().unwrap();
+            assert_eq!(
+                vm.gc_stats().root_registrations,
+                baseline.root_registrations + 1
+            );
             assert!(!vm.is_quarantined());
             assert_eq!(
-                vm.invoke_interface_method(&state, &method("trace"), &[])
+                vm.invoke_interface_method(&root, &method("trace"), &[])
+                    .unwrap()
+                    .as_i32()
                     .unwrap(),
-                Value::I32(expected_trace)
+                expected_trace
             );
             drop(root);
-            assert_eq!(vm.gc().active_roots(), 0);
+            vm.collect_garbage().unwrap();
             assert_eq!(
-                vm.collect_garbage().unwrap().live_objects,
-                baseline,
+                vm.gc_stats().root_registrations,
+                baseline.root_registrations
+            );
+            assert_eq!(
+                {
+                    vm.collect_garbage().unwrap();
+                    vm.gc_stats().objects
+                },
+                baseline.objects,
                 "{entry}, kind={kind}, left={left}, right={right}"
             );
         }

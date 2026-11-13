@@ -1,0 +1,5 @@
+use example::math::add;
+
+fn main() -> i32 {
+    add(20, 22)
+}

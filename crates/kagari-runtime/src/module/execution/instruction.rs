@@ -1,5 +1,5 @@
 //! Prepared scalar instruction definitions.
-use crate::module::execution::{ScalarSlot, managed::PreparedManagedOperation};
+use crate::module::execution::{managed::PreparedManagedOperation, operands::ScalarSlot};
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::instruction::JumpTarget;
 use kagari_types::{
@@ -14,6 +14,9 @@ use kagari_types::{
 /// Closed prepared operations with admitted physical operands.
 #[derive(Debug, Clone, Copy)]
 pub enum ExecutionInstruction {
+    /// A verified Unit definition/copy still consumes one logical instruction.
+    Unit,
+
     Constant {
         dst: ScalarSlot,
         value: u64,

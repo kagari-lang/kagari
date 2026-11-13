@@ -2,9 +2,16 @@
 pub mod asynchronous;
 
 use crate::{
-    Runtime, error::RuntimeError, error_trace::asynchronous::AsyncBoundary, frame::ExecutionFrame,
-    module::ExecutableModule, resource::ResourceState, session::store::SessionId, value::Value,
-    value_semantics,
+    Runtime,
+    error::RuntimeError,
+    error_trace::asynchronous::AsyncBoundary,
+    execution::roots::SessionId,
+    frame::ExecutionFrame,
+    module::ExecutableModule,
+    native::conversion::context::ConversionContext,
+    resource::ResourceState,
+    value::{aggregates::enumerations::EnumObject, carriers::RootedValue, kind::ObjectKind},
+    value_semantics::formatting,
 };
 use kagari_bytecode::{artifact::ArtifactFingerprint, module::CallableTarget, program::ModuleRef};
 use kagari_common::span::Span;
@@ -215,36 +222,63 @@ impl Display for ResultFailure {
 }
 
 impl Runtime {
-    pub fn result_failure(&self, value: &Value) -> Option<ResultFailure> {
-        let trace = self.gc.result_error_trace(value)?;
-        let Value::Enum(id) = value else {
-            return None;
-        };
-        let snapshot = self.gc.enum_view(*id)?;
-        let payload = snapshot.fields.first()?;
-        let preview =
-            value_semantics::format_value(&self.gc, payload, !matches!(payload, Value::Str(_)))
+    pub fn result_failure(&mut self, value: &RootedValue) -> Option<ResultFailure> {
+        self.memory
+            .scope(&self.resources, |cx, _| {
+                let value = value.get(cx)?;
+                if value.kind() != Some(ObjectKind::Enum) {
+                    return Ok(None);
+                }
+                let object = cx.downcast::<EnumObject>(value.object().expect("managed enum"))?;
+                let trace = cx.read(object, |object| {
+                    object
+                        .layout()
+                        .variant()
+                        .reports_failure
+                        .then(|| object.origin().cloned())
+                        .flatten()
+                });
+                let Some(trace) = trace else {
+                    return Ok(None);
+                };
+                if cx.read(object, EnumObject::len) == 0 {
+                    return Ok(None);
+                }
+                let payload = EnumObject::get(cx, object, 0)?;
+                // A detached business-error preview is bounded data inspection. It
+                // cannot terminate completed execution or invoke user formatting.
+                let preview = formatting::format_value(
+                    cx,
+                    &mut || Ok(()),
+                    payload,
+                    payload.kind() != Some(ObjectKind::String),
+                )
                 .unwrap_or_else(|_| "<error payload unavailable>".into());
-        let mut clipped = false;
-        let message =
-            label(&preview, &mut clipped).unwrap_or_else(|| "<error payload unavailable>".into());
-        let message = if clipped {
-            format!("{message} [truncated]")
-        } else {
-            message
-        };
-        Some(ResultFailure { message, trace })
+                let mut clipped = false;
+                let message = label(&preview, &mut clipped)
+                    .unwrap_or_else(|| "<error payload unavailable>".into());
+                let message = if clipped {
+                    format!("{message} [truncated]")
+                } else {
+                    message
+                };
+                Ok(Some(ResultFailure { message, trace }))
+            })
+            .ok()
+            .flatten()
     }
 
     pub fn forward_enum_origin(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
-        original: &Value,
-        value: &Value,
-    ) -> Result<Value, RuntimeError> {
+        original: &RootedValue,
+        value: &RootedValue,
+    ) -> Result<RootedValue, RuntimeError> {
         self.validate_executable_module(owner)?;
-        self.gc
-            .forward_enum_origin(original, value)
-            .map(Value::Enum)
+        let mut conversion = ConversionContext::new(self, owner)?;
+        let original = conversion.import(original)?;
+        let value = conversion.import(value)?;
+        let value = conversion.forward_enum_origin(&original, &value)?;
+        conversion.retain(&value)
     }
 }

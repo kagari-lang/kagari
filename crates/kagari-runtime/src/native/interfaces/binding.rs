@@ -3,7 +3,10 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::arguments::{ScopedSignature, TypeArgument},
-    module::{ExecutableModule, ModuleEpochRetention, retention::ProgramLease},
+    module::{
+        ExecutableModule, ModuleEpochRetention, managed::source::RevisionSource,
+        retention::ProgramLease,
+    },
     native::{
         binding::NativeResult,
         conversion::{KagariType, arguments::KagariArguments, context::ConversionContext},
@@ -42,6 +45,10 @@ pub struct InterfaceMember {
 }
 
 impl InterfaceMember {
+    pub(super) fn origin(&self) -> RevisionSource<'_> {
+        RevisionSource::Host(self._program.revision())
+    }
+
     /// Declaration identity within this member's pinned program snapshot.
     pub fn declaration(&self) -> DefinitionId {
         self.declaration
@@ -108,32 +115,45 @@ fn invalid() -> RuntimeError {
 impl<S> Interface<S> {
     /// Look up a public declaration, including inherited members. Ambiguous
     /// names require selecting the declaring trait explicitly.
-    pub fn member(&self, runtime: &Runtime, name: &str) -> NativeResult<InterfaceMember> {
-        if !self.root.is_valid(runtime.gc()) {
-            return Err(invalid());
-        }
-        runtime.interface_member(&self.owner, &self.argument, name)
+    pub fn member(&self, runtime: &mut Runtime, name: &str) -> NativeResult<InterfaceMember> {
+        runtime.interface_description(&self.root)?;
+        resolve_member(
+            runtime,
+            &self.owner,
+            &self.argument,
+            RevisionSource::Host(self.program.revision()),
+            |_, method| method == name,
+        )
     }
 
     pub fn member_declaration(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         declaration: &DefinitionPath,
     ) -> NativeResult<InterfaceMember> {
-        if !self.root.is_valid(runtime.gc()) {
-            return Err(invalid());
-        }
-        runtime.interface_member_declaration(&self.owner, &self.argument, declaration)
+        runtime.interface_description(&self.root)?;
+        let declaration = self
+            .owner
+            .definitions()
+            .lookup(declaration)
+            .ok_or_else(invalid)?;
+        resolve_member(
+            runtime,
+            &self.owner,
+            &self.argument,
+            RevisionSource::Host(self.program.revision()),
+            |candidate, _| candidate == declaration,
+        )
     }
 }
 
 fn resolve_member(
-    runtime: &Runtime,
+    runtime: &mut Runtime,
     source_owner: &ExecutableModule,
     source: &TypeArgument,
+    origin: RevisionSource<'_>,
     accepts: impl Fn(DefinitionId, &str) -> bool,
 ) -> NativeResult<InterfaceMember> {
-    runtime.gc().ensure_no_native_borrow()?;
     runtime.validate_executable_module(source_owner)?;
     source.validate(runtime)?;
     let definitions = source_owner.definitions();
@@ -218,7 +238,7 @@ fn resolve_member(
                 Some(Ty::Trait(parent))
             })?;
             let program = runtime
-                .retain_program(source_owner, ModuleEpochRetention::RuntimeValue)
+                .retain_program(source_owner, ModuleEpochRetention::RuntimeValue, origin)
                 .ok_or_else(invalid)?;
             found = Some(InterfaceMember {
                 source: source.clone(),
@@ -237,16 +257,22 @@ fn resolve_member(
 impl Runtime {
     /// Prepare against an installed applied trait before constructing a value.
     pub fn interface_member(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
         interface: &TypeArgument,
         name: &str,
     ) -> NativeResult<InterfaceMember> {
-        resolve_member(self, owner, interface, |_, method| method == name)
+        resolve_member(
+            self,
+            owner,
+            interface,
+            self.selection_origin(owner)?,
+            |_, method| method == name,
+        )
     }
 
     pub fn interface_member_declaration(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
         interface: &TypeArgument,
         declaration: &DefinitionPath,
@@ -255,9 +281,13 @@ impl Runtime {
             .definitions()
             .lookup(declaration)
             .ok_or_else(invalid)?;
-        resolve_member(self, owner, interface, |candidate, _| {
-            candidate == declaration
-        })
+        resolve_member(
+            self,
+            owner,
+            interface,
+            self.selection_origin(owner)?,
+            |candidate, _| candidate == declaration,
+        )
     }
 
     pub fn bind_interface_method<A: KagariArguments + 'static, R: KagariType + 'static>(
@@ -276,7 +306,6 @@ impl Runtime {
         member: &InterfaceMember,
         arguments: &[TypeArgument],
     ) -> NativeResult<InterfaceMethod<A, R>> {
-        self.gc().ensure_no_native_borrow()?;
         self.validate_executable_module(&member.owner)?;
         member.source.validate(self)?;
         if member.contract.methods[member.slot].generic_params.len() != arguments.len() {

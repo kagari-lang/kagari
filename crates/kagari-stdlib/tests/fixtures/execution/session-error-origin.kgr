@@ -1,0 +1,8 @@
+fn main() -> i32 {
+    print("entry");
+    42
+}
+
+fn fail() -> i32 {
+    42 / 0
+}

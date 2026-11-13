@@ -6,8 +6,8 @@ use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedComp
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeError,
+    execution::memory::GcHeapConfig,
     frame::types::arguments::TypeArgument,
-    gc::GcHeapConfig,
     module::InstalledProgram,
     native::{
         binding::NativeResult,
@@ -18,9 +18,10 @@ use kagari_runtime::{
         typed::NativeContext,
         types::Type,
     },
-    value::Value,
+    value::{carriers::RootedValue, view::ValueView},
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::{
     sync::{
         Arc,
@@ -109,6 +110,8 @@ fn prepared_fields_preserve_aliases_and_public_access_after_gc() {
         .bind_field_declaration::<String>(&ty.field("name").unwrap())
         .unwrap();
     assert!(runtime.bind_field::<u32>(&ty, "hp").is_err());
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     let mut cx = NativeContext::new(&mut runtime, &owner).unwrap();
     let object = player(&mut cx, &ty, 100);
     let alias = object.clone();
@@ -124,7 +127,12 @@ fn prepared_fields_preserve_aliases_and_public_access_after_gc() {
     cx.runtime_mut().collect_garbage().unwrap();
     assert_eq!(alias.get(&mut cx, &hp).unwrap(), 70);
     drop(alias);
-    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(cx.runtime().gc_stats().objects, baseline.objects);
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 
     let hidden = cx
         .runtime_mut()
@@ -168,6 +176,8 @@ fn object_reads_retain_children_and_failed_construction_releases_temporaries() {
     let second = runtime.bind_field::<Object>(&pair_type, "second").unwrap();
     let hp = runtime.bind_field::<i32>(&player_type, "hp").unwrap();
     let name = runtime.bind_field::<String>(&player_type, "name").unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     let mut cx = NativeContext::new(&mut runtime, &owner).unwrap();
     let child = player(&mut cx, &player_type, 42);
     let mut incomplete = pair_type.builder().unwrap();
@@ -175,7 +185,8 @@ fn object_reads_retain_children_and_failed_construction_releases_temporaries() {
     assert!(incomplete.set(&mut cx, &first, child.clone()).is_err());
     assert!(incomplete.build(&mut cx).is_err());
     // The retained player also owns its separately traced String.
-    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 2);
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(cx.runtime().gc_stats().objects, baseline.objects + 2);
     let mut complete = pair_type.builder().unwrap();
     complete.set(&mut cx, &first, child.clone()).unwrap();
     complete.set(&mut cx, &second, child.clone()).unwrap();
@@ -184,11 +195,17 @@ fn object_reads_retain_children_and_failed_construction_releases_temporaries() {
     drop(child);
     drop(pair);
     // The retained player also owns its separately traced String.
-    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 2);
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(cx.runtime().gc_stats().objects, baseline.objects + 2);
     assert_eq!(read.get(&mut cx, &hp).unwrap(), 42);
     assert_eq!(read.get(&mut cx, &name).unwrap(), "Ada");
     drop(read);
-    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(cx.runtime().gc_stats().objects, baseline.objects);
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -227,7 +244,11 @@ impl KagariType for FailAfterGc {
 }
 
 impl IntoKagari for FailAfterGc {
-    fn into_kagari(self, cx: &mut ConversionContext<'_>, _: &TypeArgument) -> NativeResult<Value> {
+    fn into_kagari<'call>(
+        self,
+        cx: &mut ConversionContext<'call>,
+        _: &TypeArgument,
+    ) -> NativeResult<ValueView<'call>> {
         self.0.store(true, Ordering::Relaxed);
         cx.runtime_mut().collect_garbage()?;
         Err(RuntimeError::module_validation("converter failure"))
@@ -316,21 +337,10 @@ fn binding_handles_pin_old_versions_but_the_cache_does_not() {
     drop(object);
     drop(ty);
     drop(hp);
-    assert!(
-        !cx.runtime_mut()
-            .collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&old.key())
-    );
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert!(cx.runtime().validate_executable_module(&old).is_ok());
     drop(duplicate);
-    assert!(
-        cx.runtime_mut()
-            .collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&old.key())
-    );
+    cx.runtime_mut().collect_garbage().unwrap();
     assert!(cx.runtime().validate_executable_module(&old).is_err());
     assert!(
         cx.runtime_mut()
@@ -369,6 +379,8 @@ fn nested_dynamic_handles_store_heap_edges_and_cycles_are_collectible() {
             .bind_field::<(Object, u32)>(&bag_type, "pair")
             .is_err()
     );
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     let mut cx = NativeContext::new(&mut runtime, &owner).unwrap();
     let mut builder = node_type.builder().unwrap();
     builder.set(&mut cx, &next, None).unwrap();
@@ -398,7 +410,12 @@ fn nested_dynamic_handles_store_heap_edges_and_cycles_are_collectible() {
     );
     drop(pair_read);
     drop(read);
-    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(cx.runtime().gc_stats().objects, baseline.objects);
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -410,39 +427,49 @@ fn typed_handles_and_bindings_move_with_exclusive_runtime_ownership() {
         .bind_type(&_owner_program.root(), "Player", &[])
         .unwrap();
     let hp = runtime.bind_field::<i32>(&ty, "hp").unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     let (object, values) = {
         let mut cx = NativeContext::new(&mut runtime, &owner).unwrap();
-        (
-            player(&mut cx, &ty, 42),
-            cx.runtime()
-                .root_value(Value::Array(
-                    cx.runtime()
-                        .alloc_array(
-                            &owner,
-                            kagari_types::ty::Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
-                            vec![Value::I32(1), Value::I32(2)],
-                        )
-                        .unwrap(),
-                ))
-                .unwrap(),
-        )
+        let object = player(&mut cx, &ty, 42);
+        let values = cx
+            .runtime_mut()
+            .alloc_array(
+                &owner,
+                Ty::Builtin(BuiltinType::I32),
+                &[RootedValue::from(1i32), RootedValue::from(2i32)],
+            )
+            .unwrap();
+        (object, values)
     };
     thread::spawn(move || {
         let mut cx = NativeContext::new(&mut runtime, &owner).unwrap();
         cx.runtime_mut().collect_garbage().unwrap();
         object.set(&mut cx, &hp, 43).unwrap();
-        let Value::Array(array) = values.value(cx.runtime().gc()).unwrap() else {
-            panic!("array")
-        };
-        cx.runtime()
-            .gc()
-            .array_set(array, 1, Value::I32(3))
-            .unwrap();
+        {
+            let mut conversion = ConversionContext::new(cx.runtime_mut(), &owner).unwrap();
+            let array = conversion.import(&values).unwrap();
+            conversion
+                .array_set(&array, 1usize, &ValueView::from(3i32))
+                .unwrap();
+            assert_eq!(
+                conversion
+                    .array_element(&array, 1usize)
+                    .unwrap()
+                    .unwrap()
+                    .as_i32(),
+                Some(3)
+            );
+        }
         assert_eq!(object.get(&mut cx, &hp).unwrap(), 43);
-        assert_eq!(cx.runtime().gc().array_get(array, 1), Some(Value::I32(3)));
         drop(object);
         drop(values);
-        assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
+        cx.runtime_mut().collect_garbage().unwrap();
+        assert_eq!(cx.runtime().gc_stats().objects, baseline.objects);
+        assert_eq!(
+            cx.runtime().gc_stats().root_registrations,
+            baseline.root_registrations
+        );
         (ty, hp)
         // The receiving thread destroys storage; immutable bindings may outlive it.
     })

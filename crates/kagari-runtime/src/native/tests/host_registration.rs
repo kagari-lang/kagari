@@ -6,14 +6,22 @@ use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
+    execution::roots::ExecutionRoots,
     host::{HostCallContext, HostError, HostObjectId, HostSchemaEpoch},
     metadata::{AbiFingerprint, TypeKind},
     native::{
         builder::ModuleBuilder,
         declarations::{FunctionDecl, MethodDecl},
+        host,
         types::{Type, TypeRef},
     },
-    value::Value,
+    value::{
+        EphemeralValue,
+        carriers::RootedValue,
+        host_values::{EphemeralObject, HostRootObject},
+        kind::ObjectKind,
+        view::ValueView,
+    },
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_types::{
@@ -64,12 +72,12 @@ fn player(module: &mut ModuleBuilder, reflection: HostReflectionPolicy, field: b
     player.finish().unwrap()
 }
 
-fn root(runtime: &mut Runtime) -> Value {
+fn root(runtime: &mut Runtime) -> RootedValue {
     let ty = runtime.types().get_by_name("game::Player").unwrap().id;
     let root = runtime
         .register_host_root(HostObjectId(1), ty, HostSchemaEpoch::new(0))
         .unwrap();
-    runtime.gc().alloc_host_root(root).unwrap()
+    runtime.host_root_value(root).unwrap()
 }
 
 #[test]
@@ -92,7 +100,7 @@ fn callback_context_releases_borrows_and_rejects_borrowed_results() {
     module
         .bind(
             function,
-            |context: &mut HostCallContext<'_>, _: &[Value]| {
+            host::callback(|context: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
                 let ty = context
                     .runtime()
                     .types()
@@ -103,17 +111,34 @@ fn callback_context_releases_borrows_and_rejects_borrowed_results() {
                     .borrows()
                     .borrow_unique(HostObjectId(1), ty)
                     .unwrap();
-                Ok(context.runtime().gc().alloc_host_mut(token).unwrap())
-            },
+                let execution = context.runtime().resources.active_session().unwrap().id;
+                {
+                    let Runtime {
+                        memory, resources, ..
+                    } = context.runtime_mut();
+                    memory.scope(resources, |cx, roots| {
+                        ExecutionRoots::with(roots, cx, |slots| {
+                            let value = EphemeralObject::alloc(
+                                slots.scope(),
+                                EphemeralValue::HostMut(token),
+                            )?;
+                            let location = slots.push_local(execution, value)?;
+                            ValueView::protected(value, Some(location))
+                        })
+                    })
+                }
+                .map_err(|error| HostError::new(error.to_string()))
+            }),
         )
         .unwrap();
     let module = module.finish().unwrap();
     let program = free_function_program(&module.to_declaration());
     let mut runtime = Runtime::default();
     module.install(&mut runtime).unwrap();
-    root(&mut runtime);
+    drop(root(&mut runtime));
     let loaded_program = load_bytecode(&mut runtime, "borrow-result", program).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
+    let baseline = runtime.gc_stats().root_registrations;
     assert_eq!(
         invoke(&mut runtime, &loaded, 0, &[]).unwrap_err().kind(),
         RuntimeErrorKind::HostBorrowEscape
@@ -124,7 +149,7 @@ fn callback_context_releases_borrows_and_rejects_borrowed_results() {
         .borrows()
         .borrow_unique(HostObjectId(1), ty)
         .unwrap();
-    assert_eq!(resources.runtime().gc().active_roots(), 0);
+    assert_eq!(resources.runtime().gc_stats().root_registrations, baseline);
 }
 
 #[test]
@@ -151,10 +176,15 @@ fn registers_host_function_metadata_and_invokes_handler() {
     module
         .bind(
             function,
-            |_: &mut HostCallContext<'_>, args: &[Value]| match args {
-                [Value::HostRoot(_), Value::I32(hp)] => Ok(Value::I32(*hp)),
-                _ => Err(HostError::new("game::heal expects host root and i32")),
-            },
+            host::callback(
+                |_: &mut HostCallContext<'_>, args: &[ValueView<'_>]| match args {
+                    [root, hp] if root.kind() == Some(ObjectKind::HostRoot) => hp
+                        .as_i32()
+                        .map(ValueView::from)
+                        .ok_or_else(|| HostError::new("expected i32")),
+                    _ => Err(HostError::new("game::heal expects host root and i32")),
+                },
+            ),
         )
         .unwrap();
     let module = module.finish().unwrap();
@@ -173,11 +203,14 @@ fn registers_host_function_metadata_and_invokes_handler() {
         .unwrap();
     assert_eq!(identity.module().package.0, "game");
     assert_eq!(identity.last().unwrap().name, "heal");
+    let baseline = runtime.gc_stats().root_registrations;
     assert_eq!(
-        invoke(&mut runtime, &loaded, 0, &[root, Value::I32(7)]).unwrap(),
-        Value::I32(7)
+        invoke(&mut runtime, &loaded, 0, &[root, RootedValue::from(7)])
+            .unwrap()
+            .as_i32(),
+        Some(7)
     );
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.gc_stats().root_registrations, baseline - 1);
 }
 
 #[test]
@@ -192,10 +225,13 @@ fn installed_host_functions_are_available() {
         }))
         .unwrap();
     module
-        .bind(function, move |_: &mut HostCallContext<'_>, _: &[Value]| {
-            *calls_for_host.lock().unwrap() += 1;
-            Ok(Value::Unit)
-        })
+        .bind(
+            function,
+            host::callback(move |_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
+                *calls_for_host.lock().unwrap() += 1;
+                Ok(ValueView::unit())
+            }),
+        )
         .unwrap();
     let module = module.finish().unwrap();
     let program = free_function_program(&module.to_declaration());
@@ -203,7 +239,14 @@ fn installed_host_functions_are_available() {
     module.install(&mut runtime).unwrap();
     let loaded_program = load_bytecode(&mut runtime, "tick", program).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
-    assert_eq!(invoke(&mut runtime, &loaded, 0, &[]).unwrap(), Value::Unit);
+    let result = invoke(&mut runtime, &loaded, 0, &[]).unwrap();
+    runtime
+        .memory
+        .scope(&runtime.resources, |cx, _| {
+            assert!(result.get(cx)?.is_unit());
+            Ok(())
+        })
+        .unwrap();
     assert_eq!(*calls.lock().unwrap(), 1);
 }
 
@@ -217,9 +260,12 @@ fn rejects_duplicate_host_function_symbols() {
     let function = module.define_function(declaration.clone()).unwrap();
     assert!(module.define_function(declaration).is_err());
     module
-        .bind(function, |_: &mut HostCallContext<'_>, _: &[Value]| {
-            Ok(Value::Unit)
-        })
+        .bind(
+            function,
+            host::callback(
+                |_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| Ok(ValueView::unit()),
+            ),
+        )
         .unwrap();
     let module = module.finish().unwrap();
     let mut runtime = Runtime::default();
@@ -235,7 +281,14 @@ fn rejects_duplicate_host_function_symbols() {
     )
     .unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
-    assert_eq!(invoke(&mut runtime, &loaded, 0, &[]).unwrap(), Value::Unit);
+    let result = invoke(&mut runtime, &loaded, 0, &[]).unwrap();
+    runtime
+        .memory
+        .scope(&runtime.resources, |cx, _| {
+            assert!(result.get(cx)?.is_unit());
+            Ok(())
+        })
+        .unwrap();
 }
 
 #[test]
@@ -254,9 +307,15 @@ fn registers_host_type_metadata_with_stable_runtime_type_identity() {
                             effects: Default::default(),
                         }),
                 )?;
-                methods.bind(heal, |_: &mut HostCallContext<'_>, args: &[Value]| {
-                    Ok(args[1])
-                })
+                methods.bind(
+                    heal,
+                    host::callback(|_: &mut HostCallContext<'_>, args: &[ValueView<'_>]| {
+                        args[1]
+                            .as_i32()
+                            .map(ValueView::from)
+                            .ok_or_else(|| HostError::new("expected i32"))
+                    }),
+                )
             })
         })
         .unwrap();
@@ -299,10 +358,16 @@ fn registers_host_type_metadata_with_stable_runtime_type_identity() {
         other.methods[0].abi_fingerprint,
         type_info.methods[0].abi_fingerprint
     );
-    let Value::HostRoot(root) = root(&mut first) else {
-        unreachable!()
-    };
-    assert_eq!(first.gc().host_root(root).unwrap().type_id(), type_id);
+    let root = root(&mut first);
+    first
+        .memory
+        .scope(&first.resources, |cx, _| {
+            let value = root.get(cx)?.object().unwrap();
+            let object = cx.downcast::<HostRootObject>(value)?;
+            assert_eq!(cx.read(object, HostRootObject::handle).type_id(), type_id);
+            Ok(())
+        })
+        .unwrap();
 }
 
 #[test]
@@ -330,5 +395,5 @@ fn rejects_duplicate_host_type_names() {
         runtime.types().get_by_name("game::Player").unwrap().id,
         before.id
     );
-    root(&mut runtime);
+    drop(root(&mut runtime));
 }

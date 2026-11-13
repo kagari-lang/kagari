@@ -13,7 +13,7 @@ use kagari_runtime::execution::native::PreparedNativeEntry;
 use kagari_runtime::module::entry::ProgramEntry;
 #[cfg(feature = "native")]
 use kagari_runtime::reload::ReloadValidationError;
-use kagari_runtime::{error_trace::MAX_ERROR_FRAMES, value::Value};
+use kagari_runtime::{error::RuntimeErrorKind, error_trace::MAX_ERROR_FRAMES};
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_stdlib as stdlib;
 
@@ -49,6 +49,8 @@ fn interpreter_traps_capture_frames_and_original_source_locations() {
         let loaded = runtime
             .load_program(loaded_program.program(), Default::default())
             .unwrap();
+        runtime.collect_garbage().unwrap();
+        let roots = runtime.gc_stats().root_registrations;
         let error = runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap_err();
@@ -65,7 +67,8 @@ fn interpreter_traps_capture_frames_and_original_source_locations() {
         assert_eq!(trace.frames[0].line, Some(line));
         assert_eq!(trace.frames[0].column, Some(column));
         assert_eq!(trace.frames[1].line, Some(caller_line));
-        assert_eq!(runtime.gc().active_roots(), 0);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc_stats().root_registrations, roots);
     }
 }
 
@@ -155,6 +158,8 @@ fn run_failure(source: &str, expected_origin: &str, expected_line: u32, expected
         let loaded = runtime
             .load_program(loaded_program.program(), Default::default())
             .unwrap();
+        runtime.collect_garbage().unwrap();
+        let roots = runtime.gc_stats().root_registrations;
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = NativeCompiler::default()
@@ -175,17 +180,14 @@ fn run_failure(source: &str, expected_origin: &str, expected_line: u32, expected
         assert_eq!(failure.message, expected_message);
         assert_eq!(failure.trace.frames[0].function_name, expected_origin);
         assert_eq!(failure.trace.frames[0].line, Some(expected_line));
-        assert_eq!(runtime.gc().active_roots(), 1);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc_stats().root_registrations, roots + 1);
         let root = report.return_value;
         runtime.collect_garbage().unwrap();
-        assert_eq!(
-            runtime
-                .result_failure(&root.value(runtime.gc()).unwrap())
-                .unwrap(),
-            failure
-        );
+        assert_eq!(runtime.result_failure(&root).unwrap(), failure);
         drop(root);
-        assert_eq!(runtime.gc().active_roots(), 0);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc_stats().root_registrations, roots);
         runtime.collect_garbage().unwrap();
         assert_eq!(failure.trace.frames[0].function_name, expected_origin);
     }
@@ -344,6 +346,9 @@ fn diagnostic_snapshots_survive_reload_without_retaining_script_values() {
     let old = runtime
         .load_program(old_program.program(), Default::default())
         .unwrap();
+    let old_selected = runtime.select_program(&old).unwrap();
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     let report = runtime
         .execute(&old, ProgramEntry::Main, &[], &context)
         .unwrap();
@@ -379,21 +384,27 @@ fn diagnostic_snapshots_survive_reload_without_retaining_script_values() {
         new_report.trace.frames[0].code_fingerprint
     );
     runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.result_failure(&root).unwrap(), failure);
     assert_eq!(
         runtime
-            .result_failure(&root.value(runtime.gc()).unwrap())
-            .unwrap(),
-        failure
+            .validate_executable_module(&old_selected)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::StaleHandle
     );
-    let raw = root.value(runtime.gc()).unwrap();
     drop(root);
     drop(old);
     drop(new);
     runtime.collect_garbage().unwrap();
-    assert!(!runtime.gc().validate_value(&raw));
-    assert!(runtime.result_failure(&raw).is_none());
+    assert_eq!(
+        runtime
+            .validate_executable_module(&old_selected)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::StaleHandle
+    );
     assert_eq!(failure.message, "old");
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
 }
 
 #[test]
@@ -461,6 +472,8 @@ fn cancellation_keeps_the_failing_frame_and_releases_resources() {
     let loaded = runtime
         .load_program(loaded_program.program(), Default::default())
         .unwrap();
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     let selected = runtime.select_program(&loaded).unwrap();
     let mut cancellation = support::cancel_after(&mut runtime, &selected, 10);
     let error = cancellation
@@ -479,7 +492,8 @@ fn cancellation_keeps_the_failing_frame_and_releases_resources() {
             .collect::<Vec<_>>(),
         ["deep", "main"]
     );
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     assert!(runtime.execution_root().is_none());
     assert!(!runtime.is_quarantined());
@@ -493,9 +507,9 @@ fn cancellation_keeps_the_failing_frame_and_releases_resources() {
             )
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(1000)
+            .as_i32()
+            .unwrap(),
+        1000
     );
 }
 

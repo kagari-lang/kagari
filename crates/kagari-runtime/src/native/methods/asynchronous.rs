@@ -2,7 +2,6 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    gc::roots::RootedValue,
     module::dispatch::CallRoute,
     native::{
         binding::NativeResult,
@@ -20,6 +19,7 @@ use crate::{
     scheduler::result::ScheduledResult,
     session::ExecutionOptions,
     source::FunctionSourceTarget,
+    value::carriers::RootedValue,
 };
 
 /// A current-call Future-returning inherent method; `A` excludes its receiver.

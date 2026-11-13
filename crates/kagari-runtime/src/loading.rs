@@ -8,7 +8,10 @@ use crate::{
     module::{
         ExecutableModule, Installation, InstalledProgram, LinkedHostBindings,
         LinkedProgramBindings, ModuleEpochRetention, VerifiedProgram,
-        admission::DefinitionAdmission, retention::ProgramLease, staging::StagedProgram,
+        admission::DefinitionAdmission,
+        managed::{revision::RevisionState, source::RevisionSource},
+        retention::{ProgramLease, RetentionOrigin},
+        staging::{ManagedProgramError, StagedProgram},
     },
     native::registry::DependencyValidation,
     program::Program,
@@ -26,27 +29,54 @@ use kagari_bytecode::{
     program::BytecodeProgram,
 };
 use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
+use kagari_gc::root::Root;
 use std::sync::Arc;
 
 impl Runtime {
-    /// Keep one exact module version reachable until the last lease is dropped.
-    /// The lease does not own runtime storage and may outlive the runtime.
+    /// Retain an exact module version from publication, an admitted execution or
+    /// an existing lease. Clones share retention; release needs no Runtime borrow.
+    /// The handle can outlive Runtime shutdown as an inert, non-accessing token.
+    /// Foreign, expired, unavailable or mismatched origins return None. A bare
+    /// descriptor cannot resurrect retired state; use Retained for an old lease.
     pub fn retain_module(
-        &self,
+        &mut self,
         module: &ExecutableModule,
         kind: ModuleEpochRetention,
+        origin: RetentionOrigin<'_>,
     ) -> Option<ProgramLease> {
-        self.resources().ensure_execution_allowed().ok()?;
-        self.modules.retain_module(module, kind)
+        let origin = origin.resolve(self, module).ok()?;
+        let revision = self.retain_revision(module, origin).ok()?;
+        self.modules.retain_module(module, kind, revision)
     }
 
     pub(crate) fn retain_program(
-        &self,
+        &mut self,
         module: &ExecutableModule,
         kind: ModuleEpochRetention,
+        origin: RevisionSource<'_>,
     ) -> Option<ProgramLease> {
-        self.resources().ensure_execution_allowed().ok()?;
-        self.modules.retain_program(module, kind)
+        let revision = self.retain_revision(module, origin).ok()?;
+        self.modules.retain_program(module, kind, revision)
+    }
+
+    fn retain_revision(
+        &mut self,
+        module: &ExecutableModule,
+        origin: RevisionSource<'_>,
+    ) -> Result<Root<RevisionState>, RuntimeError> {
+        self.with_revision_origin(module, origin, |slots, revision| match origin {
+            // Admit before sharing. Even another diagnostic retention kind shares
+            // the actual Root's existing GC registration.
+            RevisionSource::Host(root) => Ok(root.clone()),
+            RevisionSource::Current
+            | RevisionSource::Execution(_)
+            | RevisionSource::Application(_)
+            | RevisionSource::HostApplication(_)
+            | RevisionSource::RootedClosure(_)
+            | RevisionSource::Cold(_)
+            | RevisionSource::Closure(_)
+            | RevisionSource::StaticRecipe { .. } => slots.scope().retain(revision),
+        })
     }
 
     fn link_native_module(
@@ -117,6 +147,9 @@ impl Runtime {
             bindings,
             admission,
         )?;
+        let staged = staged
+            .into_managed(&self.modules, &mut self.memory, &self.resources)
+            .map_err(|error| self.managed_memory_error(error))?;
         // Exact program provenance now exists, but the candidate is not published.
         // On failure the lease drops; normal abandoned-candidate collection owns cleanup.
         for owner in staged.module().members() {
@@ -131,10 +164,20 @@ impl Runtime {
                 }
             }
         }
-        for owner in staged.module().members() {
-            self.link_execution(&owner)?;
+        self.link_staged_execution(&staged)?;
+        if staged.is_initial() {
+            staged
+                .finish_bindings(&self.modules, &mut self.memory, &self.resources)
+                .map_err(|error| self.managed_program_error(error))?;
         }
         Ok(staged)
+    }
+
+    fn managed_program_error(&self, error: ManagedProgramError) -> RuntimeError {
+        match error {
+            ManagedProgramError::Validation(error) => error,
+            ManagedProgramError::Memory(error) => self.managed_memory_error(error),
+        }
     }
 
     pub fn validate_executable_module(
@@ -231,7 +274,9 @@ impl Runtime {
             .validate_installation(&installation, self.host.owner())?;
         self.validate_executable_module(program.module())?;
         self.validate_publication_bindings(program.module())?;
-        program.publish(&self.modules)?;
+        program
+            .publish(&self.modules, &mut self.memory, &self.resources)
+            .map_err(|error| self.managed_program_error(error))?;
         Ok(InstalledProgram { installation })
     }
 
@@ -410,8 +455,8 @@ impl Runtime {
             )
             .map_err(ReloadValidationError::Runtime)?;
         let program = program
-            .bind_reload(&self.modules, &baseline)
-            .map_err(ReloadValidationError::Runtime)?;
+            .bind_reload(&self.modules, &baseline, &mut self.memory, &self.resources)
+            .map_err(|error| ReloadValidationError::Runtime(self.managed_program_error(error)))?;
         Ok(StagedReload {
             target,
             initialization_error: Default::default(),
@@ -475,8 +520,8 @@ impl Runtime {
             .recheck(self)
             .map_err(ReloadValidationError::Runtime)?;
         program
-            .publish(&self.modules)
-            .map_err(ReloadValidationError::Runtime)?;
+            .publish(&self.modules, &mut self.memory, &self.resources)
+            .map_err(|error| ReloadValidationError::Runtime(self.managed_program_error(error)))?;
         invalidation.commit();
         Ok(())
     }

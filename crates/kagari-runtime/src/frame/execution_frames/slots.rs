@@ -5,7 +5,7 @@ use crate::{
     error::RuntimeErrorKind,
     frame::cursor::kernel::RegionExit,
     module::{ExecutableModule, VerifiedProgram, execution::layout::ReusedSlot},
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
@@ -162,6 +162,7 @@ fn consumed_scalar_alias_changes_owner_only_after_a_successful_write() {
             ..Default::default()
         };
         let loaded = load_slots(&mut runtime, function, vec![ConstantOperand::I32(input)]);
+        let roots_before = runtime.gc_stats().root_registrations;
         let mut stack_activation = runtime.enter_execution_stack(&loaded).unwrap();
         stack_activation
             .with(|runtime, stack| {
@@ -170,53 +171,56 @@ fn consumed_scalar_alias_changes_owner_only_after_a_successful_write() {
                     .unwrap();
                 assert_eq!(stack.current(runtime).unwrap().physical_slot_count(), 1);
                 assert!(matches!(
-                    stack.execute_region(runtime, &mut Some(1), |_, _, _, _| unreachable!()),
+                    stack.execute_region(runtime, &mut Some(1), |_, _, _, _, _| unreachable!()),
                     Ok(RegionExit::Slice)
                 ));
                 {
                     let mut frame = stack.current_mut(runtime).unwrap();
                     frame.prepare_instruction();
                     assert_eq!(
-                        frame.read_slot(runtime, Slot::new(0)).unwrap(),
-                        Value::I32(input)
+                        frame.read_slot(runtime, Slot::new(0)).unwrap().as_i32(),
+                        Some(input)
                     );
                     assert!(frame.read_slot(runtime, Slot::new(1)).is_err());
+                    drop(frame);
                     assert!(
-                        frame
-                            .write_slot(runtime, Slot::new(1), Value::I32(99))
+                        stack
+                            .write_slot(runtime, Slot::new(1), &ValueView::from(99i32))
                             .is_err()
                     );
                 }
                 let result =
-                    stack.execute_region(runtime, &mut Some(1), |_, _, _, _| unreachable!());
+                    stack.execute_region(runtime, &mut Some(1), |_, _, _, _, _| unreachable!());
                 {
-                    let mut frame = stack.current_mut(runtime).unwrap();
+                    let frame = stack.current(runtime).unwrap();
                     if input == 7 {
                         assert!(matches!(result, Ok(RegionExit::Slice)));
                         assert_eq!(
-                            frame.read_slot(runtime, Slot::new(1)).unwrap(),
-                            Value::I32(14)
+                            frame.read_slot(runtime, Slot::new(1)).unwrap().as_i32(),
+                            Some(14)
                         );
                         assert!(frame.read_slot(runtime, Slot::new(0)).is_err());
+                        drop(frame);
                         assert!(
-                            frame
-                                .write_slot(runtime, Slot::new(0), Value::I32(99))
+                            stack
+                                .write_slot(runtime, Slot::new(0), &ValueView::from(99i32))
                                 .is_err()
                         );
+                        let mut frame = stack.current_mut(runtime).unwrap();
                         assert!(
                             frame.jump_to(runtime, 1).is_err(),
                             "consumed input cannot be reexecuted"
                         );
                         frame.prepare_instruction();
                         assert_eq!(
-                            frame.read_slot(runtime, Slot::new(1)).unwrap(),
-                            Value::I32(14)
+                            frame.read_slot(runtime, Slot::new(1)).unwrap().as_i32(),
+                            Some(14)
                         );
                     } else {
                         assert!(result.is_err());
                         assert_eq!(
-                            frame.read_slot(runtime, Slot::new(0)).unwrap(),
-                            Value::I32(input)
+                            frame.read_slot(runtime, Slot::new(0)).unwrap().as_i32(),
+                            Some(input)
                         );
                         assert!(frame.read_slot(runtime, Slot::new(1)).is_err());
                     }
@@ -226,7 +230,7 @@ fn consumed_scalar_alias_changes_owner_only_after_a_successful_write() {
             })
             .unwrap();
         drop(stack_activation);
-        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(runtime.gc_stats().root_registrations, roots_before);
         assert_eq!(runtime.resources().counters().current_call_depth, 0);
     }
 }
@@ -235,6 +239,7 @@ fn consumed_scalar_alias_changes_owner_only_after_a_successful_write() {
 fn public_frame_access_preserves_reused_binding_lifetimes_and_initialized_entry() {
     let mut runtime = Runtime::default();
     let loaded = reused_bindings(&mut runtime);
+    let roots_before = runtime.gc_stats().root_registrations;
     let mut stack_activation = runtime.enter_execution_stack(&loaded).unwrap();
     stack_activation
         .with(|runtime, stack| {
@@ -257,25 +262,28 @@ fn public_frame_access_preserves_reused_binding_lifetimes_and_initialized_entry(
                 );
             }
             assert!(matches!(
-                stack.execute_region(runtime, &mut Some(1), |_, _, _, _| unreachable!()),
+                stack.execute_region(runtime, &mut Some(1), |_, _, _, _, _| unreachable!()),
                 Ok(RegionExit::Slice)
             ));
             {
                 let mut frame = stack.current_mut(runtime).unwrap();
                 assert_eq!(
-                    frame.read_slot(runtime, Slot::new(0)).unwrap(),
-                    Value::I32(7),
+                    frame.read_slot(runtime, Slot::new(0)).unwrap().as_i32(),
+                    Some(7),
                     "a successful slice publishes the first definition before PC preparation"
                 );
                 frame.prepare_instruction();
                 assert_eq!(
-                    frame.read_slot(runtime, Slot::new(0)).unwrap(),
-                    Value::I32(7)
+                    frame.read_slot(runtime, Slot::new(0)).unwrap().as_i32(),
+                    Some(7)
                 );
+                drop(frame);
+                let write_error = stack
+                    .write_slot(runtime, Slot::new(1), &ValueView::from(99i32))
+                    .unwrap_err();
+                let mut frame = stack.current_mut(runtime).unwrap();
                 for error in [
-                    frame
-                        .write_slot(runtime, Slot::new(1), Value::I32(99))
-                        .unwrap_err(),
+                    write_error,
                     frame.read_slot(runtime, Slot::new(1)).unwrap_err(),
                     frame.jump_to(runtime, 3).unwrap_err(),
                 ] {
@@ -283,8 +291,8 @@ fn public_frame_access_preserves_reused_binding_lifetimes_and_initialized_entry(
                 }
                 assert_eq!(frame.instruction_offset(), 1);
                 assert_eq!(
-                    frame.read_slot(runtime, Slot::new(0)).unwrap(),
-                    Value::I32(7)
+                    frame.read_slot(runtime, Slot::new(0)).unwrap().as_i32(),
+                    Some(7)
                 );
                 assert!(!runtime.is_quarantined());
                 assert!(matches!(frame.next_instruction(), Some(I::Jump { .. })));
@@ -300,32 +308,38 @@ fn public_frame_access_preserves_reused_binding_lifetimes_and_initialized_entry(
                 );
             }
             assert!(matches!(
-                stack.execute_region(runtime, &mut Some(1), |_, _, _, _| unreachable!()),
+                stack.execute_region(runtime, &mut Some(1), |_, _, _, _, _| unreachable!()),
                 Ok(RegionExit::Slice)
             ));
             {
                 let mut frame = stack.current_mut(runtime).unwrap();
                 assert_eq!(
-                    frame.read_slot(runtime, Slot::new(1)).unwrap(),
-                    Value::I32(9),
+                    frame.read_slot(runtime, Slot::new(1)).unwrap().as_i32(),
+                    Some(9),
                     "the completed replacement is visible at its defining PC"
                 );
                 frame.prepare_instruction();
                 assert_eq!(
-                    frame.read_slot(runtime, Slot::new(1)).unwrap(),
-                    Value::I32(9)
+                    frame.read_slot(runtime, Slot::new(1)).unwrap().as_i32(),
+                    Some(9)
                 );
+                drop(frame);
                 assert!(
-                    frame
-                        .write_slot(runtime, Slot::new(0), Value::I32(99))
+                    stack
+                        .write_slot(runtime, Slot::new(0), &ValueView::from(99i32))
                         .is_err()
                 );
-                frame
-                    .write_slot(runtime, Slot::new(1), Value::I32(11))
+                stack
+                    .write_slot(runtime, Slot::new(1), &ValueView::from(11i32))
                     .unwrap();
                 assert_eq!(
-                    frame.read_slot(runtime, Slot::new(1)).unwrap(),
-                    Value::I32(11)
+                    stack
+                        .current(runtime)
+                        .unwrap()
+                        .read_slot(runtime, Slot::new(1))
+                        .unwrap()
+                        .as_i32(),
+                    Some(11)
                 );
             }
 
@@ -333,6 +347,6 @@ fn public_frame_access_preserves_reused_binding_lifetimes_and_initialized_entry(
         })
         .unwrap();
     drop(stack_activation);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.gc_stats().root_registrations, roots_before);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
 }

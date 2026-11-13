@@ -1,0 +1,19 @@
+use example::bound::{ Step, repeat };
+
+pub struct Counter {
+    pub val amount: i32
+}
+
+impl Step for Counter {
+    fn step(self, value: i32) -> i32 {
+        value + self.amount
+    }
+}
+
+pub fn make() -> Counter {
+    Counter { amount: 42 }
+}
+
+pub fn evidence() -> i32 {
+    repeat(make())
+}

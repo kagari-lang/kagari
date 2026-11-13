@@ -25,6 +25,7 @@ fn rejected_without_effects(
     let loaded = runtime.select_program(loaded_program).unwrap();
     let history = loaded.retained_demands().metadata().records().clone();
     let count = runtime.modules().loaded_count();
+    let heap = runtime.gc_stats();
     let code = bytecode(candidate, None);
     let artifact = source_free_artifact(code.clone());
     let verified = VerifiedProgram::new(code.clone(), &DefinitionContext::new().unwrap()).unwrap();
@@ -59,7 +60,7 @@ fn rejected_without_effects(
     assert_eq!(current.retained_demands().metadata().records(), &history);
     assert_eq!(runtime.modules().loaded_count(), count);
     assert_eq!(runtime.resources().counters().peak_call_depth, 0);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.gc_stats(), heap);
     for member in loaded.members() {
         assert!(
             runtime

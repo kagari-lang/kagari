@@ -1,16 +1,27 @@
 //! Share applied interface descriptions while keeping receiver views independent.
+pub(crate) mod cache;
+pub(crate) mod description;
+mod operations;
 use crate::{
     Runtime,
     error::RuntimeError,
-    execution_metadata::{interfaces::InterfaceDescriptionKey, links::MetadataCache},
-    frame::types::{EnvironmentRecord, TypeEnvironment, arguments::TypeArgument},
-    gc::interfaces::{
-        InterfaceDescription, InterfaceMethodBinding, InterfaceParentBinding,
-        InterfaceResultBinding, InterfaceValueSnapshot,
+    execution::roots::SessionId,
+    execution_metadata::{environments::AdmittedEnvironment, managed::sources::MetadataSource},
+    frame::types::{
+        EnvironmentRecord, TypeEnvironment, arguments::TypeArgument,
+        construction::ConstructionScope,
     },
     module::ExecutableModule,
-    objects::calls,
-    value::Value,
+    objects::{
+        calls,
+        interfaces::{
+            cache::DescriptionKey,
+            description::{
+                InterfaceDescription, InterfaceMethodBinding, InterfaceParentBinding,
+                InterfaceResultBinding,
+            },
+        },
+    },
 };
 use kagari_bytecode::module::CallableTarget;
 use kagari_common::identity::DefinitionKind;
@@ -18,21 +29,42 @@ use kagari_contract::types::{self as abi, PublicItem};
 use kagari_types::ty::{Ty, substitution::TypeSubstitution};
 use std::sync::Arc;
 
+/// Checked table application facts. The enclosing source supplies all actual
+/// program/environment backing; this borrowed request retains no graph on its own.
+pub(crate) struct InterfaceRequest<'table> {
+    pub(crate) implementation: &'table ExecutableModule,
+    pub(crate) table: usize,
+    pub(crate) arguments: &'table [TypeArgument],
+    pub(crate) environment: Option<&'table TypeEnvironment>,
+    pub(crate) view: bool,
+}
+
+pub(crate) struct PreparedInterface {
+    pub(crate) description: Arc<InterfaceDescription>,
+    pub(crate) environment: Option<AdmittedEnvironment>,
+}
+
 impl Runtime {
-    pub(super) fn prepare_interface_snapshot(
-        &self,
-        implementation: &ExecutableModule,
-        table_index: usize,
-        arguments: &[TypeArgument],
-        construction_environment: Option<&TypeEnvironment>,
-        data: Value,
-        use_view: bool,
-    ) -> Result<InterfaceValueSnapshot, RuntimeError> {
+    pub(crate) fn prepare_interface_description(
+        &mut self,
+        execution: SessionId,
+        request: InterfaceRequest<'_>,
+        protected: &[MetadataSource<'_>],
+    ) -> Result<PreparedInterface, RuntimeError> {
+        let InterfaceRequest {
+            implementation,
+            table: table_index,
+            arguments,
+            environment: construction_environment,
+            view: use_view,
+        } = request;
+        self.resources.poll_execution()?;
         let invalid = || RuntimeError::module_validation("invalid interface implementation table");
-        if !implementation.belongs_to(self.host.owner()) {
-            return Err(invalid());
-        }
-        for argument in arguments {
+        self.validate_executable_module(implementation)?;
+        for (index, argument) in arguments.iter().enumerate() {
+            if index.is_multiple_of(1024) {
+                self.resources.poll_execution()?;
+            }
             argument.validate(self)?;
         }
         let concrete_arguments = arguments
@@ -62,12 +94,25 @@ impl Runtime {
                 _ => None,
             })
             .ok_or_else(invalid)?;
-        let constructions = if template.generic_params.is_empty() {
+        let parent = if template.generic_params.is_empty() {
             None
         } else {
-            Some(self.construction_scope(implementation, construction_environment)?)
+            construction_environment
+                .map(|environment| self.environment_snapshot_in(protected, environment))
+                .transpose()?
         };
-        let key = InterfaceDescriptionKey {
+        let constructions = (!template.generic_params.is_empty()).then(|| {
+            let mut scope = ConstructionScope::new(implementation);
+            if let Some(parent) = &parent {
+                scope.extend(&parent.record.constructions);
+            }
+            scope
+        });
+        let operations = parent
+            .as_ref()
+            .map(|parent| parent.record.operations().clone())
+            .unwrap_or_default();
+        let key = DescriptionKey {
             owner: implementation.key(),
             table: table_index,
             view: use_view,
@@ -75,13 +120,33 @@ impl Runtime {
                 .iter()
                 .map(|argument| argument.identity(implementation).ok_or_else(invalid))
                 .collect::<Result<_, _>>()?,
+            operations: operations.identity(),
             constructions: constructions
                 .as_ref()
                 .map(|scope| scope.identity())
                 .unwrap_or_default(),
         };
-        if let Some(description) = self.gc.interface_description(&key) {
-            return Ok(InterfaceValueSnapshot::new(description, data));
+        if let Some(description) = self.interface_descriptions.get(&key) {
+            match &description.environment {
+                None => {
+                    return Ok(PreparedInterface {
+                        description,
+                        environment: None,
+                    });
+                }
+                Some(facts) => {
+                    if let Some(environment) =
+                        self.copy_environment_in(execution, facts, protected)?
+                    {
+                        return Ok(PreparedInterface {
+                            description,
+                            environment: Some(environment),
+                        });
+                    }
+                    // The weak cache retained facts, not this environment's
+                    // managed backing. Rebuild from the real incoming sources.
+                }
+            }
         }
         let closed_definitions = self.definition_context().snapshot();
         let applied_template = implementation.identity_admission().runtime_in(
@@ -92,7 +157,7 @@ impl Runtime {
         let table = applied_template
             .instantiate(&concrete_arguments, &[], &closed_definitions)
             .ok_or_else(invalid)?;
-        let environment = if template.generic_params.is_empty() {
+        let admitted_environment = if template.generic_params.is_empty() {
             None
         } else {
             let mut environment = EnvironmentRecord::new(
@@ -101,17 +166,12 @@ impl Runtime {
                 arguments.to_vec(),
             )?;
             environment.set_constructions(constructions.expect("generic construction scope"));
-            if let Some(parent) = construction_environment {
-                environment.extend_operations(
-                    self.gc
-                        .environment(parent.id)
-                        .ok_or_else(invalid)?
-                        .operations()
-                        .clone(),
-                );
-            }
-            Some(self.alloc_environment(environment)?)
+            environment.extend_operations(operations);
+            Some(self.alloc_environment(execution, environment, protected)?)
         };
+        let environment = admitted_environment
+            .as_ref()
+            .map(|environment| environment.facts().clone());
         let mut substitution = TypeSubstitution::default();
         for (parameter, argument) in template.generic_params.iter().zip(&concrete_arguments) {
             substitution.bind(&parameter.owner, parameter.position, argument);
@@ -174,8 +234,14 @@ impl Runtime {
         }) {
             return Err(invalid());
         }
-        let mut methods = Vec::with_capacity(trait_contract.methods.len());
-        for declared in &trait_contract.methods {
+        let mut methods = Vec::new();
+        methods
+            .try_reserve_exact(trait_contract.methods.len())
+            .map_err(|_| RuntimeError::resource_limit("interface method facts"))?;
+        for (index, declared) in trait_contract.methods.iter().enumerate() {
+            if index.is_multiple_of(1024) {
+                self.resources.poll_execution()?;
+            }
             let method = template
                 .methods
                 .iter()
@@ -218,7 +284,10 @@ impl Runtime {
                 .transpose()?;
             methods.push(Some(InterfaceMethodBinding {
                 identity: Default::default(),
-                receiver_operations: MetadataCache::new(),
+                requires_receiver_operations: Self::receiver_operations_required(
+                    implementation,
+                    slot.target,
+                ),
                 parameters: method.generic_params.clone(),
                 entry_parameters: match slot.target {
                     CallableTarget::Script(target) => implementation.bytecode.functions
@@ -257,12 +326,15 @@ impl Runtime {
             return Err(invalid());
         }
         let description = Arc::new(InterfaceDescription {
-            receiver_operations: MetadataCache::new(),
             receiver_table,
             parents: linked
                 .parents
                 .iter()
-                .map(|parent| {
+                .enumerate()
+                .map(|(index, parent)| {
+                    if index.is_multiple_of(1024) {
+                        self.resources.poll_execution()?;
+                    }
                     Ok(InterfaceParentBinding {
                         interface: implementation.identity_admission().runtime_in(
                             &substitution
@@ -294,7 +366,15 @@ impl Runtime {
             implementation: implementation.clone(),
             methods,
         });
-        self.gc.cache_interface_description(key, &description)?;
-        Ok(InterfaceValueSnapshot::new(description, data))
+        self.interface_descriptions
+            .insert(key, &description)
+            .map_err(|_| RuntimeError::resource_limit("interface description cache"))?;
+        Ok(PreparedInterface {
+            description,
+            environment: admitted_environment,
+        })
     }
 }
+
+#[cfg(test)]
+mod tests;

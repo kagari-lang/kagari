@@ -118,9 +118,8 @@ a hash insertion can retain extra table capacity without inserting its key.
 
 Removal, clear and truncate reduce logical occupancy without necessarily releasing
 backing capacity. Detached sequence edits keep the buffer charged through callback
-failure and restoration. Sweep and native take release the runtime-recorded charge,
-never call a provider's size hook again; take leaves the inert identity's logical
-unit until its remaining aliases are no longer traced. Charge release does not
+failure and restoration. Sweep releases the runtime-recorded charge without
+calling a provider's size hook again. Charge release does not
 poll execution and still works after termination or quarantine. Sealed Task failure
 publication likewise accounts its retained error message during cleanup; it grants
 no permission for new execution or ordinary mutations. Accounting underflow is an

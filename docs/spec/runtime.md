@@ -315,8 +315,8 @@ Dead heap-object discovery visits occupied concrete payload stores through their
 directory back-references, not every historical directory slot. Interface wrappers
 have no concrete payload row, so a narrow index records their occupied directory
 slots without owning snapshots or replacing the direct snapshot locator. Wrapper
-retirement removes those index entries before directory reuse. Generation tombstones,
-checked relocation and the separate inert identities left by native take remain.
+retirement removes those index entries before directory reuse. Generation tombstones
+and checked relocation remain.
 This bounds object discovery by occupied objects, including not-yet-collected garbage;
 it is not an O(live) bound for the whole collector. Root snapshots still scan root
 table slots, and marking, executable-metadata scans and changed-store compaction
@@ -368,10 +368,10 @@ pressure, not RSS, allocator usable size, all runtime memory or a heap quota.
 The current attribution is deliberately bounded:
 
 - Strings contribute their actual capacity, not just UTF-8 length.
-- Native records include the erased payload Box's shallow size exactly once, plus
-  the provider's exclusively owned indirect backing. Fixed-array buffers use actual
-  capacity times their physical element width (zero for Unit, `Value` width for
-  traced slots). Managed field buffers and cold native Future
+- Native identities and concrete payloads are separate ordinary GC allocations;
+  each shallow size is accounted once, plus exclusively owned indirect backing.
+  Fixed-array buffers use actual capacity times their physical element width
+  (zero for Unit, StoredValue width for traced slots). Managed field buffers and cold native Future
   capture/parameter buffers likewise use their known capacities. Task failure
   payloads include their owned error-message capacity.
 - Referenced GC objects are charged separately. Shared type/code/layout metadata,
@@ -380,15 +380,15 @@ The current attribution is deliberately bounded:
   covered by this byte ledger. Providers must identify unobservable allocations
   as excluded, not claim that a zero report proves no allocation.
 
-`NativePayload::charge() -> NativeResult<HeapCharge>` replaces `units()`.
-Preparation samples a payload's description once before publication and adds its
-shallow Box size. The runtime-owned `NativeObject` records that charge; allocation
-uses it, relocation preserves it, and checked storage mutations update it alongside
-committed storage. Sweep and take release recorded charges without provider calls.
-A prepared replacement has its own charge; unchanged logical length does not imply
-unchanged capacity. Claiming a cold Future transfers its capture backing out of the payload's
-charge, leaving its Box charged. Native take releases payload units and bytes but
-keeps one logical identity unit until its inert aliases are no longer traced.
+Concrete payloads implement GcObject and report ObjectCharge, excluding shallow
+bytes and referenced objects. NativePayload selects a schema-registration policy;
+it is not a second tracing/accounting protocol. The collector owns the committed
+provider ledger across allocation, checked mutation and sweep. A prepared
+replacement has its own actual capacity; unchanged logical length does not prove
+unchanged byte charge. Native identity publication imports the concrete payload
+as an ordinary edge; replacing it preserves the identity and retires its old
+payload through collection. Runtime consumer migration/acceptance remains open
+in RR03's coordinated build window.
 See [provider obligations](host-interop.md#native-payload-accounting) and
 [reservation failure](failure-semantics.md#modification-guarantees).
 
@@ -408,11 +408,22 @@ saturates. The byte floor is a policy default, not a measured optimum.
 collection remains available under the normal execution/borrow checks. For example,
 a newly allocated empty String with 128 KiB of capacity has one logical unit but
 can make byte-pressure collection due; allocation itself does not collect it.
-`ResourceCounters` and `GcHeapStats` expose current/peak logical units and `u128`
-current/peak retained bytes. `GcCollection` reports reclaimed units and retained
-bytes as well as objects; GC stats also report collection count and the last pause.
-These are attributed occupancy counters, not cumulative allocation or quotas.
-Incremental and generational GC remain deferred.
+`Runtime::gc_stats()` reports committed objects, provider logical units and indirect
+backing through the collector's `HeapStats`. `ResourceCounters` combines one unit
+per managed object with its provider units and active conversion-preparation units.
+Its current/peak heap-unit fields use `u128`, including managed execution metadata;
+current/peak retained bytes count provider-owned indirect backing, not physical heap
+pages, descriptor/control tables, external Rust state or process RSS. Allocation
+and checked mutation commits retain their interval peaks even when a later edit
+shrinks in the same access. Runtime attributes the closed interval to the active
+session before observers, callbacks or another session may execute. Retirement
+updates current occupancy; it does not reset peaks. Temporary preparation has its
+own scoped ownership and is released on errors and unwinds.
+
+Collector reports expose actual work, retired owners and completed cycles.
+These are attributed occupancy/work observations, not cumulative allocation or
+execution quotas. Reading counters neither updates them nor samples a clock.
+Generational and paged collector changes remain separate follow-up work.
 
 Host retention uses gc::roots::RootedValue, returned by Runtime::root_value. The
 heap owns a generational root table containing the values; handles contain checked
@@ -460,11 +471,9 @@ this does not enable concurrent access or asynchronous script execution.
 
 `Opaque<T>` retains a checked root into runtime-owned native storage; cloning the
 handle preserves identity without cloning T. Read/edit acquire short checked
-loans. Explicit take validates extraction capability and active operations before
-atomically removing the payload and invalidating every old alias. Failed take
-leaves storage unchanged. Old roots can retain an inert invalidation identity,
-but cannot access the payload or revive it after reinsertion. Payload destruction
-belongs to the runtime until successful take, then to the receiving Rust owner.
+loans. Collection destroys the payload exactly once after retained handles and
+traced references stop protecting it. Runtime shutdown destroys remaining storage
+even when handles survive. Payload loans keep ownership in the runtime.
 See [opaque access](embedding-api.md#retained-objects-and-prepared-calls).
 
 External `Ref<T>`/`RefMut<T>` instead reserve host-owned storage under an invariant
@@ -505,15 +514,18 @@ module::retention::ProgramLease. Runtime owns execution-state and candidate-acce
 policy; ModuleStore owns records and no longer retains ResourceState. Instance
 reads and writes enter through Runtime's checked APIs. ModuleStore's instance and
 retention mutation methods are crate-private storage operations.
-Runtime::read_module_slot and write_module_slot are the execution access boundary.
-Writes check the installed descriptor, slot bounds and mutability, its bytecode
-representation, storable/live heap references and candidate ownership before
-replacing a reference. Candidate checks also apply between initialization and
-publication; publication still rechecks the transitive graph after intervening
-object mutations. The old value is disposed outside the module-store borrow, with
-no safepoint or callback between validation and the write. Reads detect damaged
-storage and quarantine the runtime. module_instance_snapshot returns a detached
-diagnostic copy; production APIs expose no mutable slot vector.
+Runtime::read_module_slot and write_module_slot require exclusive Runtime access
+and operate only on ready cells. Writes check installed ownership, slot bounds,
+mutability, the existing semantic value, and incoming storable/semantic data before
+publication and replacement. Candidate initialization cannot access static state,
+including staged access between initialization and publication. There is no
+safepoint or callback between the final validation and commit. Reads detect damaged
+semantic storage and quarantine the runtime. A successful read returns RootedValue;
+module_instance_snapshot also owns genuine roots for its copied ready values.
+Editing/dropping that detached diagnostic copy cannot edit cells. A live old Host
+descriptor maps its static contracts through current publication after slot/member
+reordering; admitted frames use their exact revision's bindings. Neither lookup
+recovers GC objects from an unprotected version or cell ID.
 The runtime owns ModuleStore's mutable records directly. Staged handles contain a
 lifecycle token instead of a shared store. Publication checks the token and installed
 code identity against the destination runtime. Dropping a candidate immediately
@@ -816,7 +828,9 @@ polling boundaries. It cannot preempt a blocking host callback. Primitive bulk
 operations may finish before the next poll. A prepared commit is uninterrupted:
 cancellation requested inside it is observed after its target and dirty record
 are committed. ExecutionCounters reports current and peak call depth and heap units;
-reading counters does not sample the platform clock. Optional tracing provides
+a fresh root's heap peak starts at its current Runtime occupancy and does not
+inherit a previous root's peak. Nested synchronous entries share the active root's
+peak. Reading counters does not sample the platform clock. Optional tracing provides
 observations without execution charging.
 `ExecutionOptions::inputs` supplies
 a fixed logical Unix time in milliseconds and a random seed for the root session.

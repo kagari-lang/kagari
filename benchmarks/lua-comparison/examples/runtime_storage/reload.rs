@@ -52,6 +52,8 @@ pub(super) fn run() {
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&original, Default::default()).unwrap();
     let old_key = runtime.select_program(&loaded).unwrap().key();
+    runtime.collect_garbage().unwrap();
+    let roots_before = runtime.gc_stats().root_registrations;
     let saved: Function<(i32,), i32> = runtime
         .execute_typed(&loaded, "saved", (), &context)
         .unwrap();
@@ -99,7 +101,7 @@ pub(super) fn run() {
         );
         ITERATIONS
     });
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.gc_stats().root_registrations, roots_before);
     println!(
         "reload_setup,original_prepare_ns={original_ns},candidate_prepare_ns={candidate_ns},compatibility_ns={compatibility_ns},fresh_load_ns={fresh_load_ns},publication_ns={publication_ns}"
     );

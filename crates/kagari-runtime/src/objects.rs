@@ -1,100 +1,72 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
-    closure::{ClosureTarget, ClosureValueSnapshot},
     error::{RuntimeError, trap::TrapReason},
-    execution_metadata::{MetadataEdge, interfaces::InterfaceSnapshotId},
-    frame::{
-        arguments::FrameArguments,
-        types::{
-            TypeEnvironment, arguments::TypeArgument, construction::ConstructionScope,
-            operations::OperationBindings,
-        },
+    execution_metadata::managed::{ProtectedMetadata, sources::MetadataSource},
+    frame::types::arguments::TypeArgument,
+    module::ExecutableModule,
+    native::{
+        conversion::context::{ConversionContext, inputs::ValueInput},
+        storage_type::StorageType,
     },
-    gc::{HeapObjectId, interfaces::InterfaceValueSnapshot},
-    module::{self, ExecutableModule},
-    objects::invocation::MethodInvocation,
-    value::{self, EnumTag, Value},
+    objects::{
+        application::MethodApplicationInput,
+        interfaces::{InterfaceRequest, description::InterfaceDescription},
+    },
+    value::{carriers::RootedValue, interfaces::InterfaceObject},
 };
-
-use kagari_abi::representation::ValueType;
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::ids::FunctionRef;
+use kagari_gc::error::GcError;
 use kagari_types::ty::{NominalTy, Ty};
-use std::{cell::Ref, slice};
+use std::sync::Arc;
 mod adapters;
-mod application;
+mod aggregates;
+pub(crate) mod application;
 mod calls;
-mod constructions;
-mod interfaces;
+pub(crate) mod constructions;
+pub(crate) mod interfaces;
 pub(crate) mod invocation;
 pub(crate) mod method;
-mod method_view;
+pub(crate) mod method_view;
 mod operations;
 
 impl Runtime {
+    /// Construct a fixed array from genuine Host roots and return independent
+    /// Host ownership. Internal calls use source views through ConversionContext.
     pub fn alloc_array(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
         element: Ty,
-        elements: Vec<Value>,
-    ) -> Result<HeapObjectId, RuntimeError> {
-        self.validate_executable_module(owner)?;
-        self.validate_heap_payloads(&elements)?;
-        self.gc.alloc_array(owner, element, elements)
+        elements: &[RootedValue],
+    ) -> Result<RootedValue, RuntimeError> {
+        let mut cx = ConversionContext::new(self, owner)?;
+        let contract = Arc::new(StorageType::prepare(element, owner)?);
+        let value = cx.allocate_array_inputs(contract, elements.iter().map(ValueInput::Root))?;
+        cx.retain(&value)
     }
 
     pub fn alloc_array_repeat(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
         element: Ty,
-        value: Value,
+        value: &RootedValue,
         count: usize,
-    ) -> Result<HeapObjectId, RuntimeError> {
-        self.validate_executable_module(owner)?;
-        self.validate_heap_payloads(slice::from_ref(&value))?;
-        self.gc.alloc_array_repeat(owner, element, value, count)
-    }
-
-    pub fn alloc_struct(
-        &self,
-        layout: module::StructLayoutRef,
-        fields: Vec<Value>,
-    ) -> Result<HeapObjectId, RuntimeError> {
-        self.validate_heap_payloads(&fields)?;
-        // The layout retains a verified generation; allocation does not depend on
-        // whether that generation remains a current module-store entry.
-        if !layout.module().belongs_to(self.host.owner()) {
-            return Err(RuntimeError::module_validation(
-                "struct layout belongs to a different runtime",
-            ));
-        }
-        self.gc.alloc_struct(layout, fields)
-    }
-
-    pub fn alloc_enum(
-        &self,
-        tag: value::EnumTag,
-        fields: Vec<Value>,
-    ) -> Result<HeapObjectId, RuntimeError> {
-        self.validate_heap_payloads(&fields)?;
-        if let EnumTag::Declared(layout) = &tag
-            && !layout.module().belongs_to(self.host.owner())
-        {
-            return Err(RuntimeError::module_validation(
-                "enum layout belongs to a different runtime",
-            ));
-        }
-        self.gc.alloc_enum(tag, fields)
+    ) -> Result<RootedValue, RuntimeError> {
+        let mut cx = ConversionContext::new(self, owner)?;
+        let contract = Arc::new(StorageType::prepare(element, owner)?);
+        let count =
+            u64::try_from(count).map_err(|_| RuntimeError::resource_limit("array length"))?;
+        let value = cx.allocate_array_repeat_input(contract, ValueInput::Root(value), count)?;
+        cx.retain(&value)
     }
 
     /// Box a concrete script value or durable host root behind a verified table.
     /// The resulting heap object retains the table's entire execution version.
     pub fn make_interface(
-        &self,
+        &mut self,
         implementation: &ExecutableModule,
         table_index: usize,
-        data: value::Value,
-    ) -> Result<value::Value, RuntimeError> {
+        data: &RootedValue,
+    ) -> Result<RootedValue, RuntimeError> {
         let arguments = implementation
             .bytecode
             .interface_tables
@@ -103,365 +75,140 @@ impl Runtime {
             .arguments
             .clone();
         let arguments = self.resolve_type_arguments(implementation, &arguments)?;
-        self.make_interface_applied(implementation, table_index, &arguments, None, data)
-    }
-
-    /// Instantiate a verified table using the allocating frame's type arguments
-    /// and retained construction applications. A shared caller supplies its environment.
-    pub fn make_interface_applied(
-        &self,
-        implementation: &ExecutableModule,
-        table_index: usize,
-        arguments: &[TypeArgument],
-        construction_environment: Option<&TypeEnvironment>,
-        data: Value,
-    ) -> Result<Value, RuntimeError> {
-        let snapshot = self.prepare_interface_snapshot(
-            implementation,
-            table_index,
-            arguments,
-            construction_environment,
-            data,
-            false,
+        let mut conversion = ConversionContext::new(self, implementation)?;
+        let data = conversion.import(data)?;
+        let value = conversion.make_interface(
+            InterfaceRequest {
+                implementation,
+                table: table_index,
+                arguments: &arguments,
+                environment: None,
+                view: false,
+            },
+            &data,
         )?;
-        self.publish_interface(snapshot)
+        conversion.retain(&value)
     }
 
-    fn publish_interface(&self, snapshot: InterfaceValueSnapshot) -> Result<Value, RuntimeError> {
-        self.validate_interface_receiver(&snapshot)?;
-        self.validate_metadata(MetadataEdge::InterfaceView(&snapshot))?;
-        let id = self.gc.alloc_interface_snapshot(snapshot)?;
-        self.gc.alloc_interface(id).map(Value::Interface)
-    }
-
-    fn validate_interface_receiver(
-        &self,
-        snapshot: &InterfaceValueSnapshot,
-    ) -> Result<(), RuntimeError> {
-        if !matches!(snapshot.data, Value::HostRoot(_)) {
-            self.validate_heap_payloads(slice::from_ref(&snapshot.data))?;
-        }
-        // Cached metadata does not validate mutable host ownership/schema or GC
-        // handles. Check the receiver again whenever an escaping view is published.
-        if !self.matches_type_in(
-            &snapshot.data,
-            &snapshot.description.concrete_expression,
-            &snapshot.description.implementation,
-            snapshot
-                .description
-                .environment
-                .as_ref()
-                .map(|environment| environment.types.as_ref()),
-        ) {
-            return Err(RuntimeError::from(TrapReason::InvalidInterfaceReceiver));
-        }
-        Ok(())
-    }
-
-    fn publish_interface_view(&self, id: InterfaceSnapshotId) -> Result<Value, RuntimeError> {
-        let snapshot = self
-            .gc
-            .interface_metadata(id)
-            .ok_or_else(|| RuntimeError::module_validation("invalid interface snapshot"))?;
-        self.validate_interface_receiver(&snapshot)?;
-        self.validate_metadata(MetadataEdge::Interface(id))?;
-        drop(snapshot);
-        self.gc.alloc_interface(id).map(Value::Interface)
-    }
-
-    fn parent_snapshot(
-        &self,
-        id: InterfaceSnapshotId,
-        target: &NominalTy,
-    ) -> Result<InterfaceSnapshotId, RuntimeError> {
-        let invalid = || RuntimeError::from(TrapReason::InvalidInterfaceUpcast);
-        let snapshot = self.gc.interface_metadata(id).ok_or_else(invalid)?;
-        let slot = snapshot
-            .description
-            .parents
-            .iter()
-            .position(|parent| parent.interface == *target)
-            .ok_or_else(invalid)?;
-        let parent = &snapshot.description.parents[slot];
-        if let Some(prepared) = snapshot.parent_views[slot].get() {
-            let view = self.gc.interface_metadata(*prepared).ok_or_else(invalid)?;
-            self.validate_interface_receiver(&view)?;
-            return Ok(*prepared);
-        }
-        let binding = parent.binding.clone();
-        let data = snapshot.data;
-        let use_view = parent.view;
-        drop(snapshot);
-        let prepared = self.prepare_interface_snapshot(
-            &binding.owner,
-            binding.table,
-            &self.type_arguments(
-                &binding.owner,
-                binding
-                    .environment
-                    .as_ref()
-                    .map(|environment| environment.types.clone()),
-                &binding.arguments,
-            )?,
-            binding.environment.as_ref(),
-            data,
-            use_view,
-        )?;
-        self.validate_interface_receiver(&prepared)?;
-        self.validate_metadata(MetadataEdge::InterfaceView(&prepared))?;
-        let prepared = self.gc.alloc_interface_snapshot(prepared)?;
-        self.cache_parent_interface(id, slot, prepared)?;
-        Ok(prepared)
-    }
-
-    pub fn make_closure(
-        &self,
-        implementation: &ExecutableModule,
-        function: FunctionRef,
-        captures: Vec<value::Value>,
-        environment: Option<TypeEnvironment>,
-    ) -> Result<value::Value, RuntimeError> {
-        let mut snapshot = self.prepare_closure(implementation, function, captures, environment)?;
-        snapshot.bind_named(self)?;
-        self.validate_metadata(MetadataEdge::Closure(&snapshot))?;
-        self.gc.alloc_closure(snapshot).map(Value::Closure)
-    }
-
-    /// Cold computation creation has already selected its resume body and values.
-    pub(crate) fn make_retained_closure(
-        &self,
-        implementation: &ExecutableModule,
-        function: FunctionRef,
-        captures: Vec<Value>,
-        environment: Option<TypeEnvironment>,
-    ) -> Result<Value, RuntimeError> {
-        let snapshot = self.prepare_closure(implementation, function, captures, environment)?;
-        self.validate_metadata(MetadataEdge::Closure(&snapshot))?;
-        self.gc.alloc_closure(snapshot).map(Value::Closure)
-    }
-
-    fn prepare_closure(
-        &self,
-        implementation: &ExecutableModule,
-        function: FunctionRef,
-        captures: Vec<Value>,
-        environment: Option<TypeEnvironment>,
-    ) -> Result<ClosureValueSnapshot, RuntimeError> {
-        self.validate_executable_module(implementation)?;
-        if implementation.is_static_initializer(function) {
-            return Err(RuntimeError::module_validation(
-                "static initializer is not a callable value",
-            ));
-        }
-        let metadata = implementation
-            .bytecode
-            .functions
-            .get(function.index())
-            .ok_or_else(|| RuntimeError::module_validation("invalid closure function"))?;
-        if captures.len() > metadata.metadata.params.len()
-            || !captures
-                .iter()
-                .zip(&metadata.metadata.params)
-                .all(|(value, ty)| value.has_representation(*ty))
-        {
-            return Err(RuntimeError::module_validation(
-                "closure capture contract mismatch",
-            ));
-        }
-        if metadata
-            .metadata
-            .semantic
-            .generic
-            .as_ref()
-            .is_some_and(|body| {
-                environment
-                    .as_ref()
-                    .is_none_or(|environment| !environment.types.matches(body))
-            })
-        {
-            return Err(RuntimeError::module_validation(
-                "closure generic environment",
-            ));
-        }
-        if let Some(environment) = &environment {
-            for (index, value) in captures.iter().enumerate() {
-                if let Some(ty) = metadata.metadata.semantic.params.get(&index)
-                    && !self.matches_capture_type(value, ty, implementation, &environment.types)
-                {
-                    return Err(RuntimeError::module_validation(
-                        "closure semantic capture mismatch",
-                    ));
-                }
-            }
-        }
-        self.validate_heap_payloads(&captures)?;
-        Ok(ClosureValueSnapshot {
-            environment,
-            implementation: implementation.clone(),
-            target: ClosureTarget::Script(function),
-            captures,
-        })
-    }
-
-    pub fn make_capture_cell(
-        &self,
-        ty: ValueType,
-        value: value::Value,
-    ) -> Result<value::Value, RuntimeError> {
-        self.gc.alloc_cell(ty, value).map(Value::Cell)
-    }
-
-    pub fn read_capture_cell(
-        &self,
-        cell: &value::Value,
-        ty: ValueType,
-    ) -> Result<value::Value, RuntimeError> {
-        let Value::Cell(id) = cell else {
-            return Err(RuntimeError::from(TrapReason::ExpectedCaptureCell));
-        };
-        self.gc.cell_get(*id, ty)
-    }
-
-    pub fn write_capture_cell(
-        &self,
-        cell: &value::Value,
-        ty: ValueType,
-        value: value::Value,
-    ) -> Result<(), RuntimeError> {
-        let Value::Cell(id) = cell else {
-            return Err(RuntimeError::from(TrapReason::ExpectedCaptureCell));
-        };
-        self.gc.cell_set(*id, ty, value)
-    }
-
-    /// Borrow the checked heap record for inspection. Release the view before
-    /// heap mutation, collection or execution that may perform either operation.
-    pub fn resolve_closure(
-        &self,
-        value: &value::Value,
-    ) -> Result<Ref<'_, ClosureValueSnapshot>, RuntimeError> {
-        let Value::Closure(id) = value else {
-            return Err(RuntimeError::from(TrapReason::ExpectedClosure));
-        };
-        self.gc
-            .closure_snapshot(*id)
-            .ok_or_else(|| RuntimeError::from(TrapReason::InvalidClosureHandle))
-    }
-
-    /// Resolve a method ID in the interface value's retained execution generation.
-    /// Reject foreign identities, IDs beyond that generation's prefix and methods
-    /// absent from its linked interface/parent tables. The result roots the receiver.
+    /// Resolve a declared method in the actual interface's retained relationship.
+    /// The ID belongs to the receiver's retained product definition table; foreign
+    /// IDs and unavailable methods return ModuleValidation. Parent relationships
+    /// use checked identity admission, without importing or specializing a table.
+    /// The method body remains a live ordinary selection until call admission.
     pub fn resolve_interface_method(
-        &self,
-        value: &Value,
+        &mut self,
+        value: &RootedValue,
         method: &DefinitionId,
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
-        let Value::Interface(object) = value else {
-            return Err(RuntimeError::module_validation("expected interface value"));
-        };
-        let id = self
-            .gc
-            .interface_snapshot_id(*object)
-            .ok_or_else(|| RuntimeError::module_validation("invalid interface handle"))?;
-        let snapshot = self
-            .gc
-            .interface_metadata(id)
-            .ok_or_else(|| RuntimeError::module_validation("invalid interface handle"))?;
+        let description = self.interface_description(value)?;
         let method = *method;
-        snapshot
-            .description
+        description
             .receiver_table
             .owner
             .definitions()
             .resolve(method)
             .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-        let root = self
-            .root_value(*value)
-            .ok_or_else(|| RuntimeError::from(TrapReason::InvalidInterfaceHandle))?;
-        let slot = snapshot.description.methods.iter().position(|binding| {
+        let slot = description.methods.iter().position(|binding| {
             binding
                 .as_ref()
                 .is_some_and(|binding| binding.method == method)
         });
         if let Some(slot) = slot {
-            drop(snapshot);
-            return self.apply_interface_method(
-                RootedInterfaceMethod::from_interface(self, root, id, slot)?,
-                &[],
-                OperationBindings::default(),
-                ConstructionScope::default(),
+            return self.prepare_interface_method_slot(
+                value,
+                description.interface_type(),
+                slot,
+                MethodApplicationInput::plain(&[]),
             );
         }
-        let owner = snapshot
-            .description
+        let declaration = description
             .receiver_table
             .owner
             .definitions()
             .parent(method)
             .map_err(|error| RuntimeError::module_validation(error.to_string()))?
             .ok_or_else(|| RuntimeError::module_validation("interface method parent"))?;
-        let parent = snapshot
-            .description
+        // Parent types are runtime-canonical; the requested method and its
+        // validated lexical parent still belong to the retained product table.
+        let declaration = description
+            .receiver_table
+            .owner
+            .identity_admission()
+            .runtime_id(declaration)?;
+        let parent = description
             .parents
             .iter()
-            .find(|parent| parent.interface.declaration == owner)
-            .map(|parent| parent.interface.clone());
-        drop(snapshot);
-        if let Some(parent) = parent {
-            let id = self.parent_snapshot(id, &parent)?;
-            let snapshot = self.gc.interface_metadata(id).ok_or_else(|| {
-                RuntimeError::module_validation("invalid parent interface snapshot")
-            })?;
-            let slot = snapshot.description.methods.iter().position(|binding| {
+            .find(|parent| parent.interface.declaration == declaration)
+            .ok_or_else(|| RuntimeError::module_validation("interface method unavailable"))?;
+        let parent =
+            self.upcast_interface(value, description.interface_type(), &parent.interface)?;
+        let description = self.interface_description(&parent)?;
+        let slot = description
+            .methods
+            .iter()
+            .position(|binding| {
                 binding
                     .as_ref()
                     .is_some_and(|binding| binding.method == method)
-            });
-            drop(snapshot);
-            if let Some(slot) = slot {
-                return self.apply_interface_method(
-                    RootedInterfaceMethod::from_interface(self, root, id, slot)?,
-                    &[],
-                    OperationBindings::default(),
-                    ConstructionScope::default(),
-                );
-            }
-        }
-        Err(RuntimeError::module_validation(
-            "interface method unavailable",
-        ))
+            })
+            .ok_or_else(|| RuntimeError::module_validation("interface method unavailable"))?;
+        self.prepare_interface_method_slot(
+            &parent,
+            description.interface_type(),
+            slot,
+            MethodApplicationInput::plain(&[]),
+        )
+    }
+
+    pub(crate) fn interface_description(
+        &mut self,
+        root: &RootedValue,
+    ) -> Result<Arc<InterfaceDescription>, RuntimeError> {
+        self.with_metadata_graph(&[MetadataSource::RootedInterface(root)], |cx, graph, _| {
+            let Some(ProtectedMetadata::Interface(object)) = graph.single_root() else {
+                return Err(GcError::Representation.into());
+            };
+            Ok(cx.read(object, |object| object.description().clone()))
+        })
     }
 
     /// Creates a parent interface view using already compiled tables from the
     /// receiver's retained execution version. It never specializes at runtime.
     pub fn upcast_interface(
-        &self,
-        value: &value::Value,
+        &mut self,
+        root: &RootedValue,
         source: &NominalTy,
         target: &NominalTy,
-    ) -> Result<value::Value, RuntimeError> {
-        let invalid = || RuntimeError::from(TrapReason::InvalidInterfaceUpcast);
-        let Value::Interface(id) = value else {
-            return Err(invalid());
-        };
-        let _root = self.root_value(*value).ok_or_else(invalid)?;
-        let snapshot = self.gc.interface_snapshot(*id).ok_or_else(invalid)?;
-        if snapshot.description.interface_type() != source {
-            return Err(invalid());
-        }
+    ) -> Result<RootedValue, RuntimeError> {
+        let owner = self
+            .memory
+            .scope(&self.resources, |cx, _| {
+                let value = root.get(cx)?;
+                let object =
+                    cx.downcast::<InterfaceObject>(value.object().ok_or(GcError::Representation)?)?;
+                Ok(cx.read(object, |object| object.description().implementation.clone()))
+            })
+            .map_err(|error| match error {
+                GcError::ForeignHeap
+                | GcError::InvalidRoot
+                | GcError::Index
+                | GcError::Representation => RuntimeError::from(TrapReason::InvalidInterfaceUpcast),
+                error => self.managed_memory_error(error),
+            })?;
+        let mut conversion = ConversionContext::new(self, &owner)?;
+        let value = conversion.import(root)?;
+        let parent = conversion.upcast_interface(&value, source, target)?;
         if source == target {
-            return Ok(*value);
+            return Ok(root.clone());
         }
-        drop(snapshot);
-        let snapshot = self.gc.interface_snapshot_id(*id).ok_or_else(invalid)?;
-        self.publish_interface_view(self.parent_snapshot(snapshot, target)?)
+        conversion.retain(&parent)
     }
 
     /// Resolves a trait declaration's verified method ordinal without a
     /// name or declaration search during script dispatch.
     pub fn resolve_interface_method_slot(
-        &self,
-        value: &Value,
+        &mut self,
+        value: &RootedValue,
         interface: &NominalTy,
         slot: usize,
         arguments: &[TypeArgument],
@@ -470,111 +217,43 @@ impl Runtime {
             value,
             interface,
             slot,
-            arguments,
-            OperationBindings::default(),
-            ConstructionScope::default(),
+            MethodApplicationInput::plain(arguments),
         )
     }
 
     pub(crate) fn prepare_interface_method_slot(
-        &self,
-        value: &Value,
+        &mut self,
+        value: &RootedValue,
         interface: &NominalTy,
         slot: usize,
-        arguments: &[TypeArgument],
-        operations: OperationBindings,
-        constructions: ConstructionScope,
+        application: MethodApplicationInput<'_>,
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
-        if !matches!(value, Value::Interface(_)) {
-            return Err(RuntimeError::from(TrapReason::ExpectedInterfaceValue));
-        }
-        let root = self
-            .root_value(*value)
-            .ok_or_else(|| RuntimeError::from(TrapReason::InvalidInterfaceHandle))?;
-        let id = self.select_interface_snapshot(value, interface)?;
-        self.apply_interface_method(
-            RootedInterfaceMethod::from_interface(self, root, id, slot)?,
-            arguments,
-            operations,
-            constructions,
-        )
-    }
-
-    fn select_interface_snapshot(
-        &self,
-        value: &Value,
-        interface: &NominalTy,
-    ) -> Result<InterfaceSnapshotId, RuntimeError> {
-        let Value::Interface(id) = value else {
-            return Err(RuntimeError::from(TrapReason::ExpectedInterfaceValue));
-        };
-        let id = self
-            .gc
-            .interface_snapshot_id(*id)
-            .ok_or_else(|| RuntimeError::from(TrapReason::InvalidInterfaceHandle))?;
-        let snapshot = self
-            .gc
-            .interface_metadata(id)
-            .ok_or_else(|| RuntimeError::module_validation("invalid interface snapshot"))?;
-        let same = snapshot.description.interface_type() == interface;
-        drop(snapshot);
-        if same {
-            Ok(id)
-        } else {
-            self.parent_snapshot(id, interface)
-        }
+        let description = self.interface_description(value)?;
+        let parent = self.upcast_interface(value, description.interface_type(), interface)?;
+        let method = RootedInterfaceMethod::from_interface(self, parent, slot)?;
+        self.apply_interface_method(method, application)
     }
 
     pub fn validate_interface_method_arguments(
-        &self,
+        &mut self,
         method: &RootedInterfaceMethod,
-        arguments: &[value::Value],
+        arguments: &[RootedValue],
     ) -> Result<(), RuntimeError> {
-        method
-            .view(self)?
-            .validate_arguments(self, FrameArguments::plain(arguments))
-    }
-
-    pub(crate) fn finish_method_result(
-        &self,
-        method: &MethodInvocation,
-        result: Value,
-    ) -> Result<Value, RuntimeError> {
-        let adapter = {
-            let view = method.view(self)?;
-            view.validate_result(self, &result)?;
-            view.result_adapter().cloned()
-        };
-        if let Some(adapter) = adapter {
-            // Keep the raw return alive until its interface wrapper is published.
-            let _root = self
-                .root_value(result)
-                .ok_or_else(|| RuntimeError::module_validation("invalid interface result root"))?;
-            let arguments = self.type_arguments(
-                &adapter.owner,
-                adapter
-                    .environment
-                    .as_ref()
-                    .map(|environment| environment.types.clone()),
-                &adapter.arguments,
-            )?;
-            self.make_interface_applied(
-                &adapter.owner,
-                adapter.table,
-                &arguments,
-                adapter.environment.as_ref(),
-                result,
-            )
-        } else {
-            Ok(result)
-        }
+        let view = method.view(self)?;
+        let owner = view.proof_implementation().clone();
+        let mut conversion = ConversionContext::new(self, &owner)?;
+        conversion.validate_interface_arguments(&view, arguments)
     }
 
     pub fn validate_interface_method_result(
-        &self,
+        &mut self,
         method: &RootedInterfaceMethod,
-        result: &value::Value,
+        result: &RootedValue,
     ) -> Result<(), RuntimeError> {
-        method.view(self)?.validate_result(self, result)
+        let view = method.view(self)?;
+        let owner = view.proof_implementation().clone();
+        let mut conversion = ConversionContext::new(self, &owner)?;
+        let result = conversion.import(result)?;
+        view.validate_result(conversion.runtime_mut(), &result)
     }
 }

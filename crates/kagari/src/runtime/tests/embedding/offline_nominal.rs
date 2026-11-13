@@ -15,13 +15,10 @@ use kagari_common::identity::{
     map::DefinitionContext, metadata::DefinitionMetadata, scoped::DefinitionReferences,
 };
 use kagari_runtime::{
-    host::{
-        HostCallContext, HostError, HostObjectId, HostPathAdapter, HostSchemaEpoch,
-        PreparedHostPathWrite,
-    },
+    host::{HostError, HostObjectId, HostPathAdapter, HostSchemaEpoch, PreparedHostPathWrite},
     module::entry::ProgramEntry,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
-    value::Value,
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, host, types::Type},
+    value::view::ValueView,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_stdlib as stdlib;
@@ -134,11 +131,16 @@ fn assert_source_index_path(field_prefix: bool) {
         .unwrap();
     let calls = trace.clone();
     builder
-        .bind(make, move |cx: &mut HostCallContext<'_>, _: &[Value]| {
-            calls.lock().unwrap().push("make");
-            let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
-            Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
-        })
+        .bind(
+            make,
+            host::callback(move |cx, _| {
+                calls.lock().unwrap().push("make");
+                let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
+                let root = cx.runtime_mut().host_root_value(root).unwrap();
+                cx.import(&root)
+                    .map_err(|error| HostError::new(error.to_string()))
+            }),
+        )
         .unwrap();
     for (name, result) in [("index", 1), ("rhs", 2)] {
         let function = builder
@@ -151,10 +153,13 @@ fn assert_source_index_path(field_prefix: bool) {
             .unwrap();
         let calls = trace.clone();
         builder
-            .bind(function, move |_: &mut HostCallContext<'_>, _: &[Value]| {
-                calls.lock().unwrap().push(name);
-                Ok(Value::I32(result))
-            })
+            .bind(
+                function,
+                host::callback(move |_, _| {
+                    calls.lock().unwrap().push(name);
+                    Ok(ValueView::from(result))
+                }),
+            )
             .unwrap();
     }
     let (reads, value) = (trace.clone(), state.clone());
@@ -164,17 +169,18 @@ fn assert_source_index_path(field_prefix: bool) {
             &path,
             HostPathAdapter::new()
                 .with_read(move |_, path| {
-                    if path.dynamic_args.as_slice()[0].value != Value::I32(1) {
+                    if path.dynamic_args.as_slice()[0].value.as_i32() != Some(1) {
                         return Err(HostError::new("unexpected index"));
                     }
                     reads.lock().unwrap().push("read");
-                    Ok(Value::I32(value.load(Ordering::SeqCst)))
+                    Ok(ValueView::from(value.load(Ordering::SeqCst)))
                 })
                 .with_prepare_write(move |_, _, record| {
                     writes.lock().unwrap().push("prepare");
-                    let Value::I32(next) = record.new_value else {
-                        return Err(HostError::new("expected i32"));
-                    };
+                    let next = record
+                        .new_value
+                        .as_i32()
+                        .ok_or_else(|| HostError::new("expected i32"))?;
                     let (writes, target) = (writes.clone(), target.clone());
                     Ok(PreparedHostPathWrite::new(move || {
                         writes.lock().unwrap().push("commit");
@@ -250,10 +256,7 @@ fn assert_source_index_path(field_prefix: bool) {
             runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
-        assert_eq!(
-            report.return_value.value(runtime.gc()).unwrap(),
-            Value::I32(12)
-        );
+        assert_eq!(report.return_value.as_i32().unwrap(), 12);
         assert_eq!(state.load(Ordering::SeqCst), 12);
         assert_eq!(
             *trace.lock().unwrap(),

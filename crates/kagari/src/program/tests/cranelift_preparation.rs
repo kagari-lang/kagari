@@ -23,14 +23,13 @@ use kagari_runtime::{
     module::{InstalledProgram, entry::ProgramEntry},
     native::{
         binding::NativeResult, builder::ModuleBuilder, catalog::DeclarationCatalog,
-        declarations::FunctionDecl, installation::NativeInstallation, module::NativeModule,
-        typed::NativeContext, types::Type,
+        conversion::context::ConversionContext, declarations::FunctionDecl,
+        installation::NativeInstallation, module::NativeModule, typed::NativeContext, types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
-use kagari_types::{scalar::BuiltinType, ty::Ty};
 use rstest::rstest;
 use std::{
     sync::{
@@ -86,10 +85,7 @@ fn scalar(runtime: &mut SdkRuntime, loaded: &InstalledProgram, entry: &str) -> i
     let report = runtime
         .execute(loaded, entry, &[], &Default::default())
         .unwrap();
-    let Value::I32(value) = report.return_value.value(runtime.gc()).unwrap() else {
-        panic!("scalar player result")
-    };
-    value
+    report.return_value.as_i32().expect("scalar player result")
 }
 
 #[test]
@@ -198,6 +194,10 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
         );
         let prepared = (native).install(&mut first, &first_program).unwrap();
         let independent = (native).install(&mut second, &second_program).unwrap();
+        first.collect_garbage().unwrap();
+        second.collect_garbage().unwrap();
+        let first_roots = first.gc_stats().root_registrations;
+        let second_roots = second.gc_stats().root_registrations;
         let PreparedNativeEntry::Native(installed) = &prepared else {
             panic!("native first player")
         };
@@ -228,10 +228,7 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
                     &prepared,
                 )
                 .unwrap();
-            assert_eq!(
-                report.return_value.value(first.gc()).unwrap(),
-                Value::I32(42)
-            );
+            assert_eq!(report.return_value.as_i32().unwrap(), 42);
             let jit = report.jit.unwrap();
             assert_eq!(jit.backend, installed.artifact().code.backend);
             assert_eq!(jit.function, installed.artifact().function);
@@ -248,7 +245,8 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
                 assert!(jit.diagnostics.is_empty());
             }
             drop(report.return_value);
-            assert_eq!(first.gc().active_roots(), 0);
+            first.collect_garbage().unwrap();
+            assert_eq!(first.gc_stats().root_registrations, first_roots);
         }
         assert_eq!(scalar(&mut first, &first_program, "script_next"), 1);
         assert_eq!(scalar(&mut first, &first_program, "host_value"), 101);
@@ -278,10 +276,7 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
             let report = runtime
                 .execute_prepared(loaded, ProgramEntry::Main, &[], &context, entry)
                 .unwrap();
-            assert_eq!(
-                report.return_value.value(runtime.gc()).unwrap(),
-                Value::I32(value)
-            );
+            assert_eq!(report.return_value.as_i32().unwrap(), value);
             assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
         }
         drop((native, next_native, prepared, updated));
@@ -315,13 +310,11 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
                 &independent,
             )
             .unwrap();
-        assert_eq!(
-            report.return_value.value(second.gc()).unwrap(),
-            Value::I32(42)
-        );
+        assert_eq!(report.return_value.as_i32().unwrap(), 42);
         assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
         drop(report.return_value);
-        assert_eq!(second.gc().active_roots(), 0);
+        second.collect_garbage().unwrap();
+        assert_eq!(second.gc_stats().root_registrations, second_roots);
         assert_eq!(second.resources().counters().current_call_depth, 0);
         drop(independent);
         second.close().unwrap();
@@ -378,28 +371,25 @@ fn unsupported_mir_selects_interpreter_before_any_script_instruction(
         .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
         .unwrap();
     assert!(matches!(prepared, PreparedNativeEntry::Unsupported { .. }));
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
 
     let report = runtime
         .execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         .unwrap();
-    assert_eq!(
-        report
-            .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(expected)
-    );
+    assert_eq!(report.return_value.as_i32().unwrap(), expected);
     assert_eq!(
         report.jit.unwrap().status,
         JitExecutionStatus::InterpreterFallback
     );
     drop(report.return_value);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
 }
 
 #[test]
 fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints() {
-    use kagari_runtime::{Runtime as CoreRuntime, RuntimeConfig, gc::GcHeapConfig};
+    use kagari_runtime::{Runtime as CoreRuntime, RuntimeConfig, execution::memory::GcHeapConfig};
     let engine =
         KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let prepare = |value| {
@@ -498,13 +488,7 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
             outer_options.clone(),
         )
         .unwrap();
-    assert_eq!(
-        report
-            .return_value
-            .value(outer.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
-    );
+    assert_eq!(report.return_value.as_i32().unwrap(), 42);
     assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
     drop(report.return_value);
     drop(outer);
@@ -555,27 +539,48 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
             .begin_execution(module, context.runtime_options())
             .unwrap();
         let _session_options = _session.runtime().execution_options();
-        let dead = _session
-            .runtime()
-            .alloc_array(module, Ty::Builtin(BuiltinType::I32), vec![Value::I32(9)])
-            .unwrap();
-        let collections = _session.runtime().gc().stats().collections;
-        let report = _session
-            .runtime_mut()
-            .execute_prepared_module(module, ProgramEntry::Main, native, _session_options.clone())
-            .unwrap();
-        assert_eq!(
-            report
-                .return_value
-                .value(_session.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(value)
+        _session.runtime_mut().collect_garbage().unwrap();
+        let baseline = _session.runtime().gc_stats();
+        {
+            let mut cx = ConversionContext::new(_session.runtime_mut(), module).unwrap();
+            let element = cx.type_for::<i32>().unwrap();
+            // The configured minimum does not override live-size growth pacing.
+            // A substantial dead buffer makes automatic collection due.
+            let values = vec![ValueView::from(9_i32); 65_536];
+            let scratch = cx.allocate_array(&element, &values).unwrap();
+            assert_eq!(cx.array_len(&scratch).unwrap(), values.len());
+        }
+        let collections = _session.runtime().gc_stats().completed_cycles;
+        // Each actual Native entry offers bounded work. A large installed graph
+        // may require several entries to complete one incremental cycle.
+        for _ in 0..256 {
+            let report = _session
+                .runtime_mut()
+                .execute_prepared_module(
+                    module,
+                    ProgramEntry::Main,
+                    native,
+                    _session_options.clone(),
+                )
+                .unwrap();
+            assert_eq!(report.return_value.as_i32().unwrap(), value);
+            assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
+            drop(report.return_value);
+            if _session.runtime().gc_stats().completed_cycles > collections {
+                break;
+            }
+        }
+        assert!(
+            _session.runtime().gc_stats().completed_cycles > collections,
+            "actual Native entries must advance due collection: {:?}",
+            _session.runtime().gc_stats()
         );
-        assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
-        drop(report.return_value);
-        assert!(_session.runtime().gc().stats().collections > collections);
-        assert!(_session.runtime().gc().array_len(dead).is_none());
-        assert_eq!(_session.runtime().gc().active_roots(), 0);
+        _session.runtime_mut().collect_garbage().unwrap();
+        assert_eq!(_session.runtime().gc_stats().objects, baseline.objects);
+        assert_eq!(
+            _session.runtime().gc_stats().root_registrations,
+            baseline.root_registrations
+        );
         assert_eq!(
             _session.runtime().resources().counters().current_call_depth,
             0

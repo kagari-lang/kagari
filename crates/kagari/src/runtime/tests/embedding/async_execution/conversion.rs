@@ -1,5 +1,5 @@
 //! Cancellation during native output conversion must precede continuation publication.
-use super::{Fixture, Value};
+use super::Fixture;
 use crate::context::ExecutionContext;
 use kagari_common::cancellation::CancellationToken;
 use kagari_runtime::{
@@ -17,6 +17,7 @@ use kagari_runtime::{
         types::Type,
     },
     task::{CancellationCause, TaskId, control::TaskScopeOwner, drive::TaskDriveResult},
+    value::view::ValueView,
 };
 
 use std::{
@@ -54,11 +55,11 @@ impl KagariType for Reply {
 }
 
 impl IntoKagari for Reply {
-    fn into_kagari(
+    fn into_kagari<'call>(
         self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ValueView<'call>> {
         self.encoded.fetch_add(1, Ordering::SeqCst);
         let value = cx.encode_value(expected, (7_i32,))?;
         cx.runtime_mut().collect_garbage()?;
@@ -151,14 +152,14 @@ fn async_output_publication_contract() {
             )
             .unwrap();
         let items = f.invoke("items", &[]);
-        let factory = f.invoke("factory", &[f.value(&items)]);
+        let factory = f.invoke("factory", slice::from_ref(&items));
         let handle = f
             .runtime
-            .spawn_task(&f.value(scope.capability()), &f.value(&factory))
+            .spawn_task(&(scope.capability()).clone(), &factory)
             .unwrap()
             .unwrap();
         drop(factory);
-        let task = f.runtime.task_id(&f.value(&handle)).unwrap();
+        let task = f.runtime.task_id(&handle).unwrap();
         assert_eq!(drive(&mut f, &scope, task), TaskDriveResult::Waiting);
         let reply = Reply {
             boundary,
@@ -186,7 +187,7 @@ fn async_output_publication_contract() {
         let report = f.runtime.take_task_report(&scope, task).unwrap().unwrap();
         assert!(f.runtime.take_task_report(&scope, task).unwrap().is_none());
         if boundary == Boundary::Success {
-            assert_eq!(f.value(&report.outcome.unwrap()), Value::I32(12));
+            assert_eq!(report.outcome.unwrap().as_i32().unwrap(), 12);
         } else {
             let failure = report.outcome.unwrap_err();
             assert_eq!(failure.source_task, task);
@@ -197,10 +198,8 @@ fn async_output_publication_contract() {
                 assert_eq!(failure.error.kind(), RuntimeErrorKind::Cancelled);
                 assert_eq!(failure.cancellation, Some(CancellationCause::ScopeClose));
                 assert_eq!(
-                    f.invoke("first", &[f.value(&items)])
-                        .value(f.runtime.gc())
-                        .unwrap(),
-                    Value::I32(5)
+                    f.invoke("first", slice::from_ref(&items)).as_i32().unwrap(),
+                    5
                 );
             }
         }
@@ -219,7 +218,7 @@ fn async_output_publication_contract() {
         );
         if boundary != Boundary::ConversionFault {
             assert!(!f.runtime.is_quarantined());
-            let _ = f.invoke("write", slice::from_ref(&f.value(&items)));
+            let _ = f.invoke("write", slice::from_ref(&items));
         }
         scope.close();
         f.runtime.drain_cancelled_tasks().unwrap();
@@ -231,9 +230,9 @@ fn async_output_publication_contract() {
             );
         } else {
             f.runtime.collect_garbage().unwrap();
-            assert_eq!(f.runtime.gc().allocated_objects(), 0);
+            assert_eq!(f.runtime.gc_stats().objects, 0);
         }
-        assert_eq!(f.runtime.gc().active_roots(), 0);
+        assert_eq!(f.runtime.gc_stats().root_registrations, 0);
         assert_eq!(f.runtime.resources().counters().current_call_depth, 0);
     }
 }

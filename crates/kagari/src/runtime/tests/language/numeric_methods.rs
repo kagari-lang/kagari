@@ -5,7 +5,7 @@ use crate::{
     program::Program,
     runtime::tests::language::numeric_checks::NumericChecks,
 };
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::{module::entry::ProgramEntry, value::carriers::RootedValue};
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
 
@@ -54,31 +54,34 @@ fn execute_checks(checks: Vec<String>) {
     let checks = NumericChecks::new(checks);
     let source = checks.source();
     execute_with(&source, |value| {
-        let Value::I32(marker) = value else {
-            panic!("encoded: expected numeric check marker, got {value:?}\n{source}");
-        };
+        let marker = value.as_i32().unwrap_or_else(|| {
+            panic!("encoded: expected numeric check marker, got {value:?}\n{source}")
+        });
         checks.assert_result(marker, "encoded", &source);
     });
 }
 
 fn execute(source: &str) {
     execute_with(source, |value| {
-        assert_eq!(value, Value::Bool(true), "{source}")
+        assert_eq!(value.as_bool(), Some(true), "{source}")
     });
 }
 
-fn execute_with(source: &str, assert_value: impl FnOnce(Value)) {
+fn execute_with(source: &str, assert_value: impl FnOnce(&RootedValue)) {
     let program = compile(source);
     let context = context();
     let consumer = engine();
     let mut runtime = consumer.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     let result = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap_or_else(|error| panic!("{error:?}\n{source}"));
-    assert_value(result.return_value.value(runtime.gc()).unwrap());
+    assert_value(&result.return_value);
     drop(result);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     assert!(!runtime.is_quarantined());
 }

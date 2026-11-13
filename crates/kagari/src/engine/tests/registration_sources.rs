@@ -18,12 +18,10 @@ use kagari_runtime::{
         conversion::KagariType,
         declarations::{FunctionDecl, MethodDecl},
         module::NativeModule,
-        storage::{NativePayload, NativeStorage},
+        storage::NativeStorage,
         typed::NativeContext,
         types::Type,
     },
-    resource::HeapCharge,
-    value::Value,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_stdlib::{catalog as standard_catalog, namespaces};
@@ -149,24 +147,12 @@ impl Drop for Cache {
     }
 }
 
-#[derive(Debug)]
-struct Payload;
-
-impl NativePayload for Payload {
-    fn trace<'payload>(&'payload self, _: &mut dyn FnMut(&'payload Value)) {}
-
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(0, 0))
-    }
-}
-
 fn application(builder: &KagariEngineBuilder, doc: &str) -> NativeModule {
     let mut module = ModuleBuilder::new("application::api", builder.declarations()).unwrap();
     module.documentation(doc);
     let mut ty = module.define_type("Opaque").unwrap();
     ty.documentation(DOC);
-    ty.native_storage(NativeStorage::payload::<Payload>())
-        .unwrap();
+    ty.native_storage(NativeStorage::data::<()>()).unwrap();
     ty.finish().unwrap();
     let mut trait_ = module.define_trait("Describe").unwrap();
     trait_.documentation(DOC);
@@ -319,9 +305,9 @@ fn generated_files_docs_and_navigation_share_the_checked_snapshot() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
 }
 
@@ -508,9 +494,9 @@ fn content_paths_reuse_unchanged_docs_and_keep_old_snapshot_targets() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
 }
 

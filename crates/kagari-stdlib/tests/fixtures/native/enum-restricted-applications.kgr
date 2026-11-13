@@ -1,0 +1,21 @@
+pub enum Restricted<T: Eq> {
+    Empty,
+    Data(T)
+}
+
+pub fn evidence(value: Restricted<i32>) {}
+
+trait Factory {
+    fn wrap<T: Eq>(self, value: T) -> Restricted<T>;
+}
+
+impl Factory for i32 {
+    fn wrap<T: Eq>(self, value: T) -> Restricted<T> {
+        Restricted::Data(value)
+    }
+}
+
+pub fn shared() -> Restricted<i32> {
+    val factory: Factory = 0;
+    factory.wrap(1)
+}

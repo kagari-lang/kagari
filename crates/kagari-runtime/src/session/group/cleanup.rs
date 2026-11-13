@@ -2,14 +2,14 @@
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind, fault::EngineFault},
-    gc::roots::RootedValue,
+    execution::roots::SessionId,
     native::binding::NativeResult,
     scheduler::WorkKey,
     session::{
         ExecutionId,
         group::{GroupRecord, GroupState},
-        store::SessionId,
     },
+    value::carriers::RootedValue,
 };
 
 impl Runtime {

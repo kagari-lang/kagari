@@ -4,7 +4,6 @@ use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault, reason::CancellationReason},
     execution::owned::DriveResult,
-    gc::roots::RootedValue,
     native::binding::NativeResult,
     publication::ActivationMark,
     resource::AsyncLimits,
@@ -22,6 +21,7 @@ use crate::{
         drive::{TaskAcquisition, TaskActivation},
         store::TaskState,
     },
+    value::carriers::RootedValue,
 };
 mod lifecycle;
 pub mod result;

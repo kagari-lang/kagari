@@ -2,10 +2,10 @@
 use crate::error::RuntimeErrorKind;
 use crate::{
     error::{RuntimeError, trap::TrapReason},
-    gc::GcHeap,
-    value::{Value, scalar},
+    value::{scalar, view::ValueView},
 };
 
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::instruction::{BinaryOp, UnaryOp};
 use kagari_contract::{
     numeric::{NumericConversion, NumericOperation, method::IntegerMethodContract},
@@ -39,7 +39,11 @@ pub(crate) fn binary_operation(op: BinaryOp) -> ScalarBinaryOp {
 }
 
 /// Execute a plain numeric/boolean operation without consulting the heap.
-pub fn scalar_binary(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, RuntimeError> {
+pub fn scalar_binary<'call>(
+    op: BinaryOp,
+    lhs: ValueView<'call>,
+    rhs: ValueView<'call>,
+) -> Result<ValueView<'call>, RuntimeError> {
     match op {
         BinaryOp::Eq
         | BinaryOp::NotEq
@@ -60,29 +64,39 @@ fn scalar_trap(error: ScalarError) -> RuntimeError {
     RuntimeError::from(error)
 }
 
-pub fn unary(op: UnaryOp, value: Value) -> Result<Value, RuntimeError> {
-    match (op, value) {
-        (UnaryOp::Neg, Value::I32(value)) => arithmetic::i32_neg(value)
-            .map(Value::I32)
+pub fn unary<'call>(
+    op: UnaryOp,
+    value: ValueView<'call>,
+) -> Result<ValueView<'call>, RuntimeError> {
+    match (op, value.scalar_payload()) {
+        (UnaryOp::Neg, Some((ValueType::I32, bits))) => arithmetic::i32_neg(bits as i32)
+            .map(ValueView::from)
             .map_err(arithmetic_trap),
-        (UnaryOp::Neg, Value::I64(value)) => arithmetic::i64_neg(value)
-            .map(Value::I64)
+        (UnaryOp::Neg, Some((ValueType::I64, bits))) => arithmetic::i64_neg(bits as i64)
+            .map(ValueView::from)
             .map_err(arithmetic_trap),
-        (UnaryOp::Neg, Value::F32(value)) => Ok(Value::F32(-value)),
-        (UnaryOp::Neg, Value::F64(value)) => Ok(Value::F64(-value)),
-        (UnaryOp::Not, Value::Bool(value)) => Ok(Value::Bool(!value)),
+        (UnaryOp::Neg, Some((ValueType::F32, bits))) => {
+            Ok(ValueView::from(-f32::from_bits(bits as u32)))
+        }
+        (UnaryOp::Neg, Some((ValueType::F64, bits))) => Ok(ValueView::from(-f64::from_bits(bits))),
+        (UnaryOp::Not, Some((ValueType::Bool, bits))) => Ok(ValueView::from(bits == 0)),
         _ => Err(RuntimeError::from(TrapReason::InvalidUnaryOperand)),
     }
 }
 
-/// Admit matching Value carriers once, then use the shared typed arithmetic owner.
-/// Invalid carriers precede invalid operations; arithmetic retains its checked traps.
-pub fn binary(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, RuntimeError> {
+/// Admit matching inline carriers, then use the shared typed arithmetic owner.
+/// The fresh scalar result borrows neither input source.
+/// Invalid carriers precede invalid operations; no managed input is dereferenced.
+pub fn binary<'call>(
+    op: BinaryOp,
+    lhs: ValueView<'_>,
+    rhs: ValueView<'_>,
+) -> Result<ValueView<'call>, RuntimeError> {
     if let BinaryOp::Numeric(operation) = op {
         return fixed_integer(operation, lhs, Some(rhs));
     }
     macro_rules! integer {
-        ($lhs:ident, $rhs:ident, $value:ident, $kernel:path) => {{
+        ($lhs:expr, $rhs:expr, $kernel:path) => {{
             let op = match op {
                 BinaryOp::Add => IntegerBinaryOp::Add,
                 BinaryOp::Sub => IntegerBinaryOp::Sub,
@@ -92,20 +106,27 @@ pub fn binary(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, RuntimeErro
                 _ => return Err(expected_arithmetic()),
             };
             $kernel(op, $lhs, $rhs)
-                .map(Value::$value)
+                .map(ValueView::from)
                 .map_err(arithmetic_trap)
         }};
     }
-    match (lhs, rhs) {
-        (Value::I32(lhs), Value::I32(rhs)) => integer!(lhs, rhs, I32, arithmetic::i32_binary),
-        (Value::I64(lhs), Value::I64(rhs)) => integer!(lhs, rhs, I64, arithmetic::i64_binary),
-        (Value::U64(lhs), Value::U64(rhs)) => integer!(lhs, rhs, U64, arithmetic::u64_binary),
-        (Value::F32(lhs), Value::F32(rhs)) => {
-            float_bits::<true>(op, u64::from(lhs.to_bits()), u64::from(rhs.to_bits()))
-                .map(|bits| Value::F32(f32::from_bits(bits as u32)))
+    match (lhs.scalar_payload(), rhs.scalar_payload()) {
+        (Some((ValueType::I32, lhs)), Some((ValueType::I32, rhs))) => {
+            integer!(lhs as i32, rhs as i32, arithmetic::i32_binary)
         }
-        (Value::F64(lhs), Value::F64(rhs)) => float_bits::<false>(op, lhs.to_bits(), rhs.to_bits())
-            .map(|bits| Value::F64(f64::from_bits(bits))),
+        (Some((ValueType::I64, lhs)), Some((ValueType::I64, rhs))) => {
+            integer!(lhs as i64, rhs as i64, arithmetic::i64_binary)
+        }
+        (Some((ValueType::U64, lhs)), Some((ValueType::U64, rhs))) => {
+            integer!(lhs, rhs, arithmetic::u64_binary)
+        }
+        (Some((ValueType::F32, lhs)), Some((ValueType::F32, rhs))) => {
+            float_bits::<true>(op, lhs, rhs)
+                .map(|bits| ValueView::from(f32::from_bits(bits as u32)))
+        }
+        (Some((ValueType::F64, lhs)), Some((ValueType::F64, rhs))) => {
+            float_bits::<false>(op, lhs, rhs).map(|bits| ValueView::from(f64::from_bits(bits)))
+        }
         _ => Err(RuntimeError::from(
             TrapReason::ArithmeticRequiresMatchingNumericOperands,
         )),
@@ -129,32 +150,35 @@ fn expected_arithmetic() -> RuntimeError {
     RuntimeError::from(TrapReason::ExpectedArithmeticOperation)
 }
 
-/// Execute the verified source-width contract, independently of Value storage width.
-pub fn fixed_integer(
+/// Execute the verified source-width contract, independently of scalar carrier width.
+/// The fresh scalar result borrows neither input source.
+pub fn fixed_integer<'call>(
     operation: NumericOperation,
-    lhs: Value,
-    rhs: Option<Value>,
-) -> Result<Value, RuntimeError> {
+    lhs: ValueView<'_>,
+    rhs: Option<ValueView<'_>>,
+) -> Result<ValueView<'call>, RuntimeError> {
     let invalid = || RuntimeError::from(TrapReason::InvalidNumericOperand);
     operation.contract().ok_or_else(invalid)?;
-    let lhs = read_integer(operation.input, &lhs)? as u64;
+    let lhs = scalar::read_integer_view(operation.input, lhs)? as u64;
     let rhs = match (operation.rhs, rhs) {
-        (Some(ty), Some(value)) => read_integer(ty, &value)? as u64,
+        (Some(ty), Some(value)) => scalar::read_integer_view(ty, value)? as u64,
         (None, None) => 0,
         _ => return Err(invalid()),
     };
     let selected = ScalarOperation::integer(operation.op, operation.input, operation.rhs)
         .ok_or_else(invalid)?;
     let bits = selected.evaluate(lhs, rhs).map_err(scalar_trap)?;
-    Ok(scalar::decode(builtin_representation(operation.input), bits).expect("integer result"))
+    Ok(decode(builtin_representation(operation.input), bits).expect("integer result"))
 }
 
-pub fn integer_method(
-    heap: &GcHeap,
+/// Return scalar arithmetic and its overflow flag. The Native library owns
+/// constructing an overflowing method's script tuple; this kernel allocates no
+/// managed result or root. Checked overflow returns None.
+pub fn integer_method<'call>(
     operation: IntegerMethod,
     ty: BuiltinType,
-    args: &[Value],
-) -> Result<Option<Value>, RuntimeError> {
+    args: &[ValueView<'call>],
+) -> Result<Option<(ValueView<'call>, bool)>, RuntimeError> {
     let [lhs, rhs] = args else {
         return Err(RuntimeError::from(
             TrapReason::IntegerMethodRequiresTwoArguments,
@@ -169,43 +193,39 @@ pub fn integer_method(
     })?;
     let (value, overflow) = integer::arithmetic_method(
         operation,
-        read_integer(ty, lhs)?,
-        read_integer(contract.rhs(), rhs)?,
+        scalar::read_integer_view(ty, *lhs)?,
+        scalar::read_integer_view(contract.rhs(), *rhs)?,
         bits,
         signed,
     );
 
     let value = match ty {
-        BuiltinType::I8 | BuiltinType::I16 | BuiltinType::I32 => Value::I32(value as i32),
-        BuiltinType::U64 => Value::U64(value as u64),
-        _ => Value::I64(value as i64),
+        BuiltinType::I8 | BuiltinType::I16 | BuiltinType::I32 => ValueView::from(value as i32),
+        BuiltinType::U64 => ValueView::from(value as u64),
+        _ => ValueView::from(value as i64),
     };
     if operation.checked() && overflow {
         return Ok(None);
     }
-    Ok(Some(if operation.overflowing() {
-        heap.alloc_tuple(vec![value, Value::Bool(overflow)])?
-    } else {
-        value
-    }))
+    Ok(Some((value, overflow)))
 }
 
 /// Checked scalar conversion returns a Rust outcome; the installed library owns
 /// its script carrier, error declaration and diagnostic construction.
-pub fn checked_convert(
+pub fn checked_convert<'call>(
     source: BuiltinType,
     target: BuiltinType,
-    value: Value,
-) -> Result<Option<Value>, RuntimeError> {
+    value: ValueView<'call>,
+) -> Result<Option<ValueView<'call>>, RuntimeError> {
     let fallible = conversion::checked_conversion_fallible(source, target)
         .ok_or_else(|| RuntimeError::module_validation("checked scalar conversion"))?;
     if source.integer_layout().is_some() {
-        read_integer(source, &value)?;
+        scalar::read_integer_view(source, value)?;
     } else if !value.has_representation(builtin_representation(source)) {
         return Err(RuntimeError::module_validation("checked scalar source"));
     }
     if fallible {
-        let input = read_integer(source, &value)?;
+        let input = scalar::read_integer_view(source, value)?;
         let (bits, signed) = target
             .integer_layout()
             .ok_or_else(|| RuntimeError::module_validation("checked scalar target"))?;
@@ -220,7 +240,10 @@ pub fn checked_convert(
     convert(NumericConversion { source, target }, value).map(Some)
 }
 
-pub fn convert(conversion: NumericConversion, value: Value) -> Result<Value, RuntimeError> {
+pub fn convert<'call>(
+    conversion: NumericConversion,
+    value: ValueView<'call>,
+) -> Result<ValueView<'call>, RuntimeError> {
     let fail = || RuntimeError::from(TrapReason::InvalidNumericConversion);
     conversion.contract().ok_or_else(fail)?;
     if !value.has_representation(builtin_representation(conversion.source)) {
@@ -229,33 +252,20 @@ pub fn convert(conversion: NumericConversion, value: Value) -> Result<Value, Run
     let selected =
         ScalarOperation::conversion(conversion.source, conversion.target).ok_or_else(fail)?;
     let bits = selected
-        .evaluate(scalar::encode(&value).ok_or_else(fail)?, 0)
+        .evaluate(value.scalar_payload().ok_or_else(fail)?.1, 0)
         .map_err(scalar_trap)?;
-    scalar::decode(builtin_representation(conversion.target), bits).ok_or_else(fail)
+    decode(builtin_representation(conversion.target), bits).ok_or_else(fail)
 }
 
-pub(crate) fn read_integer(ty: BuiltinType, value: &Value) -> Result<i128, RuntimeError> {
-    let fail = || scalar_trap(ScalarError::InvalidOperandDomain);
-    if !value.has_representation(builtin_representation(ty)) {
-        return Err(fail());
-    }
-    let value = match value {
-        Value::I32(v) => i128::from(*v),
-        Value::I64(v) => i128::from(*v),
-        Value::U64(v) => i128::from(*v),
-        _ => return Err(fail()),
-    };
-    let (bits, signed) = ty.integer_layout().ok_or_else(fail)?;
-    let (minimum, maximum) = integer::bounds(bits, signed);
-    if !(minimum..=maximum).contains(&value) {
-        return Err(fail());
-    }
-    Ok(value)
+fn decode<'call>(representation: ValueType, bits: u64) -> Option<ValueView<'call>> {
+    let value = scalar::decode(representation, bits)?;
+    ValueView::protected(value, None).ok()
 }
 
 #[cfg(test)]
 mod boundary_tests {
     use super::*;
+    use crate::native::scalar::NativeScalar;
     use rstest::rstest;
 
     #[test]
@@ -268,74 +278,77 @@ mod boundary_tests {
             (BinaryOp::Rem, 0),
         ] {
             for (lhs, rhs, result) in [
-                (Value::I32(6), Value::I32(3), Value::I32(expected)),
+                (i32::encode(6), i32::encode(3), i32::encode(expected)),
                 (
-                    Value::I64(6),
-                    Value::I64(3),
-                    Value::I64(i64::from(expected)),
+                    i64::encode(6),
+                    i64::encode(3),
+                    i64::encode(i64::from(expected)),
                 ),
-                (Value::U64(6), Value::U64(3), Value::U64(expected as u64)),
+                (u64::encode(6), u64::encode(3), u64::encode(expected as u64)),
                 (
-                    Value::F32(6.0),
-                    Value::F32(3.0),
-                    Value::F32(expected as f32),
+                    f32::encode(6.0),
+                    f32::encode(3.0),
+                    f32::encode(expected as f32),
                 ),
                 (
-                    Value::F64(6.0),
-                    Value::F64(3.0),
-                    Value::F64(f64::from(expected)),
+                    f64::encode(6.0),
+                    f64::encode(3.0),
+                    f64::encode(f64::from(expected)),
                 ),
             ] {
-                assert_eq!(binary(op, lhs, rhs).unwrap(), result);
+                assert_eq!(
+                    binary(op, lhs, rhs).unwrap().scalar_payload(),
+                    result.scalar_payload()
+                );
             }
         }
         for (op, lhs, rhs, message) in [
             (
                 BinaryOp::Add,
-                Value::I32(i32::MAX),
-                Value::I32(1),
+                i32::encode(i32::MAX),
+                i32::encode(1),
                 "integer overflow",
             ),
             (
                 BinaryOp::Rem,
-                Value::I32(i32::MIN),
-                Value::I32(-1),
+                i32::encode(i32::MIN),
+                i32::encode(-1),
                 "integer overflow",
             ),
             (
                 BinaryOp::Div,
-                Value::I64(i64::MIN),
-                Value::I64(-1),
+                i64::encode(i64::MIN),
+                i64::encode(-1),
                 "integer overflow",
             ),
             (
                 BinaryOp::Mul,
-                Value::U64(u64::MAX),
-                Value::U64(2),
+                u64::encode(u64::MAX),
+                u64::encode(2),
                 "integer overflow",
             ),
             (
                 BinaryOp::Div,
-                Value::I64(1),
-                Value::I64(0),
+                i64::encode(1),
+                i64::encode(0),
                 "integer division by zero",
             ),
             (
                 BinaryOp::Rem,
-                Value::U64(1),
-                Value::U64(0),
+                u64::encode(1),
+                u64::encode(0),
                 "integer remainder by zero",
             ),
             (
                 BinaryOp::Eq,
-                Value::I32(1),
-                Value::I64(1),
+                i32::encode(1),
+                i64::encode(1),
                 "arithmetic requires matching numeric operands",
             ),
             (
                 BinaryOp::Eq,
-                Value::I32(1),
-                Value::I32(1),
+                i32::encode(1),
+                i32::encode(1),
                 "expected arithmetic operation",
             ),
         ] {
@@ -343,91 +356,79 @@ mod boundary_tests {
             assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
             assert_eq!(error.to_string(), message);
         }
-        let Value::F32(nan) = binary(BinaryOp::Div, Value::F32(0.0), Value::F32(0.0)).unwrap()
-        else {
-            panic!("f32 result")
-        };
+        let nan = binary(BinaryOp::Div, f32::encode(0.0), f32::encode(0.0))
+            .unwrap()
+            .as_f32()
+            .unwrap();
         assert!(nan.is_nan());
-        let Value::F64(zero) = binary(BinaryOp::Div, Value::F64(-0.0), Value::F64(1.0)).unwrap()
-        else {
-            panic!("f64 result")
-        };
+        let zero = binary(BinaryOp::Div, f64::encode(-0.0), f64::encode(1.0))
+            .unwrap()
+            .as_f64()
+            .unwrap();
         assert_eq!(zero.to_bits(), (-0.0f64).to_bits());
     }
 
     #[test]
     fn native_integer_results_and_error_context_preserve_the_declared_contract() {
-        let runtime = crate::Runtime::default();
-        let gc = runtime.gc();
-        assert_eq!(
-            integer_method(
-                gc,
+        for (operation, receiver, arguments, value, overflow) in [
+            (
                 IntegerMethod::WrappingAddSigned,
                 BuiltinType::U64,
-                &[Value::U64(0), Value::I64(-1)]
-            )
-            .unwrap(),
-            Some(Value::U64(u64::MAX))
-        );
-        assert_eq!(
-            integer_method(
-                gc,
+                [ValueView::from(0_u64), ValueView::from(-1_i64)],
+                ValueView::from(u64::MAX),
+                true,
+            ),
+            (
                 IntegerMethod::RotateLeft,
                 BuiltinType::U8,
-                &[Value::I64(128), Value::I64(1)]
-            )
-            .unwrap(),
-            Some(Value::I64(1))
-        );
-        let Value::Tuple(pair) = integer_method(
-            gc,
-            IntegerMethod::OverflowingAdd,
-            BuiltinType::U8,
-            &[Value::I64(255), Value::I64(1)],
-        )
-        .unwrap()
-        .unwrap() else {
-            panic!("overflow pair");
-        };
-        assert_eq!(
-            &*gc.tuple(pair).unwrap(),
-            &[Value::I64(0), Value::Bool(true)]
-        );
-        assert_eq!(
+                [ValueView::from(128_i64), ValueView::from(1_i64)],
+                ValueView::from(1_i64),
+                false,
+            ),
+            (
+                IntegerMethod::OverflowingAdd,
+                BuiltinType::U8,
+                [ValueView::from(255_i64), ValueView::from(1_i64)],
+                ValueView::from(0_i64),
+                true,
+            ),
+        ] {
+            let (result, actual_overflow) = integer_method(operation, receiver, &arguments)
+                .unwrap()
+                .unwrap();
+            assert_eq!(result.scalar_payload(), value.scalar_payload());
+            assert_eq!(actual_overflow, overflow);
+        }
+        assert!(
             integer_method(
-                gc,
                 IntegerMethod::CheckedAdd,
                 BuiltinType::U8,
-                &[Value::I64(255), Value::I64(1)]
+                &[ValueView::from(255_i64), ValueView::from(1_i64)]
             )
-            .unwrap(),
-            None
+            .unwrap()
+            .is_none()
         );
         for (method, receiver) in [
             (IntegerMethod::WrappingAdd, BuiltinType::I8),
             (IntegerMethod::RotateRight, BuiltinType::U32),
             (IntegerMethod::WrappingAddSigned, BuiltinType::U64),
         ] {
-            let error = integer_method(gc, method, receiver, &[]).unwrap_err();
+            let error = integer_method(method, receiver, &[]).unwrap_err();
             assert_eq!(error.to_string(), "integer method requires two arguments");
             assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
         }
-        assert_eq!(gc.active_roots(), 0);
     }
 
     #[rstest]
-    #[case::negative_rotation(IntegerMethod::RotateLeft, BuiltinType::U8, [Value::I64(1), Value::I64(-1)])]
-    #[case::rotation_above_u32(IntegerMethod::RotateRight, BuiltinType::U8, [Value::I64(1), Value::I64(4294967296)])]
-    #[case::receiver_above_u8(IntegerMethod::WrappingAdd, BuiltinType::U8, [Value::I64(256), Value::I64(0)])]
-    #[case::wrong_signed_carrier(IntegerMethod::WrappingAddSigned, BuiltinType::I8, [Value::I32(1), Value::I32(1)])]
+    #[case::negative_rotation(IntegerMethod::RotateLeft, BuiltinType::U8, [i64::encode(1), i64::encode(-1)])]
+    #[case::rotation_above_u32(IntegerMethod::RotateRight, BuiltinType::U8, [i64::encode(1), i64::encode(4294967296)])]
+    #[case::receiver_above_u8(IntegerMethod::WrappingAdd, BuiltinType::U8, [i64::encode(256), i64::encode(0)])]
+    #[case::wrong_signed_carrier(IntegerMethod::WrappingAddSigned, BuiltinType::I8, [i32::encode(1), i32::encode(1)])]
     fn invalid_direct_native_inputs_return_errors_without_panicking(
         #[case] method: IntegerMethod,
         #[case] ty: BuiltinType,
-        #[case] args: [Value; 2],
+        #[case] args: [ValueView<'static>; 2],
     ) {
-        let runtime = crate::Runtime::default();
-        let gc = runtime.gc();
-        assert!(integer_method(gc, method, ty, &args).is_err());
-        assert_eq!(runtime.gc().active_roots(), 0);
+        assert!(integer_method(method, ty, &args).is_err());
     }
 }

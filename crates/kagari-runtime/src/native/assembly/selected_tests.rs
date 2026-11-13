@@ -16,12 +16,17 @@ use crate::{
         binding::{Codec, NativeBinding, NativeResult},
         catalog::DeclarationCatalog,
         context::ScriptCall,
+        conversion::arguments::ArgumentValues,
         declarations::{CallableRequirement, MethodDecl, SelectedCall},
         typed::NativeContext,
         types::{Type, same_definition},
     },
     session::ExecutionEvent,
-    value::Value,
+    value::{
+        carriers::RootedValue,
+        place::{PublishedResult, ResultPlace},
+        view::ValueView,
+    },
 };
 use kagari_bytecode::module::CallableTarget;
 use kagari_common::identity::{
@@ -195,8 +200,8 @@ fn assembly(provenance: Provenance, counts: Counts) -> NativeResult<ModuleAssemb
         module.trait_implementation(Type::i32(), interface.apply([])?, vec![("base".into(), PendingBinding::implementation(
             NativeBinding::new(vec![Codec::Exact(Type::i32())], Codec::Exact(Type::i32()), move |cx| {
                 selected_calls.fetch_add(1, Ordering::SeqCst);
-                let Value::I32(value) = cx.argument(0)? else { return Err(conflict("expected i32 receiver")); };
-                Ok(Value::I32(value + 2))
+                let Some(value) = cx.argument(0)?.as_i32() else { return Err(conflict("expected i32 receiver")); };
+                Ok(ValueView::from(value + 2))
             })
         ))])
     }))?;
@@ -205,12 +210,13 @@ fn assembly(provenance: Provenance, counts: Counts) -> NativeResult<ModuleAssemb
 
 // Use the runtime's ordinary frame driver for native-only synchronous reentry.
 // The selected operation is an installed native override, not a simulated result.
-fn invoke_selected(
+fn invoke_selected<'result>(
     runtime: &mut Runtime,
     _: &ExecutableModule,
-    target: ScriptCall<'_>,
-    arguments: &[Value],
-) -> NativeResult<Value> {
+    target: ScriptCall<'_, '_>,
+    arguments: ArgumentValues<'_>,
+    destination: ResultPlace<'result>,
+) -> NativeResult<PublishedResult<'result>> {
     let ScriptCall::Pinned(function) = target else {
         panic!("test only selects a pinned native operation")
     };
@@ -221,13 +227,15 @@ fn invoke_selected(
         let ReturnAction::Complete(result) = stack.finish_native_return(runtime)? else {
             panic!("selected return")
         };
-        Ok(result)
+        stack.with_result(runtime, result, |runtime, value| {
+            destination.publish(runtime, &value)
+        })
     })
 }
 
 // Enter through the compiled caller so shared defaults receive their checked
 // generic environment and selected operations from the actual call site.
-fn execute_main(runtime: &mut Runtime, loaded: &ExecutableModule) -> Value {
+fn execute_main(runtime: &mut Runtime, loaded: &ExecutableModule) -> RootedValue {
     let (owner, entry) = loaded.entry_function().expect("script main");
     let mut stack_activation = runtime.enter_execution_stack(&owner).unwrap();
     stack_activation
@@ -237,7 +245,7 @@ fn execute_main(runtime: &mut Runtime, loaded: &ExecutableModule) -> Value {
                     runtime,
                     owner.clone(),
                     CallableTarget::Script(entry),
-                    &[],
+                    ArgumentValues::scalars(&[]),
                     None,
                 )
                 .unwrap();
@@ -276,7 +284,7 @@ fn execute_main(runtime: &mut Runtime, loaded: &ExecutableModule) -> Value {
                     ExecutionAction::Await => panic!("synchronous default cannot await"),
                 };
                 if let ReturnAction::Complete(value) = returned {
-                    return Ok(value);
+                    return stack.retain_result(runtime, value);
                 }
             }
             panic!("default call did not complete within the test transition bound")
@@ -310,7 +318,7 @@ fn authored_and_sealed_tokens_execute_the_actual_selected_default_call() {
         let root = sources
             .set(
                 "selected-default.kgr",
-                "use application::tokens::Run; fn main() -> i32 { 40.answer() }".into(),
+                include_str!("../../../tests/fixtures/native/selected-default.kgr").into(),
                 SourceLayer::Base,
             )
             .unwrap();
@@ -351,10 +359,11 @@ fn authored_and_sealed_tokens_execute_the_actual_selected_default_call() {
                     .map(|slot| (owner, slot))
             })
             .expect("compiler-selected default import");
+        let roots = runtime.gc_stats().root_registrations;
         let result = execute_main(&mut runtime, &loaded);
-        assert_eq!(result, Value::I32(42), "{provenance:?}");
+        assert_eq!(result.as_i32(), Some(42), "{provenance:?}");
         counts.assert(1, 1, 1, 1);
-        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(runtime.gc_stats().root_registrations, roots);
     }
 }
 

@@ -6,6 +6,7 @@ mod jit;
 mod numeric;
 mod owned_drive;
 
+mod native_control;
 mod native_fixtures;
 mod native_wait;
 

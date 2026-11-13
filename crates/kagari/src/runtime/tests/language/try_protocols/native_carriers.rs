@@ -3,7 +3,7 @@ use crate::{
     engine::{EngineConfig, KagariEngine},
     program::Program,
 };
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
 
@@ -40,17 +40,23 @@ fn native_carriers_link_into_a_fresh_artifact_only_runtime() {
             Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let mut runtime = engine().runtime(Default::default());
         let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
+        runtime.collect_garbage().unwrap();
+        let baseline = runtime.gc_stats();
         assert_eq!(
             runtime
                 .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
                 .unwrap()
                 .return_value
-                .value(runtime.gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+                .as_i32()
+                .unwrap(),
+            42
         );
-        assert_eq!(runtime.gc().active_roots(), 0);
+        assert!(runtime.execution_root().is_none());
         runtime.collect_garbage().unwrap();
-        assert_eq!(runtime.gc().allocated_objects(), 0);
+        assert_eq!(
+            runtime.gc_stats().root_registrations,
+            baseline.root_registrations
+        );
+        assert_eq!(runtime.gc_stats().objects, baseline.objects);
     }
 }

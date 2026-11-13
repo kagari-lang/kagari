@@ -1,16 +1,13 @@
 //! One registered method set serves runtime-owned and externally borrowed players.
 use kagari::runtime::Runtime;
 use kagari::{context::ExecutionContext, engine::KagariEngine};
-use kagari_runtime::{
-    native::{
-        builder::ModuleBuilder,
-        declarations::MethodDecl,
-        payload::Opaque,
-        storage::NativeStorage,
-        typed::{NativeContext, loans::LoanContext},
-        types::Type,
-    },
-    value::Value,
+use kagari_runtime::native::{
+    builder::ModuleBuilder,
+    declarations::MethodDecl,
+    payload::Opaque,
+    storage::NativeStorage,
+    typed::{NativeContext, loans::LoanContext},
+    types::Type,
 };
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
@@ -61,12 +58,7 @@ fn main() {
         .compile_to_program(
             SourceFile::new(
                 "scoped.kgr",
-                r#"
-        use game::actors::Player;
-        pub fn owned(player: Player) -> i32 { player.heal(10) }
-        pub fn borrowed(player: RefMut<Player>) -> i32 { player.heal(10) }
-        pub fn inspect(player: Ref<Player>) -> i32 { player.inspect() }
-    "#,
+                include_str!("../../../examples/scoped-host.kgr"),
             ),
             Default::default(),
         )
@@ -92,14 +84,14 @@ fn main() {
     let borrowed_hp = runtime
         .with_host_scope(|scope| {
             let view = scope.borrow_mut(descriptor.rust_type(), &mut external)?;
-            let Value::I32(hp) =
+            let hp =
                 Runtime::execute_scoped(scope, &loaded, "borrowed", &[view.value()], &context)?
-            else {
-                unreachable!()
-            };
+                    .as_i32()
+                    .expect("checked hp result");
             assert_eq!(
-                Runtime::execute_scoped(scope, &loaded, "inspect", &[view.value()], &context)?,
-                Value::I32(hp)
+                Runtime::execute_scoped(scope, &loaded, "inspect", &[view.value()], &context)?
+                    .as_i32(),
+                Some(hp)
             );
             Ok(hp)
         })
@@ -111,24 +103,24 @@ fn main() {
         .with_host_scope(|scope| {
             let view = scope.borrow(descriptor.rust_type(), &external)?;
             assert_eq!(
-                Runtime::execute_scoped(scope, &loaded, "inspect", &[view.value()], &context)?,
-                Value::I32(70)
+                Runtime::execute_scoped(scope, &loaded, "inspect", &[view.value()], &context)?
+                    .as_i32(),
+                Some(70)
             );
             Ok(())
         })
         .unwrap();
-    let cx = NativeContext::new(&mut runtime, &selected).unwrap();
-    assert_eq!(owned.read(&cx, |player| Ok(player.hp)).unwrap(), 70);
+    let mut cx = NativeContext::new(&mut runtime, &selected).unwrap();
+    assert_eq!(owned.read(&mut cx, |player| Ok(player.hp)).unwrap(), 70);
     owned
-        .edit(&cx, |player| {
+        .edit(&mut cx, |player| {
             player.hp += 1;
             Ok(())
         })
         .unwrap();
     let alias = owned.clone();
-    let recovered = owned.take(&cx).unwrap();
-    assert_eq!(recovered.hp, 71);
-    assert!(alias.read(&cx, |_| Ok(())).is_err());
+    let alias_hp = alias.read(&mut cx, |player| Ok(player.hp)).unwrap();
+    assert_eq!(alias_hp, 71);
     println!("owned hp={owned_hp}, borrowed hp={borrowed_hp}");
-    println!("taken hp={}, old opaque alias unavailable", recovered.hp);
+    println!("shared opaque alias hp={alias_hp}");
 }

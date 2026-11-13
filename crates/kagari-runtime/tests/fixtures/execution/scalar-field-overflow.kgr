@@ -1,0 +1,19 @@
+struct State {
+    var before: i32,
+    var value: i8,
+    var after: i32,
+}
+
+pub fn main() -> State {
+    State { before: 0, value: 127i8, after: 0 }
+}
+
+fn update(s: State) {
+    s.before += 1;
+    s.value += 1i8;
+    s.after += 1;
+}
+
+fn check(s: State) -> bool {
+    s.before == 1 && s.value == 127i8 && s.after == 0
+}

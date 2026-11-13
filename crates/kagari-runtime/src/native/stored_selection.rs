@@ -1,11 +1,12 @@
 //! Selected executable evidence stored as graph edges, without host root leases.
 use crate::{
     Runtime,
-    execution_metadata::MetadataEdge,
+    execution::roots::SessionId,
+    execution_metadata::{MetadataEdge, managed::sources::MetadataSource},
     module::ExecutableModule,
     native::{
         binding::NativeResult,
-        context::{CallableOwner, LinkedCallable},
+        context::{CallSelection, CallableOwner, LinkedCallable},
     },
 };
 
@@ -16,6 +17,10 @@ pub(crate) struct StoredSelection {
 }
 
 impl StoredSelection {
+    pub(crate) fn owner(&self) -> &ExecutableModule {
+        &self.owner
+    }
+
     pub(crate) fn new(caller: &ExecutableModule, selected: &LinkedCallable) -> NativeResult<Self> {
         let owner = selected.owner(caller)?;
         let mut callable = selected.clone();
@@ -25,13 +30,22 @@ impl StoredSelection {
         Ok(Self { owner, callable })
     }
 
-    pub(crate) fn trace<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
-        self.callable.trace(&self.owner, pending);
+    pub(crate) fn trace<'a, E, F>(&'a self, visit: &mut F) -> Result<(), E>
+    where
+        F: FnMut(MetadataEdge<'a>) -> Result<(), E> + ?Sized,
+    {
+        self.callable.trace(&self.owner, visit)
     }
 
     /// Select the next computation from a currently rooted object's checked edge.
     /// The object retains relationship evidence, not an ordinary callback's body.
-    pub(crate) fn retain(&self, runtime: &Runtime) -> NativeResult<LinkedCallable> {
-        self.callable.select_current(runtime, &self.owner)
+    pub(crate) fn retain(
+        &self,
+        runtime: &mut Runtime,
+        execution: SessionId,
+        protected: &[MetadataSource<'_>],
+    ) -> NativeResult<CallSelection> {
+        self.callable
+            .select_current(runtime, &self.owner, execution, protected)
     }
 }

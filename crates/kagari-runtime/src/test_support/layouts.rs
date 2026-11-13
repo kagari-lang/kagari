@@ -3,11 +3,10 @@ use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
-    gc::GcHeap,
-    host::{DynamicPathArguments, HostObjectId, HostPathDescriptorRegistration, HostSchemaEpoch},
+    host::{HostObjectId, HostPathDescriptorRegistration, HostSchemaEpoch},
     module::{ExecutableModule, StructLayoutRef},
     native::{builder::ModuleBuilder, storage::NativeStorage},
-    value::Value,
+    value::carriers::RootedValue,
 };
 use kagari_bytecode::{
     instruction::StructId,
@@ -34,12 +33,10 @@ use kagari_types::{
     visibility::Visibility,
 };
 
-/// A real checked path view for GC/value/reflection representation boundaries.
-/// Its runtime is intentionally not retained: these callers inspect or reject the
-/// value as a payload and never dereference the host path.
+/// Register live declared Host values in their consuming Runtime. No Rust Host
+/// state is copied into the managed heap, and all capabilities remain valid.
 #[allow(dead_code)] // Shared support module is also compiled by integration tests.
-pub fn path_view_value(heap: &GcHeap, object_id: u64) -> Value {
-    let mut runtime = Runtime::default();
+pub fn host_values(runtime: &mut Runtime, object_id: u64) -> (RootedValue, RootedValue) {
     let mut module = ModuleBuilder::new("fixtures", &Default::default()).unwrap();
     let mut player = module.define_type("Player").unwrap();
     player
@@ -80,7 +77,7 @@ pub fn path_view_value(heap: &GcHeap, object_id: u64) -> Value {
         .lookup_child(owner, DefinitionKind::Field, "hp", 0)
         .unwrap();
     let field = declared.definitions().resolve(field).unwrap().to_path();
-    module.install(&mut runtime).unwrap();
+    module.install(runtime).unwrap();
     let root_type = runtime.types().get_by_name("fixtures::Player").unwrap().id;
     let result_type = runtime.types().get_by_name("i32").unwrap().id;
     let definitions = runtime.host().definitions();
@@ -98,27 +95,26 @@ pub fn path_view_value(heap: &GcHeap, object_id: u64) -> Value {
             schema_epoch: HostSchemaEpoch::new(0),
         })
         .unwrap();
-    heap.alloc_host_path(
-        runtime
-            .host()
-            .make_path_view(
-                runtime.gc(),
-                root,
-                descriptor,
-                DynamicPathArguments::empty(),
-            )
-            .unwrap(),
+    let root = runtime.host_root_value(root).unwrap();
+    let path = runtime.make_host_path_view(&root, descriptor, &[]).unwrap();
+    (root, path)
+}
+
+#[allow(dead_code)] // Shared support module is also compiled by integration tests.
+pub fn interface_value(runtime: &mut Runtime) -> RootedValue {
+    interface_value_with(
+        runtime,
+        Ty::Builtin(BuiltinType::I32),
+        &RootedValue::from(7i32),
     )
-    .unwrap()
 }
 
 #[allow(dead_code)] // Shared support module is also compiled by integration tests.
-pub fn interface_value(runtime: &mut Runtime) -> Value {
-    interface_value_with(runtime, Ty::Builtin(BuiltinType::I32), Value::I32(7))
-}
-
-#[allow(dead_code)] // Shared support module is also compiled by integration tests.
-pub fn interface_value_with(runtime: &mut Runtime, concrete_type: Ty, data: Value) -> Value {
+pub fn interface_value_with(
+    runtime: &mut Runtime,
+    concrete_type: Ty,
+    data: &RootedValue,
+) -> RootedValue {
     let identity = ModuleIdentity::single_file("interface-fixture.kgr");
     let (context, types) = type_scope(runtime, vec![concrete_type]);
     let concrete_type = types.into_iter().next().unwrap();

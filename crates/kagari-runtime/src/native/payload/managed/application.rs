@@ -13,7 +13,6 @@ use crate::{
                 AppliedSchema, BoundField, Field, FieldType, Managed, ManagedSchema, invalid,
             },
         },
-        storage::NativeStorage,
         storage_type::StorageType,
     },
 };
@@ -21,12 +20,6 @@ use kagari_types::ty::Ty;
 use std::{marker::PhantomData, ptr, slice, sync::Arc};
 
 impl AppliedSchema {
-    pub(crate) fn registered_in(&self, storage: &NativeStorage) -> bool {
-        storage
-            .managed_schema()
-            .is_some_and(|schema| Arc::ptr_eq(schema, &self.declaration))
-    }
-
     pub(crate) fn prepare(
         runtime: &mut Runtime,
         owner: &ExecutableModule,
@@ -97,7 +90,7 @@ impl<T: NativeData> NativeType<Managed<T>> {
         runtime: &mut Runtime,
         field: &Field<V>,
     ) -> NativeResult<BoundField<T, V>> {
-        let cx = ConversionContext::new(runtime, self.owner())?;
+        let cx = ConversionContext::for_mapping(runtime, self.owner())?;
         let schema = self.schema()?;
         if !Arc::ptr_eq(&schema.declaration.identity, &field.identity) {
             return Err(invalid());

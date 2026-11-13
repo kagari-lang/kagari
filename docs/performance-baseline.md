@@ -3640,15 +3640,12 @@ CPU affinity, cache warmth and clock resolution are not measurement inputs.
 | Then perform 32 registration/drop reuse iterations | 32 release records processed at either peak; no historical-slot scan |
 | Object directory history 256 / 16,384, with eight occupied objects after the first collection | 8 discovery visits per collection at either history, including the collection reclaiming those eight; 0 on the following empty collection |
 | Interface directory peaks 65 / 4,097, then two retained wrappers | Discovery visits 2 -> 2 -> 1 -> 0 -> 1 at both peaks: retain two, retire one, retire the last, metadata-only snapshot, then create/retire one replacement |
-| Native take with the old identity still rooted, then reuse its slot at a new generation | 2 visits for the actual occupied native/cell objects, 2 when reclaiming them, then 0; the inert old identity is not a third occupied object |
 
 The object workload creates 64 / 4,096 groups of String, cell, struct and tuple;
 the first collection visits all 256 / 16,384 occupied objects, including garbage,
 before retaining two four-object groups. The interface workload's first collection
 likewise visits all 65 / 4,097 wrappers before retaining two. Metadata-only snapshot
 retention neither keeps a wrapper occupied nor prevents its directory slot reuse.
-The native-take case checks the replacement generation, old-identity invalidity and
-inert-identity cleanup as well as work counts.
 
 Reproducibility owners and exact library-test paths:
 
@@ -3656,8 +3653,10 @@ Reproducibility owners and exact library-test paths:
   `gc::roots::tests::registration_work_follows_releases_not_root_high_water`.
 - [gc/tests.rs](../crates/kagari-runtime/src/gc/tests.rs):
   `gc::tests::occupied_discovery_follows_live_payloads_not_directory_peak`,
-  `gc::tests::interface_occupancy_tracks_wrappers_not_snapshot_liveness_or_history`,
-  `gc::tests::occupied_discovery_excludes_taken_native_identity_after_slot_reuse`.
+  `gc::tests::interface_occupancy_tracks_wrappers_not_snapshot_liveness_or_history`.
+
+The extraction-only measurement and its test were retired when RR03 removed that
+API. The remaining measurements above still have executable owners.
 
 Run an individual case with `cargo test -p kagari-runtime --lib <test-path> -- --exact`
 using the workspace test profile, default target and build parallelism. The assertions

@@ -1,0 +1,12 @@
+use test::pending::request;
+
+fn helper() -> i32 {
+    val pending = request();
+    7
+}
+
+static val value: i32 = helper();
+
+pub fn read() -> i32 {
+    value
+}

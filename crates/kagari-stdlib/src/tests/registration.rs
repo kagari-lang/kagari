@@ -6,14 +6,7 @@ use kagari_common::{
 };
 use kagari_runtime::{
     Runtime,
-    native::{
-        binding::NativeResult,
-        builder::ModuleBuilder,
-        module::NativeModule,
-        storage::{NativePayload, NativeStorage},
-    },
-    resource::HeapCharge,
-    value::Value,
+    native::{builder::ModuleBuilder, module::NativeModule, storage::NativeStorage},
 };
 use kagari_types::{
     callable::CallableImplementation,
@@ -26,16 +19,7 @@ use kagari_types::{
 
 use std::collections::BTreeSet;
 
-#[derive(Debug)]
-struct EmptyPayload;
-
-impl NativePayload for EmptyPayload {
-    fn trace<'payload>(&'payload self, _visit: &mut dyn FnMut(&'payload Value)) {}
-
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(0, 0))
-    }
-}
+kagari_runtime::native_data! { struct EmptyPayload {} }
 
 #[test]
 fn declaration_storage_binding_preserves_local_contract() {
@@ -63,7 +47,7 @@ fn declaration_storage_binding_preserves_local_contract() {
     let mut module = builder();
     assert!(
         module
-            .bind_storage(&future, NativeStorage::payload::<EmptyPayload>())
+            .bind_storage(&future, NativeStorage::data::<EmptyPayload>())
             .is_err()
     );
     module

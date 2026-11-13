@@ -1,33 +1,32 @@
 use super::*;
-use crate::error::reason::ErrorReason;
-use crate::error::trap::TrapReason;
+use crate::error::{RuntimeErrorKind, reason::ErrorReason, trap::TrapReason};
 use crate::module::entry::ProgramEntry;
 #[cfg(test)]
 use crate::test_support::bytecode::load_bytecode;
 use crate::{
+    error::RuntimeError,
     execution::fixtures::FixtureExecution,
+    frame::ExecutionFrame,
     interpreter_tests::common::{compile_test_bytecode_with_options, round_trip_bytecode},
+    session::{ExecutionEvent, ExecutionObserver},
     test_support::native::program::ProgramFixture,
+    value::{aggregates::tuples::TupleObject, scalar, strings::StringObject},
 };
 use kagari_bytecode::program::ModuleRef;
 use kagari_compiler::source::lower::instances::MirLoweringOptions;
 use kagari_contract::ids::FunctionRef;
+use kagari_types::scalar::BuiltinType;
+use std::{
+    panic::{AssertUnwindSafe, catch_unwind},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 #[test]
 fn optimized_breakpoints_preserve_branch_paths_and_binding_state() {
-    let source = r#"
-fn choose(flag: bool, x: i32) -> i32 {
-    val y = x;
-    if flag {
-        y + 7
-    } else {
-        y
-    }
-}
-pub fn taken() -> i32 { choose(true, 5) }
-pub fn untaken() -> i32 { choose(false, 5) }
-pub fn overflow() -> i32 { choose(true, 2147483647) }
-"#;
+    let source = include_str!("../../../tests/fixtures/debug/branch-bindings.kgr");
     for optimized in [false, true] {
         let program = compile_test_bytecode_with_options(
             source,
@@ -68,10 +67,7 @@ pub fn overflow() -> i32 { choose(true, 2147483647) }
                 vm.attach_debug_session(session).unwrap();
                 let result = vm.execute_module(&loaded, entry, vm.execution_options());
                 if let Some(expected) = expected {
-                    assert_eq!(
-                        result.unwrap().return_value.value(vm.gc()),
-                        Some(Value::I32(expected))
-                    );
+                    assert_eq!(result.unwrap().return_value.as_i32(), Some(expected));
                 } else {
                     let error = result.unwrap_err();
                     let trace = error.trace().expect("overflow origin");
@@ -82,7 +78,8 @@ pub fn overflow() -> i32 { choose(true, 2147483647) }
                     );
                 }
                 let debug = vm.debug_session().unwrap();
-                let pauses = debug.pauses();
+                let pauses = debug.pauses().to_vec();
+                drop(debug);
                 let hits: Vec<_> = pauses
                     .iter()
                     .filter(|pause| pause.reason == DebugPauseReason::Breakpoint(breakpoint))
@@ -97,9 +94,10 @@ pub fn overflow() -> i32 { choose(true, 2147483647) }
                     assert_eq!(frame.function_name, "choose");
                     assert_eq!(
                         pause
-                            .evaluate_watch(&vm, frame.id, &DebugWatch::Binding("y".into()))
-                            .unwrap(),
-                        Value::I32(if expected.is_some() { 5 } else { i32::MAX })
+                            .evaluate_watch(&mut vm, frame.id, &DebugWatch::Binding("y".into()))
+                            .unwrap()
+                            .as_i32(),
+                        Some(if expected.is_some() { 5 } else { i32::MAX })
                     );
                 }
             }
@@ -109,13 +107,7 @@ pub fn overflow() -> i32 { choose(true, 2147483647) }
 
 #[test]
 fn debug_session_resolves_breakpoints_and_inspects_live_locals() {
-    let source = r#"
-fn main() -> i32 {
-    val text = "debug constant";
-    val value = 3;
-    value + 4
-}
-"#;
+    let source = include_str!("../../../tests/fixtures/debug/live-bindings.kgr");
     let mut runtime = debug_runtime("debug.kgr");
     let loaded = load_bytecode(&mut runtime, "debug.kgr", compile_test_bytecode(source))
         .expect("debug module should load");
@@ -162,13 +154,7 @@ fn main() -> i32 {
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
         .expect("debugged function should execute");
 
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(7)
-    );
+    assert_eq!(report.return_value.as_i32(), Some(7));
     let debug = vm
         .debug_session()
         .expect("debug session should be attached");
@@ -207,31 +193,71 @@ fn main() -> i32 {
         .pauses()
         .iter()
         .find(|pause| pause.reason == DebugPauseReason::Breakpoint(breakpoint_id))
-        .expect("breakpoint should pause execution");
+        .expect("breakpoint should pause execution")
+        .clone();
+    drop(debug);
+    vm.clear_execution_observer().unwrap();
+    vm.collect_garbage().unwrap();
+    let roots = vm.gc_stats().root_registrations;
     let frame = pause.top_frame().expect("pause should expose a frame");
     assert_eq!(frame.function_name, "main");
     assert_eq!(
         pause
-            .evaluate_watch(&vm, frame.id, &DebugWatch::Binding("value".to_owned()),)
-            .expect("watch should read live local"),
-        Value::I32(3)
+            .evaluate_watch(&mut vm, frame.id, &DebugWatch::Binding("value".to_owned()))
+            .expect("watch should read live local")
+            .as_i32(),
+        Some(3)
+    );
+    let text = pause
+        .evaluate_watch(&mut vm, frame.id, &DebugWatch::Binding("text".into()))
+        .unwrap();
+    let alias = pause
+        .evaluate_watch(&mut vm, frame.id, &DebugWatch::Binding("alias".into()))
+        .unwrap();
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        roots,
+        "watch/alias clones share the requested capture lease"
+    );
+    vm.memory
+        .scope(&vm.resources, |cx, _| {
+            let text = cx.downcast::<TupleObject>(text.get(cx)?.object().unwrap())?;
+            let alias = cx.downcast::<TupleObject>(alias.get(cx)?.object().unwrap())?;
+            assert!(text.ptr_eq(alias));
+            let string = TupleObject::get(cx, text, 0)?;
+            assert_eq!(
+                StringObject::read(cx, string, str::to_owned)?,
+                "debug constant"
+            );
+            assert_eq!(
+                scalar::read_integer(BuiltinType::I32, TupleObject::get(cx, text, 1)?).unwrap(),
+                5
+            );
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(
+        Runtime::default()
+            .validate_debug_value(&text)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::ScriptTrap
+    );
+    let objects = vm.gc_stats().objects;
+    drop(text);
+    drop(alias);
+    drop(pause);
+    vm.collect_garbage().unwrap();
+    assert_eq!(
+        vm.gc_stats().objects + 1,
+        objects,
+        "detached diagnostic snapshot was the tuple's final owner"
     );
 }
 
 #[test]
 fn debug_session_hides_inner_binding_after_lexical_scope() {
-    let source = r#"
-fn main() -> i32 {
-    if true {
-        val inner = 7;
-        inner + 1;
-    } else {
-        0;
-    };
-    val after = 2;
-    after
-}
-"#;
+    let source = include_str!("../../../tests/fixtures/debug/lexical-bindings.kgr");
     let mut runtime = debug_runtime("lexical.kgr");
     let loaded = load_bytecode(&mut runtime, "lexical.kgr", compile_test_bytecode(source)).unwrap();
     let _loaded_program = loaded;
@@ -255,9 +281,8 @@ fn main() -> i32 {
         vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(2)
+            .as_i32(),
+        Some(2)
     );
     let debug = vm.debug_session().unwrap();
     let pauses = debug.pauses();
@@ -368,4 +393,94 @@ fn debug_session_supports_step_into_and_trap_pause_events() {
             .iter()
             .any(|pause| pause.reason == DebugPauseReason::Trap)
     );
+}
+
+#[test]
+fn requested_binding_capture_releases_temporary_roots_on_observer_unwind() {
+    #[derive(Debug)]
+    struct PanickingObserver(Arc<AtomicBool>);
+
+    fn live_text(frames: &[ExecutionFrame]) -> Option<(&ExecutionFrame, Slot)> {
+        let frame = frames.last()?;
+        let pc = frame.instruction_offset();
+        let slot = frame
+            .function()?
+            .metadata
+            .debug
+            .local_live_ranges
+            .iter()
+            .find(|range| range.name == "text" && range.start <= pc && pc < range.end)?
+            .slot;
+        Some((frame, slot))
+    }
+
+    impl ExecutionObserver for PanickingObserver {
+        fn capture_binding_values(
+            &mut self,
+            _: &Runtime,
+            _: ExecutionEvent,
+            frames: &[ExecutionFrame],
+        ) -> bool {
+            live_text(frames).is_some()
+        }
+
+        fn observe(
+            &mut self,
+            runtime: &Runtime,
+            _: ExecutionEvent,
+            frames: &[ExecutionFrame],
+        ) -> Result<(), RuntimeError> {
+            if let Some((frame, slot)) = live_text(frames) {
+                let value = runtime.observed_binding_value(frame, slot)?;
+                drop(value);
+                self.0.store(true, Ordering::SeqCst);
+                panic!("observer failed after actual binding capture");
+            }
+            Ok(())
+        }
+    }
+
+    let source = include_str!("../../../tests/fixtures/debug/live-bindings.kgr");
+    let mut runtime = debug_runtime("capture-unwind.kgr");
+    let installed = load_bytecode(
+        &mut runtime,
+        "capture-unwind.kgr",
+        compile_test_bytecode(source),
+    )
+    .unwrap();
+    let owner = runtime.select_program(&installed).unwrap();
+    // Warm real constants/code before establishing the ownership baseline. The
+    // second execution creates a fresh tuple; its only extra owner is the capture.
+    assert_eq!(
+        runtime
+            .execute_module(&owner, ProgramEntry::Main, runtime.execution_options())
+            .unwrap()
+            .return_value
+            .as_i32(),
+        Some(7)
+    );
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
+    let captured = Arc::new(AtomicBool::new(false));
+    runtime
+        .set_execution_observer(PanickingObserver(captured.clone()))
+        .unwrap();
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        runtime.execute_module(&owner, ProgramEntry::Main, runtime.execution_options())
+    }));
+    assert!(outcome.is_err());
+    assert!(
+        captured.load(Ordering::SeqCst),
+        "the intended requested-value callback must run"
+    );
+    assert!(runtime.execution_root().is_none());
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    runtime.clear_execution_observer().unwrap();
+    runtime.collect_garbage().unwrap();
+    let after = runtime.gc_stats();
+    assert_eq!(
+        (after.objects, after.root_registrations),
+        (baseline.objects, baseline.root_registrations)
+    );
+    assert!(!runtime.is_quarantined());
 }

@@ -1,12 +1,13 @@
 use crate::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::{
-    gc::roots::RootedValue,
+    execution::owned::DriveResult,
     module::entry::ProgramEntry,
+    native::conversion::context::ConversionContext,
     native::{
         binding::NativeResult, builder::ModuleBuilder, context::NativeCall,
         declarations::FunctionDecl, views::ValueHandle,
     },
-    value::Value,
+    value::carriers::RootedValue,
 };
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
@@ -15,6 +16,7 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
 };
+use std::{num::NonZeroUsize, slice};
 
 #[test]
 fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
@@ -94,6 +96,8 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
             Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
+        runtime.collect_garbage().unwrap();
+        let baseline = runtime.gc_stats();
         assert_eq!(
             runtime
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
@@ -102,40 +106,67 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
             "KG_RUNTIME_CANCELLED"
         );
         assert_eq!(calls.load(Ordering::SeqCst), 3);
-        let value = retained
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .value(runtime.gc())
+        let value = retained.lock().unwrap().as_ref().unwrap().clone();
+        let owner = runtime.select_program(&loaded).unwrap();
+        let execution = runtime
+            .start(
+                &owner,
+                "inspect",
+                slice::from_ref(&value),
+                Default::default(),
+            )
             .unwrap();
-        let snapshot = runtime
-            .execute(&loaded, "inspect", &[value], &ExecutionContext::default())
-            .unwrap()
-            .return_value;
-        let Value::Array(array) = snapshot.value(runtime.gc()).unwrap() else {
-            panic!("snapshot")
+        let mut output = None;
+        for _ in 0..1000 {
+            match runtime
+                .drive(&execution, NonZeroUsize::new(256).unwrap())
+                .unwrap()
+            {
+                DriveResult::Complete(value) => {
+                    output = Some(value.unwrap());
+                    break;
+                }
+                DriveResult::Runnable => {}
+                DriveResult::Waiting => panic!("synchronous inspection cannot wait"),
+            }
+        }
+        let snapshot = output.expect("bounded inspection completion");
+        drop(execution);
+        let mut actual = {
+            let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
+            let array = cx.import(&snapshot).unwrap();
+            assert_eq!(cx.array_len(&array).unwrap(), retained_values.len());
+            (0..retained_values.len())
+                .map(|index| {
+                    cx.array_element(&array, index)
+                        .unwrap()
+                        .unwrap()
+                        .as_i32()
+                        .unwrap()
+                })
+                .collect::<Vec<_>>()
         };
-        let mut actual = runtime
-            .gc()
-            .array_snapshot(array)
-            .unwrap()
-            .into_iter()
-            .map(|value| {
-                let Value::I32(value) = value else {
-                    panic!("element")
-                };
-                value
-            })
-            .collect::<Vec<_>>();
         if !preserve_order {
             actual.sort();
         }
         assert_eq!(actual, retained_values);
-        drop(snapshot);
+        drop((snapshot, value));
         retained.lock().unwrap().take();
-        assert_eq!(runtime.gc().active_roots(), 0);
-        assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(
+            runtime.gc_stats().root_registrations,
+            baseline.root_registrations
+        );
+        let replacement = runtime
+            .program(&loaded)
+            .unwrap()
+            .prepare_replacement(&program, &Default::default())
+            .unwrap();
+        runtime
+            .replace_program(&loaded, &replacement, Default::default())
+            .unwrap();
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc_stats().objects, baseline.objects);
         assert!(!runtime.is_quarantined());
     }
 }

@@ -1,0 +1,17 @@
+use example::provided::{ Counter, new, read, missing_payload };
+
+fn main() -> Counter<i32> {
+    new([42])
+}
+
+pub fn healthy() -> i32 {
+    read(new([42]))
+}
+
+pub fn invalid() -> Counter<i32> {
+    missing_payload()
+}
+
+pub fn read_retained(counter: Counter<i32>) -> i32 {
+    read(counter)
+}

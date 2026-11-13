@@ -9,7 +9,7 @@ use crate::{
         conversion::{FromKagari, context::ConversionContext},
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 use std::{
     any::{Any, TypeId},
@@ -25,10 +25,13 @@ pub struct GeneratedField {
     pub(crate) target: TypeId,
     pub(crate) target_type: fn(&DeclarationCatalog) -> NativeResult<Type>,
     pub(crate) project: unsafe fn(*mut ()) -> *mut (),
-    pub(crate) snapshot:
-        unsafe fn(*mut (), &mut ConversionContext<'_>, &TypeArgument) -> NativeResult<Value>,
+    pub(crate) snapshot: for<'call> unsafe fn(
+        *mut (),
+        &mut ConversionContext<'call>,
+        &TypeArgument,
+    ) -> NativeResult<ValueView<'call>>,
     pub(crate) decode:
-        fn(&mut ConversionContext<'_>, &TypeArgument, &Value) -> NativeResult<Box<dyn Any>>,
+        fn(&mut ConversionContext<'_>, &TypeArgument, &ValueView<'_>) -> NativeResult<Box<dyn Any>>,
     pub(crate) replace: unsafe fn(*mut (), Box<dyn Any>) -> Box<dyn Any>,
 }
 
@@ -71,11 +74,11 @@ impl GeneratedField {
     }
 }
 
-unsafe fn snapshot<F: FromKagari>(
+unsafe fn snapshot<'call, F: FromKagari>(
     pointer: *mut (),
-    cx: &mut ConversionContext<'_>,
+    cx: &mut ConversionContext<'call>,
     expected: &TypeArgument,
-) -> NativeResult<Value> {
+) -> NativeResult<ValueView<'call>> {
     // SAFETY: The caller holds a checked shared path loan with exact F identity.
     unsafe { (&*pointer.cast::<F>()).snapshot_field(cx, expected) }
 }
@@ -83,7 +86,7 @@ unsafe fn snapshot<F: FromKagari>(
 fn decode<F: FromKagari + 'static>(
     cx: &mut ConversionContext<'_>,
     expected: &TypeArgument,
-    value: &Value,
+    value: &ValueView<'_>,
 ) -> NativeResult<Box<dyn Any>> {
     cx.decode_value::<F>(expected, value)
         .map(|value| Box::new(value) as Box<dyn Any>)

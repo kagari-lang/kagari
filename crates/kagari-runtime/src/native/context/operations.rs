@@ -6,7 +6,8 @@ use crate::{
         binding::NativeResult,
         context::{LinkedCallable, NativeCall},
     },
-    value::Value,
+    value::view::ValueView,
+    value_check,
 };
 use kagari_contract::standard::RuntimePrimitive;
 use kagari_types::ty::Ty;
@@ -27,14 +28,15 @@ impl LinkedCallable {
 impl<'call> NativeCall<'call> {
     /// Read an existing argument root with its prepared closed type. This does
     /// not create an owning Rust handle or convert the value through host storage.
-    pub fn checked_argument(&self, index: usize) -> NativeResult<Value> {
+    pub fn checked_argument(&mut self, index: usize) -> NativeResult<ValueView<'call>> {
         let value = self.argument(index)?;
-        let signature = self.function.type_signature()?;
-        if !signature
+        let function = self.function;
+        let expected = function
+            .type_signature()?
             .params
             .get(index)
-            .is_some_and(|ty| ty.matches(self.runtime, &value, self.owner))
-        {
+            .ok_or_else(|| RuntimeError::module_validation("native argument type"))?;
+        if !value_check::matches_protected(self.runtime, self.owner, expected, &value)? {
             return Err(RuntimeError::module_validation(
                 "native argument differs from its declared type",
             ));
@@ -49,7 +51,7 @@ impl<'call> NativeCall<'call> {
         index: usize,
     ) -> NativeResult<TypeArgument> {
         let owner = target.owner(self.owner)?;
-        let result = match &target.scoped_signature {
+        let result = match target.scoped_signature.get() {
             Some(signature) => signature.result.clone(),
             None => self
                 .runtime

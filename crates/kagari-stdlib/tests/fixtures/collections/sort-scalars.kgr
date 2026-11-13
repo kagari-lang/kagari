@@ -1,0 +1,11 @@
+fn main() -> bool {
+    val values: Vec<u64> = Vec::from([18446744073709551615u64, 0u64, 9223372036854775808u64]);
+    values.sort();
+    if values[0] != 0u64 || values[2] != 18446744073709551615u64 {
+        return false;
+    }
+    values.sort_by(|a, b| b.cmp(a));
+    val text = Vec::from(["z", "a", "a", "b"]);
+    text.sort();
+    values[0] == 18446744073709551615u64 && text[0] == "a" && text[3] == "z"
+}

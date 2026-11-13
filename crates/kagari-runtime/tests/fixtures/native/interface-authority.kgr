@@ -1,0 +1,29 @@
+use authority::native::Shared;
+
+pub trait Counter {
+    fn next(self) -> i32;
+}
+
+impl Counter for i32 {
+    fn next(self) -> i32 {
+        self + 1
+    }
+}
+
+impl Shared<i32> for i32 {}
+
+pub fn accept(value: Counter) -> i32 {
+    value.next()
+}
+
+pub fn shared(value: Shared<i32>) -> Shared<i32> {
+    value
+}
+
+pub fn make_shared() -> Shared<i32> {
+    7
+}
+
+fn main() -> Counter {
+    7
+}

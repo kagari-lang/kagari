@@ -4,7 +4,7 @@ mod layout;
 mod retention;
 mod spans;
 
-use kagari_runtime::{diagnostics::allocations, value::Value};
+use kagari_runtime::{diagnostics::allocations, value::carriers::StoredValue};
 use std::{hint::black_box, mem::size_of, time::Instant};
 
 #[derive(Clone, Copy)]
@@ -16,7 +16,7 @@ struct Inline32 {
 
 #[allow(dead_code)]
 enum Widened {
-    Existing(Value),
+    Existing(StoredValue),
     Inline(Inline32),
 }
 
@@ -45,8 +45,8 @@ fn copy_cost<const N: usize>() {
 
 pub(super) fn run() {
     println!(
-        "transport_model current_Value={} inline_carrier={} wrapped_Value={} aligned_u64={}",
-        size_of::<Value>(),
+        "transport_model current_StoredValue={} inline_carrier={} wrapped_StoredValue={} aligned_u64={}",
+        size_of::<StoredValue>(),
         size_of::<Inline32>(),
         size_of::<Widened>(),
         size_of::<(u64, u8)>(),

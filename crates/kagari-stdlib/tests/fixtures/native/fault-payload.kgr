@@ -1,0 +1,5 @@
+use fixture::payload::{ Payload, new };
+
+fn main() -> Payload {
+    new()
+}

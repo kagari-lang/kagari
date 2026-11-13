@@ -1,8 +1,15 @@
 //! Borrow code and scalar banks once while preserving each logical boundary.
 use crate::{
     error::{RuntimeError, fault::EngineFault, reason::ErrorReason},
-    frame::{cursor::ExecutionCursor, transfer::ReturnValue},
-    module::execution::{ScalarSlot, managed::PreparedManagedOperation},
+    frame::{
+        cursor::{ExecutionCursor, kernel::RegionError},
+        transfer::ReturnValue,
+    },
+    module::{
+        ModuleStore,
+        execution::{ExecutionFunction, managed::PreparedManagedOperation, operands::ScalarSlot},
+    },
+    session::SessionState,
 };
 
 use kagari_types::scalar::error::ScalarError;
@@ -70,37 +77,57 @@ impl InstructionSlice for Bounded<'_> {
     }
 }
 
-impl<'code> ExecutionCursor<'code> {
+struct ScalarCursor<'code, 'banks> {
+    function: &'code ExecutionFunction,
+    ip: &'banks mut usize,
+    executing: &'banks mut Option<usize>,
+    payloads: &'banks mut [u64],
+    initialized: &'banks mut [bool],
+    modules: &'code ModuleStore,
+    session: &'code SessionState,
+    automatic_collection: bool,
+}
+
+impl ExecutionCursor<'_, '_, '_, '_> {
     pub(super) fn execute_scalars(
         &mut self,
         remaining: &mut Option<usize>,
         collection_due: bool,
         first: bool,
-    ) -> Result<ScalarExit, RuntimeError> {
+    ) -> Result<ScalarExit, RegionError> {
+        // Lend the two disjoint scalar slices once for the complete generated
+        // loop. No GC/source lookup or managed capability accompanies this view.
+        let (payloads, initialized) = self.values.scalar_banks().map_err(RegionError::storage)?;
+        let mut cursor = ScalarCursor {
+            function: self.function,
+            ip: self.ip,
+            executing: self.executing,
+            payloads,
+            initialized,
+            modules: self.modules,
+            session: self.session,
+            automatic_collection: self.automatic_collection,
+        };
         match remaining {
-            Some(remaining) => self.execute_slice(&mut Bounded(remaining), collection_due, first),
-            None => self.execute_slice(&mut Unbounded, collection_due, first),
+            Some(remaining) => cursor.execute_slice(&mut Bounded(remaining), collection_due, first),
+            None => cursor.execute_slice(&mut Unbounded, collection_due, first),
         }
-        .map_err(|failure| self.scalar_error(failure))
+        .map_err(|failure| RuntimeError::new(failure.reason()).into())
     }
+}
 
+impl ScalarCursor<'_, '_> {
     #[inline(always)]
     pub(super) fn payload(&self, slot: ScalarSlot) -> Option<u64> {
-        if !self
-            .values
-            .initialized
-            .get(slot.index())
-            .copied()
-            .unwrap_or(false)
-        {
+        if !self.initialized.get(slot.index()).copied().unwrap_or(false) {
             return None;
         }
-        self.values.payloads.get(slot.index()).copied()
+        self.payloads.get(slot.index()).copied()
     }
 
     pub(super) fn write_payload(&mut self, slot: ScalarSlot, value: u64) -> Option<()> {
-        *self.values.payloads.get_mut(slot.index())? = value;
-        *self.values.initialized.get_mut(slot.index())? = true;
+        *self.payloads.get_mut(slot.index())? = value;
+        *self.initialized.get_mut(slot.index())? = true;
         Some(())
     }
 
@@ -108,7 +135,7 @@ impl<'code> ExecutionCursor<'code> {
         self.session.options.cancellation.check().is_err()
             || self.session.observer_attached.get()
             || collection_due
-            || (automatic_collection && self.runtime.modules.abandonment_pending())
+            || (automatic_collection && self.modules.abandonment_pending())
     }
 
     fn jump(&self, target: usize) -> Result<usize, ScalarFailure> {
@@ -116,14 +143,6 @@ impl<'code> ExecutionCursor<'code> {
             return Err(ScalarFailure::InvalidJumpTarget);
         }
         Ok(target)
-    }
-
-    #[cold]
-    fn scalar_error(&self, failure: ScalarFailure) -> RuntimeError {
-        match failure.reason() {
-            ErrorReason::EngineFault(reason) => self.runtime.resources().quarantine(reason),
-            reason => RuntimeError::new(reason),
-        }
     }
 }
 

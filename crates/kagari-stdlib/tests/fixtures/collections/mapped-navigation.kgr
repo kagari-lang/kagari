@@ -1,0 +1,3 @@
+fn main() {
+    val values = Vec::from([2, 1]).map(|value| value);
+}

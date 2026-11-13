@@ -2,14 +2,15 @@
 use crate::{
     Runtime,
     error::RuntimeError,
+    execution::roots::SessionId,
     execution_metadata::{
-        groups::OperationGroupId,
+        groups::AdmittedOperationGroup,
+        managed::sources::MetadataSource,
         operation::{BoundGenericMethod, BoundOperation},
     },
-    frame::types::{EnvironmentRecord, compatibility::TypeView},
-    gc::interfaces::InterfaceResultBinding,
+    frame::types::{EnvironmentRecord, compatibility::TypeView, construction::ConstructionScope},
     module::ExecutableModule,
-    objects::calls,
+    objects::{calls, interfaces::description::InterfaceResultBinding},
 };
 use kagari_bytecode::module::CallableTarget;
 use kagari_contract::{callable::witness::OperationWitness, types as abi, types::PublicItem};
@@ -19,14 +20,11 @@ use kagari_types::{
 use std::sync::Arc;
 
 impl Runtime {
-    pub(crate) fn bind_receiver_operations(
-        &self,
+    pub(crate) fn receiver_operations_required(
         owner: &ExecutableModule,
         target: CallableTarget,
-        binding: &InterfaceResultBinding,
-        prepared: Option<OperationGroupId>,
-    ) -> Result<Option<OperationGroupId>, RuntimeError> {
-        let required = match target {
+    ) -> bool {
+        match target {
             CallableTarget::Native(target) => owner
                 .bytecode
                 .native_imports
@@ -34,30 +32,44 @@ impl Runtime {
                 .is_some_and(|import| {
                     import.callables.iter().any(|operation| {
                         matches!(operation, OperationWitness::Forward(required)
-                    if import.signature.params.first() == Some(&required.receiver))
+                        if import.signature.params.first() == Some(&required.receiver))
                     })
                 }),
             CallableTarget::Script(_) => false,
-        };
-        if required {
-            Ok(Some(match prepared {
-                Some(prepared) => prepared,
-                None => self.bind_table_operations(binding)?,
-            }))
+        }
+    }
+
+    pub(crate) fn bind_receiver_operations(
+        &mut self,
+        owner: &ExecutableModule,
+        target: CallableTarget,
+        prepared: &AdmittedOperationGroup,
+    ) -> Result<Option<AdmittedOperationGroup>, RuntimeError> {
+        if Self::receiver_operations_required(owner, target) {
+            self.operation_group_record(prepared)?;
+            Ok(Some(prepared.clone()))
         } else {
             Ok(None)
         }
     }
 
     pub(crate) fn bind_table_operations(
-        &self,
+        &mut self,
+        execution: SessionId,
         binding: &InterfaceResultBinding,
-    ) -> Result<OperationGroupId, RuntimeError> {
+        protected: &[MetadataSource<'_>],
+    ) -> Result<AdmittedOperationGroup, RuntimeError> {
         let invalid = || RuntimeError::module_validation("receiver operation table");
+        let mut sources = Vec::new();
+        sources
+            .try_reserve_exact(protected.len())
+            .map_err(|_| RuntimeError::resource_limit("receiver operation sources"))?;
+        sources.extend_from_slice(protected);
         let mut pending = vec![binding.clone()];
         let mut operations: Vec<BoundOperation> = vec![];
         let mut visited = vec![];
         while let Some(binding) = pending.pop() {
+            self.resources.poll_execution()?;
             let owner = &binding.owner;
             self.validate_executable_module(owner)?;
             let table = owner
@@ -92,27 +104,45 @@ impl Runtime {
                     .map(|argument| argument.identity(owner).ok_or_else(invalid))
                     .collect::<Result<Vec<_>, _>>()?,
             );
-            if visited.contains(&key) {
+            let mut seen = false;
+            for (index, previous) in visited.iter().enumerate() {
+                if index.is_multiple_of(1024) {
+                    self.resources.poll_execution()?;
+                }
+                if previous == &key {
+                    seen = true;
+                    break;
+                }
+            }
+            if seen {
                 continue;
             }
+            visited
+                .try_reserve(1)
+                .map_err(|_| RuntimeError::resource_limit("receiver operation tables"))?;
             visited.push(key);
+            let parent = binding
+                .environment
+                .as_ref()
+                .map(|environment| self.environment_snapshot_in(&sources, environment))
+                .transpose()?;
             let mut environment = EnvironmentRecord::new(
                 owner.definitions(),
                 template.generic_params.clone(),
                 arguments,
             )?;
-            if let Some(parent) = &binding.environment {
-                environment.extend_operations(
-                    self.gc
-                        .environment(parent.id)
-                        .ok_or_else(invalid)?
-                        .operations()
-                        .clone(),
-                );
+            let mut constructions = ConstructionScope::new(owner);
+            if let Some(parent) = &parent {
+                environment.extend_operations(parent.record.operations().clone());
+                constructions.extend(&parent.record.constructions);
             }
-            environment
-                .set_constructions(self.construction_scope(owner, binding.environment.as_ref())?);
-            let environment = self.alloc_environment(environment)?;
+            environment.set_constructions(constructions);
+            let admitted = self.alloc_environment(execution, environment, &sources)?;
+            sources
+                .try_reserve(1)
+                .map_err(|_| RuntimeError::resource_limit("receiver operation sources"))?;
+            sources.push(MetadataSource::Environment(admitted.source()));
+            let environment = admitted.facts().clone();
             let receiver = environment.types.resolve(&template.for_type)?;
             let receiver_identity = Arc::new(
                 TypeView::new(&template.for_type, owner, Some(environment.types.as_ref()))
@@ -135,7 +165,10 @@ impl Runtime {
                     .cloned()
                 })
                 .ok_or_else(invalid)?;
-            for slot in &table.methods {
+            for (index, slot) in table.methods.iter().enumerate() {
+                if index.is_multiple_of(1024) {
+                    self.resources.poll_execution()?;
+                }
                 let name = owner.definition_name(slot.method).ok_or_else(invalid)?;
                 let method = template
                     .methods
@@ -160,10 +193,19 @@ impl Runtime {
                     member: slot.method,
                     arguments: vec![],
                 };
-                if operations.iter().any(|operation| {
-                    operation.requirement == requirement
+                let mut duplicate = false;
+                for (index, operation) in operations.iter().enumerate() {
+                    if index.is_multiple_of(1024) {
+                        self.resources.poll_execution()?;
+                    }
+                    if operation.requirement == requirement
                         && operation.receiver_identity == receiver_identity
-                }) {
+                    {
+                        duplicate = true;
+                        break;
+                    }
+                }
+                if duplicate {
                     continue;
                 }
                 let body = match slot.target {
@@ -184,6 +226,9 @@ impl Runtime {
                         .generic
                         .as_ref(),
                 };
+                operations
+                    .try_reserve(1)
+                    .map_err(|_| RuntimeError::resource_limit("receiver operation members"))?;
                 operations.push(BoundOperation {
                     requirement_key: owner.identity_admission().runtime_in(
                         &requirement,
@@ -226,6 +271,9 @@ impl Runtime {
             // Native defaults can use its operations without resolving a trait.
             if let Some(view) = &table.view {
                 for result in &view.results {
+                    pending
+                        .try_reserve(1)
+                        .map_err(|_| RuntimeError::resource_limit("receiver operation tables"))?;
                     pending.push(calls::interface_binding(
                         owner,
                         &result.implementation,
@@ -234,6 +282,9 @@ impl Runtime {
                 }
             }
             for parent in &table.parents {
+                pending
+                    .try_reserve(1)
+                    .map_err(|_| RuntimeError::resource_limit("receiver operation tables"))?;
                 pending.push(calls::interface_binding(
                     owner,
                     &parent.implementation,
@@ -241,6 +292,6 @@ impl Runtime {
                 )?);
             }
         }
-        self.gc.alloc_operation_group(operations)
+        self.alloc_operation_group(execution, operations, &sources)
     }
 }

@@ -5,89 +5,71 @@ use crate::diagnostics::storage::BufferUsage;
 use crate::test_support::bytecode::load_bytecode;
 use crate::{
     error::RuntimeError,
+    execution::roots::{DependencyId, SessionId},
     frame::ExecutionFrame,
-    module::{ExecutableModule, retention::ProgramLease},
+    module::{
+        ExecutableModule, managed::revision::RevisionState, retention::RetentionRegistration,
+    },
     resource::ResourceCounters,
     session::{ExecutionOptions, SessionState},
 };
 use std::{
     cell::{Ref, RefCell, RefMut},
     mem,
-    sync::atomic::{AtomicU64, Ordering},
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct SessionId {
-    owner: u64,
-    slot: usize,
-    generation: u64,
-}
-
-#[derive(Debug)]
-struct SessionSlot {
-    generation: u64,
-    state: Option<SessionState>,
-}
 
 #[derive(Debug, Default)]
 struct Records {
-    slots: Vec<SessionSlot>,
-    free: Vec<usize>,
+    slots: Vec<Option<SessionState>>,
 }
 
-#[derive(Debug)]
+/// Control records keyed by identities minted and reused by ExecutionRoots.
+/// Every lookup compares the complete source identity, not just its coordinate.
+#[derive(Debug, Default)]
 pub(crate) struct SessionStore {
-    owner: u64,
     records: RefCell<Records>,
     frames: RefCell<Vec<Vec<ExecutionFrame>>>,
 }
 
-impl Default for SessionStore {
-    fn default() -> Self {
-        static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
-        let owner = NEXT_OWNER
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
-            .expect("session store identity exhausted");
-        Self {
-            owner,
-            records: RefCell::new(Records::default()),
-            frames: RefCell::new(Vec::new()),
-        }
-    }
-}
-
 impl SessionStore {
     #[cfg(feature = "execution-diagnostics")]
-    pub(crate) fn append_usage(&self, usage: &mut Vec<BufferUsage>) {
+    pub(crate) fn visit_usage(&self, visit: &mut impl FnMut(BufferUsage)) {
         let records = self.records.borrow();
         let frames = self.frames.borrow();
-        usage.extend([
+        for buffer in [
             BufferUsage::new("session records", &records.slots),
-            BufferUsage::new("session free slots", &records.free),
             BufferUsage::new("frame directories", &frames),
-        ]);
+        ] {
+            visit(buffer);
+        }
         for frames in frames.iter() {
-            usage.push(BufferUsage::new("execution frames", frames));
+            visit(BufferUsage::new("execution frames", frames));
         }
-        for slot in &records.slots {
-            if let Some(state) = &slot.state {
-                usage.push(BufferUsage::new(
-                    "frame scopes",
-                    &state.frame_scopes.borrow(),
-                ));
-                usage.push(BufferUsage::new(
-                    "host call traces",
-                    &state.host_calls.borrow(),
-                ));
-            }
+        for state in records.slots.iter().flatten() {
+            visit(BufferUsage::new(
+                "frame scopes",
+                &state.frame_scopes.borrow(),
+            ));
+            visit(BufferUsage::new(
+                "host call traces",
+                &state.host_calls.borrow(),
+            ));
         }
+    }
+
+    /// Inspect control stacks in one closed metadata-only interval. The caller
+    /// copies its needed facts before borrowing Runtime or source services.
+    pub(crate) fn inspect_frame_stacks<R>(
+        &self,
+        inspect: impl FnOnce(&[Vec<ExecutionFrame>]) -> R,
+    ) -> Option<R> {
+        let frames = self.frames.try_borrow().ok()?;
+        Some(inspect(&frames))
     }
 
     pub(crate) fn detach_observers(&self) {
-        for slot in &self.records.borrow().slots {
-            if let Some(state) = &slot.state {
-                state.observer_attached.set(false);
-            }
+        for state in self.records.borrow().slots.iter().flatten() {
+            state.observer_attached.set(false);
         }
     }
 
@@ -97,7 +79,7 @@ impl SessionStore {
             .slots
             .iter()
             .filter_map(|slot| {
-                let state = slot.state.as_ref()?;
+                let state = slot.as_ref()?;
                 let owner = state.owner.borrow();
                 (state.scopes.get() == 0
                     && owner
@@ -110,100 +92,101 @@ impl SessionStore {
 
     pub(crate) fn insert(
         &self,
+        id: SessionId,
         root: ExecutableModule,
         options: ExecutionOptions,
         baseline: ResourceCounters,
-        program: ProgramLease,
+        registration: RetentionRegistration,
+        body: DependencyId<RevisionState>,
     ) -> Result<SessionId, RuntimeError> {
+        if body.execution() != id {
+            return Err(RuntimeError::module_validation(
+                "session body belongs to another execution",
+            ));
+        }
         let mut records = self.records.try_borrow_mut().map_err(|_| {
             RuntimeError::module_validation("session records borrowed across session entry")
         })?;
         let mut frames = self.frames.try_borrow_mut().map_err(|_| {
             RuntimeError::module_validation("frame stack borrowed across session entry")
         })?;
-        let needed = records
-            .slots
-            .len()
-            .saturating_add(1)
-            .saturating_sub(frames.len());
-        frames
-            .try_reserve(needed)
-            .map_err(|_| RuntimeError::resource_limit("session frames"))?;
-        if records.free.is_empty() {
-            records
-                .slots
-                .try_reserve(1)
-                .map_err(|_| RuntimeError::resource_limit("session slots"))?;
+        let index = id.index();
+        if records.slots.get(index).is_some_and(Option::is_some) {
+            return Err(RuntimeError::module_validation(
+                "execution control slot is occupied",
+            ));
         }
-        let index = records.free.pop().unwrap_or_else(|| {
-            records.slots.push(SessionSlot {
-                generation: 0,
-                state: None,
-            });
-            records.slots.len() - 1
-        });
-        let slot = &mut records.slots[index];
-        let id = SessionId {
-            owner: self.owner,
-            slot: index,
-            generation: slot.generation,
-        };
-        slot.state = Some(SessionState::new(id, root, options, baseline, program));
-        frames.resize_with(records.slots.len(), Vec::new);
+        let count = index
+            .checked_add(1)
+            .ok_or_else(|| RuntimeError::resource_limit("session slots"))?;
+        let record_len = records.slots.len();
+        let frame_len = frames.len();
+        records
+            .slots
+            .try_reserve(count.saturating_sub(record_len))
+            .map_err(|_| RuntimeError::resource_limit("session slots"))?;
+        frames
+            .try_reserve(count.saturating_sub(frame_len))
+            .map_err(|_| RuntimeError::resource_limit("session frames"))?;
+        records.slots.resize_with(count.max(record_len), || None);
+        frames.resize_with(count.max(frame_len), Vec::new);
         debug_assert!(frames[index].is_empty());
+        records.slots[index] = Some(SessionState::new(
+            id,
+            root,
+            options,
+            baseline,
+            registration,
+            body,
+        ));
         Ok(id)
     }
 
     pub(crate) fn get(&self, id: SessionId) -> Option<Ref<'_, SessionState>> {
-        if id.owner != self.owner {
-            return None;
-        }
         Ref::filter_map(self.records.borrow(), |records| {
-            let slot = records.slots.get(id.slot)?;
-            (slot.generation == id.generation)
-                .then_some(slot.state.as_ref())
-                .flatten()
+            records
+                .slots
+                .get(id.index())?
+                .as_ref()
+                .filter(|state| state.id == id)
         })
         .ok()
     }
 
     pub(crate) fn frames(&self, id: SessionId) -> Option<Ref<'_, Vec<ExecutionFrame>>> {
         self.get(id)?;
-        Ref::filter_map(self.frames.try_borrow().ok()?, |frames| frames.get(id.slot)).ok()
+        Ref::filter_map(self.frames.try_borrow().ok()?, |frames| {
+            frames.get(id.index())
+        })
+        .ok()
     }
 
     pub(crate) fn frames_mut(&self, id: SessionId) -> Option<RefMut<'_, Vec<ExecutionFrame>>> {
         self.get(id)?;
         let frames = self.frames.try_borrow_mut().ok()?;
-        RefMut::filter_map(frames, |frames| frames.get_mut(id.slot)).ok()
+        RefMut::filter_map(frames, |frames| frames.get_mut(id.index())).ok()
     }
 
     /// Detach records before dropping them; their members may release other resources.
     pub(crate) fn remove(&self, id: SessionId) -> Option<(SessionState, Vec<ExecutionFrame>)> {
-        if id.owner != self.owner {
-            return None;
-        }
         let mut records = self.records.try_borrow_mut().ok()?;
         let mut frames = self.frames.try_borrow_mut().ok();
         // An immutable view of a different session must not postpone semantic
         // cleanup. Only an empty bucket may wait for the next mutable access;
-        // roots, program leases and session state are detached immediately.
-        if frames.is_none() && !self.frames.try_borrow().ok()?.get(id.slot)?.is_empty() {
+        // control registrations and session state are detached immediately; its owner
+        // separately retires the complete execution source.
+        if frames.is_none() && !self.frames.try_borrow().ok()?.get(id.index())?.is_empty() {
             return None;
         }
-        let slot = records.slots.get_mut(id.slot)?;
-        if slot.generation != id.generation {
+        let slot = records.slots.get_mut(id.index())?;
+        if slot.as_ref()?.id != id {
             return None;
         }
-        let state = slot.state.take()?;
+        let state = slot.take()?;
         let frames = match frames.as_mut() {
-            Some(frames) if !frames[id.slot].is_empty() => mem::take(&mut frames[id.slot]),
+            Some(frames) if !frames[id.index()].is_empty() => mem::take(&mut frames[id.index()]),
             Some(_) | None => Vec::new(),
         };
-        if let Some(generation) = slot.generation.checked_add(1) {
-            slot.generation = generation;
-            records.free.push(id.slot);
-        }
         Some((state, frames))
     }
 }
@@ -212,11 +195,13 @@ impl SessionStore {
 mod tests {
     use super::*;
     use crate::test_support::native::program::ProgramFixture;
-    use crate::{Runtime, module::ModuleEpochRetention};
+    use crate::{
+        Runtime, execution::roots::ExecutionRoots, module::managed::source::RevisionSource,
+    };
     use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
     use kagari_common::identity::map::DefinitionContext;
 
-    fn module() -> (Runtime, ExecutableModule) {
+    fn fixture() -> (Runtime, ExecutableModule) {
         let context = DefinitionContext::new().unwrap();
         let mut runtime = Runtime::default();
         let program = load_bytecode(
@@ -235,39 +220,62 @@ mod tests {
         (runtime, module)
     }
 
-    fn insert(store: &SessionStore, runtime: &Runtime, module: &ExecutableModule) -> SessionId {
-        let lease = runtime
-            .retain_module(module, ModuleEpochRetention::ActiveCall)
-            .unwrap();
+    fn body(
+        runtime: &mut Runtime,
+        module: &ExecutableModule,
+        id: SessionId,
+    ) -> DependencyId<RevisionState> {
+        runtime
+            .memory
+            .scope(&runtime.resources, |cx, roots| {
+                ExecutionRoots::with(roots, cx, |slots| {
+                    let revision =
+                        RevisionSource::Current.resolve(&runtime.modules, slots, module)?;
+                    slots.push_dependency(id, revision)
+                })
+            })
+            .unwrap()
+    }
+
+    fn insert(store: &SessionStore, runtime: &mut Runtime, module: &ExecutableModule) -> SessionId {
+        let id = runtime.memory.enter_execution(&runtime.resources).unwrap();
+        let body = body(runtime, module, id);
         store
             .insert(
+                id,
                 module.clone(),
                 ExecutionOptions::default(),
                 ResourceCounters::default(),
-                lease,
+                runtime.modules.register_execution(module).unwrap(),
+                body,
             )
             .unwrap()
     }
 
     #[test]
     fn retired_session_ids_cannot_read_or_remove_reused_records_and_frames() {
-        let (runtime, module) = module();
+        let (mut runtime, module) = fixture();
         let store = SessionStore::default();
         let foreign = SessionStore::default();
-        let first = insert(&store, &runtime, &module);
-        let foreign_id = insert(&foreign, &runtime, &module);
+        let (mut foreign_runtime, foreign_module) = fixture();
+        let first = insert(&store, &mut runtime, &module);
+        let foreign_id = insert(&foreign, &mut foreign_runtime, &foreign_module);
         assert!(store.get(foreign_id).is_none());
         assert!(store.frames(foreign_id).is_none());
         assert!(store.frames_mut(foreign_id).is_none());
         assert!(store.remove(foreign_id).is_none());
         let inspected = store.frames(first).unwrap();
         drop(store.remove(first).unwrap());
+        runtime
+            .memory
+            .retire_execution(&runtime.resources, first)
+            .unwrap();
         assert!(store.frames(first).is_none());
         assert!(inspected.is_empty());
         drop(inspected);
-        let second = insert(&store, &runtime, &module);
-        assert_eq!(first.slot, second.slot);
-        assert_ne!(first.generation, second.generation);
+        let second = insert(&store, &mut runtime, &module);
+        assert_eq!(first.index(), second.index());
+        assert_ne!(first, second);
         assert!(store.get(first).is_none());
         assert!(store.frames(first).is_none());
         assert!(store.frames_mut(first).is_none());
@@ -278,48 +286,39 @@ mod tests {
     }
 
     #[test]
-    fn exhausted_generations_retire_session_slots() {
-        let store = SessionStore::default();
-        store.records.borrow_mut().slots.push(SessionSlot {
-            generation: u64::MAX,
-            state: None,
-        });
-        store.records.borrow_mut().free.push(0);
-        let (runtime, module) = module();
-        let last = insert(&store, &runtime, &module);
-        assert_eq!(last.slot, 0);
-        assert_eq!(last.generation, u64::MAX);
-        drop(store.remove(last).unwrap());
-        let next = insert(&store, &runtime, &module);
-        assert_eq!(next.slot, 1);
-        assert!(store.get(last).is_none());
-        assert!(store.frames(last).is_none());
-    }
-
-    #[test]
     fn frame_borrows_allow_session_checks_but_reject_conflicting_store_edits() {
-        let (runtime, module) = module();
+        let (mut runtime, module) = fixture();
         let store = SessionStore::default();
-        let id = insert(&store, &runtime, &module);
+        let id = insert(&store, &mut runtime, &module);
         let frames = store.frames_mut(id).unwrap();
         assert_eq!(store.get(id).unwrap().root.key(), module.key());
+        let rejected = runtime.memory.enter_execution(&runtime.resources).unwrap();
+        let rejected_body = body(&mut runtime, &module, rejected);
         assert!(
             store
                 .insert(
+                    rejected,
                     module.clone(),
                     ExecutionOptions::default(),
                     ResourceCounters::default(),
-                    runtime
-                        .retain_module(&module, ModuleEpochRetention::ActiveCall)
-                        .unwrap()
+                    runtime.modules.register_execution(&module).unwrap(),
+                    rejected_body,
                 )
                 .is_err()
         );
+        runtime
+            .memory
+            .retire_execution(&runtime.resources, rejected)
+            .unwrap();
         assert!(store.remove(id).is_none());
         drop(frames);
         assert_eq!(store.records.borrow().slots.len(), 1);
         assert_eq!(store.frames.borrow().len(), 1);
         drop(store.remove(id).unwrap());
+        runtime
+            .memory
+            .retire_execution(&runtime.resources, id)
+            .unwrap();
         assert!(store.get(id).is_none());
         assert!(store.frames(id).is_none());
     }

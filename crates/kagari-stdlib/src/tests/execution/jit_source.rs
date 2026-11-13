@@ -6,10 +6,9 @@ use kagari_runtime::{
     module::entry::ProgramEntry,
     native::{
         binding::NativeResult, builder::ModuleBuilder, context::NativeCall,
-        declarations::FunctionDecl,
+        conversion::context::ConversionContext, declarations::FunctionDecl,
     },
-    value::Value,
-    value_semantics::script_equal,
+    value::view::ValueView,
 };
 
 use crate::tests::execution::{
@@ -21,8 +20,9 @@ use std::sync::{Arc, Mutex};
 
 #[test]
 fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
-    let bytecode =
-        common::compile_logging_test_bytecode(r#"fn main() -> i32 { print("linked"); 7 }"#);
+    let bytecode = common::compile_logging_test_bytecode(include_str!(
+        "../../../tests/fixtures/execution/linked-log.kgr"
+    ));
     for artifact in [false, true] {
         for jit in [false, true] {
             let module = if artifact {
@@ -46,14 +46,12 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
             let calls = Arc::new(Mutex::new(Vec::new()));
             let called = calls.clone();
             common::logging_module(move |cx, args| {
-                let [Value::Str(id)] = args else {
+                let [message] = args else {
                     panic!("log string")
                 };
-                called
-                    .lock()
-                    .unwrap()
-                    .push(cx.runtime().gc().string(*id).unwrap().to_owned());
-                Ok(Value::Unit)
+                cx.read_string(message, |text| called.lock().unwrap().push(text.to_owned()))
+                    .unwrap();
+                Ok(ValueView::unit())
             })
             .install(&mut runtime)
             .unwrap();
@@ -74,13 +72,7 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
                 vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
                     .unwrap()
             };
-            assert_eq!(
-                report
-                    .return_value
-                    .value(vm.gc())
-                    .expect("retained execution result"),
-                Value::I32(7)
-            );
+            assert_eq!(report.return_value.as_i32(), Some(7));
             assert_eq!(*calls.lock().unwrap(), vec!["linked".to_owned()]);
         }
     }
@@ -88,16 +80,9 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
 
 #[test]
 fn jit_fallback_executes_foundation_bindings_deterministically() {
-    let module = common::compile_test_bytecode(
-        r#"
-fn main() -> (u64, u64, i32) {
-    val values = Vec::from([1, 2]);
-    values.push(3);
-    (values.len(), values.len() - 1u64, match values.pop() { Some(value) => value + 4, None => 0 })
-}
-
-"#,
-    );
+    let module = common::compile_test_bytecode(include_str!(
+        "../../../tests/fixtures/execution/vec-fallback.kgr"
+    ));
     let (runtime, loaded) = common::load_bytecode_program_with_runtime(
         standard_runtime(Default::default()),
         "jit_stdlib_fallback",
@@ -117,18 +102,12 @@ fn main() -> (u64, u64, i32) {
         )
         .expect("unsupported JIT compilation should fall back");
 
-    assert!(
-        script_equal(
-            vm.gc(),
-            &(report
-                .return_value
-                .value(vm.gc())
-                .expect("retained execution result")),
-            &(vm.gc()
-                .alloc_tuple(vec![Value::U64(3), Value::U64(2), Value::I32(7)])
-                .unwrap())
-        )
-        .unwrap()
+    assert_eq!(
+        ConversionContext::new(&mut vm, &loaded)
+            .unwrap()
+            .decode::<(u64, u64, i32)>(&report.return_value)
+            .unwrap(),
+        (3, 2, 7),
     );
     let jit = report.jit.expect("JIT attempt should be reported");
     assert_eq!(jit.status, JitExecutionStatus::InterpreterFallback);

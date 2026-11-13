@@ -8,7 +8,7 @@ use thiserror::Error;
 /// boundaries. An Err does not imply the heap is recoverable: Faulted heaps only
 /// allow shutdown. Ordinary typed field access/traversal instead panic on contract
 /// violations; dynamic layout admission and downcasts retain explicit errors.
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Error, PartialEq, Eq)]
 pub enum GcError {
     #[error("the handle belongs to another heap")]
     ForeignHeap,

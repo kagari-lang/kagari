@@ -10,7 +10,7 @@ use kagari_runtime::{
         module::NativeModule,
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 use std::{
     array,
@@ -63,7 +63,7 @@ fn batch(
                             Codec::Exact(Type::unit()),
                             move |_| {
                                 let _retained = &capture;
-                                Ok(Value::Unit)
+                                Ok(ValueView::unit())
                             },
                         ))
                     }),

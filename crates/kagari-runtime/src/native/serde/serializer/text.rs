@@ -2,7 +2,7 @@
 use crate::{
     error::RuntimeError,
     native::{binding::NativeResult, conversion::context::ConversionContext},
-    value::Value,
+    value::view::ValueView,
 };
 use std::fmt::{self, Display, Write};
 
@@ -32,10 +32,10 @@ impl Write for TextWriter<'_, '_> {
     }
 }
 
-pub(super) fn collect<T: Display + ?Sized>(
-    cx: &mut ConversionContext<'_>,
+pub(super) fn collect<'runtime, T: Display + ?Sized>(
+    cx: &mut ConversionContext<'runtime>,
     value: &T,
-) -> NativeResult<Value> {
+) -> NativeResult<ValueView<'runtime>> {
     let mut writer = TextWriter {
         cx,
         text: String::new(),
@@ -46,5 +46,5 @@ pub(super) fn collect<T: Display + ?Sized>(
         return Err(error);
     }
     result.map_err(|_| RuntimeError::module_validation("Serde formatting failed"))?;
-    writer.cx.runtime().gc().alloc_string(writer.text)
+    writer.cx.allocate_string(writer.text)
 }

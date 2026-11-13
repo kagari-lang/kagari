@@ -7,8 +7,8 @@ use crate::{
     Runtime,
     error::RuntimeError,
     host::{HostCallContext, HostError},
-    native::{builder::ModuleBuilder, module::NativeModule},
-    value::Value,
+    native::{builder::ModuleBuilder, host, module::NativeModule},
+    value::{carriers::RootedValue, view::ValueView},
 };
 use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact},
@@ -82,7 +82,10 @@ fn declaration(context: &DefinitionContext, package: &str) -> DefinitionMetadata
 
 fn bound(
     declarations: DefinitionMetadata<ModuleDecl>,
-    callback: impl for<'call> Fn(&mut HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+    callback: impl for<'call> Fn(
+        &mut HostCallContext<'call>,
+        &[ValueView<'call>],
+    ) -> Result<ValueView<'call>, HostError>
     + Send
     + Sync
     + 'static,
@@ -90,7 +93,7 @@ fn bound(
     let mut builder =
         ModuleBuilder::from_declaration(declarations, &Default::default(), BTreeMap::new())?;
     let function = builder.declared_function("echo")?;
-    builder.bind(function, callback)?;
+    builder.bind(function, host::callback(callback))?;
     builder.finish()
 }
 
@@ -180,18 +183,20 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
     assert_eq!(a.bytecode.native_imports.len(), 1);
     assert_eq!(b.bytecode.native_imports.len(), 1);
     assert_eq!(a.key(), b.key());
-    assert!(invoke(&mut second, &a, 0, &[Value::I32(1)]).is_err());
+    assert!(invoke(&mut second, &a, 0, &[RootedValue::from(1i32)]).is_err());
     assert!(second.validate_executable_module(&a).is_err());
     assert!(second.module_instance_snapshot(&a).is_none());
     assert!(
         second
-            .write_module_slot(&a, ModuleSlot::new(0), Value::Unit)
+            .write_module_slot(&a, ModuleSlot::new(0), &RootedValue::unit())
             .is_err()
     );
     assert!(second.validate_executable_module(&b).is_ok());
     assert_eq!(
-        invoke(&mut second, &b, 0, &[Value::I32(7)]).unwrap(),
-        Value::I32(7)
+        invoke(&mut second, &b, 0, &[RootedValue::from(7i32)])
+            .unwrap()
+            .as_i32(),
+        Some(7)
     );
 }
 
@@ -203,7 +208,7 @@ fn callback_arguments_and_result_obey_the_declared_representation() {
     let called = calls.clone();
     let module = bound(declaration.clone(), move |_, _| {
         called.fetch_add(1, Ordering::SeqCst);
-        Ok(Value::Bool(true))
+        Ok(ValueView::from(true))
     })
     .unwrap();
     let mut runtime = Runtime::default();
@@ -211,12 +216,13 @@ fn callback_arguments_and_result_obey_the_declared_representation() {
     let loaded_program =
         load_bytecode(&mut runtime, "host", free_function_program(&declaration)).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     assert!(invoke(&mut runtime, &loaded, 0, &[]).is_err());
-    assert!(invoke(&mut runtime, &loaded, 0, &[Value::Bool(true)]).is_err());
+    assert!(invoke(&mut runtime, &loaded, 0, &[RootedValue::from(true)]).is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 0);
-    assert!(invoke(&mut runtime, &loaded, 0, &[Value::I32(1)]).is_err());
+    assert!(invoke(&mut runtime, &loaded, 0, &[RootedValue::from(1i32)]).is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
 }
 
 #[test]
@@ -254,7 +260,7 @@ fn offline_roundtrip_and_binding_link_do_not_run_callbacks() {
     let mut runtime = Runtime::default();
     bound(declaration, move |_, _| {
         called.fetch_add(1, Ordering::SeqCst);
-        Ok(Value::I32(7))
+        Ok(ValueView::from(7i32))
     })
     .unwrap()
     .install(&mut runtime)
@@ -391,18 +397,20 @@ fn invalid_registration_leaves_registry_unchanged() {
     let mut runtime = Runtime::default();
     assert!(load_bytecode(&mut runtime, "missing", free_function_program(&original)).is_err());
     assert_eq!(runtime.modules().loaded_count(), 0);
-    bound(original.clone(), |_, _| Ok(Value::I32(7)))
+    bound(original.clone(), |_, _| Ok(ValueView::from(7i32)))
         .unwrap()
         .install(&mut runtime)
         .unwrap();
-    let duplicate = bound(original.clone(), |_, _| Ok(Value::I32(9))).unwrap();
+    let duplicate = bound(original.clone(), |_, _| Ok(ValueView::from(9i32))).unwrap();
     assert!(duplicate.install(&mut runtime).is_err());
     let loaded_program =
         load_bytecode(&mut runtime, "original", free_function_program(&original)).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     assert_eq!(
-        invoke(&mut runtime, &loaded, 0, &[Value::I32(1)]).unwrap(),
-        Value::I32(7)
+        invoke(&mut runtime, &loaded, 0, &[RootedValue::from(1i32)])
+            .unwrap()
+            .as_i32(),
+        Some(7)
     );
 }
 

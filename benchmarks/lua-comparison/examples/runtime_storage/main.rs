@@ -67,7 +67,8 @@ fn lifecycle(engine: &KagariEngine, program: &Program, context: &ExecutionContex
         for sample in 0..14 {
             let mut runtime = engine.runtime(context.clone());
             let loaded = runtime.load_program(program, Default::default()).unwrap();
-            let baseline = runtime.collect_garbage().unwrap().live_objects;
+            runtime.collect_garbage().unwrap();
+            let baseline = runtime.gc_stats();
             let start = Instant::now();
             let values: ScriptValue = runtime
                 .execute_typed(&loaded, name, (POPULATION,), context)
@@ -78,9 +79,13 @@ fn lifecycle(engine: &KagariEngine, program: &Program, context: &ExecutionContex
             let live_gc = start.elapsed().as_nanos();
             drop(values);
             let start = Instant::now();
-            let empty = runtime.collect_garbage().unwrap();
+            runtime.collect_garbage().unwrap();
             let release_gc = start.elapsed().as_nanos();
-            assert_eq!(empty.live_objects, baseline);
+            assert_eq!(runtime.gc_stats().objects, baseline.objects);
+            assert_eq!(
+                runtime.gc_stats().root_registrations,
+                baseline.root_registrations
+            );
             if sample >= 3 {
                 for (phase, ns) in phases.iter_mut().zip([construction, live_gc, release_gc]) {
                     phase[sample - 3] = ns;

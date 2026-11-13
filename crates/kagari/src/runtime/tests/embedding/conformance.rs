@@ -10,8 +10,8 @@ use kagari_bytecode::artifact::{
     DependencyFingerprint,
 };
 use kagari_runtime::module::entry::ProgramEntry;
+use kagari_runtime::native::conversion::context::ConversionContext;
 use kagari_runtime::reload::ReloadValidationError;
-use kagari_runtime::value_semantics::script_equal;
 use kagari_stdlib as stdlib;
 
 use {
@@ -20,8 +20,6 @@ use {
     },
     kagari_source::{source::SourceFile, source_database::SourceLayer},
 };
-
-use kagari_runtime::value::Value;
 
 fn exact_compatibility(
     artifact: &BytecodeArtifact,
@@ -204,26 +202,12 @@ fn embedding_conformance_executes_foundation_native_artifacts() {
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .expect("builtin surface should execute through embedding API");
 
-    assert!(
-        script_equal(
-            runtime.gc(),
-            &(report
-                .return_value
-                .value(runtime.gc())
-                .expect("retained execution result")),
-            &(runtime
-                .gc()
-                .alloc_tuple(vec![
-                    Value::U64(3),
-                    Value::U64(2),
-                    Value::U64(1),
-                    Value::Bool(true),
-                    Value::I32(7),
-                ])
-                .unwrap())
-        )
+    let owner = runtime.select_program(&loaded).unwrap();
+    let actual = ConversionContext::new(&mut runtime, &owner)
         .unwrap()
-    );
+        .decode::<(u64, u64, u64, bool, i32)>(&report.return_value)
+        .unwrap();
+    assert_eq!(actual, (3, 2, 1, true, 7));
 }
 
 #[test]
@@ -298,13 +282,7 @@ pub fn main() -> u64 {
     let report = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .expect("reloaded standard artifact should execute");
-    assert_eq!(
-        report
-            .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        Value::U64(2)
-    );
+    assert_eq!(report.return_value.as_u64().unwrap(), 2);
 
     let error = Program::from_artifact(invalid, &Default::default(), &context.cancellation)
         .expect_err("invalid standard artifact should fail before publication");

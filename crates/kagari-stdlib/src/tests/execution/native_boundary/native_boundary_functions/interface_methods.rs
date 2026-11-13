@@ -27,10 +27,10 @@ fn prepared_interface_members_call_inherited_and_default_methods_on_multiple_rec
     let second: Interface = vm
         .execute_typed(&_owner_program, "make", (40,), &Default::default())
         .unwrap();
-    let member = player.member(&vm, "get").unwrap();
+    let member = player.member(&mut vm, "get").unwrap();
     let direct = player
         .member_declaration(
-            &vm,
+            &mut vm,
             &member
                 .definitions()
                 .resolve(member.declaration())
@@ -41,15 +41,16 @@ fn prepared_interface_members_call_inherited_and_default_methods_on_multiple_rec
     let get = vm.bind_interface_method::<(), i32>(&direct).unwrap();
     assert!(vm.bind_interface_method::<(i32,), i32>(&direct).is_err());
     assert!(vm.bind_interface_method::<(), bool>(&direct).is_err());
+    let damage_member = player.member(&mut vm, "damage").unwrap();
     let damage = vm
-        .bind_interface_method::<(i32,), i32>(&player.member(&vm, "damage").unwrap())
+        .bind_interface_method::<(i32,), i32>(&damage_member)
         .unwrap();
-    assert!(player.member(&vm, "missing").is_err());
+    assert!(player.member(&mut vm, "missing").is_err());
     let mut cx = vm.context(&owner).unwrap();
     assert_eq!(player.call(&mut cx, &get, ()).unwrap(), 100);
     assert_eq!(second.call(&mut cx, &get, ()).unwrap(), 40);
     assert_eq!(player.call(&mut cx, &damage, (10,)).unwrap(), 90);
-    let member = player.member(cx.runtime(), "fail").unwrap();
+    let member = player.member(cx.runtime_mut(), "fail").unwrap();
     let fail = cx
         .runtime_mut()
         .bind_interface_method::<(i32,), i32>(&member)
@@ -79,14 +80,13 @@ fn prepared_interface_members_call_inherited_and_default_methods_on_multiple_rec
 #[test]
 fn interface_method_results_use_existing_native_and_inherited_adapters() {
     let (mut vm, owner) = fixture(
-        r#"
-        use std::collections::List;
-        pub fn make() -> List<i32> { Vec::from([20, 22]) }
-    "#,
+        include_str!("../../../../../tests/fixtures/native/interface-native-adapters.kgr"),
         None,
     );
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let list: Interface = vm
         .execute_typed(&_owner_program, "make", (), &Default::default())
         .unwrap();
@@ -106,13 +106,14 @@ fn interface_method_results_use_existing_native_and_inherited_adapters() {
         )
         .unwrap();
     let len = vm.bind_interface_method::<(), usize>(&direct).unwrap();
+    let iter_member = list.member(&mut vm, "iter").unwrap();
     let iter = vm
-        .bind_interface_method::<(), Interface>(&list.member(&vm, "iter").unwrap())
+        .bind_interface_method::<(), Interface>(&iter_member)
         .unwrap();
     let mut cx = vm.context(&owner).unwrap();
     assert_eq!(list.call(&mut cx, &len, ()).unwrap(), 2);
     let iterator = list.call(&mut cx, &iter, ()).unwrap();
-    let member = iterator.member(cx.runtime(), "next").unwrap();
+    let member = iterator.member(cx.runtime_mut(), "next").unwrap();
     let next = cx
         .runtime_mut()
         .bind_interface_method::<(), Option<i32>>(&member)
@@ -124,35 +125,41 @@ fn interface_method_results_use_existing_native_and_inherited_adapters() {
     assert_eq!(iterator.call(&mut cx, &next, ()).unwrap(), Some(22));
     assert_eq!(iterator.call(&mut cx, &next, ()).unwrap(), None);
     drop(iterator);
-    assert_eq!(cx.runtime_mut().collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(cx.runtime().gc().active_roots(), 0);
+    drop(member);
+    drop(next);
+    drop(iter_member);
+    drop(iter);
+    drop(direct);
+    drop(len);
+    drop(cx);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
 fn interface_calls_preserve_associated_object_outputs_and_public_access() {
     let (mut vm, owner) = fixture(
-        r#"
-        pub trait Reader { type Item; fn read(self) -> Self::Item; }
-        trait Hidden { fn read(self) -> i32; }
-        pub struct Holder<T> { pub val value: T }
-        impl<T> Reader for Holder<T> { type Item = T; fn read(self) -> T { self.value } }
-        impl Hidden for Holder<i32> { fn read(self) -> i32 { self.value } }
-        pub fn make() -> Reader<Item = Holder<i32>> { Holder { value: Holder { value: 42 } } }
-        pub fn hidden() -> Hidden { Holder { value: 1 } }
-    "#,
+        include_str!("../../../../../tests/fixtures/native/interface-associated-objects.kgr"),
         None,
     );
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
     let value: Interface = vm
         .execute_typed(&_owner_program, "make", (), &Default::default())
         .unwrap();
     let hidden: Interface = vm
         .execute_typed(&_owner_program, "hidden", (), &Default::default())
         .unwrap();
-    assert!(hidden.member(&vm, "read").is_err());
+    assert!(hidden.member(&mut vm, "read").is_err());
+    let read_member = value.member(&mut vm, "read").unwrap();
     let read = vm
-        .bind_interface_method::<(), Object>(&value.member(&vm, "read").unwrap())
+        .bind_interface_method::<(), Object>(&read_member)
         .unwrap();
     let result = value
         .call(&mut vm.context(&owner).unwrap(), &read, ())
@@ -168,7 +175,15 @@ fn interface_calls_preserve_associated_object_outputs_and_public_access() {
         42
     );
     drop(result);
-    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    drop(field);
+    drop(read);
+    drop(read_member);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
@@ -197,6 +212,7 @@ fn interface_dispatch_collects_during_reentry_and_selects_current_default_code()
     }
     .unwrap();
     let module = builder.finish().unwrap();
+    assert_eq!(SOURCE.matches("self.get() - amount").count(), 1);
     let source = format!(
         "use example::interface_methods::collect;\n{}",
         SOURCE.replace("self.get() - amount", "collect(); self.get() - amount")
@@ -207,7 +223,7 @@ fn interface_dispatch_collects_during_reentry_and_selects_current_default_code()
     let player: Interface = vm
         .execute_typed(&_old_program, "make", (100,), &Default::default())
         .unwrap();
-    let member = player.member(&vm, "damage").unwrap();
+    let member = player.member(&mut vm, "damage").unwrap();
     let damage = vm.bind_interface_method::<(i32,), i32>(&member).unwrap();
     let duplicate = vm.bind_interface_method::<(i32,), i32>(&member).unwrap();
     drop(member);
@@ -226,8 +242,9 @@ fn interface_dispatch_collects_during_reentry_and_selects_current_default_code()
     let new_player: Interface = vm
         .execute_typed(&_new_program, "make", (100,), &Default::default())
         .unwrap();
+    let new_member = new_player.member(&mut vm, "damage").unwrap();
     let new_damage = vm
-        .bind_interface_method::<(i32,), i32>(&new_player.member(&vm, "damage").unwrap())
+        .bind_interface_method::<(i32,), i32>(&new_member)
         .unwrap();
     let mut cx = vm.context(&new).unwrap();
     assert_eq!(calls.load(Ordering::Relaxed), 0);
@@ -239,19 +256,9 @@ fn interface_dispatch_collects_during_reentry_and_selects_current_default_code()
     assert_eq!(calls.load(Ordering::Relaxed), 4);
     drop(player);
     drop(damage);
-    assert!(
-        !cx.runtime_mut()
-            .collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&old.key())
-    );
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert!(cx.runtime().validate_executable_module(&old).is_ok());
     drop(duplicate);
-    assert!(
-        cx.runtime_mut()
-            .collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&old.key())
-    );
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert!(cx.runtime().validate_executable_module(&old).is_err());
 }

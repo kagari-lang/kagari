@@ -2,16 +2,18 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    execution_metadata::{MetadataEdge, application_key::AdapterIdentity},
+    execution_metadata::{
+        MetadataEdge, application_key::AdapterIdentity, managed::sources::MetadataSource,
+    },
     frame::types::{
         TypeEnvironment, arguments::TypeArgument, bindings::AssociatedInterface,
         compatibility::TypeIdentity,
     },
-    gc::interfaces::InterfaceResultBinding,
     module::{
         ExecutableModule, ModuleKey,
         dispatch::{SelectedTarget, identity::PublicationDefinitions},
     },
+    objects::interfaces::description::InterfaceResultBinding,
 };
 use std::sync::Arc;
 
@@ -150,34 +152,38 @@ impl ConstructionScope {
         }
     }
 
-    pub(crate) fn trace<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
-        pending.extend(self.programs.iter().map(MetadataEdge::Program));
+    pub(crate) fn trace<'a, E, F>(&'a self, visit: &mut F) -> Result<(), E>
+    where
+        F: FnMut(MetadataEdge<'a>) -> Result<(), E> + ?Sized,
+    {
+        for program in self.programs.iter() {
+            visit(MetadataEdge::Program(program))?;
+        }
         for binding in self.selections.iter() {
-            pending.push(MetadataEdge::Program(&binding.owner));
+            visit(MetadataEdge::Program(&binding.owner))?;
             if let Some(selection) = &binding.selection {
-                pending.push(MetadataEdge::Program(&selection.owner));
+                visit(MetadataEdge::Program(&selection.owner))?;
                 if let Some(environment) = &selection.environment {
-                    pending.push(MetadataEdge::Environment(environment.id));
+                    visit(MetadataEdge::Environment(environment.id))?;
                 }
             }
         }
+        Ok(())
     }
 }
 
 impl Runtime {
     pub(crate) fn construction_scope(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
         environment: Option<&TypeEnvironment>,
+        protected: &[MetadataSource<'_>],
     ) -> Result<ConstructionScope, RuntimeError> {
         self.validate_executable_module(owner)?;
         let mut scope = ConstructionScope::new(owner);
         if let Some(environment) = environment {
-            let environment = self
-                .gc
-                .environment(environment.id)
-                .ok_or_else(|| RuntimeError::module_validation("construction environment"))?;
-            scope.extend(&environment.constructions);
+            let environment = self.environment_snapshot_in(protected, environment)?;
+            scope.extend(&environment.record.constructions);
         }
         Ok(scope)
     }

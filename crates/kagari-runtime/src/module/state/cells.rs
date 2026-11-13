@@ -1,52 +1,26 @@
-//! Allocation and transactional generation bindings. The module store owns cells;
-//! immutable loaded descriptors and prepared programs never own mutable state.
+//! Pure monotonic binding identities support transactional staging. Actual values,
+//! phases and attempts belong to managed cells, never this metadata directory.
 use crate::{
     error::RuntimeError,
     frame::types::compatibility::TypeView,
     module::{
-        ExecutableModule, InstallationId, ModuleStore, ModuleStoreInner,
-        records::ModuleRecord,
-        state::{StaticRecipe, StaticState, compatibility, initialization::InitializationAttempt},
+        ExecutableModule, InstallationId, ModuleStore, ModuleStoreInner, records::ModuleRecord,
+        state::compatibility,
     },
 };
 use kagari_common::identity::table::DefinitionId;
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::collections::{HashMap, HashSet};
 
 /// Monotonic within one runtime; IDs are never reused after retirement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(in crate::module) struct CellId(u64);
 
 #[derive(Debug)]
-pub(in crate::module) struct StaticCell {
+pub(in crate::module) struct StaticBinding {
     /// Immutable type provenance, not an executable graph root.
     pub(in crate::module) owner: ExecutableModule,
     pub(in crate::module) slot: usize,
     pub(in crate::module) lineage: InstallationId,
-    pub(in crate::module) state: StaticState,
-    pub(in crate::module) attempt: Option<Arc<InitializationAttempt>>,
-}
-
-impl StaticCell {
-    /// A detached frame can poison its attempt during termination/drop without
-    /// borrowing storage. Completion is authoritative until the next transition.
-    pub(in crate::module) fn snapshot(&self) -> StaticState {
-        self.attempt
-            .as_ref()
-            .and_then(|attempt| attempt.failure())
-            .map_or_else(
-                || self.state.clone(),
-                |failure| StaticState::Failed(failure.clone()),
-            )
-    }
-
-    pub(in crate::module) fn failed_attempt(&self) -> bool {
-        self.attempt
-            .as_ref()
-            .is_some_and(|attempt| attempt.failure().is_some())
-    }
 }
 
 impl ModuleStoreInner {
@@ -55,23 +29,17 @@ impl ModuleStoreInner {
         &self,
         record: &ModuleRecord,
         slot: usize,
-    ) -> Option<&StaticCell> {
+    ) -> Option<&StaticBinding> {
         if record.bindings.len() != record.module.bytecode.module_slots.len() {
             return None;
         }
         let expected = record.module.static_contracts.get(slot)?;
         let cell = self.cells.get(record.bindings.get(slot)?)?;
-        let descriptor = cell.owner.bytecode.module_slots.get(cell.slot)?;
+        cell.owner.bytecode.module_slots.get(cell.slot)?;
         if cell.lineage != record.static_lineage
             || cell.lineage != record.module.installation_id()
             || cell.owner.installation_id() != cell.lineage
             || cell.owner.static_contracts.get(cell.slot)? != expected
-        {
-            return None;
-        }
-        if let StaticState::Uninitialized(recipe) | StaticState::Initializing(recipe) = &cell.state
-            && (recipe.module.key() != cell.owner.key()
-                || recipe.function != descriptor.initializer)
         {
             return None;
         }
@@ -109,15 +77,10 @@ impl ModuleStoreInner {
                 }
                 pending.push((
                     id,
-                    StaticCell {
+                    StaticBinding {
                         owner: owner.clone(),
                         slot,
                         lineage: root.installation_id(),
-                        attempt: None,
-                        state: StaticState::Uninitialized(StaticRecipe {
-                            module: owner.clone(),
-                            function: descriptor.initializer,
-                        }),
                     },
                 ));
             }

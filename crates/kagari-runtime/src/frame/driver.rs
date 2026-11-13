@@ -4,8 +4,7 @@ use crate::diagnostics::{self, Event};
 use crate::{
     Runtime,
     error::{RuntimeError, fault::EngineFault},
-    frame::{ExecutionFrame, FrameStack, NativeEntryState},
-    value::Value,
+    frame::{ExecutionFrame, FrameStack, NativeEntryState, transfer::ReturnValue},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,9 +18,9 @@ pub enum ExecutionAction {
 /// A completed return either exits this stack scope or resumes an established state.
 /// The driver must still poll cancellation, observe instructions and honor slices.
 /// Continuations belong to the current activation; a later resume admits again.
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum ReturnAction {
-    Complete(Value),
+    Complete(ReturnValue),
     Continue(ExecutionAction),
 }
 

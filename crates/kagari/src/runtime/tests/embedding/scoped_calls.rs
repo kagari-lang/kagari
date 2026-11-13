@@ -18,7 +18,6 @@ use kagari_runtime::{
         types::Type,
     },
     session::{ExecutionEvent, ExecutionObserver},
-    value::Value,
 };
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
@@ -119,8 +118,9 @@ fn scoped_native_calls_accept_compatible_reloaded_descriptors() {
             for (loaded, hp) in [(&old, 40), (&current, 41), (&old, 42)] {
                 for (entry, expected) in [("direct", hp), ("native", hp + 100), ("heal", hp + 1)] {
                     assert_eq!(
-                        Runtime::execute_scoped(scope, loaded, entry, &[view.value()], &context)?,
-                        Value::I32(expected)
+                        Runtime::execute_scoped(scope, loaded, entry, &[view.value()], &context)?
+                            .as_i32(),
+                        Some(expected)
                     );
                 }
             }
@@ -132,8 +132,9 @@ fn scoped_native_calls_accept_compatible_reloaded_descriptors() {
         .with_host_scope(|scope| {
             let view = scope.borrow(&descriptor, &stats)?;
             assert_eq!(
-                Runtime::execute_scoped(scope, &current, "native", &[view.value()], &context)?,
-                Value::I32(143)
+                Runtime::execute_scoped(scope, &current, "native", &[view.value()], &context)?
+                    .as_i32(),
+                Some(143)
             );
             assert!(
                 Runtime::execute_scoped(scope, &current, "heal", &[view.value()], &context)
@@ -245,16 +246,19 @@ fn scoped_entries_use_explicit_sdk_context_and_the_common_pack_adapter() {
                 ..context.clone()
             };
             assert_eq!(
-                Runtime::execute_scoped(scope, &loaded, "inspect", &[player.value()], &context)?,
-                Value::I32(40)
+                Runtime::execute_scoped(scope, &loaded, "inspect", &[player.value()], &context)?
+                    .as_i32(),
+                Some(40)
             );
             assert_eq!(
-                Runtime::execute_scoped(scope, &loaded, "tick", &[player.value()], &context)?,
-                Value::I32(70)
+                Runtime::execute_scoped(scope, &loaded, "tick", &[player.value()], &context)?
+                    .as_i32(),
+                Some(70)
             );
             assert_eq!(
-                Runtime::execute_scoped(scope, &loaded, "inspect", &[player.value()], &context)?,
-                Value::I32(70)
+                Runtime::execute_scoped(scope, &loaded, "inspect", &[player.value()], &context)?
+                    .as_i32(),
+                Some(70)
             );
             Ok(())
         })

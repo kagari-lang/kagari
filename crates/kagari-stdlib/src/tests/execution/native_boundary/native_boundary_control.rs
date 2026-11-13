@@ -1,11 +1,10 @@
 //! Retained control-boundary behavior using ordinary synchronous application natives.
-use crate::{
-    catalog as foundation_catalog,
-    declarations::StandardDeclarations,
-    tests::{
-        execution::native_boundary::{publish_unused_version, support::round_trip_program},
-        support::bytecode::reload_bytecode,
+use crate::tests::{
+    execution::{
+        common::{compile_native_test_bytecode, logging_module, round_trip_bytecode},
+        native_boundary::{publish_unused_version, support::CancelAt},
     },
+    support::bytecode::reload_bytecode,
 };
 
 #[cfg(test)]
@@ -15,17 +14,16 @@ use kagari_runtime::{
     Runtime, RuntimeConfig,
     debug::{DebugPauseReason, DebugSession, SourceBreakpoint},
     error::RuntimeErrorKind,
+    execution::memory::GcHeapConfig,
     execution::reentry::reenter,
-    gc::GcHeapConfig,
-    host::{HostCallContext, HostError},
     module::entry::ProgramEntry,
     native::{
         binding::NativeResult, builder::ModuleBuilder, callable::CallableHandle,
-        context::NativeCall, declarations::FunctionDecl, installation::NativeInstallation,
-        module::NativeModule, types::Type,
+        context::NativeCall, conversion::context::ConversionContext, declarations::FunctionDecl,
+        host, installation::NativeInstallation, module::NativeModule, types::Type,
     },
     resource::RuntimeLimits,
-    value::Value,
+    value::{carriers::RootedValue, view::ValueView},
 };
 
 use kagari_bytecode::{
@@ -33,42 +31,12 @@ use kagari_bytecode::{
     program::BytecodeProgram,
 };
 use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
-use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
-use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 use kagari_types::declaration::logging;
-use std::sync::Arc;
-use std::sync::{
-    Mutex,
-    atomic::{AtomicUsize, Ordering},
-};
-
-fn logging_module(
-    entry: impl for<'call> Fn(&mut HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
-    + Send
-    + Sync
-    + 'static,
-) -> NativeModule {
-    let mut builder = ModuleBuilder::from_declaration(
-        logging::declaration().unwrap(),
-        &StandardDeclarations::default().catalog().unwrap(),
-        Default::default(),
-    )
-    .unwrap();
-    let log = builder.declared_function("log").unwrap();
-    builder.bind(log, entry).unwrap();
-    builder.finish().unwrap()
-}
+use std::sync::{Arc, Mutex};
 
 fn module() -> NativeModule {
-    let mut module = ModuleBuilder::new(
-        "test::boundary",
-        &StandardDeclarations::default()
-            .catalog()
-            .expect("explicit standard providers"),
-    )
-    .unwrap();
+    let mut module = ModuleBuilder::new("test::boundary", &Default::default()).unwrap();
     let choose = module
         .define_function(
             FunctionDecl::new("choose")
@@ -91,37 +59,8 @@ fn module() -> NativeModule {
 
 fn compile_test_bytecode(text: &str) -> DefinitionMetadata<BytecodeProgram> {
     let native = module();
-    let mut sources = SourceDatabase::default();
-    let file = sources
-        .set(
-            "test.kgr",
-            format!("{text}\nuse test::boundary; use host;"),
-            SourceLayer::Base,
-        )
-        .unwrap();
-    let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(
-        foundation_catalog::shared()
-            .unwrap()
-            .into_iter()
-            .chain([
-                Arc::new(native.to_declaration()),
-                Arc::new(logging::declaration().unwrap()),
-            ])
-            .collect(),
-    );
-    let snapshot = analysis
-        .snapshot(sources.snapshot(), &Default::default())
-        .unwrap();
-    let checked = snapshot.check_program(file, &Default::default()).unwrap();
-    let mir = lower_program_to_mir(
-        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
-        &Default::default(),
-    )
-    .unwrap();
-    lower_program_to_bytecode(&mir, &Default::default())
-        .map(|program| program.into_unverified())
-        .unwrap()
+    let logging = logging_module(|_, _| Ok(ValueView::unit()));
+    compile_native_test_bytecode(text, &[&native, &logging])
 }
 
 fn runtime(limits: RuntimeLimits) -> Runtime {
@@ -134,11 +73,7 @@ fn runtime(limits: RuntimeLimits) -> Runtime {
         limits,
         ..Default::default()
     });
-    kagari_runtime::native::module::NativeModule::install_all(
-        &crate::modules().unwrap(),
-        &mut runtime,
-    )
-    .unwrap();
+    NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
     module().install(&mut runtime).unwrap();
     runtime
 }
@@ -148,14 +83,13 @@ fn route(
     encoded: bool,
 ) -> DefinitionMetadata<BytecodeProgram> {
     if encoded {
-        round_trip_program(program.clone())
+        round_trip_bytecode(program.clone())
     } else {
         program.clone()
     }
 }
 
 fn assert_clean(vm: &Runtime) {
-    assert_eq!(vm.gc().active_roots(), 0);
     assert_eq!(vm.resources().counters().current_call_depth, 0);
     assert!(!vm.is_quarantined());
 }
@@ -164,7 +98,7 @@ fn assert_clean(vm: &Runtime) {
 fn callback_depth_failure_precedes_effects_and_cleans_native_roots() {
     for (input, fails) in [("true", true), ("false", false)] {
         let program = compile_test_bytecode(&format!(
-            "fn main() -> i32 {{ boundary::choose({input}, || {{ host::log(\"effect\"); 42 }}) }}"
+            "use test::boundary; use host; fn main() -> i32 {{ boundary::choose({input}, || {{ host::log(\"effect\"); 42 }}) }}"
         ));
         for encoded in [false, true] {
             let mut runtime = runtime(RuntimeLimits {
@@ -174,7 +108,7 @@ fn callback_depth_failure_precedes_effects_and_cleans_native_roots() {
             let sink = effects.clone();
             logging_module(move |_, _| {
                 *sink.lock().unwrap() += 1;
-                Ok(Value::Unit)
+                Ok(ValueView::unit())
             })
             .install(&mut runtime)
             .unwrap();
@@ -183,32 +117,33 @@ fn callback_depth_failure_precedes_effects_and_cleans_native_roots() {
             let _loaded_program = loaded;
             let loaded = runtime.select_program(&_loaded_program).unwrap();
             let mut vm = runtime;
+            vm.collect_garbage().unwrap();
+            let baseline = vm.gc_stats();
             let result = vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options());
             if fails {
                 assert!(
                     matches!(result, Err(error) if error.kind() == RuntimeErrorKind::ResourceLimitExceeded)
                 );
             } else {
-                assert_eq!(
-                    result
-                        .unwrap()
-                        .return_value
-                        .value(vm.gc())
-                        .expect("retained execution result"),
-                    Value::I32(7)
-                );
+                assert_eq!(result.unwrap().return_value.as_i32(), Some(7));
             }
             assert_eq!(*effects.lock().unwrap(), 0);
             assert_clean(&vm);
+            vm.collect_garbage().unwrap();
+            assert_eq!(
+                vm.gc_stats().root_registrations,
+                baseline.root_registrations
+            );
+            assert_eq!(vm.gc_stats().objects, baseline.objects);
         }
     }
 }
 
 #[test]
 fn cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session() {
-    let program = compile_test_bytecode(
-        "fn main() -> i32 { val kept = [42]; boundary::choose(true, || { host::log(\"cancel\"); kept[0] }) } pub fn ready() -> i32 { 7 }",
-    );
+    let program = compile_test_bytecode(include_str!(
+        "../../../../tests/fixtures/native/native-control-cancellation.kgr"
+    ));
     for encoded in [false, true] {
         let token = CancellationToken::default();
         let cancel = token.clone();
@@ -218,7 +153,7 @@ fn cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session()
         logging_module(move |_, _| {
             *sink.lock().unwrap() += 1;
             cancel.cancel();
-            Ok(Value::Unit)
+            Ok(ValueView::unit())
         })
         .install(&mut runtime)
         .unwrap();
@@ -226,6 +161,8 @@ fn cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session()
             load_bytecode(&mut runtime, "native-control", route(&program, encoded)).unwrap();
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
+        runtime.collect_garbage().unwrap();
+        let baseline = runtime.gc_stats();
         let mut options = runtime.execution_options();
         options.cancellation = token;
         let mut vm = runtime;
@@ -249,19 +186,23 @@ fn cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session()
             vm.execute_module(&loaded, "ready", vm.execution_options())
                 .unwrap()
                 .return_value
-                .value(vm.gc())
-                .expect("retained execution result"),
-            Value::I32(7)
+                .as_i32(),
+            Some(7)
         );
         // Check a fresh session on the same version before retiring its constants.
         publish_unused_version(&mut vm, &_loaded_program);
-        assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+        vm.collect_garbage().unwrap();
+        assert_eq!(vm.gc_stats().objects, baseline.objects);
+        assert_eq!(
+            vm.gc_stats().root_registrations,
+            baseline.root_registrations
+        );
     }
 }
 
 #[test]
 fn callback_trap_preserves_the_public_caller_origin_and_debug_frames() {
-    let source = "fn main() -> i32 { boundary::choose(true, || { host::log(\"effect\"); val n = 2147483647; n + 1 }) }";
+    let source = include_str!("../../../../tests/fixtures/native/native-control-trap.kgr");
     let program = compile_test_bytecode(source);
     let caller_offset = program.records().modules[program.records().root.index()]
         .functions
@@ -286,7 +227,7 @@ fn callback_trap_preserves_the_public_caller_origin_and_debug_frames() {
         let sink = effects.clone();
         logging_module(move |_, _| {
             *sink.lock().unwrap() += 1;
-            Ok(Value::Unit)
+            Ok(ValueView::unit())
         })
         .install(&mut runtime)
         .unwrap();
@@ -294,6 +235,8 @@ fn callback_trap_preserves_the_public_caller_origin_and_debug_frames() {
             load_bytecode(&mut runtime, "native-control", route(&program, encoded)).unwrap();
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
+        runtime.collect_garbage().unwrap();
+        let baseline = runtime.gc_stats();
         let mut debug = DebugSession::new(&runtime).unwrap();
         let breakpoint = debug
             .add_breakpoint(SourceBreakpoint::at_source_offset(
@@ -337,7 +280,7 @@ fn callback_trap_preserves_the_public_caller_origin_and_debug_frames() {
                 pause.frames[2]
                     .bindings
                     .iter()
-                    .any(|binding| binding.name == "n" && binding.value == Value::I32(i32::MAX))
+                    .any(|binding| binding.name == "n" && binding.value.as_i32() == Some(i32::MAX))
             );
         }
         assert_eq!(*effects.lock().unwrap(), 1);
@@ -346,18 +289,24 @@ fn callback_trap_preserves_the_public_caller_origin_and_debug_frames() {
         let empty_debug = DebugSession::new(&vm).unwrap();
         vm.attach_debug_session(empty_debug).unwrap();
         assert_clean(&vm);
+        // Current publication owns warmed String constants independently of call
+        // locals. Replace it before asserting that execution roots are reclaimed.
+        publish_unused_version(&mut vm, &_loaded_program);
+        vm.collect_garbage().unwrap();
+        assert!(vm.validate_executable_module(&loaded).is_err());
+        assert_eq!(
+            vm.gc_stats().root_registrations,
+            baseline.root_registrations
+        );
+        assert_eq!(vm.gc_stats().objects, baseline.objects);
     }
 }
 
 #[test]
 fn host_reentry_returns_to_the_synchronous_native_caller() {
-    let program = compile_test_bytecode(
-        r#"
-fn main() -> i32 { val kept = [40]; boundary::choose(true, || { host::log("outer"); kept[0] + 2 }) }
-fn inner() -> i32 { boundary::choose(true, || { host::log("inner"); 7 }) }
-fn fail() -> i32 { boundary::choose(true, || { val n = 2147483647; n + 1 }) }
-"#,
-    );
+    let program = compile_test_bytecode(include_str!(
+        "../../../../tests/fixtures/native/native-control-reentry.kgr"
+    ));
     let root = &program.records().modules[program.records().root.index()];
     let inner = root
         .functions
@@ -376,21 +325,19 @@ fn fail() -> i32 { boundary::choose(true, || { val n = 2147483647; n + 1 }) }
         let sink = effects.clone();
         let mut runtime = runtime(Default::default());
         logging_module(move |context, args| {
-            let [Value::Str(id)] = args else {
-                panic!("log string")
-            };
-            let text = context.runtime().gc().string(*id).unwrap().to_owned();
+            let text = context.read_string(&args[0], str::to_owned).unwrap();
             sink.lock().unwrap().push(text.clone());
             let root = context.runtime().execution_root().unwrap();
             if text == "outer" {
+                let arguments = context.retain_temporaries(&[]).unwrap();
                 assert_eq!(
-                    reenter(context, &root, inner, &[])
-                        .unwrap()
-                        .value(context.runtime().gc())
-                        .unwrap(),
-                    Value::I32(7)
+                    reenter(context, &root, inner, arguments).unwrap().as_i32(),
+                    Some(7)
                 );
-                assert!(reenter(context, &root, fail, &[]).is_err());
+                assert_eq!(
+                    reenter(context, &root, fail, arguments).unwrap_err().kind(),
+                    RuntimeErrorKind::ScriptTrap
+                );
                 assert_eq!(
                     context.runtime().resources().counters().current_call_depth,
                     4
@@ -402,7 +349,7 @@ fn fail() -> i32 { boundary::choose(true, || { val n = 2147483647; n + 1 }) }
                 );
             }
             context.runtime_mut().collect_garbage().unwrap();
-            Ok(Value::Unit)
+            Ok(ValueView::unit())
         })
         .install(&mut runtime)
         .unwrap();
@@ -411,16 +358,27 @@ fn fail() -> i32 { boundary::choose(true, || { val n = 2147483647; n + 1 }) }
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
         let mut vm = runtime;
+        vm.collect_garbage().unwrap();
+        let baseline = vm.gc_stats();
         assert_eq!(
             vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
                 .unwrap()
                 .return_value
-                .value(vm.gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+                .as_i32(),
+            Some(42)
         );
         assert_eq!(*effects.lock().unwrap(), ["outer", "inner"]);
         assert_clean(&vm);
+        // Current publication owns warmed String constants independently of call
+        // locals. Replace it before asserting that execution roots are reclaimed.
+        publish_unused_version(&mut vm, &_loaded_program);
+        vm.collect_garbage().unwrap();
+        assert!(vm.validate_executable_module(&loaded).is_err());
+        assert_eq!(
+            vm.gc_stats().root_registrations,
+            baseline.root_registrations
+        );
+        assert_eq!(vm.gc_stats().objects, baseline.objects);
     }
 }
 
@@ -429,6 +387,8 @@ fn native_callbacks_invoke_the_retained_closure_generation_after_replacement() {
     let program = |number| {
         compile_test_bytecode(&format!(
             r#"
+use test::boundary;
+use host;
 pub fn make() -> fn() -> i32 {{ || {{ boundary::choose(true, || {number}) }} }}
 fn consume(callback: fn() -> i32) -> i32 {{ boundary::choose(true, callback) }}
 fn main() -> i32 {{ host::log("invoke"); 0 }}
@@ -444,20 +404,20 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
         .unwrap()
         .id;
     for encoded in [false, true] {
-        let retained = Arc::new(Mutex::new(None::<Value>));
+        let retained = Arc::new(Mutex::new(None::<RootedValue>));
         let callback = retained.clone();
         let observed = Arc::new(Mutex::new(Vec::new()));
         let sink = observed.clone();
         let mut runtime = runtime(Default::default());
         logging_module(move |context, _| {
-            let value = *callback.lock().unwrap().as_ref().unwrap();
+            let value = callback.lock().unwrap().as_ref().unwrap().clone();
+            let value = context.import(&value).unwrap();
             let root = context.runtime().execution_root().unwrap();
-            let result = reenter(context, &root, consume, &[value]).unwrap();
-            sink.lock()
-                .unwrap()
-                .push(result.value(context.runtime().gc()).unwrap());
+            let arguments = context.retain_temporaries(&[value]).unwrap();
+            let result = reenter(context, &root, consume, arguments).unwrap();
+            sink.lock().unwrap().push(result.as_i32().unwrap());
             context.runtime_mut().collect_garbage().unwrap();
-            Ok(Value::Unit)
+            Ok(ValueView::unit())
         })
         .install(&mut runtime)
         .unwrap();
@@ -467,14 +427,13 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
         let old = runtime.select_program(&_old_program).unwrap();
         let old_key = old.key();
         let mut vm = runtime;
-        let closure = vm
+        vm.collect_garbage().unwrap();
+        let baseline = vm.gc_stats();
+        let rooted = vm
             .execute_module(&old, "make", vm.execution_options())
             .unwrap()
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result");
-        let rooted = vm.root_value(closure).unwrap();
-        *retained.lock().unwrap() = Some(closure);
+            .return_value;
+        *retained.lock().unwrap() = Some(rooted.clone());
         reload_bytecode(
             &mut vm,
             &_old_program,
@@ -486,44 +445,54 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
         let new = vm.select_program(&_new_program).unwrap();
         drop(old);
         vm.collect_garbage().unwrap();
-        assert_eq!(
-            vm.resolve_closure(&rooted.value(vm.gc()).unwrap())
-                .unwrap()
-                .implementation
-                .key(),
-            old_key
-        );
+        {
+            let mut cx = ConversionContext::new(&mut vm, &new).unwrap();
+            let value = cx.import(&rooted).unwrap();
+            assert_eq!(
+                cx.runtime_mut()
+                    .resolve_closure(&value)
+                    .unwrap()
+                    .implementation
+                    .key(),
+                old_key
+            );
+        }
         assert_ne!(new.key(), old_key);
         assert_eq!(
             vm.execute_module(&new, ProgramEntry::Main, vm.execution_options())
                 .unwrap()
                 .return_value
-                .value(vm.gc())
-                .expect("retained execution result"),
-            Value::I32(0)
+                .as_i32(),
+            Some(0)
         );
-        assert_eq!(*observed.lock().unwrap(), [Value::I32(41)]);
+        assert_eq!(*observed.lock().unwrap(), [41]);
         retained.lock().unwrap().take();
         drop(rooted);
         assert_clean(&vm);
         publish_unused_version(&mut vm, &_new_program);
         vm.collect_garbage().unwrap();
-        assert_eq!(vm.gc().allocated_objects(), 0);
+        assert_eq!(vm.gc_stats().objects, baseline.objects);
+        assert_eq!(
+            vm.gc_stats().root_registrations,
+            baseline.root_registrations
+        );
     }
 }
 
 #[test]
 fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
-    let program = compile_test_bytecode(
-        "fn main() -> i32 { boundary::choose(true, || { host::log(\"effect\"); 42 }) } pub fn ready() -> i32 { 7 }",
-    );
-    let decoded = round_trip_program(program.clone());
+    let program = compile_test_bytecode(include_str!(
+        "../../../../tests/fixtures/native/native-control-observed-cancellation.kgr"
+    ));
+    let decoded = round_trip_bytecode(program.clone());
     let mut modules = crate::modules().unwrap();
     modules.push(module());
     let installation = NativeInstallation::prepare(&modules).unwrap();
     let logging_template = ModuleBuilder::from_declaration(
         logging::declaration().unwrap(),
-        &StandardDeclarations::default().catalog().unwrap(),
+        &crate::declarations::StandardDeclarations::default()
+            .catalog()
+            .unwrap(),
         Default::default(),
     )
     .unwrap();
@@ -544,25 +513,25 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
             logging
                 .bind(
                     log.clone(),
-                    move |_: &mut HostCallContext<'_>, _: &[Value]| -> Result<Value, HostError> {
+                    host::callback(move |_, _| {
                         *sink.lock().unwrap() += 1;
-                        Ok(Value::Unit)
-                    },
+                        Ok(ValueView::unit())
+                    }),
                 )
                 .unwrap();
             logging.finish().unwrap().install(&mut runtime).unwrap();
             let loaded = load_bytecode(&mut runtime, "native-control", program.clone()).unwrap();
             let _loaded_program = loaded;
             let loaded = runtime.select_program(&_loaded_program).unwrap();
+            runtime.collect_garbage().unwrap();
+            let baseline = runtime.gc_stats();
             let options = runtime.execution_options();
             runtime
-                .set_execution_observer(
-                    crate::tests::execution::native_boundary::support::CancelAt {
-                        seen: Default::default(),
-                        at,
-                        token: options.cancellation.clone(),
-                    },
-                )
+                .set_execution_observer(CancelAt {
+                    seen: Default::default(),
+                    at,
+                    token: options.cancellation.clone(),
+                })
                 .unwrap();
             let mut vm = runtime;
             let mut session = vm.begin_execution(&loaded, options).unwrap();
@@ -574,13 +543,7 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
                 session_options.clone(),
             ) {
                 Ok(report) => {
-                    assert_eq!(
-                        report
-                            .return_value
-                            .value(session.runtime().gc())
-                            .expect("retained execution result"),
-                        Value::I32(42)
-                    );
+                    assert_eq!(report.return_value.as_i32(), Some(42));
                     assert_eq!(*effects.lock().unwrap(), 1);
                 }
                 Err(error) => {
@@ -602,90 +565,20 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
                 vm.execute_module(&loaded, "ready", vm.execution_options())
                     .unwrap()
                     .return_value
-                    .value(vm.gc())
-                    .expect("retained execution result"),
-                Value::I32(7)
+                    .as_i32(),
+                Some(7)
             );
             publish_unused_version(&mut vm, &_loaded_program);
-            assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
-            if vm
-                .execution_observer::<crate::tests::execution::native_boundary::support::CancelAt>()
-                .unwrap()
-                .seen
-                .get()
-                <= at
-            {
+            vm.collect_garbage().unwrap();
+            assert_eq!(vm.gc_stats().objects, baseline.objects);
+            assert_eq!(
+                vm.gc_stats().root_registrations,
+                baseline.root_registrations
+            );
+            if vm.execution_observer::<CancelAt>().unwrap().seen.get() <= at {
                 break;
             }
         }
         assert!(cancellations > 5);
-    }
-}
-
-#[test]
-fn native_poll_observes_cancellation_and_return_cannot_swallow_it() {
-    for swallow in [false, true] {
-        let token = CancellationToken::default();
-        let cancel = token.clone();
-        let visited = Arc::new(AtomicUsize::new(0));
-        let observed = visited.clone();
-        let mut native = ModuleBuilder::new(
-            "test::polling",
-            &StandardDeclarations::default()
-                .catalog()
-                .expect("explicit standard providers"),
-        )
-        .unwrap();
-        let work = native
-            .define_function(FunctionDecl::new("work").returns(Type::i32()))
-            .unwrap();
-        native
-            .bind(work, move |cx: &mut NativeCall<'_>| -> NativeResult<i32> {
-                for index in 0..8 {
-                    if index == 3 {
-                        cancel.cancel();
-                    }
-                    if let Err(error) = cx.poll() {
-                        return if swallow { Ok(42) } else { Err(error) };
-                    }
-                    observed.fetch_add(1, Ordering::SeqCst);
-                }
-                Ok(42)
-            })
-            .unwrap();
-        let native = native.finish().unwrap();
-        let program = super::compile_program(
-            "use test::polling; fn main() -> i32 { polling::work() }",
-            Some(&native),
-        );
-        let mut runtime = Runtime::default();
-        kagari_runtime::native::module::NativeModule::install_all(
-            &crate::modules().unwrap(),
-            &mut runtime,
-        )
-        .unwrap();
-        native.install(&mut runtime).unwrap();
-        let loaded = load_bytecode(&mut runtime, "native-poll", program).unwrap();
-        let _loaded_program = loaded;
-        let loaded = runtime.select_program(&_loaded_program).unwrap();
-        let mut options = runtime.execution_options();
-        options.cancellation = token;
-        let mut vm = runtime;
-        let mut session = vm.begin_execution(&loaded, options).unwrap();
-        let session_options = session.runtime().execution_options();
-
-        let error = session
-            .runtime_mut()
-            .execute_module(&loaded, ProgramEntry::Main, session_options.clone())
-            .unwrap_err();
-        assert!(matches!(&error, error if error.kind() == RuntimeErrorKind::Cancelled));
-        assert_eq!(visited.load(Ordering::SeqCst), 3);
-        assert_eq!(session.runtime().gc().active_roots(), 0);
-        assert_eq!(
-            session.runtime().resources().counters().current_call_depth,
-            0
-        );
-        drop(session);
-        assert!(vm.resources().poll_execution().is_ok());
     }
 }

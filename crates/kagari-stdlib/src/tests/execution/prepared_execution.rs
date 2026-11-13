@@ -1,15 +1,17 @@
 #[cfg(test)]
 use crate::tests::support::bytecode::load_bytecode;
 use crate::{catalog as foundation_catalog, tests::support::bytecode::reload_bytecode};
+use kagari_runtime::module::retention::RetentionOrigin;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
+    debug::DebugSession,
     error::{RuntimeError, RuntimeErrorKind},
     execution::{JitExecutionStatus, native::PreparedNativeEntry},
     jit_abi::jit_poll_execution,
     module::{ExecutableModule, InstalledProgram, entry::ProgramEntry},
+    native::conversion::context::ConversionContext,
     native::module::NativeModule,
     resource::RuntimeLimits,
-    value::Value,
 };
 
 use kagari_abi::{
@@ -100,7 +102,7 @@ unsafe extern "C" fn native_trap(runtime: *const NativeInvocationContext, _: *mu
 }
 
 fn prepared(
-    vm: &Runtime,
+    vm: &mut Runtime,
     module: &ExecutableModule,
     entry: JitCompiledFunction,
 ) -> PreparedNativeEntry {
@@ -118,16 +120,21 @@ fn prepared(
         owner: Arc::new(StaticCode),
     });
     // Static ABI fixture; trap probe intentionally exercises failure propagation.
-    PreparedNativeEntry::Native(unsafe { vm.install_native_function(module, product) }.unwrap())
+    PreparedNativeEntry::Native(
+        unsafe { vm.install_native_function(module, product, RetentionOrigin::Current) }.unwrap(),
+    )
 }
 
 #[test]
 fn prepared_native_execution_reports_the_installed_descriptor_and_cleans_frames() {
-    let (mut vm, module) = setup(compile("fn main() {}", false));
+    let (mut vm, module) = setup(compile(
+        include_str!("../../../tests/fixtures/execution/prepared-unit.kgr"),
+        false,
+    ));
     let _module_program = module;
     let module = vm.select_program(&_module_program).unwrap();
     assert_eq!(module.bytecode.functions[0].instructions.len(), 2);
-    let preparation = prepared(&vm, &module, native_unit);
+    let preparation = prepared(&mut vm, &module, native_unit);
     let report = vm
         .execute_prepared_module(
             &module,
@@ -136,13 +143,10 @@ fn prepared_native_execution_reports_the_installed_descriptor_and_cleans_frames(
             vm.execution_options(),
         )
         .unwrap();
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::Unit
-    );
+    ConversionContext::new(&mut vm, &module)
+        .unwrap()
+        .decode::<()>(&report.return_value)
+        .unwrap();
     let jit = report.jit.unwrap();
     assert_eq!(jit.status, JitExecutionStatus::Native);
     assert_eq!(jit.artifact.unwrap().function, FunctionRef::new(0));
@@ -153,7 +157,10 @@ fn prepared_native_execution_reports_the_installed_descriptor_and_cleans_frames(
 
 #[test]
 fn unsupported_preparation_runs_the_interpreter_with_an_honest_report() {
-    let (mut vm, module) = setup(compile("fn main() -> i32 { 40 + 2 }", false));
+    let (mut vm, module) = setup(compile(
+        include_str!("../../../tests/fixtures/execution/prepared-fallback.kgr"),
+        false,
+    ));
     let _module_program = module;
     let module = vm.select_program(&_module_program).unwrap();
     let preparation = PreparedNativeEntry::Unsupported {
@@ -168,13 +175,7 @@ fn unsupported_preparation_runs_the_interpreter_with_an_honest_report() {
             vm.execution_options(),
         )
         .unwrap();
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.gc())
-            .expect("retained execution result"),
-        Value::I32(42)
-    );
+    assert_eq!(report.return_value.as_i32(), Some(42));
     let jit = report.jit.unwrap();
     assert_eq!(jit.status, JitExecutionStatus::InterpreterFallback);
     assert!(jit.artifact.is_none());
@@ -183,10 +184,13 @@ fn unsupported_preparation_runs_the_interpreter_with_an_honest_report() {
 
 #[test]
 fn native_errors_never_restart_in_the_interpreter_and_keep_the_trace() {
-    let (mut vm, module) = setup(compile("fn main() {}", false));
+    let (mut vm, module) = setup(compile(
+        include_str!("../../../tests/fixtures/execution/prepared-unit.kgr"),
+        false,
+    ));
     let _module_program = module;
     let module = vm.select_program(&_module_program).unwrap();
-    let preparation = prepared(&vm, &module, native_trap);
+    let preparation = prepared(&mut vm, &module, native_trap);
     let error = vm
         .execute_prepared_module(
             &module,
@@ -204,11 +208,14 @@ fn native_errors_never_restart_in_the_interpreter_and_keep_the_trace() {
 
 #[test]
 fn prepared_function_identity_must_match_the_requested_entry() {
-    let bytecode = compile("fn main() {} pub fn other() {}", false);
+    let bytecode = compile(
+        include_str!("../../../tests/fixtures/execution/prepared-other.kgr"),
+        false,
+    );
     let (mut vm, module) = setup(bytecode);
     let _module_program = module;
     let module = vm.select_program(&_module_program).unwrap();
-    let preparation = prepared(&vm, &module, native_unit);
+    let preparation = prepared(&mut vm, &module, native_unit);
     let error = vm
         .execute_prepared_module(&module, "other", &preparation, vm.execution_options())
         .unwrap_err();
@@ -216,17 +223,17 @@ fn prepared_function_identity_must_match_the_requested_entry() {
 }
 
 #[rstest]
-#[case::folded_branch("fn main() -> i32 { if 1 + 2 == 3 { 42 } else { 0 } }")]
-#[case::signed_overflow("fn main() -> i8 { 127i8 + 1i8 }")]
-#[case::unsigned_shift("fn main() -> u8 { 255u8 << 1 }")]
-#[case::division_zero("fn main() -> i32 { 1 / 0 }")]
-#[case::while_loop("fn main() -> i32 { var x = 0; while x < 3 { x += 1; } x }")]
-#[case::snapshot_before_write("fn main() -> i32 { var x = 1; val old = x; x = 2; old * 10 + x }")]
+#[case::folded_branch(include_str!("../../../tests/fixtures/execution/prepared-folded-branch.kgr"))]
+#[case::signed_overflow(include_str!("../../../tests/fixtures/execution/prepared-signed-overflow.kgr"))]
+#[case::unsigned_shift(include_str!("../../../tests/fixtures/execution/prepared-unsigned-shift.kgr"))]
+#[case::division_zero(include_str!("../../../tests/fixtures/execution/prepared-division-zero.kgr"))]
+#[case::while_loop(include_str!("../../../tests/fixtures/execution/prepared-while-loop.kgr"))]
+#[case::snapshot_before_write(include_str!("../../../tests/fixtures/execution/prepared-snapshot-before-write.kgr"))]
 #[case::remainder_loop(
-    "fn main() -> i32 { var x = 0; var sum = 0; while x < 20 { sum += x % 7; x += 1; } sum }"
+    include_str!("../../../tests/fixtures/execution/prepared-remainder-loop.kgr")
 )]
 #[case::argument_snapshots(
-    "fn add(a: i32, b: i32, c: i32) -> i32 { a * 100 + b * 10 + c } fn main() -> i32 { var x = 2; val y = x; x = 3; add(x, y, x) }"
+    include_str!("../../../tests/fixtures/execution/prepared-argument-snapshots.kgr")
 )]
 fn optimized_execution_preserves_results_traps_and_source_origins(#[case] source: &str) {
     let original = compile(source, false);
@@ -238,19 +245,20 @@ fn optimized_execution_preserves_results_traps_and_source_origins(#[case] source
         let (mut after, b) = setup(optimized.clone());
         let _b_program = b;
         let b = after.select_program(&_b_program).unwrap();
+        before.collect_garbage().unwrap();
+        after.collect_garbage().unwrap();
+        let roots = after.gc_stats().root_registrations;
         let a = before.execute_module(&a, ProgramEntry::Main, before.execution_options());
         let b = after.execute_module(&b, ProgramEntry::Main, after.execution_options());
         match (a, b) {
             (Ok(a), Ok(b)) => {
-                assert_eq!(
-                    a.return_value
-                        .value(before.gc())
-                        .expect("retained execution result"),
-                    b.return_value
-                        .value(after.gc())
-                        .expect("retained execution result"),
-                    "{source}"
-                )
+                let left = (a.return_value.as_i32(), a.return_value.as_u64());
+                let right = (b.return_value.as_i32(), b.return_value.as_u64());
+                assert!(
+                    left.0.is_some() || left.1.is_some(),
+                    "scalar optimization fixture"
+                );
+                assert_eq!(left, right, "{source}");
             }
             (Err(a), Err(b)) => {
                 let describe = |error: &RuntimeError| (error.kind(), error.to_string());
@@ -269,20 +277,22 @@ fn optimized_execution_preserves_results_traps_and_source_origins(#[case] source
             (a, b) => panic!("execution differs for {source}: {a:?}, {b:?}"),
         }
         assert_eq!(before.resources().counters(), after.resources().counters());
-        assert_eq!(after.gc().active_roots(), 0);
+        assert_eq!(after.gc_stats().root_registrations, roots);
     }
 }
 
 #[test]
 fn debugging_selects_interpreter_before_entering_native_code() {
-    use kagari_runtime::debug::DebugSession;
-    let (mut vm, module) = setup(compile("fn main() {}", false));
+    let (mut vm, module) = setup(compile(
+        include_str!("../../../tests/fixtures/execution/prepared-unit.kgr"),
+        false,
+    ));
     let _module_program = module;
     let module = vm.select_program(&_module_program).unwrap();
-    let preparation = prepared(&vm, &module, native_trap);
+    let preparation = prepared(&mut vm, &module, native_trap);
 
-    vm.attach_debug_session(DebugSession::new(&vm).unwrap())
-        .unwrap();
+    let debug = DebugSession::new(&vm).unwrap();
+    vm.attach_debug_session(debug).unwrap();
     let report = vm
         .execute_prepared_module(
             &module,
@@ -299,11 +309,14 @@ fn debugging_selects_interpreter_before_entering_native_code() {
 
 #[test]
 fn preparation_from_an_old_version_cannot_execute_as_a_new_version() {
-    let program = compile("fn main() {}", false);
+    let program = compile(
+        include_str!("../../../tests/fixtures/execution/prepared-unit.kgr"),
+        false,
+    );
     let (mut vm, module) = setup(program.clone());
     let _module_program = module;
     let module = vm.select_program(&_module_program).unwrap();
-    let preparation = prepared(&vm, &module, native_unit);
+    let preparation = prepared(&mut vm, &module, native_unit);
     reload_bytecode(&mut vm, &_module_program, Some("test".into()), program).unwrap();
     let _new_program = _module_program.clone();
     let new = vm.select_program(&_new_program).unwrap();
@@ -327,7 +340,7 @@ fn preparation_from_an_old_version_cannot_execute_as_a_new_version() {
         .unwrap_err();
     assert!(matches!(&error, error
         if error.kind() == RuntimeErrorKind::ModuleValidation));
-    let current_preparation = prepared(&vm, &new, native_unit);
+    let current_preparation = prepared(&mut vm, &new, native_unit);
     assert_eq!(
         vm.execute_prepared_module(
             &new,

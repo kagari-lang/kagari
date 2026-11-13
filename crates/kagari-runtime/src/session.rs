@@ -4,19 +4,22 @@ use crate::{
     Runtime, StagedReload,
     error::{RuntimeError, RuntimeErrorKind, fault::EngineFault, reason::CancellationReason},
     error_trace::ErrorTrace,
+    execution::{
+        memory::ManagedMemory,
+        roots::{DependencyId, SessionId},
+    },
     frame::{
         ExecutionFrame,
         factory::QueuedFactory,
         types::arguments::TypeArgument,
         waiting::{PendingWait, QueuedFuture},
     },
-    gc::GcHeap,
     host::HostFrameId,
-    module::{ExecutableModule, retention::ProgramLease},
+    module::{
+        ExecutableModule, managed::revision::RevisionState, retention::RetentionRegistration,
+    },
     publication::ActivationMark,
-    resource::{ResourceCounters, ResourceState},
-    session::store::SessionId,
-    value::Value,
+    resource::{ResourceCounters, ResourceState, candidate::CandidateOrigin},
 };
 
 use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
@@ -34,6 +37,7 @@ pub(crate) mod dependencies;
 pub mod group;
 pub mod owned;
 pub(crate) mod store;
+mod tracing;
 
 /// Only checked callable handles authorize entering a retained program outside
 /// the current dependency graph. Candidate entry remains independently gated.
@@ -89,57 +93,6 @@ pub enum TraceValue {
     Opaque(String),
 }
 
-impl TraceValue {
-    fn capture(heap: &GcHeap, value: &Value, depth: usize, remaining: &mut usize) -> Self {
-        if *remaining == 0 {
-            return Self::Opaque("trace value budget".into());
-        }
-        *remaining -= 1;
-
-        match value {
-            Value::Range(value) => Self::Opaque(format!("{:?}", heap.range(*value))),
-            Value::Unit => Self::Unit,
-            Value::Bool(value) => Self::Bool(*value),
-            Value::Char(value) => Self::Char(*value),
-            Value::I32(value) => Self::I32(*value),
-            Value::I64(value) => Self::I64(*value),
-            Value::U64(value) => Self::U64(*value),
-            Value::F32(value) => Self::F32Bits(value.to_bits()),
-            Value::F64(value) => Self::F64Bits(value.to_bits()),
-            Value::Str(id) => match heap.string(*id) {
-                Some(value) => Self::Str {
-                    prefix: value.chars().take(256).collect(),
-                    truncated: value.chars().nth(256).is_some(),
-                },
-                None => Self::Opaque("invalid string".into()),
-            },
-            Value::Tuple(id) if depth < 4 => match heap.tuple(*id) {
-                Some(values) => Self::Tuple {
-                    elements: values
-                        .iter()
-                        .take(16)
-                        .map(|value| Self::capture(heap, value, depth + 1, remaining))
-                        .collect(),
-                    truncated: values.len() > 16,
-                },
-                None => Self::Opaque("invalid tuple".into()),
-            },
-            Value::Tuple(_) => Self::Opaque("tuple depth limit".into()),
-            Value::Array(id) => Self::Opaque(format!("array:{id:?}")),
-
-            Value::Enum(id) => Self::Opaque(format!("enum:{id:?}")),
-            Value::Struct(id) => Self::Opaque(format!("struct:{id:?}")),
-            Value::GcHandle(id) => Self::Opaque(format!("gc:{id:?}")),
-            Value::Interface(id) => Self::Opaque(format!("interface:{id:?}")),
-            Value::Closure(id) => Self::Opaque(format!("closure:{id:?}")),
-            Value::Cell(id) => Self::Opaque(format!("cell:{id:?}")),
-            Value::HostRoot(_) => Self::Opaque("host root".into()),
-            Value::HostPathView(_) => Self::Opaque("host path".into()),
-            Value::Ephemeral(_) | Value::RuntimeEphemeral(_) => Self::Opaque("ephemeral".into()),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostCallTrace {
     pub symbol: String,
@@ -175,6 +128,19 @@ pub trait ExecutionObserver: Any + Debug + Send {
     /// Initialize observation once for this root session, before any frame runs.
     fn begin(&mut self, _runtime: &Runtime, _root: &ExecutableModule) -> Result<(), RuntimeError> {
         Ok(())
+    }
+
+    /// Decide whether this event needs retained live bindings before observation.
+    /// The default performs no value capture. Preparation may update observer
+    /// policy, but receives no mutable execution services. Runtime calls observe
+    /// immediately after capture without execution, publication or collection.
+    fn capture_binding_values(
+        &mut self,
+        _runtime: &Runtime,
+        _event: ExecutionEvent,
+        _frames: &[ExecutionFrame],
+    ) -> bool {
+        false
     }
 
     /// Inspect without lending mutable execution services. Reentry is excluded
@@ -223,9 +189,11 @@ pub(crate) struct SessionState {
     pub next_frame_scope: Cell<u64>,
     pub scopes: Cell<usize>,
     pub peak_call_depth: Cell<u32>,
-    pub peak_heap_units: Cell<usize>,
+    pub peak_heap_units: Cell<u128>,
     pub root: ExecutableModule,
-    _program: ProgramLease,
+    pub(crate) candidate_origin: CandidateOrigin,
+    pub(crate) body: DependencyId<RevisionState>,
+    _registration: RetentionRegistration,
     pub options: ExecutionOptions,
     pub termination: RefCell<Option<RuntimeError>>,
     random_counter: Cell<u64>,
@@ -239,10 +207,12 @@ impl SessionState {
         root: ExecutableModule,
         options: ExecutionOptions,
         baseline: ResourceCounters,
-        program: ProgramLease,
+        registration: RetentionRegistration,
+        body: DependencyId<RevisionState>,
     ) -> Self {
         Self {
             id,
+            body,
             owner: RefCell::new(None),
             parked_depth: Cell::new(0),
             depth_base: Cell::new(0),
@@ -261,8 +231,13 @@ impl SessionState {
             scopes: Cell::new(0),
             peak_call_depth: Cell::new(baseline.current_call_depth),
             peak_heap_units: Cell::new(baseline.current_heap_units),
+            candidate_origin: if options.phase == ExecutionPhase::CandidateInitialization {
+                CandidateOrigin::new(root.program_identity())
+            } else {
+                CandidateOrigin::default()
+            },
             root,
-            _program: program,
+            _registration: registration,
             options,
             termination: RefCell::new(None),
             random_counter: Cell::new(0),
@@ -283,51 +258,6 @@ impl SessionState {
         value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
         value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
         value ^ (value >> 31)
-    }
-
-    pub(crate) fn begin_host_call(
-        &self,
-        heap: &GcHeap,
-        symbol: &str,
-        args: &[Value],
-    ) -> Option<usize> {
-        if !self.options.record_host_calls {
-            return None;
-        }
-        let mut calls = self.host_calls.borrow_mut();
-        if calls.len() >= 10_000 {
-            self.dropped_host_calls
-                .set(self.dropped_host_calls.get().saturating_add(1));
-            return None;
-        }
-        let index = calls.len();
-        let mut remaining = 128;
-        calls.push(HostCallTrace {
-            symbol: symbol.chars().take(256).collect(),
-            symbol_truncated: symbol.chars().nth(256).is_some(),
-            arguments: args
-                .iter()
-                .take(32)
-                .map(|value| TraceValue::capture(heap, value, 0, &mut remaining))
-                .collect(),
-            omitted_arguments: args.len().saturating_sub(32),
-            outcome: None,
-        });
-        Some(index)
-    }
-
-    pub(crate) fn finish_host_call(
-        &self,
-        heap: &GcHeap,
-        index: usize,
-        result: &Result<Value, RuntimeError>,
-    ) {
-        if let Some(call) = self.host_calls.borrow_mut().get_mut(index) {
-            call.outcome = Some(match result {
-                Ok(value) => Ok(TraceValue::capture(heap, value, 0, &mut 128)),
-                Err(error) => Err(error.kind()),
-            });
-        }
     }
 
     pub(crate) fn terminate(&self, resources: &ResourceState, error: RuntimeError) -> RuntimeError {
@@ -413,8 +343,8 @@ impl SessionScope {
 pub struct ExecutionCounters {
     pub current_call_depth: u32,
     pub peak_call_depth: u32,
-    pub current_heap_units: usize,
-    pub peak_heap_units: usize,
+    pub current_heap_units: u128,
+    pub peak_heap_units: u128,
 }
 
 impl ExecutionSession<'_> {
@@ -460,7 +390,7 @@ impl ExecutionSession<'_> {
 }
 
 impl SessionScope {
-    fn release(&self, resources: &ResourceState) {
+    fn release(&self, resources: &ResourceState, memory: &mut ManagedMemory) {
         let state = self.state(resources);
         let scopes = state.scopes.get();
         state.scopes.set(scopes - 1);
@@ -486,9 +416,16 @@ impl SessionScope {
             resources.end_execution(self.id);
             drop(state);
             if let Some((_state, frames)) = resources.sessions.remove(self.id) {
-                for frame in frames {
-                    frame.release_values(resources);
+                // Retire before dropping detached Rust owners, including unwind.
+                // No user callback or collection intervenes in this closed handoff.
+                if let Err(error) = memory.retire_execution(resources, self.id)
+                    && !resources.is_quarantined()
+                {
+                    resources.quarantine(EngineFault::ExecutionStorageRetirementFailed(error));
                 }
+                // The whole-execution owner retired every frame/local suffix.
+                // Detached controls contain no additional managed storage to retire.
+                drop(frames);
             } else {
                 resources.quarantine(EngineFault::SessionRecordsRemainedBorrowedDuringCleanup);
             }
@@ -497,17 +434,18 @@ impl SessionScope {
 }
 
 impl SessionScope {
-    pub(crate) fn retire(&mut self, resources: &ResourceState) {
+    pub(crate) fn retire(&mut self, runtime: &mut Runtime) {
         if let Some(activation) = self.activation.take() {
+            let resources = &runtime.resources;
             let _activation = activation.attach(resources);
-            self.release(resources);
+            self.release(resources, &mut runtime.memory);
         }
     }
 }
 
 impl Drop for ExecutionSession<'_> {
     fn drop(&mut self) {
-        self.scope.retire(self.runtime.resources());
+        self.scope.retire(self.runtime);
     }
 }
 
@@ -543,8 +481,9 @@ impl Drop for CandidateSession<'_, '_> {
             resources.quarantine(EngineFault::CandidateSessionEndedWithNestedExecutionScopes);
         }
         if let Some(mut execution) = self.execution.take() {
-            execution.retire(resources);
+            execution.retire(self.runtime);
         }
+        let resources = self.runtime.resources();
         let previous = self.previous.take().filter(|id| {
             resources
                 .sessions
@@ -559,47 +498,49 @@ impl Drop for CandidateSession<'_, '_> {
 mod tests {
     use super::*;
     use crate::test_support::native::program::ProgramFixture;
-    use crate::value::Value;
+    use crate::value::{
+        aggregates::tuples::TupleObject, carriers::ScopedValue, strings::StringObject,
+    };
     use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
     use kagari_common::identity::map::DefinitionContext;
 
     #[test]
     fn trace_values_report_truncation_and_stop_at_a_shared_budget() {
-        let runtime = Runtime::default();
-        let heap = runtime.gc();
-        let mut budget = 128;
-        assert_eq!(
-            TraceValue::capture(
-                heap,
-                &heap.alloc_string("x".repeat(300)).unwrap(),
-                0,
-                &mut budget
-            ),
-            TraceValue::Str {
-                prefix: "x".repeat(256),
-                truncated: true,
-            }
-        );
-        let mut budget = 3;
-        let captured = TraceValue::capture(
-            heap,
-            &heap.alloc_tuple(vec![Value::I32(1); 20]).unwrap(),
-            0,
-            &mut budget,
-        );
-        let TraceValue::Tuple {
-            elements,
-            truncated,
-        } = captured
-        else {
-            panic!("expected tuple trace");
-        };
-        assert!(truncated);
-        assert_eq!(elements.len(), 16);
-        assert_eq!(&elements[..2], &[TraceValue::I32(1), TraceValue::I32(1)]);
-        assert!(elements[2..].iter().all(
-            |value| matches!(value, TraceValue::Opaque(reason) if reason == "trace value budget")
-        ));
+        let mut runtime = Runtime::default();
+        runtime
+            .memory
+            .scope(&runtime.resources, |cx, _| {
+                let text = StringObject::alloc(cx, "x".repeat(300))?;
+                let captured = TraceValue::capture(cx, ScopedValue::managed(text), 0, &mut 128)?;
+                assert_eq!(
+                    captured,
+                    TraceValue::Str {
+                        prefix: "x".repeat(256),
+                        truncated: true,
+                    }
+                );
+                let tuple = TupleObject::alloc(cx, &[ScopedValue::from(1_i32); 20])?;
+                let captured = TraceValue::capture(cx, ScopedValue::managed(tuple), 0, &mut 3)?;
+                let TraceValue::Tuple {
+                    elements,
+                    truncated,
+                } = captured
+                else {
+                    panic!("expected tuple trace");
+                };
+                assert!(truncated);
+                assert_eq!(elements.len(), 16);
+                assert_eq!(&elements[..2], &[TraceValue::I32(1), TraceValue::I32(1)]);
+                assert!(elements[2..].iter().all(|value| matches!(
+                    value,
+                    TraceValue::Opaque(reason) if reason == "trace value budget"
+                )));
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(runtime.gc_stats().root_registrations, 0);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc_stats().objects, 0);
     }
 
     #[test]
@@ -621,11 +562,12 @@ mod tests {
         let module = runtime.select_program(&program).unwrap();
         let mut options = runtime.execution_options();
         options.record_host_calls = true;
-        let session = runtime.begin_execution(&module, options).unwrap();
+        let mut session = runtime.begin_execution(&module, options).unwrap();
         for _ in 0..10_001 {
             session
-                .state()
-                .begin_host_call(session.runtime().gc(), "ping", &[]);
+                .runtime_mut()
+                .begin_host_call_trace(|| Ok("ping".into()), &[])
+                .unwrap();
         }
         let trace = session.trace().unwrap();
         assert_eq!(trace.host_calls.len(), 10_000);

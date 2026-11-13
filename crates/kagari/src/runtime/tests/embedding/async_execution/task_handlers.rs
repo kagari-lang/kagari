@@ -1,13 +1,13 @@
 //! Ordinary registered task methods across the synchronous-handler boundary.
-use super::{Fixture, Value};
+use super::Fixture;
 use crate::engine::EngineConfig;
 use kagari_runtime::{
-    gc::roots::RootedValue,
     task::{
         CancellationCause, TaskId,
         control::{DispatchUnavailable, TaskScopeOwner},
         drive::TaskDriveResult,
     },
+    value::carriers::RootedValue,
 };
 use std::{
     num::NonZeroUsize,
@@ -33,8 +33,8 @@ fn drive(f: &mut Fixture, scope: &TaskScopeOwner, id: TaskId) -> TaskDriveResult
 }
 
 fn task(f: &mut Fixture, result: &RootedValue) -> (TaskId, RootedValue) {
-    let handle = f.invoke("unwrap_i32", &[f.value(result)]);
-    (f.runtime.task_id(&f.value(&handle)).unwrap(), handle)
+    let handle = f.invoke("unwrap_i32", slice::from_ref(result));
+    (f.runtime.task_id(&handle).unwrap(), handle)
 }
 
 #[test]
@@ -51,51 +51,48 @@ fn scoped_task_handler_contract() {
             Arc::new(|_| Ok(())),
         )
         .unwrap();
-    let capability = f.value(scope.capability());
+    let capability = (scope.capability()).clone();
     let events = f.invoke("events", &[]);
     let items = f.invoke("items", &[]);
-    let result = f.invoke("handler", &[capability, f.value(&items), f.value(&events)]);
+    let result = f.invoke(
+        "handler",
+        &[capability.clone(), items.clone(), events.clone()],
+    );
     let (id, handle) = task(&mut f, &result);
     assert_eq!(f.starts.load(Ordering::SeqCst), 0);
     assert_eq!(
-        f.invoke("len", &[f.value(&events)])
-            .value(f.runtime.gc())
-            .unwrap(),
-        Value::U64(1)
+        f.invoke("len", slice::from_ref(&events)).as_u64().unwrap(),
+        1
     );
     assert_eq!(
-        f.invoke("at", &[f.value(&events), Value::U64(0)])
-            .value(f.runtime.gc())
+        f.invoke("at", &[events.clone(), RootedValue::from(0_u64)])
+            .as_i32()
             .unwrap(),
-        Value::I32(0)
+        0
     );
     assert_eq!(drive(&mut f, &scope, id), TaskDriveResult::Waiting);
     assert_eq!(f.inputs.lock().unwrap().as_slice(), &[10]);
     assert_eq!(
-        f.invoke("len", &[f.value(&events)])
-            .value(f.runtime.gc())
-            .unwrap(),
-        Value::U64(2)
+        f.invoke("len", slice::from_ref(&events)).as_u64().unwrap(),
+        2
     );
-    let _ = f.invoke("replace", &[f.value(&items)]);
+    let _ = f.invoke("replace", slice::from_ref(&items));
     // A separate synchronous handler captures the running Task and submits a waiter.
-    let observer = f.invoke("observer", &[capability, f.value(&handle)]);
+    let observer = f.invoke("observer", &[capability.clone(), handle.clone()]);
     let (waiter, waiter_handle) = task(&mut f, &observer);
     assert_eq!(drive(&mut f, &scope, waiter), TaskDriveResult::Waiting);
-    let excess = f.invoke("object", &[capability, f.value(&events)]);
+    let excess = f.invoke("object", &[capability.clone(), events.clone()]);
     assert_eq!(
-        f.invoke("status", &[f.value(&excess)])
-            .value(f.runtime.gc())
+        f.invoke("status", slice::from_ref(&excess))
+            .as_i32()
             .unwrap(),
-        Value::I32(2)
+        2
     );
     assert_eq!(
-        f.invoke("len", &[f.value(&events)])
-            .value(f.runtime.gc())
-            .unwrap(),
-        Value::U64(2)
+        f.invoke("len", slice::from_ref(&events)).as_u64().unwrap(),
+        2
     );
-    let _ = f.invoke("stop_i32", &[f.value(&waiter_handle)]);
+    let _ = f.invoke("stop_i32", slice::from_ref(&waiter_handle));
     assert_eq!(f.runtime.drain_cancelled_tasks().unwrap(), 1);
     assert_eq!(
         f.runtime
@@ -119,15 +116,13 @@ fn scoped_task_handler_contract() {
     f.sent.lock().unwrap().pop().unwrap().complete(Ok(6));
     assert_eq!(drive(&mut f, &scope, id), TaskDriveResult::Complete);
     let report = f.runtime.take_task_report(&scope, id).unwrap().unwrap();
-    assert_eq!(f.value(&report.outcome.unwrap()), Value::I32(11));
-    let _ = f.invoke("append", &[f.value(&items)]);
-    let object = f.invoke("object", &[capability, f.value(&events)]);
+    assert_eq!(report.outcome.unwrap().as_i32().unwrap(), 11);
+    let _ = f.invoke("append", slice::from_ref(&items));
+    let object = f.invoke("object", &[capability.clone(), events.clone()]);
     let (object_id, _) = task(&mut f, &object);
     assert_eq!(
-        f.invoke("len", &[f.value(&events)])
-            .value(f.runtime.gc())
-            .unwrap(),
-        Value::U64(2)
+        f.invoke("len", slice::from_ref(&events)).as_u64().unwrap(),
+        2
     );
     assert_eq!(drive(&mut f, &scope, object_id), TaskDriveResult::Complete);
     assert_eq!(
@@ -137,19 +132,17 @@ fn scoped_task_handler_contract() {
             .unwrap()
             .outcome
             .unwrap()
-            .value(f.runtime.gc())
+            .as_i32()
             .unwrap(),
-        Value::I32(7)
+        7
     );
     assert_eq!(
-        f.invoke("len", &[f.value(&events)])
-            .value(f.runtime.gc())
-            .unwrap(),
-        Value::U64(3)
+        f.invoke("len", slice::from_ref(&events)).as_u64().unwrap(),
+        3
     );
     let nested = f.invoke("nested", slice::from_ref(&capability));
-    let nested_handle = f.invoke("unwrap_nested", &[f.value(&nested)]);
-    let nested_id = f.runtime.task_id(&f.value(&nested_handle)).unwrap();
+    let nested_handle = f.invoke("unwrap_nested", slice::from_ref(&nested));
+    let nested_id = f.runtime.task_id(&nested_handle).unwrap();
     let starts = f.starts.load(Ordering::SeqCst);
     assert_eq!(drive(&mut f, &scope, nested_id), TaskDriveResult::Complete);
     assert_eq!(
@@ -164,12 +157,9 @@ fn scoped_task_handler_contract() {
         .unwrap()
         .outcome
         .unwrap();
-    assert_eq!(
-        f.run_future(&future).value(f.runtime.gc()).unwrap(),
-        Value::I32(7)
-    );
+    assert_eq!(f.run_future(&future).as_i32().unwrap(), 7);
     assert!(
-        f.call("after_spawn_trap", &[capability, f.value(&events)])
+        f.call("after_spawn_trap", &[capability.clone(), events.clone()])
             .is_err()
     );
     let admitted = f.runtime.ready_tasks(&scope).unwrap();
@@ -189,18 +179,18 @@ fn scoped_task_handler_contract() {
             .unwrap()
             .outcome
             .unwrap()
-            .value(f.runtime.gc())
+            .as_i32()
             .unwrap(),
-        Value::I32(9)
+        9
     );
     scope.close();
     f.runtime.drain_cancelled_tasks().unwrap();
-    let closed = f.invoke("object", &[capability, f.value(&events)]);
+    let closed = f.invoke("object", &[capability.clone(), events.clone()]);
     assert_eq!(
-        f.invoke("status", &[f.value(&closed)])
-            .value(f.runtime.gc())
+        f.invoke("status", slice::from_ref(&closed))
+            .as_i32()
             .unwrap(),
-        Value::I32(1)
+        1
     );
     let failed_scope = f
         .runtime
@@ -212,13 +202,13 @@ fn scoped_task_handler_contract() {
         .unwrap();
     let failed = f.invoke(
         "object",
-        &[f.value(failed_scope.capability()), f.value(&events)],
+        &[(failed_scope.capability()).clone(), events.clone()],
     );
     assert_eq!(
-        f.invoke("status", &[f.value(&failed)])
-            .value(f.runtime.gc())
+        f.invoke("status", slice::from_ref(&failed))
+            .as_i32()
             .unwrap(),
-        Value::I32(3)
+        3
     );
     assert!(f.runtime.ready_tasks(&failed_scope).unwrap().is_empty());
 }

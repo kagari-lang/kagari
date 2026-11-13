@@ -1,0 +1,16 @@
+use example::results::Factory;
+
+struct F {}
+
+struct Payload {
+    val value: i32
+}
+
+impl Factory for F {}
+
+fn main() -> i32 {
+    val f: Factory = F {};
+    val a = f.one(20);
+    val b = f.one(Payload { value: 22 });
+    a.value() + b.value().value
+}

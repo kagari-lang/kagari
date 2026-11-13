@@ -26,9 +26,12 @@ impl Runtime {
         field: &Field<T>,
         context: &ExecutionContext,
     ) -> NativeResult<T> {
-        self.with_context(object.object_type().owner(), context, |cx| {
-            object.get(cx, field)
-        })
+        self.with_context_source(
+            object.object_type().owner(),
+            context,
+            Some(object.object_type().origin()),
+            |cx| object.get(cx, field),
+        )
     }
 
     pub fn set<T: IntoKagari>(
@@ -47,9 +50,12 @@ impl Runtime {
         value: T,
         context: &ExecutionContext,
     ) -> NativeResult<()> {
-        self.with_context(object.object_type().owner(), context, |cx| {
-            object.set(cx, field, value)
-        })
+        self.with_context_source(
+            object.object_type().owner(),
+            context,
+            Some(object.object_type().origin()),
+            |cx| object.set(cx, field, value),
+        )
     }
 
     pub fn call_method<A: IntoKagariArguments, R: FromKagari>(
@@ -68,9 +74,12 @@ impl Runtime {
         arguments: A,
         context: &ExecutionContext,
     ) -> NativeResult<R> {
-        self.with_context(object.object_type().owner(), context, |cx| {
-            object.call(cx, method, arguments)
-        })
+        self.with_context_source(
+            object.object_type().owner(),
+            context,
+            Some(object.object_type().origin()),
+            |cx| object.call(cx, method, arguments),
+        )
     }
 
     pub fn call_interface_method<A: IntoKagariArguments, R: FromKagari>(

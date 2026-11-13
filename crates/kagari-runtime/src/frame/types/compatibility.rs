@@ -99,6 +99,21 @@ impl<'a> TypeView<'a> {
         }
     }
 
+    /// Select a resolved tree without discarding its lexical nominal provenance.
+    pub(crate) fn resolved<'tree>(self, ty: &'tree Ty) -> TypeView<'tree>
+    where
+        'a: 'tree,
+    {
+        TypeView {
+            ty,
+            prepared: Some(ty),
+            owner: self.owner,
+            environment: self.environment,
+            application: self.application,
+            closed_scope: self.closed_scope,
+        }
+    }
+
     fn closed_definitions(self) -> &'a DefinitionTable {
         let mut table = self.owner.identity_admission().target();
         if let Some(scope) = self.closed_scope
@@ -189,6 +204,36 @@ impl<'a> TypeView<'a> {
             ty: target,
             prepared: view.prepared.and_then(|ty| match ty {
                 Ty::Reference { target, .. } => Some(target.as_ref()),
+                _ => None,
+            }),
+            ..view
+        })
+    }
+
+    pub(crate) fn function_parameter(self, index: usize) -> Option<Self> {
+        let view = self.normalized()?;
+        let Ty::Function { params, .. } = view.ty else {
+            return None;
+        };
+        Some(Self {
+            ty: params.get(index)?,
+            prepared: view.prepared.and_then(|ty| match ty {
+                Ty::Function { params, .. } => params.get(index),
+                _ => None,
+            }),
+            ..view
+        })
+    }
+
+    pub(crate) fn function_result(self) -> Option<Self> {
+        let view = self.normalized()?;
+        let Ty::Function { result, .. } = view.ty else {
+            return None;
+        };
+        Some(Self {
+            ty: result,
+            prepared: view.prepared.and_then(|ty| match ty {
+                Ty::Function { result, .. } => Some(result.as_ref()),
                 _ => None,
             }),
             ..view

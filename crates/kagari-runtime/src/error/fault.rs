@@ -1,8 +1,15 @@
 //! Invariant failures retained by a quarantined Runtime.
+use kagari_gc::error::GcError;
 
 /// Invariant failures retained by a quarantined Runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum EngineFault {
+    #[error("execution storage retirement failed: {0}")]
+    ExecutionStorageRetirementFailed(GcError),
+
+    #[error("managed collection failed: {0}")]
+    ManagedCollectionFailed(GcError),
+
     #[error("Task waiter wake failed")]
     TaskWaiterWakeFailed,
 
@@ -11,9 +18,6 @@ pub enum EngineFault {
 
     #[error("argument window borrowed during call entry")]
     ArgumentWindowBorrowedDuringCallEntry,
-
-    #[error("backing charge underflow during cleanup")]
-    BackingChargeUnderflowDuringCleanup,
 
     #[error("branch publication before retirement")]
     BranchPublicationBeforeRetirement,
@@ -32,12 +36,6 @@ pub enum EngineFault {
 
     #[error("compiled function returned the wrong representation")]
     CompiledFunctionReturnedTheWrongRepresentation,
-
-    #[error("constant initialized during exclusive execution")]
-    ConstantInitializedDuringExclusiveExecution,
-
-    #[error("constant storage borrowed across execution")]
-    ConstantStorageBorrowedAcrossExecution,
 
     #[error("environment metadata destruction panicked")]
     EnvironmentMetadataDestructionPanicked,
@@ -120,14 +118,8 @@ pub enum EngineFault {
     #[error("garbage collection callback panicked")]
     GarbageCollectionCallbackPanicked,
 
-    #[error("heap charge exceeds committed backing")]
-    HeapChargeExceedsCommittedBacking,
-
-    #[error("heap charge exceeds committed occupancy")]
-    HeapChargeExceedsCommittedOccupancy,
-
-    #[error("heap charge underflow during cleanup")]
-    HeapChargeUnderflowDuringCleanup,
+    #[error("temporary heap units underflow during cleanup")]
+    TemporaryHeapUnitsUnderflowDuringCleanup,
 
     #[error("host borrow epoch exhausted")]
     HostBorrowEpochExhausted,

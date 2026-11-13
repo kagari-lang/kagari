@@ -1,6 +1,6 @@
 //! Typed backing records and temporary views avoid widening persistent non-enum slots.
 //! Runtime root, callback and generation admission are not implemented by this model.
-use kagari_runtime::{diagnostics::allocations, value::Value};
+use kagari_runtime::{diagnostics::allocations, value::carriers::StoredValue};
 use std::{hint::black_box, mem::size_of};
 
 #[derive(Clone, Copy)]
@@ -149,8 +149,8 @@ pub(super) fn run() {
         "Err requires a nonzero origin token"
     );
     println!(
-        "span_model view_bytes={} persistent_non_enum_Value={} nominal_rejection=passed bounds=passed",
+        "span_model view_bytes={} persistent_non_enum_StoredValue={} nominal_rejection=passed bounds=passed",
         size_of::<View<'_>>(),
-        size_of::<Value>(),
+        size_of::<StoredValue>(),
     );
 }

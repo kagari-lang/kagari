@@ -1,7 +1,7 @@
 //! Imported operations keep their defining module across portable artifact execution.
 use crate::{BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_common::identity::{ModuleIdentity, PackageId};
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source_database::SourceLayer;
 use kagari_stdlib as stdlib;
 
@@ -70,9 +70,9 @@ pub fn make()->HashMap<Key,i32> {val m:HashMap<Key,i32> = HashMap::new();m.inser
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+                .as_i32()
+                .unwrap(),
+            42
         );
     }
 }

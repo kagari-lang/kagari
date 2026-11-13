@@ -1,0 +1,9 @@
+pub fn make() -> [i32] {
+    [42]
+}
+
+fn main() -> [i32] {
+    val kept = make();
+    val other = [1, 2];
+    kept
+}

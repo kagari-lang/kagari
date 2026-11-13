@@ -4,7 +4,6 @@ use kagari::{context::ExecutionContext, engine::KagariEngine, runtime::Runtime};
 use kagari_runtime::error::RuntimeErrorKind;
 use kagari_runtime::{
     frame::types::arguments::TypeArgument,
-    gc::roots::RootSet,
     module::InstalledProgram,
     native::{
         adapter::Async,
@@ -14,7 +13,7 @@ use kagari_runtime::{
         completion::{Completion, CompletionStatus},
         conversion::{
             FromKagari, IntoKagari, KagariType,
-            arguments::{IntoKagariArguments, KagariArguments, PreparedArguments},
+            arguments::{ArgumentValues, IntoKagariArguments, KagariArguments, PreparedArguments},
             context::ConversionContext,
         },
         declarations::FunctionDecl,
@@ -24,7 +23,7 @@ use kagari_runtime::{
         types::Type,
     },
     task::value::TaskScope,
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
@@ -52,6 +51,14 @@ mod objects_example;
 fn relative_typed_members_and_current_reload_workflow() {
     objects_example::main();
 }
+
+// Keep the Tokio transfer contract in this existing public async consumer target.
+#[path = "async_facade/runtime_transfer.rs"]
+mod runtime_transfer;
+
+// These typed-handle contracts use only the public SDK and retained artifacts.
+#[path = "async_facade/typed_calls.rs"]
+mod typed_calls;
 
 const SOURCE: &str = include_str!("fixtures/embedding/async/public-facade.kgr");
 
@@ -179,7 +186,7 @@ impl FromKagari for Output {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         ty: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
         Ok(Self {
             value: Cell::new(i32::from_kagari(cx, ty, value)?),
@@ -197,7 +204,11 @@ impl KagariType for Input {
 }
 
 impl IntoKagari for Input {
-    fn into_kagari(self, cx: &mut ConversionContext<'_>, ty: &TypeArgument) -> NativeResult<Value> {
+    fn into_kagari<'call>(
+        self,
+        cx: &mut ConversionContext<'call>,
+        ty: &TypeArgument,
+    ) -> NativeResult<ValueView<'call>> {
         assert_eq!(cx.runtime().execution_time_millis()?, 123);
         (*self.0).into_kagari(cx, ty)
     }
@@ -212,7 +223,11 @@ impl KagariType for PanickingInput {
 }
 
 impl IntoKagari for PanickingInput {
-    fn into_kagari(self, _: &mut ConversionContext<'_>, _: &TypeArgument) -> NativeResult<Value> {
+    fn into_kagari<'call>(
+        self,
+        _: &mut ConversionContext<'call>,
+        _: &TypeArgument,
+    ) -> NativeResult<ValueView<'call>> {
         panic!("argument converter panic");
     }
 }
@@ -226,11 +241,11 @@ impl KagariArguments for PanickingArguments {
 }
 
 impl IntoKagariArguments for PanickingArguments {
-    fn encode_arguments(
+    fn encode_arguments<'call>(
         self,
-        _: &mut ConversionContext<'_>,
+        _: &mut ConversionContext<'call>,
         _: &PreparedArguments<'_, Self>,
-    ) -> NativeResult<RootSet> {
+    ) -> NativeResult<ArgumentValues<'call>> {
         panic!("argument converter panic");
     }
 }
@@ -248,13 +263,14 @@ fn panicking_async_admission_retires_without_another_driver_turn() {
         .unwrap();
     let loader = f.runtime.call(&make, ()).unwrap();
     let method = loader
-        .member(&f.runtime, "load")
+        .member(&mut f.runtime, "load")
         .and_then(|member| {
             f.runtime
                 .bind_async_interface_method::<(PanickingInput,), i32>(&member)
         })
         .unwrap();
-    let roots = f.runtime.gc().active_roots();
+    f.runtime.collect_garbage().unwrap();
+    let roots = f.runtime.gc_stats().root_registrations;
     let mut retired = Vec::new();
     for interface in [false, true] {
         let panic = catch_unwind(AssertUnwindSafe(|| {
@@ -272,9 +288,13 @@ fn panicking_async_admission_retires_without_another_driver_turn() {
             Some(&"argument converter panic")
         );
         assert!(f.runtime.execution_root().is_none());
-        assert_eq!(f.runtime.gc().active_roots(), roots);
         // This must be an empty observation, not the operation that performs cleanup.
         retired.push(f.runtime.drain_retired_executions().unwrap());
+        assert_eq!(*retired.last().unwrap(), 0);
+        // A dropped lease can leave a release notice, independently of retired
+        // executions. Service notices only after proving no owner was abandoned.
+        f.runtime.collect_garbage().unwrap();
+        assert_eq!(f.runtime.gc_stats().root_registrations, roots);
     }
     assert_eq!(
         retired,

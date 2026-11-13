@@ -2,10 +2,7 @@
 use crate::{
     error::RuntimeError,
     frame::types::{arguments::TypeArgument, compatibility::TypeView},
-    gc::GcHeap,
     module::ExecutableModule,
-    value::Value,
-    value_check::matches_view,
 };
 use kagari_types::ty::Ty;
 
@@ -50,7 +47,7 @@ impl StorageType {
         Ok(contract)
     }
 
-    fn view(&self) -> TypeView<'_> {
+    pub(crate) fn view(&self) -> TypeView<'_> {
         match &self.scope {
             Some(scope) => scope.view(&self.owner),
             None => TypeView::prepared(&self.ty, &self.ty, &self.owner, None),
@@ -63,12 +60,5 @@ impl StorageType {
 
     pub(crate) fn same_type(&self, other: &Self) -> bool {
         self.view().compatible(other.view())
-    }
-
-    pub(crate) fn accepts_value(&self, heap: &GcHeap, value: &Value) -> bool {
-        match &self.scope {
-            Some(scope) => scope.matches_heap(heap, value, &self.owner),
-            None => matches_view(heap, value, self.view()),
-        }
     }
 }

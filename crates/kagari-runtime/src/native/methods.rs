@@ -8,7 +8,6 @@ mod resolution;
 
 use crate::{
     error::RuntimeError,
-    gc::roots::RootedValue,
     module::dispatch::CallRoute,
     native::{
         binding::NativeResult,
@@ -21,6 +20,7 @@ use crate::{
         typed::NativeContext,
     },
     source::FunctionSourceTarget,
+    value::carriers::RootedValue,
 };
 use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use kagari_types::ty::{GenericParam, Ty};

@@ -1,7 +1,5 @@
 //! String owns its constructor, complete method definitions and scoped UTF-8 bodies.
-use crate::foundation::{
-    Entry, arrays::operations::index_argument, default_impl, enumeration, type_docs,
-};
+use crate::foundation::{arrays::operations::index_argument, default_impl, enumeration, type_docs};
 use kagari_runtime::{
     error::{RuntimeError, reason::IndexError},
     native::{
@@ -12,11 +10,11 @@ use kagari_runtime::{
         primitive::NativePrimitive,
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 
 use kagari_types::{declaration::native::NativeTypeConstructor, scalar::BuiltinType};
-use std::cell::Ref;
+type Entry = for<'call> fn(&mut NativeCall<'call>) -> NativeResult<()>;
 
 pub(crate) const TYPE_DOCS: (&str, &str) = (
     "An immutable UTF-8 string. len counts bytes and slice requires valid byte boundaries. Transformations produce strings without changing the receiver. String has no indexing operator; concrete traversal providers are installed separately.",
@@ -51,7 +49,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
             let mut codecs = vec![Codec::Exact(string.clone())];
             for (name, ty) in parameters { codecs.push(Codec::Exact(ty.clone())); method = method.parameter(name, ty); }
             methods.define(documented(method, description, name, example)
-                .implementation_send(NativeBinding::new(codecs, Codec::Exact(result), entry)))?;
+                .implementation_send(NativeBinding::scoped(codecs, Codec::Exact(result), entry)))?;
         }
 
 
@@ -60,74 +58,79 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     default_impl(
         module,
         string.clone(),
-        NativeBinding::new(vec![], Codec::Exact(string), |cx| {
+        NativeBinding::scoped(vec![], Codec::Exact(string), |cx| {
             cx.encode_result(String::new())
         }),
         "Return an empty immutable String.",
     )
 }
 
-fn text<'a>(cx: &'a NativeCall<'_>, index: usize) -> NativeResult<Ref<'a, str>> {
-    let Value::Str(id) = cx.argument(index)? else {
-        return Err(RuntimeError::module_validation("string argument"));
-    };
-    cx.heap()
-        .string(id)
-        .ok_or_else(|| RuntimeError::module_validation("invalid string argument"))
+fn text<R, const N: usize>(
+    cx: &mut NativeCall<'_>,
+    indices: [usize; N],
+    read: impl FnOnce([&str; N]) -> R,
+) -> NativeResult<R> {
+    let mut values = [ValueView::unit(); N];
+    for (value, index) in values.iter_mut().zip(indices) {
+        *value = cx.argument(index)?;
+    }
+    cx.read_strings(&values, read)
 }
 
-fn is_empty(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
-    Ok(Value::Bool(text(cx, 0)?.is_empty()))
+fn is_empty(cx: &mut NativeCall<'_>) -> NativeResult<()> {
+    let empty = text(cx, [0], |[text]| text.is_empty())?;
+    cx.set_result(empty.into())
 }
 
-fn contains(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
-    Ok(Value::Bool(text(cx, 0)?.contains(&*text(cx, 1)?)))
+fn contains(cx: &mut NativeCall<'_>) -> NativeResult<()> {
+    let result = text(cx, [0, 1], |[text, pattern]| text.contains(pattern))?;
+    cx.set_result(result.into())
 }
 
-fn starts_with(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
-    Ok(Value::Bool(text(cx, 0)?.starts_with(&*text(cx, 1)?)))
+fn starts_with(cx: &mut NativeCall<'_>) -> NativeResult<()> {
+    let result = text(cx, [0, 1], |[text, pattern]| text.starts_with(pattern))?;
+    cx.set_result(result.into())
 }
 
-fn ends_with(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
-    Ok(Value::Bool(text(cx, 0)?.ends_with(&*text(cx, 1)?)))
+fn ends_with(cx: &mut NativeCall<'_>) -> NativeResult<()> {
+    let result = text(cx, [0, 1], |[text, pattern]| text.ends_with(pattern))?;
+    cx.set_result(result.into())
 }
 
-fn find(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
-    let result = text(cx, 0)?.find(&*text(cx, 1)?).map(|index| index as u64);
+fn find(cx: &mut NativeCall<'_>) -> NativeResult<()> {
+    let result = text(cx, [0, 1], |[text, pattern]| {
+        text.find(pattern).map(|index| index as u64)
+    })?;
     cx.encode_result(result)
 }
 
-fn slice(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
+fn slice(cx: &mut NativeCall<'_>) -> NativeResult<()> {
     let start = index_argument(cx, 1)?;
     let end = index_argument(cx, 2)?;
-    let source = text(cx, 0)?;
-    let result = usize::try_from(start)
-        .ok()
-        .zip(usize::try_from(end).ok())
-        .and_then(|(start, end)| source.get(start..end))
-        .map(str::to_owned)
-        .ok_or_else(|| RuntimeError::from(IndexError::Provider(format!("String slice {start}..{end} requires ordered byte offsets within bounds and on UTF-8 boundaries"))))?;
-    drop(source);
+    let result = text(cx, [0], |[source]| {
+        usize::try_from(start).ok().zip(usize::try_from(end).ok())
+            .and_then(|(start, end)| source.get(start..end)).map(str::to_owned)
+    })?.ok_or_else(|| RuntimeError::from(IndexError::Provider(format!("String slice {start}..{end} requires ordered byte offsets within bounds and on UTF-8 boundaries"))))?;
     cx.encode_result(result)
 }
 
-fn trim(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
-    let result = text(cx, 0)?.trim().to_owned();
+fn trim(cx: &mut NativeCall<'_>) -> NativeResult<()> {
+    let result = text(cx, [0], |[text]| text.trim().to_owned())?;
     cx.encode_result(result)
 }
 
-fn trim_start(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
-    let result = text(cx, 0)?.trim_start().to_owned();
+fn trim_start(cx: &mut NativeCall<'_>) -> NativeResult<()> {
+    let result = text(cx, [0], |[text]| text.trim_start().to_owned())?;
     cx.encode_result(result)
 }
 
-fn trim_end(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
-    let result = text(cx, 0)?.trim_end().to_owned();
+fn trim_end(cx: &mut NativeCall<'_>) -> NativeResult<()> {
+    let result = text(cx, [0], |[text]| text.trim_end().to_owned())?;
     cx.encode_result(result)
 }
 
-fn replace(cx: &mut NativeCall<'_>) -> NativeResult<Value> {
-    let result = text(cx, 0)?.replace(&*text(cx, 1)?, &text(cx, 2)?);
+fn replace(cx: &mut NativeCall<'_>) -> NativeResult<()> {
+    let result = text(cx, [0, 1, 2], |[text, from, to]| text.replace(from, to))?;
     cx.encode_result(result)
 }
 

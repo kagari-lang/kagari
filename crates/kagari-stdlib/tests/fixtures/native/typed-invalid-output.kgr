@@ -1,0 +1,13 @@
+use example::typed::{ broken, trap };
+
+fn main() -> i32 {
+    broken()
+}
+
+pub fn fails() {
+    trap();
+}
+
+pub fn healthy() -> i32 {
+    42
+}

@@ -1,0 +1,9 @@
+use example::machine_scalars;
+
+pub fn unsigned(value: u64) -> u64 {
+    machine_scalars::unsigned(value)
+}
+
+pub fn signed(value: i64) -> i64 {
+    machine_scalars::signed(value)
+}

@@ -134,13 +134,7 @@ fn main() {
     let report = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap();
-    assert_eq!(
-        report
-            .return_value
-            .value(runtime.gc())
-            .expect("retained execution result"),
-        kagari_runtime::value::Value::I32(42)
-    );
+    assert_eq!(report.return_value.as_i32(), Some(42));
     let mut second = engine.runtime(ExecutionContext::default());
     assert!(
         second
@@ -153,17 +147,13 @@ fn main() {
             .execute(&second_loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(second.gc())
-            .unwrap(),
-        kagari_runtime::value::Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
     println!(
         "{} modules, result {:?}",
         _selected_loaded.members().count(),
-        report
-            .return_value
-            .value(runtime.gc())
-            .expect("retained execution result")
+        report.return_value.as_i32()
     );
 }
 

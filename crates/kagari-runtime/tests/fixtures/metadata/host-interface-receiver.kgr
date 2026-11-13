@@ -1,0 +1,19 @@
+use graph::External;
+
+pub trait Read {
+    fn read(self) -> i32;
+}
+
+impl Read for External {
+    fn read(self) -> i32 {
+        7
+    }
+}
+
+pub fn wrap(value: External) -> Read {
+    value
+}
+
+fn main() -> i32 {
+    0
+}

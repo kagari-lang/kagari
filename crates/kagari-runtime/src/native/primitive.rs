@@ -2,20 +2,17 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::types::arguments::ScopedSignature,
-    gc::GcHeap,
-    module::ExecutableModule,
+    execution::roots::ExecutionRoots,
     native::{
-        binding::{BindingEntry, Codec, LinkedNativeFunction, NativeBinding, NativeResult},
+        binding::{BindingEntry, Codec, LinkedNativeFunction, NativeBinding},
+        conversion::arguments::ArgumentValues,
         types::Type,
     },
-    value::Value,
+    value::{carriers::ScopedValue, strings::StringObject, view::ValueView},
 };
 
+use kagari_gc::{access::Scope, error::GcError};
 use kagari_types::{callable::Signature, scalar::BuiltinType, ty::Ty};
-
-// A fixed kernel's successful result must not carry the cold diagnostic payload.
-pub(crate) type PrimitiveResult = Result<Value, Box<RuntimeError>>;
 
 /// Selecting a primitive installs its fixed implementation, never an arbitrary
 /// callback annotated with a purity claim. Registration checks its exact codecs.
@@ -78,28 +75,40 @@ impl NativePrimitive {
 
     /// Shared by scoped native calls and prepared interpreter operations. The
     /// caller owns roots and cancellation polls before/after this bounded operation.
-    pub(crate) fn execute(
+    pub(crate) fn execute<'call>(
         self,
-        runtime: &Runtime,
-        _owner: &ExecutableModule,
-        _signature: &ScopedSignature,
-        argument: impl Fn(usize) -> NativeResult<Value>,
-    ) -> PrimitiveResult {
-        let heap = runtime.gc();
-        match self {
-            Self::StringByteLength => string_byte_length(heap, argument(0)?),
-        }
+        runtime: &mut Runtime,
+        arguments: ArgumentValues<'_>,
+    ) -> Result<ValueView<'call>, Box<RuntimeError>> {
+        let result = runtime.memory.scope(&runtime.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                let argument = arguments.scoped(slots, 0)?;
+                let value = match self {
+                    Self::StringByteLength => string_byte_length(slots.scope(), argument)?,
+                };
+                ValueView::protected(value, None)
+            })
+        });
+        result.map_err(|error| {
+            Box::new(match error {
+                GcError::ForeignHeap
+                | GcError::InvalidRoot
+                | GcError::Index
+                | GcError::Representation => RuntimeError::module_validation(error.to_string()),
+                error => runtime.managed_memory_error(error),
+            })
+        })
     }
 }
 
 /// This closed scalar result needs no element-type signature or argument table.
 #[inline(always)]
-pub(crate) fn string_byte_length(heap: &GcHeap, value: Value) -> PrimitiveResult {
-    let Value::Str(id) = value else {
-        return Err(RuntimeError::module_validation("string argument").into());
-    };
-    let text = heap
-        .string(id)
-        .ok_or_else(|| RuntimeError::module_validation("invalid string argument"))?;
-    Ok(Value::U64(text.len() as u64))
+pub(crate) fn string_byte_length<'gc>(
+    cx: &Scope<'gc>,
+    value: ScopedValue<'gc>,
+) -> Result<ScopedValue<'gc>, GcError> {
+    let object = cx.downcast::<StringObject>(value.object().ok_or(GcError::Representation)?)?;
+    Ok(ScopedValue::from(
+        cx.read(object, |text| text.as_str().len()) as u64,
+    ))
 }

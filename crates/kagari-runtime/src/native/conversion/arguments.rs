@@ -1,19 +1,300 @@
 //! The outer Rust tuple is an argument list; its elements each convert one value.
 use crate::{
     error::RuntimeError,
+    execution::roots::{SessionId, Slots, ValueBank, ValueLocation, queued::QueuedArguments},
     frame::types::arguments::TypeArgument,
-    gc::roots::RootSet,
     host::HostRegistryId,
-    module::ModuleKey,
+    module::{ModuleKey, execution::layout::Location},
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
         types::Type,
     },
-    value::Value,
+    value::{
+        carriers::ScopedValue,
+        kind::ObjectKind,
+        scalar::{self, domain},
+        view::ValueView,
+    },
 };
+use kagari_gc::error::GcError;
 use std::marker::PhantomData;
+
+/// A non-owning parameter view. Prepared Native inputs read the caller's banks;
+/// converted packs use one contiguous local prefix. Slices share that storage.
+#[derive(Debug, Clone, Copy)]
+pub struct ArgumentValues<'call> {
+    storage: ArgumentStorage<'call>,
+    offset: usize,
+    count: usize,
+    lifetime: PhantomData<fn(&'call ()) -> &'call ()>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ArgumentStorage<'call> {
+    Queued(&'call QueuedArguments),
+    Locals {
+        execution: SessionId,
+        start: usize,
+    },
+    Prepared {
+        execution: SessionId,
+        managed: usize,
+        scalars: usize,
+        locations: &'call [Location],
+    },
+    Scalars(&'call [ValueView<'static>]),
+}
+
+impl<'call> ArgumentValues<'call> {
+    pub(crate) fn queued(values: &'call QueuedArguments) -> Self {
+        Self {
+            storage: ArgumentStorage::Queued(values),
+            offset: 0,
+            count: values.len(),
+            lifetime: PhantomData,
+        }
+    }
+
+    pub(crate) fn new(execution: SessionId, start: usize, count: usize) -> Self {
+        Self {
+            storage: ArgumentStorage::Locals { execution, start },
+            offset: 0,
+            count,
+            lifetime: PhantomData,
+        }
+    }
+
+    /// Only admitted frame/control owners provide bank bases and checked facts.
+    /// The caller keeps that frame alive throughout this nonescaping call view.
+    pub(crate) fn prepared(
+        execution: SessionId,
+        managed: usize,
+        scalars: usize,
+        locations: &'call [Location],
+    ) -> Self {
+        Self {
+            storage: ArgumentStorage::Prepared {
+                execution,
+                managed,
+                scalars,
+                locations,
+            },
+            offset: 0,
+            count: locations.len(),
+            lifetime: PhantomData,
+        }
+    }
+
+    /// The sealed scalar pack owner lends its Rust stack buffer synchronously.
+    /// Admission below independently rejects managed/ephemeral carriers.
+    pub(crate) fn scalars(values: &'call [ValueView<'static>]) -> Self {
+        Self {
+            storage: ArgumentStorage::Scalars(values),
+            offset: 0,
+            count: values.len(),
+            lifetime: PhantomData,
+        }
+    }
+
+    pub(crate) fn reborrow<'short>(self) -> ArgumentValues<'short>
+    where
+        'call: 'short,
+    {
+        ArgumentValues {
+            storage: self.storage,
+            offset: self.offset,
+            count: self.count,
+            lifetime: PhantomData,
+        }
+    }
+
+    pub(crate) fn contiguous(self) -> Option<(SessionId, usize, usize)> {
+        let ArgumentStorage::Locals { execution, start } = self.storage else {
+            return None;
+        };
+        Some((execution, start.checked_add(self.offset)?, self.count))
+    }
+
+    /// Bounds/source admission is separate from actual value/type admission.
+    /// Empty packs still validate the owning source rather than silently pass.
+    pub(crate) fn check_bounds(self, slots: &mut Slots<'_, '_>) -> Result<(), GcError> {
+        let end = self.offset.checked_add(self.count).ok_or(GcError::Index)?;
+        match self.storage {
+            ArgumentStorage::Queued(values) => {
+                values.check_bounds(slots)?;
+                if end > values.len() {
+                    return Err(GcError::Index);
+                }
+            }
+            ArgumentStorage::Locals { execution, start } => {
+                let end = start.checked_add(end).ok_or(GcError::Index)?;
+                if end > slots.len(execution, ValueBank::Local)? {
+                    return Err(GcError::Index);
+                }
+            }
+            ArgumentStorage::Prepared {
+                execution,
+                locations,
+                ..
+            } => {
+                slots.storage(execution)?;
+                if end > locations.len() {
+                    return Err(GcError::Index);
+                }
+            }
+            ArgumentStorage::Scalars(values) => {
+                if end > values.len() {
+                    return Err(GcError::Index);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn location(self, index: usize) -> Option<ValueLocation> {
+        if index >= self.count {
+            return None;
+        }
+        let index = self.offset.checked_add(index)?;
+        match self.storage {
+            ArgumentStorage::Queued(values) => values.location(index),
+            ArgumentStorage::Locals { execution, start } => Some(ValueLocation {
+                execution,
+                bank: ValueBank::Local,
+                slot: start.checked_add(index)?,
+            }),
+            ArgumentStorage::Prepared {
+                execution,
+                managed,
+                locations,
+                ..
+            } => {
+                let location = locations.get(index)?;
+                if !location.operand.managed() {
+                    return None;
+                }
+                Some(ValueLocation {
+                    execution,
+                    bank: ValueBank::Managed,
+                    slot: managed.checked_add(location.operand.index())?,
+                })
+            }
+            ArgumentStorage::Scalars(_) => None,
+        }
+    }
+
+    pub(crate) fn scoped<'gc>(
+        self,
+        slots: &mut Slots<'_, 'gc>,
+        index: usize,
+    ) -> Result<ScopedValue<'gc>, GcError> {
+        if index >= self.count {
+            return Err(GcError::Index);
+        }
+        let input = self.offset.checked_add(index).ok_or(GcError::Index)?;
+        match self.storage {
+            ArgumentStorage::Queued(values) => values.get(slots, input),
+            ArgumentStorage::Locals { .. } => {
+                slots.get(self.location(index).ok_or(GcError::Index)?)
+            }
+            ArgumentStorage::Prepared {
+                execution,
+                scalars,
+                locations,
+                ..
+            } => {
+                let location = *locations.get(input).ok_or(GcError::Index)?;
+                if location.operand.is_unit() {
+                    slots.storage(execution)?;
+                    return location
+                        .admits(ScopedValue::unit())
+                        .then_some(ScopedValue::unit())
+                        .ok_or(GcError::Representation);
+                }
+                if location.operand.managed() {
+                    let source = self.location(index).ok_or(GcError::Index)?;
+                    let value = slots.get(source)?;
+                    let borrowed = location.borrowed_receiver
+                        && matches!(
+                            value.kind(),
+                            Some(ObjectKind::Ephemeral | ObjectKind::HostPath)
+                        );
+                    if !borrowed && !value.has_representation(location.representation) {
+                        return Err(GcError::Representation);
+                    }
+                    return Ok(value);
+                }
+                let slot = scalars
+                    .checked_add(location.operand.index())
+                    .ok_or(GcError::Index)?;
+                let storage = slots.storage(execution)?;
+                let bits = *storage.scalars.get(slot).ok_or(GcError::Index)?;
+                if !storage
+                    .initialized
+                    .get(slot)
+                    .copied()
+                    .ok_or(GcError::Index)?
+                    || !domain::admits_payload(location.representation, location.semantic, bits)
+                {
+                    return Err(GcError::Representation);
+                }
+                scalar::decode(location.representation, bits).ok_or(GcError::Representation)
+            }
+            ArgumentStorage::Scalars(values) => {
+                let value = *values.get(input).ok_or(GcError::Index)?;
+                if value.kind().is_some() {
+                    return Err(GcError::Representation);
+                }
+                value.get(slots)
+            }
+        }
+    }
+
+    pub(crate) fn view<'view>(
+        self,
+        slots: &mut Slots<'_, '_>,
+        index: usize,
+    ) -> Result<ValueView<'view>, GcError> {
+        let value = self.scoped(slots, index)?;
+        ValueView::protected(value, self.location(index))
+    }
+
+    pub fn len(self) -> usize {
+        self.count
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.count == 0
+    }
+
+    pub fn get<'context>(
+        self,
+        cx: &mut ConversionContext<'context>,
+        index: usize,
+    ) -> NativeResult<ValueView<'context>>
+    where
+        'call: 'context,
+    {
+        cx.argument_value(self, index)
+    }
+
+    /// Select a checked tail without preparing another pack or root owner.
+    pub fn tail(mut self, start: usize) -> NativeResult<Self> {
+        if start > self.count {
+            return Err(RuntimeError::module_validation(
+                "argument tail is out of bounds",
+            ));
+        }
+        self.offset = self
+            .offset
+            .checked_add(start)
+            .ok_or_else(|| RuntimeError::module_validation("argument coordinate overflow"))?;
+        self.count -= start;
+        Ok(self)
+    }
+}
 
 /// A checked Rust argument mapping borrowed from its fixed signature. Native
 /// bindings/applications own preparation; dynamic conversion callers prepare at
@@ -59,16 +340,69 @@ impl<'a, A: KagariArguments> PreparedArguments<'a, A> {
 
 impl<A: IntoKagariArguments> PreparedArguments<'_, A> {
     /// Encode actual values using the checked pack; preserve per-value effects.
-    pub fn encode(&self, cx: &mut ConversionContext<'_>, arguments: A) -> NativeResult<RootSet> {
+    pub fn encode<'call>(
+        &self,
+        cx: &mut ConversionContext<'call>,
+        arguments: A,
+    ) -> NativeResult<ArgumentValues<'call>> {
         self.validate(cx)?;
-        arguments.encode_arguments(cx, self)
+        cx.check_elements(self.expected.len())?;
+        cx.encode_argument_pack(|cx| arguments.encode_arguments(cx, self))
     }
 }
 
 impl<A: FromKagariArguments> PreparedArguments<'_, A> {
     /// Validate all input values before decoding the first custom converter.
-    pub fn decode(&self, cx: &mut ConversionContext<'_>, values: &[Value]) -> NativeResult<A> {
+    pub fn decode<'source, 'call>(
+        &self,
+        cx: &mut ConversionContext<'call>,
+        values: ArgumentValues<'source>,
+    ) -> NativeResult<A>
+    where
+        'source: 'call,
+    {
+        let values = values.reborrow();
         self.validate(cx)?;
+        cx.validate_arguments(values)?;
+        check_arity(self.expected, values.len())?;
+        cx.check_elements(values.len())?;
+        for (index, ty) in self.expected.iter().enumerate() {
+            let value = values.get(cx, index)?;
+            cx.check_value(ty, &value)?;
+        }
+        cx.argument_scope(|cx| A::decode_arguments(cx, self, values))
+    }
+
+    /// Native invocation admitted every input, including its declared receiver
+    /// policy, before the first converter. Keep that one complete-pack decision.
+    pub(crate) fn decode_admitted<'source, 'call>(
+        &self,
+        cx: &mut ConversionContext<'call>,
+        values: ArgumentValues<'source>,
+    ) -> NativeResult<A>
+    where
+        'source: 'call,
+    {
+        let values = values.reborrow();
+        self.validate(cx)?;
+        cx.validate_arguments(values)?;
+        check_arity(self.expected, values.len())?;
+        cx.argument_scope(|cx| A::decode_arguments(cx, self, values))
+    }
+
+    /// The outer binding admitted the full immutable pack before any converter.
+    pub(crate) fn decode_tail<'source, 'call>(
+        &self,
+        cx: &mut ConversionContext<'call>,
+        values: ArgumentValues<'source>,
+    ) -> NativeResult<A>
+    where
+        'source: 'call,
+    {
+        let values = values.reborrow();
+        self.validate(cx)?;
+        cx.validate_arguments(values)?;
+        check_arity(self.expected, values.len())?;
         A::decode_arguments(cx, self, values)
     }
 }
@@ -87,47 +421,23 @@ pub trait KagariArguments {
 }
 
 pub trait IntoKagariArguments: KagariArguments + Sized {
-    /// Encode a completely mapped pack. Actual values and custom conversion
-    /// effects remain checked in the supplied conversion scope.
-    fn encode_arguments(
+    /// Encode into the caller's protected source suffix. The prepared mapping
+    /// admits Rust types before conversion effects; failed packs retire together.
+    fn encode_arguments<'call>(
         self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         prepared: &PreparedArguments<'_, Self>,
-    ) -> NativeResult<RootSet>;
+    ) -> NativeResult<ArgumentValues<'call>>;
 }
 
 pub trait FromKagariArguments: KagariArguments + Sized {
-    /// Decode an already mapped pack, validating every actual value before the
-    /// first user converter. Retain the complete snapshot through conversion.
-    fn decode_arguments(
-        cx: &mut ConversionContext<'_>,
+    /// Decode an admitted immutable prefix. The invocation owner checked every
+    /// actual value before the first converter; subpacks reuse that admission.
+    fn decode_arguments<'call>(
+        cx: &mut ConversionContext<'call>,
         prepared: &PreparedArguments<'_, Self>,
-        values: &[Value],
+        values: ArgumentValues<'call>,
     ) -> NativeResult<Self>;
-}
-
-/// Own the argument roots until the backend result has been retained or decoded.
-pub(crate) fn encode_arguments<A: IntoKagariArguments>(
-    cx: &mut ConversionContext<'_>,
-    prepared: PreparedArguments<'_, A>,
-    arguments: A,
-) -> NativeResult<(RootSet, Vec<Value>)> {
-    let count = prepared.types().len();
-    let roots = prepared
-        .encode(cx, arguments)
-        .map_err(|error| cx.runtime().resources().admit_execution_error(error))?;
-    let mut values = Vec::new();
-    values
-        .try_reserve_exact(count)
-        .map_err(|_| cx.runtime().resources().limit("typed call arguments"))?;
-    for slot in 0..count {
-        values.push(
-            roots
-                .get(cx.runtime().gc(), slot)
-                .ok_or_else(|| RuntimeError::module_validation("typed call argument root"))?,
-        );
-    }
-    Ok((roots, values))
 }
 
 fn check_arity(expected: &[TypeArgument], actual: usize) -> NativeResult<()> {
@@ -154,36 +464,23 @@ macro_rules! arguments {
         }
 
         impl<$($ty: IntoKagari),*> IntoKagariArguments for ($($ty,)*) {
-            fn encode_arguments(self, cx: &mut ConversionContext<'_>, prepared: &PreparedArguments<'_, Self>) -> NativeResult<RootSet> {
+            fn encode_arguments<'call>(self, cx: &mut ConversionContext<'call>, prepared: &PreparedArguments<'_, Self>) -> NativeResult<ArgumentValues<'call>> {
                 let expected = prepared.types();
                 check_arity(expected, $count)?;
-                cx.check_elements($count)?;
-                cx.argument_scope(|cx| {
-                    let values = vec![$(cx.encode_prepared(&expected[$slot], self.$slot)?),*];
-                    cx.runtime().gc().root_execution_values(values)
-                        .ok_or_else(|| RuntimeError::module_validation("typed argument roots"))
-                })
+                let values = [$(cx.encode_prepared(&expected[$slot], self.$slot)?),*];
+                cx.argument_values(&values)
             }
         }
 
         impl<$($ty: FromKagari),*> FromKagariArguments for ($($ty,)*) {
-            fn decode_arguments(cx: &mut ConversionContext<'_>, prepared: &PreparedArguments<'_, Self>, values: &[Value]) -> NativeResult<Self> {
+            fn decode_arguments<'call>(_cx: &mut ConversionContext<'call>, prepared: &PreparedArguments<'_, Self>, values: ArgumentValues<'call>) -> NativeResult<Self> {
                 let expected = prepared.types();
                 check_arity(expected, $count)?;
                 if values.len() != $count { return Err(RuntimeError::module_validation("typed input argument count")); }
-                cx.check_elements($count)?;
-                for (ty, value) in expected.iter().zip(values) { cx.check_value(ty, value)?; }
-                let roots = cx.runtime().gc().root_execution_values(values.to_vec())
-                    .ok_or_else(|| RuntimeError::module_validation("typed input argument roots"))?;
-                let result = cx.argument_scope(|_cx| {
-                    Ok(($({
-                        let value = roots.get(_cx.runtime().gc(), $slot)
-                            .ok_or_else(|| RuntimeError::module_validation("typed input argument slot"))?;
-                        _cx.decode_prepared::<$ty>(&expected[$slot], &value)?
-                    },)*))
-                });
-                drop(roots);
-                result
+                Ok(($({
+                    let value = values.get(_cx, $slot)?;
+                    _cx.decode_admitted::<$ty>(&expected[$slot], &value)?
+                },)*))
             }
         }
     };

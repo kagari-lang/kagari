@@ -2,12 +2,15 @@
 use super::loaded_function;
 use crate::{
     Runtime, error::RuntimeErrorKind, frame::cursor::kernel::RegionError, module::VerifiedProgram,
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, KbcArtifact},
     instruction::{BytecodeInstruction, JumpTarget},
-    module::{BytecodeFunction, FunctionMetadata, InstructionOrigin, LineTableEntry},
+    module::{
+        BytecodeDebugMetadata, BytecodeFunction, FunctionMetadata, InstructionOrigin,
+        LineTableEntry,
+    },
 };
 use kagari_common::{identity::map::DefinitionContext, span::Span};
 use kagari_compiler::{
@@ -94,33 +97,35 @@ fn selected_fault_origin_survives_stripped_source_free_execution() {
         )
         .unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
+    let roots_before = runtime.gc_stats().root_registrations;
     let mut stack_activation = runtime.enter_execution_stack(&loaded).unwrap();
-    stack_activation.with(|runtime, stack| {
+    stack_activation
+        .with(|runtime, stack| {
+            stack
+                .push(
+                    runtime,
+                    loaded.slot(),
+                    entry,
+                    &[ValueView::from(0i32), ValueView::from(i32::MIN)],
+                    None,
+                )
+                .unwrap();
+            let Err(error) = stack.execute_region(runtime, &mut None, |_, _, _, _, _| unreachable!()) else {
+                panic!("the selected negation must overflow");
+            };
+            assert!(
+                matches!(error, RegionError::Runtime(ref error) if error.kind() == RuntimeErrorKind::ScriptTrap)
+            );
+            let trace = runtime.capture_error_trace();
+            assert_eq!(trace.frames[0].source_span, Some(expected));
+            assert_eq!(trace.frames[0].semantic_origin, Some(id));
+            assert_eq!(trace.frames[0].instruction_offset, pc);
 
-    stack
-        .push(
-            runtime,
-            loaded.slot(),
-            entry,
-            &[Value::I32(0), Value::I32(i32::MIN)],
-            None,
-        )
+            Ok(())
+        })
         .unwrap();
-    let Err(error) = stack.execute_region(runtime, &mut None, |_, _, _, _| unreachable!()) else {
-        panic!("the selected negation must overflow");
-    };
-    assert!(
-        matches!(error, RegionError::Runtime(ref error) if error.kind() == RuntimeErrorKind::ScriptTrap)
-    );
-    let trace = runtime.capture_error_trace();
-    assert_eq!(trace.frames[0].source_span, Some(expected));
-    assert_eq!(trace.frames[0].semantic_origin, Some(id));
-    assert_eq!(trace.frames[0].instruction_offset, pc);
-
-Ok(())
-}).unwrap();
     drop(stack_activation);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.gc_stats().root_registrations, roots_before);
 }
 
 #[test]
@@ -152,7 +157,7 @@ fn native_origin_does_not_borrow_missing_coordinates_from_another_origin() {
                     },
                 ],
                 instruction_origins: vec![1],
-                debug: kagari_bytecode::module::BytecodeDebugMetadata {
+                debug: BytecodeDebugMetadata {
                     line_table: vec![LineTableEntry {
                         instruction_offset: 0,
                         source_offset: 10,

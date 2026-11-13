@@ -6,7 +6,6 @@ use std::{hint::black_box, sync::Arc, time::Instant};
 use kagari::engine::{KagariEngine, source::ArtifactOptions};
 use kagari_runtime::{
     Runtime, module::VerifiedProgram, module::entry::ProgramEntry, native::module::NativeModule,
-    value::Value,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_stdlib as standard;
@@ -111,22 +110,18 @@ fn main() {
             vm.execute_module(&first_loaded, ProgramEntry::Main, vm.execution_options())
                 .unwrap()
                 .return_value
-                .value(vm.gc())
-                .expect("retained execution result"),
+                .as_i32(),
         );
     }
     let start = Instant::now();
     let mut checksum = 0_i64;
     for _ in 0..CALLS {
-        let Value::I32(value) = vm
+        let value = vm
             .execute_module(&first_loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.gc())
-            .expect("retained execution result")
-        else {
-            unreachable!("benchmark entry returns i32")
-        };
+            .as_i32()
+            .expect("benchmark entry returns i32");
         checksum += i64::from(value);
     }
     println!(

@@ -1,11 +1,15 @@
 use crate::{
     Runtime,
-    error::{RuntimeError, fault::EngineFault, trap::TrapReason},
+    error::{RuntimeError, fault::EngineFault},
+    execution::{
+        memory::ManagedMemory,
+        roots::{DependencyId, ExecutionRoots, SessionId},
+    },
+    execution_metadata::{environments::AdmittedEnvironment, managed::sources::MetadataSource},
     frame::{
         types::TypeEnvironment,
-        values::{ExecutionValues, FrameSlots},
+        values::{FrameSlots, FrameStorage},
     },
-    gc::NativeMutation,
     module::{
         ExecutableModule,
         execution::{
@@ -13,12 +17,13 @@ use crate::{
             layout::{AccessPhase, FrameLayout, Location},
         },
         linked_execution::LinkedFunction,
+        managed::{revision::RevisionState, source::RevisionSource},
         state::initialization::StaticInitialization,
     },
     objects::invocation::MethodInvocation,
     resource::ResourceState,
-    session::{ExecutionSession, store::SessionId},
-    value::Value,
+    session::ExecutionSession,
+    value::view::ValueView,
 };
 
 use kagari_abi::representation::ValueType;
@@ -27,8 +32,8 @@ use kagari_bytecode::{
     module::{BytecodeFunction, CallableTarget},
     program::ModuleRef,
 };
+use kagari_gc::{error::GcError, heap::Phase};
 use std::{
-    cell::RefMut,
     fmt,
     fmt::{Debug, Formatter},
     marker::PhantomData,
@@ -36,21 +41,29 @@ use std::{
     sync::Arc,
 };
 
+mod access;
 mod activation;
 mod admission;
+mod aggregates;
 pub(crate) mod arguments;
 mod calls;
+mod cells;
 mod closures;
 pub mod cursor;
 pub mod driver;
 pub(crate) mod factory;
 mod fields;
 mod future;
+mod helpers;
+mod instruction;
 mod interfaces;
 mod layouts;
 mod native;
 mod owned;
+pub(crate) mod paths;
+mod ranges;
 mod returns;
+mod scalar_ops;
 mod shared;
 mod stack;
 mod statics;
@@ -93,7 +106,7 @@ enum NativeEntryState {
 
 pub struct ExecutionFrame {
     links: Option<Arc<LinkedFunction>>,
-    environment: Option<TypeEnvironment>,
+    environment: Option<AdmittedEnvironment>,
     loaded: ExecutableModule,
     target: CallableTarget,
     native_entry: NativeEntryState,
@@ -102,12 +115,11 @@ pub struct ExecutionFrame {
     // Published at closed-region/result boundaries, never charged per scalar instruction.
     completed: Option<usize>,
     native_origin: Option<usize>,
-    slots: FrameSlots,
+    storage: Option<FrameStorage>,
     slot_count: usize,
     slot_layout: Option<Arc<FrameLayout>>,
     return_to: ReturnDestination,
     invocation: Option<MethodInvocation>,
-    mutations: Vec<(Value, NativeMutation)>,
     initializer: Option<StaticInitialization>,
 }
 
@@ -127,37 +139,78 @@ enum FrameEntry {
     StaticInitializer(StaticInitialization),
 }
 
+/// Input facts plus their actual protected owner. Admission creates the frame's
+/// own dependency coordinate; these borrowed sources create no temporary suffix.
+struct FrameEnvironment<'call> {
+    facts: TypeEnvironment,
+    source: MetadataSource<'call>,
+}
+
+impl FrameEnvironment<'_> {
+    fn admitted(environment: AdmittedEnvironment) -> Self {
+        Self {
+            facts: environment.facts().clone(),
+            source: MetadataSource::Environment(environment.source()),
+        }
+    }
+}
+
 struct FrameDispatch<'call> {
+    origin: RevisionSource<'call>,
+    metadata: Option<MetadataSource<'call>>,
     prepared: Option<&'call PreparedCall>,
     entry: FrameEntry,
     invocation: Option<MethodInvocation>,
-    environment: Option<TypeEnvironment>,
+    environment: Option<FrameEnvironment<'call>>,
 }
 
 impl ExecutionFrame {
-    pub(crate) fn release_values(&self, resources: &ResourceState) {
-        drop(self.retire_values(resources));
+    pub(crate) fn release_values(&mut self, memory: &mut ManagedMemory, resources: &ResourceState) {
+        if let Some(initializer) = &self.initializer {
+            initializer.fail("static initializer execution abandoned");
+            if let Some(failure) = initializer.pending_failure()
+                && !matches!(memory.stats().phase, Phase::Closed | Phase::Faulted)
+                && let Err(error) = failure.settle(memory, resources)
+            {
+                resources.quarantine(EngineFault::ExecutionStorageRetirementFailed(error));
+            }
+        }
+        let Some(storage) = self.storage.take() else {
+            return;
+        };
+        match memory.stats().phase {
+            Phase::Closed => return,
+            Phase::Faulted => {
+                if !resources.is_quarantined() {
+                    resources.quarantine(EngineFault::ExecutionStorageRetirementFailed(
+                        GcError::Faulted,
+                    ));
+                }
+                return;
+            }
+            _ => {}
+        }
+        if let Err(error) = memory.scope(resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| storage.retire(slots))
+        }) && !resources.is_quarantined()
+        {
+            resources.quarantine(EngineFault::ExecutionStorageRetirementFailed(error));
+        }
     }
 
-    /// Retain storage only for the closed retirement/publication transition.
-    /// Failure quarantines execution but must not interrupt frame/depth cleanup.
-    fn retire_values<'resources>(
-        &self,
-        resources: &'resources ResourceState,
-    ) -> Option<RefMut<'resources, ExecutionValues>> {
-        let mut values = resources.frame_values.try_borrow_mut().ok();
-        if values
-            .as_mut()
-            .and_then(|values| values.release(self.slots))
-            .is_none()
-        {
-            resources.quarantine(EngineFault::ExecutionSlotsRemainedBorrowedDuringFrameCleanup);
-        }
-        values
+    pub(crate) fn admitted_body(&self) -> Result<DependencyId<RevisionState>, EngineFault> {
+        self.storage
+            .as_ref()
+            .map(|storage| storage.slots().body)
+            .ok_or(EngineFault::ExpiredFrameStorage)
+    }
+
+    fn slots(&self) -> FrameSlots {
+        self.storage.as_ref().expect("live frame storage").slots()
     }
 
     fn validate_runtime(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
-        if !self.slots.belongs_to(&runtime.gc) {
+        if self.storage.is_none() || !runtime.memory.contains_frame_banks(self.slots().banks) {
             return Err(RuntimeError::module_validation(
                 "frame belongs to another runtime",
             ));
@@ -172,51 +225,22 @@ impl ExecutionFrame {
             .map_or(0, |slot_layout| slot_layout.count)
     }
 
-    /// Active scalar payload/initialization slots and managed Value slots,
+    /// Active scalar payload/initialization slots and managed source slots,
     /// including visible bindings and native arguments. Prepared metadata is separate.
     pub fn storage_counts(&self, runtime: &Runtime) -> Result<(usize, usize), RuntimeError> {
         self.validate_runtime(runtime)?;
-        let storage = runtime.resources().frame_values.try_borrow().map_err(|_| {
-            runtime
-                .resources()
-                .quarantine(EngineFault::FrameStorageBorrowedDuringInspection)
-        })?;
-        let ranges = storage.ranges(self.slots).ok_or_else(|| {
-            runtime
-                .resources()
-                .quarantine(EngineFault::ExpiredFrameStorage)
-        })?;
-        Ok((ranges.scalars.len(), ranges.managed.len()))
+        let banks = self.slots().banks;
+        Ok((banks.scalar_count, banks.managed_count))
     }
 
     pub fn environment(&self) -> Option<TypeEnvironment> {
-        self.environment.clone()
+        self.environment
+            .as_ref()
+            .map(|environment| environment.facts().clone())
     }
 
-    pub fn begin_native_mutation(
-        &mut self,
-        runtime: &Runtime,
-        value: &Value,
-    ) -> Result<(), RuntimeError> {
-        self.validate_runtime(runtime)?;
-        self.mutations
-            .try_reserve(1)
-            .map_err(|_| RuntimeError::from(TrapReason::MutationGuardAllocation))?;
-        self.mutations
-            .push((*value, runtime.gc.begin_native_mutation(value)?));
-        Ok(())
-    }
-
-    pub fn end_native_mutation(&mut self, value: &Value) -> Result<(), RuntimeError> {
-        if !self
-            .mutations
-            .last()
-            .is_some_and(|(target, _)| target == value)
-        {
-            return Err(RuntimeError::from(TrapReason::MutationGuardMismatch));
-        }
-        self.mutations.pop();
-        Ok(())
+    pub(crate) fn admitted_environment(&self) -> Option<&AdmittedEnvironment> {
+        self.environment.as_ref()
     }
 
     /// Fetch and advance without executing the instruction.
@@ -392,44 +416,53 @@ impl ExecutionFrame {
     }
 
     /// Read a logical slot only while its reused physical location belongs to it.
-    pub fn read_slot(&self, runtime: &Runtime, register: Slot) -> Result<Value, RuntimeError> {
+    /// Scalars are copied inline; managed results name protected source storage.
+    /// The view borrows both this frame and Runtime and registers no Host root.
+    /// Retain through an owning conversion when a value must outlive execution.
+    ///
+    /// A cold view cannot remain live across exclusive execution or collection:
+    /// ```compile_fail,E0502
+    /// use kagari_runtime::{Runtime, frame::ExecutionFrame};
+    /// use kagari_bytecode::instruction::Slot;
+    /// fn collect_with_live_view(frame: &ExecutionFrame, runtime: &mut Runtime, slot: Slot) {
+    ///     let view = frame.read_slot(runtime, slot).unwrap();
+    ///     runtime.collect_garbage().unwrap();
+    ///     let _kind = view.kind();
+    /// }
+    /// ```
+    pub fn read_slot<'frame>(
+        &'frame self,
+        runtime: &'frame Runtime,
+        register: Slot,
+    ) -> Result<ValueView<'frame>, RuntimeError> {
         self.validate_runtime(runtime)?;
-        if register.index() >= self.slot_count {
-            return Err(runtime
-                .resources()
-                .quarantine(EngineFault::InvalidFrameRegister));
-        }
-        self.validate_slot_access(register, true)?;
-        self.slots
-            .get(&runtime.gc, register.index())
-            .ok_or_else(|| {
+        let location = self.slot_location(runtime.resources(), register, true)?;
+        self.slots()
+            .inspect(&runtime.memory, location)
+            .map_err(|_| {
                 runtime
                     .resources()
                     .quarantine(EngineFault::InvalidFrameRegister)
             })
     }
 
-    /// Write a logical slot without overwriting another slot's active lifetime.
-    pub fn write_slot(
-        &mut self,
-        runtime: &Runtime,
+    fn slot_location(
+        &self,
+        resources: &ResourceState,
         register: Slot,
-        value: Value,
-    ) -> Result<(), RuntimeError> {
-        self.validate_runtime(runtime)?;
+        reading: bool,
+    ) -> Result<Location, RuntimeError> {
         if register.index() >= self.slot_count {
-            return Err(runtime
-                .resources()
-                .quarantine(EngineFault::InvalidFrameRegister));
+            return Err(resources.quarantine(EngineFault::InvalidFrameRegister));
         }
-        self.validate_slot_access(register, false)?;
-        self.slots
-            .set(&runtime.gc, register.index(), value)
-            .ok_or_else(|| {
-                runtime
-                    .resources()
-                    .quarantine(EngineFault::InvalidFrameRegister)
-            })?;
+        self.validate_slot_access(register, reading)?;
+        self.slot_layout
+            .as_ref()
+            .and_then(|layout| layout.location(register.index()))
+            .ok_or_else(|| resources.quarantine(EngineFault::InvalidFrameRegister))
+    }
+
+    fn complete_slot_write(&mut self, register: Slot) {
         if self
             .executing
             .and_then(|pc| self.function()?.instructions.get(pc))
@@ -438,7 +471,6 @@ impl ExecutionFrame {
         {
             self.completed = self.executing;
         }
-        Ok(())
     }
 }
 

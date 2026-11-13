@@ -1,0 +1,12 @@
+pub struct Player {
+    pub var hp: i32
+}
+
+pub fn make() -> Player {
+    Player { hp: 100 }
+}
+
+pub fn damage(player: Player, damage: i32) -> i32 {
+    player.hp -= damage;
+    player.hp
+}

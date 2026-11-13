@@ -15,10 +15,20 @@ use crate::{
         storage_type::StorageType,
         types::Type,
     },
-    resource::HeapCharge,
-    value::Value,
+    value::{
+        carriers::{ScopedValue, StoredValue},
+        native::data::run_edit,
+        properties::ValueProperties,
+    },
 };
-use std::{marker::PhantomData, sync::Arc};
+use kagari_contract::representation::semantic_representation;
+use kagari_gc::{
+    access::Scope,
+    error::GcError,
+    object::{Gc, GcObject, ObjectCharge},
+    scan::{EdgeVisitor, ScanBudget, ScanKind, ScanStatus},
+};
+use std::{marker::PhantomData, sync::Arc, thread};
 
 #[derive(Debug)]
 pub(crate) struct ManagedSchema {
@@ -131,7 +141,7 @@ impl<T: NativeData> ManagedStorage<T> {
 /// Nor can a data borrow escape the restricted edit:
 /// ```compile_fail
 /// use kagari_runtime::native::{payload::{Opaque, managed::Managed}, typed::NativeContext};
-/// fn escape<'a>(object: &Opaque<Managed<i32>>, cx: &'a NativeContext<'_>) -> &'a mut i32 {
+/// fn escape<'a>(object: &Opaque<Managed<i32>>, cx: &'a mut NativeContext<'_>) -> &'a mut i32 {
 ///     object.edit_data(cx, |data| Ok(data)).unwrap()
 /// }
 /// ```
@@ -139,7 +149,7 @@ impl<T: NativeData> ManagedStorage<T> {
 pub struct Managed<T> {
     pub(crate) data: T,
     pub(crate) schema: Arc<AppliedSchema>,
-    pub(crate) values: Vec<Value>,
+    pub(crate) values: Vec<StoredValue>,
 }
 
 impl<T> Managed<T> {
@@ -148,25 +158,141 @@ impl<T> Managed<T> {
     }
 }
 
-impl<T: NativeData> NativePayload for Managed<T> {
-    fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
-        for value in &self.values {
-            visit(value);
+impl<T: NativeData> Managed<T> {
+    pub(crate) fn alloc<'gc>(
+        cx: &mut Scope<'gc>,
+        data: T,
+        schema: Arc<AppliedSchema>,
+        values: &[ScopedValue<'gc>],
+    ) -> Result<Gc<'gc, Self>, GcError> {
+        if values.len() != schema.fields.len() {
+            return Err(GcError::Representation);
+        }
+        for (value, field) in values.iter().zip(&schema.fields) {
+            if !value.has_representation(semantic_representation(&field.contract.ty))
+                || !ValueProperties::of(cx, *value)?.storable
+            {
+                return Err(GcError::Representation);
+            }
+        }
+        // SAFETY: the checked builder retains every input, imports each cell into
+        // the returned provider and never exposes partially initialized storage.
+        unsafe {
+            cx.alloc_with(|mut init| {
+                let mut fields = Vec::new();
+                fields.try_reserve_exact(values.len())?;
+                for value in values {
+                    fields.push(StoredValue::initialize(&mut init, *value)?);
+                }
+                Ok(Self {
+                    data,
+                    schema,
+                    values: fields,
+                })
+            })
+        }
+    }
+}
+
+impl<T: NativeData> Managed<T> {
+    pub(crate) fn get<'gc>(
+        cx: &Scope<'gc>,
+        owner: Gc<'gc, Self>,
+        slot: usize,
+    ) -> Result<ScopedValue<'gc>, GcError> {
+        StoredValue::get_field(cx, owner, |owner| owner.values.get(slot))
+    }
+
+    pub(crate) fn set<'gc>(
+        cx: &mut Scope<'gc>,
+        owner: Gc<'gc, Self>,
+        slot: usize,
+        value: ScopedValue<'gc>,
+    ) -> Result<(), GcError> {
+        if !ValueProperties::of(cx, value)?.storable {
+            return Err(GcError::Representation);
+        }
+        let valid = cx.read(owner, |owner| {
+            owner.schema.fields.get(slot).is_some_and(|field| {
+                value.has_representation(semantic_representation(&field.contract.ty))
+            })
+        });
+        if !valid {
+            return Err(GcError::Representation);
+        }
+        // SAFETY: checked fixed cell and protected input. Publish before the
+        // coupled replacement; stable positions/capacity allow continuation.
+        unsafe {
+            cx.with_object_mut(owner, |owner, mutation| {
+                let value = StoredValue::publish_field(mutation, value)?;
+                owner.values[slot] = value;
+                mutation.continue_scan();
+                Ok(())
+            })
         }
     }
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(
-            self.data
-                .charge()?
-                .logical_units
+    pub(crate) fn edit_data<'gc, R>(
+        cx: &mut Scope<'gc>,
+        owner: Gc<'gc, Self>,
+        edit: impl FnOnce(&mut T) -> R,
+    ) -> Result<thread::Result<R>, GcError> {
+        // SAFETY: only recursive fixed data is lent. Fields, owned capacity and
+        // scan positions cannot change; user panic resumes after heap loans end.
+        unsafe {
+            cx.with_object_mut(owner, |owner, mutation| {
+                let result = run_edit(&mut owner.data, edit);
+                mutation.continue_scan();
+                Ok(result)
+            })
+        }
+    }
+}
+
+impl<T: NativeData> NativePayload for Managed<T> {
+    fn registration_storage() -> NativeStorage {
+        NativeStorage::payload::<Self>()
+    }
+}
+
+// SAFETY: private, fixed fields are initialized by the checked builder, scanned
+// completely and only mutated through publication-aware operations. Fixed NativeData
+// cannot hide edges or backing; immutable schema/type facts are not execution roots.
+unsafe impl<T: NativeData> GcObject for Managed<T> {
+    type ScanState = usize;
+    const SCAN_KIND: ScanKind = ScanKind::Resumable;
+
+    fn begin_scan(&self) -> usize {
+        0
+    }
+
+    fn scan(
+        &self,
+        next: &mut usize,
+        budget: &mut ScanBudget,
+        visitor: &mut EdgeVisitor<'_>,
+    ) -> Result<ScanStatus, GcError> {
+        while let Some(value) = self.values.get(*next) {
+            if !budget.take(1) {
+                return Ok(ScanStatus::Pending);
+            }
+            // SAFETY: this admitted provider retains the initialized field.
+            if unsafe { value.scan(budget, visitor)? } == ScanStatus::Pending {
+                return Ok(ScanStatus::Pending);
+            }
+            *next += 1;
+        }
+        Ok(ScanStatus::Complete)
+    }
+
+    fn charge(&self) -> ObjectCharge {
+        ObjectCharge {
+            units: size_of::<T>()
+                .div_ceil(size_of::<usize>())
                 .checked_add(self.values.len())
-                .ok_or_else(invalid)?,
-            self.values
-                .capacity()
-                .checked_mul(size_of::<Value>())
-                .expect("allocated managed fields"),
-        ))
+                .expect("allocated fixed payload"),
+            bytes: self.values.capacity() * size_of::<StoredValue>(),
+        }
     }
 }
 

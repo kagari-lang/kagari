@@ -1,0 +1,16 @@
+pub fn helper() -> i32 {
+    1
+}
+
+pub fn named() -> fn() -> i32 {
+    fn local() -> i32 {
+        3
+    }
+    local
+}
+
+pub fn generated() -> fn() -> i32 {
+    || helper() + 10
+}
+
+fn main() {}

@@ -1,14 +1,15 @@
+pub(crate) mod roots;
 use crate::{
     Runtime,
     context::ExecutionContext,
     debug::DebugSession,
-    error::{RuntimeError, reason::ErrorReason, trap::TrapReason},
+    error::{RuntimeError, reason::ErrorReason},
     error_trace::ResultFailure,
     executor::Executor,
-    gc::roots::RootedValue,
     module::{ExecutableModule, InstalledProgram, entry::ProgramEntry},
+    native::conversion::{arguments::ArgumentValues, context::ConversionContext},
     session::{ExecutionOptions, ExecutionSession, ExecutionTrace, SessionScope},
-    value::Value,
+    value::carriers::RootedValue,
 };
 
 mod access;
@@ -18,8 +19,7 @@ pub(crate) mod fixtures;
 mod invocation;
 mod managed;
 mod members;
-#[cfg(test)]
-mod model;
+pub mod memory;
 pub mod native;
 pub mod owned;
 pub mod reentry;
@@ -29,10 +29,7 @@ mod typed;
 
 use kagari_bytecode::module::CallableTarget;
 use kagari_common::identity::table::DefinitionId;
-use std::{
-    cell::{Ref, RefMut},
-    iter,
-};
+use std::cell::{Ref, RefMut};
 use {
     kagari_abi::native::BackendId,
     kagari_contract::{ids::FunctionRef, native::ExecutableFunctionArtifact},
@@ -81,7 +78,7 @@ impl Runtime {
         &mut self,
         program: &InstalledProgram,
         entry: impl Into<ProgramEntry<'a>>,
-        args: &[Value],
+        args: &[RootedValue],
         context: &ExecutionContext,
     ) -> Result<ExecutionReport, RuntimeError> {
         let entry = entry.into();
@@ -91,7 +88,11 @@ impl Runtime {
         self.execute_module(&module, entry, context.runtime_options())
     }
 
-    fn validate_entry_arguments(&self, entry: &str, args: &[Value]) -> Result<(), RuntimeError> {
+    fn validate_entry_arguments(
+        &self,
+        entry: &str,
+        args: &[RootedValue],
+    ) -> Result<(), RuntimeError> {
         if !args.is_empty() {
             return Err(RuntimeError::new(ErrorReason::UnsupportedExecution(
                 format!(
@@ -178,11 +179,9 @@ impl Runtime {
         label: &str,
         session: &SessionScope,
     ) -> Result<ExecutionReport, RuntimeError> {
-        let return_value = Executor::new(self, module, function, &[])?.run()?;
+        let return_value = Executor::new(self, module, function, ArgumentValues::scalars(&[]))?
+            .run(|runtime, stack, value| stack.retain_result(runtime, value))?;
         let failure = self.result_failure(&return_value);
-        let return_value = self
-            .root_value(return_value)
-            .ok_or_else(|| RuntimeError::module_validation("execution result root"))?;
 
         Ok(ExecutionReport {
             module_name: module.name.clone(),
@@ -200,24 +199,17 @@ impl Runtime {
     /// prefix. The receiver and arguments remain rooted while the method body executes.
     pub fn invoke_interface_method(
         &mut self,
-        interface: &Value,
+        interface: &RootedValue,
         method: &DefinitionId,
-        arguments: &[Value],
-    ) -> Result<Value, RuntimeError> {
-        let resolved = self.resolve_interface_method(interface, method)?;
+        arguments: &[RootedValue],
+    ) -> Result<RootedValue, RuntimeError> {
+        let resolved = self
+            .resolve_interface_method(interface, method)?
+            .admit(self)?;
         let loaded = resolved.implementation(self)?;
-        let args = iter::once(*resolved.receiver())
-            .chain(arguments.iter().cloned())
-            .collect::<Vec<_>>();
-        let _argument_roots =
-            self.gc()
-                .root_execution_values(args.clone())
-                .ok_or(RuntimeError::from(TrapReason::Provider(
-                    ("invalid interface method argument").into(),
-                )))?;
-        let mut session = self.begin_interpreter_execution(&loaded, self.execution_options())?;
-        let runtime = session.runtime_mut();
-        runtime.validate_executable_module(&loaded)?;
-        Executor::new_interface(runtime, resolved, &args)?.run()
+        let mut conversion = ConversionContext::new(self, &loaded)?;
+        let args = conversion.root_arguments(arguments)?;
+        Executor::new_interface(conversion.runtime_mut(), &resolved, args)?
+            .run(|runtime, stack, value| stack.retain_result(runtime, value))
     }
 }

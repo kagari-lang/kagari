@@ -1,0 +1,7 @@
+pub fn double(x: i32) -> i32 {
+    x * 2
+}
+
+pub fn use_callback(callback: fn(i32) -> i32) -> i32 {
+    callback(21)
+}
