@@ -313,7 +313,7 @@ impl AnalysisDatabase {
 
     /// Checks or reuses file signatures, then completes visible aggregate contracts before publication.
     pub(super) fn prepare_signatures(
-        &self,
+        &mut self,
         source: SourceSnapshot,
         cancel: &CancellationToken,
     ) -> Result<SignatureSnapshot, AnalysisError> {

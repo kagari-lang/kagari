@@ -437,6 +437,8 @@ algorithm or Runtime changes.
   Source/limit checks, non-older publication, cache pruning and cancellation guard its lifetime.
   Temporary owned prior-syntax inputs preserve the last published parse identity when a newer
   syntax batch completes but semantic analysis is cancelled; they retain no HIR/history map.
+  SourcePreparer uses explicit mutable cache/inline-ID borrows, not RefCell; declaration and
+  signature preparation require mutable database access.
 - Selected-body sub-checkpoint: FunctionFacts owns no HIR; BodyCacheEntry keeps strong facts
   and weak file/query handles. Returned FunctionAnalysis owns its exact graph/context. The
   existing lifecycle scenario proves both unrelated A and selected B graphs can release while

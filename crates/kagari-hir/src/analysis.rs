@@ -58,7 +58,7 @@ use kagari_syntax::{
 };
 use kagari_types::declaration::module::{DeclarationError, ModuleDecl};
 use std::{
-    cell::{OnceCell, RefCell},
+    cell::OnceCell,
     collections::{BTreeMap, HashMap},
     sync::Arc,
 };
@@ -698,7 +698,7 @@ pub struct AnalysisDatabase {
     /// Newest source revision admitted to the selected-body cache.
     body_revision: Revision,
     /// Physical parses survive independently of declaration and HIR result owners.
-    source_parse_cache: RefCell<SourceParseCache>,
+    source_parse_cache: SourceParseCache,
     /// Latest published declaration snapshot, including shared parse/lowering results.
     declaration_cache: Option<DeclarationSnapshot>,
     /// Latest published signatures and their declaration snapshot.
@@ -707,7 +707,7 @@ pub struct AnalysisDatabase {
     files: HashMap<FileId, Arc<FileAnalysis>>,
     latest_revision: Revision,
     /// Stable synthetic file IDs keyed by parent file and inline-module name.
-    inline_ids: RefCell<HashMap<(FileId, String), FileId>>,
+    inline_ids: HashMap<(FileId, String), FileId>,
     native_modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
     native_sources: Option<Vec<DeclarationSource>>,
     /// Parsed/lowered installed declaration sources, initialized once per registration setup.
@@ -741,12 +741,12 @@ impl AnalysisDatabase {
             max_semantic_diagnostics: DEFAULT_MAX_SEMANTIC_DIAGNOSTICS,
             body_cache: DefinitionMap::new(definitions),
             body_revision: Revision::default(),
-            source_parse_cache: RefCell::default(),
+            source_parse_cache: SourceParseCache::default(),
             declaration_cache: None,
             signature_cache: None,
             files: HashMap::new(),
             latest_revision: Revision::default(),
-            inline_ids: RefCell::new(HashMap::new()),
+            inline_ids: HashMap::new(),
             native_modules: vec![],
             native_sources: None,
             native_files: OnceCell::new(),
@@ -814,7 +814,7 @@ impl AnalysisDatabase {
             return;
         }
         self.parse_limits = limits;
-        self.source_parse_cache.get_mut().clear();
+        self.source_parse_cache.clear();
         self.environment_fingerprint.take();
         self.native_files.take();
         self.declaration_cache = None;

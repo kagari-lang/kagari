@@ -5,7 +5,7 @@ use crate::{
         AnalysisDatabase,
         error::AnalysisError,
         ownership,
-        source_preparation::{self, ParsedModule},
+        source_preparation::{self, ParsedModule, SourcePreparer},
     },
     declarations::{Declaration, DeclarationId, Declarations},
     declare_analysis,
@@ -169,7 +169,7 @@ impl AnalysisDatabase {
     /// namespace contents permit it. Installed declarations participate through those
     /// ordinary facts. This prepares a value; publication is separate.
     pub(super) fn prepare_declarations(
-        &self,
+        &mut self,
         source: SourceSnapshot,
         cancel: &CancellationToken,
     ) -> Result<DeclarationSnapshot, AnalysisError> {
@@ -214,7 +214,12 @@ impl AnalysisDatabase {
                 (ParsedModule::root(parsed.clone()), lowered.clone()),
             );
         }
-        for (id, prepared) in source_preparation::prepare(self, &source, previous, cancel)? {
+        let preparer = SourcePreparer {
+            cache: &mut self.source_parse_cache,
+            inline_ids: &mut self.inline_ids,
+            limits: self.parse_limits,
+        };
+        for (id, prepared) in source_preparation::prepare(preparer, &source, previous, cancel)? {
             lowered_files.insert(id, (prepared.parsed, prepared.lowered));
         }
         #[cfg(test)]

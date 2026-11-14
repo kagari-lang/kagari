@@ -797,7 +797,9 @@ Physical parses have an owned cache independent of declaration/HIR results. Synt
 preparation returns an owned logical-source manifest before lowering. Reuse requires
 exact source provenance and parser limits; a retained published syntax context can
 supply its original parse after a newer syntax batch succeeds but semantic analysis
-is cancelled. Completed syntax publication does not publish semantic success.
+is cancelled. Completed syntax publication does not publish semantic success. Preparation
+uses explicit mutable database access; SourcePreparer borrows only the parse cache and inline
+ID map plus copied limits. Neither source-preparation store uses RefCell.
 
 Inline modules share physical text, line indexing and one retained parse. Each
 logical source keeps a stable synthetic FileId and its own ModuleHandle, revision

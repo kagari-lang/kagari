@@ -1,7 +1,7 @@
 //! Physical parse retention and logical inline source preparation.
 
 use crate::{
-    analysis::{AnalysisDatabase, declarations::DeclarationSnapshot, error::AnalysisError},
+    analysis::{declarations::DeclarationSnapshot, error::AnalysisError},
     lower::{LoweredModule, lower_module_controlled},
 };
 use kagari_common::cancellation::{CancellationToken, Cancelled};
@@ -19,14 +19,14 @@ use kagari_syntax::{
     parser::{Parse, ParseLimits, ParseOptions, parse},
 };
 use std::{
-    collections::{BTreeMap, HashSet, VecDeque},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     sync::Arc,
 };
 
 /// Database-owned physical parses, independent of declaration and lowering owners.
 ///
-/// The database stores this behind a `RefCell` because preparation takes `&self`.
-/// Cloning forks the index while sharing immutable source/parse allocations. Only a
+/// Preparation borrows this exclusively through [`SourcePreparer`]. Cloning forks
+/// the index while sharing immutable source/parse allocations. Only a
 /// complete source-syntax batch may replace it; older snapshots cannot evict
 /// newer entries. Parser-limit setters must call [`Self::clear`]. Native declaration
 /// parses remain owned by the existing native import path, not this cache.
@@ -77,6 +77,13 @@ impl SourceParseCache {
         }
         Ok(())
     }
+}
+
+/// Exclusive source-preparation state, independent of semantic cache owners.
+pub(super) struct SourcePreparer<'a> {
+    pub(super) cache: &'a mut SourceParseCache,
+    pub(super) inline_ids: &'a mut HashMap<(FileId, String), FileId>,
+    pub(super) limits: ParseLimits,
 }
 
 /// A logical view paired with the exact immutable parse that owns its locator.
@@ -134,7 +141,7 @@ struct LogicalSource {
 }
 
 pub(super) fn prepare(
-    db: &AnalysisDatabase,
+    mut preparer: SourcePreparer<'_>,
     sources: &SourceSnapshot,
     previous: Option<&DeclarationSnapshot>,
     cancel: &CancellationToken,
@@ -155,7 +162,7 @@ pub(super) fn prepare(
             );
         }
     }
-    let syntax = prepare_syntax(db, sources, Some(&retained), cancel)?;
+    let syntax = prepare_syntax(&mut preparer, sources, Some(&retained), cancel)?;
     let mut files = BTreeMap::new();
     for (id, PreparedSyntax { source, parsed }) in syntax {
         cancel.check()?;
@@ -188,7 +195,7 @@ pub(super) fn prepare(
 /// Returns an error for cancellation or an invalid supplied inline range, without
 /// publishing the staged parses or returning a partial manifest.
 pub(super) fn prepare_syntax(
-    db: &AnalysisDatabase,
+    preparer: &mut SourcePreparer<'_>,
     sources: &SourceSnapshot,
     previous: Option<&BTreeMap<FileId, PreparedSyntax>>,
     cancel: &CancellationToken,
@@ -200,20 +207,16 @@ pub(super) fn prepare_syntax(
         let cached = previous
             .and_then(|files| files.get(&physical.id()))
             .filter(|old| {
-                Arc::ptr_eq(&old.source, physical) && old.parsed.limits == Some(db.parse_limits)
+                Arc::ptr_eq(&old.source, physical) && old.parsed.limits == Some(preparer.limits)
             })
             .map(|old| old.parsed.physical.clone())
-            .or_else(|| {
-                db.source_parse_cache
-                    .borrow()
-                    .get(physical, db.parse_limits)
-            });
+            .or_else(|| preparer.cache.get(physical, preparer.limits));
         let parsed = match cached {
             Some(parsed) => parsed,
             None => Arc::new(parse(
                 physical,
                 ParseOptions {
-                    limits: db.parse_limits,
+                    limits: preparer.limits,
                     ..Default::default()
                 },
                 cancel,
@@ -251,9 +254,8 @@ pub(super) fn prepare_syntax(
                 if !generated.insert((source.id(), name.clone())) {
                     continue;
                 }
-                let id = *db
+                let id = *preparer
                     .inline_ids
-                    .borrow_mut()
                     .entry((source.id(), name.clone()))
                     .or_insert_with(FileId::fresh);
                 pending.push_back((
@@ -277,19 +279,16 @@ pub(super) fn prepare_syntax(
                         physical: parsed.clone(),
                         location: logical.syntax.location(),
                         diagnostics: logical.diagnostics.into(),
-                        limits: Some(db.parse_limits),
+                        limits: Some(preparer.limits),
                     },
                     source: logical.source,
                 },
             );
         }
     }
-    db.source_parse_cache.borrow_mut().publish(
-        sources.revision(),
-        db.parse_limits,
-        parses,
-        cancel,
-    )?;
+    preparer
+        .cache
+        .publish(sources.revision(), preparer.limits, parses, cancel)?;
     Ok(files)
 }
 

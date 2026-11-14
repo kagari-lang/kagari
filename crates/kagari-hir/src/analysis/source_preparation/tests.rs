@@ -1,7 +1,18 @@
 use super::*;
-use crate::{analysis::AnalysisSnapshot, tests::test_analysis};
+use crate::{
+    analysis::{AnalysisDatabase, AnalysisSnapshot},
+    tests::test_analysis,
+};
 use kagari_common::span::Span;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+
+fn source_preparer(db: &mut AnalysisDatabase) -> SourcePreparer<'_> {
+    SourcePreparer {
+        cache: &mut db.source_parse_cache,
+        inline_ids: &mut db.inline_ids,
+        limits: db.parse_limits,
+    }
+}
 
 fn user_files(
     snapshot: &AnalysisSnapshot,
@@ -67,7 +78,7 @@ fn inline_views_share_the_parse_and_rebase_retained_queries() {
         Err(AnalysisError::InvalidSourceRange(_))
     ));
     let repeated = prepare(
-        &db,
+        source_preparer(&mut db),
         &sources.snapshot(),
         Some(first_declarations),
         &Default::default(),
@@ -84,7 +95,6 @@ fn inline_views_share_the_parse_and_rebase_retained_queries() {
     drop(repeated);
     assert!(Arc::ptr_eq(
         &db.source_parse_cache
-            .borrow()
             .get(sources.snapshot().file(root).unwrap(), db.parse_limits)
             .unwrap(),
         &physical.parsed.physical,
@@ -232,10 +242,10 @@ fn inline_recovery_does_not_restart_a_physical_parser_budget() {
         max_diagnostics: 0,
         ..Default::default()
     });
-    assert!(db.source_parse_cache.borrow().files.is_empty());
+    assert!(db.source_parse_cache.files.is_empty());
     // An explicitly retained source context must not bypass parser-limit changes.
     let limited = prepare(
-        &db,
+        source_preparer(&mut db),
         &sources.snapshot(),
         Some(&unrestricted),
         &Default::default(),
@@ -333,7 +343,13 @@ fn parse_cache_outlives_lowerings_and_old_requests_cannot_replace_newer_parses()
     assert!(old_a.upgrade().is_some());
     assert!(unchanged_b.upgrade().is_some());
 
-    let manifest = prepare_syntax(&db, &original, None, &Default::default()).unwrap();
+    let manifest = prepare_syntax(
+        &mut source_preparer(&mut db),
+        &original,
+        None,
+        &Default::default(),
+    )
+    .unwrap();
     assert_eq!(manifest.len(), 3);
     assert!(Arc::ptr_eq(&manifest[&a].source, original.file(a).unwrap()));
     assert_eq!(manifest[&child].source.origin_id(), a);
@@ -377,8 +393,20 @@ fn parse_cache_outlives_lowerings_and_old_requests_cannot_replace_newer_parses()
     assert!(stale_parse.upgrade().is_none());
     // Syntax preparation needs no declaration or HIR owner. An older empty
     // input must not prune the independently cached current parses either.
-    prepare_syntax(&db, &SourceSnapshot::default(), None, &Default::default()).unwrap();
-    let prepared = prepare_syntax(&db, &current_sources, None, &Default::default()).unwrap();
+    prepare_syntax(
+        &mut source_preparer(&mut db),
+        &SourceSnapshot::default(),
+        None,
+        &Default::default(),
+    )
+    .unwrap();
+    let prepared = prepare_syntax(
+        &mut source_preparer(&mut db),
+        &current_sources,
+        None,
+        &Default::default(),
+    )
+    .unwrap();
     assert!(Arc::ptr_eq(
         &current_a.upgrade().unwrap(),
         &prepared[&a].parsed.physical,
@@ -395,8 +423,14 @@ fn parse_cache_outlives_lowerings_and_old_requests_cannot_replace_newer_parses()
     let empty = sources
         .replace_captured(Vec::new(), Default::default(), &Default::default())
         .unwrap();
-    prepare_syntax(&db, &empty, None, &Default::default()).unwrap();
-    assert!(db.source_parse_cache.borrow().files.is_empty());
+    prepare_syntax(
+        &mut source_preparer(&mut db),
+        &empty,
+        None,
+        &Default::default(),
+    )
+    .unwrap();
+    assert!(db.source_parse_cache.files.is_empty());
     drop(db);
     assert_eq!(prepared[&a].source.text(), "mod changed {}");
     assert_eq!(prepared[&a].parsed.syntax().items().count(), 1);
@@ -414,8 +448,14 @@ fn cancelled_parse_publication_discards_the_staged_batch() {
     let id = sources
         .set("cancel.kgr", String::new(), SourceLayer::Base)
         .unwrap();
-    let db = AnalysisDatabase::default();
-    let prepared = prepare_syntax(&db, &sources.snapshot(), None, &Default::default()).unwrap();
+    let mut db = AnalysisDatabase::default();
+    let prepared = prepare_syntax(
+        &mut source_preparer(&mut db),
+        &sources.snapshot(),
+        None,
+        &Default::default(),
+    )
+    .unwrap();
     let retained = Arc::downgrade(&prepared[&id].parsed.physical);
     drop(prepared);
     sources
@@ -436,26 +476,28 @@ fn cancelled_parse_publication_discards_the_staged_batch() {
     // Cancel after parsing has completed, at the actual cache commit boundary.
     cancel.cancel();
     assert_eq!(
-        db.source_parse_cache.borrow_mut().publish(
-            next.revision(),
-            db.parse_limits,
-            staged,
-            &cancel,
-        ),
+        db.source_parse_cache
+            .publish(next.revision(), db.parse_limits, staged, &cancel,),
         Err(Cancelled),
     );
     assert!(abandoned.upgrade().is_none());
     assert!(retained.upgrade().is_some());
     assert!(matches!(
-        prepare_syntax(&db, &next, None, &cancel),
+        prepare_syntax(&mut source_preparer(&mut db), &next, None, &cancel),
         Err(AnalysisError::Cancelled),
     ));
     assert!(matches!(
-        prepare(&db, &next, None, &cancel),
+        prepare(source_preparer(&mut db), &next, None, &cancel),
         Err(AnalysisError::Cancelled),
     ));
     assert!(retained.upgrade().is_some());
-    let completed = prepare_syntax(&db, &next, None, &Default::default()).unwrap();
+    let completed = prepare_syntax(
+        &mut source_preparer(&mut db),
+        &next,
+        None,
+        &Default::default(),
+    )
+    .unwrap();
     assert!(retained.upgrade().is_none());
     assert_eq!(completed.len(), 2);
 }
@@ -463,9 +505,9 @@ fn cancelled_parse_publication_discards_the_staged_batch() {
 #[test]
 fn parse_cache_requires_exact_source_provenance_not_just_id_and_revision() {
     let original = Arc::new(SourceFile::new("generated.kgr", "@"));
-    let db = AnalysisDatabase::default();
+    let mut db = AnalysisDatabase::default();
     let first = prepare_syntax(
-        &db,
+        &mut source_preparer(&mut db),
         &SourceSnapshot::single_file(original.clone()),
         None,
         &Default::default(),
@@ -479,13 +521,25 @@ fn parse_cache_requires_exact_source_provenance_not_just_id_and_revision() {
     assert_eq!(mapped.revision(), original.revision());
     let mapped = Arc::new(mapped);
     let sources = SourceSnapshot::single_file(mapped);
-    let second = prepare_syntax(&db, &sources, Some(&first), &Default::default()).unwrap();
+    let second = prepare_syntax(
+        &mut source_preparer(&mut db),
+        &sources,
+        Some(&first),
+        &Default::default(),
+    )
+    .unwrap();
     let old = &first[&original.id()].parsed.physical;
     let new = &second[&original.id()].parsed.physical;
     assert!(!Arc::ptr_eq(old, new));
     let span = new.diagnostics()[0].span.unwrap();
     assert_eq!(new.source().span(span), authored.span(span));
     assert_ne!(new.source().span(span), old.source().span(span));
-    let repeated = prepare_syntax(&db, &sources, Some(&first), &Default::default()).unwrap();
+    let repeated = prepare_syntax(
+        &mut source_preparer(&mut db),
+        &sources,
+        Some(&first),
+        &Default::default(),
+    )
+    .unwrap();
     assert!(Arc::ptr_eq(new, &repeated[&original.id()].parsed.physical));
 }
