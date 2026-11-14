@@ -688,6 +688,25 @@ guide file-link checks, structure, fmt, workspace Clippy and diff checks pass.
 Complete workspace/platform matrices and fuzz campaigns remain CI-only; no
 performance improvement or exhaustive documentation coverage is claimed.
 
+### HIR storage and attribute refactor
+
+[HIR storage design](hir-storage-design.md) owns the selected arena/reference, owner-local
+identity, collection naming and attribute scope. External arenas reclaim one module lowering
+at a time, not an entire persistent project. HA00 must resolve cache/request ownership and
+prove old A can release while unchanged B remains usable; HA01 is blocked until then.
+HA01 replaces the graph/consumers; HA02 validates and consolidates docs/tests.
+HA00 is in progress with phase commits authorized. Its first sub-checkpoint detaches physical
+parse ownership and returns an owned logical syntax manifest before lowering. Six focused
+preparation tests and structure/diff checks pass; full HA00 cache/session/arena proof is pending.
+The plan records unchanged baseline workspace fmt/Clippy blockers; acceptance is not all-green.
+Concrete cache/borrow APIs remain HA00 work. No performance benefit is proven.
+[Native review notes](hir-model-review.md) remain deferred: declaration/Provider separation,
+prebuild timing and generic application preparation do not enter this storage cutover.
+[Compiler/tool boundary review](hir-model-review.md#compiler-and-tooling-boundary) records
+shared semantics plus a separate derived-tool layer. Tool-crate/features, full incremental
+parsing and LSP scheduling/retention policies remain deferred; basic independent region
+reclamation is an HA00 requirement. NC restoration keeps its existing owner.
+
 ## Compilation cancellation polling
 
 Coarse syntax checkpoints and the unified `parse(source, options, cancel)` API

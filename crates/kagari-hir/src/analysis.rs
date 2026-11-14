@@ -10,8 +10,12 @@ use crate::tests::cancellation::{Checkpoint, checkpoint};
 use crate::{
     AnalysisPolicy, AnalysisResult, AnalyzedModule,
     analysis::{
-        body::FunctionAnalysis, declarations::DeclarationSnapshot, error::AnalysisError,
-        inputs::AnalysisInputs, signatures::SignatureSnapshot, source_preparation::ParsedModule,
+        body::FunctionAnalysis,
+        declarations::DeclarationSnapshot,
+        error::AnalysisError,
+        inputs::AnalysisInputs,
+        signatures::SignatureSnapshot,
+        source_preparation::{ParsedModule, SourceParseCache},
     },
     analyze_parsed,
     declarations::{Declaration, DeclarationId, Declarations},
@@ -693,6 +697,8 @@ pub struct AnalysisDatabase {
     body_cache: DefinitionMap<Arc<FunctionAnalysis>>,
     /// Newest source revision admitted to the selected-body cache.
     body_revision: Revision,
+    /// Physical parses survive independently of declaration and HIR result owners.
+    source_parse_cache: RefCell<SourceParseCache>,
     /// Latest published declaration snapshot, including shared parse/lowering results.
     declaration_cache: Option<DeclarationSnapshot>,
     /// Latest published signatures and their declaration snapshot.
@@ -735,6 +741,7 @@ impl AnalysisDatabase {
             max_semantic_diagnostics: DEFAULT_MAX_SEMANTIC_DIAGNOSTICS,
             body_cache: DefinitionMap::new(definitions),
             body_revision: Revision::default(),
+            source_parse_cache: RefCell::default(),
             declaration_cache: None,
             signature_cache: None,
             files: HashMap::new(),
@@ -807,6 +814,7 @@ impl AnalysisDatabase {
             return;
         }
         self.parse_limits = limits;
+        self.source_parse_cache.get_mut().clear();
         self.environment_fingerprint.take();
         self.native_files.take();
         self.declaration_cache = None;

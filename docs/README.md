@@ -64,6 +64,11 @@ below; the public Pages site has not been activated by this work.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
+- [HIR storage and attributes](hir-storage-design.md): selected module-lowering arenas,
+  external ownership, direct references, owner-local IDs and attributes. HA00 is in progress:
+  owned syntax preparation is implemented; the cache/session/arena proof remains pending.
+  [Native model review](hir-model-review.md) remains deferred.
+
 - [Runtime architecture](architecture/runtime.md), [call walkthrough](architecture/runtime/calls.md)
   and [reload walkthrough](architecture/runtime/reload.md): implemented exclusive
   services, prepared Native calls, source-backed compact storage, kagari-gc,

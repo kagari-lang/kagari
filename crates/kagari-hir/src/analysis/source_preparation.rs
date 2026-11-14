@@ -7,7 +7,7 @@ use crate::{
 use kagari_common::cancellation::{CancellationToken, Cancelled};
 use kagari_source::{
     diagnostic::{Diagnostic, DiagnosticKind},
-    identity::FileId,
+    identity::{FileId, Revision},
     source::SourceFile,
     source_database::SourceSnapshot,
 };
@@ -16,12 +16,68 @@ use kagari_syntax::{
         module::{ModuleLocation, ModuleSyntax},
         views::ItemView,
     },
-    parser::{Parse, ParseOptions, parse},
+    parser::{Parse, ParseLimits, ParseOptions, parse},
 };
 use std::{
     collections::{BTreeMap, HashSet, VecDeque},
     sync::Arc,
 };
+
+/// Database-owned physical parses, independent of declaration and lowering owners.
+///
+/// The database stores this behind a `RefCell` because preparation takes `&self`.
+/// Cloning forks the index while sharing immutable source/parse allocations. Only a
+/// complete source-syntax batch may replace it; older snapshots cannot evict
+/// newer entries. Parser-limit setters must call [`Self::clear`]. Native declaration
+/// parses remain owned by the existing native import path, not this cache.
+#[derive(Debug, Clone, Default)]
+pub(super) struct SourceParseCache {
+    revision: Revision,
+    limits: Option<ParseLimits>,
+    files: BTreeMap<FileId, CachedParse>,
+}
+
+#[derive(Debug, Clone)]
+struct CachedParse {
+    source: Arc<SourceFile>,
+    parsed: Arc<Parse>,
+}
+
+impl SourceParseCache {
+    /// Invalidates parses and the publication watermark after parser inputs change.
+    pub(super) fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    fn get(&self, source: &Arc<SourceFile>, limits: ParseLimits) -> Option<Arc<Parse>> {
+        if self.limits != Some(limits) {
+            return None;
+        }
+        self.files
+            .get(&source.id())
+            // SourceFile can be cloned and given different copied-source metadata
+            // without changing its ID/revision. Only the exact immutable input is
+            // sufficient evidence; equal text or revision alone is not.
+            .filter(|entry| Arc::ptr_eq(&entry.source, source))
+            .map(|entry| entry.parsed.clone())
+    }
+
+    fn publish(
+        &mut self,
+        revision: Revision,
+        limits: ParseLimits,
+        files: BTreeMap<FileId, CachedParse>,
+        cancel: &CancellationToken,
+    ) -> Result<(), Cancelled> {
+        cancel.check()?;
+        if revision >= self.revision {
+            self.revision = revision;
+            self.limits = Some(limits);
+            self.files = files;
+        }
+        Ok(())
+    }
+}
 
 /// A logical view paired with the exact immutable parse that owns its locator.
 #[derive(Debug, Clone)]
@@ -57,6 +113,12 @@ impl ParsedModule {
     }
 }
 
+/// One owned logical source entry, independent of any HIR lowering or arena.
+pub(super) struct PreparedSyntax {
+    pub(super) source: Arc<SourceFile>,
+    pub(super) parsed: ParsedModule,
+}
+
 pub(super) struct PreparedSource {
     pub(super) parsed: ParsedModule,
     pub(super) lowered: Arc<LoweredModule>,
@@ -74,14 +136,49 @@ pub(super) fn prepare(
     previous: Option<&DeclarationSnapshot>,
     cancel: &CancellationToken,
 ) -> Result<BTreeMap<FileId, PreparedSource>, AnalysisError> {
+    let syntax = prepare_syntax(db, sources, cancel)?;
     let mut files = BTreeMap::new();
+    for (id, PreparedSyntax { source, parsed }) in syntax {
+        cancel.check()?;
+        let old = previous.and_then(|old| old.file(id)).filter(|old| {
+            old.source().revision() == source.revision()
+                && Arc::ptr_eq(&old.parsed.physical, &parsed.physical)
+        });
+        let lowered = old.map_or_else(
+            || Arc::new(lower_module_controlled(source, &parsed.syntax(), cancel)),
+            |old| old.declared.lowered.clone(),
+        );
+        files.insert(id, PreparedSource { parsed, lowered });
+    }
+    cancel.check()?;
+    Ok(files)
+}
+
+/// Prepares an owned manifest of supplied sources and their discovered inline modules.
+///
+/// Physical parses are shared; logical sources retain original byte coordinates and
+/// their assigned parser diagnostics. No HIR is constructed or retained. Only a
+/// complete, cancellation-checked syntax batch publishes the source parse cache;
+/// subsequent lowering failures do not invalidate these completed syntax results.
+/// Native declarations remain on the separate native import path.
+///
+/// Returns an error for cancellation or an invalid supplied inline range, without
+/// publishing the staged parses or returning a partial manifest.
+pub(super) fn prepare_syntax(
+    db: &AnalysisDatabase,
+    sources: &SourceSnapshot,
+    cancel: &CancellationToken,
+) -> Result<BTreeMap<FileId, PreparedSyntax>, AnalysisError> {
+    let mut files = BTreeMap::new();
+    let mut parses = BTreeMap::new();
     for physical in sources.files() {
         cancel.check()?;
-        let old = previous
-            .and_then(|old| old.file(physical.id()))
-            .filter(|old| old.source().revision() == physical.revision());
-        let parsed = match old {
-            Some(old) => old.parsed.physical.clone(),
+        let cached = db
+            .source_parse_cache
+            .borrow()
+            .get(physical, db.parse_limits);
+        let parsed = match cached {
+            Some(parsed) => parsed,
             None => Arc::new(parse(
                 physical,
                 ParseOptions {
@@ -91,6 +188,13 @@ pub(super) fn prepare(
                 cancel,
             )?),
         };
+        parses.insert(
+            physical.id(),
+            CachedParse {
+                source: physical.clone(),
+                parsed: parsed.clone(),
+            },
+        );
         let syntax = match physical.inline_range() {
             Some(range) => ModuleSyntax::at_content_range(&parsed, range)
                 .ok_or(AnalysisError::InvalidSourceRange(physical.id()))?,
@@ -135,37 +239,25 @@ pub(super) fn prepare(
         distribute_diagnostics(&parsed, &mut logical, cancel)?;
         for logical in logical {
             cancel.check()?;
-            let source = logical.source;
-            let old = previous
-                .and_then(|old| old.file(source.id()))
-                .filter(|old| {
-                    old.source().revision() == source.revision()
-                        && Arc::ptr_eq(&old.parsed.physical, &parsed)
-                });
-            let lowered = old.map_or_else(
-                || {
-                    Arc::new(lower_module_controlled(
-                        source.clone(),
-                        &logical.syntax,
-                        cancel,
-                    ))
-                },
-                |old| old.declared.lowered.clone(),
-            );
             files.insert(
-                source.id(),
-                PreparedSource {
+                logical.source.id(),
+                PreparedSyntax {
                     parsed: ParsedModule {
                         physical: parsed.clone(),
                         location: logical.syntax.location(),
                         diagnostics: logical.diagnostics.into(),
                     },
-                    lowered,
+                    source: logical.source,
                 },
             );
         }
     }
-    cancel.check()?;
+    db.source_parse_cache.borrow_mut().publish(
+        sources.revision(),
+        db.parse_limits,
+        parses,
+        cancel,
+    )?;
     Ok(files)
 }
 
