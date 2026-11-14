@@ -13,8 +13,10 @@ For Runtime ownership, data structures and value lifetimes, start with the
 [hot reload](architecture/runtime/reload.md) walkthroughs describe prepared final
 calls, Runtime-local current publication and detached immutable Program preparation.
 Retained computations keep exact bodies while their ordinary inner calls select
-current implementations. The [call-model proposal](runtime-refactor-design.md)
-records separate deferred slot/frame/Native-adapter work.
+current implementations. ManagedMemory/RootDriver owns the sole managed graph
+and execution source; compact frames, prepared Native adapters, VM-byte limits
+and verified scalar self-tail replacement use that model. Deferred work remains
+in the [roadmap](implementation-roadmap.md#runtime-execution-model-review).
 
 ## Architectural Principles
 
@@ -30,8 +32,8 @@ records separate deferred slot/frame/Native-adapter work.
   [live installations and publication](#live-installations-and-publication).
 - Left-to-right once-only evaluation, checked arithmetic, trap order, completed
   effects and cleanup are preserved across interpreter and native execution.
-- Installed interfaces determine available APIs. Cancellation and call-depth
-  protection remain; there is no generic permission matrix or execution charging.
+- Installed interfaces determine available APIs. Cancellation, VM-byte and
+  Native-stack protection remain; there is no generic permission matrix or execution charging.
 
 ## Browser hosting
 

@@ -137,10 +137,10 @@ import/publication primitives. Source loans cannot escape a driver scope, and a
 scan failure faults collection before sweep. Run the
 [reference-copy comparison](examples/root_access/main.rs) with
 `cargo run -p kagari-gc --release --example root_access`; the
-[plan](../../docs/gc-redesign-plan.md#remaining-decisions-and-work) tracks remaining
-integration and performance work.
-Runtime value/tag pairing, compact encodings and integration remain deferred;
-physical reference fields do not enforce language nominal types.
+[roadmap](../../docs/implementation-roadmap.md#gc-library-redesign) tracks remaining
+provider/performance/CI work. Runtime integrates its actual source/providers through
+ManagedMemory/RootDriver, with scoped/stored/rooted tagged carriers. Physical
+reference fields do not enforce script nominal types; Runtime supplies those checks.
 
 The [linked-list example](examples/linked_list/main.rs) shows a safe business API
 over that kernel. `values` is a lazy Iterator yielding `i64`, without a per-item
@@ -208,7 +208,7 @@ measured cycles of 50000 operations per case, rotating case order deterministica
 Setup and collection are outside timers; every sample verifies its result and
 GC samples verify reclamation afterward. This is warm single-object, collector-idle
 characterization, not allocation, reference barriers, GC pauses or script throughput.
-The [measurement summary](../../docs/gc-redesign-plan.md#current-field-access)
+The [measurement summary](../../docs/performance-baseline.md#current-field-access)
 records the environment, results and limitations. Pass `0 --dynamic-borrow`
 (and subsequent process indices) for dynamic scalar loans; `0 --alternating`
 visits 32 distinct objects round-robin and checks every final value.
@@ -224,7 +224,7 @@ clearing/dead collection of 512 and 8192 scalar leaves. Scope entry and root-ban
 creation are untimed; allocation includes storing into roots. Each batch checks
 values and reclamation. These are safe-API throughput comparisons, not identical
 collector contracts, pause distributions, dynamic script fields or Runtime results.
-The [method and results](../../docs/gc-redesign-plan.md#performance-evidence)
+The [method and results](../../docs/performance-baseline.md#standalone-gc-characterization-windows-2026-11-01)
 record ownership differences and the remaining performance gaps.
 
 Repeated typed allocation can reuse `let descriptor = heap.access()?.register::<T>()?`
@@ -241,7 +241,7 @@ and take the median of samples 3-13, then repeat seven sequential processes.
 Targets alternate between two retained objects; this measures repeated publication,
 not a fresh-white-target barrier on every iteration. Collection/result checks are
 outside the timed loops. First-white-target latency and integrated barriers
-remain [open measurements](../../docs/gc-redesign-plan.md#remaining-decisions-and-work).
+remain [open measurements](../../docs/implementation-roadmap.md#gc-library-redesign).
 
 When driving small incremental steps, inspect `StepReport::required_budget`.
 `Some(units)` requests a larger next allowance for a bounded scanner; it is
@@ -281,7 +281,7 @@ target/release/examples/sustained_allocation --burst
 ```
 
 Use the `.exe` suffix on Windows. Results, tail aggregation and remaining limits
-are in the [active plan](../../docs/gc-redesign-plan.md#collection-and-retained-capacity).
+are in the [performance record](../../docs/performance-baseline.md#collection-and-retained-capacity).
 
 Stable-ID page/root/descriptor tables now release empty blocks, including holes
 below a high live ID. Full collection and completing safepoints also shrink excess
@@ -295,16 +295,17 @@ object backing and RSS; it walks allocated blocks and is a diagnostic operation.
 The [capacity fixture](examples/metadata_capacity/main.rs) exercises a peak of
 8192 pages with one host root, 8192 independent roots, and 8192 descriptors, keeping
 one high-ID survivor in each case. Run
-`cargo run -p kagari-gc --release --example metadata_capacity`. The [recorded results](../../docs/gc-redesign-plan.md#collection-and-retained-capacity)
+`cargo run -p kagari-gc --release --example metadata_capacity`. The [recorded results](../../docs/performance-baseline.md#collection-and-retained-capacity)
 include memory exclusions, retained partial blocks and measured throughput costs.
 
 The library provides typed Rust and fixed dynamic allocation/access, roots,
-mutation, incremental tracing, sweep and contained disposal. Runtime cutover,
-arbitrary erased providers, integrated pressure/cancellation
-policy, full performance instrumentation and comparative acceptance remain at their
-[plan](../../docs/gc-redesign-plan.md) owners. There are no placeholder production
-entrypoints for deferred capabilities. Runtime is in the RR03 coordinated
-consumer cutover; its active execution plan records intermediate build failures.
+mutation, incremental tracing, sweep and contained disposal. Runtime uses this
+library as its sole collector; actual revision/static/environment/application and
+Native providers share its active/parked execution source. See the
+[Runtime integration map](../../docs/gc-implementation-design.md#runtime-integration-map).
+Provider ergonomics, further GC performance, NC collection restoration and complete
+CI acceptance retain their [roadmap](../../docs/implementation-roadmap.md#gc-library-redesign)
+owners. There are no placeholder production entrypoints for deferred capabilities.
 
 ## Graph and memory-safety validation
 
@@ -347,5 +348,7 @@ cargo +nightly-2026-10-22 miri test --locked -p kagari-gc --target x86_64-unknow
 
 Set `MIRIFLAGS` in the calling shell before the Miri commands. Passing these
 executed paths is not proof of soundness or coverage of arbitrary unsafe providers.
-The [plan](../../docs/gc-redesign-plan.md#current-validation-evidence)
-records actual local evidence and remaining fuzzing, sanitizer and Runtime work.
+The [roadmap](../../docs/implementation-roadmap.md#gc-library-redesign) records
+remaining fuzzing, sanitizer and CI work. Runtime actual public Native-scope and
+parking transition witnesses also have scoped strict-provenance Miri evidence;
+they do not establish the complete platform/provider matrix.

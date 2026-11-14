@@ -874,31 +874,23 @@ optimization remain separate scopes. Git history owns the completed OM ledger.
 
 ## Library-owned native collections
 
-[NC01-NC06](native-collections-plan.md) are queued and unstarted.
-The 2026-11-09 [Runtime-first scope](runtime-refactor-design.md#next-scope-detach-the-standard-library-and-reuse-the-existing-gc)
-first detaches the existing library implementation, organizes Runtime/Host ownership
-and integrates the current collector. Full standard-library design follows that
-boundary; rebase the earlier NC/PG phase coupling before activating either migration.
-Their [runtime storage predecessor](#runtime-storage-redesign) is locally complete;
-reuse the resulting heap/descriptor contracts and refresh NC01's API/code inventory
-against the current scoped identity APIs.
-Baseline 9cd90557 includes the completed Iterable APIs, retained selected-call slots
-and Vec/HashMap/HashSet FromIterator implementations.
+[NC01-NC06](native-collections-plan.md) are queued and unstarted. Runtime/Host
+organization and kagari-gc integration are implemented; the
+[NC handoff](native-collections-plan.md#runtime-and-gc-handoff) owns restoration of
+withdrawn providers and their original source/artifact/performance consumers.
+Rebase the historical NC/PG pairing and inventory before activation. Do not replay
+collector or Runtime integration phases, privileged storage or the removed
+extraction API. Current contracts belong to the [Runtime map](architecture/runtime.md)
+and [GC provider design](gc-implementation-design.md).
 
-Libraries should own concrete storage and algorithms; runtime should supply checked
-dynamic access, accounting, GC, short operation protection, revision checks and pinned calls. NC01 identifies
-missing public storage and constructor/host evidence capabilities before migration.
-Future collector-specific payload/scanning changes ship with the
-[GC execution plan PG00-PG06](paged-incremental-gc-design.md#execution-plan), including
-affected collection integration, reusing the Runtime-first generic protocol.
-The plan records NC handoffs and staged activation
-of incremental collection; its phases are queued and unstarted. NC remains the
-detailed collection work breakdown; it is not a later API redesign. Joint acceptance removes container-specific
-collector/storage paths and uses the same public opaque protocol for standard and
-application collections. Implementation remains unstarted.
-The plan covers Vec/HashMap/HashSet, their base cursors, host adapters and source-free
-consumers, with an external collection proof. Builtin Array remains separate; reuse the
-implemented host registration and scoped borrowing contracts.
+Libraries own concrete storage/algorithms. Runtime supplies checked dynamic access,
+accounting, GC, scoped operation protection, revisions and current/retained call
+selection. NC01 identifies concrete remaining constructor/edit/Host evidence gaps
+against that proven public boundary. Vec/HashMap/HashSet, base cursors, Rust/Serde
+adapters, source-free consumers and the public external BTreeMap<i32, T> fixture
+remain NC work. Builtin Array stays separate. Restore original inherited GC
+workloads/gates after provider admission works; passing standalone/call controls
+are not replacements. Full standard-library reconstruction remains unstarted.
 
 The separate [standard library inventory](standard-library-inventory.md) records
 current APIs, missing conveniences and requested IndexMap/IndexSet/BTreeMap/BTreeSet
@@ -1495,147 +1487,55 @@ require a concrete task; implemented foundations are not prerequisites to replay
 | Track | Scope and dependencies |
 | --- | --- |
 | [Interactive debugger](debugger-design.md) | Confirmed synchronous waiting at safe debug points, preserving the executing host thread's Rust call chain. Pause control, inspection lifecycle and SDK/DAP integration are queued and unstarted; no whole-execution continuation migration or automatic process-wide freeze. Lifecycle defaults and CLI spellings remain proposals. |
-| [Paged storage and incremental GC](paged-incremental-gc-design.md#execution-plan) | PG00-PG06 documented, queued and unstarted: close contracts/baseline with NC01; complete generic provider capabilities and early external proof with NC02; replace physical storage; migrate collections through NC03/NC04; integrate incremental graph/barriers; enable sweep/driver interleaving with NC05; finish joint acceptance with NC06. Standard collections and host adapters must use the same public generic protocol as an independent provider, with no retained privileged paths. Preserve precise tracing, checked identities, compact storage, joint object/program reachability and collecting Native callbacks; no retention prepass for callback-bearing algorithms. PG00 must resolve physical layout, scan/publication, scheduling and numerical acceptance before dependent changes. No measured speedup or hard pause bound is claimed. Existing cancellation policy is unchanged; poll redesign, R13 and concurrent/generational collection remain separate. |
 
 ## Open review and documentation work
 
 ### Runtime execution model review
 
-The user-selected next scope is
-[standard-library detachment, Runtime/Host organization and existing-GC integration](runtime-refactor-design.md#next-scope-detach-the-standard-library-and-reuse-the-existing-gc).
-The Runtime design document owns responsibilities, records and complete execution
-paths. The [execution plan](runtime-refactor-plan.md) owns the selected RR00-RR06
-implementation sequence: baseline/inventory, reference/reentry proofs, mutable
-services/prepared Host entry, coherent GC cutover, compact calls/stack space/scalar
-self-tail calls, acceptance and documentation handoff. All phases are unstarted;
-RR00 is the next implementation task. Current architecture remains the implementation
-inventory. GC acceptance groups map to this same sequence; NC owns later full
-collection design/implementation. No new collector algorithm, full standard-library
-rewrite or shared declaration-ID migration is activated here.
+Runtime/Host/GC refactor RR00-RR06 is implemented and locally accepted. Current
+contracts are transferred to the [Runtime architecture](architecture/runtime.md),
+[call](architecture/runtime/calls.md) and [reload](architecture/runtime/reload.md)
+walkthroughs, [execution](spec/execution.md), [memory](spec/runtime.md#gc-heap),
+[embedding](spec/embedding-api.md) and [GC integration](gc-implementation-design.md#runtime-integration-map).
+Completed phase ledgers/design sketches belong to Git history, not another queue.
 
-The [2026-11-11 D00-D05 detachment](runtime-refactor-design.md#standard-library-detachment-inventory-and-execution-plan)
-is complete. Runtime/SDK start empty, builtin arrays retain packed storage, and
-privileged collection layouts/types/cursors/codecs/adapters are removed end to end.
-Required local Clippy/structure/format checks and selected safety/reload/source-free
-contracts pass; the release call workload retains its D00 allocation counts.
-This is core detachment, not restored full-library acceptance. Vec/hash containers,
-builtin array/range iteration, String traversal/split and collection-dependent
-programs/measurements await NC and the later public payload/edit protocol. Their
-behavioral fixtures remain. Full-workspace tests and exhaustive matrices remain
-CI scope and are not claimed passing. No Runtime/VM consolidation, new collector,
-full-library reconstruction or compact-frame migration is activated by completion.
+Runtime owns exclusive services and one ManagedMemory/RootDriver execution source.
+Prepared bindings/codecs consume checked facts; real scalar/managed/local/queued/
+pending banks and revision/static/environment/application nodes share kagari-gc.
+Compact frames own linear suffix marks, with reusable cleared source backing and
+uncommon control state. Script stack space defaults to 8 MiB per execution;
+Native/compiled stack protection is separate. Verified synchronous scalar self-tail
+calls replace the physical frame, preserve parallel moves and fall back when a
+retained body's current selected target differs. NativeTake/PanicPolicy and the
+old collector/raw Value/Window/mirrored root models are removed.
 
-The [CM00-CM04 consolidation](architecture/runtime.md#single-runtime-and-preparation-boundary)
-is complete on 2026-11-11. Canonical Program/Runtime, interpretation, debug/async
-and prepared-native driving now share kagari-runtime. The VM package, SDK Runtime
-wrapper, type-erased SDK product recovery and duplicate execution-error mapping
-are removed. Compilation inputs/MIR and backend preparation remain outside Runtime.
-The exact SDK facade shares these types; standalone artifact execution and audited
-production dependency graphs exclude source/compiler/backend tools.
+Selected public application-owned payload/callback/cycle/source-free tests, actual
+Native/borrow/reentry/cancellation/reload/compiled boundaries and scoped Miri pass.
+The [RR05 measurements](performance-baseline.md#rr05-parked-root-admission-and-collector-characterization-macos-2026-11-14)
+pass all ten frozen call and 24 root lifecycle latency gates. Complete original-
+root diagnostic lifetimes pass retained/event-peak bounds and zero-net teardown.
+Whole Host entry and owned conversion allocations remain visible. Standalone
+active/sustained GC is characterized separately, with publication regressions and
+unfrozen limits explicitly reported. These results are scoped local evidence.
 
-Required local Clippy/structure/format/diff checks and selected source-update,
-reload/current-inner-call, native-wait, debug/reentry, scoped-loan, async cleanup,
-artifact, Serde and actual Cranelift/AOT contracts pass. The
-[isolated call comparison](performance-baseline.md#runtime-consolidation-core-call-comparison-windows-2026-11-11)
-records allocation/timing evidence and its limits. Full-workspace tests and
-exhaustive feature/backend/platform matrices remain CI-only. Existing NC library
-gaps remain separate and are not claimed passing. Completed phase ledgers live in
-Git history. Compact frames, Host redesign, kagari-gc integration, new stack limits
-and tail recursion remain unstarted; consolidation does not activate them.
+Remaining owners and recovery conditions:
 
-The [TC00 test-ownership correction](runtime-refactor-design.md#standard-library-test-boundary)
-is complete locally. Runtime has no stdlib dependency in production, build or test
-scopes, source injection or standard-provider examples. Provider scenarios and
-schema/Serde/allocation consumers live in stdlib; generic private Runtime tests use
-independently authored providers. Runtime's core_calls target remains provider-free.
-The dependency guard checks all declared root dependency kinds and the host test
-closure. Required checks and selected Runtime, public typed interface, Serde and
-zero-allocation regressions pass. The sampled Vec-dependent source/artifact case
-still fails at the known NC declaration gap; full workspace/matrix acceptance is
-not claimed. Retired private-provider combinations are recorded at their existing
-NC/type-provenance follow-up owners.
+| Work | Owner and condition |
+| --- | --- |
+| Missing Vec/HashMap/HashSet, array/range iteration, String traversal/split, library wrappers and dependent source/artifact fixtures | NC01-NC06 in native-collections-plan.md. Rebase on the proven public ManagedStorage/NativeCall/GC protocol, then restore the original programs and inherited integrated performance denominators. No privileged providers or reduced replacement workloads. |
+| Type/layout provenance retaining retired whole code | R13 in review.md; physical graph integration does not solve it. |
+| Managed/mutual/async/general tail replacement | Runtime execution follow-up here. Requires checked lowering/verification, safe argument/result/root handoff, current-target fallback, diagnostic/cancellation behavior and measured benefit. First scalar scope is complete; broader work is not activated. |
+| Native public-entry review, broader compiled operations and deoptimization/continuations | Existing deferred native API review, cranelift-expansion-plan.md and review.md native expansion gates. No new optimizing tier or native tail path is activated. |
+| Enum niches/Option/Result and value structs | Existing enum-layout-design.md and deferred value-struct queue. |
+| Collector performance/provider ergonomics | GC library redesign below; comparative protocol stays at crates/kagari-gc/BENCHMARKS.md. |
+| Complete acceptance | Verification and open CI acceptance below: full workspace no-fail-fast and exhaustive features/backends/platforms, Windows/wasm and broader Miri/fuzz/sanitizers remain pending. Local samples do not certify them. |
 
-The [integrated execution/Native/GC model](runtime-refactor-design.md#integrated-execution-native-and-gc-model)
-connects the existing prepared-call and codec proposals to one authoritative
-execution root source. Freeze the storage/lifetime partition and Native mapping
-ownership before GCR02/GCR03 cutover; do not first preserve old invocation/root
-machinery under the new collector and then rewrite it. Current typed adapters
-still duplicate pack roots and mapping checks. Fresh matched call/allocation
-baselines and actual Runtime GC/reentry/reload proofs are required at RR00-RR03.
-The execution plan schedules migration; it claims no Native speedup or collector
-acceptance before implementation and measurement.
-
-The [borrowing/shared-ownership policy](runtime-refactor-design.md#borrowing-and-shared-ownership-policy)
-prefers ordinary mutable ownership and scoped split borrows for execution/GC/Host
-operations. It does not ban clear bounded RefCell/Cell use or zero-cost Rc phantom
-markers. Change the current shared-reference mutation entrypoints coherently; avoid
-per-call/operand dynamic guards and Rc<RefCell> service backreferences, preserving
-Send, real Arc retention and Host/script alias checks without raw-pointer substitutes.
-
-The [pre-migration decisions](runtime-refactor-design.md#decisions-to-close-before-coordinated-implementation)
-narrow the remaining Runtime/GCR00/GCR02 work to persistent reference carriers,
-Native entry/codecs, mutable reentry services, authoritative roots, managed code/state
-cycles, observable boundaries and measured cutover gates. First-implementation decisions are selected in the
-[Native/execution/GC flow](runtime-refactor-design.md#selected-native-execution-and-gc-control-flow);
-Rust/layout/correctness/performance proofs remain required, not passing evidence or
-a second execution sequence. RR00 freezes the baseline and inventories;
-RR01 starts bounded carrier, Native/GC reentry and object/code-cycle witnesses;
-no complete library, niche layout or general native deoptimization is prerequisite.
-
-The [Native extraction removal](runtime-refactor-design.md#deferred-removal-of-native-payload-extraction)
-is selected but deferred to the Runtime/Host migration: remove the take API,
-capability and extraction-only invalidation/GC machinery together. Current APIs
-and tests remain until that checkpoint. New-GC integration does not need a payload
-extraction/tombstone feature; preserve unrelated alias, lifetime and cleanup rules.
-
-The [target crate/file ownership](runtime-refactor-design.md#target-crate-and-file-ownership)
-records the final Program/installation, execution/interpreter, unified Host and
-memory/value/type split. Current execution/session/resource and host/native/object
-families must be redistributed by actual ownership, with obsolete collector and
-forwarding paths removed at cutover. The tree is proposed: no mechanical file move,
-public module expansion or compatibility facade is activated. Native mapping/root
-cost removal and GC root-source ownership remain part of that same migration.
-
-The [compact frame/storage refinement](runtime-refactor-design.md#compact-frame-and-stack-storage)
-uses Lua 5.4.9, pinned Wasmi v0.51.1 and Rust 1.99.1 as mechanism references.
-Execution owns reusable banks and compact ordinary frames; proposed records
-spell out an exact BodyRef, replaceable execution links, one StackMark, compact
-ReturnTarget and an execution-owned extra-state pool. GC consumes their root view;
-shared function facts and uncommon state do not inflate every ordinary frame.
-Count frame, Window/replacement control storage, banks, capacity, extensions and
-dependencies together;
-retain exact old-body/current-inner-call semantics. The recorded 392-byte frame is
-a current x64 layout observation, not a target or speed claim. Implementation must
-freeze memory/call-time gates and validate the complete entry/return/parking path.
-This refines the existing Runtime design; it activates no separate migration.
-
-The [tail-recursion proposal](runtime-refactor-design.md#tail-recursion-through-frame-replacement)
-adds eligible frame replacement to this same refactor after the compact entry/return
-baseline and coordinated stack-space migration. First recognize concrete synchronous
-scalar-only self-tail calls using checked MIR/executable facts, retaining ordinary
-Call/Return fallback. Preserve current-version recursive selection, argument order,
-root/owner handoff and the original return target. Current targets stay fixed within
-exclusive synchronous activation, allowing same-body entry jumps without repeated
-lookup/version checks; actual entry/resume refresh handles retained old bodies.
-Debug stack elision is a proposed
-observable change, not current behavior; Native, managed/general tail calls and
-compiled deoptimization support remain later scope. No implementation or speed claim
-is activated by this design record.
-
-The accepted [stack-exhaustion model](runtime-refactor-design.md#stack-exhaustion-and-native-reentry)
-replaces the proposed per-script-call depth quota/counter with VM frame/slot space
-checks and a growth slow path. Native stack protection belongs to nested host
-reentry and native-code execution. Exact ceilings/errors and the coordinated
-limits API/specification/test migration remain implementation work; current
-execution contracts and cancellation behavior are unchanged by this design record.
-
-The [performance-first removal review](runtime-refactor-design.md#performance-first-scope-and-removal-review)
-prioritizes prepared internal entry, Native codec/root reuse, direct synchronous
-Native return, stack storage and exclusive execution ownership. Establish the plain
-synchronous call baseline before cancellation/observer/slicing integration; do not
-add a generic check-policy framework. Current source paths and historical cost
-attribution identify candidates, not individual speedup claims. Deferred execution
-features remain explicit integration work rather than waived acceptance checks.
+Standard-library detachment and TC00 test ownership remain implemented: Runtime/SDK
+start empty and Runtime has no stdlib production/dev/example dependency. Ordinary
+standard-provider scenarios and allocation/Serde consumers belong to kagari-stdlib.
+Single-Runtime consolidation and detached immutable Program/native preparation
+remain implemented. No source analysis, second execution wrapper, collector bridge
+or full standard-library reconstruction is part of the completed cutover.
 
 The 2026-11-10 explicit scalar generation task is locally accepted; the
 [scalar execution guide](architecture/runtime/scalar-execution.md) owns current
@@ -1664,17 +1564,16 @@ execution loop shrinks from 3951 to 2967 effective LOC and its exact exception
 ceiling is reduced to 2980. The prior performance image comparison
 does not include this follow-up; no additional speedup is claimed.
 
-The [bytecode specialization experiment](runtime-refactor-design.md#deferred-bytecode-specialization-experiment)
-is recorded for later testing: compare canonical typed bytecode with preparation
+A deferred bytecode specialization experiment remains here for later testing: compare canonical typed bytecode with preparation
 against compiler-emitted specialized bytecode, holding final hot layout/dispatch
 constant. Separate compilation, shared preparation, installation, first/warm calls
 and memory; test duplicate-storage elimination separately. The source-generation
 measurements do not answer this question. No compiler/bytecode change is activated,
 and the experiment does not block Runtime consolidation or GC/Host work.
 
-The [typed error design review](runtime-refactor-design.md#typed-errors-and-diagnostic-ownership)
-identifies existing ArithmeticError-to-string erasure, Runtime kind/message
-construction and overlapping VM/SDK execution wrappers. Preserve typed numeric
+The typed error review identified ArithmeticError-to-string erasure, Runtime
+kind/message construction and overlapping VM/SDK execution wrappers; EN01/EN02
+and single-Runtime consolidation replace those mechanisms. Preserve typed numeric
 leaves, use one Runtime reason/context owner, and format text at diagnostic
 boundaries. The bounded sequence starts with numeric helpers and consumers, then
 migrates Runtime families/context and consolidates wrappers with Runtime ownership.
@@ -1696,8 +1595,8 @@ includes owned diagnostic storage. Builtin admission uses the VM RuntimeError ro
 removing the obsolete builtin/reflection VM variants. Forty-nine selected tests,
 workspace all-target Clippy, structure, fmt, generation consistency and diff/link
 checks pass; one observer-fixture omission and feature-gated Serde API consumers
-were repaired without reducing coverage. Finer cold validation details, remaining
-VM/SDK/crate consolidation and comparative timing remain queued. The Runtime map
+were repaired without reducing coverage. Finer cold validation details and unmeasured error-specific comparative timing
+remain queued; VM/SDK/crate consolidation is implemented. The Runtime map
 owns current API/data/source/memory contracts. No execution speedup or full-workspace
 test claim is made.
 
@@ -1727,8 +1626,8 @@ inherited static/type provenance can retain many revisions; no small fixed memor
 bound or per-body reclamation is implied by the measured sharing reductions.
 
 Remaining scope has existing owners: [R13](review.md#r13--type-and-layout-provenance-retains-retired-code)
-for type/layout versus executable lifetime; the [call-model proposal](runtime-refactor-design.md#candidate-call-execution-model)
-for slots/frames/Native adapters; [native API review](#deferred-native-execution-api-boundary-review)
+for type/layout versus executable lifetime; the [Runtime model](architecture/runtime.md)
+for implemented slots/frames/Native adapters; [native API review](#deferred-native-execution-api-boundary-review)
 for ordinary public handles rather than version-specific entries; and
 [native expansion gates](review.md#native-expansion-gates) for supported machine-code
 operations. Collector/enum layout, independent module linking, branch merging or
@@ -2480,16 +2379,35 @@ activated by this record.
 
 ## GC library redesign
 
-The [GC acceptance register](gc-redesign-plan.md) owns remaining GCR00-GCR05
-requirements and measurements. The [Runtime execution plan](runtime-refactor-plan.md#order-and-build-boundaries)
-owns the single coordinated implementation order and maps those groups to RR phases;
-the [implementation design](gc-implementation-design.md) owns data structures and
-safety contracts. The [kagari-gc crate](../crates/kagari-gc/README.md) implements
-standalone typed/dynamic objects, roots, direct execution-root adapters,
-incremental collection, reclaimable metadata and opt-in safepoint pacing.
+The [implementation design](gc-implementation-design.md) and [crate guide](../crates/kagari-gc/README.md)
+own implemented typed/dynamic providers, branded access, Root/Edge/RootDriver,
+resumable mutation/scanning, metadata reclamation and incremental service.
+Runtime uses that library as its sole collector and complete execution source.
+[Measurements](performance-baseline.md#rr05-parked-root-admission-and-collector-characterization-macos-2026-11-14)
+retain actual integration/standalone results and their different denominators.
+The [benchmark guide](../crates/kagari-gc/BENCHMARKS.md#acceptance-requirements)
+owns inherited PG00 numerical mappings, exact finite recipes and paired estimation.
 
-Runtime integration, required erased layouts, integrated pressure/cancellation
-policy and complete comparative acceptance are scheduled but unimplemented.
-Main retains its existing Runtime collector. Historical PG/NC source and
-measurement references are pinned in the plan; they are integration obligations,
-not evidence that main's Runtime has been replaced or its gates have passed.
+The remaining finite work is:
+
+- NC01-NC06 restores missing public collection providers and original Vec/Map/
+  graph consumers, then executes their inherited integrated construction/access/
+  mutation/collection/normal-step/memory gates. Those recipes currently fail source
+  admission; standalone or fixed-array measurements do not replace them.
+- Collector performance follow-up characterizes first-white-target barriers,
+  mixed/sparse pages and retained-high-water scanning, real destructor tails,
+  complete allocator/RSS and longer sustained service under equivalent pressure.
+  RR05's repeated-target publication regressions and allocation/collection code-
+  layout diagnosis remain in the performance owner; no unfrozen row is a gate pass.
+- Provider authoring retains unsafe GcObject/raw initialization/mutation obligations.
+  A future builder/derive or erased registration surface must prove field-complete
+  tracing, source protection, publish/repair/accounting and unwind behavior before
+  becoming safe. It must not add blanket mutable access or payload extraction.
+- Verification owns broader coverage-guided fuzzing/reduction, sanitizer and full
+  CI/platform/backend/Miri acceptance. Existing deterministic graph and scoped
+  provenance witnesses establish only their executed paths. Longer tail streams
+  need at least 10,000 events per process before acceptance percentiles.
+
+R13 remains at review.md. New GC pacing policy, generations, backend deoptimization
+and enum layouts are separate scope decisions. The superseded GCR/PG migration
+ledgers are not additional integration phases; completed history stays in Git.

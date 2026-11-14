@@ -22,7 +22,7 @@ is stopped during measurement; no metatables, callbacks or loop allocations are
 introduced. All return values and final fields are checked outside the timer.
 These times include bytecode dispatch, arithmetic and loop control, so they are
 not pure lookup costs or matched comparisons with native Rust GC field APIs.
-The active [GC plan](../../docs/gc-redesign-plan.md#lua-context)
+The [GC characterization](../../docs/performance-baseline.md#lua-context)
 records the measurement and environment. No existing Runtime/Lua gate is replaced.
 
 Run from the repository root:
@@ -633,7 +633,7 @@ recover total GC-heap object allocations; it does not count Rust allocations.
 | maps | 81,030 | 24,012 | 5 | 2,001 |
 
 The shared bottleneck is the per-instruction runtime protocol. The loop in
-[`executor.rs`](../../crates/kagari-vm/src/executor.rs) accesses the current
+[`executor.rs`](https://github.com/kagari-lang/kagari/blob/9b3c9e94774fd36e43c66e8c55750a7b06b2f558/crates/kagari-vm/src/executor.rs) accesses the current
 frame repeatedly, and operand handlers access it again. Each access validates
 execution state, active-session identity and the top frame scope in
 [`frame.rs`](../../crates/kagari-runtime/src/frame.rs). Register writes also

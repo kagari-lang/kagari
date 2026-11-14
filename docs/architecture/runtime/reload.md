@@ -106,7 +106,10 @@ A parked execution releases function-link views for its entire stack before endi
 the activation. Resume refreshes every frame's views, including parents waiting on
 a child; exact body, PC, capture, lexical environment, values and return destination
 are unchanged. Synchronous active frames cannot overlap publication. This closes
-the stale-parent-link case without draining all outstanding Futures.
+the stale-parent-link case without draining all outstanding Futures. Only frames
+whose body needs runtime links allocate/stage refreshed links; all fallible staging
+precedes commit. A retained old self-tail candidate also uses these refreshed
+selections: a different current target takes ordinary Call/Return fallback.
 
 Sources: [prepared route registry](../../../crates/kagari-runtime/src/module/dispatch/bindings.rs),
 [function rebinding](../../../crates/kagari-runtime/src/module/linked_execution.rs),
@@ -122,7 +125,7 @@ Sources: [prepared route registry](../../../crates/kagari-runtime/src/module/dis
 | Compatibility/linking/admission/cancellation failure | No publication or authoritative static-state change |
 | Candidate expects A, recipient already runs B | Stale-base rejection; no implicit merge or skipped-base preparation |
 | Old closure/Future/frame/queue or explicit root survives | Retain its required whole Program and matching metadata |
-| Last executable dependency disappears | Joint collection can retire old records and code owners; route registry holds weak identities |
+| Last executable dependency disappears | The one managed graph can retire old revision/static records and code owners; route registry holds weak identities |
 | Saved named host binding survives old code collection | Its metadata identity still follows the current implementation |
 | Runtime closes/drops | Revoke current authority and drain owned work; identity handles cannot revive it |
 
@@ -131,6 +134,11 @@ revisions. Local records/bindings and publication preparation grow with retained
 work; shared products do not impose a fixed version-count or memory bound. Hosts
 own indefinitely retained computations. Bounded metadata history avoids executable
 ancestry, but does not turn whole-version retention into per-body reclamation.
+
+Actual RevisionState/static/environment/application edges participate in kagari-gc.
+Current/staged publication and retained computation roots protect their origins;
+lookup keys and code Arcs alone do not root mutable state. A callback/object/static
+cycle is reclaimed after its genuine roots disappear.
 
 The descriptor attaches the Runtime Program owner without a cycle: ProgramState's own
 bytecode has no back-reference. Revision tokens, source observations and historical
@@ -150,7 +158,7 @@ deoptimization and automatic JIT delivery are separate work, not a hidden guaran
 of this reload model.
 
 Sources: [native preparation/install](../../../crates/kagari/src/program/native.rs),
-[joint collection](../../../crates/kagari-runtime/src/gc/collection.rs),
+[managed collection](../../../crates/kagari-runtime/src/lib.rs),
 [retention leases](../../../crates/kagari-runtime/src/module/retention.rs).
 
 ## Reference mechanisms

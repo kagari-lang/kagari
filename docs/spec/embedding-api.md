@@ -659,15 +659,15 @@ Lower-level Runtime drivers start a session from explicit ExecutionOptions.
 Hosts can select explicit ExecutionOptions with
 `kagari_runtime::Runtime::begin_execution` and keep the returned ExecutionSession
 alive while driving execution. Nested scopes inherit
-the installation authority, cancellation and call-depth limit. Exact admitted
-bodies are retained separately from current ordinary-call selection.
+the installation authority, cancellation, VM-byte account and Native-stack
+guards. Exact admitted bodies are retained separately from current ordinary-call selection.
 Dropping the final scope releases the session; dropping an outer handle early does
 not reset a still-active nested scope. ExecutionSession::counters reports root-call
-lifecycle peaks and elapsed time; Runtime counters track live occupancy and
+lifecycle occupancy peaks; Runtime counters track live occupancy and
 runtime peaks. Synchronous script
 reentry is available through HostCallContext and kagari_runtime::execution::reentry::reenter, using
 an exact `ExecutableModule` and checked `FunctionRef` for the admitted entry. Its returned
-RootedValue remains alive across collection; ordinary raw Value copies do not.
+RootedValue remains alive across collection; a protected view is not an escaping root.
 See [host-interop.md](host-interop.md) for scope and error rules. The `host_reentry`
 example demonstrates this boundary: `cargo run -p kagari --example host_reentry`.
 It also installs an ExecutionObserver on an explicit root scope to observe both
@@ -679,9 +679,10 @@ cancellation: `cargo run -p kagari --example scoped_execution`.
 
 Execution reports contain an owning RootedValue result. Moving `report.return_value`
 into host state or cloning it preserves retention across subsequent execution and
-collection. Inspect it through `value(runtime.gc())`, which validates the
-owning heap and root generation; a raw Value copied from that inspection does not
-extend lifetime. RootedValue clones share retention and release it on last drop.
+collection. Inline scalars have `as_i32` and corresponding typed getters. Import
+managed roots into a checked ConversionContext/HostScope for a protected ValueView,
+or decode them through the installed type context; no raw heap accessor exists.
+RootedValue clones share retention; last Drop requests release for collector service.
 Shared callbacks require Send + Sync; a captured owning root retains its
 script object until the registration releases it.
 The rooted_values runtime example demonstrates retention and collection pause reporting.
@@ -832,7 +833,7 @@ matching. Missing entries fail before script execution, and implementation displ
 names do not participate in selection. Ordinary typed paths can accept arguments;
 the explicit root entry remains zero-argument.
 
-Core `kagari_runtime::Runtime::bind_function`, exposed by SDK `Runtime::function`,
+`kagari_runtime::Runtime::bind_function`, also exposed through the exact SDK Runtime facade,
 resolves verified public paths relative to the supplied `Module`, including
 re-exports into dependencies, and returns a typed `Function`. Async binding uses
 the same [public-path contract](#installed-programs-and-public-paths), with no root
@@ -1239,7 +1240,7 @@ The embedding API is complete when:
 
 - host applications can compile, load, execute, and reload modules through stable entry points
 - host registrations produce metadata used by checking, bytecode, runtime, reload, and JIT
-- execution contexts preserve cancellation and runtime call-depth limits
+- execution contexts preserve cancellation, VM-byte limits and Native-stack guards
 - errors and diagnostics are structured
 - bytecode artifacts and source modules can be loaded through the same module identity model
 - JIT can be enabled or disabled without changing semantics

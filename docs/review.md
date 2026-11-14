@@ -795,34 +795,33 @@ Identity and release boundaries:
   `DefinitionContext` tables; numeric IDs require their supplying table. Checked
   type arguments can retain their supplying loaded module (R13). Installation
   writers and immutable snapshots have deliberate, separately measured lifetimes.
-- **Objects:** `HeapObjectId` identifies heap owner, directory slot and generation.
-  `Value` carries typed scalar data or handles, not unrestricted Rust references.
-  Directory identity is stable while typed payload records and packed struct bytes
-  may relocate. It is inaccurate to describe this as either raw-pointer moving GC
-  or wholly immobile storage.
+- **Objects:** scoped Gc access, private StoredValue/Edge fields and genuine Host
+  roots have separate lifetimes. kagari-gc storage is nonmoving; complete
+  execution/root directory identities and physical source admission prevent
+  foreign/stale input access. Public views expose no unrestricted Rust reference.
 - **Functions/modules/code:** local slots are interpreted within a loaded program;
   `ExecutableModule` owns an `Arc<ProgramDescriptor>`. Executable admission also requires
   live runtime/version authority. Keeping old type facts does not resurrect retired
   executable admission. Native products keep owned code and exact program leases.
-- **Roots:** frame windows, explicit root leases, module state, closure/callable
-  edges, pending async state and task results have distinct owners. A raw low-level
-  callback `Value` is not itself an explicit host root; typed/reentry APIs provide
-  stronger ownership. Cloning a root lease is not a new root-table registration.
-- **Host/native resources:** Rust host state remains outside the script heap and
-  behind installed interfaces/scoped borrows. Native payloads expose tracing and a
-  fallible charge description; runtime native records own committed charges for
-  mutation and release. Completion endpoints transport owned Rust data, not VM borrows.
-- **Reload:** active calls and retained callables keep their old dependency graph.
-  Collection traverses object and program edges together before reclaiming retired
-  records. Registry retirement, bytecode payload destruction and identity backing
-  release are different events; one counter cannot demonstrate all three.
+- **Roots:** authoritative execution banks include active/parked frames, locals,
+  queues and pending Native/wait results. Published installations and escaping
+  Host values have genuine roots. Revision/static/environment/application edges
+  use the same managed graph; neither a view nor Arc metadata alone is a root.
+- **Host/native resources:** Rust Host state remains outside the heap behind
+  installed interfaces/scoped borrows. Reviewed GcObject providers own complete
+  tracing and constant-time owned charge; collector commits record that ledger.
+  NativePayload selects registration. Completion transports owned Rust data.
+- **Reload:** created computations/admitted frames/queues retain selected bodies,
+  providers and environments; ordinary inner calls select current implementations.
+  Registry retirement, bytecode backing and identity release are distinct events.
+  R13's type-only code retention remains separately scoped.
 
 ### Representative execution traces
 
 1. **Scalar loop and call.** A checked `i32` loop becomes verified MIR/bytecode;
    preparation assigns scalar locations and reusable callee layout. The VM driver
    admits a cursor, runs closed scalar operations and logical cancellation polls,
-   and exits on a prepared call. Runtime admission reserves the callee's window;
+   and exits on a prepared call. Runtime admission reserves the callee's source/control suffix;
    return transfers the value without a collecting gap. Overflow remains a trap,
    not wraparound. Evidence: [driver](../crates/kagari-runtime/src/executor/driver.rs),
    [kernel](../crates/kagari-runtime/src/frame/cursor/kernel.rs),
@@ -869,15 +868,15 @@ Identity and release boundaries:
    polling or later alias mutation requires a fresh transition proof. The
    [completion contract](spec/host-interop.md#completion-transport-foundation)
    owns transport cleanup and fault containment.
-6. **GC, cancellation and old calls.** Safepoints collect only after publication and
-   outside invalid storage/host borrows. The collector snapshots roots, traces the
-   object/program graph, validates it before detachment, sweeps/relocates storage,
-   then disposes native resources without table borrows. Ordinary trap/cancellation
-   cleanup releases frame roots and leases, not business mutations. An old closure
-   after reload still calls the old dependencies; only after those roots/leases
-   disappear may corresponding executable records be reclaimed. See
-   [collection](../crates/kagari-runtime/src/gc/collection.rs),
-   [future claim](../crates/kagari-runtime/src/gc/future.rs) and
+6. **GC, cancellation and old calls.** Admitted safepoints service the one
+   nonmoving managed graph after physical loans end. Incremental root/provider
+   scanning and detached disposal retain complete sources and exactly-once cleanup.
+   Trap/cancellation cleanup releases frame/source marks without undoing effects.
+   A retained old closure executes its old body while ordinary inner calls use
+   current selections. Managed cycles die after genuine roots disappear; R13 can
+   still retain immutable code through type provenance. See
+   [collection](../crates/kagari-runtime/src/lib.rs),
+   [Future claims](../crates/kagari-runtime/src/native/future/claims.rs) and
    [owned retirement](../crates/kagari-runtime/src/session/owned.rs).
 
 ### Memory model and collector suitability
@@ -957,6 +956,14 @@ does not form a predecessor chain, but inherited static/type provenance can reta
 an initial whole product even after Futures finish. Shared product ownership does
 not complete the separate type/code split. See the
 [Runtime ownership map](architecture/runtime.md#program-product-installation-and-publication).
+
+The Runtime/Host/GC refactor now traces actual revision/static/environment/
+application/callback nodes through kagari-gc and reclaims rootless managed cycles.
+That graph cutover does not implement this type/code split: immutable supplying
+descriptors can still retain whole executable backing. R13 remains the owner;
+NC restores deferred public-provider combinations and inherited integrated gates.
+The [current memory contract](spec/runtime.md#managed-graph-and-access) describes
+actual reachability separately from type-only code retention.
 
 **Provider-test coverage boundary.** TC00 retires six private source-level
 combinations from the pre-correction `fdb536c1` interface suite: retained generic
@@ -1256,60 +1263,28 @@ records those limits and pending exhaustive CI.
 
 ### Call-boundary cost follow-up
 
-Static review confirms the following remaining preparation costs. These are
-code-derived costs, not benchmark results or speedup claims:
+The prior repeated Vec<Value>/root-pack/mapping preparation is replaced by the
+Runtime/Host/GC refactor. One prepared binding and monomorphized typed adapter
+consume original protected argument locations through NativeCall. Managed results
+stage in its authoritative source; scalar results stay inline with real reserved
+source capacity. Payload/frame/GC loans end before reentry and callbacks. Current
+[call ownership](architecture/runtime/calls.md) and [conversion contracts](spec/host-interop.md#binder-traits)
+own these mechanisms; completed migration details stay in Git history.
 
-- [Typed native invocation](../crates/kagari-runtime/src/native/typed.rs) builds a
-  `Vec<Value>`; [argument decoding](../crates/kagari-runtime/src/native/conversion/arguments.rs)
-  copies it into rooted storage and creates a root lease even for scalar packs.
-  Mapping checks recur at pack and element conversion boundaries. Value/handle
-  copying here is not necessarily a deep object copy. Individual scalar conversion
-  avoids an object root, which does not eliminate the pack-level allocation.
+[RR05 ordinary calls](performance-baseline.md#rr05-ordinary-call-regression-check)
+pass all ten frozen paired gates, and [separate diagnostics](performance-baseline.md#rr05-final-call-allocation-and-preparation-diagnostics)
+distinguish complete Host-entry allocation, zero warm empty/scalar Native call-local
+allocation/root/mapping growth, borrowed payload costs and actual owned String
+conversion. These are measured routes, not general allocation-free invocation or
+Lua parity. Selected GC/reentry/borrow/trap/cancellation/reload and actual Native
+proofs pass; exhaustive feature/platform/backend CI remains explicit at the roadmap.
 
-- [Native call-site linking](../crates/kagari-runtime/src/module/linked_execution/native_calls.rs)
-  validates arity and prepares physical argument locations, while the common
-  [linked invocation entry](../crates/kagari-runtime/src/native/binding.rs) repeats
-  the arity check per call. Audit which callers possess the prepared call-site
-  evidence before proposing any specialized admission path; this is not authority
-  to remove checks from dynamic or host-originated invocation.
-- [Native result adaptation](../crates/kagari-runtime/src/native/result.rs) selects
-  its implementation table at linking, but its closed branch without applied type
-  arguments still resolves those arguments during conversion. Composite result
-  encoding also repeats Rust mapping checks before the outer return validation.
-  Distinguish stable preparation facts from checks on newly produced values;
-  bytecode containing one native call does not expose this work or measure its cost.
-
-The typed invocation owner should evaluate borrowed argument windows and reuse of
-checked mapping facts through the existing runtime root owner. Release-driven root
-reclamation is implemented, not an outstanding full-table-prune optimization.
-Preserve snapshot/retention across user conversion and reentry, collection during
-conversion, owner/generation/value checks, cancellation
-and cleanup on every exit. Separate stable declaration proofs from invocation-time
-facts before relocating validation. Root reclamation must still handle last-lease
-drop and runtime transfer safely. Do not remove roots merely because the simple
-scalar case does not need GC protection.
-
-Keep owned conversion, scoped borrowing and explicit raw/primitive implementations
-behind one validated binding entrypoint without forcing one data-movement path.
-The [VM allocation tests](../crates/kagari-stdlib/tests/allocation_contracts/native_allocations.rs) establish
-warm zero-allocation scalar/SequenceHandle paths; they do not establish that the
-general typed adapter is allocation-free. The completed
-[module-owned registration](native-registration.md) refactor preserves these
-primitive/raw/typed/owned distinctions through direct associations and one-shot
-preparation. Its bounded bytecode/link/runtime comparison and focused allocation
-checks do not implement these pre-existing optimizations or establish general
-allocation-free invocation. Keep this follow-up at the actual call/conversion/root
-owners, not in a second standard-library registration layer.
-
-This is a queued, bounded follow-up, separate from completed registration/interop
-delivery. Before optimization, measure equivalent raw/typed/owned cases and the
-implemented Ref/RefMut adapters. Vary argument/payload size, root-table high-water
-mark, path depth and active loans where applicable. Separate compile,
-installation, conversion and warm-call costs; report allocations, retained memory
-and timing with revision, machine, toolchain, profile/features, parallelism and
-cache state. Include representative bulk calls and small frequent calls without
-assuming one is faster. Reuse focused correctness tests for GC/reentry/trap cleanup;
-no retained performance conclusion can be inferred from registration unification.
+Remaining dynamic conversion costs must preserve actual value/type/authority checks,
+custom converter effects, scoped loans and rooted result handoff. Any later
+optimization needs a concrete workload and diagnosis at those owners; it does not
+require another registration facade or reopening the completed call-model migration.
+Collection-dependent routes remain with NC, and general compiled expansion retains
+its existing review/roadmap scope.
 
 ## SA23 Builtin type specifications duplicate scalar properties
 

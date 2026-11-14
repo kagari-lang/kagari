@@ -60,15 +60,16 @@ Current physical ownership is nevertheless uniformly heap-based:
   maps enums to `ValueType::HeapObject`.
 - [Enum layouts](../crates/kagari-contract/src/layout.rs) retain nominal type
   arguments, variant identities, payload types and `reports_failure` facts.
-- [Value](../crates/kagari-runtime/src/value.rs) transports `Enum(HeapObjectId)`;
-  [heap storage](../crates/kagari-runtime/src/gc/storage.rs) contains its tag,
-  payload vector and optional origin record.
-- [Enum construction](../crates/kagari-runtime/src/gc.rs) validates payloads,
+- [Carriers](../crates/kagari-runtime/src/value/carriers.rs) transport scoped,
+  stored or Host-rooted managed values; the actual
+  [EnumObject provider](../crates/kagari-runtime/src/value/aggregates/enumerations.rs)
+  contains tag, traced payload and optional origin.
+- [Enum construction](../crates/kagari-runtime/src/native/conversion/context/enumerations.rs) validates payloads,
   captures an origin for marked variants, then allocates the enum object.
   Both Some/None and Ok/Err use this general route. Standard constructors and
   native conversion additionally assume heap enum views.
 - [Execution operands](../crates/kagari-runtime/src/frame/values/operands.rs)
-  use scalar banks and managed Value banks. Scalar initialization bits mean
+  use scalar banks and traced StoredValue banks. Scalar initialization bits mean
   written/unwritten; they cannot be repurposed as enum presence bits.
 - [Struct fields](../crates/kagari-runtime/src/module/layout_storage.rs) and
   `crates/kagari-runtime/src/native/sequence.rs` (retired) specialize primitive
@@ -481,25 +482,13 @@ the registration redesign, NC ownership migration and collector replacement is
 not activated by this review. Earlier usage sketches below remain exploratory;
 their public spelling and separate context/writer ceremony are not frozen APIs.
 
-Current evidence distinguishes API layering from misplaced ownership:
-
-- [CallContext and ArgumentView](../crates/kagari-runtime/src/native/context.rs)
-  already access protected frame slots and carry the selected callable/type
-  environment. A new public raw stack or second execution-frame store is not
-  required to give the boundary a call-frame model.
-- The same context has sequence-specific operations, while
-  [native primitives](../crates/kagari-runtime/src/native/primitive.rs) contain
-  VecIndex/VecSet/VecSetFluent. [GC native access](../crates/kagari-runtime/src/gc/native.rs)
-  and `crates/kagari-runtime/src/gc/maps_sets.rs` (retired) know concrete
-  collection payloads. These are real ownership leaks, not merely verbose names.
-- [ModuleBuilder](../crates/kagari-runtime/src/native/builder.rs),
-  [NativeAdapter](../crates/kagari-runtime/src/native/adapter.rs) and
-  [typed conversion](../crates/kagari-runtime/src/native/typed.rs) already converge
-  toward checked bindings, but ordinary callers must understand too much of the
-  declaration/configuration/binding and context-selection process.
-- Runtime has only a development dependency on the stdlib crate. Removing a
-  Cargo production dependency does not establish library independence while
-  Runtime still implements its buffers, algorithms, codecs and dispatch.
+Current Runtime/Host ownership is already implemented. NativeCall borrows
+protected source arguments, one prepared binding, a pending result owner and
+exclusive services; synchronous calls/reentry/GC use that same model. Runtime has
+no stdlib dependency or privileged collection operations. EL01 must rebase its
+older conceptual sketches below on the [actual call model](architecture/runtime/calls.md)
+and [public payload protocol](spec/host-interop.md#native-payload-accounting).
+This enum proposal does not reopen completed Runtime/GC/Native architecture.
 
 The proposed public mental model has three concepts under Runtime:
 
@@ -627,21 +616,18 @@ NativeStorage and checked payload access; do not create a second native registry
 
 #### Existing access and proposed additions
 
-There is no with_payload_edit in the current Runtime or GcHeap. It is a proposed
-CallContext operation in the collection example below, not an existing collector
-capability or a simple alias for one.
+There is no unrestricted with_payload_edit capability. The older conceptual
+name below is a proposal, not an alias for current payload operations.
 
 | Current owner | Implemented capability | Boundary |
 | --- | --- | --- |
-| [CallContext::with_payload](../crates/kagari-runtime/src/native/context.rs) | Borrow a native argument as shared &S through GcHeap::with_native | Read access; no general &mut S loan |
-| [GcHeap::with_native_data_mut](../crates/kagari-runtime/src/gc/native.rs) | Checked mutation of admitted fixed data | Requires the sealed NativeData editing proof; cannot edit arbitrary traced/resizable payloads |
-| [GcHeap::push_sequence_value](../crates/kagari-runtime/src/gc/native.rs) and `crates/kagari-runtime/src/gc/sequence_edit.rs` (retired) | Existing collection-specific mutation, validation, accounting and borrow ownership | These are current implementation owners, not a generic payload edit API |
+| [NativeCall::with_payload](../crates/kagari-runtime/src/native/context.rs) | Shared payload access under a checked operation loan | Physical loans end before callback/reentry/GC; no unrestricted mutable traced data |
+| [ManagedStorage access](../crates/kagari-runtime/src/native/payload/managed/access.rs) | Checked managed field operations and edit_data for fixed Rust data | Actual field publication/accounting and fixed-data editing proof remain mandatory |
+| [GcObject provider kernel](gc-implementation-design.md) | Reviewed unsafe construction/mutation/scanning/charge | Collection storage/algorithms and safe authoring wrappers remain library/NC responsibilities |
 
-The value/result migration can adapt these existing collection mutation owners
-to typed records. A general mutable payload provider boundary is separate work
-owned by the native collection plan; it is not implicitly activated or made a
-prerequisite merely by showing the target Vec API below. EL01 must preserve the
-existing mutation checks while changing their value transport/storage contracts.
+EL01 must preserve these checks while changing enum transport/layout. The general
+collection provider and broader safe builder design remain at NC/the GC follow-up
+owner; the sketches below do not activate them or grant blanket mutable access.
 
 #### Complete synchronous usage sketch
 
@@ -1079,8 +1065,7 @@ once the wire contract stabilizes. Remove replaced storage paths for inline
 applications; heap fallback remains a supported layout for other applications,
 not a compatibility reader or a value-dependent duplicate representation.
 
-Target the current Runtime collector. The [GC redesign](gc-redesign-plan.md)
-remains separate; fixed dynamic nullable-reference fields alone cannot implement
+Target the current kagari-gc-backed Runtime [provider model](gc-implementation-design.md); fixed dynamic nullable-reference fields alone cannot implement
 tag-dependent multi-edge scanning and origin retention. Transfer final adapter
 requirements to GCR03 before cutover without expanding this work into replacing
 the collector or claiming incremental integration has passed.

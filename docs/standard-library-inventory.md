@@ -6,9 +6,9 @@ implementation authorization or release promise. IndexMap/IndexSet and
 BTreeMap/BTreeSet are requested expansion targets, not installed APIs.
 
 The [roadmap](implementation-roadmap.md) owns activation and sequencing. The
-[GC execution plan](paged-incremental-gc-design.md#execution-plan) and
+[GC follow-up owner](implementation-roadmap.md#gc-library-redesign) and
 [native collections plan](native-collections-plan.md#sequencing-and-phases) retain
-their scope and ledgers. Their external BTreeMap<i32, T> fixture is not a production
+their scope. The external BTreeMap<i32, T> fixture is not a production
 generic BTreeMap. This inventory neither enlarges PG/NC acceptance nor reopens
 cancellation-policy design.
 
@@ -18,7 +18,7 @@ for these surfaces retain proposed signatures for NC reconstruction; older
 `Implemented` labels there do not imply current executable availability. Primitive,
 String non-traversal, enum/async, builtin array index/equality and generic protocol
 providers remain. Runtime/SDK installation is explicit. See the
-[current boundary](runtime-refactor-design.md#standard-library-detachment-inventory-and-execution-plan).
+[current boundary](architecture/runtime.md#test-ownership).
 
 ## How to read the signatures
 

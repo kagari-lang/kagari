@@ -6,13 +6,13 @@ placement. This plan owns NC01-NC06, the bounded API design, migration acceptanc
 and progress ledger. API sketches are proposals, not currently callable APIs.
 
 Sequencing update, 2026-11-09: the user selected
-[Runtime/library detachment and existing-GC integration](runtime-refactor-design.md#next-scope-detach-the-standard-library-and-reuse-the-existing-gc)
+[Runtime/library detachment and existing-GC integration](architecture/runtime.md)
 before full standard-library design. Runtime owns that immediate design boundary;
 this plan retains concrete collection implementation and acceptance. Earlier
 NC/PG phase pairings below are historical sequencing to rebase before activation,
 not a prerequisite to organizing Runtime or integrating its current collector.
 
-Detachment handoff, 2026-11-11: [D00-D05](runtime-refactor-design.md#standard-library-detachment-inventory-and-execution-plan)
+Detachment handoff, 2026-11-11: [core detachment](architecture/runtime.md#test-ownership)
 is complete. Runtime no longer has collection storage/type/value families, cursors,
 Vec primitives/codecs/handles, table/key policy or automatic Rust Vec/Serde adapters.
 The SDK starts empty. Fixed arrays, builtin String/ranges, language roles/async,
@@ -60,6 +60,39 @@ Full owner/slot/generation handles, native tracing, extraction, revision checks 
 panic-contained disposal remain the contracts NC must reuse. NC still owns
 library collection storage/algorithms; the predecessor does not perform NC's
 collection migration or add new collection-family policy to generic storage.
+
+## Runtime and GC handoff
+
+Runtime/Host/GC RR00-RR05 is implemented and locally accepted. NC01-NC06 remains
+unstarted; rebase the historical inventory/PG pairings below before activation.
+The [current ownership map](architecture/runtime.md) and [Host provider contract](spec/host-interop.md#native-payload-accounting)
+replace old raw Value/extraction and privileged storage assumptions. Native payload
+take/extraction is removed; do not reconstruct it as a collection prerequisite.
+
+Public ManagedStorage/Field/NativeType/NativeCall already supports fixed data plus
+private managed callback/value fields. Reuse the existing source-free
+[application-owned payload witnesses](../crates/kagari-stdlib/src/tests/execution/native_boundary/native_boundary_payload/managed.rs):
+registered_payload_fields_support_aliases_reentry_and_rootless_callback_cycles and
+stored_callback_keeps_old_code_and_releases_the_old_program_with_its_cycle.
+They verify alias mutation, Native/script/GC reentry, rootless callback-cycle
+destruction and old/new results 42/43 through public APIs. They prove the general
+boundary, not a resizable collection, safe arbitrary provider derive or Vec acceptance.
+
+NC owns recovery of missing providers and exact dependent fixtures: Runtime storage's
+original workload, original GC-comparison graph, arrays/forms/Lua and SDK task/async
+scenarios. The actual current runtime_storage CLI source check fails UnknownType/
+UnknownName Vec before Runtime; two selected SDK Task/Future scenarios fail the
+same setup boundary. Preserve their assertions and complete original source.
+Do not substitute fixed arrays, extract one form from a module containing Vec,
+install a privileged provider or disable validation.
+
+After provider restoration, execute the original inherited PG00 construction/
+access/Vec/Map/root/collection/normal-step/retained/peak gates with their scenario
+associations and fresh matched baselines. [The benchmark owner](../crates/kagari-gc/BENCHMARKS.md#acceptance-requirements)
+retains exact recipes, numerical history and paired/memory/tail estimation. RR05's
+passing call/root/event-peak controls and standalone characterization do not close
+these missing denominators. Source-free collection, actual Native, ownership/GC,
+borrowing, cancellation, reload and platform contracts remain distinct acceptance.
 
 ## Outcome and scope
 
@@ -133,17 +166,13 @@ exact readonly admission, checked setters, roots and supplying generations. SA21
 consumes the same ordinary declarations while owning Rust borrowing and registration.
 Neither owner may turn an interface into a second storage/access authority.
 
-The queued [paged incremental GC design](paged-incremental-gc-design.md) owns the
-collector/page architecture. Historical sequencing, 2026-10-26: opaque registration,
-the general payload protocol and affected collection integration are one coordinated
-replacement migration. Implement reference publication, accounting, scanning and
-opaque API changes together, not as a separate post-GC API revision. NC owns
-concrete collection layouts, algorithms and its detailed phases; the GC replacement
-cannot reach final acceptance with container-specific collector/storage paths
-deferred to NC. The 2026-11-09 Runtime-first direction supersedes using that joint
-migration as a prerequisite for the immediate Runtime/Host boundary work. Rebase
-the concrete NC/PG handoffs on the resulting existing-GC protocol before their
-activation; retain the independent-library and generic collector acceptance goals.
+The [implemented GC design](gc-implementation-design.md) owns physical storage,
+publication, accounting, scanning and disposal. Runtime/Host integration has
+superseded the old PG sequence; NC uses those generic services and proves concrete
+remaining dynamic-collection capabilities at their provider owners. No new
+collector/opaque migration is a prerequisite. Library reconstruction and its
+original integrated workload gates remain here, with the comparative protocol at
+[the benchmark owner](../crates/kagari-gc/BENCHMARKS.md#acceptance-requirements).
 Current-call selection follows the implemented
 [publication contract](spec/module-activation.md#live-installations-and-call-selection),
 not historical wording that would pin every stored method body.
@@ -173,7 +202,7 @@ Recheck implementation at NC01 without reopening the completed Iterable API work
 | --- | --- |
 | `crates/kagari-stdlib/src/foundation/vector.rs` (retired), `crates/kagari-stdlib/src/foundation/hash.rs` (retired) | Vec is nominal but declares Sequence storage; HashMap/HashSet still use special native constructors. Move all three to ordinary native declarations. |
 | [Shared native declarations](../crates/kagari-types/src/declaration/native.rs), [HIR application](../crates/kagari-hir/src/native.rs) | Collection constructor/layout variants leak implementation families into semantic modeling. Remove these dependencies coherently rather than rename them. |
-| [Heap directory](../crates/kagari-runtime/src/gc/directory.rs), [shared interfaces](../crates/kagari-runtime/src/gc/interfaces.rs) | The directory owns generation/locator; native records own mutation revisions. Interfaces locate metadata snapshots directly, preserving distinct checked heap/metadata identities and roots; shared descriptions do not own receivers. Packed script fields do not reinterpret Rust payload memory. No public raw arena/ownerless-token API was added. |
+| [Heap directory](https://github.com/kagari-lang/kagari/blob/a1eb6919bad6b3b9386508a201670303a403f9fe/crates/kagari-runtime/src/gc/directory.rs), [shared interfaces](https://github.com/kagari-lang/kagari/blob/a1eb6919bad6b3b9386508a201670303a403f9fe/crates/kagari-runtime/src/gc/interfaces.rs) | The directory owns generation/locator; native records own mutation revisions. Interfaces locate metadata snapshots directly, preserving distinct checked heap/metadata identities and roots; shared descriptions do not own receivers. Packed script fields do not reinterpret Rust payload memory. No public raw arena/ownerless-token API was added. |
 | [Native storage](../crates/kagari-runtime/src/native/storage.rs), [type builder](../crates/kagari-runtime/src/native/builder/type_builder.rs) | Factories, payload bindings, tracing and scoped type arguments already exist. Native revision initialization/reset/replacement/exhaustion has one runtime owner; checked public mutation access remains NC01 work. Extend these owners only for proven gaps. |
 | [Managed fields](../crates/kagari-runtime/src/native/payload/managed.rs), [fixed native data](../crates/kagari-runtime/src/native/payload/data.rs) | Safe edits separate fixed Rust data from checked script edges. Dynamic storage must preserve that boundary; arbitrary mutable payload access is not a solution. |
 | `crates/kagari-runtime/src/native/sequence.rs` (retired), `crates/kagari-runtime/src/native/hashed.rs` (retired), `crates/kagari-runtime/src/native/hash_storage.rs` (retired) | Runtime owns concrete storage and optimizations. Relocate collection policy while preserving useful storage foundations and checks. |
@@ -208,11 +237,11 @@ and NC06 closes every row, preserving the generic validation each currently owns
 | `crates/kagari-runtime/src/gc/iter.rs` (retired) | Replace Vec/Map/Set cursor variants and concrete heap traversal with nominal library cursors; retain unrelated builtin cursor support. |
 | [Ty](../crates/kagari-types/src/ty.rs), [Value](../crates/kagari-runtime/src/value.rs), [constructors/layouts](../crates/kagari-types/src/declaration/native.rs), [HIR mapping](../crates/kagari-hir/src/native/api.rs), [compiler mapping](../crates/kagari-compiler/src/source/types.rs) | Remove concrete Map/Set families and collection constructor/layout authority, including substitution, checking and formatting consumers. |
 | [type wire](../crates/kagari-types/src/ty/wire.rs), [native wire](../crates/kagari-types/src/declaration/wire/native.rs), [binding codecs](../crates/kagari-runtime/src/native/binding.rs) | Remove collection-family codec/admission branches; keep ordinary nominal/source-free validation, not compatibility readers. |
-| [Vec native primitives](../crates/kagari-runtime/src/native/primitive.rs), [linked execution](../crates/kagari-runtime/src/module/linked_execution.rs), [linker](../crates/kagari-runtime/src/module/linked_execution/native_calls.rs), [execution fast path](../crates/kagari-runtime/src/frame/cursor/primitives.rs) | Remove VecIndex/VecSet/VecSetFluent and linked Vector dispatch as engine protocols; retain valid optimizations inside ordinary library entries. |
+| [Vec native primitives](../crates/kagari-runtime/src/native/primitive.rs), [linked execution](../crates/kagari-runtime/src/module/linked_execution.rs), [linker](https://github.com/kagari-lang/kagari/blob/52ab7b58b942953d2a2d846957c7f432bc4d88f3/crates/kagari-runtime/src/module/linked_execution/native_calls.rs), [execution fast path](https://github.com/kagari-lang/kagari/blob/52ab7b58b942953d2a2d846957c7f432bc4d88f3/crates/kagari-runtime/src/frame/cursor/primitives.rs) | Remove VecIndex/VecSet/VecSetFluent and linked Vector dispatch as engine protocols; retain valid optimizations inside ordinary library entries. |
 | `crates/kagari-runtime/src/native/collections.rs` (retired), [host conversions](../crates/kagari-runtime/src/native/conversion/composites.rs), `crates/kagari-runtime/src/native/function_handle/constructors.rs` (retired), `crates/kagari-runtime/src/native/collections/vector/storage.rs` (retired) | Move collection-specific conversions/construction to the library through public generic evidence. Replace special constructor matching and diagnostics/cache preparation; retain generic function-cache ownership and supplying generations. |
 
-The [heap descriptor caches](../crates/kagari-runtime/src/gc.rs) and
-[backing diagnostics](../crates/kagari-runtime/src/gc/directory/accounting.rs) must
+The [heap descriptor caches](https://github.com/kagari-lang/kagari/blob/a1eb6919bad6b3b9386508a201670303a403f9fe/crates/kagari-runtime/src/gc.rs) and
+[backing diagnostics](https://github.com/kagari-lang/kagari/blob/a1eb6919bad6b3b9386508a201670303a403f9fe/crates/kagari-runtime/src/gc/directory/accounting.rs) must
 also lose concrete collection ownership/downcasts. Preserve generic descriptor
 sharing and accounting rather than treating removal of cache fields as migration.
 
@@ -294,8 +323,9 @@ iterator or builtin storage redesign is outside this task.
 Native functions using GC objects should call checked handle methods directly:
 field `get/set` and collection `get/set/push/insert/remove`. Accessing several
 objects must not require nested payload-edit closures or long-lived borrow guards.
-The [GC design's Native-facing operations](paged-incremental-gc-design.md#native-facing-gc-object-operations)
-own the examples, root/edge distinction and incremental publication requirements.
+The [actual Native call model](architecture/runtime/calls.md#native-call-prepared-slots-and-mutable-services)
+and [provider design](gc-implementation-design.md) own call/source retention,
+root/edge distinctions and incremental publication requirements.
 Existing Object/Field and ScriptVec access provide the baseline ergonomics, not
 an obligation to retain ScriptVec or collection methods in Runtime. Library-owned
 safe functions/extensions over Opaque<library payload> are sufficient; no mandatory
@@ -346,21 +376,21 @@ use that public opaque path, with no collection-specific storage admission or
 dispatch privilege. Efficient calls use prepared Native entries and checked payload
 access; retain compact library-owned buffers and validate costs through the focused
 measurements below, without promising unmeasured parity with special entrypoints.
-Implement this adjustment within the GC replacement and its general payload
-protocol. NC01/NC02 remain the detailed API work breakdown, not a later independent
-delivery. Do not first implement a new collector around special collection storage
-and defer the ordinary opaque boundary until afterward.
+NC01/NC02 must review which registration/storage capabilities remain missing
+after the implemented generic Runtime/GC boundary, then add only concrete required
+capabilities. Do not retain a special collection admission path or repeat the
+completed collector/Native call-model migration.
 
 ### End-to-end API proposal for review
 
 Selected direction, 2026-10-26: paged precise tracing with incremental collection.
-Opaque payloads may contain Value and ordinary Rust containers through an unsafe
-provider contract. Native entry does not disable GC. This supersedes the provisional
+Opaque payloads may contain traced StoredValue/Edge fields and ordinary Rust
+containers through the reviewed unsafe GcObject provider contract. Native entry does not disable GC. This supersedes the provisional
 counted-Value/cycle-collector proposal and its untraced detached-buffer sorting path.
 Keep Ref<T>, RefMut<T> and Opaque<T> as the public ownership/borrowing categories.
 This records design scope only; implementation is not activated. Examples below are
 pseudocode, not final callable signatures. The
-[GC design](paged-incremental-gc-design.md#incremental-tracing-and-mutation) owns
+[GC design](gc-implementation-design.md#mutation-and-scanner-coordination) owns
 roots, barriers, scan progress and reclamation.
 
 | Audience | Proposed surface | Responsibility |
@@ -368,7 +398,7 @@ roots, barriers, scan progress and reclamation.
 | Type author | define_opaque::<T>(name), existing generic/method builders | Associate declaration and Rust payload once through an unsafe provider contract; no automatic safe admission of arbitrary T |
 | Host borrowing | Existing Ref<T> / RefMut<T> and host scopes | Host owns Rust state; scoped access does not move it into the heap |
 | Ordinary Native code | Retained dynamic/typed values, Opaque<T>, Object and library handles | Safe arguments/results remain rooted across allocation and script calls; no manual rooting for each ordinary field/collection operation |
-| Storage provider | Unsafe NativePayload integration and unrestricted read/edit; scoped mutation services | Trace internal edges, publish writes, account backing and protect extracted values; no collection or script execution during conflicting payload loans |
+| Storage provider | Reviewed GcObject/NativePayload integration and scoped payload/mutation services | Trace internal edges, publish writes, account backing and protect extracted values; no collection or script execution during conflicting payload loans |
 | Callback-bearing algorithm | Generic operation protection, temporary roots or traced work state | Keep every live temporary visible at collecting boundaries; end loans before callbacks and restore valid storage on all exits |
 
 Do not add a GcObject public category, special GC Vec, NoGc whitelist, split opaque
@@ -576,8 +606,7 @@ protocol and measured acceptance remain pre-implementation decisions.
 
 ### Other standard-library operation boundaries
 
-The [operation-family inventory](paged-incremental-gc-design.md#future-standard-library-extraction-families)
-includes future collection/iterator designs. Do not rewrite the whole standard
+The operation families below include future collection/iterator designs. Do not rewrite the whole standard
 library or assume only Hash/Eq call script. Reuse Rust storage and algorithms where
 all values remain protected at collecting boundaries.
 
@@ -599,7 +628,7 @@ all values remain protected at collecting boundaries.
 
 Validate these families at their existing contract owners, including collection
 inside callbacks and long allocating loops. No percentage of future APIs, latency
-bound or measured speedup is claimed. GC itself still needs incremental scan,
+bound or measured speedup is claimed. Implemented GC provides incremental scan,
 barrier and sweep protocols; collecting Native callbacks alone do not bound pauses.
 
 ### Collection registration and storage
@@ -792,17 +821,14 @@ implementations. Do not add another Iterable phase or make the trait surface
 depend on this storage migration. Reuse implemented host registration/scoped
 borrowing; the roadmap owns subsequent activation changes.
 
-The [joint GC execution plan](paged-incremental-gc-design.md#execution-plan) owns
-PG00-PG06. The earlier unimplemented schedule paired NC01 with PG00, NC02 with
-PG01, NC03/NC04 with PG03 after paged storage at PG02, NC05 with PG05's actual
-incremental schedules, and NC06 with PG06 acceptance. PG04 was to integrate
-marking/publication between those handoffs.
-NC02 may prove the public protocol with the synchronous collector and isolated
-scanner tests, but cannot claim interleaved GC acceptance. Record collection
-results only in this ledger; link PG results rather than copy their checklist.
-These historical pairings require rebasing after the Runtime-first scope above;
-they do not require a new collector for that scope. Cancellation
-policy and cx.poll redesign remain explicitly outside the joint migration.
+Runtime/GC integration is implemented; historical NC/PG phase pairings are
+superseded. NC02 proves resizable public storage against the actual incremental
+collector, including partially scanned mutations and collecting callbacks. Reuse
+the existing generic protocol and add only capabilities that the concrete external
+prototype demonstrates are missing. This ledger owns NC progress; remaining
+collector work and numerical methods retain their roadmap/benchmark owners.
+Cancellation policy and cx.poll redesign are separate scope, while existing
+cooperative cancellation remains mandatory for long library operations.
 
 | Phase | Scope and exit condition |
 | --- | --- |

@@ -1,9 +1,10 @@
-# One Bytecode Call through the Runtime
+# One Call through the Runtime
 
-Start with the [Runtime model](../runtime.md). For `state = step(state)`, the
-ordinary nongeneric bytecode call uses a final binding prepared before publication.
-The same entry mechanism serves current code and retained old callers; their
-supplying call tables have already been bound directly to current implementations.
+Start with the [Runtime model](../runtime.md). For `state = step(state)`, a verified
+call consumes prepared target/slot facts. Runtime owns control; its one
+`ManagedMemory` owns `RootDriver<ExecutionRoots>`, including all active and parked
+managed operands. The [execution contract](../../spec/execution.md) owns observable
+polling, traps, stack limits and scalar self-tail behavior.
 
 ## Prepared facts and the actual entry path
 
@@ -14,228 +15,218 @@ BoundRoute { route: CallRoute, selected: Arc<PreparedSelection> }
 PreparedSelection { owner: ModuleKey, target: CallableTarget, mapping }
 ```
 
-The shared product prepares locations and checked callable facts. Installation
-resolves recipient authority and creates the final generational module key/target.
-`CallRoute` is metadata identity for publication and saved host bindings. Ordinary
-Direct execution reads `selected` without a current-version test or route-registry
-lookup. It does not clone the unused generic transport mapping.
+The immutable Program supplies verified instructions, layouts and locations.
+Installation prepares recipient authority, exact targets and Native bindings.
+Ordinary Direct execution reads its committed selection without public lookup,
+a correspondence solver or a version-chain traversal. Publication is excluded
+throughout synchronous activation. Actual owner/generation, phase, operands,
+loans, capacity and cancellation checks remain dynamic at their owning boundary.
+
+For `runtime.call(&add, (1, 2))`, binding first checks the Rust signature.
+Invocation selects the current route, establishes one exclusive execution session
+and converts actual arguments into its authoritative source. `PreparedHostCall`
+retains its exact prepared body/mapping; callers cannot replace that mapping at
+execution. Fixed mappings are prepared once per closed binding/application, while
+custom conversion effects and actual supplied-value checks still run. Escaping
+results use genuine Host roots; scalar roots remain inline.
+
+Sources: [Host execution](../../../crates/kagari-runtime/src/execution.rs),
+[prepared Host calls](../../../crates/kagari-runtime/src/native/function_handle.rs),
+[prepared calls](../../../crates/kagari-runtime/src/module/execution/calls.rs),
+[final bindings](../../../crates/kagari-runtime/src/module/linked_execution/calls.rs).
 
 ## Selection and frame entry
 
 ```mermaid
 flowchart TD
-    CALL["Bytecode Call<br/>end borrowed caller region"] --> SITE["Read prepared final binding and caller slots"]
-    SITE --> TARGET["Resolve checked module key / target<br/>validate physical owner and generation"]
-    TARGET --> AUTH["Reuse active installation admission<br/>check retirement and execution phase"]
-    AUTH --> ADMIT["Admit arguments, depth and callee layout"]
-    ADMIT --> BANK["Borrow value banks<br/>check locations and initialized operands"]
-    BANK --> INIT["Reserve capacity if needed<br/>initialize window and transfer parameters"]
-    INIT --> ROOT["Publish exact dependencies and roots"]
-    ROOT --> FRAME["Push callee frame and continue driver"]
+    CALL["Call: prepared caller operands"] --> SELECT["Read committed target and application facts"]
+    SELECT --> ADMIT["Admit active owner, values and callee layout"]
+    ADMIT --> STORAGE["Reserve source/control capacity if necessary"]
+    STORAGE --> SOURCE["Initialize banks and publish parameters/dependencies"]
+    SOURCE --> FRAME["Push ExecutionFrame owning one FrameStorage mark"]
+    FRAME --> RUN["Execute prepared regions"]
 ```
 
-There is no Installation current-cell Mutex, per-call publication correspondence
-solver, old-version chain or retired-table lookup here. Publication is excluded
-throughout synchronous activation. Entry/resume and cross-installation admission
-still check the supplying installation; explicit retirement revokes the active
-proof. Actual object identities, loans, cancellation, capacity, depth and argument/
-result validity remain dynamic where required.
+`FrameStorage` owns a linear `FrameMark`; borrowed `FrameSlots` derives checked
+bank coordinates from it. There is no independent Window registry or per-frame
+generation. Complete execution IDs check owner, index and generation. Source
+backing may grow without invalidating coordinates. One most-recent retired
+execution may donate cleared, edge-free backing to a new identity.
 
-Host named bindings differ: invocation resolves their metadata route through the
-Runtime's current prepared selection. Interface receivers and captured closures
-also have their own checked selection behavior. They do not make the ordinary
-Direct path perform public lookup or infer types.
+`ExecutionFrame` retains immutable body/layout/link facts and hot control. Managed
+environments and executable dependencies are actual source edges. Optional
+initializer/mutation/method state lives in the Runtime-owned uncommon-frame pool;
+its linear lease retires with the frame. Arc code pins preserve Rust backing but
+are not substitutes for managed reachability.
 
-`Function<A, R>` checks the Rust mapping when it is bound or decoded. Its
-`prepare_call` returns `PreparedHostCall<A, R>`, a sealed witness retaining one
-exact `PreparedFunction`; callers cannot choose another argument/result mapping
-at execution. Ordinary calls create a current selection, while explicitly retained
-prepared calls and queued factories keep their selected body. Fixed Rust mapping
-checks do not repeat on execution; actual value conversion effects do. Weak
-binding-cache entries reuse the same checked mapping and never retain code on
-their own. Reload signature transport and dynamic value/authority checks remain.
-
-Parking clears function-link views on every frame, including parents waiting on a
-child. Resume refreshes the entire stack from committed tables. Bodies, PCs,
-captures, values, return destinations and lexical environments remain exact.
-See the [reload sequence](reload.md) for publication and repeated updates.
-
-Sources: [prepared calls](../../../crates/kagari-runtime/src/module/execution/calls.rs),
-[final bindings](../../../crates/kagari-runtime/src/module/linked_execution/calls.rs),
-[target entry](../../../crates/kagari-runtime/src/module/dispatch.rs),
-[call transition](../../../crates/kagari-runtime/src/frame/calls.rs),
-[parking/resume](../../../crates/kagari-runtime/src/frame/owned.rs),
-[executable validation](../../../crates/kagari-runtime/src/loading.rs).
+Internal eligible scalar leaf calls and returns can remain in the same paired
+access interval. They still create actual frames, initialize source storage,
+transfer arguments and publish returns; public/manual entry checks independently.
+Prepared facts do not permit a borrow across callbacks, GC or observation.
 
 ## Work performed at each boundary
 
-| Stage | Operations and data changes | Callback / collection boundary |
+| Stage | Work and owner | Allocation/root implications |
 | --- | --- | --- |
-| Read call site | BORROW caller stack; obtain exact owner, slots, links and environment; LOOKUP prepared call/route; clone relevant shared owners | Temporary caller borrow ends before later transitions |
-| Select target | Read final checked module key/target; validate physical record/generation and reuse active installation authority; shared calls use prepared mapping metadata | No user callback or collection in this internal selection |
-| Admit frame | Reject invalid initializer/suspending entry; inspect managed argument ownership/candidate membership; RESERVE frame capacity; enter checked call depth; LOOKUP callee layout; validate parameter count and program metadata | Error order and rollback of entered depth are preserved |
-| Allocate window | BORROW banks; CHECK source window owner/generation, initialized operands and destination representations; RESERVE managed/scalar/initialization/window/order storage | RESERVE can allocate Rust backing; it does not imply a script GC cycle |
-| Initialize/transfer | INIT scalar payloads to zero, scalar flags to false and managed records to Unit; COPY parameters into admitted destinations | Warm capacity avoids allocator requests, not these initialization/copy operations |
-| Publish | Insert Window with exact program/type/invocation dependencies; append allocation order; push ExecutionFrame with return destination | ROOT publication completes before arbitrary execution can collect |
-| Execute callee | Driver polls/observes/safepoints; borrow the admitted frame/banks; execute prepared regions | Borrowed regions end before allocating operations, callbacks and other transitions |
-| Return | Adapt environment/interface result where needed; poll; retire frame/window; leave depth; publish result or finish root/factory | See the closed return transition below |
+| Select | Committed target plus checked installation/application authority | Immutable descriptors may be pinned; ordinary Direct calls do not rebuild mappings |
+| Admit | Check actual values, initializer/suspension policy, candidate ownership and layout | All checks precede publication; no source analysis occurs |
+| Reserve | ExecutionSpace admits fallible frame/source/control capacity growth | Warm capacity avoids allocator requests; committed capacity still counts |
+| Transfer | Initialize scalar bits/flags and managed Unit cells; publish parameters and exact dependencies | Incoming edges publish before source protection ends; no copied per-frame RootSet |
+| Execute | Prepared regions borrow admitted banks and GC scope | End physical loans before callback, observation, collection or reentry |
+| Return | Adapt while callee dependencies remain live, then publish and retire in a closed handoff | Internal results stay source-protected; only escaping results need Host retention |
 
-The window allocator reserves five backing owners, not necessarily five new heap
-allocations on each call. Owner/generation IDs are checked locators; no borrowed
-pointer is kept across Vec growth. The current all-scalar transfer avoids walking
-a heap graph, but still checks initialized scalar contents and representation.
+The byte account covers committed per-execution frame, source and associated
+control capacity, including reservations. The default is 8 MiB; `StackOverflow`
+and fallible allocation failure are distinct. It excludes managed payloads,
+immutable code, fixed Runtime directories, allocator internals and OS stack.
+Logical call depth remains diagnostic, with no per-script-call depth quota.
+Native/compiled entries separately guard nested Rust/OS stack use.
 
-Source: [window allocation and transfer](../../../crates/kagari-runtime/src/frame/values.rs).
+Sources: [frame admission](../../../crates/kagari-runtime/src/frame/admission.rs),
+[source-backed frame storage](../../../crates/kagari-runtime/src/frame/values.rs),
+[execution space](../../../crates/kagari-runtime/src/execution/space.rs).
 
 ## Return and error paths
 
 ```mermaid
 flowchart TD
-    VALUE["Callee produces ReturnValue"] --> ADAPT{"Environment or interface result adaptation?"}
-    ADAPT -->|yes| KEEP["Adapt while callee values and dependencies remain protected"]
-    ADAPT -->|no| POLL["CHECK scope and termination"]
-    KEEP --> POLL
-    POLL --> INIT{"Static initializer return?"}
-    INIT -->|yes| STATIC["Use static initialization completion owner"]
-    INIT -->|no| RETIRE["Pop frame; retire window; leave call depth"]
-    RETIRE --> DEST{"Caller or scope result?"}
-    DEST -->|caller| WRITE["CHECK destination; publish scalar or managed return"]
-    WRITE --> CONT["Continue caller action"]
-    DEST -->|scope| ROOT["Transfer to factory or outer driver result protection"]
+    VALUE["ReturnValue: protected result packet"] --> ADAPT["Adapt under existing callee protection if needed"]
+    ADAPT --> POLL["Admit scope and termination"]
+    POLL --> DEST{"Completion owner"}
+    DEST -->|caller| HANDOFF["Closed publish/retire transition"]
+    DEST -->|outer or factory| PREFIX["Transfer to execution result or queued/pending source"]
+    PREFIX --> HOST["Convert or retain before activation retirement"]
 ```
 
-Optional result adaptation may allocate and runs before retiring its dependencies.
-Retirement and publication to an internal caller are then a closed transition:
-no callback, allocation or collection observes a managed result between removal
-of the callee root and publication in the caller. A return without a destination
-still retires the callee; static initializers and Future factories have explicit
-completion owners.
+Return packets name protected source state or an authenticated existing Host root,
+not an unrooted managed pointer. Adaptation may allocate while original values
+and dependencies remain protected. No callback/collection observes a gap between
+source retirement and destination publication. Static initializers and Future
+factories have explicit completion owners.
 
-On failure before frame publication, admission rolls back entered depth and
-publishes no partial parameter window. Later errors preserve already committed
-script/host mutations. ExecutionStack drop unwinds only its suffix from `base`,
-releasing frames/windows and guards; it does not roll back all effects or tear
-down an unrelated suspended execution. Quarantine handles invalid internal state.
+Before frame publication, failures release preparation marks and restore entered
+control. Later traps preserve completed mutations and the original error/trace
+precedence. Activation Drop retires only its admitted frame/source suffix, including
+uncommon leases and Native scratch, on success, error, cancellation or unwind.
+Quarantine revokes further execution after an internal/provider invariant failure;
+cleanup still drains independent roots and detached owners.
 
-Sources: [return handling](../../../crates/kagari-runtime/src/frame/returns.rs),
-[return packet](../../../crates/kagari-runtime/src/frame/transfer.rs),
-[activation cleanup](../../../crates/kagari-runtime/src/frame/activation.rs) and
-[stack suffix retirement](../../../crates/kagari-runtime/src/frame/stack.rs).
+Sources: [returns](../../../crates/kagari-runtime/src/frame/returns.rs),
+[result packets](../../../crates/kagari-runtime/src/frame/transfer.rs),
+[activation cleanup](../../../crates/kagari-runtime/src/frame/activation.rs).
 
-## Native call: what an empty body still pays for
+## Native call: prepared slots and mutable services
 
-An ordinary Native-import Call consumes its prepared binding and the common frame-admission path.
-Its frame starts Pending and has logical result slot 0 and parameter slots after
-it. The callback-facing structures expose the current mutation boundary:
+All Rust callbacks use `NativeCall` and one prepared binding protocol. Ordinary
+synchronous Native-import calls borrow caller operands and use a logical
+`NativeActivation`; they require no physical callee script frame. Explicit Native
+entry/observer/driver routes may still need Pending/Running/Complete frame state.
+These routes share invocation, post-call checks, result placement and cleanup.
 
 ```text
 NativeCall<'call> {
     runtime: &'call mut Runtime,
     owner: &'call ExecutableModule,
     function: &'call LinkedNativeFunction,
-    arguments: ArgumentView<'call>,
-    pending: Unset | Unit | Scalar(Value) | Managed(RootedValue),
-    invoke_script: ScriptInvoker
+    arguments: ArgumentValues<'call>,
+    pending: ReturnSource<'call>,
+    locals: Option<LocalMark>,
+    native_stack: Option<NativeStackMark>,
+    invoke_script: ScriptInvoker,
 }
-ArgumentView<'call> {
-    frame: Option<FrameSlots>,
-    slots: prepared locations | contiguous frame range | sealed scalars,
-    narrowed: Option<RootSet>
+PendingReturn {
+    native: Option<NativeSourceMark>,
+    body: DependencyId<RevisionState>,
+    application: Option<DependencyId<ApplicationObject>>,
+    staged: Unset | Scalar { representation, bits } | Source,
+    invoked: bool,
 }
-ErasedNativeEntry = Fn(&mut NativeCall) -> Result<(), Box<RuntimeError>>
 ```
 
-NativeCall lends the same exclusive Runtime for synchronous script reentry.
-No frame/bank or mutable registry borrow spans the callback. Immutable entry
-descriptors may be pinned across it. The remaining sequence is:
+`ArgumentValues` borrows prepared locations, a contiguous admitted range or sealed
+scalar bits. Typed monomorphized adapters decode this same pack rather than copying
+and rooting it again. Formal shared narrowing uses scoped protected aliases when
+required. Actual nominal/borrow/domain checks remain; fixed Rust mappings do not
+rebuild per callback.
 
 ```mermaid
 sequenceDiagram
-    participant Driver as VM driver
-    participant Frame as Native frame
-    participant Binding as LinkedNativeFunction
-    participant Adapter as Optional typed Rust adapter
-    participant Body as Rust callback
-    Driver->>Frame: Pending to Running, capture owner, slots<br/>and environment
-    Frame->>Binding: LOOKUP binding, prepare or reuse generic<br/>application if needed
-    Frame->>Binding: invoke NativeCall over rooted argument<br/>slots
-    Binding->>Binding: CHECK arity, poll, narrow shared<br/>capabilities where needed
-    Binding->>Adapter: Invoke registered entry
-    Adapter->>Adapter: Optional RESERVE argument pack, ROOT,<br/>check actual values and decode
-    Adapter->>Body: CALLBACK
-    Body-->>Adapter: Rust result
-    Adapter->>Adapter: Optional encode result, release conversion<br/>roots
-    Adapter-->>Binding: Stage result in NativeCall; small status
-    Binding->>Binding: Poll, CHECK or adapt result as required
-    Binding-->>Frame: Publish slot 0, Running to Complete
-    Frame-->>Driver: NativeReturn action
-    Driver->>Frame: Shared finish_return transition
+    participant Script as Script caller/source
+    participant Call as NativeCall
+    participant Rust as Prepared Rust adapter/body
+    participant Nested as Nested script and GC
+    Script->>Call: Admit original operands, revision/application and Native suffix
+    Call->>Rust: Poll and decode protected views
+    Rust->>Nested: Reborrow exclusive services after physical loans end
+    Nested-->>Rust: Return protected result; caller source survives GC
+    Rust-->>Call: Stage result once
+    Call->>Call: Post-call poll and result/candidate validation
+    Call->>Script: Publish ResultPlace, then retire Native suffix
 ```
 
-Low-level callbacks do not necessarily use the typed adapter pack. The existing
-owned typed adapter specifically materializes a Vec of argument Values, clones
-the pack for execution-root protection, checks actual values/receiver loans,
-decodes arguments and encodes the result. Rust type/codec mappings are prepared
-by the immutable binding or its actual closed application before callbacks run. Zero parameters can change allocation behavior;
-do not label every box as an unconditional allocation in an empty Native call.
-Formal shared receiver narrowing creates additional protected aliases only when
-the actual argument requires it.
-The [empty-call measurement](../../performance-baseline.md#empty-call-attribution-windows-2026-11-08)
-distinguishes these routes: raw/flat callbacks have no proportional allocator
-traffic, while that revision's zero-argument Unit owned adapter created two result mappings
-and two empty root leases per call. RR02 removes the repeated fixed mappings;
-the old-heap root leases remain until the execution-root cutover. Its allocation and calibrated timing evidence
-must not be generalized to every Native adapter. Current matched measurements
-retain their own revision and denominator in the performance record.
+Managed pending results live in the Native source's cell before conversion scratch
+is retired. Scalars stay inline, while the source still reserves a Unit result
+cell; this optimization does not erase its capacity. A result staged before nested
+scratch/reentry remains protected. Reentry lends the same Runtime and session;
+no GC scope, payload loan, frame borrow or mutable registry guard crosses it.
+Borrowed scratch shares the admitting call's pending owner and cannot retire it.
 
-ArgumentView and ValueHandle carry protected locations and immutable type facts,
-not heap references. Reads and payload access use the current NativeCall. A guarded
-payload operation owns a mutable call scope and releases its operation mark on
-return, error or unwind; script reentry borrows that same call. Collection still
-checks actual payload loans. Pending results stage once in NativeCall before the
-post-call poll and destination commit; managed results currently use an old-heap
-root lease until RR03 replaces it with a managed local slot.
+A failed post-call poll retains completed Rust effects and prevents result commit.
+Saved async completion is consumed once, never reinvoked after a slice exit.
+Synchronous Running Native work cannot park; cold Future/wait state represents
+asynchronous work. `max_native_depth` defaults to 32, and supported native hosts
+also require OS-stack reserve before Native/compiled entry.
 
-Before invoking Rust, frame and operand-bank borrows are released. Rust may
-allocate or synchronously call script through the supplied invoker. Its arguments
-remain protected by the frame/temporary packs. An ordinary Running callback cannot
-be parked; asynchronous Native work uses explicit factory/Future/wait state.
+Sources: [direct Native route](../../../crates/kagari-runtime/src/frame/native.rs),
+[logical activation](../../../crates/kagari-runtime/src/session/native.rs),
+[NativeCall](../../../crates/kagari-runtime/src/native/context.rs),
+[pending result](../../../crates/kagari-runtime/src/native/context/result.rs),
+[typed adapter](../../../crates/kagari-runtime/src/native/typed.rs).
 
-Runtime preparation currently rewrites Native-import sites to general Call and
-sets `prepared.native_calls = 0`. Existing special transition code does not prove
-that a normal import bypasses this path. The registered body can itself be a
-sealed primitive; that alone does not eliminate route selection and Native frame
-handling. Efficient independent-library calls must address that distinction.
+## Park, resume and reload
 
-Sources: [Native frame execution](../../../crates/kagari-runtime/src/frame/native.rs),
-[binding checks](../../../crates/kagari-runtime/src/native/binding.rs),
-[typed adapter](../../../crates/kagari-runtime/src/native/typed.rs),
-[shared narrowing](../../../crates/kagari-runtime/src/native/context/references.rs),
-[import rewriting](../../../crates/kagari-runtime/src/module/execution/calls.rs).
+An owned execution retains the same source identity and byte account while parked.
+Ready parking checks control/loans and inspects actual retained data in one closed
+transition. A bounded revision-only, inline-scalar source needs no payload walk;
+managed values or additional dependencies use fresh physical traversal, including
+private Native edges and application-owned receivers. No graph admission is cached
+across mutation, callback or a later parking attempt.
 
-## Alternate call kinds
+Parking detaches every frame's link views. Resume keeps exact bodies, PCs, captures,
+lexical environments and return destinations, while refreshing required ordinary
+call links from current publication. A retirement notice coalesces off-thread
+abandonment requests; only the idle Runtime driver validates and retires records.
+See [reload](reload.md) and [owned driving](../../spec/execution.md#owned-interpreter-driving).
 
-| Kind | Additional selection/lifetime work |
-| --- | --- |
-| Concrete named call | The main scenario above; committed binding already identifies the current implementation |
-| Shared generic named call | Prepared final target, plus prepared environment transport and concrete argument/receiver compatibility checks |
-| Interface/required method | Resolve receiver and checked protocol evidence; apply generic facts where needed; admit the selected invocation and validate arguments; use the common frame allocator |
-| Interface computation retention | A newly admitted MethodInvocation allocates MethodComputation containing selected body/environment in the metadata ApplicationStore; a warm reusable application cache does not remove this distinct short-lived record |
-| Created closure/Future body | Select its retained exact computation and environment; validate captures/arguments and use common admission; ordinary named calls inside it still select current implementations |
-| Named function value | Follow its live route to current implementation rather than treating it as a created closure snapshot |
-| Static initializer | Enter only through runtime initialization authority; completion/failure updates its shared static cell |
-| Compiled script body | Consume verified native ABI/contracts through the runtime bridge; this is distinct from calling a registered Rust callback |
+Eligible verified synchronous scalar self-tail calls replace the same physical
+frame using prepared parallel argument moves. Original caller return destination
+and cleanup remain; bounded trace metadata records elision. Retained bodies fall
+back to an ordinary call when the selected current target differs. Managed,
+mutual, async and compiled tail replacement remain deferred.
 
-Sources: [interface selection](../../../crates/kagari-runtime/src/objects/invocation.rs),
-[generic applications](../../../crates/kagari-runtime/src/objects/application.rs),
-[closure admission](../../../crates/kagari-runtime/src/frame/closures.rs),
-[Native ABI bridge](../../../crates/kagari-runtime/src/jit_abi.rs).
+## Alternate call kinds and measured costs
 
-## Cost boundaries
+Shared generics, interfaces and created closures/Futures retain their checked
+application/environment facts and actual receiver/capture edges. Named function
+values follow current routes; created computations keep selected bodies/providers.
+Static initialization uses its own authority and managed state cells. Compiled
+script entry consumes verified native ABI/evidence and the same safety helpers;
+it is distinct from a registered Rust callback.
 
-Window initialization/transfer, roots, interface computation records and typed
-Native adapters remain ordinary costs. Warm backing capacity avoids allocator
-requests, not all initialization or checks. Historical timings below are tied to
-their recorded revision; current migration measurements are in the
-[performance record](../../performance-baseline.md). A source-path diagram alone
-cannot establish a speedup or authorize removing validation.
+Warm capacity avoids allocation, not initialization, publication or validation.
+Whole Host entry, internal script, raw/typed Native, borrowed payload and owned
+converters have different costs. The [matched measurements](../../performance-baseline.md#rr05-ordinary-call-regression-check)
+and [allocation diagnostics](../../performance-baseline.md#rr05-final-call-allocation-and-preparation-diagnostics)
+record those actual routes, frozen gates and limits. They do not establish restored
+collection-library acceptance, all-platform performance or zero whole-entry cost.
+
+Mechanism references: [Lua 5.4.9 call/stack handling](https://github.com/lua/lua/blob/v5.4.9/ldo.c)
+separates reusable VM storage from nested C calls. Kagari uses that ownership
+separation with precise roots and Rust cleanup, without Lua's missing-argument or
+longjmp semantics. [JNI 25 local/global references](https://docs.oracle.com/en/java/javase/25/docs/specs/jni/design.html#global-and-local-references)
+distinguish call-duration protection from escaping Native retention; Kagari's
+argument source supplies the former without a global lease per value.
+[OpenJDK jdk-25+36 oop maps](https://github.com/openjdk/jdk/blob/jdk-25%2B36/src/hotspot/share/compiler/oopMap.hpp)
+distinguish references from nonreference locations using compiled-PC maps. Kagari's
+bounded parking path instead checks current inline tags and actual source/control
+dependencies; the analogy neither replaces that proof nor establishes speed.

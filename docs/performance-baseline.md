@@ -33,7 +33,9 @@ improvement. Earlier i7 measurements below remain revision-specific evidence.
 ## RR05 parked-root admission and collector characterization, macOS 2026-11-14
 
 These are RR05 local acceptance measurements with the explicit NC/CI limits below.
-Use the actual whole RR00
+Intermediate candidates retain their original failures and open-work statements;
+the final ordinary root/call and allocator-event peak subsections supersede those
+phase-status statements. Use the actual whole RR00
 revision `343c29a21` for the owned execution controls. The candidate is RR04
 `4c18a99a7` plus the recorded RR05 changes. Build each in its own worktree with
 `cargo build --release --locked -p kagari-lua-benchmark --bin kagari-lua-benchmark
@@ -1169,7 +1171,7 @@ Allocation counts/bytes are unchanged, and this run shows no median-time regress
 Small timing differences are observations without statistical significance or a
 causal speedup claim. The modest sample does not establish whole-language speed,
 memory compactness, tail-call performance or restored collection-library coverage.
-The [Runtime handoff](runtime-refactor-design.md#standard-library-detachment-inventory-and-execution-plan)
+The [Runtime handoff](architecture/runtime.md#test-ownership)
 records that separate integration boundary.
 
 ## Persistent HIR baseline, Windows 2026-11-07
@@ -2567,7 +2569,7 @@ Vec<i32>/Vec<u8>, not a boxed object per scalar. Sequence argument checking,
 sequence-family admission and buffer access repeatedly resolve the same handle
 and storage contract. [VecSet](../crates/kagari-runtime/src/native/primitive.rs)
 checks its value signature and runs replacement preflight, then
-[buffer_set](../crates/kagari-runtime/src/gc/buffers.rs) repeats mutable/type/bounds
+[buffer_set](https://github.com/kagari-lang/kagari/blob/a1eb6919bad6b3b9386508a201670303a403f9fe/crates/kagari-runtime/src/gc/buffers.rs) repeats mutable/type/bounds
 admission; multiple polls surround those stages. General SDK conversion may
 reenter, so that gap requires revalidation; the closed primitive has no such gap.
 Byte_state additionally executes 40,000 conversions, 25,005 Moves and 10,000
@@ -2585,7 +2587,7 @@ additional). [Option construction](../crates/kagari-stdlib/src/foundation/enumer
 allocates a heap enum and payload buffer for every successful get. The workload
 allocates 2,001 script objects and collects six times, then separately executes
 2,000 variant tests and 2,000 payload reads through
-[canonical VM handlers](../crates/kagari-runtime/src/executor/aggregate_ops.rs).
+[canonical VM handlers](https://github.com/kagari-lang/kagari/blob/a1eb6919bad6b3b9386508a201670303a403f9fe/crates/kagari-runtime/src/executor/aggregate_ops.rs).
 Repeated searches and result protocol are concrete excess work; their separate
 elapsed shares are unknown. IP11 previously rejected an insertion-only prototype
 after it missed its timing target, so that experiment is not a promised solution.
@@ -3245,12 +3247,12 @@ that a stack borrow freezes Kagari's interior-mutable heap. The actual proof sta
 with Kagari's collection guard and checked value traversal. There is no transferable
 permit, cached object safety, alternate collector or persistent traversal scratch.
 
-[`GcHeap::with_async_values`](../crates/kagari-runtime/src/gc/future.rs) owns one
+[`GcHeap::with_async_values`](https://github.com/kagari-lang/kagari/blob/a1eb6919bad6b3b9386508a201670303a403f9fe/crates/kagari-runtime/src/gc/future.rs) owns one
 visited set and temporary edge/pending buffers inside one collection-guarded
 operation. Sequential frame root batches retain frame-order errors: an earlier
 invalid graph still errors before a later frame can decline. Every root and emitted
 Value is validated before object-identity deduplication, including differently
-tagged aliases. [`collector::Visited`](../crates/kagari-runtime/src/gc/collector.rs)
+tagged aliases. [`collector::Visited`](https://github.com/kagari-lang/kagari/blob/a1eb6919bad6b3b9386508a201670303a403f9fe/crates/kagari-runtime/src/gc/collector.rs)
 is the shared marking loop used by both existing marking and async retention.
 Native trace hooks remain inside the guard; panic and ignored reentry/mutation
 rejection still quarantine rather than becoming a declined slice.
@@ -3287,7 +3289,7 @@ initial admission parking, graph construction and teardown are outside measureme
 The disjoint fixture's unused seed graph is not a retained frame root and is not
 included in the traversal counts.
 
-[`gc/retention_probe.rs`](../crates/kagari-runtime/src/gc/retention_probe.rs) is
+[`gc/retention_probe.rs`](https://github.com/kagari-lang/kagari/blob/a1eb6919bad6b3b9386508a201670303a403f9fe/crates/kagari-runtime/src/gc/retention_probe.rs) is
 compiled only for runtime unit tests. Its thread-local scope is filtered by heap
 identity and reset on unwind. It counts proof entries, frame examinations, guarded
 walk scopes, managed-root occurrences, object expansions and outgoing value-edge
@@ -4464,9 +4466,9 @@ index; it does not scan directory tombstones. The lasting ownership and safety
 contracts are in [the runtime model](spec/runtime.md#gc-heap).
 
 Scope: default-feature `kagari-runtime` library tests with `cfg(test)` counters in
-the actual [release-drain loop](../crates/kagari-runtime/src/gc/roots.rs)
+the actual [release-drain loop](https://github.com/kagari-lang/kagari/blob/a1eb6919bad6b3b9386508a201670303a403f9fe/crates/kagari-runtime/src/gc/roots.rs)
 (`release_visits`) and
-[occupied-directory iterator](../crates/kagari-runtime/src/gc/directory.rs)
+[occupied-directory iterator](https://github.com/kagari-lang/kagari/blob/a1eb6919bad6b3b9386508a201670303a403f9fe/crates/kagari-runtime/src/gc/directory.rs)
 (`discovery_visits`). These count processed release records and yielded occupied
 object identities, not inferred table lengths, elapsed time or total GC work.
 Collections are invoked explicitly; discovery counters are reset before each
@@ -4489,9 +4491,9 @@ retention neither keeps a wrapper occupied nor prevents its directory slot reuse
 
 Reproducibility owners and exact library-test paths:
 
-- [roots/tests.rs](../crates/kagari-runtime/src/gc/roots/tests.rs):
+- [roots/tests.rs](https://github.com/kagari-lang/kagari/blob/a1eb6919bad6b3b9386508a201670303a403f9fe/crates/kagari-runtime/src/gc/roots/tests.rs):
   `gc::roots::tests::registration_work_follows_releases_not_root_high_water`.
-- [gc/tests.rs](../crates/kagari-runtime/src/gc/tests.rs):
+- [gc/tests.rs](https://github.com/kagari-lang/kagari/blob/a1eb6919bad6b3b9386508a201670303a403f9fe/crates/kagari-runtime/src/gc/tests.rs):
   `gc::tests::occupied_discovery_follows_live_payloads_not_directory_peak`,
   `gc::tests::interface_occupancy_tracks_wrappers_not_snapshot_liveness_or_history`.
 
@@ -5314,7 +5316,7 @@ and returns through the prepared script path are not counted as slow boundaries.
 
 The [sealed Vec setter](../crates/kagari-runtime/src/native/primitive.rs) still uses
 preflight followed by a separately checked commit through
-[buffer operations](../crates/kagari-runtime/src/gc/buffers.rs): mutation exclusion,
+[buffer operations](https://github.com/kagari-lang/kagari/blob/a1eb6919bad6b3b9386508a201670303a403f9fe/crates/kagari-runtime/src/gc/buffers.rs): mutation exclusion,
 bounds and element admission overlap. The general SDK separation permits conversion
 and reentry; this particular sealed path has no such gap. Source shows five explicit
 execution-poll call sites across primitive entry/exit, setter and preflight, in
@@ -5337,7 +5339,7 @@ script Hash/Eq per lookup or allocate a key vector. Each get nevertheless constr
 an ordinary heap-backed Some with a payload buffer. The 2,000 successful gets explain
 2,000 enum objects in addition to the map. They then execute exactly 2,000
 TestEnumVariant and 2,000 ReadEnumPayload instructions. These remain canonical
-[VM boundary handlers](../crates/kagari-runtime/src/executor/aggregate_ops.rs), separately
+[VM boundary handlers](https://github.com/kagari-lang/kagari/blob/a1eb6919bad6b3b9386508a201670303a403f9fe/crates/kagari-runtime/src/executor/aggregate_ops.rs), separately
 borrowing/validating the enum. They are not in-region prepared enum operations.
 Maps' 8,001 slow boundaries cover 4,001 native operations and 4,000 enum operations;
 GC transitions add their own duties. This is a multi-stage result protocol, not
@@ -8039,7 +8041,7 @@ The [owned invocation](../crates/kagari-runtime/src/native/typed.rs) creates one
 RootSet for its values pack, then [FromKagariArguments](../crates/kagari-runtime/src/native/conversion/arguments.rs)
 creates another RootSet for decoding. Both packs are empty here. Root creation
 allocates an Arc RootLease and later sends a release ID through the
-[root table's queue](../crates/kagari-runtime/src/gc/roots.rs). No argument values
+[root table's queue](https://github.com/kagari-lang/kagari/blob/a1eb6919bad6b3b9386508a201670303a403f9fe/crates/kagari-runtime/src/gc/roots.rs). No argument values
 need copying, and Vec::new/empty Vec cloning is not the allocation source.
 
 Scoped allocation attribution times no clocks: enable the existing global
@@ -8674,3 +8676,258 @@ cargo test -p kagari-runtime --release --lib --features execution-diagnostics --
 Full CI/platform measurements remain unrun. The RR04 ordinary empty/Native/script
 gate still uses its original frozen workloads, images and ceiling; this control
 does not replace it.
+
+
+## Standalone GC characterization, Windows 2026-11-01
+
+These retained measurements characterize the standalone library on their recorded
+images. Current Runtime integration is described in the architecture; remaining
+collector work belongs to the roadmap. Commands and comparative acceptance belong
+to the [benchmark owner](../crates/kagari-gc/BENCHMARKS.md).
+
+### Method and interpretation
+
+Measurements below were taken on 2026-11-01: Windows 11 Pro 10.0.26300 x64,
+i9-12900K (16 cores/24 logical), about 64 GiB RAM; rustc 1.99.1 (58cf8f9c3,
+2026-10-13), Cargo 1.99.1, LLVM 23.1.1, x86_64-pc-windows-msvc. They use workspace
+default release profile, target and build parallelism, default crate features,
+sequential single-thread processes and warm workloads. Compilation/setup are
+outside timers; no concurrent builds/tests or CPU affinity/frequency pinning.
+gc-arena is 0.7.0 with std. Lua uses mlua 0.12.2, lua54/vendored, lua-src 551.0.2
+and PUC Lua 5.4.9, without LuaJIT.
+
+Unless identified otherwise, each row reports the median of seven process
+medians, with three warmups and eleven measured samples per process. Scalar loops
+perform 50,000 operations; cases and comparison orders rotate. Brackets are the
+range of process medians, not confidence intervals. All measured batches check
+results and reclamation. Keep all samples; tiny loop throughput depends on
+compiler layout and execution conditions and is not individual access latency.
+The [crate guide](../crates/kagari-gc/README.md) provides tracked fixture commands.
+Source baseline is main `00254a09` plus the standalone GC implementation; the
+field comparison identifies the successive check/handle variants below. These
+are characterizations, not frozen regression gates or Runtime measurements.
+
+### Current field access
+
+These measurements precede the typed schema-builder API. Registration/binding
+changed outside the field timers; no post-builder timing result is claimed.
+
+The retained implementation removes the redundant scoped heap-ID check and
+shrinks Gc from 16 to 8 bytes on x64. Faulted/Closed state checks and dynamic
+layout admission remain. For attribution, three release variants used identical
+fixtures: prior checks/16-byte handles, check removed/16-byte handles, and the
+final pointer-sized handle. Seven rotated process groups ran field_access
+(normal, --dynamic-borrow and --alternating) and arena_comparison. Build times
+were 1.46/1.40/1.42 seconds, excluded from timing. All 12,642 CSV rows validated.
+
+| Operation (ns/op) | Prior checks | Check removed | Pointer-sized Gc |
+| --- | ---: | ---: | ---: |
+| Matched static read | 0.450 [0.450, 0.450] | 0.368 [0.368, 0.368] | 0.306 [0.306, 0.338] |
+| Matched static write | 0.614 [0.614, 0.614] | 0.614 [0.614, 0.614] | 0.614 [0.410, 0.836] |
+| Matched static increment | 0.480 [0.460, 0.616] | 0.412 [0.412, 0.414] | 0.412 [0.410, 0.516] |
+| Matched borrow each | 0.616 [0.614, 0.618] | 0.616 [0.614, 0.884] | 0.452 [0.452, 0.464] |
+| Dynamic read | 0.864 [0.864, 0.864] | 0.750 [0.750, 0.752] | 0.760 [0.752, 0.766] |
+| Dynamic write | 0.834 [0.834, 0.840] | 0.766 [0.764, 0.814] | 0.754 [0.754, 0.762] |
+| Dynamic increment | 1.634 [1.632, 1.634] | 1.498 [1.496, 1.498] | 1.562 [1.534, 1.570] |
+| Dynamic borrow each | 0.894 [0.892, 0.896] | 0.834 [0.834, 1.156] | 0.824 [0.822, 0.826] |
+
+Batch-borrow medians remain 0.412 ns/op. Matched gc-arena read/write/increment
+medians remain 0.204/0.614/0.412; compact-variant ranges are [0.204, 0.206],
+[0.614, 0.692], [0.412, 0.452]. Its borrow-each median is 0.818. Separate
+field_access typed reads are 0.410/0.308/0.308, not interchangeable with the
+matched arena rows. Plain Rust controls remain 0.204/0.614/0.412.
+
+The static matched read improves about 32%, but compact dynamic increment is
+about 4.3% slower than the intermediate variant while remaining faster than the
+original. The unchanged gc-arena root-copy control also varies (0.688 -> 0.750,
+final range [0.686, 0.770]). No uniform speedup or isolated per-comparison CPU cost
+is established. Machine-code inspection confirms the static read loop falls
+from 15 to 12 to 11 normal-path instructions: the ID reload/comparison/branch
+and then extra handle store disappear. Per-iteration state checks remain;
+there is no page lookup, helper call or runtime borrow counter on that path.
+
+DynamicLayout::pointer retains an inline annotation so cross-crate callers can
+inline exact-layout validation and merge repeated read/write admission. Its prior
+paired measurement reduced dynamic reads from 1.128 to 0.864 ns/op while retaining
+all checks. Broad forced inlining was not retained; measured improvements do not
+justify a blanket inline policy. External Root/RootSet/layout and unbranded edge
+admission still validates membership before access.
+
+### Reference-write state-check diagnostic
+
+The reference_access fixture was measured after the direct-return schema builder,
+using main c5567989 plus the current standalone builder edits. Environment,
+profile, features, warm-cache and single-thread conditions match the method
+above. rustc 1.99.1/LLVM 23.1.1, workspace release/default target/default build
+parallelism; all builds complete before sequential timing, with no tests or
+profiling running concurrently. No compiler inlining or profile flags change.
+
+Compare the original source, removal of only EdgeField::set's initial check, and
+that removal plus a diagnostic release-only omission of Marking::publish's state
+gate. The last variant is only for valid, healthy inputs: it is not a reviewed
+replacement for the generic publication contract. Scope/receiver state checks,
+physical lookup, reference marking and all fixture assertions remain active.
+An identical original executable is also run as an A/A control. Build each image
+with `cargo build --release --locked -p kagari-gc --example reference_access` and
+archive it before changing source. Builds took 1.61/1.34/1.23 seconds, excluded.
+Run seven groups rotating/reversing four image orders. Each invocation has three
+warmups and eleven samples of 50,000 writes for typed/dynamic Idle/Mark/Sweep.
+Values below are medians of seven process medians, with their range, in ns/write.
+All 2352 CSV rows validate; process execution took 0.969 seconds. These alternate
+two retained targets; this is not a fresh-white target or null-write distribution.
+Scope entry, registration, collection and result/reclamation checks are untimed.
+
+| Typed reference write | Original | Remove outer check | Also omit inner gate |
+| --- | ---: | ---: | ---: |
+| Idle | 1.838 [1.838, 1.848] | 1.636 [1.634, 1.746] | 1.636 [1.634, 1.788] |
+| Mark | 6.586 [6.532, 6.870] | 6.326 [6.228, 6.348] | 5.958 [5.934, 6.094] |
+| Sweep | 6.940 [6.736, 7.006] | 6.376 [6.326, 6.488] | 5.862 [5.796, 5.974] |
+
+Original A/A control medians are 1.840/6.588/6.972, versus original
+1.838/6.586/6.940; control ranges are [1.838, 1.932], [6.530, 8.036],
+[6.736, 7.400]. Dynamic controls (same order of three source variants) are Idle
+1.840/1.838/1.838, Mark 6.868/6.790/6.512, Sweep 6.938/6.906/6.468. Removing only
+the typed outer check leaves dynamic source unchanged; small control movement
+shows that whole-image layout/execution variation is not eliminated by pairing.
+
+Final-binary inspection uses LLVM 16 objdump/PDB tools. At the typed set function
+(original and outer-removed address 0x1400075c0), LLVM already merges the three
+Scope checks into one phase load/control path. The original Idle path skips
+Faulted/Closed comparisons once phase==Idle is established. Deleting the initial
+source check changes branch ordering/register allocation rather than removing
+three independently executed state checks. The active path still calls the
+non-inlined Marking::publish, whose original entry at 0x1400088f0 checks phase
+again; outer-removed entry is 0x1400088b0. Diagnostic entry 0x14000cdb0 removes
+that gate, also changes saved registers and moves the function. Thus the observed
+0.368/0.514 ns additional Mark/Sweep saving includes generated-code effects; it
+is not an isolated cycle cost for two comparisons. Original-to-diagnostic total
+savings are about 0.20/0.63/1.08 ns, or 11%/10%/16% of these writes, not script
+speedups or whole-GC gains. Optimizing generic publication requires keeping an
+authoritative state check at each admitted entrypoint, including caught failures.
+
+All experiment source edits are restored byte-for-byte to the saved original
+fields/scope/marking files. Force a rebuild after restoration because copied old
+timestamps can otherwise leave Cargo's experimental artifact cached. The normal
+release example is rebuilt from restored source. No production change, new unsafe
+API, test/assertion removal or timing gate is retained. Previous implementation
+validation remains applicable; this documentation update needs link/diff checks.
+CI and failure-path acceptance are not claimed by healthy-input benchmark runs.
+
+### Admitted reference publication
+
+The retained implementation moves repeated lifecycle checks to each closed field
+operation's admission and shares one publication algorithm with checked callers.
+Measure reference_access on main c5567989 plus the current builder/admission
+changes, under the environment and release/default-profile/feature/parallelism
+conditions above. Baseline is saved immediately before this change. Seven groups
+rotate/reverse baseline, an identical baseline A/A control, and the candidate;
+each image runs three warmups plus eleven 50,000-write samples per typed/dynamic
+Idle/Mark/Sweep case. Build before timing; no concurrent build/test/profile.
+Setup, descriptor/Root admission, full collection and result checks are untimed;
+all 1764 CSV rows pass. Candidate build took 1.26 seconds, excluded; sequential
+process execution took 0.704 seconds. Values are ns/write, median of seven process
+medians with their minimum/maximum. Targets alternate between two retained values;
+no fresh-white-target latency or Runtime speedup is established.
+
+| Operation | Baseline | Retained candidate |
+| --- | ---: | ---: |
+| typed Idle | 1.878 [1.838, 2.042] | 1.838 [1.634, 1.838] |
+| typed Mark | 6.600 [6.552, 6.736] | 5.162 [5.114, 5.190] |
+| typed Sweep | 6.790 [6.734, 6.870] | 5.096 [5.056, 5.114] |
+| dynamic Idle | 1.838 [1.838, 1.840] | 1.838 [1.838, 1.840] |
+| dynamic Mark | 6.794 [6.758, 6.940] | 5.692 [5.564, 5.892] |
+| dynamic Sweep | 6.838 [6.764, 6.948] | 5.714 [5.558, 5.726] |
+
+A/A typed control medians are 1.846/6.578/6.758; dynamic controls are
+1.838/6.804/6.938. Static active-phase medians improve about 22%/25%, dynamic
+active phases about 16%. Idle static ranges overlap; claim no material Idle gain.
+Assembly confirms one state gate in EdgeField::set (0x1400075c0) and a direct
+call to the shared admitted core (0x140010d40). The checked wrapper remains for
+other callers. Compared with the earlier omission-only diagnostic, the compiler
+also inlines physical location into the shared core; this whole-path improvement
+is not a cost attribution for individual comparisons or proof of full-collector
+throughput. No release-mode Faulted/Closed checks repeat on the field write path.
+
+A separate attempt to inline the thin checked wrapper regressed typed Idle
+1.898 -> 2.058 ns/write in its paired run; Mark/Sweep were 6.736 -> 6.050 and
+6.892 -> 5.878. It is rejected, retaining default inlining and the result table
+above. All samples are preserved. After rebuilding the retained source, the full
+instruction stream matches the measured retained image; no favorable rerun of
+unchanged code replaces these results. Other provider/scanner callers keep the
+checked entry; broader collection/performance acceptance remains open.
+
+The existing quarantine unit test now exercises typed panic, dynamic error and
+paired-source error publication failures, then rejects reads, Some/None writes
+and source publication while preserving old fields. The generic checked wrapper
+also rejects Faulted. An empty RootSource fixture supplies a valid driver without
+installing additional managed edges. Debug/release unit tests, the selected
+mixed-graph/source/dynamic/failure contracts and strict-provenance Miri pass.
+Local acceptance passes structure (1791 Rust files, zero findings), workspace
+fmt and all-target Clippy with warnings denied, document/link and diff checks.
+The selected native set has 22 distinct tests; both field units also pass in
+release. Three strict-provenance Miri cases cover the expanded quarantine unit
+and paired dynamic roots. Previous unchanged doctest evidence remains applicable.
+No carried failure; exhaustive workspace/platform/backend tests remain CI-only.
+No commits.
+
+### Lua context
+
+The Lua fixture was measured before the final GC field optimizations; Lua itself
+has not changed. Its single table uses existing keys, no metatables or loop
+allocation, and collection is stopped during timing. One host call executes a
+whole batch. The GC/Lua builds took 1.47/48.84 seconds and were excluded; the
+seven-process refresh validated 5,096 CSV rows across its five suites.
+
+| Operation (ns/iteration) | Named field | Integer index | Local control |
+| --- | ---: | ---: | ---: |
+| Read/sum | 4.644 [4.568, 4.714] | 4.156 [4.152, 4.240] | 2.808 [2.806, 2.930] |
+| Write | 4.708 [4.700, 4.776] | 4.098 [4.092, 4.272] | 2.830 [2.760, 2.858] |
+| Increment | 9.798 [9.648, 10.084] | 7.036 [6.944, 7.146] | 2.764 [2.756, 2.894] |
+
+These include bytecode dispatch, lookup/tag handling, arithmetic and loop control;
+the native Rust GC suites do not. Do not infer a Kagari-script/Lua ratio or
+subtract the local control to claim isolated field lookup cost.
+
+### Collection and retained capacity
+
+The pre-final-field-optimization arena refresh measured 8192 leaves: Kagari /
+gc-arena allocation plus frame store 387.9 / 193.3 us, live collection 81.6 / 27.2
+us, dead collection 256.9 / 122.0 us. Different resumable-root/retirement contracts
+remain; these figures identify remaining gaps, not whole-collector parity.
+
+Metadata reclamation was measured independently of the later field changes.
+The capacity fixture creates 8192 entries, retains the highest-ID survivor,
+collects, then drops it and collects again. Requested directory bytes are:
+
+| Directory | Peak | One survivor | Empty |
+| --- | ---: | ---: | ---: |
+| Physical pages | 200192 | 6752 | 0 |
+| Root slots | 527872 | 16992 | 0 |
+| Descriptors | 134656 | 4704 | 0 |
+
+Partial leaves retain 256 slots. This excludes inline Heap/allocator overhead
+and RSS; freeing allocations need not return OS memory. The paired radix change
+cost ordinary allocation 373.5 -> 395.0 us, live collection 78.7 -> 81.2 us and
+dead collection 232.2 -> 250.5 us for 8192 leaves. The retained memory fix has a
+measured throughput tradeoff; do not describe it as a speedup. Work no longer
+scales with released historical entries, but live multilayer tables need further
+throughput and pause characterization.
+
+The earlier sustained fixture exercised 128 batches, a 512-target live ring and
+one default-policy safepoint per batch. Regular batches allocate 256 objects;
+burst mode replaces every sixteenth batch with 4096. Timers include allocation,
+root writes, scope transitions and service, excluding setup and final cleanup.
+Each process observes 1408 measured batches; p99 below is nearest-rank per process,
+then median across seven. This small-fixture tail is not a latency gate or SLO.
+
+| Workload | ns/object including service | Batch p50/p99 (us) | Steps/assists/cycles per run | Peak objects | Peak managed bytes |
+| --- | ---: | ---: | --- | ---: | ---: |
+| Regular leaves | 60.61 | 9.05 / 45.3 | 100 / 25 / 25 | 2711 | 49192 |
+| Regular self-cycles | 79.41 | 15.5 / 56.4 | 103 / 23 / 23 | 3296 | 90376 |
+| Burst leaves | 58.75 | 9.0 / 221.6 | 108 / 17 / 17 | 8128 | 145288 |
+| Burst self-cycles | 73.16 | 14.5 / 270.7 | 108 / 18 / 18 | 8192 | 224224 |
+
+These preceded metadata and field changes and require refreshing before a current
+performance gate. Peak managed bytes exclude metadata and source ring capacity.
+There is no matched sustained gc-arena policy result. Lower burst amortized cost
+does not imply better tails. Actual Runtime safepoint frequency remains unmeasured.

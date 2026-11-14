@@ -1,7 +1,7 @@
 # Reading the Runtime Execution Model
 
-This map describes implemented ownership after immutable Program/prepared reload
-and the single-Runtime consolidation. The [architecture overview](../architecture.md),
+This map describes the implemented exclusive Runtime, prepared calls and single
+kagari-gc managed graph, including compact execution storage and scalar self-tail calls. The [architecture overview](../architecture.md),
 [execution specification](../spec/execution.md) and
 [activation specification](../spec/module-activation.md) own the contracts.
 Read the [call walkthrough](runtime/calls.md) for entry/return costs and the
@@ -13,8 +13,9 @@ Measurements and their limits belong in the [performance record](../performance-
 Runtime/SDK construction installs no libraries. Hosts explicitly compose checked
 Native providers. Fixed arrays, String/ranges, enum/async execution and generic
 payload safety remain core; privileged collection storage/cursors/host adapters
-are withdrawn pending library reconstruction. The [implementation boundary](../runtime-refactor-design.md#standard-library-detachment-inventory-and-execution-plan)
-distinguishes completed detachment from deferred full-library acceptance.
+are withdrawn pending [library reconstruction](../native-collections-plan.md).
+The general public managed-payload contract is available; full-library acceptance
+remains separate from Runtime integration.
 
 ## Physical ownership
 
@@ -28,8 +29,10 @@ flowchart TD
     STORE --> DESC["Current and retained exact ProgramDescriptors"]
     DESC -.-> PRODUCT
     HANDLE["InstalledProgram / Module<br/>identity only"] -.-> ID["Installation identity"]
-    RT --> GC["GcHeap"]
-    GC --> RESOURCE["ResourceState<br/>sessions, frames and value banks"]
+    RT --> GC["ManagedMemory<br/>RootDriver of ExecutionRoots"]
+    GC --> SOURCE["Authoritative active/parked source<br/>banks, dependencies and Native results"]
+    GC --> HEAP["kagari-gc<br/>objects and managed revision/static graph"]
+    RT --> RESOURCE["ResourceState<br/>session/frame control and byte accounts"]
     RT --> SERVICE["Scheduler, host registry, loans and caches"]
     COMPILER["Preparation-owned NativeCompiler"] --> PAGES["Immutable NativeCode / finalized pages"]
     PAGES -.-> RECORD
@@ -52,10 +55,12 @@ Runtime may move between threads. Scheduler, Task/Group stores and binding cache
 are ordinary Runtime fields. The observer's bounded mutable slot receives only
 a read-only Runtime view, with recursive observation checked dynamically.
 
-Execution records and value banks remain physically below GcHeap through
-ResourceState. Splitting these owners, redesigning slots and changing the collector
-are separate work. Arc references keep Rust owners alive; explicit roots and joint
-object/metadata traversal determine script reachability.
+ResourceState owns control records and uncommon frame state separately from
+ManagedMemory. ExecutionRoots owns the actual scalar/managed/local/queued/pending
+banks and typed dependencies; the collector scans this source directly. All
+reachability-bearing object, environment, application, revision and static state
+uses ordinary managed nodes. Arc pins retain immutable Rust code/backing, while
+source edges and genuine roots determine managed reachability.
 
 Sources: [Runtime Program](../../crates/kagari-runtime/src/program.rs),
 [SDK Compilation](../../crates/kagari/src/program.rs),
@@ -73,8 +78,9 @@ prepared-native invocation; `executor` is a private activation borrowing that Ru
 `debug` and `debug_protocol` observe the same frames and sessions. Public installed
 entrypoints admit context/root authority once; internal stack/session guards reuse
 that root and preserve loans, cancellation, trace and cleanup. The existing scalar
-kernels and frame/value banks remain in place. This consolidation changes ownership,
-not the frame layout, collector, stack limits or tail-call semantics.
+kernels consume the same admitted scalar/managed banks. FrameStorage owns linear
+source suffixes; VM-byte accounting and verified scalar self-tail replacement are
+part of this execution model.
 
 The `kagari` SDK exposes exact intentional facades: `runtime.rs` exports Runtime
 and loading options, `context.rs` exports invocation policy, and `program.rs`
@@ -88,7 +94,7 @@ needs neither compiler nor frontend. Programs are Send + Sync; Runtime is Send a
 not Sync, transferable only between exclusive synchronous activations.
 
 For `runtime.call(&add, (1, 2))`, bind_function first checks the exported signature.
-Invocation borrows the immutable default context, admits host values into one
+Invocation snapshots the default context, admits host values into one
 session and enters the borrowed executor.
 Script calls continue through its prepared bindings and frame transitions; Native
 callbacks/reentry preserve that same active root. The returned value leaves through
@@ -101,8 +107,8 @@ admitted work retain exact bodies/environments. Publication and retirement retai
 their existing ownership checks. No cross-version lookup is added to new code.
 An artifact host can use Runtime/Program directly; the SDK without source/native
 features composes that same runtime with no compiler dependency. Runtime neither
-depends on nor installs stdlib. The in-crate GcHeap is unchanged; integration with
-the independent kagari-gc and the compact execution proposal remain separate work.
+depends on nor installs stdlib. ManagedMemory integrates kagari-gc without a
+second collector, copied frame root packs or a separate metadata tracing graph.
 
 Mechanism reference: Lua 5.4.9 keeps [API entry](https://github.com/lua/lua/blob/v5.4.9/lapi.c),
 [execution state](https://github.com/lua/lua/blob/v5.4.9/lstate.h) and
@@ -155,7 +161,7 @@ Numeric leaves, fixed Runtime traps, cancellation, stale handles, index failures
 and quarantine invariants retain typed reasons. Existing loading/declaration/borrow/
 resource diagnostics still carry owned details within their named families; their
 finer owner-specific error migration is queued in the
-[refactor design](../runtime-refactor-design.md#typed-errors-and-diagnostic-ownership).
+[roadmap](../implementation-roadmap.md#runtime-execution-model-review).
 HostError retains the current custom text/trace contract and implements Error;
 Native/library providers can supply trap or index diagnostics through their explicit
 provider variants. Runtime does not acquire Vec/String implementation policies.
@@ -231,10 +237,11 @@ InstalledProgram { installation: Arc<Installation> }
 Module { installation: Arc<Installation>, namespace: ModuleIdentity }
 Installation { registry_owner, id, root }         identity only
 ModuleStore {
-    current: RefCell<HashMap<InstallationId, Arc<ProgramDescriptor>>>,
+    current: RefCell<HashMap<InstallationId, CurrentPublication>>,
     next_declaration: Cell<u64>,
     inner: RefCell<ModuleStoreInner>, ...
 }
+CurrentPublication { program: Arc<ProgramDescriptor>, root: Root<InstallationState> }
 ExecutableModule { program: Arc<ProgramDescriptor>, slot: ModuleRef }
 ProgramDescriptor {
     code: VerifiedProgram,                       typed executable product association, no SDK downcast
@@ -284,135 +291,122 @@ layout provenance. The unresolved [R13 finding](../review.md#r13--type-and-layou
 can retain an initial whole Program for inherited statics/types. There is no strong
 executable predecessor chain, per-body unloading guarantee or Future-only lifetime.
 
-### Session, active scope, frame and value window
+### Session, active scope, frame and source storage
+
+These sketches identify owners and omit implementation fields:
 
 ```text
+Runtime {
+    memory: ManagedMemory { driver: RootDriver<ExecutionRoots>, policy },
+    resources: ResourceState { sessions, uncommon_frames, limits, control },
+    modules, host, native_entries, host_borrows, scheduler, ...
+}
 SessionStore {
-    records: RefCell<generational SessionState slots>,
-    frames: RefCell<Vec<Vec<ExecutionFrame>>>, ...
+    records: RefCell<SessionState slots>,
+    frames: RefCell<Vec<Vec<ExecutionFrame>>>,
+    retirement_notice: Arc<AtomicBool>,
 }
-SessionState {
-    id: SessionId,
-    root: ExecutableModule,
-    options: ExecutionOptions,
-    owner: RefCell<Option<Arc<ExecutionOwner>>>,
-    pending: RefCell<Option<PendingWait>>,
-    queued_future, queued_factory,
-    host_scopes, frame_scopes, termination, ...
-}
-ExecutionSession<'runtime> {
-    id: SessionId,
-    resources: &'runtime ResourceState,
-    _activation: SynchronousActivation<'runtime>
-}
-ExecutionStack<'runtime> {
-    session: ExecutionSession<'runtime>,
-    base: usize, id: u64, parked: bool
-}
+SessionState { id, root, body: DependencyId<RevisionState>, space, options, ... }
+ExecutionStack<'runtime> { session: ExecutionSession<'runtime>, stack: Option<FrameStack> }
+FrameStack { session: SessionId, base, id, parked, thread_affinity }
 ExecutionFrame {
-    loaded: ExecutableModule,
-    target: CallableTarget,
-    environment: Option<TypeEnvironment>,
-    links: Option<Arc<LinkedFunction>>,
-    native_entry: NativeEntryState,
-    ip, executing, completed,
-    slots: FrameSlots,
-    slot_layout: Option<Arc<FrameLayout>>,
-    return_to: ReturnDestination,
-    invocation, mutations, initializer, ...
+    loaded, target, links, admitted_environment,
+    ip, executing, completed, native_entry, tail_elided,
+    storage: Option<FrameStorage>, return_to, uncommon: Option<UncommonId>, ...
 }
-FrameSlots { owner: u64, index: usize, generation: u64 }
-ExecutionValues {
-    payloads: Vec<u64>,
-    initialized: Vec<bool>,
-    values: Vec<Value>,
-    windows, allocation_order, ...
-}
-Window {
-    generation, ranges,
-    program: ExecutableModule,
-    environment, invocation, native_application,
-    slot_layout, ...
+FrameStorage { mark: FrameMark, body: DependencyId<RevisionState> }
+FrameSlots { banks: FrameBanks, body: DependencyId<RevisionState> }
+ExecutionRoots { owner, generational entries, reusable: ExecutionStorage }
+ExecutionStorage {
+    space,
+    banks: [Managed, Local, Queued, Pending], // Vec<StoredValue>
+    scalars: Vec<u64>, initialized: Vec<bool>,
+    native_calls, dependencies: Vec<Edge<AnyObject>>, returns, queue, ...
 }
 ```
 
-The persistent session record owns the computation's state; ExecutionSession and
-ExecutionStack are active scoped access to it. Stack `base` identifies the suffix
-that this scope must unwind. An ordinary synchronous nested call adds a frame to
-the existing execution; synchronous host reentry shares that execution where
-admitted. An owned asynchronous execution can keep its frames after the active
-scope ends. Spawned Tasks have their own scheduling/ownership relationships.
+The persistent session owns scheduling/control and the selected executable origin.
+ExecutionSession/ExecutionStack exclusively activate it; FrameStack names the suffix
+that this scope must unwind. Nested synchronous reentry shares the execution and
+owns only its new suffix. Independent owned executions have separate identities,
+frames, cancellation, accounts and retained data, including while parked.
 
-FrameSlots is a checked locator, not a pointer into Vec backing. FrameLayout maps
-logical slots to physical scalar/managed locations, including scalar slot reuse.
-Window records carry dependencies alongside protected values. Frame and window
-metadata both retain relevant owners; these shared references and publication
-steps must remain visible when reviewing per-call costs.
+FrameMark is linear retirement ownership; FrameSlots is a non-owning coordinate,
+never a pointer into Vec backing. There is no duplicate Window directory or
+per-frame generation. FrameLayout maps logical slots to scalar/managed locations.
+Complete execution owner/index/generation admission precedes access. Retirement
+clears outgoing edges before backing reuse; at most the most recent retired
+source is retained as inaccessible, edge-free reusable capacity.
 
-Do not read ExecutionState as a per-task Running/Waiting enum. Its actual phase
-is Ready/Closed/Committing/Collecting/Quarantined. NativeEntryState is separately
-Script/Pending/Running/Complete, while TaskState and execution-owner readiness
-describe scheduling. Current execution status is distributed across these owners.
+The byte account charges committed frame/source/control capacity including
+reservations. The default max_stack_bytes is 8 MiB per execution. It does not
+measure managed heap, fixed directories, code, allocator internals or OS stack.
+Native depth defaults to 32 with additional OS-stack protection on supported
+hosts. Logical depth is diagnostic, with no script-call count quota.
+
+ExecutionState phase is Ready/Closed/Committing/Collecting/Quarantined. NativeEntryState
+is separately Script/Pending/Running/Complete; task state and execution-owner
+readiness describe scheduling. These are distinct responsibilities.
 
 Sources: [sessions](../../crates/kagari-runtime/src/session.rs),
-[session storage](../../crates/kagari-runtime/src/session/store.rs),
-[frames/scopes](../../crates/kagari-runtime/src/frame.rs),
-[value windows](../../crates/kagari-runtime/src/frame/values.rs),
-[physical layouts](../../crates/kagari-runtime/src/module/execution/layout.rs),
-[runtime phase](../../crates/kagari-runtime/src/execution_state.rs).
+[control store](../../crates/kagari-runtime/src/session/store.rs),
+[frames](../../crates/kagari-runtime/src/frame.rs),
+[frame storage](../../crates/kagari-runtime/src/frame/values.rs),
+[source](../../crates/kagari-runtime/src/execution/roots.rs),
+[byte accounting](../../crates/kagari-runtime/src/execution/space.rs).
 
 ## Values and roots
 
-Value, storage location and object identity are separate concepts:
+Three carriers express different lifetimes:
 
-```text
-Value::I32(7)             scalar transport value
-FrameSlots + Location    where a logical frame value is currently stored
-HeapObjectId             owner + slot + generation of a shared heap object
-RootedValue              lease on a runtime-owned root-table entry
-```
+| Carrier | Authority and lifetime |
+| --- | --- |
+| ScopedValue<'gc> | Same-scope Gc access or inline bits; cannot escape the paired memory/source scope |
+| StoredValue | Private traced Edge or inline bits in actual managed/execution storage; copying requires publication through its owner |
+| RootedValue | Genuine Root retention for a Host lifetime across collecting operations; scalar values stay inline |
+| ValueView<'view> | Public pointer-free protected location/root view; access uses mutable Runtime/NativeCall and validates its supplying source |
 
-Current Value is a Copy tagged transport. Scalars can stay as bits in the scalar
-bank; managed locations use Value records. Struct, enum, string and other managed
-variants refer to heap identities. Option/Result enums still use heap objects;
-the deferred enum-layout model has not changed production storage.
-
-Copying Value does not copy its object graph or register a root. Arc cloning
-similarly concerns Rust ownership and does not, by itself, publish a script root.
+Managed tags alone do not establish a script nominal type. The collector admits
+physical references; Runtime checks nominal/layout/application provenance and
+Host capabilities. Eight-byte scalar banks and initialization flags remain
+separate from StoredValue banks. Option/Result still use managed enum objects;
+[enum layout changes](../enum-layout-design.md) remain deferred.
 
 ```mermaid
 flowchart LR
-    ACTIVE["Active and parked<br/>execution windows"] --> ROOTS["Joint object and<br/>metadata traversal"]
-    HOST["Host RootTable<br/>leases"] --> ROOTS
-    INSTALL["Current installations<br/>and retained programs"] --> ROOTS
-    PENDING["Waits, tasks and<br/>protected operations"] --> ROOTS
-    ROOTS --> OBJECT["Object identities<br/>and payload edges"]
-    ROOTS --> META["Type environments, applications<br/>and program edges"]
-    OBJECT --> META
-    META --> OBJECT
+    SOURCE["Active and parked source<br/>slots, locals, queues and Native pending"] --> HEAP["One kagari-gc graph"]
+    HOST["Escaping Host roots"] --> HEAP
+    INSTALL["Current/staged publication roots"] --> HEAP
+    HEAP --> OBJ["Struct/enum/array/Native providers"]
+    HEAP --> META["Revision, static, environment<br/>application and callable nodes"]
+    OBJ --> META
+    META --> OBJ
 ```
 
-The root graph can cross object/program/metadata stores. The current collector
-marks the joint graph before detaching unreachable storage; it does not scan
-arbitrary Rust locals. NativePayload tracing reports internal edges, while public
-Object/ScriptValue handles establish explicit retention. One external root per
-collection element is not the native collection ownership model.
+There is no old object/metadata-store joint marker, persistent root per variable or
+mirrored frame RootSet. Providers trace actual private managed fields; managed
+metadata traces actual captures, receivers, statics and selected executable state.
+A rootless object/callback/revision/static cycle is collectible. Immutable code in
+Arc is backing, not a tracing substitute. R13 type/layout provenance can still
+retain whole code and remains an explicitly separate finding.
 
-An ordinary return can retire the callee window before writing the caller only
-inside a closed, non-collecting transition. A root return must be protected by its
-caller/driver before any later collecting operation. These ordering guarantees,
-not a temporary Rust Value local, prevent a retention gap.
+Publication precedes retirement of old protection. Internal returns use a closed
+handoff and activation-owned result cells; escaping results acquire a genuine
+Host root before activation cleanup. A temporary unrooted Rust value grants no
+retention. Source/payload loans end before arbitrary Native callbacks, collection,
+observation and synchronous reentry, then are reacquired afterward.
 
-ObjectStorage uses checked directory identities and concrete payload stores.
-Mutable Rust host state stays outside the script heap and is accessed through
-installed host scopes; registered Native payloads have a separate traced-object
-contract. Temporary payload loans prohibit conflicting execution/collection.
+Rust Host state remains outside the script heap behind installed interfaces,
+typed paths and scoped borrow authority. Registered Native payloads have ordinary
+managed-field and fixed-data providers; read/edit loans do not transfer payload
+ownership out of Runtime. There is no Native payload extraction/taken state.
 
-Sources: [Value](../../crates/kagari-runtime/src/value.rs),
-[roots](../../crates/kagari-runtime/src/gc/roots.rs),
-[collection](../../crates/kagari-runtime/src/gc/collection.rs),
-[native storage](../../crates/kagari-runtime/src/native/storage.rs),
-[host ownership](../runtime-ownership-and-host-api-design.md#gc-boundaries-and-extension).
+Sources: [carriers](../../crates/kagari-runtime/src/value/carriers.rs),
+[protected views](../../crates/kagari-runtime/src/value/view.rs),
+[memory integration](../../crates/kagari-runtime/src/execution/memory.rs),
+[Native storage](../../crates/kagari-runtime/src/native/storage.rs),
+[GC guide](../../crates/kagari-gc/README.md),
+[Host boundary](../spec/host-interop.md).
 
 ## Execution lifetime
 
@@ -438,11 +432,11 @@ stateDiagram-v2
 | --- | --- |
 | Enter/resume | CHECK idle driver, runtime/owner identity and no conflicting native loan; enter SynchronousActivation; select the active session and restore depth |
 | Drive | VM polls termination, dispatches Script/Await/NativeEntry/NativeReturn actions, invokes safepoints/observers and executes a closed region |
-| Park | CHECK owned root, no conflicting scopes/initializers/mutations or Running Native frame, and storable retained values; keep frames/windows, end the active scope |
+| Park | CHECK owned root, no conflicting scopes/initializers/mutations or Running Native frame, and storable retained values; keep frames and actual source banks, end the active scope |
 | Wait | Session PendingWait owns the native/Task/group wait, destination, output type and awaitable root; it is not a saved Rust stack frame |
 | Wake | ExecutionOwner readiness/cancellation atomics and Waker notify the driver; the notifying thread does not enter Runtime |
 | Return | Adapt while dependencies remain protected; retire/publish within a closed transition; root an escaping result through the driver/SDK |
-| Error | Preserve trace/termination and completed effects; unwind the active scope's frame suffix and release its windows/guards |
+| Error | Preserve trace/termination and completed effects; unwind the active scope's frame suffix and release its source/control marks |
 | Abandon owned handle | Drop requests retirement; the Runtime driver later drains it. Drop is not immediate arbitrary-thread heap destruction |
 | Close/drop Runtime | Revoke live installation authority, close task/scheduler ownership and drain resources; surviving descriptors/handles do not grant post-close execution |
 
@@ -468,8 +462,9 @@ Sources: [VM driver](../../crates/kagari-runtime/src/executor/driver.rs),
 
 ## Remaining review scope
 
-Slot/window initialization, value transfer, interface computation metadata, typed
-Native conversion and collection still have ordinary execution costs. Their owners
+Source initialization, value transfer, interface computation metadata, actual
+Native conversion and collection retain measured execution costs. Their owners
 and follow-up scope are in the [roadmap](../implementation-roadmap.md#runtime-execution-model-review).
-Removing reload-specific locks/selection does not establish zero call cost or
-complete the separate slot, Native API, collector, enum-layout or R13 work.
+Local call/root gates and allocator-event peak checks pass; exhaustive CI and
+NC-dependent integrated workloads remain explicit. General tails, collector
+optimization, enum layouts, backend deoptimization and R13 retain separate owners.

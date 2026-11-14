@@ -1,24 +1,25 @@
 # kagari-gc implementation design
 
-This document owns the standalone library's data structures, safety invariants
-and operation protocols. The [redesign plan](gc-redesign-plan.md) owns remaining
-scope, integration phases and acceptance; the [crate guide](../crates/kagari-gc/README.md)
-provides executable usage examples. Runtime is in the RR03 coordinated consumer
-cutover; the active execution plan owns its current build errors.
+This document owns the library's data structures, safety invariants and operation
+protocols. The [crate guide](../crates/kagari-gc/README.md) provides executable
+usage; [comparative acceptance](../crates/kagari-gc/BENCHMARKS.md#acceptance-requirements)
+owns workloads/gates. The [roadmap](implementation-roadmap.md#gc-library-redesign)
+owns unresolved provider/performance/CI work. Runtime integrates this library
+through the one complete source described in the [Runtime map](#runtime-integration-map).
 
-Implemented: typed Rust and fixed dynamic objects, host roots, pointer-sized
-scoped identities, checked field access, provider mutation/cursor repair,
-incremental collection, reclaimable metadata and opt-in driver safepoints.
-RootDriver supplies direct execution-root scanning, tested with a Rust frame
-adapter. Runtime packed-field integration, arbitrary erased providers,
-integrated pressure policy and complete performance
-instrumentation remain target contracts, explicitly identified below.
+Implemented: typed Rust and fixed dynamic objects, Root/Edge and branded scoped
+access, checked fields, provider mutation/cursor repair, incremental collection,
+reclaimable metadata, opt-in standalone pacing and Runtime driver safepoints.
+Actual Runtime providers, revision/static/environment/application state and active/
+parked source banks share the graph. Generic safe custom-object authoring and
+library collection reconstruction remain separate follow-ups; sketches below do
+not create callable APIs beyond their linked production declarations.
 
 GC traces only its own allocations through explicit roots and ordinary edges;
 there is no Domain or foreign-store binding. Managed storage is nonmoving, with
 1 KiB pages, a 1024-unit normal allowance and 32-owner retirement batches.
-Changes to these parameters require measured justification. Historical Runtime
-source links pin revision 0490f8a4; they do not describe a completed cutover.
+These are work/storage defaults, not wall-time bounds. Historical Runtime source
+links pin 0490f8a4; current integration links point to actual production owners.
 
 ## Reading and implementation order
 
@@ -26,7 +27,7 @@ Read [ownership](#engine-ownership) first, then [storage](#physical-storage),
 [roots](#roots-and-access), [marking](#marking-state), and
 [object/root ownership](#object-graph-and-root-ownership). The
 [operation algorithms](#operation-algorithms) define commit/failure order. The
-[Runtime map](#runtime-integration-map) identifies what must leave GcHeap.
+[Runtime map](#runtime-integration-map) identifies current Runtime responsibilities and managed state.
 Borrowing restrictions are exercised by compile-fail examples beside the actual
 [Heap](../crates/kagari-gc/src/heap.rs), [Scope](../crates/kagari-gc/src/access/scope.rs)
 and [field APIs](../crates/kagari-gc/src/access/fields.rs), alongside behavioral
@@ -37,7 +38,8 @@ normative design decisions, while visibility and helper names may be refined.
 These sketches explain ownership and algorithms; they are not production stubs.
 Executable provider examples live in [tests/support](../crates/kagari-gc/tests/support.rs)
 and the [linked-list example](../crates/kagari-gc/examples/linked_list/main.rs).
-Focused behavior tests remain required before changing Runtime's collector.
+Changes to providers/source/collection retain the focused behavior and provenance
+checks at their actual semantic owners.
 
 ## Engine ownership
 
@@ -157,7 +159,7 @@ zero into the root, preserving numeric IDs and restoring shallow access when pos
 This table owns storage only: roots own generations/leases, descriptors own use
 credits/layout pins, and physical retirement owns page/backing lifetime. Metadata
 reclamation does not weaken those admission or retirement boundaries. Numeric ID
-exhaustion is checked. See [measurement and rationale](gc-redesign-plan.md#collection-and-retained-capacity).
+exhaustion is checked. See [measurement and rationale](performance-baseline.md#collection-and-retained-capacity).
 
 ### Small-page geometry and bitmaps
 
@@ -520,7 +522,7 @@ those referents. Discard its carriers without dereferencing them.
 ### Driver-owned root sources
 
 The standalone [root-source API](../crates/kagari-gc/src/root_source.rs) implements
-this protocol. Runtime's concrete adapter remains an integration target. Root sources
+this protocol. Runtime implements ExecutionRoots under this same owner. Root sources
 enumerate references to this heap's objects; their own Rust records are neither
 marked nor swept. There is no Domain, external node ID, foreign object visitor or
 dependency on a Runtime type. One aggregate source includes all execution roots,
@@ -546,12 +548,12 @@ RootSource unsafe implementation contract:
     scan_slice(cursor, budget, visitor) -> Pending | Complete | error
 
 Runtime source storage:
-    frame identities/generations -> current managed/scalar bank ranges
+    execution owner/index/generation -> current managed/scalar bank ranges
     managed slots and live execution-dependency references
     frame lifecycle/frontier metadata
 
 Runtime cursor:
-    finite captured frontier, stable frame identity/generation, field/slot ordinal
+    finite captured frontier, stable execution identity/generation, bank/slot ordinal
 ```
 
 RootDriver owns one Heap and one source for their entire usable lifetime. It
@@ -592,7 +594,8 @@ carriers/Runtime encodings whose interpretation is justified by this protocol.
 Exiting a scope leaves every value needed by later execution in source storage
 or an owning host root. A raw copied address in arbitrary Rust scratch is not a
 root. The root_source contract tests exercise this facade and unwind behavior;
-Runtime must still prove its concrete Value/dependency representation.
+Runtime uses actual StoredValue and typed dependency edges through its reviewed
+ExecutionRoots adapter, with public scope/parking provenance witnesses.
 
 For a reference assignment `b = a`:
 
@@ -634,8 +637,8 @@ same source. Nested execution borrows the same driver after the outer operation
 ends. A source describing only the currently executing frame is unsound. Neither
 the driver nor the generic collector determines Kagari call/parking policy.
 
-The [decision and acceptance owner](gc-redesign-plan.md#remaining-decisions-and-work)
-records remaining integration and acceptance obligations.
+The [follow-up owner](implementation-roadmap.md#gc-library-redesign)
+records remaining provider, performance and CI obligations.
 
 ### Short access capabilities
 
@@ -733,8 +736,8 @@ The public managed-type trait is [GcObject](../crates/kagari-gc/src/object.rs),
 including scanning and owned-capacity accounting. Its optional future derive
 uses `#[derive(GcObject)]`; physical payload names describe storage data.
 
-The typed and fixed dynamic subsets are implemented. register_erased and take
-below describe remaining target interfaces, not public methods of the first crate.
+The typed and fixed dynamic subsets are implemented. General erased registration
+remains a provider-authoring follow-up; payload extraction is not selected.
 
 ```text
 Heap::new(config) -> Heap
@@ -801,7 +804,7 @@ provider operations, Edge is opaque and non-Copy/non-Clone, and safe preassemble
 allocation requires EdgeFree. Safe APIs cannot insert an arbitrary saved carrier.
 Reviewed providers encapsulate construction and expose safe ordinary operations;
 a general builder/derive requires its own complete safety proof. The
-[remaining authoring work](gc-redesign-plan.md#remaining-decisions-and-work)
+[remaining authoring work](implementation-roadmap.md#gc-library-redesign)
 does not change the current unsafe contract.
 
 The implemented ScalarField<T,V> and EdgeField<T,U> retain typed read/write
@@ -844,13 +847,13 @@ Runtime compact packed layouts still need
 prepared identity, offset/encoding and bounds evidence; this typed mechanism does not
 claim to implement the Runtime's compact-offset fast path. Runtime must preserve
 language access/type checks and compatible-layout fallback when integrating it.
-The [host/execution distinction](gc-redesign-plan.md#remaining-decisions-and-work)
+The [host/execution distinction](architecture/runtime.md#values-and-roots)
 keeps these kernels shared: interpreter field operations consume admitted frame
 and region evidence instead of creating host Root leases for every object load.
 Scalar writes need no reference barrier; managed destinations, including frame
 root slots, still perform required publication. Do not infer zero instruction
 cost from the absence of per-field Root creation or a generic view callback.
-The [region-boundary contract](gc-redesign-plan.md#remaining-decisions-and-work)
+The [region-boundary contract](architecture/runtime/calls.md#work-performed-at-each-boundary)
 defines exits by proof validity and cooperative requests, rather than a fixed
 instruction count. Preserve current logical-PC polling and distinguish it from
 the collector's work budget; release loans before servicing a request/transition.
@@ -932,7 +935,7 @@ storage. The provider reads its actual len/capacity under this loan, decides
 whether growth is needed and prepares fallible capacity/accounting work through
 the operation's services before its destructive commit. The core does not infer
 container geometry. Ordinary users call push/remove, not an API requiring them
-to predict hidden buffer capacity. Growth-admission details remain a GCR00 proof
+to predict hidden buffer capacity. Growth-admission details remain a provider proof
 obligation; do not replace the removed plan with another guessed pre-access bound.
 
 edge imports a live same-heap root and publishes it before returning a stored
@@ -1163,7 +1166,8 @@ heap.step(WorkBudget::new(1024))?;
 GcObject::scan returns ScanResult, including checked visitor failure, for these
 new-library examples. These listings remain schematic, while concrete typed
 versions compile in the independent crate's external provider tests. Opaque-map,
-custom erased-layout and Runtime prepared-field portions remain target contracts;
+custom erased-layout registration remains a target contract; Runtime prepared
+field access uses its reviewed actual providers;
 the fixed dynamic record API described above is implemented. The separate
 Rust borrow proof below covers only its stated declaration/loan properties;
 actual API compile-fail doctests now also reject escaping View/scan-state loans
@@ -1268,7 +1272,8 @@ retirement of these objects use the same descriptor/mark/sweep engine as any
 application payload. Runtime keeps semantic identity/generation validation,
 publication policy, indexes and error mapping; GC stores no module semantics.
 
-The concrete mapping and cleanup of lookup indexes remain GCR02 obligations.
+Runtime lookup indexes remain semantic-only; admitted source/publication/root
+providers establish physical reachability, and retired lookups cannot resurrect it.
 Do not preserve external records by turning every row into a permanent root,
 hide managed edges inside an unscanned Arc, scan arbitrary host Rust graphs,
 or weaken pinned-reload behavior. If the object model fails a concrete required
@@ -1526,7 +1531,7 @@ A script result uses an admitted directly scanned frame destination, while an ow
 host result uses a Root lease. Both use the same retention/publication owner and
 must protect the result before its original source is removed or a callback can
 run. The algorithms below name both destinations; concrete integration signatures
-and frame publication/commit proofs remain GCR00/GCR02 obligations, not a second
+and frame publication/commit proofs remain their semantic owners, not a second
 root registry or a second allocation/removal semantic implementation.
 
 ### Allocate and publish
@@ -1822,7 +1827,8 @@ The cycle-relative threshold and allocation-driven scheduling follow the same
 broad ownership separation as gc-arena's allocation debt and Lua's incremental
 steps; Kagari's hard normal-work allowance, detached-owner cap and generic
 resumable providers remain distinct. Source/version, rejected initial thresholds,
-long-ring tests and measured throughput/tails are recorded in the active plan.
+long-ring tests and measured throughput/tails are recorded in the
+[performance owner](performance-baseline.md#rr05-parked-root-admission-and-collector-characterization-macos-2026-11-14).
 
 Mark publication first validates live-source page membership/occupancy; only a
 newly discovered object requires descriptor scan-kind lookup. Payload access
@@ -1837,64 +1843,76 @@ there is no extra cached bitmap or weakened scan/retirement budget.
 
 ```text
 Runtime {
-    memory_and_roots: checked owner of RootDriver<ExecutionRoots>,
-    execution: execution/session/depth/termination state,
-    // ExecutionRoots owns compact ExecutionValues and execution-dependency roots
+    memory: ManagedMemory { driver: RootDriver<ExecutionRoots>, pressure_policy },
+    resources: ResourceState { sessions, frames, uncommon_control, limits },
     modules: semantic lookup/version policy + genuine publication roots,
-    host: host registry and borrow state,
-    ...existing scheduler/native entry owners...
+    host, host_borrows, native_entries, scheduler, tasks, ...
 }
 
-Managed module/environment/static representations: ordinary GcObject implementations
-Internal relationships: ordinary Edge carriers
-Published installations and independently retained host handles: Root/RootSet
-Active/parked computations: direct execution root source
+ExecutionRoots -> actual active/parked Managed/Local/Queued/Pending banks
+                 eight-byte scalar bank and initialization flags
+                 Native records, typed dependencies and result/queue marks
+Managed objects -> script/Native data, RevisionState, statics,
+                   environments, applications, interfaces and callables
+Internal relationships -> ordinary Edge carriers
+Current/staged publications and escaping Host handles -> genuine Roots
 ```
 
-RR03's execution source issues the canonical execution identity used by Runtime's
-control directory. Its typed internal-node dependencies are scanned Edge carriers,
-separate from tagged language values; internal code/environment/application nodes
-do not acquire a language Value tag or a Host Root merely for execution transport.
-Native suffix retirement clears its local values and typed dependencies together.
-The active plan distinguishes this implemented source protocol from the remaining
-non-building Runtime frame/provider consumers.
+ExecutionRoots issues the canonical owner/index/generation identity used by the
+separate session-control directory. FrameStorage owns one linear source suffix;
+FrameSlots derives checked coordinates, with no mirrored root pack or Window
+registry. Native pending results and conversion locals are in this same source.
+Typed dependencies retain actual managed executable nodes, not language tags or
+metadata-ID assertions. Source retirement clears all outgoing edges before reuse.
 
-Runtime's object operations borrow disjoint execution/semantic/memory fields;
-Heap/Access stores no persistent Runtime borrow. An interpreter region admits
-frame banks and memory access, publishes incoming references and updates the authoritative
-frame slots in one prepared commit, then releases access before step or a user
-callback. The driver lends a complete execution root source during each scan
-slice, alongside the GC's host root table. Real frame commits, return rooting,
-reentry and unwind behavior remain required Runtime tests.
+Runtime operations borrow disjoint memory/control/semantic fields for short paired
+scopes. Physical source/payload loans end before collection, observers, arbitrary
+Rust callbacks or synchronous reentry; the retained source and descriptor pin
+survive, and transient access is reacquired afterward. The driver scans the actual
+complete source alongside Host roots. Incoming publication precedes old protection
+retirement, including field replacement, call arguments, return and queued/wait
+handoff. No callback runs in a closed commit.
 
-Managed state carries all outgoing managed references in traced fields. A module
-lookup ID remains a Runtime semantic identity and must resolve to a valid managed
-handle before access; placing an unchecked ID in a payload is not sufficient to
-retain its target. Lookup indexes must not root all old versions permanently.
-GCR02 must choose their validity/cleanup contract using existing semantics and
-prove a function/module/static cycle dies after genuine roots are released.
-Immutable edge-free code/resources may remain Rust-owned backing held by managed
-state; their destruction cannot traverse removed peers or reenter collection.
+Runtime supplies script nominal/layout/access checks, Host borrow authority,
+candidate/async data policy and current/retained selection. Closed physical edge
+inspection reuses provider scanners for private managed payloads without adding a
+second semantic graph to GC. A bounded inline-only parking proof is operation-local;
+additional receiver-owning dependencies and mutable aliases retain full fresh
+inspection. Cached layouts cannot cache data admission across operations.
 
-Runtime explicitly releases publication/frame/host roots in its shutdown order.
-Heap::Drop must also be safe when a standalone caller omits shutdown: disconnect
-roots, permanently close admission, dispose owned allocations without tracing or
-dereferencing peers, and release backing. Safe callers need no external adapter
-to make heap teardown memory-safe; Root drops after teardown are inert.
+Revision/static/environment/application/callable providers express all managed
+relationships. Immutable code/backing may remain in Arc, but an ID or Arc alone
+does not retain mutable installed state. Current/staged publication roots and actual
+admitted computations protect origins. Rootless object/callback/static cycles are
+collected; R13 type/code provenance remains a separate review finding. Runtime's
+public application-owned payload/reload witnesses exercise this route, not a proof
+adapter or privileged collection implementation.
 
-| Current source | Implementation destination |
+Runtime maps collector reports and committed interval peaks to ResourceState/session
+observations only after physical loans end. It selects execution safepoints and
+pressure thresholds; GC owns generic scanning/publication/progress and physical
+retirement. Source VM-byte capacity, managed charge, collector metadata, allocator
+requests and RSS are separate measures. See the [memory contract](spec/runtime.md#gc-heap)
+and [call walkthrough](architecture/runtime/calls.md).
+
+Runtime shutdown revokes authority and drains publication/source/Host roots and
+owned task/control state. Heap shutdown also remains safe for standalone callers:
+close admission, disconnect root releases, dispose each owned allocation without
+tracing/dereferencing peers, then release backing. Surviving Host leases become
+inert and cannot revive Runtime storage. Provider faults preserve shutdown-only
+quarantine and exactly-once detached cleanup.
+
+| Owner | Responsibility |
 | --- | --- |
-| gc/directory/pages, object_header, backing | allocation/descriptor modules; retain geometry, bitmap and cursor contracts |
-| gc/graph/marks and work/phase portions | marking for physical objects only; remove metadata identity branches |
-| gc/roots table/release portions | one roots protocol with optional ObjectRef targets |
-| gc/collection lifecycle/physical retirement | heap/sweep orchestration; no caller-store stages |
-| frame/values and session stores | execution-owned authoritative banks; a generic root adapter enumerates managed targets without mirrored RootSet packs |
-| gc/fields admission, values/array/future/task semantics | Runtime object/execution owners; retain common storage kernels |
-| module and execution_metadata scanning/sweep | replace reachability-bearing records with ordinary GcObject implementations; retain Runtime lookup/version checks |
-| native/storage scan/charge and StoredValue | general GcObject/provider integration; declaration/call evidence remains Native-owned |
+| kagari-gc allocation/descriptor/marking/sweep/access/root_source | Generic physical allocation, scoped access, publication, resumable work and disposal |
+| Runtime execution/memory and execution/roots | Pressure/report integration and authoritative execution storage |
+| Runtime frame/session/resource | Checked control, byte accounts, suffix/Native-stack guards, cancellation and cleanup |
+| Runtime module/managed and execution_metadata/managed | Actual revision/static/environment/application graph; semantic lookup remains outside GC |
+| Runtime value/struct/native/Host owners | Tagged carriers, nominal/access admission, reviewed providers and external borrow authority |
+| Libraries/applications | Concrete collection algorithms/storage and public provider registration; no collector-specific privileged family |
 
-Rehome methods by responsibility, not by copying whole old files. Remove the old
-production collector/forwarding models at cutover. Do not change static typing,
-once-only effects, trap ordering, rooted return transfer, cancellation or reload
-selection to make the new API fit. Existing type/code retention debt and historical
-performance gates remain at their original review/plan owners.
+The previous collector/raw Value/metadata graph/extraction models are removed.
+Changing these boundaries must preserve source-free validation, once-only effects,
+trap order, cleanup, retained bodies and current ordinary calls. Primary mechanism
+references in the earlier sections justify ownership differences, not performance
+claims; actual measurements retain their own workload/image/environment.

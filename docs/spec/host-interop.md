@@ -251,8 +251,8 @@ keeping it alive retains the object across subsequent GC and host operations.
 Outer frames and borrow guards remain live while nested calls run. Borrow conflicts
 are checked across these scopes, and each scope releases only its own resources.
 An ordinary nested trap may be handled by the host. Cancellation or resource
-termination, including call-depth and native conversion exhaustion, remains
-recorded for the root even if the host ignores the error. The first termination
+termination, including VM-stack, Native-stack and native conversion exhaustion,
+remains recorded for the root even if the host ignores the error. The first termination
 and origin survive ordinary observer failures; EngineFault/quarantine takes
 precedence, as defined by [failure semantics](failure-semantics.md).
 Nested calls share the session's frame stack and debugger observer. Breakpoint and
@@ -273,7 +273,7 @@ valid with its original capability until that frame ends.
 Runtime::host_scope creates explicit temporary scopes and validate_host_borrow
 checks tokens; the old enter_host_call and mutable borrow-table access are removed.
 Scopes participating in a root retain its options/version until the last scope
-ends. Root and lease cleanup is unconditional after traps, cancellation, call-depth failures
+ends. Root and lease cleanup is unconditional after traps, cancellation, stack exhaustion
 and quarantine. Direct host operations outside script execution use the same scope
 implementation with runtime defaults and do not implicitly create a script root.
 
@@ -355,7 +355,7 @@ HashMap keys and HashSet elements require checked `Eq + Hash` (including `char`)
 Map/Set interfaces do not impose those bounds themselves.
 Composite arguments use `Owned` passing: shared mutable objects retain their
 identity, and tuples retain value semantics. This does not provide a Rust borrow
-lease or make a naked Value an owning GC root. Owned arguments reject frame-scoped
+lease or make an unrooted view an owning GC root. Owned arguments reject frame-scoped
 host borrows even inside nested tuples; script containers cannot store them.
 Arguments stay rooted during the
 callback; longer host retention requires an explicit rooted handle. Both argument
@@ -531,10 +531,12 @@ missing edge. Fixed-data loans keep graph, scan coordinates and backing unchange
 Completed writes survive a user error or panic; heap loans end before panic is
 resumed. This grants no general mutable access to arbitrary traced fields.
 
-These APIs are in RR03's temporarily non-building consumer cutover. The
-[execution plan](../runtime-refactor-plan.md) owns remaining Runtime/loan/factory
-and integration acceptance. See [GC accounting](runtime.md#gc-heap) and the
-[reservation failure contract](failure-semantics.md#modification-guarantees).
+These are implemented public provider APIs. Existing application-authored
+[source-free managed payload tests](../../crates/kagari-stdlib/src/tests/execution/native_boundary/native_boundary_payload/managed.rs)
+exercise private managed callback edges, alias mutation, reentry/GC, rootless
+cycles and retained-old/current-new selection. Full collection reconstruction
+remains with [NC](../native-collections-plan.md). See [GC accounting](runtime.md#gc-heap)
+and the [reservation failure contract](failure-semantics.md#modification-guarantees).
 
 ## Registered payload loans
 
@@ -1097,27 +1099,17 @@ This is a later extension, not a v1 requirement.
 
 ## Binder Traits
 
-A practical host binding layer can be expressed through conversion traits.
+The implemented [conversion traits](../../crates/kagari-runtime/src/native/conversion.rs)
+are KagariType, IntoKagari and FromKagari. KagariType describes installed Rust
+mapping facts; bindings prepare their closed signature once. IntoKagari encodes
+through ConversionContext to a protected ValueView; FromKagari returns owned Rust
+data or a retaining handle. Input views cannot become borrowed Rust output.
 
-Conceptually:
-
-```rust
-trait FromKagariArg<'frame>: Sized {
-    fn from_arg(arg: &Value, frame: &'frame HostCallGuard) -> Result<Self>;
-}
-
-trait IntoKagariValue {
-    fn into_value(self) -> Value;
-}
-```
-
-These conversions can then be implemented for:
-
-- primitive owned types
-- script-owned handles
-- `&'frame T`
-- `&'frame mut T`
-- specialized host wrappers
+Composite conversions share checked child types, bounded recursion/work and
+source-local protection. Fixed mappings are separate from per-value conversion
+effects. Scoped Ref/RefMut arguments use the distinct Host borrow protocol rather
+than a blanket conversion from arbitrary Rust references. Native callbacks decode
+one prepared argument pack and stage their result through NativeCall.
 
 ## Guarded Call Boundary
 

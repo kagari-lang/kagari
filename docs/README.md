@@ -64,12 +64,12 @@ below; the public Pages site has not been activated by this work.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
-- [Runtime, Host and GC execution plan](runtime-refactor-plan.md): selected
-  RR00-RR06 sequence from baseline/reference proofs through mutable Host services,
-  coherent GC cutover, compact calls/stack space/scalar tail calls and acceptance.
-  All phases are unstarted. The [design](runtime-refactor-design.md) owns records
-  and flows; the [Runtime map](architecture/runtime.md) owns implemented behavior.
-  Standard-library detachment and single-Runtime consolidation are complete.
+- [Runtime architecture](architecture/runtime.md), [call walkthrough](architecture/runtime/calls.md)
+  and [reload walkthrough](architecture/runtime/reload.md): implemented exclusive
+  services, prepared Native calls, source-backed compact storage, kagari-gc,
+  VM-byte/Native-stack limits and verified scalar self-tail replacement. Selected
+  local tests/Miri and frozen call/root/memory gates pass; exhaustive CI and
+  NC-dependent collection fixtures remain at their roadmap owners.
 
 - [Enum layouts](enum-layout-design.md): deferred pending Runtime execution and
   ownership review. EL00 baseline/models are retained; EL01-EL04 remain unstarted.
@@ -77,11 +77,11 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   require review before reactivation. Production storage remains unchanged and
   value structs remain separately deferred.
 
-- [Standalone GC redesign](gc-redesign-plan.md): independent `kagari-gc` allocation,
-  rooting, field access and incremental collection, with standalone tests and
-  benchmarks. The [implementation design](gc-implementation-design.md) owns its
-  structures and safety contracts. GCR acceptance groups map to the Runtime
-  execution plan; integration is unimplemented and main retains its existing collector.
+- [GC implementation](gc-implementation-design.md) and [crate guide](../crates/kagari-gc/README.md):
+  actual standalone and Runtime provider/root/access/collection contracts.
+  [Comparative acceptance](../crates/kagari-gc/BENCHMARKS.md#acceptance-requirements)
+  retains original numerical gates and measurement rules;
+  [remaining work](implementation-roadmap.md#gc-library-redesign) has named owners.
 
 - [Async Runtime CI acceptance](implementation-roadmap.md#async-blocks-structured-concurrency-and-runtime-api):
   async blocks, structured pair composition and the typed Runtime facade are
@@ -142,10 +142,6 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   contracts are indexed above. Full workspace and feature/backend/platform acceptance
   remains pending CI. Associated constants, native-call const evaluation, a public
   RNG and full ray tracing are outside this delivery.
-- [Paged storage and incremental GC](paged-incremental-gc-design.md#execution-plan):
-  PG00-PG06 are planned and unstarted, covering general Native capabilities, paged
-  storage, collection migration, incremental marking/sweeping and joint acceptance.
-  Shares the native payload boundary and explicit handoffs with NC.
 - [Library-owned native collections](native-collections-plan.md): NC01-NC06 are
   not started; reuse the implemented Iterable APIs while migrating storage.
 - [Interface type tests and downcast](interface-downcast-plan.md): DC01-DC04 are

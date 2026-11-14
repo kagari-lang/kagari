@@ -488,18 +488,21 @@ until all transient resources have left. Synchronous execute/reentry uses the sa
 frame store and interpreter without host-visible slice exits. The slice counts
 actual final executable boundaries, not removed transport or semantic-origin count;
 a closed managed handoff/cold transition does not consume a second instruction.
-Actual waits are polled before checking slice exhaustion. Native completion roots
+Actual waits are polled before checking slice exhaustion. Native completion protects
 its result before a runnable exit and is not reinvoked on resume.
 
-Independent roots retain their own frames, cancellation, code pins and call-depth
-state. Runtime current call depth is restored for the selected root and is zero
-between activations; changing slices cannot bypass its limit. Runtime-owned operand
-windows reuse retired identities with generation checks. Out-of-order frame cleanup
-compacts their banks while preserving live window identities and roots.
+Independent roots retain their own frames, source banks, cancellation, code pins
+and committed VM-byte accounts. Logical depth is diagnostic and restored for the
+selected root, zero between activations. Changing slices cannot bypass VM-byte or
+Native-stack guards. Complete execution identities check owner/index/generation;
+retirement clears source edges before backing reuse. Independent executions need
+no bank compaction or per-frame Window identity registry.
 
 Iterator values stay rooted in parked frames, preserving provider-owned progress.
-Runtime does not implement a universal container cursor or structural-write policy. Mutation guards, live scoped host values, native
-borrows and synchronous reentry prevent a slice exit. Drop requests retirement;
+Runtime does not implement a universal container cursor or structural-write policy.
+Mutation guards, live scoped Host values, Native borrows and synchronous reentry prevent a slice exit. Off-thread owner Drop
+coalesces a retirement notice; the idle driver still validates each record before
+release. A terminal owner requests no new retirement.
 `drain_retired_executions`, the next owned start/drive or runtime destruction releases
 the frames and roots. Host control wakers can be registered on the owner token.
 Independent-root entry/drive during an activation is rejected; ordinary checked
@@ -512,11 +515,13 @@ execution. No script execution, host callback, conversion or mutation separates 
 successful proof from commit. The parked state is established before readiness
 notification; successful slice exit does not prove the same graph again.
 
-Each transition checks runtime/session identity, scope shape, outstanding mutation,
-host/native borrows and native-entry state, then validates actual retained values
-under the GC collection guard. One operation-local traversal shares visited object
-identities across frames, while retaining frame-order error precedence and checking
-every root and traced Value before deduplication. Aliased tags, foreign/stale handles,
+Each transition checks Runtime/session identity, scope shape, outstanding mutation,
+Host/Native borrows and native-entry state. A bounded source with only its admitted
+revision prefix, actual inline cells and valid frame ranges contains no retained
+data requiring payload access. Managed cells or additional dependencies instead
+use fresh physical inspection under the paired GC/source scope. One operation-local
+traversal shares visited object identities across frames, while retaining frame-order error precedence and checking
+every root and traced value before deduplication. Aliased tags, foreign/stale handles,
 erased receivers and native traced edges still require validation. Trace-hook faults
 retain their error/quarantine behavior. Neither a safety permit nor traversal
 scratch survives the operation; aliases must be rechecked at the next transition.
@@ -528,12 +533,14 @@ are ordinary registered methods using transactional admission and cooperative ca
 
 ## Public frame access
 
-`ExecutionFrame::read_slot(runtime, Slot)`, `write_slot(runtime, Slot, Value)` and
-`jump_to(runtime, offset)` address the current final executable, not historical
-local/register namespaces or PCs. They retain runtime/session/window ownership,
+`ExecutionFrame::read_slot(runtime, Slot)` returns a protected ValueView.
+`FrameStack::write_slot(runtime, Slot, &ValueView)` and `copy_slot` own exclusive
+mutation; `ExecutionFrame::jump_to(runtime, offset)` redirects control. These APIs
+address the current final executable, not historical local/register namespaces
+or PCs. They retain Runtime/session/source ownership,
 bounds, heap identity and incoming representation/domain validation. Reuse guards
 also distinguish a completed logical definition from an initialized physical alias.
-Unavailable scalar inspection otherwise retains its `Value::Unit` result; scalar
+Unavailable scalar inspection otherwise returns an inline Unit view; scalar
 execution kernels reject uninitialized operands. Manual redirection never supplies
 the normal-entry verifier's initialization proof.
 
