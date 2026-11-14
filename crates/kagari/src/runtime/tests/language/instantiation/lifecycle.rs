@@ -4,10 +4,12 @@ use crate::{
 };
 use kagari_compiler::source::lower::instances::MirLoweringOptions;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn instance_limits_report_revision_owned_diagnostics_without_poisoning_compilation() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let checked = engine
         .compile_source(SourceFile::new(
             "instances.kgr",
@@ -49,7 +51,8 @@ fn instance_limits_report_revision_owned_diagnostics_without_poisoning_compilati
 
 #[test]
 fn cancelled_instantiation_keeps_the_checked_module_reusable() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let checked = engine
         .compile_source(SourceFile::new(
             "cancel-instances.kgr",

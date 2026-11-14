@@ -1,17 +1,14 @@
 //! Range constructors and receiver-owned implementations; iterator algorithms remain shared.
 pub(super) mod operations;
-use crate::foundation::{
-    enumerations::value as enums, interface, iteration::operations as iteration, override_entry,
-    raw, type_docs,
-};
+use crate::foundation::{interface, override_entry, type_docs};
 use kagari_runtime::native::{
-    assembly::draft::{ModuleDraft, TraitImplementation},
-    binding::NativeResult,
-    types::Type,
+    assembly::{
+        authoring::PendingBinding,
+        draft::{ModuleDraft, TraitImplementation},
+    },
+    binding::{Codec, NativeBinding, NativeResult},
 };
-use kagari_types::{
-    declaration::native::NativeTypeConstructor, range::RangeKind, scalar::BuiltinType,
-};
+use kagari_types::{declaration::native::NativeTypeConstructor, range::RangeKind};
 
 pub(crate) const KINDS: [RangeKind; 6] = [
     RangeKind::Exclusive,
@@ -24,9 +21,6 @@ pub(crate) const KINDS: [RangeKind; 6] = [
 
 pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     let bounds = interface(module, "RangeBounds", 1)?;
-    let iterable = interface(module, "Iterable", 0)?;
-    let item_member = module.reference_associated_type(&iterable, "Item", 0)?;
-    let cursor_member = module.reference_associated_type(&iterable, "Iter", 0)?;
     for kind in KINDS {
         let range = module.define_constructor(kind.name(), NativeTypeConstructor::Range(kind))?;
         type_docs(module, &range, kind.name(), TYPE_DOCS, &[])?;
@@ -35,14 +29,22 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
             &bounds,
             "start_bound",
             0,
-            enums::pending(1, &[enums::BOUND], operations::start_bound),
+            PendingBinding::implementation_send(NativeBinding::new(
+                vec![Codec::Value],
+                Codec::Value,
+                operations::start_bound,
+            )),
         )?;
         let end = override_entry(
             module,
             &bounds,
             "end_bound",
             0,
-            enums::pending(1, &[enums::BOUND], operations::end_bound),
+            PendingBinding::implementation_send(NativeBinding::new(
+                vec![Codec::Value],
+                Codec::Value,
+                operations::end_bound,
+            )),
         )?;
         module.trait_implementation_with(1, |arguments| {
             Ok(TraitImplementation {
@@ -57,41 +59,12 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
             }
             .with_overrides([start, end]))
         })?;
-        if !kind.has_start() {
-            continue;
-        }
-        for scalar in [
-            BuiltinType::I8,
-            BuiltinType::I16,
-            BuiltinType::I32,
-            BuiltinType::I64,
-            BuiltinType::U8,
-            BuiltinType::U16,
-            BuiltinType::U32,
-            BuiltinType::U64,
-        ] {
-            let item = Type::scalar(scalar);
-            let interface = cursor_member.bind(
-                item_member.bind(iterable.apply([])?, item.clone())?,
-                Type::iterator(item.clone())?,
-            )?;
-            let entry = override_entry(module, &iterable, "iter", 0, raw(1, iteration::iter))?;
-            module.trait_implementation_with(0, |_| {
-                Ok(TraitImplementation {
-                    receiver: range.apply([item])?,
-                    interface,
-                    bounds: vec![],
-                    bindings: vec![],
-                }
-                .with_overrides([entry]))
-            })?;
-        }
     }
     Ok(())
 }
 
 const TYPE_DOCS: (&str, &str) = (
-    "A range value carrying its declared endpoints and inclusion policy. Finite integer ranges implement Iterable; open bounds are available through RangeBounds.",
+    "A range value carrying its declared endpoints and inclusion policy. Open bounds are available through RangeBounds; concrete cursor providers are installed separately.",
     "fn lower() -> core::ops::Bound<i32> { (1..4).start_bound() }",
 );
 

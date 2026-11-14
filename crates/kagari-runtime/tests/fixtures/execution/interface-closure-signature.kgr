@@ -1,0 +1,15 @@
+struct Item {
+    val value: i32
+}
+
+trait Capture {
+    fn capture<T>(self, value: T) -> fn() -> T {
+        || value
+    }
+}
+
+impl Capture for i32 {}
+
+fn make(source: Capture) -> fn() -> Item {
+    source.capture(Item { value: 1 })
+}

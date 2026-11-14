@@ -1,0 +1,10 @@
+fn main() -> i32 {
+    val kept = [42];
+    print("enter");
+    kept[0]
+}
+
+fn nested(n: i32) -> i32 {
+    val doubled = n + n;
+    doubled + 2147483647
+}

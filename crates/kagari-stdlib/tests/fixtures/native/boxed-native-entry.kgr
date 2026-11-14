@@ -1,0 +1,5 @@
+use example::boxed::add;
+
+pub fn evidence() -> i32 {
+    add(20, 22)
+}

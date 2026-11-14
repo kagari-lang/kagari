@@ -1,0 +1,16 @@
+struct Point {
+    var x: i32,
+    var y: i32
+}
+
+fn callee(input: i32) -> i32 {
+    val doubled = input + input;
+    val numbers = [input, doubled];
+    val point = Point { x: numbers[0], y: doubled };
+    point.x + point.y
+}
+
+fn main() -> i32 {
+    val seed = 4;
+    callee(seed)
+}

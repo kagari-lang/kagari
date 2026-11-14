@@ -1,5 +1,9 @@
 # Kagari and Lua comparison
 
+Runtime detachment has withdrawn the concrete Kagari collection providers.
+Collection-dependent Kagari workloads below await [NC reconstruction](../../docs/native-collections-plan.md);
+historical measurements retain their recorded revision and are not current results.
+
 For a focused PUC Lua table-field access measurement, build and run the
 [lua_field_access example](examples/lua_field_access/main.rs):
 
@@ -18,7 +22,7 @@ is stopped during measurement; no metatables, callbacks or loop allocations are
 introduced. All return values and final fields are checked outside the timer.
 These times include bytecode dispatch, arithmetic and loop control, so they are
 not pure lookup costs or matched comparisons with native Rust GC field APIs.
-The active [GC plan](../../docs/gc-redesign-plan.md#lua-context)
+The [GC characterization](../../docs/performance-baseline.md#lua-context)
 records the measurement and environment. No existing Runtime/Lua gate is replaced.
 
 Run from the repository root:
@@ -53,7 +57,7 @@ uv run python scripts/benchmark_lua.py --check --runs 1
 cargo test -p kagari-lua-benchmark -- --test-threads=1
 ```
 
-The [current-revision cost attribution](../../docs/performance-baseline.md#current-kagarilua-cost-attribution-windows-2026-10-27)
+The [current-revision cost attribution](../../docs/performance-baseline.md#bo08-kagarilua-cost-attribution-windows-2026-10-27)
 records 29 original/source-form/numeric rows and independent instruction/lifetime
 observations at `03246d94` on Windows 10 / i7-10700F. The 16 matched non-entry
 workloads take 1.47-100.84x PUC Lua 5.4.9 time. Current native-frame routing and
@@ -118,8 +122,8 @@ uv run python scripts/benchmark_lua.py --baseline-executable target/perf/before
 uv run python scripts/check_benchmark.py <paired-results.json>
 ```
 
-Use `--source-forms`, `--execution-controls` or `--window-controls` on both steps
-for those suites. Window controls use a separate test-harness executable. A focused
+Use `--source-forms` or `--execution-controls` on both steps
+for those suites. A focused
 `--workload calls` run can use the full original baseline report. Optional
 `--baseline-report` selects a report stored elsewhere. Use `--target calls=0.90`
 with the checker when a 10% improvement is required; otherwise the execution
@@ -167,16 +171,17 @@ memory, semantic correctness or CI acceptance.
 parity. It parks 1/32/256 owned executions after one instruction, then completes
 or cancels them in tail, forward or seeded random order (seed `0x4b4147415249`).
 Admission, retirement and explicit post-retirement collection have separate rows;
-compilation/setup is outside these control timers. Three equal diagnostic cycles
-record setup/live/empty/reused requested bytes and zero-net runtime teardown.
+compilation/setup is outside these control timers. Diagnostic mode repeats each
+case with three independent complete Runtime lifetimes, each with three equal
+churn cycles, recording setup/live/empty/reused requested bytes and zero-net
+teardown. Allocator-event peaks cover setup, post-setup and the whole lifetime;
+the peak reset preserves request/net totals. Source/artifact preparation and the
+preallocated outer Host-handle Vec are outside those counts. These are owned
+requested bytes, not allocator internals or RSS.
 Run the diagnostic build with `--execution-controls --diagnostics`; never use
-instrumented timings. Private window controls additionally cover zero-width and
-mixed scalar/managed windows, deep allocation, holes and reuse; they are storage
-measurements, not substitutes for these full session controls.
-Their `--window-controls` mode builds/freezes the ordinary release library test
-harness and uses the same report/checker protocol, with 32 cycles per sample and
-separate admission/retirement/fragmentation rows. Its binary is distinct from the
-Lua benchmark executable. Never substitute the diagnostic test executable.
+instrumented timings. Runtime owner tests cover scalar/managed banks, stack-space
+limits, suffix retirement/reuse and independent execution ownership. Those tests
+are correctness evidence, separate from the full owned-execution control timings.
 
 | Workload | Input | Measured script work |
 | --- | ---: | --- |
@@ -628,7 +633,7 @@ recover total GC-heap object allocations; it does not count Rust allocations.
 | maps | 81,030 | 24,012 | 5 | 2,001 |
 
 The shared bottleneck is the per-instruction runtime protocol. The loop in
-[`executor.rs`](../../crates/kagari-vm/src/executor.rs) accesses the current
+[`executor.rs`](https://github.com/kagari-lang/kagari/blob/9b3c9e94774fd36e43c66e8c55750a7b06b2f558/crates/kagari-vm/src/executor.rs) accesses the current
 frame repeatedly, and operand handlers access it again. Each access validates
 execution state, active-session identity and the top frame scope in
 [`frame.rs`](../../crates/kagari-runtime/src/frame.rs). Register writes also
@@ -640,9 +645,9 @@ use the general value/root representation. Arithmetic alone performs 250,003
 to 200,001 binary operations and loop branches/jumps.
 
 Calls/recursion add frame/root allocation costs. Map lookup also constructs
-heap-backed `Option` results: [`map_get`](../../crates/kagari-stdlib/src/foundation/hash/operations.rs)
-calls [`option`](../../crates/kagari-stdlib/src/foundation/enumerations/value.rs), which
-allocates an enum object (links follow their current stdlib owners). This fixture performs 2,000 gets plus one map allocation,
+heap-backed `Option` results: the retired `foundation/hash/operations.rs::map_get`
+called [`option`](../../crates/kagari-stdlib/src/foundation/enumerations/value.rs), which
+allocates an enum object. This historical fixture performed 2,000 gets plus one map allocation,
 matching the measured 2,001 allocations and five collections per call. The zero
 GC collections in scalar/call workloads exclude GC pauses as the cause of their
 large gaps. Both container workloads still spend substantial samples in the same
@@ -664,6 +669,48 @@ Strict workspace/all-target Clippy, formatting, structure (659 files, zero
 violations/exceptions), empty/single-element regression, all fifteen ordinary
 release smoke routes, Python syntax/document links and diff checks pass. No
 production source changed, and the full language-contract matrix was not rerun.
+
+## Shared-program installation scaling
+
+The existing `runtime_storage` example accepts a bounded sharing probe:
+
+```sh
+cargo build --release --locked -p kagari-lua-benchmark --example runtime_storage
+target/release/examples/runtime_storage --sharing 32 32 shared bytecode
+```
+
+Arguments are Runtime count (1..128), additional function count (0, 32 or 128),
+definition-domain control (`shared` or `fresh`) and optional MIR retention
+(`bytecode` or `mir`). Zero functions selects a tiny fixed control; the other
+sizes use the fixed struct/trait/static/generic fixture plus generated functions.
+Three lifecycle warmups precede eleven measured empty/load/initialize/release
+samples. Every player checks its own static counter. Root module backing counts
+diagnose duplicate identity-bearing records; they are not total memory accounting.
+
+Build separately with `--features diagnostics` for allocation requests, cumulative
+requested bytes and live-byte deltas. Save/rebuild the ordinary executable before
+timing. The warmed allocation lifecycle asserts balanced local teardown. Preallocated
+container buffers are outside phase snapshots, so printed release deltas alone
+are not a leak check. `fresh` includes creation of an independent engine/provider
+per Runtime in its empty phase. Shared source/MIR inputs stay outside recipient
+snapshots. See the [frozen sharing protocol and results](../../docs/performance-baseline.md#shared-program-and-prepared-reload-acceptance-windows-2026-11-09)
+for the finite matrix, baseline environment, attribution limits and acceptance gates.
+
+The ordinary build also accepts a bounded retained-body probe:
+
+```sh
+target/release/examples/runtime_storage --reload
+```
+
+It separates original/candidate preparation, compatibility preparation and local
+publication from five 5000-helper execution samples (three warmups, eleven samples).
+Fresh current code, current with an old closure alive, that exact old closure and
+current after old collection are separate rows. Checksums require the old closure
+body to survive while its ordinary helper selects new code; dropping it and GC must
+remove the old physical module key. The fixture deliberately has no static retention
+edge, so this is not type/code lifetime separation or a universal version bound.
+Run seven processes serially for the recorded process-median comparison; do not use
+the diagnostic allocation build for timing or infer pure lookup cost from host calls.
 
 ## Execution architecture diagnostics (HP00)
 
@@ -687,13 +734,38 @@ probe now starts with a freshly linked runtime; preparation/linking stay outside
 these counters. Host entry/result retention and ordinary GC are included. Counts cover successful system
 allocation/reallocation requests, bytes requested and net allocated bytes on the
 current thread; net bytes may be negative when GC frees earlier allocations.
-They are not peak memory or bytes retained after collection. Heap object counts
-include reclaimed objects; environment/application deltas report live records.
+They are not peak memory or bytes retained after collection. `live_objects_delta`,
+`provider_units_delta` and `root_registrations_delta` are signed retained-occupancy
+differences, not cumulative allocations or reclamations. `completed_cycles` is a
+completed-cycle difference. Dropped Host leases remain registered until collector
+service drains their notices; reading these snapshots performs no cleanup.
 Runtime counters report method/shared and scoped interface-call preparation attempts,
-environment allocation attempts, non-program metadata graph validation entries and prepared-region exits
+environment allocation attempts, closed metadata graph admission attempts and prepared-region exits
 to ordinary dispatch. They include same-thread synchronous reentry. Cold counts include first-call descriptor preparation; they do not measure
 instruction cost or time saved. The HP00 warm baseline used one shared runtime
 for source forms, so differences in GC/live deltas require that context.
+
+`TRANSITION` reports actual successful value/scalar/initialization bank capacity
+changes, initialized cell bytes, committed frame parameter assignments and new
+Runtime memory-scope Host registrations. Cloning/importing an existing Host lease
+does not register it again. Execution-root examinations count directory/bank/
+dependency reads, including holes and retries, rather than unique live roots.
+`reallocated_capacity_bytes` counts old bank capacity offered to realloc on
+successful growth; it does not measure physical copying or force a move.
+Borrowed direct Native arguments are not counted as frame copies. Scalar paths
+without collection can legitimately report zero root examinations/admissions.
+
+The `runtime_storage` example uses the nonallocating `execution_backing` snapshot
+for initialized/reserved execution and control buffers, active and parked. Runtime
+inline size already includes resource and heap/source headers; do not add their
+individual descriptive sizes again. Collector metadata is reported separately;
+managed payload backing, individual Arc allocations, immutable code, external Rust
+state and allocator overhead are outside those buffer totals. This is retained
+backing at a boundary, not peak memory or RSS. The detailed `execution_usage`
+description allocates its output Vec and must stay outside allocation samples.
+The existing complete storage workload currently fails source analysis at missing
+`Vec` providers, before Runtime execution; the backing observation itself is
+covered by its Runtime owner test. Do not infer whole-workload results from it.
 
 Source-form diagnostics also run a separate 2,500/5,000-iteration protocol matrix:
 fixed versus alternating interface receivers, and fixed versus alternating receiver
@@ -720,6 +792,14 @@ On macOS, use the ordinary release binary for stack sampling:
 DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/profile_lua_macos.py arrays maps
 DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/profile_lua_macos.py --source-forms shared_generic interface byte_state string_calls
 ```
+
+The current `PROFILE_DONE` record reports completed GC cycles and changes in live
+objects, root registrations and collector backing bytes, plus provider units
+before/after the window. These are retained-state observations, not cumulative
+allocation counts or total Runtime memory. `PROFILE_LAYOUT` separates stored-cell,
+Host-root carrier and scoped-view sizes; frame payload estimates use the actual
+stored-cell type. The historical allocation tables above used the retired
+collector's cumulative counters and cannot be regenerated from these net deltas.
 
 The driver records hashes/environment and samples five seconds inside a ten-second
 warmed execution window (three Kagari warmups for original workloads, six for

@@ -7,12 +7,11 @@ use crate::{
         catalog::DeclarationCatalog,
         conversion::{
             FromKagari, KagariType,
-            arguments::{FromKagariArguments, KagariArguments, check_types},
+            arguments::{ArgumentValues, FromKagariArguments, KagariArguments, PreparedArguments},
             context::ConversionContext,
         },
         types::Type,
     },
-    value::Value,
 };
 
 pub(super) struct ReceiverArguments<S, A>(pub S, pub A);
@@ -34,30 +33,23 @@ impl<S: KagariType, A: KagariArguments> KagariArguments for ReceiverArguments<S,
 }
 
 impl<S: FromKagari, A: FromKagariArguments> FromKagariArguments for ReceiverArguments<S, A> {
-    fn from_arguments(
-        cx: &mut ConversionContext<'_>,
-        expected: &[TypeArgument],
-        values: &[Value],
+    fn decode_arguments<'call>(
+        cx: &mut ConversionContext<'call>,
+        prepared: &PreparedArguments<'_, Self>,
+        values: ArgumentValues<'call>,
     ) -> NativeResult<Self> {
-        check_types::<Self>(cx, expected)?;
+        let expected = prepared.types();
         if values.len() != expected.len() || values.is_empty() {
             return Err(RuntimeError::module_validation(
                 "typed receiver argument count",
             ));
         }
-        for (ty, value) in expected.iter().zip(values) {
-            cx.check_value(ty, value)?;
-        }
-        // The receiver converter may reenter before the rest of the pack is
-        // decoded. Retain the whole input snapshot across that boundary.
-        let roots = cx
-            .runtime()
-            .gc()
-            .root_execution_values(values.to_vec())
-            .ok_or_else(|| RuntimeError::module_validation("typed receiver argument roots"))?;
-        let receiver = cx.decode_value::<S>(&expected[0], &values[0])?;
-        let arguments = A::from_arguments(cx, &expected[1..], &values[1..])?;
-        drop(roots);
+        // The outer binding admitted the whole immutable prefix. A receiver
+        // converter may reenter without another copy or auxiliary root owner.
+        let value = values.get(cx, 0)?;
+        let receiver = cx.decode_admitted::<S>(&expected[0], &value)?;
+        let arguments = PreparedArguments::<A>::from_binding(cx, &expected[1..])
+            .decode_tail(cx, values.tail(1)?)?;
         Ok(Self(receiver, arguments))
     }
 }

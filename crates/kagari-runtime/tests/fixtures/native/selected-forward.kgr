@@ -1,0 +1,5 @@
+use forward::calls::Answer;
+
+fn main() -> i32 {
+    40.answer()
+}

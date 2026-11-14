@@ -2,10 +2,12 @@ use super::execute;
 use crate::engine::KagariEngine;
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::source_database::SourceLayer;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn imported_child_bounds_keep_hidden_parent_declarations_and_projections() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let mut root = None;
     for (name, source) in [
         (

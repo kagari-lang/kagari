@@ -1,0 +1,7 @@
+use example::scratch::reduce;
+
+use example::strings::String;
+
+pub fn run(value: String, count: u64) -> String {
+    reduce(value, count)
+}

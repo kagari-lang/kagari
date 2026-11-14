@@ -287,6 +287,25 @@ semantic parameter facts. They need not be the first N slots. Only admitted
 parameter homes start initialized; ordinary operations read inputs before defining
 their output, including when the destination is also an input.
 
+`metadata.self_tail_calls` is an optional, strictly increasing list of executable
+Call PCs eligible for scalar self-tail reuse. Each named site must directly call
+the same function in the same module, followed immediately by Return of precisely
+that call's destination (including the matching Unit form). Parameter/result
+contracts, initialization and ordinary instructions remain independently verified.
+The entire frame layout and result must be scalar; shared generic/protocol
+adapters, suspendable functions, closure/resume entries and static initializers
+cannot carry these candidates. No actual control-flow edge may enter the following
+Return independently; an optional target summary cannot establish that condition.
+
+Candidates retain their ordinary Call/Return pair, origins and debug metadata.
+An empty list is valid and does not assert that no source expression is in tail
+position. Compiler recognition starts with the strict checked-MIR terminal pair;
+merged results and adaptations can retain ordinary behavior. Runtime preparation
+may consume the verified facts to prepare reuse, but the marker alone does not
+authorize bypassing observation, cleanup, current-target selection, argument
+snapshot or execution-boundary contracts. The file codec retains candidate PCs
+without source or MIR analysis during loading.
+
 The bounded CFG verifier checks synchronous and suspendable functions: reachable
 predecessors meet initialization by intersection, writes invalidate old semantic/
 constant/access facts, and joins conservatively retain shared facts. A backedge

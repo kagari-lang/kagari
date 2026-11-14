@@ -92,7 +92,7 @@ fn caught_child_schema_failure_cannot_publish_an_incomplete_dependency() {
         builder
             .register_type::<CatchesChild>()
             .unwrap_err()
-            .message()
+            .to_string()
             .contains("incomplete schema")
     );
     assert!(builder.declarations().rust_type::<CatchesChild>().is_err());

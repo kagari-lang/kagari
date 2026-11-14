@@ -6,11 +6,52 @@ use crate::{
     module::{
         EnumVariantRef, ExecutableModule, StructLayoutRef, layout_admission::NominalAdmission,
     },
+    resource::ResourceState,
+    value::{
+        aggregates::{enumerations::EnumObject, structures::StructObject},
+        carriers::ScopedValue,
+        kind::ObjectKind,
+    },
+    value_check::scoped::CheckError,
 };
 use kagari_bytecode::instruction::StructId;
+use kagari_gc::{access::Scope, error::GcError};
 use kagari_types::ty::Ty;
 
 impl TypeArgument {
+    /// Reuse only an already prepared complete nominal identity. The value comes
+    /// from the caller's actual source; this never resolves an unrooted ID.
+    pub(crate) fn matches_admitted_scoped<'gc>(
+        &self,
+        cx: &Scope<'gc>,
+        value: ScopedValue<'gc>,
+        owner: &ExecutableModule,
+        resources: &ResourceState,
+    ) -> Result<Option<bool>, CheckError> {
+        let Some(admission) = self.data.admission.get() else {
+            return Ok(None);
+        };
+        resources.poll_closed()?;
+        let matched = match value.kind() {
+            Some(ObjectKind::Struct) => {
+                let object =
+                    cx.downcast::<StructObject>(value.object().ok_or(GcError::Representation)?)?;
+                cx.read(object, |object| {
+                    admission.matches_struct(object.layout(), self.view(owner))
+                })
+            }
+            Some(ObjectKind::Enum) => {
+                let object =
+                    cx.downcast::<EnumObject>(value.object().ok_or(GcError::Representation)?)?;
+                cx.read(object, |object| {
+                    admission.matches_enum(object.layout(), self.view(owner))
+                })
+            }
+            _ => false,
+        };
+        Ok(Some(matched))
+    }
+
     pub(crate) fn prepare_admission(&self, runtime: &Runtime, fallback: &ExecutableModule) {
         if self.data.admission.get().is_some() || !matches!(self.ty(), Ty::Struct(_) | Ty::Enum(_))
         {
@@ -140,7 +181,7 @@ impl Runtime {
             .map(|position| applied.parameter(self, fallback, position))
             .collect::<Result<Vec<_>, RuntimeError>>()?;
         let generic = template.arguments.iter().enumerate().all(|(position, ty)| {
-            matches!(ty, Ty::Parameter { owner, position: slot } if *owner == nominal.declaration && *slot == position)
+            matches!(ty, Ty::Parameter { owner, position: slot } if *owner == template.declaration && *slot == position)
         });
         let scope = if arguments.iter().any(TypeArgument::has_origin) && !generic {
             if !template
@@ -160,7 +201,7 @@ impl Runtime {
             }
             None
         } else {
-            self.prepare_layout_scope(&owner, nominal.declaration, &arguments)?
+            self.prepare_layout_scope(&owner, template.declaration, &arguments)?
         };
         let layout = self
             .modules

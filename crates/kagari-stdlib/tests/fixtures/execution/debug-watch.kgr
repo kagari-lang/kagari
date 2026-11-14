@@ -1,0 +1,4 @@
+fn main() -> i32 {
+    val value = 3;
+    value + 4
+}

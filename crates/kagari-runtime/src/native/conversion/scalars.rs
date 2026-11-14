@@ -8,7 +8,7 @@ use crate::{
         scalar::NativeScalar,
         types::Type,
     },
-    value::Value,
+    value::{kind::ObjectKind, view::ValueView},
 };
 use kagari_types::scalar::BuiltinType;
 
@@ -19,18 +19,20 @@ macro_rules! scalar {
                 Ok(Type::scalar(<Self as NativeScalar>::abi_type()))
             }
 
-            fn snapshot_field(&self, cx: &mut ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<Value> {
+            fn snapshot_field<'call>(&self, cx: &mut ConversionContext<'call>, expected: &TypeArgument) -> NativeResult<ValueView<'call>> {
                 cx.encode_value(expected, *self)
             }
         }
+
         impl IntoKagari for $ty {
-            fn into_kagari(self, _: &mut ConversionContext<'_>, _: &TypeArgument) -> NativeResult<Value> {
+            fn into_kagari<'call>(self, _: &mut ConversionContext<'call>, _: &TypeArgument) -> NativeResult<ValueView<'call>> {
                 Ok(<Self as NativeScalar>::encode(self))
             }
         }
+
         impl FromKagari for $ty {
-            fn from_kagari(_: &mut ConversionContext<'_>, _: &TypeArgument, value: &Value) -> NativeResult<Self> {
-                <Self as NativeScalar>::decode(value.clone())
+            fn from_kagari(_: &mut ConversionContext<'_>, _: &TypeArgument, value: &ValueView<'_>) -> NativeResult<Self> {
+                <Self as NativeScalar>::decode(*value)
             }
         }
     )+ };
@@ -59,11 +61,11 @@ impl KagariType for String {
         Ok(Type::scalar(BuiltinType::String))
     }
 
-    fn snapshot_field(
+    fn snapshot_field<'call>(
         &self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ValueView<'call>> {
         cx.charge_string(self.len())?;
         let mut copy = String::new();
         copy.try_reserve_exact(self.len()).map_err(|_| {
@@ -72,16 +74,20 @@ impl KagariType for String {
                 .limit("String field snapshot capacity")
         })?;
         copy.push_str(self);
-        let value = cx.runtime().gc().alloc_string(copy)?;
+        let value = cx.allocate_string(copy)?;
         cx.check_value(expected, &value)?;
         Ok(value)
     }
 }
 
 impl IntoKagari for String {
-    fn into_kagari(self, cx: &mut ConversionContext<'_>, _: &TypeArgument) -> NativeResult<Value> {
+    fn into_kagari<'call>(
+        self,
+        cx: &mut ConversionContext<'call>,
+        _: &TypeArgument,
+    ) -> NativeResult<ValueView<'call>> {
         cx.charge_string(self.len())?;
-        cx.runtime().gc().alloc_string(self)
+        cx.allocate_string(self)
     }
 }
 
@@ -89,24 +95,20 @@ impl FromKagari for String {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         _: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
-        let Value::Str(value) = value else {
+        if value.kind() != Some(ObjectKind::String) {
             return Err(RuntimeError::module_validation(
                 "String conversion requires a string",
             ));
-        };
-        let runtime = cx.runtime();
-        let value = runtime
-            .gc()
-            .string(*value)
-            .ok_or_else(|| RuntimeError::module_validation("invalid string"))?;
-        cx.charge_string(value.len())?;
+        }
+        let len = cx.string_len(value)?;
+        cx.charge_string(len)?;
         let mut result = String::new();
         result
-            .try_reserve_exact(value.len())
+            .try_reserve_exact(len)
             .map_err(|_| cx.runtime().resources().limit("String conversion capacity"))?;
-        result.push_str(&value);
+        cx.read_string(value, |text| result.push_str(text))?;
         Ok(result)
     }
 }

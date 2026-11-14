@@ -107,10 +107,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
     let snapshot = analysis_database()
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
-    let mut count = 0;
     let mut seen_references = BTreeMap::new();
-    let mut seen_map = false;
-    let mut seen_vec = false;
     let mut seen_result = false;
     let mut seen_spawn_error = false;
     let mut seen_char_error = false;
@@ -134,7 +131,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
         let input = compilation(&program);
         let abi = collect_module_abi(input.module(input.root()).unwrap());
         let native: Vec<_> = abi.public_items.into_iter().filter(|item| {
-            matches!(item, PublicItem::Type(ty) if matches!(ty.kind, TypeDefKind::Native(_) | TypeDefKind::Enum | TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { .. })))
+            matches!(item, PublicItem::Type(ty) if matches!(ty.kind, TypeDefKind::Native(_) | TypeDefKind::Enum | TypeDefKind::NativeStorage(NativeStorageLayout::Opaque)))
         }).collect();
         verify::validate(
             &native,
@@ -158,17 +155,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
                     assert_eq!(owner.path, ["host"]);
                     assert!(seen_references.insert(ty.name.clone(), access).is_none());
                 }
-                TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { element }) => {
-                    assert_eq!(ty.name, "Vec");
-                    assert_eq!(ty.generic_params.len(), 1);
-                    assert_eq!(element, 0);
-                    seen_vec = true;
-                }
-                TypeDefKind::Native(NativeTypeConstructor::Map) => {
-                    assert_eq!(ty.name, "HashMap");
-                    assert_eq!(ty.generic_params.len(), 2);
-                    seen_map = true;
-                }
+
                 TypeDefKind::Enum if ty.name == "Result" => {
                     assert_eq!(ty.name, "Result");
                     assert_eq!(ty.generic_params.len(), 2);
@@ -207,7 +194,6 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
                 }
                 _ => {}
             }
-            count += 1;
         }
     }
     assert_eq!(
@@ -217,8 +203,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
             ("RefMut".into(), ReferenceAccess::Mutable),
         ])
     );
-    assert_eq!(count, 23);
-    assert!(seen_vec && seen_map && seen_result && seen_spawn_error && seen_char_error);
+    assert!(seen_result && seen_spawn_error && seen_char_error);
 }
 
 #[test]

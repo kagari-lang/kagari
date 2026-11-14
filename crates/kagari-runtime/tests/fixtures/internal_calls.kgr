@@ -1,0 +1,117 @@
+use example::internal;
+
+fn identity(value: i32) -> i32 {
+    value
+}
+
+pub fn script(count: i32) -> i32 {
+    var i = count;
+    var sum = 0;
+    loop {
+        match i {
+            0 => {
+                break;
+            },
+            _ => {}
+        };
+        sum += identity(7);
+        i -= 1;
+    }
+    sum
+}
+
+pub fn raw_empty(count: i32) -> i32 {
+    var i = count;
+    loop {
+        match i {
+            0 => {
+                break;
+            },
+            _ => {}
+        };
+        internal::raw_empty();
+        i -= 1;
+    }
+    0
+}
+
+pub fn raw_scalar(count: i32) -> i32 {
+    var i = count;
+    var sum = 0;
+    loop {
+        match i {
+            0 => {
+                break;
+            },
+            _ => {}
+        };
+        sum += internal::raw_scalar(7);
+        i -= 1;
+    }
+    sum
+}
+
+pub fn typed_empty(count: i32) -> i32 {
+    var i = count;
+    loop {
+        match i {
+            0 => {
+                break;
+            },
+            _ => {}
+        };
+        internal::typed_empty();
+        i -= 1;
+    }
+    0
+}
+
+pub fn typed_scalar(count: i32) -> i32 {
+    var i = count;
+    var sum = 0;
+    loop {
+        match i {
+            0 => {
+                break;
+            },
+            _ => {}
+        };
+        sum += internal::typed_scalar(7);
+        i -= 1;
+    }
+    sum
+}
+
+pub fn borrowed(count: i32) -> i32 {
+    val point = internal::point();
+    var i = count;
+    var sum = 0;
+    loop {
+        match i {
+            0 => {
+                break;
+            },
+            _ => {}
+        };
+        sum += point.read();
+        i -= 1;
+    }
+    sum
+}
+
+pub fn owned(count: i32) -> i32 {
+    val value = "runtime";
+    var i = count;
+    var sum = 0;
+    loop {
+        match i {
+            0 => {
+                break;
+            },
+            _ => {}
+        };
+        sum += internal::owned(value);
+        i -= 1;
+    }
+    sum
+}

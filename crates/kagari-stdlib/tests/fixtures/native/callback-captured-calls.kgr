@@ -1,0 +1,27 @@
+use example::callbacks::{ apply, step };
+
+fn main() -> i32 {
+    val offset = [14];
+    var calls = 0;
+    val result = apply(
+        |value| {
+            calls += 1;
+            step(value, offset[0])[0]
+        },
+        0,
+        3
+    );
+    if calls == 3 {
+        result
+    } else {
+        -1
+    }
+}
+
+pub fn trapped() -> i32 {
+    apply(|value| 10 / value, 0, 1)
+}
+
+pub fn healthy() -> i32 {
+    apply(|value| step(value, 1)[0], 40, 2)
+}

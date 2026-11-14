@@ -3,8 +3,7 @@ use crate::{
     BytecodeArtifact,
     context::ExecutionContext,
     engine::KagariEngine,
-    error::EmbeddingError,
-    program::PreparedProgram,
+    program::Program,
     runtime::{LoadOptions, ReloadOptions, Runtime},
 };
 use kagari_abi::representation::ValueType;
@@ -31,15 +30,20 @@ use kagari_contract::{
         named::{NamedContract, NamedDeclaration},
     },
 };
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     host::{
-        HostCallContext, HostError, HostObjectId, HostPathAdapter, HostPathDescriptor,
-        HostPathDescriptorId, HostSchemaEpoch, PreparedHostPathWrite,
+        HostError, HostObjectId, HostPathAdapter, HostPathDescriptor, HostPathDescriptorId,
+        HostSchemaEpoch, PreparedHostPathWrite,
     },
     module::entry::ProgramEntry,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, module::NativeModule},
-    value::Value,
+    native::{
+        builder::ModuleBuilder, conversion::context::ConversionContext, declarations::FunctionDecl,
+        host, module::NativeModule,
+    },
+    value::view::ValueView,
 };
+use kagari_stdlib as stdlib;
 
 use kagari_types::{
     callable::{CallableImplementation, Signature},
@@ -114,10 +118,10 @@ fn embedding_host_path_module(path_access: PathAccess) -> NativeModule {
                 .unwrap(),
             )
             .unwrap();
-        let mut adapter = HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(10)));
+        let mut adapter = HostPathAdapter::new().with_read(|_, _| Ok(ValueView::from(10_i32)));
         if access == PathAccess::ReadWrite {
             adapter = adapter.with_prepare_write(|_, _, record| {
-                if matches!(record.new_value, Value::I32(_)) {
+                if record.new_value.as_i32().is_some() {
                     Ok(PreparedHostPathWrite::new(|| {}))
                 } else {
                     Err(HostError::new("hp expects i32"))
@@ -140,33 +144,26 @@ fn embedding_host_path_module(path_access: PathAccess) -> NativeModule {
         )
         .unwrap();
     builder
-        .bind(make, |cx: &HostCallContext<'_>, _: &[Value]| {
-            let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
-            Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
-        })
+        .bind(
+            make,
+            host::callback(|cx, _| {
+                let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
+                let root = cx.runtime_mut().host_root_value(root).unwrap();
+                cx.import(&root)
+                    .map_err(|error| HostError::new(error.to_string()))
+            }),
+        )
         .unwrap();
     builder.finish().unwrap()
 }
 
 fn register_embedding_host_path_runtime(runtime: &mut Runtime) -> HostPathDescriptorId {
-    let player = runtime
-        .runtime()
-        .types()
-        .get_by_name("game::Player")
-        .unwrap()
-        .id;
+    let player = runtime.types().get_by_name("game::Player").unwrap().id;
     runtime
-        .runtime_mut()
         .register_host_root(HostObjectId(1), player, HostSchemaEpoch::new(0))
         .unwrap();
     let descriptor = HostPathDescriptorId::new(0);
-    assert!(
-        runtime
-            .runtime()
-            .host()
-            .path_descriptor(descriptor)
-            .is_some()
-    );
+    assert!(runtime.host().path_descriptor(descriptor).is_some());
     descriptor
 }
 
@@ -353,14 +350,17 @@ fn host_path_artifact(
 fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        vec![embedding_host_path_module(PathAccess::ReadWrite)],
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![embedding_host_path_module(PathAccess::ReadWrite)])
+            .collect(),
     )
     .unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     register_embedding_host_path_runtime(&mut runtime);
     let contract = runtime
-        .runtime()
         .host()
         .path_descriptor(HostPathDescriptorId::new(0))
         .unwrap()
@@ -375,7 +375,6 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
         vec![],
     );
     let changed = runtime
-        .runtime()
         .host()
         .path_descriptor(HostPathDescriptorId::new(1))
         .unwrap()
@@ -393,52 +392,64 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
 
     let loaded = runtime
         .load_program(
-            &PreparedProgram::from_artifact(first, &Default::default(), &Default::default())
-                .unwrap(),
+            &Program::from_artifact(first, &Default::default(), &Default::default()).unwrap(),
             LoadOptions {
                 program_name: Some("reload_paths".to_owned()),
             },
         )
         .expect("module should load");
-    let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
-    let before_count = runtime.runtime().modules().loaded_count();
-    let before_epoch = runtime.runtime().select_program(&loaded).unwrap().epoch;
+    let _selected_loaded = runtime.select_program(&loaded).unwrap();
+    let before_count = runtime.modules().loaded_count();
+    let before_epoch = runtime.select_program(&loaded).unwrap().epoch;
 
     let error = runtime
-        .reload_program(
-            &loaded,
-            &PreparedProgram::from_artifact(candidate, &Default::default(), &Default::default())
-                .unwrap(),
-            ReloadOptions {
-                program_name: Some("reload_paths".to_owned()),
-            },
-        )
+        .program(&loaded)
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| {
+            base.prepare_replacement(
+                &Program::from_artifact(candidate, &Default::default(), &Default::default())
+                    .unwrap(),
+                &Default::default(),
+            )
+        })
+        .and_then(|candidate| {
+            runtime.replace_program(
+                &loaded,
+                &candidate,
+                ReloadOptions {
+                    program_name: Some("reload_paths".to_owned()),
+
+                    ..Default::default()
+                },
+            )
+        })
         .expect_err("changed typed path fingerprints should reject reload");
 
-    let EmbeddingError::ReloadValidation { code, message } = error else {
-        panic!("expected reload validation error");
-    };
-    assert_eq!(code, "KG_RELOAD_PATH_FINGERPRINT_MISMATCH");
-    assert!(message.contains("typed path fingerprints"));
-    assert_eq!(runtime.runtime().modules().loaded_count(), before_count);
-    assert_eq!(
-        runtime.runtime().select_program(&loaded).unwrap().epoch,
-        before_epoch
-    );
+    assert!(matches!(
+        error,
+        ReloadValidationError::PathFingerprintMismatch
+    ));
+    assert_eq!(error.code(), "KG_RELOAD_PATH_FINGERPRINT_MISMATCH");
+    assert!(error.to_string().contains("typed path fingerprints"));
+    assert_eq!(runtime.modules().loaded_count(), before_count);
+    assert_eq!(runtime.select_program(&loaded).unwrap().epoch, before_epoch);
 }
 
 #[test]
 fn installed_host_path_mutation_uses_declared_access() {
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        vec![embedding_host_path_module(PathAccess::ReadWrite)],
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![embedding_host_path_module(PathAccess::ReadWrite)])
+            .collect(),
     )
     .unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     register_embedding_host_path_runtime(&mut runtime);
     let contract = runtime
-        .runtime()
         .host()
         .path_descriptor(HostPathDescriptorId::new(0))
         .unwrap()
@@ -471,37 +482,38 @@ fn installed_host_path_mutation_uses_declared_access() {
     );
     let loaded = runtime
         .load_program(
-            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap(),
+            &Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap(),
             LoadOptions {
                 program_name: Some("set_path".to_owned()),
             },
         )
         .expect("module should load");
 
-    assert_eq!(
-        runtime
-            .execute(&loaded, ProgramEntry::Main, &[], &context)
-            .unwrap()
-            .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::Unit
-    );
+    let result = runtime
+        .execute(&loaded, ProgramEntry::Main, &[], &context)
+        .unwrap();
+    let owner = runtime.select_program(&loaded).unwrap();
+    ConversionContext::new(&mut runtime, &owner)
+        .unwrap()
+        .decode::<()>(&result.return_value)
+        .unwrap();
 }
 
 #[test]
 fn installed_host_path_reads_need_no_permission_flags() {
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        vec![embedding_host_path_module(PathAccess::ReadOnly)],
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![embedding_host_path_module(PathAccess::ReadOnly)])
+            .collect(),
     )
     .unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     register_embedding_host_path_runtime(&mut runtime);
     let contract = runtime
-        .runtime()
         .host()
         .path_descriptor(HostPathDescriptorId::new(0))
         .unwrap()
@@ -530,8 +542,7 @@ fn installed_host_path_reads_need_no_permission_flags() {
     );
     let loaded = runtime
         .load_program(
-            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap(),
+            &Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap(),
             LoadOptions {
                 program_name: Some("read_secure_path".to_owned()),
             },
@@ -543,8 +554,8 @@ fn installed_host_path_reads_need_no_permission_flags() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(10)
+            .as_i32()
+            .unwrap(),
+        10
     );
 }

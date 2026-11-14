@@ -1,0 +1,20 @@
+fn choose(flag: bool, x: i32) -> i32 {
+    val y = x;
+    if flag {
+        y + 7
+    } else {
+        y
+    }
+}
+
+pub fn taken() -> i32 {
+    choose(true, 5)
+}
+
+pub fn untaken() -> i32 {
+    choose(false, 5)
+}
+
+pub fn overflow() -> i32 {
+    choose(true, 2147483647)
+}

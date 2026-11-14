@@ -2,10 +2,12 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    gc::roots::RootSet,
     native::{
         binding::NativeResult,
-        conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
+        conversion::{
+            FromKagari, IntoKagari, KagariType,
+            context::{ConversionContext, structures::StructSnapshot},
+        },
         objects::{Object, ObjectType},
         typed::NativeContext,
     },
@@ -74,7 +76,7 @@ impl ObjectType {
 
 impl Runtime {
     pub fn bind_field<T: KagariType + 'static>(
-        &self,
+        &mut self,
         object_type: &ObjectType,
         name: &str,
     ) -> NativeResult<Field<T>> {
@@ -82,16 +84,14 @@ impl Runtime {
     }
 
     pub fn bind_field_declaration<T: KagariType + 'static>(
-        &self,
+        &mut self,
         member: &ObjectField,
     ) -> NativeResult<Field<T>> {
         let argument = member.argument(self)?;
-        let cx = ConversionContext::new(self, member.object_type.owner())?;
+        let cx = ConversionContext::for_mapping(self, member.object_type.owner())?;
         cx.check_type::<T>(&argument)?;
-        let mut cache = self
-            .object_bindings
-            .try_borrow_mut()
-            .map_err(|_| RuntimeError::module_validation("field binding cache is borrowed"))?;
+        drop(cx);
+        let cache = &mut self.object_bindings;
         cache.fields.retain(|record| record.strong_count() != 0);
         if let Some(record) = cache
             .fields
@@ -153,11 +153,15 @@ impl ObjectField {
 }
 
 impl<T> Field<T> {
+    pub(crate) fn argument(&self) -> &TypeArgument {
+        &self.record.argument
+    }
+
     pub fn is_mutable(&self) -> bool {
         self.record.member.object_type.0.layout.layout().fields[self.record.member.slot].mutable
     }
 
-    pub(super) fn check_owner(&self, object_type: &ObjectType) -> NativeResult<usize> {
+    pub(crate) fn check_owner(&self, object_type: &ObjectType) -> NativeResult<usize> {
         self.record.member.check_owner(object_type)
     }
 }
@@ -167,12 +171,10 @@ impl<T: FromKagari> Field<T> {
         &self,
         cx: &mut ConversionContext<'_>,
         object_type: &ObjectType,
-        values: &RootSet,
+        values: &StructSnapshot,
     ) -> NativeResult<T> {
         let slot = self.check_owner(object_type)?;
-        let value = values
-            .get(cx.runtime().gc(), slot)
-            .ok_or_else(|| RuntimeError::module_validation("struct conversion snapshot field"))?;
+        let value = values.element(cx, slot)?;
         cx.decode_prepared(&self.record.argument, &value)
     }
 }
@@ -184,14 +186,11 @@ impl<S> Object<S> {
         field: &Field<T>,
     ) -> NativeResult<T> {
         let slot = field.check_owner(&self.object_type)?;
-        let id = self.id(cx)?;
-        let value = cx
-            .runtime()
-            .gc()
-            .struct_get_slot(id, &self.layout, slot)
-            .ok_or_else(|| RuntimeError::module_validation("object field read"))?;
-        cx.conversion
-            .decode_prepared(&field.record.argument, &value)
+        cx.conversion.argument_scope(|cx| {
+            let receiver = cx.import(&self.root)?;
+            let value = cx.struct_field(&receiver, &self.layout, slot)?;
+            cx.decode_prepared(&field.record.argument, &value)
+        })
     }
 
     pub fn set<T: IntoKagari>(
@@ -201,15 +200,14 @@ impl<S> Object<S> {
         value: T,
     ) -> NativeResult<()> {
         let slot = field.check_owner(&self.object_type)?;
-        let id = self.id(cx)?;
+        self.validate(cx)?;
         if !field.is_mutable() {
             return Err(RuntimeError::module_validation("object field is read-only"));
         }
         cx.conversion.argument_scope(|cx| {
+            let receiver = cx.import(&self.root)?;
             let value = cx.encode_prepared(&field.record.argument, value)?;
-            cx.runtime()
-                .gc()
-                .struct_set_slot(id, &self.layout, slot, value)
+            cx.set_struct_field(&receiver, &self.layout, slot, &value)
         })
     }
 }

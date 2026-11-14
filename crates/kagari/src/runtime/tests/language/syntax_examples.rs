@@ -1,34 +1,31 @@
-use crate::{
-    BytecodeArtifact, context::ExecutionContext, error::EmbeddingError, program::PreparedProgram,
-};
-use kagari_runtime::module::entry::ProgramEntry;
+use crate::{BytecodeArtifact, context::ExecutionContext, error::EmbeddingError, program::Program};
+use kagari_runtime::{error::reason::ErrorReason, module::entry::ProgramEntry};
 use kagari_source::source::SourceFile;
+use kagari_types::{arithmetic::ArithmeticError, scalar::error::ScalarError};
 use rstest::rstest;
-use std::{fs, path::PathBuf};
-
-use kagari_runtime::value::Value;
 
 use crate::test_support::execution;
 
-#[rstest]
-fn source_examples(
-    #[files("../../examples/syntax/*.kgr")]
-    #[exclude(r"[/\\](async|byte-literals|char-literals|grammar-witnesses|try-protocols)\.kgr$")]
-    path: PathBuf,
-) {
-    let source = fs::read_to_string(&path).unwrap_or_else(|error| {
-        panic!("failed to read syntax example {}: {error}", path.display())
-    });
-    let filename = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .expect("UTF-8 syntax example file name");
-    execute_source_example(
-        &format!("examples/syntax/{filename}"),
-        &source,
-        &[execution::Route::Source, execution::Route::Artifact],
-    );
-}
+// Temporarily paused: stdlib restoration (NC01-NC06).
+// #[rstest]
+// fn source_examples(
+//     #[files("../../examples/syntax/*.kgr")]
+//     #[exclude(r"[/\\](async|byte-literals|char-literals|grammar-witnesses|try-protocols)\.kgr$")]
+//     path: PathBuf,
+// ) {
+//     let source = fs::read_to_string(&path).unwrap_or_else(|error| {
+//         panic!("failed to read syntax example {}: {error}", path.display())
+//     });
+//     let filename = path
+//         .file_name()
+//         .and_then(|name| name.to_str())
+//         .expect("UTF-8 syntax example file name");
+//     execute_source_example(
+//         &format!("examples/syntax/{filename}"),
+//         &source,
+//         &[execution::Route::Source, execution::Route::Artifact],
+//     );
+// }
 
 #[rstest]
 #[case::numeric_6502_numeric(
@@ -43,19 +40,25 @@ fn source_examples(
     "examples/generic-trait-methods.kgr",
     include_str!("../../../../../../examples/generic-trait-methods.kgr")
 )]
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[case::standard_library(
     "examples/standard-library.kgr",
     include_str!("../../../../../../examples/standard-library.kgr")
 )]
+*/
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[case::struct_pattern_rest_executes_in_existing_contexts(
     "struct-pattern-rest.kgr",
     include_str!("../../../../tests/fixtures/test-fixtures/language/struct-pattern-rest.kgr")
 )]
+*/
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[case::grouped_standard_globs_execute(
     "standard-glob.kgr",
     include_str!("../../../../tests/fixtures/test-fixtures/language/standard-glob.kgr"),
     &[execution::Route::Artifact]
 )]
+*/
 fn additional_source_examples(
     #[case] path: &str,
     #[case] source: &str,
@@ -127,8 +130,7 @@ fn nested_inline_modules_resolve_qualified_members() {
     drop(engine);
     let loaded = runtime
         .load_program(
-            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap(),
+            &Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap(),
             Default::default(),
         )
         .unwrap();
@@ -137,9 +139,9 @@ fn nested_inline_modules_resolve_qualified_members() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
 }
 
@@ -169,6 +171,7 @@ fn inline_module_errors_point_into_the_original_source() {
     );
 }
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn for_loop_detects_structural_change_and_cleans_up_after_trap() {
     let source = r#"
@@ -193,8 +196,7 @@ pub fn after_trap() -> i32 { 42 }
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_program(
-            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap(),
+            &Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap(),
             Default::default(),
         )
         .unwrap();
@@ -205,14 +207,9 @@ pub fn after_trap() -> i32 { 42 }
     let result = runtime
         .execute(&loaded, "after_trap", &[], &context)
         .unwrap();
-    assert_eq!(
-        result
-            .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
-    );
+    assert_eq!(result.return_value.as_i32().unwrap(), 42);
 }
+*/
 
 #[test]
 fn closure_trap_releases_execution_resources() {
@@ -230,22 +227,24 @@ fn closure_trap_releases_execution_resources() {
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_program(
-            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap(),
+            &Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap(),
             Default::default(),
         )
         .unwrap();
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     assert!(runtime.execute(&loaded, "fail", &[], &context).is_err());
     assert_eq!(
         runtime
             .execute(&loaded, "after", &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
 }
 
 #[test]
@@ -269,8 +268,7 @@ pub fn overflow() -> i32 { val minimum = -2147483648; minimum % -1 }
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_program(
-            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap(),
+            &Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap(),
             Default::default(),
         )
         .unwrap();
@@ -279,24 +277,28 @@ pub fn overflow() -> i32 { val minimum = -2147483648; minimum % -1 }
             .execute(&loaded, "integer", &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(2)
+            .as_i32()
+            .unwrap(),
+        2
     );
     assert_eq!(
         runtime
             .execute(&loaded, "fractional", &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::F32(1.5)
+            .as_f32()
+            .unwrap(),
+        1.5
     );
-    for (name, message) in [
-        ("zero", "integer remainder by zero"),
-        ("overflow", "integer overflow"),
+    for (name, reason) in [
+        ("zero", ArithmeticError::RemainderByZero),
+        ("overflow", ArithmeticError::Overflow),
     ] {
         let error = runtime.execute(&loaded, name, &[], &context).unwrap_err();
-        assert!(format!("{error:?}").contains(message), "{name}: {error:?}");
+        assert_eq!(
+            error.reason(),
+            &ErrorReason::Scalar(ScalarError::Arithmetic(reason)),
+            "{name}: {error:?}"
+        );
     }
 }

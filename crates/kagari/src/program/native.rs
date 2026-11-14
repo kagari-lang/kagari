@@ -1,33 +1,32 @@
-//! Compile once per immutable program/configuration; install separately per runtime.
-use kagari_abi::native::NativeLinkDescription;
-use std::sync::Arc;
-
+//! Compile immutable products outside Runtime; bind native authority at installation.
+use crate::{program::Compilation, runtime::Runtime};
+use kagari_abi::{
+    native::{BackendId, ExecutableEntryPoint, NativeLinkDescription},
+    version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION},
+};
 use kagari_bytecode::program::ModuleRef;
 use kagari_codegen::{
     BackendConfiguration, BackendFunctionInput, CodegenBackend, diagnostic::BackendCompileError,
 };
 use kagari_common::cancellation::CancellationToken;
+use kagari_contract::{ids::FunctionRef, native::NativeCompilationProduct};
 use kagari_mir::ids::InstanceId;
 use kagari_runtime::{
     backend::BackendInvocationError,
     error::RuntimeError,
-    module::{Program, entry::ProgramEntry},
-};
-use kagari_vm::vm::native::PreparedNativeEntry;
-use {
-    kagari_abi::{
-        native::ExecutableEntryPoint,
-        version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION},
+    execution::native::PreparedNativeEntry,
+    module::{
+        InstalledProgram, entry::ProgramEntry, retention::RetentionOrigin,
+        revision::ProgramRevision,
     },
-    kagari_contract::{ids::FunctionRef, native::NativeCompilationProduct},
 };
-
-use crate::{program::PreparedProgram, runtime::Runtime};
+use std::{collections::HashMap, sync::Arc};
 
 const MAX_CACHED_FUNCTIONS: usize = 4096;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(super) struct NativeCacheKey {
+struct NativeCacheKey {
+    revision: ProgramRevision,
     module: ModuleRef,
     function: FunctionRef,
     configuration: BackendConfiguration,
@@ -36,9 +35,32 @@ pub(super) struct NativeCacheKey {
 }
 
 #[derive(Debug, Clone)]
-pub(super) enum CachedFunction {
+enum CachedFunction {
     Native(Arc<NativeCompilationProduct>),
     Unsupported(Vec<String>),
+}
+
+/// Preparation-owned cache with at most 4096 exact revision/function/configuration
+/// decisions. Dropping it releases cached pages; installed entries retain their own
+/// page owners. Cache keys retain identity tokens, not source/MIR/bytecode payloads.
+/// Execution never accesses this cache. Create a fresh compiler for a new batch
+/// when its bounded cache is no longer useful.
+#[derive(Debug, Default)]
+pub struct NativeCompiler {
+    cache: HashMap<NativeCacheKey, CachedFunction>,
+}
+
+/// Immutable finalized native decision, safe to distribute to independent owners.
+/// It carries no Runtime binding, local policy or execution permission. Installation
+/// must check the exact revision before exposing a native entry.
+#[derive(Debug, Clone)]
+pub struct NativeCode {
+    revision: ProgramRevision,
+    root: ModuleRef,
+    module: ModuleRef,
+    function: FunctionRef,
+    backend: BackendId,
+    compiled: CachedFunction,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -61,94 +83,71 @@ pub enum NativePreparationError {
     Runtime(#[from] RuntimeError),
 }
 
-impl Runtime {
-    /// Preparation performs no script execution. Trusted backend implementations
-    /// supply products; runtime installation binds them to this runtime's versions.
-    /// The runtime's default JIT policy controls preparation; each execution also
-    /// checks its own context policy before entering a prepared native function.
-    pub fn prepare_native<'a>(
-        &self,
-        program: &PreparedProgram,
-        installed: &Program,
+impl NativeCompiler {
+    /// Resolve a verified entry and compile once for its exact product/configuration.
+    /// No Runtime, script effect or local execution policy participates. Missing
+    /// entries, cancellation, malformed backend products and cache exhaustion reject
+    /// without inserting a decision. Unsupported bodies retain a checked fallback.
+    pub fn prepare<'a>(
+        &mut self,
+        compilation: &Compilation,
         entry: impl Into<ProgramEntry<'a>>,
         backend: &mut dyn CodegenBackend,
         cancel: &CancellationToken,
-    ) -> Result<PreparedNativeEntry, NativePreparationError> {
+    ) -> Result<NativeCode, NativePreparationError> {
         check_cancel(cancel)?;
-        let module = self.runtime().select_program(installed)?;
-        if !program.bytecode().same_version(module.verified_program()) {
-            return Err(NativePreparationError::WrongVersion);
-        }
         let entry = entry.into();
-        let (owner, function) = entry
-            .resolve(&module)
+        let program = compilation.program();
+        let target = entry
+            .resolve_program(program.bytecode())
             .ok_or_else(|| NativePreparationError::MissingEntry(entry.label().into()))?;
-        let module = &owner;
         let configuration = backend.configuration();
-        let unsupported = |message: String| PreparedNativeEntry::Unsupported {
-            backend: configuration.backend.clone(),
-            diagnostics: vec![message],
-        };
-        if module.bytecode.functions[function.index()]
-            .metadata
-            .effects
-            .may_suspend
-        {
-            return Ok(unsupported(
+        let revision = program.bytecode().revision();
+        let backend_id = configuration.backend.clone();
+        let function =
+            &program.bytecode().modules()[target.module.index()].functions[target.function.index()];
+        let compiled = if function.metadata.effects.may_suspend {
+            CachedFunction::Unsupported(vec![
                 "resume bodies require the owned interpreter driver".into(),
-            ));
-        }
-        if let Some(reason) = self.default_context().jit_policy.fallback_reason() {
-            return Ok(unsupported(reason.into()));
-        }
-        if let Err(error) = self.runtime().resources().ensure_execution_allowed() {
-            return Ok(unsupported(format!(
-                "JIT disabled by runtime policy: {error}"
-            )));
-        }
-        if program.state.mir.is_none() {
-            return Ok(unsupported("artifact has no portable native input".into()));
-        }
-        let key = NativeCacheKey {
-            module: module.slot(),
-            function,
-            configuration: configuration.clone(),
-            runtime_abi: KAGARI_RUNTIME_ABI_VERSION,
-            helper_abi: KAGARI_RUNTIME_HELPER_ABI_VERSION,
+            ])
+        } else if compilation.mir.is_none() {
+            CachedFunction::Unsupported(vec!["artifact has no portable native input".into()])
+        } else {
+            let key = NativeCacheKey {
+                revision: revision.clone(),
+                module: target.module,
+                function: target.function,
+                configuration,
+                runtime_abi: KAGARI_RUNTIME_ABI_VERSION,
+                helper_abi: KAGARI_RUNTIME_HELPER_ABI_VERSION,
+            };
+            self.compile_function(compilation, key, backend, cancel)?
         };
-        let cached = program.compile_function(key, backend, cancel)?;
         check_cancel(cancel)?;
-        match cached {
-            CachedFunction::Unsupported(diagnostics) => Ok(PreparedNativeEntry::Unsupported {
-                backend: configuration.backend,
-                diagnostics,
-            }),
-            CachedFunction::Native(product) => {
-                // SAFETY: the unsafe backend contract establishes callable code and
-                // retained memory. Canonical correspondence and shared version identity
-                // bind the exact function/program; invocation supplies runtime-owned helpers.
-                let installed = unsafe { self.runtime().install_native_function(module, product)? };
-                Ok(PreparedNativeEntry::Native(installed))
-            }
-        }
+        Ok(NativeCode {
+            revision,
+            root: program.bytecode().root(),
+            module: target.module,
+            function: target.function,
+            backend: backend_id,
+            compiled,
+        })
     }
-}
 
-impl PreparedProgram {
     fn compile_function(
-        &self,
+        &mut self,
+        compilation: &Compilation,
         key: NativeCacheKey,
         backend: &mut dyn CodegenBackend,
         cancel: &CancellationToken,
     ) -> Result<CachedFunction, NativePreparationError> {
-        if let Some(cached) = self.state.native.borrow().get(&key).cloned() {
-            return Ok(cached);
+        if let Some(cached) = self.cache.get(&key) {
+            return Ok(cached.clone());
         }
-        if self.state.native.borrow().len() >= MAX_CACHED_FUNCTIONS {
+        if self.cache.len() >= MAX_CACHED_FUNCTIONS {
             return Err(NativePreparationError::CacheLimit);
         }
-        let mir = self
-            .state
+        let mir = compilation
             .mir
             .as_ref()
             .expect("native input checked before compilation");
@@ -185,17 +184,66 @@ impl PreparedProgram {
             ),
             Err(error) => return Err(NativePreparationError::Compile(error)),
         };
-        // Backend callbacks run without a cache borrow. Reentrant host preparation
-        // may have populated this key or exhausted capacity while compilation ran.
-        let mut cache = self.state.native.borrow_mut();
-        if let Some(existing) = cache.get(&key) {
-            return Ok(existing.clone());
-        }
-        if cache.len() >= MAX_CACHED_FUNCTIONS {
-            return Err(NativePreparationError::CacheLimit);
-        }
-        cache.insert(key, cached.clone());
+        self.cache.insert(key, cached.clone());
         Ok(cached)
+    }
+}
+
+impl NativeCode {
+    /// Bind a finalized decision to this installation without compiling. Exact
+    /// revision and local authority are validated before local policy may choose
+    /// fallback. Installed entries retain pages independently of the compiler/self.
+    pub fn install(
+        &self,
+        runtime: &mut Runtime,
+        installed: &InstalledProgram,
+    ) -> Result<PreparedNativeEntry, NativePreparationError> {
+        let module = runtime.select_program(installed)?;
+        if module.verified_program().revision() != self.revision
+            || module.verified_program().root() != self.root
+        {
+            return Err(NativePreparationError::WrongVersion);
+        }
+        let owner = module
+            .member(self.module)
+            .filter(|owner| {
+                owner
+                    .bytecode
+                    .functions
+                    .get(self.function.index())
+                    .is_some()
+            })
+            .ok_or(NativePreparationError::InvalidProduct)?;
+        let unsupported = |message: String| PreparedNativeEntry::Unsupported {
+            backend: self.backend.clone(),
+            diagnostics: vec![message],
+        };
+        if let Some(reason) = runtime.default_context().jit_policy.fallback_reason() {
+            return Ok(unsupported(reason.into()));
+        }
+        if let Err(error) = runtime.resources().ensure_execution_allowed() {
+            return Ok(unsupported(format!(
+                "JIT disabled by runtime policy: {error}"
+            )));
+        }
+        match &self.compiled {
+            CachedFunction::Unsupported(diagnostics) => Ok(PreparedNativeEntry::Unsupported {
+                backend: self.backend.clone(),
+                diagnostics: diagnostics.clone(),
+            }),
+            CachedFunction::Native(product) => {
+                // SAFETY: the trusted backend establishes callable pages; the opaque
+                // revision binds their exact verified body before local installation.
+                let installed = unsafe {
+                    runtime.install_native_function(
+                        &owner,
+                        product.clone(),
+                        RetentionOrigin::Current,
+                    )?
+                };
+                Ok(PreparedNativeEntry::Native(installed))
+            }
+        }
     }
 }
 

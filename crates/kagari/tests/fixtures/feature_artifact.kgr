@@ -1,38 +1,81 @@
-use std::collections::{MutableList};
-use std::num::{TryFromIntError};
-fn main() -> i32 { 42 }
+use std::num::{ TryFromIntError };
+
+fn main() -> i32 {
+    42
+}
 
 mod alias_model {
-    pub struct Cell<T> { pub var value: T }
+    pub struct Cell<T> {
+        pub var value: T
+    }
     pub type IntCell = Cell<i32>;
-    pub enum Event<T> { Data(T), Empty }
+    pub enum Event<T> {
+        Data(T),
+        Empty
+    }
     pub type CellEvent = Event<IntCell>;
     // This application is rooted only by its public alias, never a source value.
-    pub struct HostOnly<T> { pub var value: T }
+    pub struct HostOnly<T> {
+        pub var value: T
+    }
     pub type UnusedCell = HostOnly<i32>;
-    pub fn answer() -> i32 { 42 }
-    pub async fn answer_async() -> i32 { 42 }
-    pub fn make_cell() -> IntCell { IntCell { value: 42 } }
+    pub fn answer() -> i32 {
+        42
+    }
+    pub async fn answer_async() -> i32 {
+        42
+    }
+    pub fn make_cell() -> IntCell {
+        IntCell { value: 42 }
+    }
 }
-pub mod alias_facade {
-    pub use super::alias_model::{Cell, IntCell as SharedCell, CellEvent as SharedEvent, UnusedCell, answer, answer_async, make_cell};
-}
-pub mod host_api { pub use crate::alias_facade as cells; }
-pub fn answer() -> i32 { -1 }
-pub async fn answer_async() -> i32 { -1 }
-use self::alias_facade::{SharedCell, SharedEvent};
 
-fn alias_roundtrip(value: SharedCell) -> alias_model::Cell<i32> { value }
-fn target_roundtrip(value: alias_model::Cell<i32>) -> SharedCell { value }
+pub mod alias_facade {
+    pub use super::alias_model::{
+        Cell,
+        IntCell as SharedCell,
+        CellEvent as SharedEvent,
+        UnusedCell,
+        answer,
+        answer_async,
+        make_cell
+    };
+}
+
+pub mod host_api {
+    pub use crate::alias_facade as cells;
+}
+
+pub fn answer() -> i32 {
+    -1
+}
+
+pub async fn answer_async() -> i32 {
+    -1
+}
+
+use self::alias_facade::{ SharedCell, SharedEvent };
+
+fn alias_roundtrip(value: SharedCell) -> alias_model::Cell<i32> {
+    value
+}
+
+fn target_roundtrip(value: alias_model::Cell<i32>) -> SharedCell {
+    value
+}
 
 pub fn transparent_alias_values() -> i32 {
     val original = SharedCell { value: 19 };
     val target: alias_model::Cell<i32> = alias_roundtrip(original);
     val alias: SharedCell = target_roundtrip(target);
     alias.value += 1;
-    if original.value != 20 || target.value != 20 { return 0; }
+    if original.value != 20 || target.value != 20 {
+        return 0;
+    }
     target.value += 1;
-    if original.value != 21 || alias.value != 21 { return 0; }
+    if original.value != 21 || alias.value != 21 {
+        return 0;
+    }
     val event: alias_model::Event<alias_model::Cell<i32>> = SharedEvent::Data(alias);
     val closed: SharedEvent = event;
     match closed {
@@ -42,7 +85,9 @@ pub fn transparent_alias_values() -> i32 {
                 return 0;
             }
         },
-        alias_model::Event::Empty => { return 0; }
+        alias_model::Event::Empty => {
+            return 0;
+        }
     };
     val empty: alias_model::Event<alias_model::Cell<i32>> = SharedEvent::Empty;
     match empty {
@@ -51,45 +96,66 @@ pub fn transparent_alias_values() -> i32 {
     }
 }
 
-struct FeatureBinding<T> { val value: T, val spare: i32 }
+struct FeatureBinding<T> {
+    val value: T,
+    val spare: i32
+}
+
 pub fn declaration_patterns() -> i32 {
     val (FeatureBinding { value: (values, offset), .. }, _) = (
-        FeatureBinding { value: (Vec::from([19]), 22), spare: 0 }, 0
+        FeatureBinding { value: ([19], 22), spare: 0 }, 0
     );
     var (answer, _) = (values[0], 0);
-    val advance = || { answer += 1; answer };
+    val advance = || {
+        answer += 1;
+        answer
+    };
     advance() + offset
 }
 
-struct FeatureDefault<T> { var value: T, val values: Vec<T> }
+struct FeatureDefault<T> {
+    var value: T,
+    val values: [T]
+}
+
 impl<T: Default> Default for FeatureDefault<T> {
     fn default() -> Self {
-        FeatureDefault { value: T::default(), values: Default::default() }
+        FeatureDefault { value: T::default(), values: [T::default(), T::default()] }
     }
 }
 
 pub fn default_update_values() -> i32 {
     val zero: i32 = core::default::Default::default();
-    val empty: Vec<FeatureBinding<i32>> = Default::default();
+    val empty: [FeatureBinding<i32>] = [];
     val absent: Option<FeatureBinding<i32>> = Default::default();
-    match absent { None => {}, Some(_) => { return 0; } };
+    match absent {
+        None => {},
+        Some(_) => {
+            return 0;
+        }
+    };
     val base = FeatureDefault<i32> { ..Default::default() };
     val fresh: FeatureDefault<i32> = Default::default();
-    if zero != 0 || base.value != 0 || empty.len() != 0u64
-        || base.values.len() != 0u64 { return 0; }
-    base.values.push(20);
+    if zero != 0 || base.value != 0 || empty.len() != 0u64 || base.values.len() != 2u64 {
+        return 0;
+    }
+    base.values[0] = 20;
     val updated = FeatureDefault { value: 20, ..base };
     updated.value += 2;
-    updated.values.push(20);
-    if base.value != 0 || fresh.value != 0 || fresh.values.len() != 0u64
-        || base.values.len() != 2u64 || base.values[0] != 20
-        || updated.values[1] != 20 { return 0; }
+    updated.values[1] = 20;
+    if base.value != 0 || fresh.value != 0 || fresh.values.len() != 2u64 || fresh.values[0] != 0 ||
+        base.values.len() != 2u64 ||
+        base.values[0] != 20 ||
+        updated.values[1] != 20 {
+        return 0;
+    }
     updated.value + base.values[1]
 }
 
 use external::enums;
+
 pub fn native_enum_values() -> i32 {
-    val nested = enums::make(enums::make(Vec::from([38]), 2), 2);
+    val nested = enums::make(enums::make([38], 2), 2);
     match enums::roundtrip(nested) {
         enums::Event::Data(inner, outer) => match inner {
             enums::Event::Data(value, sequence) => value[0u64] + sequence + outer,
@@ -101,71 +167,113 @@ pub fn native_enum_values() -> i32 {
 
 pub fn required_methods() -> i32 {
     val text = "  β,a  ";
-    val fields = text.trim().split(",").sorted_by_key(|field| field);
-    if fields.len() != 2u64 || fields[0] != "a" || fields[1].len() != 2u64
-        || fields[1].slice(0u64, 2u64) != "β" || text.is_empty()
-        || !text.contains("β") || !text.starts_with("  ") || !text.ends_with("  ")
-        || text.find("β") != Some(2u64) || text.trim_start() != "β,a  "
-        || text.trim_end() != "  β,a" || "β".replace("", "-") != "-β-" { return 0; }
-    val values = Vec::from([20, 22]);
-    if !values.map(|item| item).any(|item| item == 20) { return 0; }
-    change(values);
-    val indexed: std::collections::HashMap<u64, i32> = [20, 22]
-        .filter_map(|item| Some(item)).zip([1, 1])
-        .map(|pair| pair[0] * pair[1]).enumerate().collect();
-    if indexed.get(0u64) != Some(20) || indexed.get(1u64) != Some(22) { return 0; }
-    val copied=Vec<i32>::from_iter(values);
-    val total=i32::sum(copied);
-    val parsed=i32::from_str("42");
-    val narrow:Result<i8,TryFromIntError> = total.try_into();
-    match parsed {Ok(n)=>match narrow {Ok(k)=>if i32::from(k)==n {n}else{0},Err(_)=>0},Err(_)=>0}
+    val clean = text.trim();
+    if clean.len() != 4u64 || clean.slice(0u64, 2u64) != "β" || text.is_empty() ||
+        !text.contains("β") ||
+        !text.starts_with("  ") ||
+        !text.ends_with("  ") ||
+        text.find("β") != Some(2u64) ||
+        text.trim_start() != "β,a  " ||
+        text.trim_end() != "  β,a" ||
+        "β".replace("", "-") != "-β-" {
+        return 0;
+    }
+    val values = [20, 22];
+    val total = values[0] + values[1];
+    val parsed = i32::from_str("42");
+    val narrow: Result<i8, TryFromIntError> = total.try_into();
+    match parsed {
+        Ok(n) => match narrow {
+            Ok(k) => if i32::from(k) == n {
+                n
+            } else {
+                0
+            },
+            Err(_) => 0
+        },
+        Err(_) => 0
+    }
 }
-
-fn change<C: MutableList<i32>>(values: C) {
-    values.set(0u64, 19);
-    values.insert(1u64, 1);
-    values.remove(2u64);
-    values.push(22);
-    values.set(0u64, 20);
-    values.remove(1u64);
-}
-
-
 
 use external::fixture::hold;
 
-pub fn library_and_object() -> i32 {
-    val values = Vec::from([20, 1, 19]); values.sort();
-    values.sort_by(|a, b| b.cmp(a));
-    val offset = Vec::from([2]);
-    val handler = hold(values, |items| { items[0] += offset[0]; items });
+pub fn retained_handler() -> external::fixture::Handler<i32> {
+    hold(42, |value| value)
+}
+
+pub fn application_payload() -> i32 {
+    val values = [20, 1, 19];
+    val offset = [2];
+    val handler = hold(
+        values,
+        |items| {
+            items[0] += offset[0];
+            items
+        }
+    );
     val shared = handler.apply();
     var sum = 0;
-    for item in shared.map( |value| value) { sum += item; }
+    var index = 0u64;
+    while index < shared.len() {
+        sum += shared[index];
+        index += 1u64;
+    }
     sum
 }
 
 use external::try_carrier::Carrier;
+
 use core::ops::ControlFlow;
-struct FeaturePayload { val values: Vec<i32> }
-fn carry<T>(value: Carrier<T>) -> Carrier<T> { Carrier::Data(value?) }
-fn stop_carrier(value: Carrier<i32>) -> Carrier<String> { value?; Carrier::Data("unreachable") }
+
+struct FeaturePayload {
+    val values: [i32]
+}
+
+fn carry<T>(value: Carrier<T>) -> Carrier<T> {
+    Carrier::Data(value?)
+}
+
+fn stop_carrier(value: Carrier<i32>) -> Carrier<String> {
+    value?;
+    Carrier::Data("unreachable")
+}
+
 pub fn native_propagation_values() -> i32 {
-    val value = FeaturePayload { values: Vec::from([42]) };
+    val value = FeaturePayload { values: [42] };
     val passed = carry(Carrier::Data(value));
     match stop_carrier(Carrier::Stop) {
-        Carrier::Stop => match passed { Carrier::Data(item) => item.values[0u64], Carrier::Stop => 0 },
+        Carrier::Stop => match passed {
+            Carrier::Data(item) => item.values[0u64],
+            Carrier::Stop => 0
+        },
         Carrier::Data(_) => 0
     }
 }
-fn convert_residual(value: Result<i32, i32>) -> Result<String, i64> { value?; Ok("unreachable") }
-fn flow_residual(value: ControlFlow<i32, i32>) -> ControlFlow<i32, String> { value?; ControlFlow::Continue("unreachable") }
-fn option_residual(value: Option<i32>) -> Option<String> { value?; Some("unreachable") }
+
+fn convert_residual(value: Result<i32, i32>) -> Result<String, i64> {
+    value?;
+    Ok("unreachable")
+}
+
+fn flow_residual(value: ControlFlow<i32, i32>) -> ControlFlow<i32, String> {
+    value?;
+    ControlFlow::Continue("unreachable")
+}
+
+fn option_residual(value: Option<i32>) -> Option<String> {
+    value?;
+    Some("unreachable")
+}
+
 pub fn standard_residual_values() -> i32 {
     match convert_residual(Err(42)) {
         Err(error) => match flow_residual(ControlFlow::Break(42)) {
             ControlFlow::Break(value) => match option_residual(None) {
-                None => if error == 42i64 { value } else { 0 },
+                None => if error == 42i64 {
+                    value
+                } else {
+                    0
+                },
                 Some(_) => 0
             },
             ControlFlow::Continue(_) => 0
@@ -174,54 +282,100 @@ pub fn standard_residual_values() -> i32 {
     }
 }
 
-fn origin_residual() -> Result<i32, i32> { Err(42) }
-pub fn converted_error_origin() -> Result<String, i64> { convert_residual(origin_residual()) }
+fn origin_residual() -> Result<i32, i32> {
+    Err(42)
+}
 
+pub fn converted_error_origin() -> Result<String, i64> {
+    convert_residual(origin_residual())
+}
 
 pub fn fixed_array_construction() -> i32 {
     var data: [i32] = [20, 22];
     val alias = data;
-    val vector = Vec::from(data);
-    val unique = std::collections::HashSet::from([20, 20, 22]);
     alias[0] = 19;
     data = [0];
-    vector.push(1);
-    if alias.len() != 2u64 || data.len() != 1u64 || vector.len() != 3u64 || unique.len() != 2u64 { return 0; }
-    vector[0] + alias[1]
+    if alias.len() != 2u64 || data.len() != 1u64 {
+        return 0;
+    }
+    alias[0] + alias[1] + 1
 }
 
-use std::ops::{Neg, Add, Sub, Mul, Div, Rem};
+use std::ops::{ Neg, Add, Sub, Mul, Div, Rem };
+
 trait SharedArithmetic {
-    fn negate<T: Neg<Output = T>>(self, value: T) -> T { -value }
-    fn add<T: Add<T, Output = T>>(self, left: T, right: T) -> T { left + right }
-    fn subtract<T: Sub<T, Output = T>>(self, left: T, right: T) -> T { left - right }
-    fn multiply<T: Mul<T, Output = T>>(self, left: T, right: T) -> T { left * right }
-    fn divide<T: Div<T, Output = T>>(self, left: T, right: T) -> T { left / right }
-    fn remainder<T: Rem<T, Output = T>>(self, left: T, right: T) -> T { left % right }
+    fn negate<T: Neg<Output = T>>(self, value: T) -> T {
+        -value
+    }
+    fn add<T: Add<T, Output = T>>(self, left: T, right: T) -> T {
+        left + right
+    }
+    fn subtract<T: Sub<T, Output = T>>(self, left: T, right: T) -> T {
+        left - right
+    }
+    fn multiply<T: Mul<T, Output = T>>(self, left: T, right: T) -> T {
+        left * right
+    }
+    fn divide<T: Div<T, Output = T>>(self, left: T, right: T) -> T {
+        left / right
+    }
+    fn remainder<T: Rem<T, Output = T>>(self, left: T, right: T) -> T {
+        left % right
+    }
 }
+
 struct ArithmeticSource {}
+
 impl SharedArithmetic for ArithmeticSource {}
 
 pub fn shared_operator_values() -> i32 {
     val arithmetic: SharedArithmetic = ArithmeticSource {};
-    if arithmetic.negate(-42) != 42 { return 0; }
-    if arithmetic.add(20, 22) != 42 { return 0; }
-    if arithmetic.subtract(65, 23) != 42 { return 0; }
-    if arithmetic.multiply(6, 7) != 42 { return 0; }
-    if arithmetic.divide(126, 3) != 42 { return 0; }
-    if arithmetic.remainder(127, 85) != 42 { return 0; }
+    if arithmetic.negate(-42) != 42 {
+        return 0;
+    }
+    if arithmetic.add(20, 22) != 42 {
+        return 0;
+    }
+    if arithmetic.subtract(65, 23) != 42 {
+        return 0;
+    }
+    if arithmetic.multiply(6, 7) != 42 {
+        return 0;
+    }
+    if arithmetic.divide(126, 3) != 42 {
+        return 0;
+    }
+    if arithmetic.remainder(127, 85) != 42 {
+        return 0;
+    }
     42
 }
 
-trait FeatureRead { fn read(self) -> i32; }
-impl FeatureRead for i32 { fn read(self) -> i32 { self } }
-trait FeatureMarker {}
-impl FeatureMarker for i32 {}
-trait FeatureErase {
-    fn erase<T: FeatureRead>(self, value: T) -> FeatureRead { value }
-    fn mark<T: FeatureMarker>(self, value: T) -> FeatureMarker { value }
+trait FeatureRead {
+    fn read(self) -> i32;
 }
+
+impl FeatureRead for i32 {
+    fn read(self) -> i32 {
+        self
+    }
+}
+
+trait FeatureMarker {}
+
+impl FeatureMarker for i32 {}
+
+trait FeatureErase {
+    fn erase<T: FeatureRead>(self, value: T) -> FeatureRead {
+        value
+    }
+    fn mark<T: FeatureMarker>(self, value: T) -> FeatureMarker {
+        value
+    }
+}
+
 impl FeatureErase for i32 {}
+
 pub fn bound_interface_values() -> i32 {
     val eraser: FeatureErase = 0;
     val marker = eraser.mark(0);

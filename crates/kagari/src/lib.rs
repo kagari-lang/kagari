@@ -19,13 +19,11 @@ pub mod runtime;
 #[cfg(feature = "source")]
 pub mod update;
 
+#[cfg(feature = "source")]
 use crate::error::EmbeddingError;
 
 #[cfg(feature = "source")]
 pub type CompileResult<T> = Result<T, EmbeddingError>;
-pub type LoadResult<T> = Result<T, EmbeddingError>;
-pub type RunResult<T> = Result<T, EmbeddingError>;
-pub type ReloadResult<T> = Result<T, EmbeddingError>;
 use kagari_bytecode::artifact::KbcArtifact;
 pub type BytecodeArtifact = KbcArtifact;
 

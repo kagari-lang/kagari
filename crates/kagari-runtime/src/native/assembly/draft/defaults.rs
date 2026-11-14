@@ -326,7 +326,7 @@ pub(crate) fn lower_defaults(
                             return Err(conflict("foreign native default requirement owner"));
                         }
                     }
-                    binding.check(&signature, definitions, preparation.catalog())?;
+                    binding.check(&signature, definitions)?;
                     Ok(binding)
                 });
         contract.methods[index].implementation =

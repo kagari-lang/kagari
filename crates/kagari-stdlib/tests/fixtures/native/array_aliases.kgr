@@ -1,0 +1,16 @@
+use example::arrays::probe;
+
+fn main() -> i32 {
+    val empty: [i32] = [];
+    val values = [20, 22];
+    val repeated = [7; 6];
+    if probe(empty) != 0 || probe(repeated) != 42 {
+        return -1;
+    }
+    val alias = values;
+    if probe(values) == 42 && alias[0] == 22 {
+        42
+    } else {
+        -2
+    }
+}

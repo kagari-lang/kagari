@@ -1,4 +1,5 @@
 //! Compile the actual example once, then execute it with no frontend dependency.
+use kagari_stdlib as stdlib;
 // Cross-target sharing keeps the emitter, standalone consumer and example on the
 // exact same public provider and host-driving contract.
 #[path = "../../examples/async_tasks/host.rs"]
@@ -6,7 +7,7 @@ mod host;
 #[path = "../../examples/async_tasks/provider.rs"]
 mod provider;
 
-use kagari::{BytecodeArtifact, engine::KagariEngine, program::PreparedProgram};
+use kagari::{BytecodeArtifact, engine::KagariEngine, program::Program};
 
 #[cfg(feature = "source")]
 use kagari_source::source::SourceFile;
@@ -37,7 +38,8 @@ impl Wake for Notify {
 
 #[test]
 fn source_free_structured_pair_contract() {
-    let engine = KagariEngine::builder().unwrap().build().unwrap();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
@@ -64,11 +66,11 @@ fn source_free_structured_pair_contract() {
     )
     .unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let mut runtime = engine.runtime(Default::default());
     let module = runtime.load_program(&program, Default::default()).unwrap();
     let run = runtime
-        .async_function::<(), i32>(&module.root(), "run")
+        .bind_async_function::<(), i32>(&module.root(), "run")
         .unwrap();
     let (send, ready) = mpsc::sync_channel(1);
     let wake = Waker::from(Arc::new(Notify(send)));
@@ -80,7 +82,7 @@ fn source_free_structured_pair_contract() {
             .recv_timeout(Duration::from_secs(2))
             .expect("submitted composition must notify its runtime driver");
         assert!(runtime.poll(&mut cx).is_pending());
-        runtime.runtime().collect_garbage().unwrap();
+        runtime.collect_garbage().unwrap();
         if ticket.is_finished() {
             break;
         }
@@ -116,6 +118,7 @@ fn source_free_structured_pair_contract() {
 fn source_free_async_execution_contract() {
     let io = FakeIo::default();
     let mut builder = KagariEngine::builder().unwrap();
+    builder.install_all(stdlib::modules().unwrap()).unwrap();
     builder
         .install(io.module("demo::rpc", builder.declarations()).unwrap())
         .unwrap();
@@ -149,6 +152,6 @@ fn source_free_async_execution_contract() {
     let bytes = fs::read(path).expect("emit the async_tasks example artifact first");
     let artifact = BytecodeArtifact::from_bytes(&bytes).unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     host::run(engine, program, io).unwrap();
 }

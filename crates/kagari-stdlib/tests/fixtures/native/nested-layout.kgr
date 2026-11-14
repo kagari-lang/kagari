@@ -1,0 +1,14 @@
+struct Inner {
+    val value: i32
+}
+
+struct Node {
+    var next: Option<Node>,
+    val value: Inner
+}
+
+fn main() -> [Node] {
+    val node = Node { next: None, value: Inner { value: 42 } };
+    node.next = Some(node);
+    [node]
+}

@@ -1,9 +1,9 @@
 //! Cancellation during native output conversion must precede continuation publication.
-use super::{Fixture, Value};
+use super::Fixture;
 use crate::context::ExecutionContext;
 use kagari_common::cancellation::CancellationToken;
 use kagari_runtime::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, RuntimeErrorKind, fault::EngineFault},
     frame::types::arguments::TypeArgument,
     native::{
         adapter::Async,
@@ -17,7 +17,9 @@ use kagari_runtime::{
         types::Type,
     },
     task::{CancellationCause, TaskId, control::TaskScopeOwner, drive::TaskDriveResult},
+    value::view::ValueView,
 };
+
 use std::{
     num::NonZeroUsize,
     slice,
@@ -48,25 +50,25 @@ struct Reply {
 
 impl KagariType for Reply {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
-        Vec::<i32>::kagari_type(catalog)
+        <(i32,)>::kagari_type(catalog)
     }
 }
 
 impl IntoKagari for Reply {
-    fn into_kagari(
+    fn into_kagari<'call>(
         self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ValueView<'call>> {
         self.encoded.fetch_add(1, Ordering::SeqCst);
-        let value = cx.encode_value(expected, vec![7_i32])?;
-        cx.runtime().collect_garbage()?;
+        let value = cx.encode_value(expected, (7_i32,))?;
+        cx.runtime_mut().collect_garbage()?;
         match self.boundary {
             Boundary::DuringConversion => self.cancellation.cancel(),
             Boundary::ConversionFault => {
                 return Err(cx
                     .runtime()
-                    .quarantine_execution_invariant("invalid converter state"));
+                    .quarantine_execution_invariant(EngineFault::InvalidConverterState));
             }
             Boundary::BeforeConversion | Boundary::Success => {}
         }
@@ -81,17 +83,16 @@ impl Drop for Reply {
     }
 }
 
-fn drive(f: &Fixture, scope: &TaskScopeOwner, task: TaskId) -> TaskDriveResult {
+fn drive(f: &mut Fixture, scope: &TaskScopeOwner, task: TaskId) -> TaskDriveResult {
     for _ in 0..1000 {
         let result = f
             .runtime
-            .backend()
             .drive_task(scope, task, NonZeroUsize::new(1).unwrap())
             .unwrap();
         if result != TaskDriveResult::Runnable {
             return result;
         }
-        f.runtime.runtime().collect_garbage().unwrap();
+        f.runtime.collect_garbage().unwrap();
     }
     panic!("bounded conversion driver");
 }
@@ -108,7 +109,7 @@ fn async_output_publication_contract() {
         let cancelled = Arc::new(AtomicUsize::new(0));
         let encoded = Arc::new(AtomicUsize::new(0));
         let dropped = Arc::new(AtomicUsize::new(0));
-        let f = Fixture::with_source(SOURCE, Default::default(), |engine| {
+        let mut f = Fixture::with_source(SOURCE, Default::default(), |engine| {
             let send = sent.clone();
             let cancelled = cancelled.clone();
             let mut module =
@@ -141,26 +142,33 @@ fn async_output_publication_contract() {
             engine.install(module.finish().unwrap()).unwrap();
         });
 
-        let runtime = f.runtime.runtime();
+        f.runtime.collect_garbage().unwrap();
+        let baseline = f.runtime.gc_stats();
+        let members = f
+            .runtime
+            .select_program(&f.module)
+            .unwrap()
+            .members()
+            .collect::<Vec<_>>();
         let context = ExecutionContext::default();
         let scope = f
             .runtime
-            .runtime()
-            .create_task_scope(
-                &f.runtime.runtime().select_program(&f.module).unwrap(),
+            .create_dispatched_task_scope(
+                &f.runtime.select_program(&f.module).unwrap(),
                 context.interpreter_options().unwrap(),
                 Arc::new(|_| Ok(())),
             )
             .unwrap();
         let items = f.invoke("items", &[]);
-        let factory = f.invoke("factory", &[f.value(&items)]);
-        let handle = runtime
-            .spawn_task(&f.value(scope.capability()), &f.value(&factory))
+        let factory = f.invoke("factory", slice::from_ref(&items));
+        let handle = f
+            .runtime
+            .spawn_task(&(scope.capability()).clone(), &factory)
             .unwrap()
             .unwrap();
         drop(factory);
-        let task = runtime.task_id(&f.value(&handle)).unwrap();
-        assert_eq!(drive(&f, &scope, task), TaskDriveResult::Waiting);
+        let task = f.runtime.task_id(&handle).unwrap();
+        assert_eq!(drive(&mut f, &scope, task), TaskDriveResult::Waiting);
         let reply = Reply {
             boundary,
             cancellation: context.cancellation.clone(),
@@ -183,23 +191,23 @@ fn async_output_publication_contract() {
         if boundary == Boundary::BeforeConversion {
             context.cancellation.cancel();
         }
-        assert_eq!(drive(&f, &scope, task), TaskDriveResult::Complete);
-        let report = runtime.take_task_report(&scope, task).unwrap().unwrap();
-        assert!(runtime.take_task_report(&scope, task).unwrap().is_none());
+        assert_eq!(drive(&mut f, &scope, task), TaskDriveResult::Complete);
+        let report = f.runtime.take_task_report(&scope, task).unwrap().unwrap();
+        assert!(f.runtime.take_task_report(&scope, task).unwrap().is_none());
         if boundary == Boundary::Success {
-            assert_eq!(f.value(&report.outcome.unwrap()), Value::I32(12));
+            assert_eq!(report.outcome.unwrap().as_i32().unwrap(), 12);
         } else {
             let failure = report.outcome.unwrap_err();
             assert_eq!(failure.source_task, task);
             if boundary == Boundary::ConversionFault {
                 assert_eq!(failure.error.kind(), RuntimeErrorKind::EngineFault);
-                assert!(runtime.is_quarantined());
+                assert!(f.runtime.is_quarantined());
             } else {
                 assert_eq!(failure.error.kind(), RuntimeErrorKind::Cancelled);
                 assert_eq!(failure.cancellation, Some(CancellationCause::ScopeClose));
                 assert_eq!(
-                    f.value(&f.invoke("first", &[f.value(&items)])),
-                    Value::I32(5)
+                    f.invoke("first", slice::from_ref(&items)).as_i32().unwrap(),
+                    5
                 );
             }
         }
@@ -217,22 +225,37 @@ fn async_output_publication_contract() {
             CompletionStatus::Stale
         );
         if boundary != Boundary::ConversionFault {
-            assert!(!runtime.is_quarantined());
-            let _ = f.invoke("push", slice::from_ref(&f.value(&items)));
+            assert!(!f.runtime.is_quarantined());
+            let _ = f.invoke("write", slice::from_ref(&items));
         }
         scope.close();
-        runtime.drain_cancelled_tasks().unwrap();
+        f.runtime.drain_cancelled_tasks().unwrap();
         drop((scope, handle, items));
         if boundary == Boundary::ConversionFault {
             assert_eq!(
-                runtime.collect_garbage().unwrap_err().kind(),
+                f.runtime.collect_garbage().unwrap_err().kind(),
                 RuntimeErrorKind::EngineFault
             );
         } else {
-            runtime.collect_garbage().unwrap();
-            assert_eq!(runtime.gc().allocated_objects(), 0);
+            f.runtime.collect_garbage().unwrap();
+            assert_eq!(f.runtime.gc_stats().objects, baseline.objects);
+            assert_eq!(
+                f.runtime.gc_stats().root_registrations,
+                baseline.root_registrations
+            );
         }
-        assert_eq!(runtime.gc().active_roots(), 0);
-        assert_eq!(runtime.resources().counters().current_call_depth, 0);
+        // Quarantine forbids collector service, including deferred root releases.
+        // Execution registrations and provider counters remain observable cleanup oracles.
+        for member in members {
+            assert_eq!(
+                f.runtime
+                    .modules()
+                    .retention_counts(member.key())
+                    .active_calls,
+                0
+            );
+        }
+        assert!(f.runtime.execution_id().is_none());
+        assert_eq!(f.runtime.resources().counters().current_call_depth, 0);
     }
 }

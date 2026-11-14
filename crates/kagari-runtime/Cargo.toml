@@ -18,6 +18,7 @@ kagari-types.workspace = true
 bincode.workspace = true
 kagari-abi.workspace = true
 kagari-contract.workspace = true
+kagari-gc.workspace = true
 thiserror.workspace = true
 kagari-common.workspace = true
 kagari-bytecode.workspace = true
@@ -26,15 +27,18 @@ serde = { workspace = true, optional = true }
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 web-time = { version = "=1.1.0", optional = true }
 
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+stacker.workspace = true
+
 [dev-dependencies]
-rstest.workspace = true
 kagari-derive.workspace = true
-kagari-stdlib.workspace = true
+rstest.workspace = true
 kagari-hir.workspace = true
 kagari-source.workspace = true
 kagari-compiler = { workspace = true, features = ["source"] }
 kagari-mir.workspace = true
+kagari-syntax.workspace = true
 
 [[test]]
-name = "native_schema"
-path = "tests/native_schema.rs"
+name = "core_calls"
+path = "tests/core_calls.rs"

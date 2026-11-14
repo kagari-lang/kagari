@@ -391,11 +391,7 @@ pub fn intrinsic_holds(
                 }
             }
             TypeId::Enum(_) | TypeId::Host(_) if protocol == Protocol::Debug => {}
-            TypeId::NativeObject(_)
-            | TypeId::Struct(_)
-            | TypeId::Array(_)
-            | TypeId::Map { .. }
-            | TypeId::Set(_, _)
+            TypeId::NativeObject(_) | TypeId::Struct(_) | TypeId::Array(_)
                 if protocol == Protocol::Debug => {}
             TypeId::Tuple(elements) if protocol != Protocol::Display => {
                 pending.extend(elements.into_iter().map(|ty| (ty, depth + 1)))

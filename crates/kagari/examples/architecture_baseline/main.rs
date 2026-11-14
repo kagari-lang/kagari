@@ -1,14 +1,17 @@
 //! O1 architecture baseline; run with default source/native features.
 //! `cargo run -p kagari --example architecture_baseline`
 //! Timings include the counting allocator's atomic bookkeeping overhead.
+#[cfg(feature = "native")]
+use kagari::program::native::NativeCompiler;
 use kagari_abi::native::NativeLinkDescription;
 use kagari_runtime::module::entry::ProgramEntry;
+use kagari_stdlib as stdlib;
 mod memory;
 
 use kagari::{
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
-    program::PreparedProgram,
+    program::Compilation,
 };
 use kagari_bytecode::artifact::{ArtifactBuildOptions, KbcArtifact};
 use kagari_codegen::{BackendFunctionInput, CodegenBackend};
@@ -18,9 +21,8 @@ use kagari_compiler::source::program::lower_program_to_mir;
 use kagari_contract::native::NativeCompilationProduct;
 use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_mir::{ids::InstanceId, verify::verify_mir};
-use kagari_runtime::value::Value;
+use kagari_runtime::execution::JitExecutionStatus;
 use kagari_source::source::SourceFile;
-use kagari_vm::vm::JitExecutionStatus;
 use memory::{CountingAllocator, live_bytes};
 use std::{hint::black_box, time::Instant};
 
@@ -45,8 +47,8 @@ fn sample(mut action: impl FnMut(), label: &str, count: usize) {
     );
 }
 
-fn prepare(bytes: &[u8]) -> PreparedProgram {
-    PreparedProgram::from_artifact(
+fn prepare(bytes: &[u8]) -> Compilation {
+    Compilation::from_artifact(
         KbcArtifact::from_bytes(bytes).unwrap(),
         &Default::default(),
         &Default::default(),
@@ -59,7 +61,8 @@ fn context() -> ExecutionContext {
 }
 
 fn sharing(bytes: &[u8], count: usize, shared: bool) {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let mut runtimes = Vec::with_capacity(count);
     let mut programs = Vec::with_capacity(count);
     let before = live_bytes();
@@ -72,17 +75,15 @@ fn sharing(bytes: &[u8], count: usize, shared: bool) {
         }
         let program = programs.last().unwrap();
         let mut runtime = engine.runtime(context());
-        let loaded = runtime.load_program(program, Default::default()).unwrap();
+        let loaded = runtime
+            .load_program(program.program(), Default::default())
+            .unwrap();
         runtimes.push((runtime, loaded));
     }
     let bytes = live_bytes() - before;
-    let first = runtimes[0]
-        .0
-        .runtime()
-        .select_program(&runtimes[0].1)
-        .unwrap();
+    let first = runtimes[0].0.select_program(&runtimes[0].1).unwrap();
     for (index, (runtime, loaded)) in runtimes.iter().enumerate() {
-        let selected = runtime.runtime().select_program(loaded).unwrap();
+        let selected = runtime.select_program(loaded).unwrap();
         assert_eq!(
             selected
                 .verified_program()
@@ -95,11 +96,13 @@ fn sharing(bytes: &[u8], count: usize, shared: bool) {
 }
 
 fn main() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     sample(
         || {
             black_box(
-                KagariEngine::default()
+                KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                    .unwrap()
                     .compile_to_artifact(
                         SourceFile::new("baseline.kgr", SOURCE),
                         Default::default(),
@@ -173,7 +176,11 @@ fn main() {
     sample(
         || {
             let mut runtime = engine.runtime(context());
-            black_box(runtime.load_program(&program, Default::default()).unwrap());
+            black_box(
+                runtime
+                    .load_program(program.program(), Default::default())
+                    .unwrap(),
+            );
         },
         "new_runtime_and_shared_program_link",
         101,
@@ -197,16 +204,18 @@ fn main() {
         ..context.clone()
     };
     let mut runtime = engine.runtime(native_context.clone());
-    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(program.program(), Default::default())
+        .unwrap();
     let before_native = live_bytes();
-    let native = runtime
-        .prepare_native(
+    let native = NativeCompiler::default()
+        .prepare(
             &program,
-            &loaded,
             ProgramEntry::Main,
             &mut backend,
             &Default::default(),
         )
+        .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
         .unwrap();
     let cache_and_install_bytes = live_bytes() - before_native;
     drop(native);
@@ -217,28 +226,29 @@ fn main() {
     sample(
         || {
             black_box(
-                runtime
-                    .prepare_native(
+                {
+                    let native_code = NativeCompiler::default().prepare(
                         &program,
-                        &loaded,
                         ProgramEntry::Main,
                         &mut backend,
                         &Default::default(),
-                    )
-                    .unwrap(),
+                    );
+                    native_code.and_then(|native_code| (native_code).install(&mut runtime, &loaded))
+                }
+                .unwrap(),
             );
         },
         "cached_preparation_and_install",
         101,
     );
-    let native = runtime
-        .prepare_native(
+    let native = NativeCompiler::default()
+        .prepare(
             &program,
-            &loaded,
             ProgramEntry::Main,
             &mut backend,
             &Default::default(),
         )
+        .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
         .unwrap();
     for use_native in [false, true] {
         let mut checksum = 0;
@@ -262,20 +272,9 @@ fn main() {
                 if use_native {
                     assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
                 }
-                assert_eq!(
-                    report
-                        .return_value
-                        .value(runtime.runtime().gc())
-                        .expect("retained execution result"),
-                    Value::I32(42)
-                );
+                assert_eq!(report.return_value.as_i32(), Some(42));
                 checksum += 42;
-                black_box(
-                    report
-                        .return_value
-                        .value(runtime.runtime().gc())
-                        .expect("retained execution result"),
-                );
+                black_box(report.return_value.as_i32());
             },
             if use_native {
                 "sdk_native_call"

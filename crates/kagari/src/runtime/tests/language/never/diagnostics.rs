@@ -1,9 +1,11 @@
 use crate::engine::KagariEngine;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn rejects_normal_returns_and_nested_never_coercions() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     for source in [
         "fn wrong() -> ! {}",
         "fn wrong() -> ! { return; }",

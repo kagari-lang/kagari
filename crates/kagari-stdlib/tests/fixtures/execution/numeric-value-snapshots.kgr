@@ -1,0 +1,31 @@
+pub fn later_write() -> bool {
+    var x = 7;
+    x = x +
+        {
+        x = 40;
+        2
+    };
+    x == 9
+}
+
+pub fn captured_call() -> bool {
+    var x = 7;
+    val f = || {
+        x = 40;
+        2
+    };
+    x = x + f();
+    x == 9
+}
+
+fn saved_rhs(input: i32) -> bool {
+    var x = input;
+    val saved = x * 3;
+    x = saved;
+    x += 1;
+    saved == 21 && x == 22
+}
+
+pub fn overwritten_rhs() -> bool {
+    saved_rhs(7)
+}

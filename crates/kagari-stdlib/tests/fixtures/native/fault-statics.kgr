@@ -1,0 +1,15 @@
+use fixture::payload::{ Payload, new };
+
+static var first: [Payload] = [new()];
+
+static var second: [Payload] = [new()];
+
+fn main() {
+    val a = first;
+    val b = second;
+}
+
+pub fn clear() {
+    first = [];
+    second = [];
+}

@@ -221,7 +221,7 @@ fn unused_declarations_and_semantic_slots_cannot_hide_unknown_traits() {
 }
 
 #[test]
-fn native_storage_applications_require_the_actual_owner_and_layout_arity() {
+fn native_storage_applications_require_the_actual_owner_and_declared_arity() {
     let context = DefinitionContext::new().unwrap();
     let module = ModuleIdentity::single_file("contracts.kgr");
     let root = context.intern_root(&module).unwrap();
@@ -230,7 +230,7 @@ fn native_storage_applications_require_the_actual_owner_and_layout_arity() {
         .unwrap();
     let record = TypeDef {
         name: "Buffer".into(),
-        kind: TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { element: 0 }),
+        kind: TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
         generic_params: vec![GenericParam {
             owner: id,
             position: 0,

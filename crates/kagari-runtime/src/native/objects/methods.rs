@@ -25,7 +25,7 @@ impl ObjectType {
         Ok(AppliedReceiver::new(
             self.owner().clone(),
             self.type_argument().clone(),
-            self.0._program.clone(),
+            self.0.program.clone(),
         ))
     }
 
@@ -47,7 +47,7 @@ impl InherentType for ObjectType {
 impl<S> Object<S> {
     pub fn schedule_async<A: IntoKagariArguments, R: FromKagari + Send + 'static>(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         method: &AsyncMethod<A, R>,
         arguments: A,
         options: ExecutionOptions,
@@ -67,7 +67,7 @@ impl<S> Object<S> {
         method: &Method<A, R>,
         arguments: A,
     ) -> NativeResult<R> {
-        self.id(cx)?;
+        self.validate(cx)?;
         method.call_on(
             cx,
             self.object_type.method_receiver()?,

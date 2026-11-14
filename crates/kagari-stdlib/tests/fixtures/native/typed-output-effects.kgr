@@ -1,0 +1,6 @@
+use example::typed::effect;
+
+pub fn run(value: i32) -> i32 {
+    effect();
+    value
+}

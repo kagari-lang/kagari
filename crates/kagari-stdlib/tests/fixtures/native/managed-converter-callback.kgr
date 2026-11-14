@@ -1,0 +1,3 @@
+pub fn callback() -> fn() -> i32 {
+    || 42
+}

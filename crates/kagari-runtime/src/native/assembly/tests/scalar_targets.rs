@@ -1,4 +1,6 @@
 //! Scalar declarations own checked targets; Rust algorithm reuse is not target sharing.
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime,
     frame::driver::ReturnAction,
@@ -7,12 +9,16 @@ use crate::{
         assembly::{ModuleAssembly, ModuleDefinition, ModuleSetBuilder},
         binding::{Codec, NativeBinding, NativeResult},
         catalog::DeclarationCatalog,
-        context::{CallContext, ScriptCall},
+        context::{NativeCall, ScriptCall},
+        conversion::arguments::ArgumentValues,
         declarations::MethodDecl,
         module::NativeModule,
         types::{Type, same_definition},
     },
-    value::Value,
+    value::{
+        place::{PublishedResult, ResultPlace},
+        view::ValueView,
+    },
 };
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
 use kagari_common::identity::{ModuleIdentity, PackageId};
@@ -24,7 +30,7 @@ use std::sync::Arc;
 
 // One Rust function, not two per-scalar implementations or a spelling dispatcher.
 // The binding for each declaration still states its own exact conversion contract.
-fn identity(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+fn identity<'call>(cx: &mut NativeCall<'call>) -> NativeResult<ValueView<'call>> {
     cx.argument(0)
 }
 
@@ -62,12 +68,13 @@ fn assembly(invalid_second_codec: bool) -> ModuleAssembly {
     set.finish().unwrap()
 }
 
-fn no_script_reentry(
-    _: &Runtime,
+fn no_script_reentry<'result>(
+    _: &mut Runtime,
     _: &ExecutableModule,
-    _: ScriptCall<'_>,
-    _: &[Value],
-) -> NativeResult<Value> {
+    _: ScriptCall<'_, '_>,
+    _: ArgumentValues<'_>,
+    _: ResultPlace<'result>,
+) -> NativeResult<PublishedResult<'result>> {
     panic!("scalar identity does not reenter script")
 }
 
@@ -103,7 +110,13 @@ fn distinct_scalar_impls_reuse_one_algorithm_without_merging_checked_or_applied_
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(snapshot.modules().iter().cloned().map(Arc::new).collect());
     let mut sources = SourceDatabase::default();
-    let root = sources.set("scalar-targets.kgr", "fn main() -> i64 { val first: i32 = 7; val second: i64 = 9; first.identity(); second.identity() }".into(), SourceLayer::Base).unwrap();
+    let root = sources
+        .set(
+            "scalar-targets.kgr",
+            include_str!("../../../../tests/fixtures/native/scalar-targets.kgr").into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
     let checked = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap()
@@ -119,10 +132,14 @@ fn distinct_scalar_impls_reuse_one_algorithm_without_merging_checked_or_applied_
         .unwrap();
     let mut runtime = Runtime::default();
     NativeModule::install_all(&modules, &mut runtime).unwrap();
-    let loaded_program = runtime.load_program("scalar-targets", bytecode).unwrap();
+    let loaded_program = load_bytecode(&mut runtime, "scalar-targets", bytecode).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     let mut applied = vec![];
-    for (declaration, value) in declarations.iter().zip([Value::I32(7), Value::I64(9)]) {
+    for (declaration, value) in declarations
+        .iter()
+        .zip([ValueView::from(7i32), ValueView::from(9i64)])
+    {
         let matches = loaded
             .members()
             .flat_map(|owner| {
@@ -170,23 +187,30 @@ fn distinct_scalar_impls_reuse_one_algorithm_without_merging_checked_or_applied_
             matches!(&linked.binding.result, Codec::Exact(ty) if ty.abi() == &declaration.function.return_type)
         );
         applied.push((import.instance.clone(), import.binding));
-        let stack = runtime.enter_execution_stack(owner).unwrap();
-        stack
-            .push_callable(
-                &runtime,
-                owner.clone(),
-                CallableTarget::Native(*slot),
-                std::slice::from_ref(&value),
-                None,
-            )
+        let mut stack_activation = runtime.enter_execution_stack(owner).unwrap();
+        stack_activation
+            .with(|runtime, stack| {
+                stack
+                    .push_callable(
+                        runtime,
+                        owner.clone(),
+                        CallableTarget::Native(*slot),
+                        ArgumentValues::scalars(std::slice::from_ref(&value)),
+                        None,
+                    )
+                    .unwrap();
+                stack
+                    .start_native_entry(runtime, no_script_reentry)
+                    .unwrap();
+                let ReturnAction::Complete(result) = stack.finish_native_return(runtime).unwrap()
+                else {
+                    panic!("scalar return")
+                };
+                assert_eq!(result.payload(), value.scalar_payload());
+
+                Ok(())
+            })
             .unwrap();
-        stack
-            .start_native_entry(&runtime, no_script_reentry)
-            .unwrap();
-        let ReturnAction::Complete(result) = stack.finish_native_return(&runtime).unwrap() else {
-            panic!("scalar return")
-        };
-        assert_eq!(result, value);
     }
     assert_ne!(
         applied[0].0, applied[1].0,
@@ -196,7 +220,7 @@ fn distinct_scalar_impls_reuse_one_algorithm_without_merging_checked_or_applied_
         applied[0].1, applied[1].1,
         "Rust function reuse must not merge binding targets"
     );
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
 }
 
 #[test]

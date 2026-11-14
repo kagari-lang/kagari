@@ -1,12 +1,12 @@
 #![cfg(feature = "source")]
-use crate::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use crate::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::{
+    error::RuntimeErrorKind,
     module::entry::ProgramEntry,
     native::{
-        binding::NativeResult, builder::ModuleBuilder, declarations::FunctionDecl,
-        typed::NativeContext, types::Type,
+        binding::NativeResult, builder::ModuleBuilder, conversion::context::ConversionContext,
+        declarations::FunctionDecl, typed::NativeContext, types::Type,
     },
-    value::Value,
 };
 use kagari_source::{
     source::SourceFile,
@@ -14,6 +14,34 @@ use kagari_source::{
 };
 use kagari_syntax::parser::ParseLimits;
 use std::{env, process::Command};
+
+#[test]
+fn constructors_do_not_install_implicit_library_providers() {
+    let engines = [
+        KagariEngine::default(),
+        KagariEngine::new(Default::default()),
+        KagariEngine::builder().unwrap().build().unwrap(),
+        KagariEngine::with_native_modules(Default::default(), vec![]).unwrap(),
+    ];
+    for engine in engines {
+        assert!(engine.native_declaration_sources().is_empty());
+        let artifact = engine
+            .compile_to_artifact(
+                SourceFile::new("memory://core.kgr", "fn main() -> i32 { 42 }"),
+                Default::default(),
+            )
+            .unwrap();
+        let program =
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        let context = ExecutionContext::default();
+        let mut runtime = engine.runtime(context.clone());
+        let loaded = runtime.load_program(&program, Default::default()).unwrap();
+        let result = runtime
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
+            .unwrap();
+        assert_eq!(result.return_value.as_i32().unwrap(), 42);
+    }
+}
 
 fn provider(answer: i32) -> KagariEngine {
     let mut builder = KagariEngine::builder().unwrap();
@@ -39,6 +67,8 @@ fn sessions_retain_exact_providers_without_inheriting_source_or_query_settings()
     // Equal module identities do not authorize sharing bindings across engines.
     let first = provider(42);
     let second = provider(99);
+    assert_eq!(first.native_declaration_sources().len(), 1);
+    assert_eq!(second.native_declaration_sources().len(), 1);
     let stale = first
         .set_source(
             "memory://stale.kgr",
@@ -67,18 +97,14 @@ fn sessions_retain_exact_providers_without_inheriting_source_or_query_settings()
             .unwrap();
         assert!(snapshot.file(stale).is_none());
         let program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let context = ExecutionContext::default();
         let mut runtime = session.runtime(context.clone());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
         let result = runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap();
-        assert_eq!(
-            result.return_value.value(runtime.runtime().gc()).unwrap(),
-            Value::I32(answer)
-        );
+        assert_eq!(result.return_value.as_i32().unwrap(), answer);
     }
     // Forking did not mutate the parent's parser configuration or source database.
     assert_eq!(first.source_snapshot().files().count(), 1);
@@ -203,7 +229,7 @@ fn runtimes_from_one_installation_have_independent_native_state_and_heap_owners(
         )
         .unwrap();
     let module = module.finish().unwrap();
-    module.install(first.runtime_mut()).unwrap();
+    module.install(&mut first).unwrap();
     builder.install(module).unwrap();
     let artifact = builder
         .build()
@@ -217,7 +243,7 @@ fn runtimes_from_one_installation_have_independent_native_state_and_heap_owners(
         )
         .unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let owner = first.load_program(&program, Default::default()).unwrap();
     let context = ExecutionContext::default();
     assert_eq!(
@@ -227,8 +253,19 @@ fn runtimes_from_one_installation_have_independent_native_state_and_heap_owners(
         42
     );
     assert!(second.load_program(&program, Default::default()).is_err());
-    let value = first.runtime().gc().alloc_string("owned".into()).unwrap();
-    let rooted = first.runtime().root_value(value).unwrap();
-    assert!(rooted.value(second.runtime().gc()).is_none());
-    assert!(rooted.value(first.runtime().gc()).is_some());
+    let selected = first.select_program(&owner).unwrap();
+    let rooted = ConversionContext::new(&mut first, &selected)
+        .unwrap()
+        .encode("owned".to_owned())
+        .unwrap();
+    let error = second
+        .with_host_scope(|scope| scope.import(&rooted).map(|_| ()))
+        .unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+    assert!(!second.is_quarantined());
+    let observed = ConversionContext::new(&mut first, &selected)
+        .unwrap()
+        .decode::<String>(&rooted)
+        .unwrap();
+    assert_eq!(observed, "owned");
 }

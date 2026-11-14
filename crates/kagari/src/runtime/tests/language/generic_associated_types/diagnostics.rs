@@ -1,5 +1,6 @@
 use crate::engine::KagariEngine;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn invalid_family_declarations_projections_and_dynamic_interfaces_are_rejected() {
@@ -26,7 +27,8 @@ fn invalid_family_declarations_projections_and_dynamic_interfaces_are_rejected()
         "trait Family { type Item<T, T>; }",
     ] {
         assert!(
-            KagariEngine::default()
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap()
                 .compile_to_artifact(SourceFile::new("invalid.kgr", source), Default::default())
                 .is_err(),
             "accepted {source}"

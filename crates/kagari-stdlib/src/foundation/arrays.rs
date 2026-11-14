@@ -3,8 +3,7 @@ pub(super) mod operations;
 use crate::{
     catalog::documentation,
     foundation::{
-        Entry, arrays::operations as arrays, bound, interface, iteration::operations as iteration,
-        map_type, override_entry, raw,
+        Entry, arrays::operations as arrays, bound, interface, map_type, override_entry, raw,
     },
 };
 use kagari_runtime::native::{
@@ -54,22 +53,6 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         Ok(TraitImplementation {
             receiver: array(arguments[0].clone())?,
             interface: output.bind(index.apply([Type::u64()])?, arguments[0].clone())?,
-            bounds: vec![],
-            bindings: vec![],
-        }
-        .with_overrides([entry]))
-    })?;
-    let iterable = interface(module, "Iterable", 0)?;
-    let item = module.reference_associated_type(&iterable, "Item", 0)?;
-    let cursor = module.reference_associated_type(&iterable, "Iter", 0)?;
-    let entry = override_entry(module, &iterable, "iter", 0, raw(1, iteration::iter))?;
-    module.trait_implementation_with(1, |arguments| {
-        Ok(TraitImplementation {
-            receiver: array(arguments[0].clone())?,
-            interface: cursor.bind(
-                item.bind(iterable.apply([])?, arguments[0].clone())?,
-                Type::iterator(arguments[0].clone())?,
-            )?,
             bounds: vec![],
             bindings: vec![],
         }

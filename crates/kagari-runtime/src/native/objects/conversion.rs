@@ -8,7 +8,7 @@ use crate::{
         objects::{Dynamic, Object},
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_types::ty::Ty;
 use std::marker::PhantomData;
@@ -54,25 +54,16 @@ impl<S: KagariType> FromKagari for Object<S> {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
         Self::check_type(cx, expected)?;
         cx.check_value(expected, value)?;
-        let Value::Struct(id) = value else {
-            return Err(RuntimeError::module_validation(
-                "object value is not a struct",
-            ));
-        };
-        let layout = cx
-            .runtime()
-            .gc()
-            .struct_layout(*id)
-            .ok_or_else(|| RuntimeError::module_validation("foreign or expired object"))?;
-        let object_type = cx.runtime().retain_object_type(layout.clone())?;
-        let root = cx
-            .runtime()
-            .root_value(*value)
-            .ok_or_else(|| RuntimeError::module_validation("object result retention"))?;
+        let layout = cx.struct_layout(value)?;
+        let origin = cx.owner_origin();
+        let object_type = cx
+            .runtime_mut()
+            .retain_object_type(layout.clone(), origin)?;
+        let root = cx.retain(value)?;
         Ok(Self {
             root,
             object_type,
@@ -83,16 +74,13 @@ impl<S: KagariType> FromKagari for Object<S> {
 }
 
 impl<S: KagariType> IntoKagari for Object<S> {
-    fn into_kagari(
+    fn into_kagari<'call>(
         self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ValueView<'call>> {
         Self::check_type(cx, expected)?;
-        let value = self
-            .root
-            .value(cx.runtime().gc())
-            .ok_or_else(|| RuntimeError::module_validation("foreign or expired object handle"))?;
+        let value = cx.import(&self.root)?;
         cx.check_value(expected, &value)?;
         Ok(value)
     }

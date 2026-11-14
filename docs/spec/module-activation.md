@@ -1,5 +1,9 @@
 # Module loading and activation
 
+The [Runtime model](../architecture/runtime.md) and
+[reload walkthrough](../architecture/runtime/reload.md) describe the implemented
+immutable products, Runtime-owned current state and prepared final call bindings.
+
 Import resolution is a compile-time and link-time operation. It does not execute script code. Cyclic imports are allowed when their declarations and linked contracts are valid.
 
 Each runtime owns its mutable module instances, heap, cancellation state, host bindings, and installation handles. Verified code, layouts, and native compilation products may be shared by an immutable prepared program; its native compilation cache is not duplicated per runtime. There is no cached module result or eager module initialization pass. A function executes through an explicit call or the internal lazy-static initializer entry described below.
@@ -11,12 +15,12 @@ An embedding host may explicitly call functions during a restricted candidate se
 ## Live installations and call selection
 
 Each load creates an independent installation, even for the same prepared code or
-diagnostic label. `Program` and its `Module` handles are live installation handles;
-`ExecutableModule` is an exact executable-version owner. Reload and source update
-return `ReloadResult<()>` in the SDK, advancing the installation rather than
-returning a replacement handle. Runtime ownership, installation identity and
+diagnostic label. `InstalledProgram` and its `Module` handles identify a live installation;
+`ExecutableModule` is an exact executable-version owner. Detached source preparation returns an immutable `Program` candidate; SDK
+`Runtime::replace_program` returns `Result<(), ReloadValidationError>`, advancing the installation
+rather than returning replacement handles. Runtime ownership, installation identity and
 retirement checks remain mandatory; labels confer no authority. Runtime owns the
-installation: dropping Program/Module handles does not unload it, cancel tasks or
+installation: dropping InstalledProgram/Module handles does not unload it, cancel tasks or
 reset statics. Independently retained callable handles remain usable while it is
 live. Runtime close/drop clears live metadata and ends execution/object-access
 authority; a retained exact descriptor cannot revive it. `root()` can still construct
@@ -88,7 +92,9 @@ script publication does not replace arbitrary Rust code.
 Compatible publication preserves each previously public canonical namespace as a
 reachable query start, including namespaces retained through an earlier alias.
 Equivalent root path spellings alone do not justify removing a namespace held by
-an existing `Module`. Every query captures one latest publication; declaration
+an existing `Module`. Live queries require the supplying Runtime; identity handles own no mutable
+current pointer. Explicit snapshots retain immutable publication metadata. Every
+query captures one latest publication; declaration
 lookup and executable-target lookup cannot mix publications. Failed publication
 leaves the same handles observing the old contents; success exposes additions
 without reacquisition.
@@ -119,7 +125,9 @@ synchronous reentry and their cleanup still count as active scopes even if the
 active-session pointer is temporarily hidden. Parked frames, waiting tasks and
 producer-side completion notifications do not prevent publication.
 
-`Runtime::begin_publication` admits an exclusive guard before SDK source preparation.
+Detached SDK source preparation finishes before publication admission.
+`Runtime::begin_publication` requires `&mut Runtime` and retains its exclusive
+borrow through the guard.
 While held, script entry/resumption, driver consumption and another publication
 reject. Staging and commit are metadata-only: no initializers, callbacks or GC-driven
 host destruction run as preparation effects. Commit rechecks installation/base
@@ -127,7 +135,7 @@ identity, bindings and admission. Rejection or cancellation before commit preser
 both the executable and authoritative source baseline. Explicit candidate execution
 is separate and cannot run under the publication guard.
 
-One publication covers one complete Program installation, including affected imported
+One publication covers one complete installation, including affected imported
 modules. It is not a global update of every installation using a package. Code
 atomicity is not a business-state transaction: an operation can call a helper,
 suspend, then call its new body after publication. If unchanged storage acquires a

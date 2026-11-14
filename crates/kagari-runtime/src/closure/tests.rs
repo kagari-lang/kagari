@@ -1,33 +1,39 @@
 use crate::{
     Runtime,
-    closure::{ClosureTarget, ObservedCallableTarget},
+    closure::{ClosureMode, ObservedCallableTarget},
     frame::{
         cursor::kernel::RegionExit,
         driver::{ExecutionAction, ReturnAction},
     },
-    module::dispatch::CallRouteKind,
+    module::{ExecutableModule, dispatch::CallRouteKind},
     native::{
-        callable::PreparedClosure,
-        conversion::{FromKagari, context::ConversionContext},
+        conversion::{FromKagari, arguments::ArgumentValues, context::ConversionContext},
         function_handle::Function,
     },
     source::{SourceQuery, SourceUnavailableReason},
     test_support::update_programs as programs,
-    value::Value,
+    value::{carriers::RootedValue, view::ValueView},
 };
 use kagari_bytecode::module::CallableTarget;
+use kagari_contract::ids::FunctionRef;
+
+fn rooted_closure(
+    runtime: &mut Runtime,
+    owner: &ExecutableModule,
+    function: FunctionRef,
+    captures: &[ValueView<'_>],
+    mode: ClosureMode,
+) -> RootedValue {
+    let mut source = ConversionContext::new(runtime, owner).unwrap();
+    let value = source
+        .allocate_script_closure(function, captures, None, mode)
+        .unwrap();
+    source.retain(&value).unwrap()
+}
 
 #[test]
 fn named_values_and_named_locals_select_current_but_zero_capture_bodies_stay_exact() {
-    let source = r#"
-        pub fn helper() -> i32 { 1 }
-        pub fn named() -> fn() -> i32 {
-            fn local() -> i32 { 3 }
-            local
-        }
-        pub fn generated() -> fn() -> i32 { || helper() + 10 }
-        fn main() {}
-    "#;
+    let source = include_str!("../../tests/fixtures/closure/named-routes.kgr");
     let mut runtime = Runtime::default();
     let program = runtime
         .load_verified_program("exports", programs::source_code(source))
@@ -48,18 +54,15 @@ fn named_values_and_named_locals_select_current_but_zero_capture_bodies_stay_exa
             assert_eq!(kind, CallRouteKind::Named);
         }
         generated_seen |= kind == CallRouteKind::BodyOwned;
-        let value = runtime
-            .make_closure(&old, function.id, vec![], None)
-            .unwrap();
-        let root = runtime.root_value(value).unwrap();
+        let root = rooted_closure(&mut runtime, &old, function.id, &[], ClosureMode::Ordinary);
+        let mut access = runtime.host_scope(&[]).unwrap();
+        let value = access.import(&root).unwrap();
+        let record = access.runtime_mut().resolve_closure(&value).unwrap();
         assert_eq!(
-            runtime
-                .resolve_closure(&value)
-                .unwrap()
-                .call_route()
-                .is_some(),
+            record.call_route().is_some(),
             kind != CallRouteKind::BodyOwned
         );
+        drop(access);
         values.push((root, kind));
     }
     assert!(
@@ -68,11 +71,11 @@ fn named_values_and_named_locals_select_current_but_zero_capture_bodies_stay_exa
     );
     assert!(
         generated_seen,
-        "fixture must contain a zero-capture generated closure"
+        "fixture contains a zero-capture generated closure"
     );
     let next = source
-        .replace("{ 1 }", "{ 2 }")
-        .replace("{ 3 }", "{ 4 }")
+        .replace("    1\n", "    2\n")
+        .replace("        3\n", "        4\n")
         .replace("+ 10", "+ 20");
     for result in programs::source_free_reload_results(&old, &next) {
         result.unwrap();
@@ -85,57 +88,65 @@ fn named_values_and_named_locals_select_current_but_zero_capture_bodies_stay_exa
     runtime.collect_garbage().unwrap();
     let mut observed = Vec::new();
     for (root, kind) in &values {
-        let value = root.value(runtime.gc()).unwrap();
-        let selected = runtime
-            .resolve_closure(&value)
-            .unwrap()
-            .select_call(&runtime)
-            .unwrap();
-        assert!(matches!(selected.target, ClosureTarget::Script(_)));
         let expected = if *kind == CallRouteKind::BodyOwned {
             old_token
         } else {
             current_token
         };
-        assert_eq!(selected.implementation.publication_token(), expected);
-        let token = runtime.observe_callable_value(root).unwrap().unwrap();
-        assert_eq!(token.publication, expected);
-        assert_eq!(
-            token.target,
-            ObservedCallableTarget::Entry(selected.callable_target())
-        );
-        observed.push(token);
+        let observation = runtime.observe_callable_value(root).unwrap().unwrap();
+        assert_eq!(observation.publication, expected);
+        observed.push(observation);
         assert!(Runtime::default().observe_callable_value(root).is_err());
         let current = runtime.select_program(&program).unwrap();
-        let stack = runtime.enter_execution_stack(&current).unwrap();
-        stack.push_closure(&runtime, &value, &[], None).unwrap();
-        assert_eq!(
-            stack.current().unwrap().loaded().publication_token(),
-            expected
-        );
-        if *kind == CallRouteKind::BodyOwned {
-            let mut called = false;
-            for _ in 0..64 {
-                match stack
-                    .execute_region(&runtime, &mut None, |_, _, _, _| panic!("no native calls"))
-                    .unwrap()
-                {
-                    RegionExit::Call(ExecutionAction::Script) => {
-                        assert_eq!(
-                            stack.current().unwrap().loaded().publication_token(),
-                            current_token
-                        );
-                        called = true;
-                        break;
+        // A Host source outlives the nested execution activation. Its locals do
+        // not cross a live callee mark in that callee's own execution storage.
+        let mut access = runtime.host_scope(&[]).unwrap();
+        let value = access.import(root).unwrap();
+        let mut activation = access
+            .runtime_mut()
+            .enter_execution_stack(&current)
+            .unwrap();
+        activation
+            .with(|runtime, stack| {
+                stack
+                    .push_closure(runtime, &value, ArgumentValues::scalars(&[]), None)
+                    .unwrap();
+                let frame = stack.current(runtime).unwrap();
+                assert_eq!(frame.loaded().publication_token(), expected);
+                assert!(matches!(frame.target(), CallableTarget::Script(_)));
+                assert_eq!(
+                    observation.target,
+                    ObservedCallableTarget::Entry(frame.target())
+                );
+                drop(frame);
+                if *kind == CallRouteKind::BodyOwned {
+                    let mut called = false;
+                    for _ in 0..64 {
+                        match stack
+                            .execute_region(runtime, &mut None, |_, _, _, _, _| {
+                                panic!("no native calls")
+                            })
+                            .unwrap()
+                        {
+                            RegionExit::Call(ExecutionAction::Script) => {
+                                assert_eq!(
+                                    stack.current(runtime).unwrap().loaded().publication_token(),
+                                    current_token
+                                );
+                                called = true;
+                                break;
+                            }
+                            RegionExit::Boundary | RegionExit::Safepoint => {}
+                            _ => panic!("retained body must call the ordinary helper"),
+                        }
                     }
-                    RegionExit::Boundary | RegionExit::Safepoint => {}
-                    _ => panic!("retained body must call the ordinary helper"),
+                    assert!(called);
                 }
-            }
-            assert!(called);
-        }
+                Ok(())
+            })
+            .unwrap();
     }
-    // Observation alone must not keep an old executable or heap value alive.
+    // Detached observation tokens do not keep either the value or old body alive.
     drop(values);
     drop(old);
     runtime.collect_garbage().unwrap();
@@ -145,7 +156,7 @@ fn named_values_and_named_locals_select_current_but_zero_capture_bodies_stay_exa
 
 #[test]
 fn only_named_value_roots_allow_old_code_collection_and_current_admission() {
-    let source = "pub fn helper() -> i32 { 1 } pub fn generated() -> fn() -> i32 { || helper() + 10 } fn main() {}";
+    let source = include_str!("../../tests/fixtures/closure/named-roots.kgr");
     let mut runtime = Runtime::default();
     let program = runtime
         .load_verified_program("exports", programs::source_code(source))
@@ -153,12 +164,14 @@ fn only_named_value_roots_allow_old_code_collection_and_current_admission() {
     let old = runtime.select_program(&program).unwrap();
     let old_key = old.key();
     let (_, helper) = old.exported_function("helper").unwrap();
-    let value = runtime.make_closure(&old, helper, vec![], None).unwrap();
+    let value = rooted_closure(&mut runtime, &old, helper, &[], ClosureMode::Ordinary);
     let named = {
-        let mut cx = ConversionContext::new(&runtime, &old).unwrap();
+        let mut cx = ConversionContext::new(&mut runtime, &old).unwrap();
         let signature = cx.type_for::<Function<(), i32>>().unwrap();
+        let value = cx.import(&value).unwrap();
         Function::<(), i32>::from_kagari(&mut cx, &signature, &value).unwrap()
     };
+    drop(value);
     let generated = old
         .bytecode
         .functions
@@ -171,13 +184,12 @@ fn only_named_value_roots_allow_old_code_collection_and_current_admission() {
         })
         .unwrap()
         .id;
-    let generated = runtime.make_closure(&old, generated, vec![], None).unwrap();
-    let generated = runtime.root_value(generated).unwrap();
+    let generated = rooted_closure(&mut runtime, &old, generated, &[], ClosureMode::Ordinary);
     let staged = runtime
         .stage_reload_program(
             &program,
             None,
-            programs::bytecode(&source.replace("{ 1 }", "{ 2 }"), Some(&old)),
+            programs::bytecode(&source.replace("    1\n", "    2\n"), Some(&old)),
         )
         .unwrap();
     let current_token = staged.publication_token();
@@ -189,13 +201,11 @@ fn only_named_value_roots_allow_old_code_collection_and_current_admission() {
         "generated body retains exact code"
     );
     drop(generated);
-    let reclaimed = runtime.collect_garbage().unwrap().reclaimed_modules;
+    runtime.collect_garbage().unwrap();
     assert!(
-        reclaimed.contains(&old_key),
-        "a scalar named value is not an executable lease"
+        runtime.modules().loaded(old_key).is_none(),
+        "named values do not own an old body lease"
     );
-    assert!(runtime.modules().loaded(old_key).is_none());
-
     let root = named.closure_value().unwrap();
     assert_eq!(
         runtime
@@ -210,51 +220,81 @@ fn only_named_value_roots_allow_old_code_collection_and_current_admission() {
         named.source_target(),
     ] {
         let SourceQuery::Unavailable(source) = runtime.function_source(&target).unwrap() else {
-            panic!("fixture deliberately has no source package");
+            panic!("fixture has no source package");
         };
         assert_eq!(source.reason, SourceUnavailableReason::MissingPackage);
         assert_eq!(source.publication, Some(current_token));
     }
-    let prepared = named.prepare_call(&runtime).unwrap();
+    let prepared = named.prepare_call(&mut runtime).unwrap();
     assert_eq!(prepared.owner().publication_token(), current_token);
     let current = runtime.select_program(&program).unwrap();
-    let stack = runtime.enter_execution_stack(&current).unwrap();
-    stack
-        .push_closure(&runtime, &root.value(runtime.gc()).unwrap(), &[], None)
+    let mut access = runtime.host_scope(&[]).unwrap();
+    let value = access.import(root).unwrap();
+    let mut activation = access
+        .runtime_mut()
+        .enter_execution_stack(&current)
         .unwrap();
-    let RegionExit::Return(result) = stack
-        .execute_region(&runtime, &mut None, |_, _, _, _| panic!("no native calls"))
-        .unwrap()
-    else {
-        panic!("scalar helper returns directly");
-    };
-    assert_eq!(
-        stack.finish_return(&runtime, result).unwrap(),
-        ReturnAction::Complete(Value::I32(2))
-    );
+    activation
+        .with(|runtime, stack| {
+            stack
+                .push_closure(runtime, &value, ArgumentValues::scalars(&[]), None)
+                .unwrap();
+            let RegionExit::Return(result) = stack
+                .execute_region(runtime, &mut None, |_, _, _, _, _| {
+                    panic!("no native calls")
+                })
+                .unwrap()
+            else {
+                panic!("scalar helper returns directly");
+            };
+            let ReturnAction::Complete(result) = stack.finish_return(runtime, result).unwrap()
+            else {
+                panic!("root helper completes");
+            };
+            assert_eq!(
+                stack.retain_result(runtime, result).unwrap().as_i32(),
+                Some(2)
+            );
+            Ok(())
+        })
+        .unwrap();
 }
 
 #[test]
 fn retained_computation_does_not_reclassify_a_named_body_by_capture_count() {
-    let source = "pub fn work(value: i32) -> i32 { value + 1 } fn main() {}";
+    let source = include_str!("../../tests/fixtures/closure/capture-classification.kgr");
     let mut runtime = Runtime::default();
     let program = runtime
         .load_verified_program("exports", programs::source_code(source))
         .unwrap();
     let old = runtime.select_program(&program).unwrap();
     let (owner, function) = old.exported_function("work").unwrap();
-    let ordinary = runtime
-        .make_closure(&owner, function, vec![Value::I32(7)], None)
-        .unwrap();
-    let exact = runtime
-        .make_retained_closure(&owner, function, vec![Value::I32(7)], None)
-        .unwrap();
-    let (_, admitted) = PreparedClosure::from_value(&runtime, ordinary)
-        .unwrap()
-        .prepare_call(&runtime)
-        .unwrap();
-    let ordinary = runtime.root_value(ordinary).unwrap();
-    let exact = runtime.root_value(exact).unwrap();
+    let capture = [ValueView::from(7i32)];
+    let ordinary = rooted_closure(
+        &mut runtime,
+        &owner,
+        function,
+        &capture,
+        ClosureMode::Ordinary,
+    );
+    let exact = rooted_closure(
+        &mut runtime,
+        &owner,
+        function,
+        &capture,
+        ClosureMode::Retained,
+    );
+    let admitted = {
+        let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
+        let value = cx.import(&ordinary).unwrap();
+        let execution = value.location().unwrap().execution;
+        let selected = cx
+            .runtime_mut()
+            .select_closure_call(execution, &value)
+            .unwrap();
+        let frozen = cx.freeze_closure(&selected).unwrap();
+        cx.retain(&frozen).unwrap()
+    };
     let staged = runtime
         .stage_reload_program(
             &program,
@@ -262,19 +302,62 @@ fn retained_computation_does_not_reclassify_a_named_body_by_capture_count() {
             programs::bytecode(&source.replace("+ 1", "+ 2"), Some(&old)),
         )
         .unwrap();
-    let current = staged.publication_token();
+    let current_token = staged.publication_token();
     runtime.publish_staged_reload(staged).unwrap();
-    for (root, expected) in [
-        (&ordinary, current),
-        (&exact, old.publication_token()),
-        (&admitted, old.publication_token()),
+    runtime.collect_garbage().unwrap();
+    let current = runtime.select_program(&program).unwrap();
+    for (root, expected, result) in [
+        (&ordinary, current_token, 9),
+        (&exact, old.publication_token(), 8),
+        (&admitted, old.publication_token(), 8),
     ] {
-        let selected = runtime
-            .resolve_closure(&root.value(runtime.gc()).unwrap())
-            .unwrap()
-            .select_call(&runtime)
+        assert_eq!(
+            runtime
+                .observe_callable_value(root)
+                .unwrap()
+                .unwrap()
+                .publication,
+            expected
+        );
+        let mut access = runtime.host_scope(&[]).unwrap();
+        let value = access.import(root).unwrap();
+        let record = access.runtime_mut().resolve_closure(&value).unwrap();
+        assert_eq!(record.capture_types.len(), 1);
+        let mut activation = access
+            .runtime_mut()
+            .enter_execution_stack(&current)
             .unwrap();
-        assert_eq!(selected.implementation.publication_token(), expected);
-        assert_eq!(selected.captures, [Value::I32(7)]);
+        activation
+            .with(|runtime, stack| {
+                stack
+                    .push_closure(runtime, &value, ArgumentValues::scalars(&[]), None)
+                    .unwrap();
+                let frame = stack.current(runtime).unwrap();
+                assert_eq!(frame.loaded().publication_token(), expected);
+                let parameter = frame.function().unwrap().metadata.parameter_slots[0];
+                assert_eq!(
+                    frame.read_slot(runtime, parameter).unwrap().as_i32(),
+                    Some(7)
+                );
+                drop(frame);
+                let RegionExit::Return(value) = stack
+                    .execute_region(runtime, &mut None, |_, _, _, _, _| {
+                        panic!("no native calls")
+                    })
+                    .unwrap()
+                else {
+                    panic!("captured scalar helper returns");
+                };
+                let ReturnAction::Complete(value) = stack.finish_return(runtime, value).unwrap()
+                else {
+                    panic!("root closure completes");
+                };
+                assert_eq!(
+                    stack.retain_result(runtime, value).unwrap().as_i32(),
+                    Some(result)
+                );
+                Ok(())
+            })
+            .unwrap();
     }
 }

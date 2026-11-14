@@ -1,0 +1,13 @@
+static val value: i32 = calculate();
+
+fn calculate() -> i32 {
+    var n = 0;
+    while n < 30 {
+        n += 1;
+    }
+    n
+}
+
+fn main() -> i32 {
+    value
+}

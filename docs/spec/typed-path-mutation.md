@@ -49,12 +49,15 @@ Typed path mutation does not provide:
 
 Runtime path operations register a HostResourceScope in the active execution
 session. Root/view arguments, dynamic arguments, incoming values and previous/new
-values remain rooted throughout validation and preparation. Read operations acquire
+values remain in its protected execution source throughout validation and preparation.
+Callback views do not independently register Host roots. Read operations acquire
 a shared host-object lease; set/modify acquire a unique lease. They share conflict
 checks with declared host-function borrows and release leases on every exit.
 
-Adapter callbacks now receive HostCallContext followed by HostPathContext (then
-the operation/value or mutation record). Read, validate and prepare callbacks can
+Adapter callbacks receive HostCallContext followed by HostPathContext<ValueView>
+(then the operation/value or HostPathMutationRecord<ValueView>). Base paths remain
+opaque protected values; inspect_path exposes one actual component and its effective
+access. Read, validate and prepare callbacks can
 reenter checked functions in the installation, using current ordinary-call routes
 and the same borrow conflicts, declared access and cancellation. Active callbacks
 and synchronous reentry prevent reload publication. Borrowed read results
@@ -62,6 +65,12 @@ cannot escape. PreparedHostPathWrite retains the existing infallible commit rule
 its commit action cannot invoke scripts or runtime mutations. No resource-table
 borrow spans user callbacks; dropping a rejected prepared action releases its host
 reservations before the operation scope exits.
+
+After preparation, the root capability is checked again and the durable record's
+base, dynamic arguments and old/new values acquire genuine Host roots before ledger
+capacity admission and commit. Copying a dirty report shares those registrations.
+The actual path object traces its base graph, so a report does not reconstruct
+recursive detached path descriptions or recover values from unprotected IDs.
 
 For host-owned structured data, a field or index chain is compiled into a typed path.
 

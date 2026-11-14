@@ -3,11 +3,9 @@ use kagari::engine::{KagariEngine, source::ArtifactOptions};
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_runtime::{
     Runtime, module::VerifiedProgram, module::entry::ProgramEntry, native::module::NativeModule,
-    value::Value,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_stdlib as standard;
-use kagari_vm::vm::Vm;
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     hint::black_box,
@@ -111,7 +109,9 @@ fn main() {
         "fn identity<T>(value: T) -> T { value }\nfn main() -> i32 { f31(Player { hp: 31 }).hp }\n",
     );
     let analyzed = measure("fresh_analysis", || {
-        let engine = KagariEngine::default();
+        let engine =
+            KagariEngine::with_native_modules(Default::default(), standard::modules().unwrap())
+                .unwrap();
         let file = engine
             .set_source("identity-benchmark.kgr", source.clone(), SourceLayer::Base)
             .unwrap();
@@ -130,7 +130,8 @@ fn main() {
     });
     drop(analyzed);
     let artifact = measure("compile_artifact", || {
-        KagariEngine::default()
+        KagariEngine::with_native_modules(Default::default(), standard::modules().unwrap())
+            .unwrap()
             .compile_to_artifact(
                 SourceFile::new("identity-benchmark.kgr", source.clone()),
                 ArtifactOptions::default(),
@@ -171,15 +172,14 @@ fn main() {
         "independent_runtime_shared_module={}",
         Arc::ptr_eq(&first.bytecode, &second.bytecode)
     );
-    let vm = Vm::new(first_runtime);
-    assert!(matches!(
-        vm.execute(&first, ProgramEntry::Main)
+    let mut vm = first_runtime;
+    assert_eq!(
+        vm.execute_module(&first, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(31)
-    ));
+            .as_i32(),
+        Some(31)
+    );
     black_box((vm, second_runtime, first, second));
 }
 

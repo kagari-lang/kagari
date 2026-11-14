@@ -1,0 +1,7 @@
+use example::dto::{ Packet, update, shared, len };
+
+pub fn main() ->(i32, i32, u64) {
+    val input = Packet { hp: 7, shared: shared() };
+    val output = update(input);
+    (input.hp, output.hp, len(input.shared))
+}

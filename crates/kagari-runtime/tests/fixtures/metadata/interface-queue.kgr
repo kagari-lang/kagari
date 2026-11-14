@@ -1,0 +1,15 @@
+use fixture::queue::{ Future, ready };
+
+pub trait Queue {
+    fn run(self) -> Future<i32>;
+}
+
+impl Queue for i32 {
+    fn run(self) -> Future<i32> {
+        ready(1)
+    }
+}
+
+fn main() -> Queue {
+    7
+}

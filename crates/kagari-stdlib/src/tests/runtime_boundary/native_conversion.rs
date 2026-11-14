@@ -1,12 +1,13 @@
 use crate::tests::runtime_boundary::support::compile_program;
+use crate::tests::support::bytecode::load_bytecode;
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
 };
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind},
+    execution::memory::GcHeapConfig,
     frame::types::arguments::TypeArgument,
-    gc::{GcHeapConfig, HeapObjectId, roots::RootedValue},
     module::ExecutableModule,
     native::{
         binding::NativeResult,
@@ -14,15 +15,16 @@ use kagari_runtime::{
         catalog::DeclarationCatalog,
         conversion::{
             FromKagari, IntoKagari, KagariType,
-            arguments::{FromKagariArguments, IntoKagariArguments},
+            arguments::{FromKagariArguments, IntoKagariArguments, PreparedArguments},
             context::{ConversionContext, ConversionLimits},
         },
         module::NativeModule,
         types::Type,
+        value_handle::ScriptValue,
     },
-    value::Value,
+    value::{carriers::RootedValue, view::ValueView},
 };
-use kagari_types::ty::Ty;
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::{
     cell::Cell,
     fmt::Debug,
@@ -32,7 +34,7 @@ use std::{
 fn fixture() -> (Runtime, ExecutableModule) {
     fixture_with(
         None,
-        "fn signature(value: Vec<Option<Result<(String, Vec<i32>), String>>>) {}",
+        include_str!("../../../tests/fixtures/runtime_boundary/conversion-signature.kgr"),
     )
 }
 
@@ -48,40 +50,55 @@ fn fixture_with(extra: Option<NativeModule>, source: &str) -> (Runtime, Executab
         ..Default::default()
     });
     NativeModule::install_all(&modules, &mut runtime).unwrap();
-    let loaded = runtime.load_program("conversion", program).unwrap();
+    let loaded = load_bytecode(&mut runtime, "conversion", program).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
+    runtime.collect_garbage().unwrap();
     (runtime, loaded)
 }
 
 #[test]
 fn nested_owned_values_round_trip_under_collection_and_release_temporary_roots() {
-    type NestedValues = Vec<Option<Result<(String, Vec<i32>), String>>>;
-    let (runtime, owner) = fixture();
-    let input = vec![
-        Some(Ok(("火🔥".to_owned(), vec![20, 22]))),
+    type Entry = Option<Result<(String, (i32, i32)), String>>;
+    type NestedValues = (Entry, Entry, Entry);
+    let (mut runtime, owner) = fixture();
+    let baseline = runtime.gc_stats();
+    let input = (
+        Some(Ok(("火🔥".to_owned(), (20, 22)))),
         None,
         Some(Err("business error".to_owned())),
-    ];
+    );
     let root = {
-        let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+        let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
         let root = cx.encode(input.clone()).unwrap();
-        assert_eq!(runtime.gc().active_roots(), 1);
-        runtime.collect_garbage().unwrap();
+        cx.runtime_mut().collect_garbage().unwrap();
+        assert_eq!(
+            cx.runtime().gc_stats().root_registrations,
+            baseline.root_registrations + 1
+        );
         let decoded: NestedValues = cx.decode(&root).unwrap();
         assert_eq!(decoded, input);
-        assert_eq!(runtime.gc().active_roots(), 1);
+        cx.runtime_mut().collect_garbage().unwrap();
+        assert_eq!(
+            cx.runtime().gc_stats().root_registrations,
+            baseline.root_registrations + 1
+        );
         root
     };
-    assert!(runtime.gc().stats().collections > 0);
+    assert!(runtime.gc_stats().completed_cycles > baseline.completed_cycles);
     drop(root);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 #[test]
 fn scalar_widths_tuple_arity_and_foreign_roots_are_checked() {
-    let (runtime, owner) = fixture();
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let (mut runtime, owner) = fixture();
+    let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
     let values = (
         i8::MIN,
         i16::MAX,
@@ -102,41 +119,44 @@ fn scalar_widths_tuple_arity_and_foreign_roots_are_checked() {
             .unwrap(),
         values
     );
-    let unsigned = vec![1u64 << 32, u64::MAX];
-    let root = cx.encode(unsigned.clone()).unwrap();
-    assert_eq!(cx.decode::<Vec<u64>>(&root).unwrap(), unsigned);
-    let signed = vec![i64::MIN, i64::MAX];
-    let root = cx.encode(signed.clone()).unwrap();
-    assert_eq!(cx.decode::<Vec<i64>>(&root).unwrap(), signed);
+    let unsigned = (1u64 << 32, u64::MAX);
+    let root = cx.encode(unsigned).unwrap();
+    assert_eq!(cx.decode::<(u64, u64)>(&root).unwrap(), unsigned);
+    let signed = (i64::MIN, i64::MAX);
+    let root = cx.encode(signed).unwrap();
+    assert_eq!(cx.decode::<(i64, i64)>(&root).unwrap(), signed);
     let unit = cx.encode(()).unwrap();
-    assert_eq!(unit.value(runtime.gc()), Some(Value::Unit));
+    assert!(cx.import(&unit).unwrap().is_unit());
     let tuple = cx.encode((true,)).unwrap();
     assert_eq!(cx.decode::<(bool,)>(&tuple).unwrap(), (true,));
-    let invalid = runtime.root_value(Value::I32(256)).unwrap();
+    let invalid = RootedValue::from(256i64);
     assert!(cx.decode::<u8>(&invalid).is_err());
-    for values in [vec![], vec![Value::I32(42)]] {
-        let array = runtime
-            .alloc_array(
-                &owner,
-                Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
-                values,
-            )
-            .unwrap();
-        let root = runtime.root_value(Value::Array(array)).unwrap();
-        assert!(cx.decode::<Vec<i32>>(&root).is_err());
-        assert!(
-            cx.decode::<kagari_runtime::native::collections::vector::ScriptVec<i32>>(&root)
-                .is_err()
-        );
-    }
-    let foreign = Runtime::default().root_value(Value::I32(1)).unwrap();
-    assert!(cx.decode::<i32>(&foreign).is_err());
+    let short = cx.encode((42i32,)).unwrap();
+    assert!(cx.decode::<(i32, i32)>(&short).is_err());
+    let array = cx
+        .runtime_mut()
+        .alloc_array(
+            &owner,
+            Ty::Builtin(BuiltinType::I32),
+            &[RootedValue::from(42i32)],
+        )
+        .unwrap();
+    assert!(cx.decode::<(i32, i32)>(&array).is_err());
+    let (mut foreign, foreign_owner) = fixture();
+    let foreign_root = ConversionContext::new(&mut foreign, &foreign_owner)
+        .unwrap()
+        .encode(("foreign".to_owned(),))
+        .unwrap();
+    assert_eq!(
+        cx.decode::<(String,)>(&foreign_root).unwrap_err().kind(),
+        RuntimeErrorKind::ModuleValidation
+    );
 }
 
 #[test]
 fn supported_tuple_arities_each_round_trip_as_one_value() {
-    let (runtime, owner) = fixture();
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let (mut runtime, owner) = fixture();
+    let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
     macro_rules! round_trip {
         ($($ty:ty => $value:expr),*) => {
             let value = ($($value,)*);
@@ -167,18 +187,29 @@ where
     let expected = (0..count)
         .map(|index| cx.parameter(&tuple, index).unwrap())
         .collect::<Vec<_>>();
-    let arguments = value.clone().into_arguments(cx, &expected).unwrap();
-    let slots = (0..count)
-        .map(|index| arguments.get(cx.runtime().gc(), index).unwrap())
-        .collect::<Vec<_>>();
-    assert!(arguments.get(cx.runtime().gc(), count).is_none());
-    assert_eq!(A::from_arguments(cx, &expected, &slots).unwrap(), value);
+    let arguments = PreparedArguments::<A>::new(cx, &expected)
+        .unwrap()
+        .encode(cx, value.clone())
+        .unwrap();
+    assert_eq!(arguments.len(), count);
+    assert_eq!(
+        arguments.get(cx, count).unwrap_err().kind(),
+        RuntimeErrorKind::ModuleValidation
+    );
+    assert_eq!(
+        PreparedArguments::<A>::new(cx, &expected)
+            .unwrap()
+            .decode(cx, arguments)
+            .unwrap(),
+        value
+    );
 }
 
 #[test]
 fn outer_argument_tuples_cover_zero_through_twelve_and_preserve_nested_tuple_values() {
-    let (runtime, owner) = fixture();
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let (mut runtime, owner) = fixture();
+    let baseline = runtime.gc_stats();
+    let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
     round_trip_arguments(&mut cx, (), 0);
     round_trip_arguments(&mut cx, (1,), 1);
     round_trip_arguments(&mut cx, (1, 2), 2);
@@ -194,22 +225,35 @@ fn outer_argument_tuples_cover_zero_through_twelve_and_preserve_nested_tuple_val
     round_trip_arguments(&mut cx, (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12), 12);
     round_trip_arguments(
         &mut cx,
-        ("first".to_owned(), vec!["second".to_owned()], (3, true)),
+        ("first".to_owned(), ("second".to_owned(),), (3, true)),
         3,
     );
     let tuple = cx.type_for::<(i32, i32)>().unwrap();
-    let arguments = ((1, 2),).into_arguments(&mut cx, &[tuple]).unwrap();
-    let Some(Value::Tuple(id)) = arguments.get(runtime.gc(), 0) else {
-        panic!("tuple argument")
-    };
+    let arguments = PreparedArguments::new(&cx, &[tuple])
+        .unwrap()
+        .encode(&mut cx, ((1, 2),))
+        .unwrap();
+    let tuple = arguments.get(&mut cx, 0).unwrap();
+    assert_eq!(cx.tuple_len(&tuple).unwrap(), 2);
+    assert_eq!(cx.tuple_element(&tuple, 0).unwrap().as_i32(), Some(1));
+    assert_eq!(cx.tuple_element(&tuple, 1).unwrap().as_i32(), Some(2));
     assert_eq!(
-        &*runtime.gc().tuple(id).unwrap(),
-        &[Value::I32(1), Value::I32(2)]
+        arguments.get(&mut cx, 1).unwrap_err().kind(),
+        RuntimeErrorKind::ModuleValidation
     );
-    assert_eq!(arguments.get(runtime.gc(), 1), None);
-    drop(arguments);
-    assert_eq!(runtime.gc().active_roots(), 0);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    // Views do not own leases; the enclosing context owns all encoded prefixes.
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    drop(cx);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }
 
 struct Observed<'a>(&'a Cell<usize>);
@@ -227,7 +271,7 @@ impl FromKagari for Decoded {
     fn from_kagari(
         _: &mut ConversionContext<'_>,
         _: &TypeArgument,
-        _: &Value,
+        _: &ValueView<'_>,
     ) -> NativeResult<Self> {
         DECODE_EFFECTS.set(DECODE_EFFECTS.get() + 1);
         Ok(Self)
@@ -241,51 +285,78 @@ impl KagariType for Observed<'_> {
 }
 
 impl IntoKagari for Observed<'_> {
-    fn into_kagari(self, _: &mut ConversionContext<'_>, _: &TypeArgument) -> NativeResult<Value> {
+    fn into_kagari<'call>(
+        self,
+        _: &mut ConversionContext<'call>,
+        _: &TypeArgument,
+    ) -> NativeResult<ValueView<'call>> {
         self.0.set(self.0.get() + 1);
-        Ok(Value::I32(7))
+        Ok(ValueView::from(7i32))
     }
 }
 
 #[test]
 fn argument_signature_errors_precede_any_user_conversion_effects() {
-    let (runtime, owner) = fixture();
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let (mut runtime, owner) = fixture();
+    let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
     let effects = Cell::new(0);
     let integer = cx.type_for::<i32>().unwrap();
     let boolean = cx.type_for::<bool>().unwrap();
     assert!(
-        (Observed(&effects), false)
-            .into_arguments(&mut cx, &[integer.clone(), integer.clone()])
+        PreparedArguments::new(&cx, &[integer.clone(), integer.clone()])
+            .and_then(|prepared| prepared.encode(&mut cx, (Observed(&effects), false)))
             .is_err()
     );
     assert!(
-        (Observed(&effects), false)
-            .into_arguments(&mut cx, &[])
+        PreparedArguments::new(&cx, &[])
+            .and_then(|prepared| prepared.encode(&mut cx, (Observed(&effects), false)))
             .is_err()
     );
     assert_eq!(effects.get(), 0);
-    let arguments = (Observed(&effects), false)
-        .into_arguments(&mut cx, &[integer.clone(), boolean.clone()])
+    let arguments = PreparedArguments::new(&cx, &[integer.clone(), boolean.clone()])
+        .unwrap()
+        .encode(&mut cx, (Observed(&effects), false))
         .unwrap();
     assert_eq!(effects.get(), 1);
-    assert_eq!(arguments.get(runtime.gc(), 0), Some(Value::I32(7)));
+    assert_eq!(arguments.get(&mut cx, 0).unwrap().as_i32(), Some(7));
     DECODE_EFFECTS.set(0);
     let signature = [integer, boolean];
-    assert!(
-        <(Decoded, bool)>::from_arguments(
-            &mut cx,
-            &signature,
-            &[
-                Value::I32(7),
-                runtime.gc().alloc_string("wrong".into()).unwrap()
-            ]
-        )
-        .is_err()
-    );
-    assert_eq!(DECODE_EFFECTS.get(), 0);
-    <(Decoded, bool)>::from_arguments(&mut cx, &signature, &[Value::I32(7), Value::Bool(false)])
+    let prepared = PreparedArguments::<(Decoded, bool)>::new(&cx, &signature).unwrap();
+    let invalid = cx.allocate_string("wrong".into()).unwrap();
+    let invalid = cx
+        .argument_values(&[ValueView::from(7i32), invalid])
         .unwrap();
+    assert!(prepared.decode(&mut cx, invalid).is_err());
+    assert_eq!(DECODE_EFFECTS.get(), 0);
+    let (mut foreign, foreign_owner) = fixture();
+    let mut foreign_cx = ConversionContext::new(&mut foreign, &foreign_owner).unwrap();
+    let foreign_arguments = foreign_cx
+        .argument_values(&[ValueView::from(7i32), ValueView::from(false)])
+        .unwrap();
+    let error = prepared
+        .decode(&mut foreign_cx, foreign_arguments)
+        .err()
+        .unwrap();
+    assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+    assert_eq!(DECODE_EFFECTS.get(), 0);
+    let encoded = PreparedArguments::new(&cx, &signature).unwrap();
+    let error = encoded
+        .encode(&mut foreign_cx, (Observed(&effects), false))
+        .unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+    assert_eq!(effects.get(), 1);
+    let sibling = owner
+        .members()
+        .find(|member| member.key() != owner.key())
+        .unwrap();
+    let mut sibling_cx = ConversionContext::new(cx.runtime_mut(), &sibling).unwrap();
+    let error = encoded
+        .encode(&mut sibling_cx, (Observed(&effects), false))
+        .unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+    assert_eq!(effects.get(), 1);
+    drop(sibling_cx);
+    prepared.decode(&mut cx, arguments).unwrap();
     assert_eq!(DECODE_EFFECTS.get(), 1);
 }
 
@@ -293,7 +364,8 @@ fn argument_signature_errors_precede_any_user_conversion_effects() {
 fn missing_nominal_providers_and_bounded_conversion_fail_without_retention() {
     assert!(Option::<i32>::kagari_type(&DeclarationCatalog::default()).is_err());
     assert!(Result::<i32, String>::kagari_type(&DeclarationCatalog::default()).is_err());
-    let (runtime, owner) = fixture();
+    let (mut runtime, owner) = fixture();
+    let baseline = runtime.gc_stats();
     for (limits, run) in [
         (
             ConversionLimits {
@@ -317,36 +389,44 @@ fn missing_nominal_providers_and_bounded_conversion_fail_without_retention() {
             2,
         ),
     ] {
-        let mut cx = ConversionContext::with_limits(&runtime, &owner, limits).unwrap();
+        let mut cx = ConversionContext::with_limits(&mut runtime, &owner, limits).unwrap();
         let error = match run {
-            0 => cx.encode(vec![vec![1]]).unwrap_err(),
-            1 => cx.encode(vec![1, 2]).unwrap_err(),
+            0 => cx.encode(((1,),)).unwrap_err(),
+            1 => cx.encode((1, 2)).unwrap_err(),
             _ => cx.encode("火".to_owned()).unwrap_err(),
         };
         assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
-        assert_eq!(runtime.gc().active_roots(), 0);
-        assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+        cx.runtime_mut().collect_garbage().unwrap();
+        assert_eq!(cx.runtime().gc_stats().objects, baseline.objects);
+        assert_eq!(
+            cx.runtime().gc_stats().root_registrations,
+            baseline.root_registrations
+        );
     }
 }
 
 #[test]
 fn conversion_observes_root_cancellation_without_publishing_partial_values() {
-    let (runtime, owner) = fixture();
+    let (mut runtime, owner) = fixture();
+    let baseline = runtime.gc_stats();
     let options = runtime.execution_options();
     let cancellation = options.cancellation.clone();
-    let session = runtime.begin_execution(&owner, options).unwrap();
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let mut session = runtime.begin_execution(&owner, options).unwrap();
+    let mut cx = ConversionContext::new(session.runtime_mut(), &owner).unwrap();
     cancellation.cancel();
     assert_eq!(
-        cx.encode(vec![vec![1, 2]]).unwrap_err().kind(),
+        cx.encode(((1, 2),)).unwrap_err().kind(),
         RuntimeErrorKind::Cancelled
     );
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        baseline.root_registrations
+    );
     drop(cx);
     drop(session);
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
-    let root = cx.encode(vec![1, 2]).unwrap();
-    assert_eq!(cx.decode::<Vec<i32>>(&root).unwrap(), [1, 2]);
+    let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
+    let root = cx.encode((1, 2)).unwrap();
+    assert_eq!(cx.decode::<(i32, i32)>(&root).unwrap(), (1, 2));
 }
 
 struct Failing {
@@ -355,19 +435,24 @@ struct Failing {
 
 impl KagariType for Failing {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
-        Vec::<String>::kagari_type(catalog)
+        <(String,)>::kagari_type(catalog)
     }
 }
 
 impl IntoKagari for Failing {
-    fn into_kagari(
+    fn into_kagari<'call>(
         self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
-        let value = cx.encode_value(expected, vec!["retained until failure".to_owned()])?;
-        cx.runtime().collect_garbage()?;
-        assert!(cx.runtime().gc().validate_value(&value));
+    ) -> NativeResult<ValueView<'call>> {
+        let value = cx.encode_value(expected, ("retained until failure".to_owned(),))?;
+        cx.runtime_mut().collect_garbage()?;
+        assert_eq!(cx.tuple_len(&value)?, 1);
+        let field = cx.tuple_element(&value, 0)?;
+        assert_eq!(
+            cx.read_string(&field, str::to_owned)?,
+            "retained until failure"
+        );
         assert!(!self.panic, "conversion unwind fixture");
         Err(RuntimeError::module_validation("conversion rejected"))
     }
@@ -375,69 +460,80 @@ impl IntoKagari for Failing {
 
 #[test]
 fn conversion_errors_and_panics_release_scratch_roots_and_restore_scope_depth() {
-    let (runtime, owner) = fixture();
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let (mut runtime, owner) = fixture();
+    let baseline = runtime.gc_stats();
+    let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
     assert!(cx.encode(Failing { panic: false }).is_err());
-    assert_eq!(runtime.gc().active_roots(), 0);
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        baseline.root_registrations
+    );
     assert!(catch_unwind(AssertUnwindSafe(|| cx.encode(Failing { panic: true }))).is_err());
-    assert_eq!(runtime.gc().active_roots(), 0);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
-    let root = cx.encode(vec!["still usable".to_owned()]).unwrap();
-    assert_eq!(cx.decode::<Vec<String>>(&root).unwrap(), ["still usable"]);
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(cx.runtime().gc_stats().objects, baseline.objects);
+    let root = cx.encode(("still usable".to_owned(),)).unwrap();
+    assert_eq!(
+        cx.decode::<(String,)>(&root).unwrap(),
+        ("still usable".to_owned(),)
+    );
 }
 
-thread_local! { static DETACH: Cell<Option<HeapObjectId>> = const { Cell::new(None) }; }
-#[derive(Debug, PartialEq)]
-struct Detached(Vec<i32>);
+// This explicit test provider maps its recursive graph to builtin arrays. It
+// does not install a Vec identity or implement automatic Rust collection conversion.
+struct Children<T>(Vec<T>);
 
-impl KagariType for Detached {
+impl<T: KagariType> KagariType for Children<T> {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
-        Vec::<i32>::kagari_type(catalog)
+        Type::array(T::kagari_type(catalog)?)
     }
 }
 
-impl FromKagari for Detached {
+impl<T: IntoKagari> IntoKagari for Children<T> {
+    fn into_kagari<'call>(
+        self,
+        cx: &mut ConversionContext<'call>,
+        expected: &TypeArgument,
+    ) -> NativeResult<ValueView<'call>> {
+        cx.check_elements(self.0.len())?;
+        let item = cx.parameter(expected, 0)?;
+        let values = self
+            .0
+            .into_iter()
+            .map(|value| cx.encode_value(&item, value))
+            .collect::<NativeResult<Vec<_>>>()?;
+        cx.allocate_array(&item, &values)
+    }
+}
+
+impl<T: FromKagari> FromKagari for Children<T> {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
-        if let Some(outer) = DETACH.take() {
-            cx.runtime().gc().sequence_clear(outer)?;
+        let count = cx.array_len(value)?;
+        cx.check_elements(count)?;
+        // Snapshot every immediate child into source locations before any custom
+        // child converter may collect, reenter or mutate an alias of the array.
+        let values = (0..count)
+            .map(|index| {
+                cx.array_element(value, index)?
+                    .ok_or_else(|| RuntimeError::module_validation("children array index"))
+            })
+            .collect::<NativeResult<Vec<_>>>()?;
+        let item = cx.parameter(expected, 0)?;
+        let mut children = Vec::new();
+        for value in values {
+            children.push(cx.decode_value(&item, &value)?);
         }
-        cx.runtime().collect_garbage()?;
-        Vec::<i32>::from_kagari(cx, expected, value).map(Self)
+        Ok(Self(children))
     }
-}
-
-#[test]
-fn owned_composites_survive_alias_mutation_and_collection_in_child_conversion() {
-    let (runtime, owner) = fixture();
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
-    let root = cx.encode(vec![vec![1], vec![2]]).unwrap();
-    let Value::GcHandle(array) = root.value(runtime.gc()).unwrap() else {
-        panic!("array");
-    };
-    DETACH.set(Some(array));
-    assert_eq!(
-        cx.decode::<Vec<Detached>>(&root).unwrap(),
-        [Detached(vec![1]), Detached(vec![2])]
-    );
-    assert_eq!(runtime.gc().sequence_len(array), Some(0));
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
-    drop(root);
-
-    for value in [Ok(vec![3]), Err(vec![4])] {
-        let expected = Some(value.clone().map(Detached).map_err(Detached));
-        let root = cx.encode(Some(value)).unwrap();
-        assert_eq!(
-            cx.decode::<Option<Result<Detached, Detached>>>(&root)
-                .unwrap(),
-            expected
-        );
-        assert_eq!(runtime.gc().active_roots(), 1);
-    }
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
 }
 
 #[derive(Debug, PartialEq)]
@@ -457,16 +553,18 @@ impl FromKagari for RetainedNode {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         _: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
-        cx.runtime()
-            .root_value(*value)
-            .map(Self)
-            .ok_or_else(|| RuntimeError::module_validation("retained Node"))
+        cx.retain(value).map(Self)
     }
 }
 
-struct NodeView(Vec<RetainedNode>);
+// Rust-only indirection must preserve the retained adapter's cycle policy.
+#[allow(
+    clippy::vec_box,
+    reason = "Box conversion must preserve retained child identity through a collection."
+)]
+struct NodeView(Vec<Box<RetainedNode>>);
 
 impl KagariType for NodeView {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
@@ -478,10 +576,10 @@ impl FromKagari for NodeView {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
-        let (children,) = cx.decode_variant(expected, value, "Children")?;
-        Ok(Self(children))
+        let (children,): (Children<_>,) = cx.decode_variant(expected, value, "Children")?;
+        Ok(Self(children.0))
     }
 }
 
@@ -506,12 +604,12 @@ impl KagariType for Node {
 }
 
 impl IntoKagari for Node {
-    fn into_kagari(
+    fn into_kagari<'call>(
         self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
-        cx.encode_variant(expected, "Children", (self.0,))
+    ) -> NativeResult<ValueView<'call>> {
+        cx.encode_variant(expected, "Children", (Children(self.0),))
     }
 }
 
@@ -519,10 +617,10 @@ impl FromKagari for Node {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
-        let (children,) = cx.decode_variant(expected, value, "Children")?;
-        Ok(Self(children))
+        let (children,): (Children<_>,) = cx.decode_variant(expected, value, "Children")?;
+        Ok(Self(children.0))
     }
 }
 
@@ -533,49 +631,56 @@ fn owned_conversion_rejects_a_cycle_but_accepts_shared_noncyclic_children() {
             .unwrap();
     let mut builder = ModuleBuilder::new("fixture::conversion", &catalog).unwrap();
     let mut node = builder.define_enum("Node").unwrap();
-    let children = crate::declarations::StandardDeclarations::default()
-        .vec(node.self_type().unwrap())
-        .unwrap();
+    let children = Type::array(node.self_type().unwrap()).unwrap();
     node.variant("Children", [children]).unwrap();
     node.finish().unwrap();
-    let (runtime, owner) = fixture_with(
+    let (mut runtime, owner) = fixture_with(
         Some(builder.finish().unwrap()),
-        "fn signature(value: fixture::conversion::Node) {}",
+        include_str!("../../../tests/fixtures/runtime_boundary/conversion-node.kgr"),
     );
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
-    let root = cx.encode(Node(vec![Node(vec![])])).unwrap();
-    let Value::Enum(node) = root.value(runtime.gc()).unwrap() else {
-        panic!("Node");
-    };
-    let Value::GcHandle(children) = runtime.gc().enum_snapshot(node).unwrap().fields[0] else {
-        panic!("children");
-    };
-    let child = runtime.gc().sequence_get(children, 0).unwrap();
-    runtime.gc().sequence_push(children, child).unwrap();
+    let baseline = runtime.gc_stats();
+    let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
+    let root = cx
+        .encode(Node(vec![Node(vec![]), Node(vec![]), Node(vec![])]))
+        .unwrap();
+    let node_type = cx.type_for::<Node>().unwrap();
+    let node = cx.import(&root).unwrap();
+    let (children,): (ScriptValue,) = cx.decode_variant(&node_type, &node, "Children").unwrap();
+    let array_type = children.type_argument().clone();
+    let children = children.into_kagari(&mut cx, &array_type).unwrap();
+    let child = cx.array_element(&children, 0).unwrap().unwrap();
+    cx.array_set(&children, 1, &child).unwrap();
     assert_eq!(
         cx.decode::<Node>(&root).unwrap(),
-        Node(vec![Node(vec![]), Node(vec![])])
+        Node(vec![Node(vec![]), Node(vec![]), Node(vec![])])
     );
-    runtime
-        .gc()
-        .sequence_push(children, Value::Enum(node))
-        .unwrap();
+    cx.array_set(&children, 2, &node).unwrap();
     let error = cx.decode::<Node>(&root).unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
-    assert!(error.message().contains("cycle in owned value conversion"));
-    assert_eq!(runtime.gc().active_roots(), 1);
-    let view = cx.decode::<NodeView>(&root).unwrap();
-    assert_eq!(view.0[2].0.value(runtime.gc()), Some(Value::Enum(node)));
-    drop(view);
-    runtime.gc().sequence_remove(children, 2).unwrap();
-    assert_eq!(
-        cx.decode::<Node>(&root).unwrap(),
-        Node(vec![Node(vec![]), Node(vec![])])
+    assert!(
+        error
+            .to_string()
+            .contains("cycle in owned value conversion")
     );
-    runtime
-        .gc()
-        .sequence_push(children, Value::Enum(node))
-        .unwrap();
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        baseline.root_registrations + 1
+    );
+    let view = cx.decode::<NodeView>(&root).unwrap();
+    cx.array_set(&children, 2, &child).unwrap();
+    assert_eq!(
+        cx.decode::<Node>(&view.0[2].0).unwrap(),
+        Node(vec![Node(vec![]), Node(vec![]), Node(vec![])])
+    );
+    drop(view);
+    cx.array_set(&children, 2, &node).unwrap();
+    drop(cx);
     drop(root);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
 }

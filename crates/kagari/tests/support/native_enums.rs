@@ -8,7 +8,7 @@ use kagari_runtime::{
         module::NativeModule,
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 
 pub fn module() -> NativeResult<NativeModule> {
@@ -50,13 +50,13 @@ pub fn module() -> NativeResult<NativeModule> {
                 move |call| {
                     let applied = call.result_type_argument()?;
                     let (variant, fields) = match name {
-                        "wrong_payload" => (&data, vec![call.argument(0)?, Value::Bool(true)]),
+                        "wrong_payload" => (&data, vec![call.argument(0)?, ValueView::from(true)]),
                         "wrong_count" => (&data, vec![call.argument(0)?]),
                         "foreign_variant" => (&foreign, vec![call.argument(0)?]),
                         "closed" => (&closed, vec![]),
                         _ => (&data, vec![call.argument(0)?, call.argument(1)?]),
                     };
-                    call.allocate_enum(&applied, variant, fields)
+                    call.allocate_enum(&applied, variant, &fields)
                 },
             ),
         )?;
@@ -89,7 +89,7 @@ pub fn module() -> NativeResult<NativeModule> {
             NativeBinding::new([event.codec()], Codec::Value, move |call| {
                 call.collect_garbage()?;
                 match name {
-                    "is_data" => call.enum_argument_is(0, &data).map(Value::Bool),
+                    "is_data" => call.enum_argument_is(0, &data).map(ValueView::from),
                     "roundtrip" => call.argument(0),
                     "wrong_variant" => call.enum_argument_field(0, &closed, 0),
                     "wrong_field" => call.enum_argument_field(0, &data, 2),

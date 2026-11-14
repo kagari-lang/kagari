@@ -1,0 +1,6 @@
+use example::typed::split;
+
+pub fn main() -> u64 {
+    val fields = split("a:雪:", ":");
+    fields.len()
+}

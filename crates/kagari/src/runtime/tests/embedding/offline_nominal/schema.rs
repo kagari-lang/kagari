@@ -4,12 +4,13 @@ use kagari_common::identity::{
     DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata,
 };
 use kagari_runtime::{
-    host::{HostCallContext, HostObjectId},
+    host::{HostError, HostObjectId},
     native::{
-        builder::ModuleBuilder, declarations::FunctionDecl, module::NativeModule, types::TypeRef,
+        builder::ModuleBuilder, declarations::FunctionDecl, host, module::NativeModule,
+        types::TypeRef,
     },
-    value::Value,
 };
+use kagari_stdlib as stdlib;
 use kagari_types::{
     declaration::{
         FieldDef, TypeDeclaration,
@@ -183,11 +184,16 @@ impl NominalSchema {
             )
             .unwrap();
         self.builder
-            .bind(make, move |cx: &HostCallContext<'_>, _: &[Value]| {
-                trace.lock().unwrap().push(label);
-                let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
-                Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
-            })
+            .bind(
+                make,
+                host::callback(move |cx, _| {
+                    trace.lock().unwrap().push(label);
+                    let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
+                    let root = cx.runtime_mut().host_root_value(root).unwrap();
+                    cx.import(&root)
+                        .map_err(|error| HostError::new(error.to_string()))
+                }),
+            )
             .unwrap();
     }
 
@@ -195,7 +201,11 @@ impl NominalSchema {
         let [right, unused] = self.providers;
         KagariEngine::with_native_modules(
             Default::default(),
-            vec![right, unused, self.builder.finish().unwrap()],
+            stdlib::modules()
+                .unwrap()
+                .into_iter()
+                .chain(vec![right, unused, self.builder.finish().unwrap()])
+                .collect(),
         )
         .unwrap()
     }

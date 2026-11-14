@@ -22,7 +22,8 @@ The current runtime crate defines the main system boundaries:
 
 - `crates/kagari-runtime/src/lib.rs`
 - `crates/kagari-runtime/src/value.rs`
-- `crates/kagari-runtime/src/gc.rs`
+- `crates/kagari-runtime/src/execution/memory.rs`
+- `crates/kagari-runtime/src/execution/roots.rs`
 - `crates/kagari-runtime/src/host.rs`
 - `crates/kagari-runtime/src/reload.rs`
 - `crates/kagari-runtime/src/backend.rs`
@@ -35,7 +36,8 @@ The runtime structure is:
 
 ```text
 Runtime {
-  gc: GcHeap,
+  memory: ManagedMemory, // owns RootDriver<ExecutionRoots>
+  resources: ResourceState, // control, sessions and execution-space accounts
   types: TypeRegistry,
   host: HostRegistry,
   limits: RuntimeLimits,
@@ -53,7 +55,7 @@ The runtime is organized around these subsystems:
 - GC heap for script-owned objects
 - type registry for runtime type identity and metadata
 - host registry for exposed functions and types
-- runtime call-depth limits and root cancellation
+- VM-byte and Native-stack limits, diagnostic logical depth and root cancellation
 - reload coordinator for module epochs
 - module store for loaded code units and runtime module state
 
@@ -130,14 +132,14 @@ wraparound. Ordinary checked failures retain their specified error and mutation
 contracts; underlying out-of-memory failure may be fatal and is not promised
 recoverable. Equal source and inputs have the same specified numeric behavior
 within platform resources, not identical memory limits. There are no per-script
-memory quotas. [Host scalar conversions](host-interop.md#fixed-width-numeric-host-boundary)
-are distinct from zero-copy element storage.
+managed-heap quotas; the execution-space ceiling is a separate VM-stack guard.
+[Host scalar conversions](host-interop.md#fixed-width-numeric-host-boundary) are distinct from zero-copy element storage.
 
 ## Value Shape
 
-Enum objects contain an `EnumTag` and immutable payload slots. Declared variants
-hold an `EnumVariantRef` from a verified module; standard Option/Result have typed
-tags. Names are display metadata. Allocation checks runtime ownership, payload
+EnumObject contains an EnumVariantRef from a verified module, immutable traced
+payload slots and an optional detached diagnostic origin. Standard Option/Result
+constructors use their checked nominal variant facts. Names are display metadata. Allocation checks runtime ownership, payload
 arity, storage/representation and nested payload type/schema consistency before
 publishing the allocation. Declared payload structs/enums must match the receiving
 version's nominal layout. Standard-enum built-ins reject same-named declared types.
@@ -147,10 +149,11 @@ and trace their payloads through the same mark-sweep root mechanism. Publication
 does not invalidate old values; rooted old enum objects keep their original layout.
 
 Script struct objects share a closed layout derived from `StructLayoutRef` and
-store positional field bytes in a compact heap arena. Scalars use their exact
-semantic widths, preserving float bits; Unit needs no bytes. Managed fields retain
-a tag and full owner/slot/generation identity. Layout-directed tracing visits only
-reference fields. Safe byte codecs also serve Value-based host/reflection access.
+store packed scalar bytes and separate traced managed cells in their actual
+StructObject provider. Scalars use exact semantic widths and preserve float bits;
+Unit needs no bytes. Managed fields hold tagged StoredValue edges. Layout-directed
+tracing visits those cells, while checked scalar codecs serve prepared execution
+and ValueView-based Host/reflection access.
 The layout comes from a verified `ExecutableModule` and retains immutable version
 metadata. Objects do not duplicate field names. Allocation requires
 a layout belonging to the receiving runtime and validates field count, payload
@@ -167,7 +170,9 @@ Across generations, access requires the same runtime owner and equal nominal
 declaration, field identities, slot order, representations and permissions.
 Publication does not invalidate an object's retained layout. Root calls now pin
 their executable dependency program. Heap-valued fields still have coarse nominal
-representations, while heap references carry a unique heap owner, slot and generation.
+representations, while managed access requires same-heap scoped authority or an
+authenticated source/root. Execution and Host-root directories retain their own
+checked generations; an opaque managed pointer is never public input authority.
 Reachable interfaces and closures retain executable module instances through graph
 edges. Ordinary data layouts retain immutable type metadata without retaining the
 generation's mutable module state. Selected generic operations, parent scopes and
@@ -178,38 +183,25 @@ and uses the same slot write checks. Reflection cannot bypass read-only fields
 or scalar representation checks. Named `StructValueField` records exist only in
 diagnostic snapshots, not heap storage or allocation APIs.
 
-Internal values are compact tagged copies; owned payloads live outside the value
-slot. The implementation uses 16-byte `Value` in release and debug builds, with
-12-byte checked heap identities containing owner, slot and allocation generation.
-Copying a value does not retain its referent or allocate/copy payload bytes.
-The implemented categories are:
+Runtime separates scoped access, traced storage and escaping Host retention.
+`ScopedValue<'gc>` contains same-scope managed access or inline scalar bits;
+`StoredValue` contains private Edge storage or inline bits; `RootedValue` owns
+actual Host retention where managed data must survive across collecting calls.
+`ValueView<'view>` exposes protected pointer-free observations through a current
+Runtime/NativeCall. Stored edges are not Copy, public constructors cannot forge a
+managed tag, and copying a view/coordinate does not create a root.
 
-```text
-Value {
-  Unit,
-  Bool(bool),
-  Char(char),
-  I32(i32),
-  I64(i64),
-  U64(u64),
-  F32(f32),
-  F64(f64),
-  Str(HeapObjectId),
-  Tuple(HeapObjectId),
-  Range(HeapObjectId),
-  Array/Map/Set/Enum/Struct/GcHandle/Closure/Cell(HeapObjectId),
-  Interface(InterfaceObjectId),
-  HostRoot(HeapObjectId),
-  HostPathView(HeapObjectId),
-  Ephemeral(HeapObjectId),
-  RuntimeEphemeral(EphemeralValueId)
-}
-```
+The physical categories include scalars, String/tuple/range/fixed array/enum/struct,
+Native identity, closure/cell/interface, Host root/path and ephemeral descriptors.
+There are no privileged Vec/Map/Set value families. Scalar banks use eight-byte
+payloads plus initialization flags; traced cells use StoredValue. Layout sizes
+are implementation observations, not portable ABI guarantees. Physical GC kind
+and script nominal type are separate admission requirements.
 
 Strings and tuple membership are immutable. Updating a tuple creates replacement
 membership, sharing referenced children; mutation of an aliased mutable child
 remains visible through all aliases. String equality/hashing uses contents,
-independently of storage identity. Raw Rust Value equality describes transport
+independently of storage identity. Internal carrier equality describes transport
 identity and must not replace language equality. Host root/path/borrow descriptors
 are heap-owned records, while Rust host objects and borrow authority stay with the
 host registry and active scope. The descriptor's continued existence never extends
@@ -235,375 +227,141 @@ Future shared frozen objects must be modeled explicitly rather than folded into 
 
 ## GC Heap
 
-The GC heap is responsible for script-owned memory.
+Runtime's ManagedMemory owns one `kagari_gc::RootDriver<ExecutionRoots>`. ResourceState,
+semantic lookup, installed Host authority and execution policy remain Runtime
+responsibilities. The collector knows only its own allocations, ordinary edges,
+Host root leases and a complete driver-supplied source. Rust Host borrows stay
+outside the managed heap.
 
-Its responsibilities include:
+### Managed graph and access
 
-- object allocation
-- object tracing and reclamation
-- heap accounting
-- integration with runtime resource limits
+The collector is precise, nonmoving, nongenerational incremental mark-sweep.
+Object headers/descriptors establish physical identity; branded Gc access is
+available only inside a paired memory/source scope. Private Edge carriers express
+relationships in actual providers and execution storage. Scope reads/mutations
+retain terminal-state, physical representation and publication checks. Language
+nominal typing, declared access and Host capability validation remain Runtime-owned.
+No arbitrary Rust locals are scanned.
 
-The GC must not own Rust host borrows.
+All active and parked operands, conversion locals, queued factories, pending
+results/waits and executable dependencies are in ExecutionRoots. Scalar cells
+need no managed edge; managed cells initialize to Unit. FrameStorage owns one
+linear suffix mark, and FrameSlots names its checked bank ranges. Full execution
+owner/index/generation checks precede cross-activation access. Backing growth
+preserves coordinates; retirement clears edges before inaccessible backing reuse.
+There is no mirrored RootSet per frame or independent Window identity directory.
 
-The implemented collector uses stop-the-world mark-sweep over stable checked
-handles. A compact generation directory locates dense typed payload stores; sweep
-can compact those stores and struct field bytes without changing handle identity. Scoped storage borrows
-exclude collection and relocation. It traverses
-tuples, enum payloads, array/map values and struct fields with an explicit work stack,
-handles cycles, and reclaims unreachable slots. Reuse increments the slot generation;
-a saturated generation retires its slot. Reads, writes, root registration and script
-equality reject foreign, stale or incorrectly tagged references. Failed handle
-validation cannot consume heap growth units or change the target object.
+Ordinary GcObject providers represent script data, Native identities/payloads,
+closures/Futures/Tasks, interfaces/applications/environments, revisions and statics.
+Private payload fields use the same physical scanner as ordinary GC. Current and
+staged publications plus real Host leases seed the graph; active sources retain
+exact admitted revisions. Lookup indexes and immutable Arc code pins do not replace
+managed edges. A rootless object/closure/environment/static cycle is collectible,
+including cross-installation cycles. R13's separate type/layout provenance can
+retain immutable code; no immediate per-body unloading guarantee is implied.
 
-Native mutation revisions belong to runtime-owned native records, separately from
-the common identity generation/locator. New identities begin with a fresh revision;
-record relocation preserves it and payload replacement keeps the receiver's state.
-Structural edits, checked native writes and detached sequence restoration retain
-their operation-specific invalidation/commit order. Exhaustion rejects the operation
-without wrapping. A temporarily detached sequence has no readable traversal revision.
+Public invalid/foreign/stale inputs fail admission without mutating the target.
+Corruption in an admitted graph or provider failure quarantines Runtime. Collection
+and arbitrary callbacks/reentry require ending source, frame and payload loans;
+short operation scopes reacquire them afterward. A managed result must be published
+to its destination or genuine Host root before old protection is retired. Closed
+return/field transitions perform no callback or collection in that handoff.
 
-An interface heap identity directly locates a runtime-owned snapshot. Heap aliases
-have independent checked identities even when they share one metadata snapshot.
-Metadata roots may keep the snapshot and receiver alive after heap aliases expire;
-later publication creates a fresh heap identity. Complete metadata owner/generation
-checks remain at token admission and metadata access. The compact directory locator
-requires a representable snapshot slot; publication fails before heap growth or
-identity publication when that bound is exceeded. Collection validates the complete
-graph and accounts dead wrapper units before invalidating heap IDs and detaching
-metadata. Borrow conflicts cannot produce a partial sweep.
+### Collection, pressure and failure
 
-The marker walks identities through storage-provided edges. Object representations
-own reference traversal; closure signatures and runtime type compatibility have
-separate execution owners. Heap objects and executable programs share one mark
-worklist. Published and staged programs, active-call/code leases, host roots and
-heap root records seed traversal. Runtime-owned execution windows independently
-seed their values and program/environment metadata, including suspended callers.
-Prepared-method and selected-native-call metadata is stored alongside persistent
-roots; public leases never own that storage.
-A reached program traces its dependency members' bound static cells and
-materialized constants; cells trace their Ready values or pending initializer
-recipes. A reached closure or interface traces its executable owner and environment.
-Metadata traversal uses an explicit worklist, visits shared descriptors once and
-excludes pure layout provenance from executable state retention. Program edges
-validate the installed generation and runtime identity. An obsolete
-program/cell/closure cycle, or mutually referring obsolete programs, does not by
-itself keep either side alive.
+`Runtime::gc_safepoint` polls execution and services collection only at an admitted
+boundary. `GcHeapConfig.collection_threshold` defaults to 1,024 logical units and
+`retained_byte_threshold` to 64 KiB. Either committed-pressure threshold can request
+service. Active incremental cycles continue through later boundaries; after
+completion the next thresholds use the configured floor or twice live occupancy,
+with checked/saturating arithmetic. The byte floor is policy, not a measured optimum.
+`collection_threshold: None` disables automatic service, not explicit collection.
+Runtime allocation/mutation access does not itself run arbitrary collection.
 
-Operation groups live in a runtime-owned generational store. They contain receiver
-tables and individual concrete selections. Environments carry an OperationId for a
-selected witness: a group identity plus a checked member ordinal. Forwarding reuses
-that ID; it does not clone ownership of the descriptor. Method metadata roots use
-the same identity. Reads validate runtime ownership, slot generation and member
-bounds. Allocation does not make a group a root. Tracing a selected operation also
-reaches its supplying group without exposing sibling operations as caller-selected
-witnesses. Associated type facts remain separately available for layout resolution.
-Executable metadata is validated on publication and frame entry. A detached snapshot
-cannot republish an environment after its operation records have been collected,
-even when the supplying code is still installed; an explicit root preserves those
-records for use across collection.
+`Runtime::collect_garbage` completes an active cycle if necessary and always runs
+a fresh cycle, then performs admitted retirement/cache maintenance. Its report
+contains completed cycles, work, detached owners, elapsed time and included idle
+maintenance. It does not report the removed per-metadata-store sweep categories.
+A normal 1,024-unit allowance and 32-detached-owner cap bound declared work/owners,
+not arbitrary provider, allocator or Rust destructor wall time. Total operation
+latency includes its synchronous disposal suffix.
 
-Operation groups own their BoundOperation records by value. A rooted operation
-selection holds its checked ID, not shared ownership of the record. Internal method
-views borrow the central record temporarily and are released before execution or
-allocating additional groups. RootedInterfaceMethod's implementation, target,
-parameter_types and return_type inspection requires the owning Runtime and checks
-the root identity. Public signature inspection returns copied data; call preparation
-and dispatch read the record through scoped views.
+Traced state is detached before Rust destruction, and every owner is disposed once.
+Provider trace faults cannot sweep a partially established graph. Destructor faults
+quarantine while remaining detached cleanup continues. Faulted collector state
+permits shutdown only; Runtime has no reset/recovery API. Completed script/Host
+effects remain committed. Process abort or a second panic during unwinding remains
+outside supported recovery.
 
-Dead heap-object discovery visits occupied concrete payload stores through their
-directory back-references, not every historical directory slot. Interface wrappers
-have no concrete payload row, so a narrow index records their occupied directory
-slots without owning snapshots or replacing the direct snapshot locator. Wrapper
-retirement removes those index entries before directory reuse. Generation tombstones,
-checked relocation and the separate inert identities left by native take remain.
-This bounds object discovery by occupied objects, including not-yet-collected garbage;
-it is not an O(live) bound for the whole collector. Root snapshots still scan root
-table slots, and marking, executable-metadata scans and changed-store compaction
-remain separate work.
+### Accounting and observations
 
-Collection completes marking and accounting before
-removing any slots, then detaches unreachable objects, operation groups, method
-applications, interface snapshots and module instances before running their
-Rust destructors outside storage-table borrows. Tracing and destruction cannot
-reenter execution or mutate roots. A tracing panic quarantines the runtime without
-sweeping a partial graph. Destructor panics quarantine it while disposal continues
-for other detached objects; each payload is dropped once. Process aborts, including
-a second panic during Rust's own unwinding, remain outside recovery guarantees.
-Runtime::collect_garbage reports reclaimed heap objects, reclaimed_operation_groups,
-reclaimed_method_applications, reclaimed_interface_snapshots and reclaimed_modules;
-there is no independent module-only sweep that could discard code reached from the heap.
+Collector HeapStats reports actual object count, provider units, managed/indirect
+backing, workspace, registrations, completed cycles and pacing observations.
+ResourceCounters combines object count, provider logical units and active conversion
+preparation into u128 heap-unit occupancy/peaks. Provider indirect backing is
+separate from shallow pages, directories, code, external Rust state and RSS.
 
-Runtime::collect_garbage includes registered host/debug roots, execution windows,
-reachable static cells, initializer results and pending host-path mutation records.
-Path-view dynamic arguments are traced; Rust host objects and borrowed resources
-remain host-owned. Path-operation
-arguments and old/new values are temporarily rooted across host
-read/preparation callbacks, including preparation that explicitly collects. Commit
-actions only apply prepared host state; they cannot collect or execute scripts.
-Execution slots occupy reusable contiguous windows. Canonical temporary registers
-map to physical slots using prepared control-flow liveness; values stay rooted until
-the physical slot is overwritten or its frame is dropped. Simultaneously live
-registers cannot alias, including loop backedges and call operands/results. Named
-locals retain distinct fixed slots and their debugger availability. Cold/native
-access translates canonical indices, while prepared instructions use bounded
-physical operands directly. Persistent host leases are
-separate. Checked cursors borrow the current frame/session/window across consecutive
-non-reentrant instructions and release all borrows before collection, observation,
-calls and reentry. Cancellation and collection/observer eligibility are checked at
-each original logical PC; the compact execution product retains a one-to-one mapping
-to verified bytecode and source/debug records. Window
-identities check owner and generation before native access. Active-root diagnostics
-count both persistent root groups and execution windows. Trap and
-call-depth failure drop frame roots through the same frame cleanup path.
-Commit invariant failures use this cleanup path too, and quarantine the runtime.
-Execution, allocation, collection and mutation entry points then reject further
-work with EngineFault. There is no reset API; inspecting existing counters and
-discarding the runtime remain possible.
+ObjectCharge excludes shallow bytes and referenced managed objects. Concrete
+payload GcObject implementations own complete tracing and committed indirect
+capacity; NativePayload selects registration, not a second trace/accounting model.
+Strings use capacity; fixed arrays use physical element width and actual capacity;
+managed field/capture/argument buffers account their owned backing. Failed preflight
+changes no committed charge; replacements publish/account their new backing before
+old ownership is released. Runtime attributes each closed access/service interval,
+including growth-then-shrink peaks, before another session or observer executes.
+Read-only counters neither scan/reclaim storage nor reset peaks.
 
-`HeapCharge` separates `logical_units: usize` from `retained_bytes: usize`.
-Logical occupancy includes the heap identity and each representation's payload
-units; units are not byte measurements. Attributed bytes describe committed backing
-pressure, not RSS, allocator usable size, all runtime memory or a heap quota.
-The current attribution is deliberately bounded:
+`execution_usage` additionally observes actual initialized/reserved source, frame,
+uncommon and collector/control capacity. VM max_stack_bytes charges committed
+per-execution storage, not total process memory. Opt-in global allocator diagnostics
+measure owned requests and event peaks; those are distinct from provider accounting,
+RSS and internal realloc copy coexistence. See [measured boundaries](../performance-baseline.md#rr05-allocator-event-peaks-and-complete-diagnostic-lifetimes).
 
-- Strings contribute their actual capacity, not just UTF-8 length.
-- Native records include the erased payload Box's shallow size exactly once, plus
-  the provider's exclusively owned indirect backing. Sequence buffers use actual
-  capacity times their physical element width (zero for Unit, `Value` width for
-  traced slots). Managed field buffers, iterator key buffers and cold native Future
-  capture/parameter buffers likewise use their known capacities. Task failure
-  payloads include their owned error-message capacity.
-- Map/Set storage uses capacity-based entry and collision-table estimates plus
-  known collision-token vector capacities. Rust's standard hash collections do
-  not expose exact bucket/control allocation sizes; these are pressure estimates.
-- Referenced GC objects are charged separately. Shared type/code/layout metadata,
-  external host resources and runtime directories, store/frame/struct-byte arenas
-  are excluded from byte attribution. Other non-native object backing is not
-  covered by this byte ledger. Providers must identify unobservable allocations
-  as excluded, not claim that a zero report proves no allocation.
+### Host roots, payloads and borrowed state
 
-`NativePayload::charge() -> NativeResult<HeapCharge>` replaces `units()`.
-Preparation samples a payload's description once before publication and adds its
-shallow Box size. The runtime-owned `NativeObject` records that charge; allocation
-uses it, relocation preserves it, and checked storage mutations update it alongside
-committed storage. Sweep and take release recorded charges without provider calls.
-A prepared replacement has its own charge; unchanged logical length does not imply
-unchanged capacity. Detached sequence editing keeps the original buffer charged
-until restoration; removals reduce logical units but do not invent a capacity
-release. Claiming a cold Future transfers its capture backing out of the payload's
-charge, leaving its Box charged. Native take releases payload units and bytes but
-keeps one logical identity unit until its inert aliases are no longer traced.
-See [provider obligations](host-interop.md#native-payload-accounting) and
-[reservation failure](failure-semantics.md#modification-guarantees).
+RootedValue owns a genuine collector Root for managed values, while scalars remain
+inline. Clones share the same root registration. Final lease Drop queues a
+pre-reserved release notification without borrowing Runtime or recursively destroying
+objects. Service authenticates ownership/generation and drains notices; reported
+registrations may include dropped leases awaiting service. Late drops after heap
+shutdown are inert. A view, type snapshot or unchecked numeric ID grants no root.
 
-`GcHeapConfig.collection_threshold` enables automatic collection at execution
-safepoints, including the current scalar JIT helper. Collection never runs inside
-allocation, scoped storage borrowing or a standard mutation. Either of two
-independent pressure thresholds can make collection due:
+`Opaque<T>` retains a checked managed Native identity; cloning preserves identity
+without cloning T. Read/edit acquires short checked loans. Fixed Rust data and
+traced managed fields have separate providers. Collection destroys unreachable
+payloads exactly once; shutdown releases Runtime-owned storage even if public
+leases survive. There is no payload extraction/take capability.
 
-- Logical heap units plus operation-group, method-application, interface-snapshot
-  and environment record counts reach the logical threshold (default floor 1024).
-- Attributed retained bytes reach `retained_byte_threshold` (default floor 64 KiB).
+External Ref/RefMut reserves Host-owned Rust state under invariant scope authority.
+Managed descriptors contain checked views, never unrestricted Rust references.
+Scope exit revokes all children before the Rust loan ends on success, trap,
+cancellation or supported unwind. Such views cannot escape to durable managed
+fields, closure captures or suspension. Native/Host registrations and factories
+are Send + Sync; Runtime-owned payloads and observers need Send. Runtime itself is
+Send, not Sync, and transfers only between inactive execution/borrow scopes.
 
-After collection, each threshold becomes the greater of its configured floor and
-twice its corresponding live count/bytes; floors are at least one and doubling
-saturates. The byte floor is a policy default, not a measured optimum.
-`collection_threshold: None` disables both automatic triggers; explicit runtime
-collection remains available under the normal execution/borrow checks. For example,
-a newly allocated empty String with 128 KiB of capacity has one logical unit but
-can make byte-pressure collection due; allocation itself does not collect it.
-`ResourceCounters` and `GcHeapStats` expose current/peak logical units and `u128`
-current/peak retained bytes. `GcCollection` reports reclaimed units and retained
-bytes as well as objects; GC stats also report collection count and the last pause.
-These are attributed occupancy counters, not cumulative allocation or quotas.
-Incremental and generational GC remain deferred.
+### Executable state and publication
 
-Host retention uses gc::roots::RootedValue, returned by Runtime::root_value. The
-heap owns a generational root table containing the values; handles contain checked
-heap/root identities and Arc leases. Clones share one entry. The last Arc lease
-Drop sends its complete owner/slot/generation ID through an MPSC release channel,
-without borrowing heap storage. The table drains delivered IDs on registration,
-before root snapshots and during collection, checking owner, bounds, generation
-and absence of a strong lease before clearing an entry. Duplicate, stale, foreign
-or still-live notifications cannot retire a root. Reuse increments generation;
-exhaustion retires the slot. Registration no longer prunes the historical slot
-array. Sending may allocate; this is not an allocation-free Drop guarantee.
+RevisionState, static cells, environments, applications, interface/callable state
+and constants participate in the same managed graph. Semantic keys remain checked
+Runtime identities; they must resolve through an actual publication/source/root
+before physical access. An immutable descriptor or detached diagnostic copy cannot
+resurrect released state. Type-only metadata stays readable without granting execution.
 
-Value and metadata snapshots still upgrade each weak lease and hold it while
-copying that entry. An undelivered release is not evidence of liveness. A successful
-upgrade racing the final host drop can conservatively retain an object for that
-collection, never omit a live root. Messages carry no values, metadata or runtime
-owner; destroying the receiver makes later lease drops harmless.
-RootedValue::value and set require the owning heap and validate identity/generation
-and the exact lease pointer;
-replacement also validates incoming references. Copying a raw Value does not retain
-heap objects. Persistent native/debug retention uses this table; active interpreter
-frames are traced from runtime-owned scalar/managed windows.
-Executable metadata roots are published through Runtime so program ownership and
-metadata generations are validated before replacing the old references. Failed
-replacement preserves the previous roots; released or foreign metadata cannot
-resurrect storage. Collector corruption tests inject invalid roots only through a
-test-only storage hook.
+Runtime static reads/writes require exclusive access, actual publication/source
+protection, Ready state, declared mutability, bounds and full nominal/storable
+validation. Candidate restrictions remain; failed writes preserve old state.
+Snapshots own roots for copied values and cannot edit authoritative cells. Live old
+Host descriptors follow current static contracts; admitted frames use their exact
+revision's bindings. No cell/payload loan crosses an initializer, callback or GC.
 
-Lazy parent-interface, method-application and receiver-operation edges use the
-same controlled publication rule. Object policy prepares records and reads caches;
-only the metadata link boundary can fill the private cells. Publication checks
-the destination identity/slot and incoming executable graph before changing any
-cell. Receiver preparation validates the shared and method cells together, so a
-failed write cannot publish half the pair. Preparation performs no callback or
-safepoint between validation and commit. Cached edges participate in coordinated
-tracing and do not independently retain otherwise unreachable records.
-
-Root leases are Send + Sync and can be cloned/dropped on other threads without
-accessing values. They do not own the heap or payload storage; runtime teardown
-releases that storage even if leases survive, and use against another runtime is
-rejected. Runtime is Send and not Sync. Hosts can transfer its ownership between
-threads outside synchronous execution/borrow scopes, or keep it in a Send future
-across message-receive awaits. RefCell/Cell storage remains exclusively owned;
-this does not enable concurrent access or asynchronous script execution.
-
-`Opaque<T>` retains a checked root into runtime-owned native storage; cloning the
-handle preserves identity without cloning T. Read/edit acquire short checked
-loans. Explicit take validates extraction capability and active operations before
-atomically removing the payload and invalidating every old alias. Failed take
-leaves storage unchanged. Old roots can retain an inert invalidation identity,
-but cannot access the payload or revive it after reinsertion. Payload destruction
-belongs to the runtime until successful take, then to the receiving Rust owner.
-See [opaque access](embedding-api.md#retained-objects-and-prepared-calls).
-
-External `Ref<T>`/`RefMut<T>` instead reserve host-owned storage under an invariant
-scope brand. GC retains only checked view identities; addresses remain in the
-host borrow owner. Scope exit revokes every root/child view before the Rust loan
-ends, including errors and supported unwind. Holding a copied script Value cannot
-extend that lifetime. These views cannot cross suspension or runtime transfer.
-See [scoped borrowing](host-interop.md#borrowed-host-values).
-
-Shared native/host registrations and storage factories require Send + Sync and
-use Arc. Runtime-owned native payloads and observers require only Send. Their
-storage and destruction move with the runtime. Host-owned mutable services captured
-by shared callbacks must synchronize their own state. Prepared host-path commit
-actions remain synchronous call-local values and need no Send bound. Standard
-registrations are immutable process-wide OnceLock data; no runtime storage is shared.
-
-Immutable type arguments, lexical type bindings, storage/layout contracts and
-stored callable/cursor descriptors use Arc and satisfy Send + Sync. These contain
-only checked IDs, immutable type/code facts and the synchronized definition context;
-they do not share mutable heap/session/program storage. Transferring type facts
-does not revive a collected executable environment. Native code products and
-installed descriptors also share transferable finalized owners; each installation
-is still checked against its runtime and exact dependency versions.
-
-Runtime owns GcHeap directly. Iteration, mutation and key-lookup exclusion records
-also live in the heap. Native operations borrow short leases; guards stored in
-frames hold owning lease tokens, without owning those records or the heap. Cursor
-leases expire with their execution session, including cancellation and trap exits.
-Reopening a retained cursor checks the source revision before acquiring a fresh
-lease. Expired records cannot block writes and are pruned during acquisition/GC.
-Runtime teardown releases payload storage even when public roots or collection
-leases remain alive; dropping those leases afterward does not access the destroyed
-heap. Execution/session and host-borrow guards borrow runtime-owned storage and
-cannot outlive or move their runtime.
-
-Runtime::retain_module registers version retention through
-module::retention::ProgramLease. Runtime owns execution-state and candidate-access
-policy; ModuleStore owns records and no longer retains ResourceState. Instance
-reads and writes enter through Runtime's checked APIs. ModuleStore's instance and
-retention mutation methods are crate-private storage operations.
-Runtime::read_module_slot and write_module_slot are the execution access boundary.
-Writes check the installed descriptor, slot bounds and mutability, its bytecode
-representation, storable/live heap references and candidate ownership before
-replacing a reference. Candidate checks also apply between initialization and
-publication; publication still rechecks the transitive graph after intervening
-object mutations. The old value is disposed outside the module-store borrow, with
-no safepoint or callback between validation and the write. Reads detect damaged
-storage and quarantine the runtime. module_instance_snapshot returns a detached
-diagnostic copy; production APIs expose no mutable slot vector.
-The runtime owns ModuleStore's mutable records directly. Staged handles contain a
-lifecycle token instead of a shared store. Publication checks the token and installed
-code identity against the destination runtime. Dropping a candidate immediately
-invalidates access to its members, even if a separate retention lease still exists;
-the coordinated collector later disposes of its records. Abandoned candidates request
-collection at the next automatic safepoint or validated load/stage operation.
-Disabling automatic GC leaves that disposal to explicit collection or runtime teardown.
-ModuleStore::loaded_count reports available members, excluding abandoned candidates;
-ResourceCounters does not maintain a second module count.
-
-Runtime::retain_module checks the supplied ExecutableModule's actual installed program, including
-runtime ownership; numeric module keys alone cannot authorize retention. Clones
-share one registration, and last-drop releases eligibility without borrowing the
-module store. Active sessions and installed native code use these leases; native
-code pins every member of its dependency program. Closure/interface heap objects
-use traced edges instead of lease roots. Lease tokens can outlive the runtime and
-do not own module instances. Selected-operation descriptors hold executable edges,
-not independent program leases: an obsolete instance/closure/environment cycle is
-reclaimed in one collection once external roots disappear. Detached metadata
-snapshots cannot republish a closure after its executable dependencies have been
-released. Retention counts describe explicit leases, not all reachable programs.
-Operation groups can form cycles through cached method applications and environments;
-their checked edges let one collection detach the records and release that cycle.
-Method applications live by value in a runtime-owned generational table. Caches,
-prepared methods and metadata roots store ApplicationId edges; IDs alone do not
-retain records. Scoped method views check runtime ownership and generation before
-borrowing an application. Closed method applications reuse their receiver environment,
-while method-local generic arguments remain call-specific. Both operation groups
-and applications contribute to automatic collection pressure even without heap
-allocations. A borrowed metadata view prevents sweeping before any store detaches.
-Interface snapshots also live by value in a runtime-owned generational table.
-Heap interface wrappers, prepared selections and cached parent views use checked
-InterfaceSnapshotId edges. A metadata root reaches its receiver even when no heap
-wrapper remains; parent caches retain their exact executable dependencies. Repeated
-upcasts reuse the parent record while retaining separate wrapper identities.
-Snapshot reads are scoped borrows; snapshot occupancy contributes to automatic GC.
-A prepared method carries copied receiver/type data and checked metadata identities,
-so it does not keep an interface record alive after runtime teardown.
-
-ModuleStore owns each ModuleRecord by value: module instance slots, installed native
-links and mutable layout caches retire together during coordinated collection.
-ExecutableModule shares an immutable ProgramDescriptor through Arc. The descriptor
-contains verified code and inert identity/binding facts; it is Send + Sync and cannot
-retain installed callbacks, caches or mutable module state. Native dispatch resolves
-its binding through ModuleStore and releases the store borrow before invoking Rust.
-Publication, execution entry, retention and metadata traversal check the exact
-installed descriptor as well as the module key and runtime owner. Copying keys,
-epochs or binding facts does not authorize an uninstalled program.
-
-Installed generic layout applications use the module record's cache. Pure descriptor
-inspection can also derive a layout without that cache, including after the old
-executable record has been collected or while instance storage is borrowed. This
-preserves old type provenance without granting execution or instance access. Reading
-detached type facts never repopulates the released runtime record.
-
-Executable environments live by value in EnvironmentStore. TypeEnvironment is a
-checked EnvironmentId plus immutable TypeBindings; cloning it neither roots the
-record nor shares ownership of executable storage. Parent environments and selected
-operations are ID edges, marked with the rest of the metadata graph. Publication
-checks their runtime, slot and generation before inserting a record. Adding call-local
-selections publishes a new environment rather than mutating an existing application.
-Environment occupancy contributes to automatic collection pressure. Scoped record
-views prevent allocation and sweeping with a checked error before any detachment.
-
-TypeBindings contains substitutions, associated-type facts and type-only parent
-scopes. Layouts, type-argument origins and compatibility checks retain these immutable
-snapshots without retaining executable environments. Type information remains usable
-after environment collection; executing a captured environment still requires its
-live checked ID and explicit reachability. Bare handles cannot revive released
-records, alias recycled slots or keep runtime storage alive after teardown.
-
-ClosureValueSnapshot records live by value in the existing heap object slots;
-there is no separate owning Rc or closure metadata table. PreparedClosure stores
-only the closure Value identity, and its snapshot inspection requires the owning
-Runtime. Runtime::resolve_closure returns a checked scoped view. ExecutionStack
-accepts a closure Value, resolves it in that runtime and roots captures in the new
-frame before execution. Native call preparation releases metadata borrows before
-script invocation; callbacks can allocate, collect and reenter normally. Stored
-callback descriptors trace identities; host-owned `Function` handles retain the
-required callable state automatically. Named values use live routes without obsolete
-code leases; created closures retain exact body/capture owners. Neither form keeps
-runtime storage alive after teardown. RootedCallable has been removed.
-An explicit diagnostic snapshot copy is not an execution or retention capability.
-Holding a scoped heap view blocks mutation with a checked error and no partial
-write or accounting change; collection rejects the borrow before any detachment.
+Publication prepares and validates new graph/call facts before visibility, then
+commits without user callbacks. Abandoned staging loses authority immediately and
+requests later fresh-cycle retirement. Disabled automatic GC leaves disposal to
+explicit collection or teardown. Real retained computations preserve selected
+bodies/providers/environments, while ordinary inner calls select current code.
+Weak lookup caches do not root all historical revisions. The [reload walkthrough](../architecture/runtime/reload.md)
+and [activation contract](module-activation.md) own exact selection/commit rules.
 
 ## Type Registry
 
@@ -690,9 +448,10 @@ Host-to-script and script-to-host calls that involve borrowed host data create e
 The model is:
 
 ```text
-HostCallGuard {
-  frame_id: FrameId,
-  borrow_table: BorrowTable
+HostCallGuard<'runtime> {
+  table: &'runtime HostBorrowTable,
+  resources: Option<&'runtime ResourceState>,
+  frame: Option<HostFrameAccess<'runtime>>
 }
 ```
 
@@ -754,8 +513,12 @@ Host interop rules are defined in [host-interop.md](host-interop.md).
 
 ## Execution Control and Lifecycle Accounting
 
-RuntimeLimits contains a runtime-wide optional max_call_depth (default Some(256)).
-Runtime owns ResourceState by value within its heap; components use scoped borrows,
+RuntimeLimits configures nonzero max_stack_bytes (default 8 MiB per execution)
+and max_native_depth (default 32 nested Native/compiled entries). Committed VM
+capacity and Native/Rust-stack admission have independent guards; see
+[execution control](security.md#execution-control) for accounting and platform
+boundaries. StackOverflow and AllocationFailure terminate the current execution.
+Runtime owns ResourceState beside ManagedMemory; components use scoped borrows,
 not Rc/Weak ownership of the resource/session graph. ExecutionSession<'runtime>
 identifies a central record containing the root program, immutable
 options and cancellation state. SessionId checks the runtime owner, slot and
@@ -770,8 +533,8 @@ Termination stays recorded until the final session scope drops. Nested execution
 cannot replace root inputs or swallow cancellation. A fresh root starts clean.
 Nested entries validate installation authority and retain exact admitted executable
 owners; ordinary calls select current implementations rather than a session-wide old
-dependency set. Its central record retains the admitted root's program lease; ending
-the last scope needs no module-store borrow.
+dependency set. Its source prefix retains the admitted root's RevisionState edge,
+with control-side retention bookkeeping. Ending the last scope needs no module-store borrow.
 Synchronous host callbacks reenter the existing
 explicit driver with the same runtime and root options. Each host context owns its
 borrow guard; outer scopes remain active during nested execution. SessionStore owns
@@ -786,15 +549,16 @@ own suffix, releasing roots and depth counters even after termination/quarantine
 Manual public call-depth entry/exit APIs are removed; only frame scopes update it.
 HostBorrowTable owns its borrow records by value. HostCallGuard borrows that table
 and, for runtime calls, the resource gate; it cannot outlive either. HostResourceScope
-holds root leases into the central root table and registers its frame identity in
-the session. Host calls and path callbacks use this scope, and cleanup removes its
-registration, releases borrow/root leases, then drops its session handle.
+owns checked source-local, Host-frame and activation marks and registers its frame
+identity in the session. Host calls and path callbacks use this scope; cleanup
+revokes borrows, retires source locals and ends its admitted activation/session
+marks. Only escaping values require genuine Host roots.
 Host scopes can outlive an outer session handle
 without clearing its cancellation or termination state. ExecutionSession::host_scope_count
 reports registered host scopes for diagnostics and cleanup assertions.
-VM/SDK execution and reload publication use checked shared runtime references.
-Runtime is not Sync: these references do not authorize concurrent execution. The
-driver, store borrows and session identities enforce scoped synchronous reentry.
+VM/SDK execution, collection and publication use exclusive mutable Runtime access.
+Read-only observations may use shared access. Checked source/session identities
+and scoped loans preserve synchronous reentry without concurrent heap access.
 ModuleStore owns version reservation along with publication. Runtime-wide synchronous
 activation guards reject publication inside script, observers, callbacks, reentry or
 driver cleanup; parked old-version sessions may remain without blocking publication.
@@ -802,7 +566,7 @@ Registration and owner replacement still require mutable access; a live executio
 or destroying the runtime. Transfer is possible once these scopes have ended.
 Frames own their immutable loaded version; no borrowed bytecode lifetime crosses
 runtime entry. Frames and stacks do not retain a heap owner; slot access receives
-the current Runtime and checks its identity before touching the root table. A foreign
+the current Runtime and checks its identity before touching the execution source. A foreign
 context is rejected before any frame or slot change. Invalid frame access,
 suspended-scope mutation and out-of-order scope destruction quarantine the runtime instead of resuming a damaged stack.
 
@@ -820,8 +584,11 @@ Cancellation is checked cooperatively at interpreter/JIT safepoints and native
 polling boundaries. It cannot preempt a blocking host callback. Primitive bulk
 operations may finish before the next poll. A prepared commit is uninterrupted:
 cancellation requested inside it is observed after its target and dirty record
-are committed. ExecutionCounters reports lifecycle peaks and elapsed time;
-optional tracing provides observations without execution charging.
+are committed. ExecutionCounters reports current and peak call depth and heap units;
+a fresh root's heap peak starts at its current Runtime occupancy and does not
+inherit a previous root's peak. Nested synchronous entries share the active root's
+peak. Reading counters does not sample the platform clock. Optional tracing provides
+observations without execution charging.
 `ExecutionOptions::inputs` supplies
 a fixed logical Unix time in milliseconds and a random seed for the root session.
 Host callbacks access those values through `HostCallContext`; random draws use a
@@ -886,9 +653,9 @@ other ephemeral capabilities cannot escape into cells. A normal store requires a
 Ready mutable cell; only initializer completion may establish the first value,
 including for `static val`. Public runtime reads/writes are Ready-only and never
 execute a recipe. Diagnostic snapshots report the state without forcing it;
-these APIs still enforce candidate restrictions and quarantine. A copied raw
-Value is not an external GC root: retaining it across collection requires the
-ordinary root API.
+these APIs still enforce candidate restrictions and quarantine. A protected
+view is not an external GC root; retaining across collecting calls requires a
+genuine RootedValue.
 
 The joint GC graph is:
 

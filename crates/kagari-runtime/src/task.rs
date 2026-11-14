@@ -6,11 +6,14 @@ pub mod control;
 pub mod drive;
 mod outcome;
 pub(crate) mod payload;
+mod storage;
 pub(crate) mod store;
 pub mod value;
 pub(crate) mod waiting;
 
-use crate::{error::RuntimeError, error_trace::asynchronous::SpawnOrigin, gc::roots::RootedValue};
+use crate::{
+    error::RuntimeError, error_trace::asynchronous::SpawnOrigin, value::carriers::RootedValue,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TaskId(pub(crate) store::Identity);

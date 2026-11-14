@@ -1,0 +1,21 @@
+trait Read {
+    fn read(self) -> i32;
+}
+
+struct Wrapper<T> {
+    val value: T
+}
+
+impl<T> Read for Wrapper<T> {
+    fn read(self) -> i32 {
+        1
+    }
+}
+
+fn make<T>(value: T) -> Read {
+    Wrapper { value: value }
+}
+
+fn main() -> Read {
+    make(7)
+}

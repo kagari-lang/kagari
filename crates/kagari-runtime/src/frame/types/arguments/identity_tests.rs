@@ -1,9 +1,13 @@
 use super::*;
 use crate::{
+    execution::roots::ExecutionRoots,
+    execution_metadata::managed::sources::MetadataSource,
     frame::types::{EnvironmentRecord, TypeEnvironment, operations::OperationBindings},
     module::{EnumVariantRef, StructLayoutRef},
     native::{callable::StoredCallable, storage_type::StorageType},
     test_support::layouts as layout_fixtures,
+    value::{aggregates::tuples::TupleObject, carriers::ScopedValue},
+    value_check,
 };
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, map::DefinitionContext,
@@ -36,6 +40,7 @@ fn binder(definitions: &DefinitionContext, module: &str) -> GenericParam {
 fn argument(kind: BuiltinType) -> TypeArgument {
     TypeArgument {
         data: Arc::new(TypeArgumentData {
+            registry: None,
             ty: Ty::Builtin(kind),
             definitions: DefinitionContext::new().unwrap().snapshot(),
             origin: None,
@@ -51,18 +56,24 @@ fn argument(kind: BuiltinType) -> TypeArgument {
 fn scoped_frame_binders_preserve_parent_scope_and_survive_context_owner_drop() {
     let definitions = DefinitionContext::new().unwrap();
     let parent = Arc::new(
-        TypeBindings::new(
-            &definitions,
-            vec![binder(&definitions, "parent.kgr")],
-            vec![argument(BuiltinType::I32)],
-        )
+        {
+            let parameters = vec![binder(&definitions, "parent.kgr")];
+            TypeBindings::new(
+                &definitions.snapshot(),
+                parameters,
+                vec![argument(BuiltinType::I32)],
+            )
+        }
         .unwrap(),
     );
-    let mut child = TypeBindings::new(
-        &definitions,
-        vec![binder(&definitions, "child.kgr")],
-        vec![argument(BuiltinType::String)],
-    )
+    let mut child = {
+        let parameters = vec![binder(&definitions, "child.kgr")];
+        TypeBindings::new(
+            &definitions.snapshot(),
+            parameters,
+            vec![argument(BuiltinType::String)],
+        )
+    }
     .unwrap();
     child.include(Some(parent.clone())).unwrap();
     let body = GenericBody {
@@ -95,26 +106,35 @@ fn scoped_frame_binders_preserve_parent_scope_and_survive_context_owner_drop() {
 fn environments_reject_duplicate_binders_and_foreign_context_parents() {
     let definitions = DefinitionContext::new().unwrap();
     let parent = Arc::new(
-        TypeBindings::new(
-            &definitions,
-            vec![binder(&definitions, "owner.kgr")],
-            vec![argument(BuiltinType::I32)],
-        )
+        {
+            let parameters = vec![binder(&definitions, "owner.kgr")];
+            TypeBindings::new(
+                &definitions.snapshot(),
+                parameters,
+                vec![argument(BuiltinType::I32)],
+            )
+        }
         .unwrap(),
     );
-    let mut duplicate = TypeBindings::new(
-        &definitions,
-        vec![binder(&definitions, "owner.kgr")],
-        vec![argument(BuiltinType::String)],
-    )
+    let mut duplicate = {
+        let parameters = vec![binder(&definitions, "owner.kgr")];
+        TypeBindings::new(
+            &definitions.snapshot(),
+            parameters,
+            vec![argument(BuiltinType::String)],
+        )
+    }
     .unwrap();
     assert!(duplicate.include(Some(parent.clone())).is_err());
     let foreign = DefinitionContext::new().unwrap();
-    let mut child = TypeBindings::new(
-        &foreign,
-        vec![binder(&foreign, "other.kgr")],
-        vec![argument(BuiltinType::String)],
-    )
+    let mut child = {
+        let parameters = vec![binder(&foreign, "other.kgr")];
+        TypeBindings::new(
+            &foreign.snapshot(),
+            parameters,
+            vec![argument(BuiltinType::String)],
+        )
+    }
     .unwrap();
     assert!(child.include(Some(parent)).is_err());
 }
@@ -134,54 +154,87 @@ fn nominal_type_origins_keep_bindings_without_retaining_execution_parents() {
         .unwrap()
         .pop()
         .unwrap();
-    let group = runtime.gc.alloc_operation_group(vec![]).unwrap();
+    runtime.collect_garbage().unwrap();
+    let before = runtime.memory.stats().objects;
+    let execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let group = runtime
+        .alloc_operation_group(execution, vec![], &[])
+        .unwrap();
     let mut parent = EnvironmentRecord::new(
-        runtime.definition_context(),
+        &runtime.definition_context().snapshot(),
         vec![parameter.clone()],
         vec![argument],
     )
     .unwrap();
-    parent.add_receiver(&runtime.gc, group).unwrap();
-    let parent = runtime.alloc_environment(parent).unwrap();
-    let parent_id = parent.id;
-    let mut child = EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
-    child.include(Some(parent.clone())).unwrap();
-    let child = runtime.alloc_environment(child).unwrap();
-    let child_id = child.id;
+    parent.add_receiver(group.record()).unwrap();
+    let parent = runtime
+        .alloc_environment(
+            execution,
+            parent,
+            &[MetadataSource::AdmittedOperations(&group)],
+        )
+        .unwrap();
+    let parent_source = parent.source();
+    let mut child =
+        EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap();
+    child.include(Some(parent.facts().clone())).unwrap();
+    let child = runtime
+        .alloc_environment(
+            execution,
+            child,
+            &[MetadataSource::AdmittedEnvironment(&parent)],
+        )
+        .unwrap();
+    let child_source = child.source();
     let expression = Ty::Tuple(vec![parameter.as_type()]);
     let retained = runtime
-        .type_arguments(layout.module(), Some(child.types.clone()), &[expression])
+        .type_arguments(
+            layout.module(),
+            Some(child.facts().types.clone()),
+            &[expression],
+        )
         .unwrap()
         .pop()
         .unwrap();
     assert!(retained.has_origin());
-    // Warm derived facts before collecting their supplying execution environments.
     let cached_element = retained.parameter(&runtime, layout.module(), 0).unwrap();
-    drop((child, parent));
-    assert_eq!(
-        runtime
-            .collect_garbage()
-            .unwrap()
-            .reclaimed_operation_groups,
-        1
-    );
-    assert!(runtime.gc.environment(parent_id).is_none());
-    assert!(runtime.gc.environment(child_id).is_none());
-    // Transferring immutable facts must not revive their collected environments.
+    assert_eq!(runtime.memory.stats().objects, before + 3);
+    drop((child, parent, group));
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, execution)
+        .unwrap();
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.memory.stats().objects, before);
     let retained = thread::spawn(move || retained).join().unwrap();
-    assert!(runtime.gc.environment(parent_id).is_none());
-    assert!(runtime.gc.environment(child_id).is_none());
-    let record = Value::Struct(runtime.alloc_struct(layout.clone(), vec![]).unwrap());
+    runtime
+        .memory
+        .scope(&runtime.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                assert!(slots.dependency(parent_source).is_err());
+                assert!(slots.dependency(child_source).is_err());
+                Ok(())
+            })
+        })
+        .unwrap();
+    let record = runtime.alloc_struct(layout.clone(), &[]).unwrap();
+    let tuple = runtime
+        .memory
+        .scope(&runtime.resources, |cx, _| {
+            let record = record.get(cx)?;
+            let tuple = TupleObject::alloc(cx, &[record])?;
+            ScopedValue::managed(tuple).retain(cx)
+        })
+        .unwrap();
     assert_eq!(retained.ty(), &Ty::Tuple(vec![nominal.clone()]));
-    assert!(retained.matches(
-        &runtime,
-        &runtime.gc().alloc_tuple(vec![record]).unwrap(),
-        layout.module()
-    ));
+    assert!(value_check::matches_rooted(&mut runtime, layout.module(), &retained, &tuple).unwrap());
     let element = retained.parameter(&runtime, layout.module(), 0).unwrap();
     assert_eq!(element.ty(), &nominal);
-    assert!(element.matches(&runtime, &record, layout.module()));
-    assert!(cached_element.matches(&runtime, &record, layout.module()));
+    assert!(value_check::matches_rooted(&mut runtime, layout.module(), &element, &record).unwrap());
+    assert!(
+        value_check::matches_rooted(&mut runtime, layout.module(), &cached_element, &record)
+            .unwrap()
+    );
 }
 
 #[test]
@@ -196,5 +249,4 @@ fn immutable_runtime_descriptors_are_send_and_sync() {
     shareable::<EnumVariantRef>();
     shareable::<StorageType>();
     shareable::<StoredCallable>();
-    shareable::<Value>();
 }

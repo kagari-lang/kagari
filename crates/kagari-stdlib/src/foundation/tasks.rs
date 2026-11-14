@@ -10,17 +10,16 @@ use crate::{
 };
 use kagari_common::identity::DefinitionKind;
 use kagari_runtime::{
-    error::RuntimeError,
     native::{
         assembly::draft::ModuleDraft,
         binding::{Codec, NativeBinding, NativeResult},
-        context::CallContext,
+        context::NativeCall,
         declarations::MethodDecl,
         storage::NativeStorage,
         types::Type,
     },
     task::SpawnError,
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_types::declaration::{TypeDefKind, VariantDef, native::NativeStorageLayout};
 
@@ -120,17 +119,15 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     })
 }
 
-fn spawn(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
+fn spawn<'call>(
+    symbols: &EnumSymbols,
+    cx: &mut NativeCall<'call>,
+) -> NativeResult<ValueView<'call>> {
     let scope = cx.argument(0)?;
     let factory = cx.argument(1)?;
     let result = cx.result_type_argument()?;
     match cx.spawn_task(&scope, &factory)? {
-        Ok(task) => {
-            let value = task
-                .value(cx.heap())
-                .ok_or_else(|| RuntimeError::module_validation("spawned Task root"))?;
-            enums::allocate(symbols, cx, &result, "Result", "Ok", vec![value])
-        }
+        Ok(task) => enums::allocate(symbols, cx, &result, "Result", "Ok", &[task]),
         Err(error) => {
             let ty = cx.type_parameter(&result, 1)?;
             let member = match error {
@@ -138,17 +135,14 @@ fn spawn(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value>
                 SpawnError::CapacityExceeded => "CapacityExceeded",
                 SpawnError::DispatchUnavailable => "DispatchUnavailable",
             };
-            let value = enums::allocate(symbols, cx, &ty, "SpawnError", member, vec![])?;
-            let _error = cx
-                .heap()
-                .root_value(value)
-                .ok_or_else(|| RuntimeError::module_validation("SpawnError root"))?;
-            enums::allocate(symbols, cx, &result, "Result", "Err", vec![value])
+            let value = enums::allocate(symbols, cx, &ty, "SpawnError", member, &[])?;
+            enums::allocate(symbols, cx, &result, "Result", "Err", &[value])
         }
     }
 }
 
-fn cancel(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.cancel_task(&cx.argument(0)?)?;
-    Ok(Value::Unit)
+fn cancel<'call>(cx: &mut NativeCall<'call>) -> NativeResult<ValueView<'call>> {
+    let task = cx.argument(0)?;
+    cx.cancel_task(&task)?;
+    Ok(ValueView::unit())
 }

@@ -1,0 +1,9 @@
+fn main() -> i32 {
+    print("enter");
+    42
+}
+
+fn fail(n: i32) -> i32 {
+    val kept = [n];
+    n + 1
+}

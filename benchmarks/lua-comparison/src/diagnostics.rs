@@ -2,62 +2,52 @@
 use kagari::{context::ExecutionContext, runtime::Runtime};
 use kagari_runtime::{
     diagnostics::{self, allocations},
-    module::{Program, entry::ProgramEntry},
-    value::Value,
+    module::{InstalledProgram, entry::ProgramEntry},
 };
 
 #[global_allocator]
 static ALLOCATOR: allocations::Allocator = allocations::Allocator;
 
 pub(super) fn measure(
-    runtime: &Runtime,
-    module: &Program,
+    runtime: &mut Runtime,
+    module: &InstalledProgram,
     context: &ExecutionContext,
     entry: ProgramEntry<'_>,
-    args: &[Value],
     expected: i32,
 ) {
-    count(runtime, module, context, entry, args, expected, "cold");
+    count(runtime, module, context, entry, expected, "cold");
     for _ in 0..2 {
-        let report = runtime.execute(module, entry, args, context).unwrap();
-        assert_eq!(
-            report.return_value.value(runtime.runtime().gc()),
-            Some(Value::I32(expected))
-        );
+        let report = runtime.execute(module, entry, &[], context).unwrap();
+        assert_eq!(report.return_value.as_i32(), Some(expected));
     }
-    count(runtime, module, context, entry, args, expected, "warm");
+    count(runtime, module, context, entry, expected, "warm");
 }
 
 fn count(
-    runtime: &Runtime,
-    module: &Program,
+    runtime: &mut Runtime,
+    module: &InstalledProgram,
     context: &ExecutionContext,
     entry: ProgramEntry<'_>,
-    args: &[Value],
     expected: i32,
     phase: &str,
 ) {
-    let before = runtime.runtime().gc().stats();
+    let before = runtime.gc_stats();
     let ((report, execution), allocations) = allocations::measure(|| {
-        diagnostics::measure(|| runtime.execute(module, entry, args, context))
+        diagnostics::measure(|| runtime.execute(module, entry, &[], context))
     });
     let report = report.unwrap();
-    assert_eq!(
-        report.return_value.value(runtime.runtime().gc()),
-        Some(Value::I32(expected))
-    );
-    let after = runtime.runtime().gc().stats();
+    assert_eq!(report.return_value.as_i32(), Some(expected));
+    let after = runtime.gc_stats();
     let entry = entry.label();
     println!(
-        "DIAGNOSTIC,{entry},phase={phase},args={args:?},requests={},requested_bytes={},net_bytes={},objects={},collections={},environments_delta={},applications_delta={},method_preparations={},interface_call_preparations={},shared_preparations={},operation_preparations={},native_preparations={},layout_scope_preparations={},layout_operand_preparations={},layout_comparisons={},environment_allocations={},metadata_validations={},slow_boundaries={},driver_admissions={},await_polls={}",
+        "DIAGNOSTIC,{entry},phase={phase},requests={},requested_bytes={},net_bytes={},live_objects_delta={},completed_cycles={},provider_units_delta={},root_registrations_delta={},method_preparations={},interface_call_preparations={},shared_preparations={},operation_preparations={},native_preparations={},layout_scope_preparations={},layout_operand_preparations={},layout_comparisons={},environment_allocations={},metadata_graph_admissions={},slow_boundaries={},driver_admissions={},await_polls={}",
         allocations.requests,
         allocations.requested_bytes,
         allocations.net_bytes,
-        after.allocated_objects as i128 - before.allocated_objects as i128
-            + (after.reclaimed_objects - before.reclaimed_objects) as i128,
-        after.collections - before.collections,
-        after.environments as i128 - before.environments as i128,
-        after.method_applications as i128 - before.method_applications as i128,
+        after.objects as i128 - before.objects as i128,
+        after.completed_cycles - before.completed_cycles,
+        after.provider_units as i128 - before.provider_units as i128,
+        after.root_registrations as i128 - before.root_registrations as i128,
         execution.method_preparations,
         execution.interface_call_preparations,
         execution.shared_preparations,
@@ -67,21 +57,22 @@ fn count(
         execution.layout_operand_preparations,
         execution.layout_comparisons,
         execution.environment_allocations,
-        execution.metadata_validations,
+        execution.metadata_graph_admissions,
         execution.slow_boundaries,
         execution.driver_admissions,
         execution.await_polls,
     );
     println!(
-        "TRANSITION,{entry},phase={phase},selections={},admissions={},returns={},descriptors={},windows={},slots_examined={},initialized_bytes={},moved_bytes={},arguments={}",
+        "TRANSITION,{entry},phase={phase},selections={},admissions={},returns={},descriptors={},bank_reservations={},execution_root_slots_examined={},initialized_bytes={},reallocated_capacity_bytes={},arguments={},root_registrations={}",
         execution.call_selections,
         execution.call_admissions,
         execution.call_returns,
         execution.call_descriptors,
-        execution.window_allocations,
-        execution.window_slots_examined,
+        execution.bank_reservations,
+        execution.execution_root_slots_examined,
         execution.bank_bytes_initialized,
-        execution.bank_bytes_moved,
+        execution.bank_bytes_reallocated,
         execution.argument_transfers,
+        execution.root_registrations,
     );
 }

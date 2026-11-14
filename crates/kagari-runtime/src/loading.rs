@@ -1,17 +1,27 @@
 use crate::{
     PreparedReload, Runtime, StagedLoad, StagedReload,
-    error::{RuntimeError, RuntimeErrorKind},
-    module::{
-        ExecutableModule, Installation, LinkedHostBindings, LinkedProgramBindings,
-        ModuleEpochRetention, Program, VerifiedProgram, retention::ProgramLease,
-        staging::StagedProgram,
+    error::{
+        RuntimeError,
+        fault::EngineFault,
+        reason::{CancellationReason, StaleHandleReason},
     },
-    publication::PublicationGuard,
+    module::{
+        ExecutableModule, Installation, InstalledProgram, LinkedHostBindings,
+        LinkedProgramBindings, ModuleEpochRetention, VerifiedProgram,
+        admission::DefinitionAdmission,
+        managed::{revision::RevisionState, source::RevisionSource},
+        retention::{ProgramLease, RetentionOrigin},
+        staging::{ManagedProgramError, StagedProgram},
+    },
+    native::registry::DependencyValidation,
+    program::Program,
+    publication::PublicationPermit,
     reload::{
         ModuleEpoch, ReloadValidationError, updates::ReloadAdmission, validate_load_candidate,
         validate_reload_target, validate_verified_reload_candidate,
     },
 };
+
 use kagari_bytecode::{
     artifact::{ArtifactCompatibility, KbcArtifact, validate_program_resource_limits},
     instruction::NativeImportId,
@@ -19,69 +29,129 @@ use kagari_bytecode::{
     program::BytecodeProgram,
 };
 use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
+use kagari_gc::root::Root;
 use std::sync::Arc;
 
 impl Runtime {
-    /// Keep one exact module version reachable until the last lease is dropped.
-    /// The lease does not own runtime storage and may outlive the runtime.
+    /// Retain an exact module version from publication, an admitted execution or
+    /// an existing lease. Clones share retention; release needs no Runtime borrow.
+    /// The handle can outlive Runtime shutdown as an inert, non-accessing token.
+    /// Foreign, expired, unavailable or mismatched origins return None. A bare
+    /// descriptor cannot resurrect retired state; use Retained for an old lease.
     pub fn retain_module(
-        &self,
+        &mut self,
         module: &ExecutableModule,
         kind: ModuleEpochRetention,
+        origin: RetentionOrigin<'_>,
     ) -> Option<ProgramLease> {
-        self.resources().ensure_execution_allowed().ok()?;
-        self.modules.retain_module(module, kind)
+        let origin = origin.resolve(self, module).ok()?;
+        let revision = self.retain_revision(module, origin).ok()?;
+        self.modules.retain_module(module, kind, revision)
     }
 
     pub(crate) fn retain_program(
-        &self,
+        &mut self,
         module: &ExecutableModule,
         kind: ModuleEpochRetention,
+        origin: RevisionSource<'_>,
     ) -> Option<ProgramLease> {
-        self.resources().ensure_execution_allowed().ok()?;
-        self.modules.retain_program(module, kind)
+        let revision = self.retain_revision(module, origin).ok()?;
+        self.modules.retain_program(module, kind, revision)
+    }
+
+    fn retain_revision(
+        &mut self,
+        module: &ExecutableModule,
+        origin: RevisionSource<'_>,
+    ) -> Result<Root<RevisionState>, RuntimeError> {
+        self.with_revision_origin(module, origin, |slots, revision| match origin {
+            // Admit before sharing. Even another diagnostic retention kind shares
+            // the actual Root's existing GC registration.
+            RevisionSource::Host(root) => Ok(root.clone()),
+            RevisionSource::Current
+            | RevisionSource::Execution(_)
+            | RevisionSource::Application(_)
+            | RevisionSource::HostApplication(_)
+            | RevisionSource::RootedClosure(_)
+            | RevisionSource::RootedFuture(_)
+            | RevisionSource::Future(_)
+            | RevisionSource::Cold(_)
+            | RevisionSource::Closure(_)
+            | RevisionSource::StaticRecipe { .. } => slots.scope().retain(revision),
+        })
     }
 
     fn link_native_module(
         &self,
         module: &BytecodeModule,
         program: &VerifiedProgram,
+        admission: &DefinitionAdmission,
+        validated: &mut DependencyValidation,
     ) -> Result<LinkedHostBindings, RuntimeError> {
-        self.native_entries.validate_installed_contracts(module)?;
-        let mut bindings = self
-            .host
-            .link_module(module, &self.types, program.definitions())?;
+        self.native_entries
+            .validate_installed_contracts(module, admission)?;
+        let mut bindings = self.host.link_module(module, &self.types, admission)?;
         bindings.native = module
             .native_imports
             .iter()
-            .map(|import| self.native_entries.link(import, program))
+            .map(|import| {
+                self.native_entries
+                    .link(import, program, admission, validated)
+            })
             .collect::<Result<_, _>>()?;
         Ok(bindings)
     }
 
-    fn stage_linked_program(
+    fn link_program(
         &self,
+        program: &VerifiedProgram,
+    ) -> Result<LinkedProgramBindings, RuntimeError> {
+        let definitions = DefinitionAdmission::prepare(
+            program,
+            self.definition_context(),
+            &self.execution_options().cancellation,
+        )?;
+        let mut validated = DependencyValidation::default();
+        let members = program
+            .modules()
+            .iter()
+            .map(|module| self.link_native_module(module, program, &definitions, &mut validated))
+            .collect::<Result<_, _>>()?;
+        // Provider authority comes from installed registrations, never merely
+        // from declarations or requirements carried by the product.
+        let shared_traits = self
+            .native_entries
+            .owned_traits
+            .iter()
+            .filter_map(|id| definitions.product_id(*id))
+            .collect();
+        Ok(LinkedProgramBindings {
+            definitions,
+            members,
+            shared_traits,
+        })
+    }
+
+    fn stage_linked_program(
+        &mut self,
         installation: Arc<Installation>,
         name: String,
         epoch: ModuleEpoch,
         program: VerifiedProgram,
-        bindings: Vec<LinkedHostBindings>,
+        bindings: LinkedProgramBindings,
         admission: Option<ReloadAdmission>,
     ) -> Result<StagedProgram, RuntimeError> {
-        // Capture declaration-level provider authority in this publication. The
-        // catalog also contains script requirements, even under provided modules.
-        let shared_traits = self.native_entries.owned_traits.clone();
         let staged = self.modules.stage_verified_program(
             installation,
             name,
             epoch,
             program,
-            LinkedProgramBindings {
-                members: bindings,
-                shared_traits,
-            },
+            bindings,
             admission,
         )?;
+        let staged = staged
+            .into_managed(&self.modules, &mut self.memory, &self.resources)
+            .map_err(|error| self.managed_memory_error(error))?;
         // Exact program provenance now exists, but the candidate is not published.
         // On failure the lease drops; normal abandoned-candidate collection owns cleanup.
         for owner in staged.module().members() {
@@ -96,10 +166,20 @@ impl Runtime {
                 }
             }
         }
-        for owner in staged.module().members() {
-            self.link_execution(&owner)?;
+        self.link_staged_execution(&staged)?;
+        if staged.is_initial() {
+            staged
+                .finish_bindings(&self.modules, &mut self.memory, &self.resources)
+                .map_err(|error| self.managed_program_error(error))?;
         }
         Ok(staged)
+    }
+
+    fn managed_program_error(&self, error: ManagedProgramError) -> RuntimeError {
+        match error {
+            ManagedProgramError::Validation(error) => error,
+            ManagedProgramError::Memory(error) => self.managed_memory_error(error),
+        }
     }
 
     pub fn validate_executable_module(
@@ -108,31 +188,34 @@ impl Runtime {
     ) -> Result<(), RuntimeError> {
         self.resources().ensure_execution_allowed()?;
         if !module.belongs_to(self.host.owner()) {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::StaleHandle,
-                "executable module belongs to another runtime",
+            return Err(RuntimeError::from(
+                StaleHandleReason::ExecutableModuleBelongsToAnotherRuntime,
             ));
         }
         let loaded = self.modules.contains_module(module).map_err(|_| {
             self.resources()
-                .quarantine("module store is borrowed across execution")
+                .quarantine(EngineFault::ModuleStoreIsBorrowedAcrossExecution)
         })?;
         if !loaded {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::StaleHandle,
-                "executable module has been released",
+            return Err(RuntimeError::from(
+                StaleHandleReason::ExecutableModuleHasBeenReleased,
             ));
         }
+        // Entry/resume admitted this installation before activating the session.
+        // Synchronous scopes exclude publication/close, so inner calls reuse that
+        // authority without reading current or comparing publication revisions.
+        // Explicit retirement still revokes it before cleanup, even with borrowed
+        // executable storage. Heap values and native loans remain checked below
+        // their own operation boundaries, independently of this code admission.
+        if self
+            .resources()
+            .active_session()
+            .is_some_and(|session| session.root.installation_id() == module.installation_id())
+            && self.modules.activation_is_live()
+        {
+            return Ok(());
+        }
         self.modules.validate_executable_installation(module)
-    }
-
-    pub fn load_program(
-        &mut self,
-        name: impl Into<String>,
-        bytecode: DefinitionMetadata<BytecodeProgram>,
-    ) -> Result<Program, RuntimeError> {
-        let verified = VerifiedProgram::new(bytecode, self.definition_context())?;
-        self.load_verified_program(name, verified)
     }
 
     /// Stage and publish shared verified code with this runtime's bindings and state.
@@ -141,7 +224,7 @@ impl Runtime {
         &mut self,
         name: impl Into<String>,
         program: VerifiedProgram,
-    ) -> Result<Program, RuntimeError> {
+    ) -> Result<InstalledProgram, RuntimeError> {
         let candidate = self.stage_load_verified_program(name, program)?;
         self.publish_staged_load(candidate)
     }
@@ -158,17 +241,9 @@ impl Runtime {
         program: VerifiedProgram,
     ) -> Result<StagedLoad, RuntimeError> {
         self.check_initial_publication()?;
-        let program = program.normalized(
-            self.definition_context(),
-            &self.execution_options().cancellation,
-        )?;
         let name = name.into();
 
-        let bindings = program
-            .modules()
-            .iter()
-            .map(|module| self.link_native_module(module, &program))
-            .collect::<Result<Vec<_>, _>>()?;
+        let bindings = self.link_program(&program)?;
         let installation = self.modules.reserve_installation(
             self.host.owner(),
             program.modules()[program.root().index()].identity.clone(),
@@ -188,7 +263,10 @@ impl Runtime {
     /// active publication guards. The store validates the candidate lease and empty
     /// installation baseline under its commit guards. No callbacks or fallible work
     /// follow visibility; the returned Program has the candidate's original token.
-    pub fn publish_staged_load(&mut self, candidate: StagedLoad) -> Result<Program, RuntimeError> {
+    pub fn publish_staged_load(
+        &mut self,
+        candidate: StagedLoad,
+    ) -> Result<InstalledProgram, RuntimeError> {
         self.check_initial_publication()?;
         let StagedLoad {
             installation,
@@ -198,16 +276,24 @@ impl Runtime {
             .validate_installation(&installation, self.host.owner())?;
         self.validate_executable_module(program.module())?;
         self.validate_publication_bindings(program.module())?;
-        program.publish(&self.modules)?;
-        Ok(Program { installation })
+        program
+            .publish(&self.modules, &mut self.memory, &self.resources)
+            .map_err(|error| self.managed_program_error(error))?;
+        Ok(InstalledProgram { installation })
     }
 
     fn validate_publication_bindings(
         &self,
         program: &ExecutableModule,
     ) -> Result<(), RuntimeError> {
+        let mut validated = DependencyValidation::default();
         for member in program.members() {
-            let current = self.link_native_module(&member.bytecode, member.verified_program())?;
+            let current = self.link_native_module(
+                &member.bytecode,
+                member.verified_program(),
+                member.identity_admission(),
+                &mut validated,
+            )?;
             if current.paths != member.host_paths {
                 return Err(RuntimeError::module_validation(
                     "host bindings changed after candidate staging",
@@ -218,8 +304,8 @@ impl Runtime {
     }
 
     pub fn stage_reload_program(
-        &self,
-        target: &Program,
+        &mut self,
+        target: &InstalledProgram,
         program_name: Option<String>,
         bytecode: DefinitionMetadata<BytecodeProgram>,
     ) -> Result<StagedReload, ReloadValidationError> {
@@ -243,8 +329,8 @@ impl Runtime {
     }
 
     pub fn stage_reload_artifact(
-        &self,
-        target: &Program,
+        &mut self,
+        target: &InstalledProgram,
         program_name: Option<String>,
         artifact: DefinitionMetadata<KbcArtifact>,
         compatibility: &ArtifactCompatibility,
@@ -281,8 +367,8 @@ impl Runtime {
     /// Stage shared verified code without changing its immutable program identity.
     /// Host bindings, candidate state, permissions and publication remain runtime-local.
     pub fn stage_reload_verified_program(
-        &self,
-        target: &Program,
+        &mut self,
+        target: &InstalledProgram,
         program_name: Option<String>,
         program: VerifiedProgram,
     ) -> Result<StagedReload, ReloadValidationError> {
@@ -291,8 +377,8 @@ impl Runtime {
     }
 
     pub(super) fn prepare_reload(
-        &self,
-        target: &Program,
+        &mut self,
+        target: &InstalledProgram,
         program_name: Option<String>,
         program: VerifiedProgram,
     ) -> Result<PreparedReload, ReloadValidationError> {
@@ -300,18 +386,9 @@ impl Runtime {
             .select_program(target)
             .map_err(ReloadValidationError::Runtime)?;
         let name = program_name.unwrap_or_else(|| baseline.name.clone());
-        let program = program
-            .normalized(
-                self.definition_context(),
-                &self.execution_options().cancellation,
-            )
-            .map_err(ReloadValidationError::Runtime)?;
         let admission = validate_verified_reload_candidate(&baseline, &program)?;
-        let bindings = program
-            .modules()
-            .iter()
-            .map(|module| self.link_native_module(module, &program))
-            .collect::<Result<Vec<_>, _>>()
+        let bindings = self
+            .link_program(&program)
             .map_err(ReloadValidationError::Runtime)?;
         Ok(PreparedReload {
             installation: target.installation.clone(),
@@ -324,7 +401,7 @@ impl Runtime {
     }
 
     pub(super) fn stage_prepared_reload(
-        &self,
+        &mut self,
         candidate: PreparedReload,
     ) -> Result<StagedReload, ReloadValidationError> {
         let PreparedReload {
@@ -343,9 +420,10 @@ impl Runtime {
             .map_err(ReloadValidationError::Runtime)?;
         // Only admission may have changed; do not rebuild immutable checked evidence.
         validate_reload_target(&baseline, Some(&latest))?;
-        for (module, prepared) in program.modules().iter().zip(&bindings) {
+        let mut validated = DependencyValidation::default();
+        for (module, prepared) in program.modules().iter().zip(&bindings.members) {
             let current = self
-                .link_native_module(module, &program)
+                .link_native_module(module, &program, &bindings.definitions, &mut validated)
                 .map_err(ReloadValidationError::Runtime)?;
             if current.paths != prepared.paths {
                 return Err(ReloadValidationError::Runtime(
@@ -365,7 +443,7 @@ impl Runtime {
             .modules
             .reserve_epoch(installation.id)
             .map_err(ReloadValidationError::Runtime)?;
-        let target = Program {
+        let target = InstalledProgram {
             installation: installation.clone(),
         };
         let program = self
@@ -379,8 +457,8 @@ impl Runtime {
             )
             .map_err(ReloadValidationError::Runtime)?;
         let program = program
-            .bind_reload(&self.modules, &baseline)
-            .map_err(ReloadValidationError::Runtime)?;
+            .bind_reload(&self.modules, &baseline, &mut self.memory, &self.resources)
+            .map_err(|error| ReloadValidationError::Runtime(self.managed_program_error(error)))?;
         Ok(StagedReload {
             target,
             initialization_error: Default::default(),
@@ -391,8 +469,15 @@ impl Runtime {
 
     /// Admit and publish a previously staged candidate at the host boundary.
     /// Call `PublicationGuard::publish` instead when admission is already held.
+    ///
+    /// Publication requires the exclusive host owner, including from callbacks:
+    /// ```compile_fail
+    /// fn publish(runtime: &kagari_runtime::Runtime, candidate: kagari_runtime::StagedReload) {
+    ///     runtime.publish_staged_reload(candidate).unwrap();
+    /// }
+    /// ```
     pub fn publish_staged_reload(
-        &self,
+        &mut self,
         candidate: StagedReload,
     ) -> Result<(), ReloadValidationError> {
         self.begin_publication(&candidate.target)
@@ -401,11 +486,13 @@ impl Runtime {
     }
 
     pub(crate) fn publish_admitted_reload(
-        &self,
+        &mut self,
         candidate: StagedReload,
-        guard: &PublicationGuard<'_>,
+        permit: &PublicationPermit,
     ) -> Result<(), ReloadValidationError> {
-        guard.recheck().map_err(ReloadValidationError::Runtime)?;
+        permit
+            .recheck(self)
+            .map_err(ReloadValidationError::Runtime)?;
         if let Some(error) = candidate.initialization_error() {
             return Err(ReloadValidationError::Runtime(error));
         }
@@ -431,11 +518,101 @@ impl Runtime {
             .interpreter_caches
             .prepare_invalidation(program.module().installation_id(), program.module().epoch)
             .map_err(ReloadValidationError::Runtime)?;
-        guard.recheck().map_err(ReloadValidationError::Runtime)?;
-        program
-            .publish(&self.modules)
+        permit
+            .recheck(self)
             .map_err(ReloadValidationError::Runtime)?;
+        program
+            .publish(&self.modules, &mut self.memory, &self.resources)
+            .map_err(|error| ReloadValidationError::Runtime(self.managed_program_error(error)))?;
         invalidation.commit();
         Ok(())
+    }
+}
+
+/// Local installation naming; executable code remains shared by the Program.
+#[derive(Debug, Clone, Default)]
+pub struct LoadOptions {
+    pub program_name: Option<String>,
+}
+
+/// Local replacement naming and cooperative publication cancellation.
+#[derive(Debug, Clone, Default)]
+pub struct ReloadOptions {
+    pub program_name: Option<String>,
+    pub cancellation: CancellationToken,
+}
+
+impl Runtime {
+    /// Link and publish an immutable product with this Runtime's providers and state.
+    /// Does not compile, run script code or initialize statics; failed admission
+    /// leaves no live installation. Use staged loading for precommit host associations.
+    pub fn load_program(
+        &mut self,
+        program: &Program,
+        options: LoadOptions,
+    ) -> Result<InstalledProgram, RuntimeError> {
+        let program_name = options.program_name.unwrap_or_else(|| {
+            program.bytecode().modules()[program.bytecode().root().index()]
+                .source_name
+                .clone()
+        });
+        let candidate =
+            self.stage_load_verified_program(program_name, program.clone().into_verified())?;
+        let loaded = self.publish_staged_load(candidate)?;
+        Ok(loaded)
+    }
+
+    /// Publish a candidate checked against this installation's exact current
+    /// shared base. No compiler/query cache or source preparation is accessed.
+    /// Cancellation or any admission failure leaves current code/state unchanged.
+    pub fn replace_program(
+        &mut self,
+        previous: &InstalledProgram,
+        program: &Program,
+        options: ReloadOptions,
+    ) -> Result<(), ReloadValidationError> {
+        options.cancellation.check().map_err(|_| {
+            ReloadValidationError::Runtime(RuntimeError::from(
+                CancellationReason::ExecutionCancelled,
+            ))
+        })?;
+        let base = self
+            .program(previous)
+            .map_err(ReloadValidationError::Runtime)?;
+        if !program.expects_base(&base) {
+            return Err(ReloadValidationError::Runtime(RuntimeError::from(
+                StaleHandleReason::InstallationPublicationBaselineChangedOrClosed,
+            )));
+        }
+        let mut guard = self
+            .begin_publication(previous)
+            .map_err(ReloadValidationError::Runtime)?;
+        let candidate = guard
+            .stage_reload_verified_program(options.program_name, program.clone().into_verified())?;
+        options.cancellation.check().map_err(|_| {
+            ReloadValidationError::Runtime(RuntimeError::from(
+                CancellationReason::ExecutionCancelled,
+            ))
+        })?;
+        guard.publish(candidate)?;
+        Ok(())
+    }
+}
+
+impl Runtime {
+    /// Acquire the stable shared executable owner of the current installation.
+    /// Clones retain code and checked history, without compiler inputs or live state.
+    /// Rejects foreign or retired installations before exposing their product.
+    pub fn program(&self, installed: &InstalledProgram) -> Result<Program, RuntimeError> {
+        let current = self.select_program(installed)?;
+        current
+            .verified_program()
+            .product()
+            .cloned()
+            .ok_or_else(|| {
+                self.quarantine_execution_invariant(EngineFault::HostInvariant(
+                    "installed code has no canonical Program owner",
+                ))
+            })
     }
 }

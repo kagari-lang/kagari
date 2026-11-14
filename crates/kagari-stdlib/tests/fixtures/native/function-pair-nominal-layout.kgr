@@ -1,0 +1,22 @@
+pub struct Item {
+    pub val value: i32
+}
+
+pub struct Pair<A, B> {
+    pub val left: A,
+    pub val right: B
+}
+
+impl<T> Pair<T, T> {
+    pub fn same(self) -> i32 {
+        42
+    }
+}
+
+pub fn make() -> Pair<Item, Item> {
+    Pair { left: Item { value: 1 }, right: Item { value: 2 } }
+}
+
+pub fn evidence() -> i32 {
+    make().same()
+}

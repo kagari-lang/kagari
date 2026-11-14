@@ -1,0 +1,28 @@
+use test::probe::read;
+
+struct Holder<T> {
+    val value: T
+}
+
+enum Wrapped<T> {
+    Some(T),
+    None
+}
+
+trait Build {
+    fn make<T>(self, value: T) -> Holder<T> {
+        Holder { value: value }
+    }
+    fn wrap<T>(self, value: T) -> Wrapped<T> {
+        Wrapped::Some(value)
+    }
+}
+
+impl Build for i32 {}
+
+fn main() -> i32 {
+    val b: Build = 0;
+    val h = b.make(7);
+    val w = b.wrap(h.value);
+    read()
+}

@@ -1,23 +1,31 @@
 //! Count requested bytes through runtime teardown; do not use these runs for timing.
-use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program, runtime::Runtime};
+use kagari_gc::heap::HeapStats;
 use kagari_runtime::{
     diagnostics::{
         allocations::{self, Counts},
-        storage::StorageUsage,
+        storage::{self, ExecutionBacking},
     },
-    gc::GcHeapStats,
     native::value_handle::ScriptValue,
 };
 
 struct Snapshot {
     allocations: Counts,
-    heap: GcHeapStats,
-    storage: StorageUsage,
+    heap: HeapStats,
+    storage: ExecutionBacking,
+}
+
+fn snapshot(runtime: &Runtime) -> Snapshot {
+    Snapshot {
+        allocations: allocations::current().unwrap(),
+        heap: runtime.gc_stats(),
+        storage: storage::execution_backing(runtime),
+    }
 }
 
 pub(super) fn run(
     engine: &KagariEngine,
-    program: &PreparedProgram,
+    program: &Program,
     context: &ExecutionContext,
     population: i32,
 ) {
@@ -35,30 +43,25 @@ pub(super) fn run(
             let lifecycle = || {
                 let mut runtime = engine.runtime(context.clone());
                 let loaded = runtime.load_program(program, Default::default()).unwrap();
-                runtime.runtime().collect_garbage().unwrap();
-                let snapshot = || Snapshot {
-                    allocations: allocations::current().unwrap(),
-                    heap: runtime.runtime().gc().stats(),
-                    storage: runtime.runtime().gc().storage_usage(),
-                };
-                let setup = snapshot();
+                runtime.collect_garbage().unwrap();
+                let setup = snapshot(&runtime);
                 let values: ScriptValue = runtime
                     .execute_typed(&loaded, name, (count,), context)
                     .unwrap();
-                let constructed = snapshot();
-                runtime.runtime().collect_garbage().unwrap();
-                let live = snapshot();
+                let constructed = snapshot(&runtime);
+                runtime.collect_garbage().unwrap();
+                let live = snapshot(&runtime);
                 let sparse: Option<ScriptValue> = (name == "points").then(|| {
                     runtime
                         .execute_typed(&loaded, "sparse", (values.clone(), count), context)
                         .unwrap()
                 });
                 drop(values);
-                runtime.runtime().collect_garbage().unwrap();
-                let released = snapshot();
+                runtime.collect_garbage().unwrap();
+                let released = snapshot(&runtime);
                 drop(sparse);
-                runtime.runtime().collect_garbage().unwrap();
-                let empty = snapshot();
+                runtime.collect_garbage().unwrap();
+                let empty = snapshot(&runtime);
                 // Three equal cycles expose capacity growth after the first reuse.
                 let mut reused = None;
                 let mut plateau = None;
@@ -66,11 +69,11 @@ pub(super) fn run(
                     let again: ScriptValue = runtime
                         .execute_typed(&loaded, name, (count,), context)
                         .unwrap();
-                    runtime.runtime().collect_garbage().unwrap();
-                    let live = snapshot();
+                    runtime.collect_garbage().unwrap();
+                    let live = snapshot(&runtime);
                     drop(again);
-                    runtime.runtime().collect_garbage().unwrap();
-                    let empty = snapshot();
+                    runtime.collect_garbage().unwrap();
+                    let empty = snapshot(&runtime);
                     let net = (live.allocations.net_bytes, empty.allocations.net_bytes);
                     if let Some(expected) = plateau {
                         assert_eq!(net, expected, "{name} reuse cycle {cycle}");
@@ -78,10 +81,7 @@ pub(super) fn run(
                     plateau = Some(net);
                     reused = Some(live);
                 }
-                assert_eq!(
-                    runtime.runtime().gc().stats().allocated_objects,
-                    setup.heap.allocated_objects
-                );
+                assert_eq!(runtime.gc_stats().objects, setup.heap.objects);
                 [setup, constructed, live, released, empty, reused.unwrap()]
             };
             // Immutable prepared-program caches can initialize on first execution
@@ -117,14 +117,14 @@ pub(super) fn run(
     field_loops(engine, program, context);
 }
 
-fn field_loops(engine: &KagariEngine, program: &PreparedProgram, context: &ExecutionContext) {
+fn field_loops(engine: &KagariEngine, program: &Program, context: &ExecutionContext) {
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(program, Default::default()).unwrap();
     let point: ScriptValue = runtime
         .execute_typed(&loaded, "point", (), context)
         .unwrap();
     for name in ["read_fields", "write_fields", "fields"] {
-        let execute = || {
+        let mut execute = || {
             let result: i32 = runtime
                 .execute_typed(&loaded, name, (point.clone(), 50_000_i32), context)
                 .unwrap();

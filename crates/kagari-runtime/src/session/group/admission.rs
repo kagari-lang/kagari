@@ -1,68 +1,74 @@
-//! Reserve every local branch owner before committing the pair's one-shot claims.
+//! Reserve both local branch owners before committing their one-shot claims.
 use crate::{
     Runtime,
     error::RuntimeError,
-    native::{binding::NativeResult, composition::future_output},
-    session::{
-        group::{GroupRecord, GroupState, RunningGroup, invalid},
-        store::SessionId,
-    },
-    value::Value,
+    execution::roots::{ExecutionRoots, LocalMark, SessionId},
+    module::managed::source::RevisionSource,
+    native::{binding::NativeResult, composition::future_output, future::storage::ColdObject},
+    session::group::{GroupRecord, GroupState, RunningGroup, invalid},
+    value::view::ValueView,
 };
-use std::{slice, task::Waker};
+use kagari_gc::{error::GcError, root::Root};
+use std::task::Waker;
 
 impl Runtime {
-    pub(super) fn admit_group(&self, parent: SessionId, record: GroupRecord) -> NativeResult<()> {
+    pub(super) fn admit_group(
+        &mut self,
+        parent: SessionId,
+        record: GroupRecord,
+    ) -> NativeResult<()> {
         let GroupState::Admitting(cold, inputs) = record.state else {
             return Err(invalid());
         };
         let mut group = Box::new(RunningGroup {
             contract: cold,
-            _inputs: inputs,
+            inputs,
             branches: [None, None],
             outputs: [None, None],
             next: 0,
         });
+        let admitted = self.admit_group_branches(parent, &mut group);
+        let record = GroupRecord {
+            wake: record.wake,
+            state: GroupState::Running(group),
+        };
+        match admitted {
+            Ok(()) => {
+                self.groups.records.insert(parent, record);
+                Ok(())
+            }
+            Err(error) => self.finish_group_record(parent, record, Err(error)),
+        }
+    }
+
+    fn admit_group_branches(
+        &mut self,
+        parent: SessionId,
+        group: &mut RunningGroup,
+    ) -> NativeResult<()> {
+        self.poll_group_parent(parent)?;
+        let (mark, values) = self.group_input_views(parent, &group.inputs)?;
+        // Reservation does not run branches. This local prefix ends before any
+        // child starts, including on a failed admission; it never crosses a frame.
         let admitted = (|| {
-            self.poll_group_parent(parent)?;
-            let ids = group.contract.values.map(|value| match value {
-                Value::GcHandle(id) => Ok(id),
-                _ => Err(invalid()),
-            });
-            let [left, right] = ids;
-            let ids = [left?, right?];
-            // State validation is left-to-right, and roots precede every callback
-            // or allocation that could collect the heap after ownership transfers.
-            self.gc().validate_async_values(&group.contract.values)?;
-            let captures = self.gc().prepare_future_pair(ids)?;
-            for (index, id) in ids.iter().enumerate() {
-                let (owner, ty, scope) = self.gc().future_contract(*id)?;
-                self.validate_executable_module(&owner)?;
-                let applied = match scope {
-                    Some(scope) => scope,
-                    None => self
-                        .resolve_type_arguments(&owner, slice::from_ref(&ty))?
-                        .pop()
-                        .ok_or_else(invalid)?,
-                };
-                let output = future_output(self, &owner, &applied)?;
+            let contracts = self.future_pair_contracts(&values)?;
+            for (index, contract) in contracts.iter().enumerate() {
+                self.validate_executable_module(&contract.owner)?;
+                let output = future_output(self, &contract.owner, &contract.applied)?;
                 if !output
-                    .view(&owner)
+                    .view(&contract.owner)
                     .compatible(group.contract.inputs[index].view(&group.contract.owner))
                 {
                     return Err(RuntimeError::module_validation(
                         "composition branch output type",
                     ));
                 }
-                if let Some(closure) = self.gc().future_script(*id)? {
-                    self.checked_future_resume(closure, &owner, &output)?;
+                if let Some(closure) = &contract.script {
+                    self.validate_future_resume(closure, &contract.owner, &output)?;
                 }
-                let execution = self.prepare_owned_branch(
-                    parent,
-                    &owner,
-                    group.contract.values[index],
-                    output,
-                )?;
+                let origin = RevisionSource::Future(values[index].location().ok_or_else(invalid)?);
+                let execution =
+                    self.prepare_owned_branch(parent, &contract.owner, output, origin)?;
                 group.branches[index] = Some(execution);
                 self.scheduler.hub.contain(|| {
                     group.branches[index]
@@ -78,23 +84,62 @@ impl Runtime {
                 .map(|branch| branch.as_ref().expect("reserved branch").id);
             self.dependencies.attach_group(parent, children)?;
             self.poll_group_parent(parent)?;
-            let claims = self.gc().take_cold_future_pair(ids)?;
-            // Everything below is an infallible move into pre-reserved sessions.
-            for ((branch, cold), roots) in group.branches.iter().zip(claims).zip(captures) {
-                self.install_branch_claim(branch.as_ref().expect("reserved branch"), cold, roots);
+            let claims = self.claim_future_pair(&values)?;
+            // Claims own actual computation roots. Everything after the atomic
+            // detach is an infallible move into pre-reserved sessions.
+            for (branch, claim) in group.branches.iter().zip(claims) {
+                self.install_branch_claim(branch.as_ref().expect("reserved branch"), claim);
             }
+            self.memory
+                .scope(&self.resources, |cx, _| {
+                    let cold = cx.get(&group.inputs)?;
+                    ColdObject::release_captures(cx, cold)
+                })
+                .map_err(|error| self.managed_memory_error(error))?;
             Ok(())
         })();
-        let record = GroupRecord {
-            wake: record.wake,
-            state: GroupState::Running(group),
-        };
-        match admitted {
-            Ok(()) => {
-                self.groups.borrow_mut().records.insert(parent, record);
-                Ok(())
-            }
-            Err(error) => self.finish_group_record(parent, record, Err(error)),
-        }
+        let retired = self.memory.scope(&self.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| slots.retire_locals(mark))
+        });
+        retired.map_err(|error| self.managed_memory_error(error))?;
+        admitted
+    }
+
+    fn group_input_views<'input>(
+        &mut self,
+        parent: SessionId,
+        source: &'input Root<ColdObject>,
+    ) -> NativeResult<(LocalMark, [ValueView<'input>; 2])> {
+        self.memory
+            .scope(&self.resources, |cx, roots| {
+                ExecutionRoots::with(roots, cx, |slots| {
+                    let cold = slots.scope().get(source)?;
+                    if slots.scope().read(cold, ColdObject::len) != 2 {
+                        return Err(GcError::Representation);
+                    }
+                    let values = [
+                        ColdObject::capture(slots.scope(), cold, 0)?,
+                        ColdObject::capture(slots.scope(), cold, 1)?,
+                    ];
+                    slots.reserve_locals(parent, 2)?;
+                    let mark = slots.mark_locals(parent)?;
+                    let publish = (|| {
+                        let left = slots.push_local(parent, values[0])?;
+                        let right = slots.push_local(parent, values[1])?;
+                        Ok([
+                            ValueView::protected(values[0], Some(left))?,
+                            ValueView::protected(values[1], Some(right))?,
+                        ])
+                    })();
+                    match publish {
+                        Ok(values) => Ok((mark, values)),
+                        Err(error) => {
+                            slots.retire_locals(mark)?;
+                            Err(error)
+                        }
+                    }
+                })
+            })
+            .map_err(|error| self.managed_memory_error(error))
     }
 }

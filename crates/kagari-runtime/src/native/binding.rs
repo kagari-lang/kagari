@@ -2,20 +2,22 @@
 use crate::{
     Runtime,
     error::RuntimeError,
+    execution::roots::SessionId,
+    execution_metadata::managed::sources::MetadataSource,
     frame::types::{
         TypeEnvironment, arguments::ScopedSignature, compatibility::TypeView,
         operations::OperationBindings,
     },
     module::ExecutableModule,
     native::{
-        catalog::DeclarationCatalog,
-        context::{CallContext, LinkedCallable, LinkedOperation},
+        context::{LinkedCallable, LinkedOperation, NativeCall},
+        conversion::context::ConversionContext,
         declarations::SelectedCall,
         primitive::NativePrimitive,
         result::LinkedResultAdapter,
         types::{Type, same_definition},
     },
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_common::identity::{
     scoped::DefinitionReferences,
@@ -23,7 +25,7 @@ use kagari_common::identity::{
 };
 use kagari_types::{
     callable::Signature,
-    declaration::{FnDecl, TypeDefKind, host::HostCallPolicy, native::NativeStorageLayout},
+    declaration::{FnDecl, host::HostCallPolicy},
     reference::ReferenceAccess,
     ty::Ty,
 };
@@ -34,8 +36,12 @@ use std::{
 
 pub type NativeResult<T> = Result<T, RuntimeError>;
 
-pub type NativeEntry =
-    dyn for<'call> Fn(&mut CallContext<'call>) -> NativeResult<Value> + Send + Sync;
+pub(crate) type NativeStatus = Result<(), Box<RuntimeError>>;
+
+type ErasedNativeEntry = dyn for<'call> Fn(&mut NativeCall<'call>) -> NativeStatus + Send + Sync;
+
+pub(crate) type MappingPreparation =
+    dyn Fn(&ConversionContext<'_>, &ScopedSignature) -> NativeResult<()> + Send + Sync;
 
 /// Exact conversions retain scoped semantic types; generic views inherit their declared slot.
 #[derive(Debug, Clone)]
@@ -46,17 +52,12 @@ pub enum Codec {
         declaration: DefinitionId,
         definitions: DefinitionTable,
     },
-    Sequence,
-    MutableSequence,
-    Map,
-    Set,
-    Iterator,
+
     Callable,
 }
 
 impl Codec {
-    /// Both sequence codecs require a nominal storage declaration. Interface
-    /// values and builtin arrays cannot acquire a concrete sequence converter.
+    /// Receiver overrides must retain exact type/identity or the same generic view codec.
     pub(crate) fn receiver_shape_matches(&self, method: &Self) -> bool {
         match (self, method) {
             (Self::Exact(left), Self::Exact(right)) => left.same_type(right),
@@ -70,34 +71,12 @@ impl Codec {
                     definitions: right_scope,
                 },
             ) => same_definition(*left, left_scope, *right, right_scope),
-            (Self::Sequence | Self::MutableSequence, Self::Sequence | Self::MutableSequence)
-            | (Self::Value, Self::Value)
-            | (Self::Map, Self::Map)
-            | (Self::Set, Self::Set)
-            | (Self::Iterator, Self::Iterator)
-            | (Self::Callable, Self::Callable) => true,
+            (Self::Value, Self::Value) | (Self::Callable, Self::Callable) => true,
             _ => false,
         }
     }
 
-    pub(crate) fn accepts(
-        &self,
-        ty: &Ty,
-        definitions: &DefinitionTable,
-        catalog: &DeclarationCatalog,
-    ) -> bool {
-        let layout = match ty {
-            Ty::NativeObject(nominal) => {
-                catalog
-                    .types
-                    .get_id(nominal.declaration)
-                    .and_then(|ty| match ty.kind {
-                        TypeDefKind::NativeStorage(layout) => Some(layout),
-                        _ => None,
-                    })
-            }
-            _ => None,
-        };
+    pub(crate) fn accepts(&self, ty: &Ty, definitions: &DefinitionTable) -> bool {
         match self {
             Self::Exact(expected) => Type::from_semantic(ty.clone(), definitions)
                 .is_ok_and(|actual| expected.same_type(&actual)),
@@ -108,23 +87,8 @@ impl Codec {
             } => {
                 matches!(ty, Ty::NativeObject(nominal) if same_definition(*declaration, source, nominal.declaration, definitions))
             }
-            Self::Sequence | Self::MutableSequence => {
-                matches!(ty, Ty::NativeObject(_))
-                    && matches!(layout, Some(NativeStorageLayout::Sequence { .. }))
-            }
-            Self::Map => {
-                matches!(ty, Ty::Map { .. })
-                    || matches!(layout, Some(NativeStorageLayout::Map { .. }))
-            }
-            Self::Set => {
-                matches!(ty, Ty::Set(_, _))
-                    || matches!(layout, Some(NativeStorageLayout::Set { .. }))
-            }
+
             Self::Callable => matches!(ty, Ty::Function { .. }),
-            Self::Iterator => {
-                matches!(ty, Ty::Iter(_))
-                    || matches!(layout, Some(NativeStorageLayout::Iterator { .. }))
-            }
         }
     }
 }
@@ -134,14 +98,15 @@ impl Codec {
 ///
 /// ```compile_fail
 /// use std::rc::Rc;
-/// use kagari_runtime::{native::binding::{Codec, NativeBinding}, value::Value};
+/// use kagari_runtime::{native::binding::{Codec, NativeBinding}, value::view::ValueView};
 /// let local = Rc::new(1);
 /// let binding = NativeBinding::new(Vec::<Codec>::new(), Codec::Value, move |_| {
-///     Ok(Value::I32(*local))
+///     Ok(ValueView::from(*local))
 /// });
 /// ```
 #[derive(Clone)]
 pub struct NativeBinding {
+    pub(crate) prepare_mapping: Option<Arc<MappingPreparation>>,
     pub(crate) host_policy: Option<HostCallPolicy>,
     pub(crate) arguments: Box<[Codec]>,
     pub(crate) result: Codec,
@@ -154,7 +119,7 @@ pub struct NativeBinding {
 /// Primitive authority owns the implementation; a callback cannot claim its effects.
 #[derive(Clone)]
 pub(crate) enum BindingEntry {
-    Callback(Arc<NativeEntry>),
+    Callback(Arc<ErasedNativeEntry>),
     Primitive(NativePrimitive),
 }
 
@@ -173,16 +138,31 @@ impl NativeBinding {
     pub fn new(
         arguments: impl Into<Box<[Codec]>>,
         result: Codec,
-        entry: impl for<'call> Fn(&mut CallContext<'call>) -> NativeResult<Value>
+        entry: impl for<'call> Fn(&mut NativeCall<'call>) -> NativeResult<ValueView<'call>>
         + Send
         + Sync
         + 'static,
     ) -> Self {
+        Self::scoped(arguments, result, move |call| {
+            let value = entry(call)?;
+            call.set_result(value)
+        })
+    }
+
+    /// Bind an entry which stages its result in the protected call context.
+    /// All authoring forms enter this one erased protocol; script Result::Err
+    /// remains an ordinary staged value rather than an invocation error.
+    pub fn scoped(
+        arguments: impl Into<Box<[Codec]>>,
+        result: Codec,
+        entry: impl for<'call> Fn(&mut NativeCall<'call>) -> NativeResult<()> + Send + Sync + 'static,
+    ) -> Self {
         Self {
+            prepare_mapping: None,
             host_policy: None,
             arguments: arguments.into(),
             result,
-            entry: BindingEntry::Callback(Arc::new(entry)),
+            entry: BindingEntry::Callback(Arc::new(move |call| entry(call).map_err(Box::new))),
             converted_result: false,
             requirement_owner: None,
             receiver_access: None,
@@ -204,7 +184,6 @@ impl NativeBinding {
         &self,
         signature: &Signature,
         definitions: &DefinitionTable,
-        catalog: &DeclarationCatalog,
     ) -> NativeResult<()> {
         signature
             .visit_definition_ids(
@@ -217,8 +196,8 @@ impl NativeBinding {
                 .arguments
                 .iter()
                 .zip(&signature.params)
-                .any(|(codec, ty)| !codec.accepts(ty, definitions, catalog))
-            || !self.result.accepts(&signature.result, definitions, catalog)
+                .any(|(codec, ty)| !codec.accepts(ty, definitions))
+            || !self.result.accepts(&signature.result, definitions)
         {
             return Err(RuntimeError::metadata_conflict(
                 "native codec does not match the Kagari declaration",
@@ -250,7 +229,7 @@ impl LinkedNativeFunction {
     /// creates neither an executable retention lease nor a program ownership cycle.
     pub(crate) fn prepare_signature(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         owner: &ExecutableModule,
     ) -> NativeResult<()> {
         let params = runtime.type_arguments(owner, None, &self.signature.params)?;
@@ -258,8 +237,18 @@ impl LinkedNativeFunction {
             .type_arguments(owner, None, slice::from_ref(&self.signature.result))?
             .pop()
             .ok_or_else(|| RuntimeError::module_validation("native result type scope"))?;
+        let signature = ScopedSignature { params, result };
+        self.prepare_mapping(runtime, owner, &signature)?;
+        for (index, operation) in self.selected.iter().enumerate() {
+            if index.is_multiple_of(1024) {
+                runtime.resources().poll_execution()?;
+            }
+            if let LinkedOperation::Ready(callable) = operation {
+                callable.prepare_signature(runtime, owner)?;
+            }
+        }
         self.prepared_signature
-            .set(ScopedSignature { params, result })
+            .set(signature)
             .map_err(|_| RuntimeError::module_validation("duplicate native signature preparation"))
     }
 
@@ -267,6 +256,18 @@ impl LinkedNativeFunction {
         self.prepared_signature
             .get()
             .ok_or_else(|| RuntimeError::module_validation("native signature is not prepared"))
+    }
+
+    fn prepare_mapping(
+        &self,
+        runtime: &mut Runtime,
+        owner: &ExecutableModule,
+        signature: &ScopedSignature,
+    ) -> NativeResult<()> {
+        if let Some(prepare) = &self.binding.prepare_mapping {
+            prepare(&ConversionContext::for_mapping(runtime, owner)?, signature)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn check_requirement(
@@ -288,11 +289,14 @@ impl LinkedNativeFunction {
 
     pub(crate) fn apply(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
+        execution: SessionId,
         owner: &ExecutableModule,
         environment: TypeEnvironment,
         operations: &OperationBindings,
+        protected: &mut Vec<MetadataSource<'_>>,
     ) -> NativeResult<Self> {
+        let snapshot = runtime.environment_snapshot_in(protected, &environment)?;
         let params = runtime.type_arguments(
             owner,
             Some(environment.types.clone()),
@@ -306,18 +310,21 @@ impl LinkedNativeFunction {
             )?
             .pop()
             .ok_or_else(|| RuntimeError::module_validation("native return type"))?;
+        let scoped = ScopedSignature { params, result };
+        self.prepare_mapping(runtime, owner, &scoped)?;
         let signature = Signature {
-            params: params
+            params: scoped
+                .params
                 .iter()
                 .map(|argument| argument.ty().clone())
                 .collect(),
-            result: result.ty().clone(),
+            result: scoped.result.ty().clone(),
         };
         Ok(Self {
             declaration: self.declaration,
             binding: self.binding.clone(),
             signature,
-            prepared_signature: OnceLock::from(ScopedSignature { params, result }),
+            prepared_signature: OnceLock::from(scoped),
             result_adapter: self
                 .result_adapter
                 .as_ref()
@@ -328,6 +335,7 @@ impl LinkedNativeFunction {
                 .iter()
                 .map(|operation| match operation {
                     LinkedOperation::Ready(callable) => {
+                        callable.prepare_signature(runtime, owner)?;
                         Ok(LinkedOperation::Ready(callable.clone()))
                     }
                     LinkedOperation::Forward(required) => {
@@ -341,65 +349,25 @@ impl LinkedNativeFunction {
                             RuntimeError::module_validation("native operation receiver identity")
                         })?;
                         let resolved = environment.types.resolve_requirement(required)?;
+                        let resolved = owner.identity_admission().runtime_in(
+                            &resolved,
+                            &runtime.definition_context().snapshot(),
+                            &Default::default(),
+                        )?;
                         let operation = operations
-                            .operation(&runtime.gc, &resolved, &receiver)
+                            .operation(&snapshot.groups, &resolved, &receiver)
                             .ok_or_else(|| {
                                 RuntimeError::module_validation(
                                     "native constraint operation environment",
                                 )
                             })?;
                         Ok(LinkedOperation::Ready(LinkedCallable::prepare(
-                            runtime,
-                            owner,
-                            &environment,
-                            required,
-                            operation,
+                            runtime, execution, owner, &snapshot, required, operation, protected,
                         )?))
                     }
                 })
                 .collect::<NativeResult<Vec<_>>>()?
                 .into_boxed_slice(),
         })
-    }
-
-    pub(crate) fn invoke(&self, context: &mut CallContext<'_>) -> NativeResult<Value> {
-        if context.arguments.len() != self.signature.params.len() {
-            return Err(RuntimeError::module_validation(
-                "native invocation argument count",
-            ));
-        }
-        context.poll()?;
-        let result = context
-            .narrow_arguments()
-            .and_then(|mut narrowed| self.invoke_narrowed(&mut narrowed));
-        result.map_err(|error| context.runtime.resources().admit_execution_error(error))
-    }
-
-    fn invoke_narrowed(&self, context: &mut CallContext<'_>) -> NativeResult<Value> {
-        let signature = self.type_signature()?;
-        let result = match &self.binding.entry {
-            BindingEntry::Callback(entry) => entry(context),
-            BindingEntry::Primitive(primitive) => primitive
-                .execute(context.runtime, context.owner, signature, |index| {
-                    context.argument(index)
-                })
-                .map_err(|error| *error),
-        }
-        .map_err(|error| context.runtime.resources().admit_execution_error(error));
-        context.poll()?;
-        let value = result?;
-        if (!self.binding.converted_result || self.result_adapter.is_some())
-            && !signature
-                .result
-                .matches(context.runtime, &value, context.owner)
-        {
-            return Err(RuntimeError::module_validation(
-                "native result differs from its Kagari declaration",
-            ));
-        }
-        match &self.result_adapter {
-            Some(adapter) => adapter.convert(context.runtime, context.owner, value),
-            None => Ok(value),
-        }
     }
 }

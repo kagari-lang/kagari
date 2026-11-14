@@ -5,42 +5,6 @@ use crate::{
 };
 use kagari_common::identity::map::DefinitionContext;
 use kagari_stdlib::{catalog as foundation_catalog, catalog};
-use kagari_types::{collection::CollectionAccess, scalar::BuiltinType, ty::Ty};
-
-#[test]
-fn registered_nested_readonly_results_preserve_access_during_source_analysis() {
-    let (definitions, mut declaration) = module().as_ref().clone().into_parts();
-    let function = declaration
-        .functions
-        .iter_mut()
-        .find(|item| item.name == "echo")
-        .unwrap();
-    function.generic_params.clear();
-    function.params.clear();
-    function.return_type = Ty::Tuple(vec![Ty::Map {
-        key: Box::new(Ty::Builtin(BuiltinType::I32)),
-        value: Box::new(Ty::Builtin(BuiltinType::I32)),
-        access: CollectionAccess::ReadOnly,
-    }]);
-    let module = Arc::new(
-        DefinitionMetadata::checked(definitions, declaration, &Default::default()).unwrap(),
-    );
-    let mut providers = catalog::shared().unwrap();
-    providers.push(module);
-    for (operation, accepted) in [("get(1)", true), ("insert(1, 2)", false)] {
-        let source = SourceFile::new(
-            "nested-access.kgr",
-            format!("fn main() {{ demo::native::echo()[0].{operation}; }}"),
-        );
-        let analysis = crate::analyze_source(&source, providers.clone()).unwrap();
-        assert_eq!(
-            analysis.diagnostics().is_empty(),
-            accepted,
-            "{:?}",
-            analysis.diagnostics()
-        );
-    }
-}
 
 #[test]
 fn native_view_must_match_authoritative_signatures_bounds_members_and_visibility() {

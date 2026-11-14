@@ -5,7 +5,7 @@ use crate::{
     error::GcError,
     heap::{
         CollectionReport, Heap, HeapConfig, HeapStats, ShutdownReport, StepReport,
-        metadata::MetadataStats, pacing::AutomaticReport,
+        accounting::AccountingReport, metadata::MetadataStats, pacing::AutomaticReport,
     },
     object::{Edge, Gc},
     scan::{EdgeVisitor, ScanBudget, ScanStatus, WorkBudget},
@@ -123,9 +123,29 @@ impl<R: RootSource> RootDriver<R> {
         self.heap.collect_with(&mut self.source)
     }
 
+    /// Observe the last closed access/service interval without changing it.
+    /// Session attribution belongs to the embedding driver after all loans end.
+    pub fn accounting(&self) -> AccountingReport {
+        self.heap.accounting()
+    }
+
     /// Observe heap memory; source-owned frame capacity is not managed backing.
     pub fn stats(&self) -> HeapStats {
         self.heap.stats()
+    }
+
+    /// Copy source metadata without lending a heap capability or source borrow.
+    /// Mutation still requires paired scope admission/publication. The higher-
+    /// ranked callback cannot return a reference into the installed source.
+    ///
+    /// ```compile_fail
+    /// use kagari_gc::root_source::{RootDriver, RootSource};
+    /// fn escape<R: RootSource>(driver: &RootDriver<R>) {
+    ///     let _source = driver.inspect_source(|source| source);
+    /// }
+    /// ```
+    pub fn inspect_source<T>(&self, inspect: impl for<'source> FnOnce(&'source R) -> T) -> T {
+        inspect(&self.source.roots)
     }
 
     /// Inspect collector metadata; excludes this source's frame allocations.

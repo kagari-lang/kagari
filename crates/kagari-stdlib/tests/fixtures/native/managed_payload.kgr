@@ -1,0 +1,19 @@
+use example::managed::{ Holder, new, read, install, invoke };
+
+pub fn make(hp: i32) -> Holder {
+    new(hp, "initial", || 42)
+}
+
+pub fn cycle(hp: i32) -> Holder {
+    val holder = make(hp);
+    install(holder, || read(holder) + 1);
+    holder
+}
+
+pub fn plain() -> fn() -> i32 {
+    || 7
+}
+
+pub fn run(holder: Holder) -> i32 {
+    invoke(holder)
+}

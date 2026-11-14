@@ -1,0 +1,13 @@
+use example::generic_helper::identity;
+
+pub fn evidence() -> i32 {
+    identity(42)
+}
+
+fn hidden<T>(value: T) -> T {
+    value
+}
+
+pub fn hidden_evidence() -> i32 {
+    hidden(1)
+}

@@ -1,4 +1,6 @@
 use super::*;
+use kagari_types::arithmetic::ArithmeticError;
+use kagari_types::scalar::error::ScalarError;
 
 #[test]
 fn character_constants_compare_without_arithmetic_or_integer_coercion() {
@@ -59,11 +61,40 @@ fn checked_constants_share_integer_semantics_at_every_width() {
             (BinaryOp::Mul, 6, 7, Ok(scalar(42))),
             (BinaryOp::Div, 84, 2, Ok(scalar(42))),
             (BinaryOp::Rem, 43, 2, Ok(scalar(1))),
-            (BinaryOp::Add, max, 1, Err("integer overflow")),
-            (BinaryOp::Sub, min, 1, Err("integer overflow")),
-            (BinaryOp::Mul, max, 2, Err("integer overflow")),
-            (BinaryOp::Div, 1, 0, Err("integer division by zero")),
-            (BinaryOp::Rem, 1, 0, Err("integer remainder by zero")),
+            (
+                BinaryOp::Add,
+                max,
+                1,
+                Err(ConstEvalError::Scalar(ArithmeticError::Overflow.into())),
+            ),
+            (
+                BinaryOp::Sub,
+                min,
+                1,
+                Err(ConstEvalError::Scalar(ArithmeticError::Overflow.into())),
+            ),
+            (
+                BinaryOp::Mul,
+                max,
+                2,
+                Err(ConstEvalError::Scalar(ArithmeticError::Overflow.into())),
+            ),
+            (
+                BinaryOp::Div,
+                1,
+                0,
+                Err(ConstEvalError::Scalar(
+                    ArithmeticError::DivisionByZero.into(),
+                )),
+            ),
+            (
+                BinaryOp::Rem,
+                1,
+                0,
+                Err(ConstEvalError::Scalar(
+                    ArithmeticError::RemainderByZero.into(),
+                )),
+            ),
             (BinaryOp::BitAnd, 43, 42, Ok(scalar(42))),
             (BinaryOp::Shl, 21, 1, Ok(scalar(42))),
             (BinaryOp::Shr, 84, 1, Ok(scalar(42))),
@@ -79,7 +110,7 @@ fn checked_constants_share_integer_semantics_at_every_width() {
         let (bits, signed) = ty.layout();
         assert_eq!(
             binary(BinaryOp::Shl, scalar(1), scalar(i128::from(bits))),
-            Some(Err("integer shift out of range"))
+            Some(Err(ConstEvalError::Scalar(ScalarError::ShiftOutOfRange)))
         );
         assert_eq!(
             integer_value(IntegerOp::BitNot, 0, 0, ty),
@@ -89,12 +120,14 @@ fn checked_constants_share_integer_semantics_at_every_width() {
             for op in [BinaryOp::Div, BinaryOp::Rem] {
                 assert_eq!(
                     binary(op, scalar(min), scalar(-1)),
-                    Some(Err("integer overflow"))
+                    Some(Err(ConstEvalError::Scalar(
+                        ArithmeticError::Overflow.into()
+                    )))
                 );
             }
             assert_eq!(
                 integer_value(IntegerOp::CheckedSub, 0, min, ty),
-                Err("integer overflow")
+                Err(ConstEvalError::Scalar(ArithmeticError::Overflow.into()))
             );
         }
     }

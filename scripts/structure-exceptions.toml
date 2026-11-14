@@ -3,3 +3,45 @@
 # Add [[exceptions]] tables when a specific design is justified in review.
 # Re-export whitelist: empty. No file location is implicitly approved.
 # Each future reexport-whitelist entry must name one exact declaration.
+
+[[exceptions]]
+path = "crates/kagari-runtime/src/module/execution/instruction.rs"
+rule = "effective-loc"
+max_loc = 1280
+reason = "One ordered execution enum; generated variants cannot live in separate ordinary modules."
+evidence = "docs/architecture/runtime/scalar-execution.md"
+
+[[exceptions]]
+path = "crates/kagari-runtime/src/module/execution/scalar.rs"
+rule = "effective-loc"
+max_loc = 2800
+reason = "One preparation match and shared fallback preserve single-stage operation/operand selection."
+evidence = "docs/architecture/runtime/scalar-execution.md"
+
+[[exceptions]]
+path = "crates/kagari-runtime/src/frame/cursor/scalars/execute.rs"
+rule = "effective-loc"
+max_loc = 2980
+reason = "One scalar dispatch loop preserves direct specialized arms and common PC/error publication."
+evidence = "docs/architecture/runtime/scalar-execution.md"
+
+[[exceptions]]
+path = "crates/kagari/src/program.rs"
+rule = "reexport-whitelist"
+declaration = "pub use kagari_runtime::program::{Program, ProgramPreparationError};"
+reason = "The SDK facade exposes the canonical Runtime executable product; all SDK/CLI/web consumers share this type rather than a second Program wrapper."
+evidence = "docs/architecture/runtime.md"
+
+[[exceptions]]
+path = "crates/kagari/src/runtime.rs"
+rule = "reexport-whitelist"
+declaration = "pub use kagari_runtime::{ Runtime, loading::{LoadOptions, ReloadOptions}, };"
+reason = "SDK users receive the single canonical Runtime and publication options; no SDK execution wrapper remains."
+evidence = "docs/architecture/runtime.md"
+
+[[exceptions]]
+path = "crates/kagari/src/context.rs"
+rule = "reexport-whitelist"
+declaration = "pub use kagari_runtime::context::{ExecutionContext, JitPolicy};"
+reason = "The SDK facade shares invocation policy with standalone Runtime consumers."
+evidence = "docs/architecture/runtime.md"

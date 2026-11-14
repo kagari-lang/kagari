@@ -1,9 +1,11 @@
 //! Manual ownership/allocation probes; no elapsed-time or RSS attribution.
 use super::*;
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     diagnostics::allocations::{self, Counts},
     frame::types::arguments::TypeArgument,
-    module::StructLayoutRef,
+    module::{StructLayoutRef, retention::RetentionOrigin},
     native::installation::NativeInstallation,
 };
 use kagari_bytecode::instruction::StructId;
@@ -138,7 +140,7 @@ fn provenance_lifecycle(
 ) -> (ProvenanceResult, Counts) {
     allocations::measure(|| {
         let mut runtime = runtime();
-        let current_program = runtime.load_program("provenance", input.clone()).unwrap();
+        let current_program = load_bytecode(&mut runtime, "provenance", input.clone()).unwrap();
         let mut current = runtime.select_program(&current_program).unwrap();
         let mut holders = Vec::with_capacity(count);
         let mut graphs = Vec::with_capacity(count);
@@ -174,9 +176,12 @@ fn provenance_lifecycle(
                     let product = product(execute, Arc::default());
                     native_owners.push(Arc::downgrade(&product.owner));
                     // SAFETY: fixed fixture code implements this exact Unit body and ABI.
-                    Holder::Native(
-                        unsafe { runtime.install_native_function(&current, product) }.unwrap(),
-                    )
+                    let installed = unsafe {
+                        runtime.install_native_function(&current, product, RetentionOrigin::Current)
+                    }
+                    .unwrap();
+                    assert_unit(&mut runtime, &installed);
+                    Holder::Native(installed)
                 }
             };
             holders.push(holder);
@@ -235,10 +240,18 @@ fn provenance_lifecycle(
                         "Record"
                     );
                 }
-                Holder::Native(installed) => assert_eq!(
-                    runtime.invoke_native_function(installed).unwrap(),
-                    Value::Unit
-                ),
+                Holder::Native(installed) => {
+                    // Retaining executable backing does not pin ordinary call selection.
+                    let failure = runtime.invoke_native_function(installed).unwrap_err();
+                    let BackendInvocationError::RuntimeFailure(error) = failure.error else {
+                        panic!("stale native product must fail checked target admission")
+                    };
+                    assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+                    assert_eq!(
+                        error.to_string(),
+                        "module validation failed: installed native product does not match the current call target"
+                    );
+                }
             }
         }
         drop(holders);

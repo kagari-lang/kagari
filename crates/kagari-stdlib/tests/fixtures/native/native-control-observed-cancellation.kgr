@@ -1,0 +1,17 @@
+use test::boundary;
+
+use host;
+
+fn main() -> i32 {
+    boundary::choose(
+        true,
+        || {
+            host::log("effect");
+            42
+        }
+    )
+}
+
+pub fn ready() -> i32 {
+    7
+}

@@ -1,18 +1,22 @@
-//! Immediate child snapshots remain rooted while arbitrary Serde visitors run.
+//! Immediate child snapshots stay in one source suffix while Serde visitors run.
 use crate::{
-    error::RuntimeError,
+    error::{RuntimeError, context::ErrorLocation},
     frame::types::arguments::TypeArgument,
-    gc::roots::RootSet,
     native::{
         binding::NativeResult,
-        conversion::{context::ConversionContext, structures::StructDecoder},
+        conversion::{
+            arguments::ArgumentValues,
+            context::{ConversionContext, Frame},
+            structures::StructDecoder,
+        },
         serde::{
             deserializer::{Deserializer, decode},
             unsupported,
         },
     },
-    value::Value,
+    value::view::ValueView,
 };
+
 use serde::de::{
     DeserializeSeed, EnumAccess, MapAccess, SeqAccess, VariantAccess, Visitor,
     value::StringDeserializer,
@@ -85,24 +89,16 @@ impl<'de> MapAccess<'de> for Fields<'_, '_> {
     }
 }
 
-enum SequenceTypes {
-    Repeated(TypeArgument, usize),
-    Fields(Vec<TypeArgument>),
-}
-
 pub(super) struct Sequence<'scope, 'runtime> {
-    cx: &'scope mut ConversionContext<'runtime>,
-    roots: RootSet,
-    fields: SequenceTypes,
+    cx: Frame<'scope, 'runtime>,
+    values: ArgumentValues<'runtime>,
+    fields: Vec<TypeArgument>,
     next: usize,
 }
 
 impl<'scope, 'runtime> Sequence<'scope, 'runtime> {
     fn count(&self) -> usize {
-        match &self.fields {
-            SequenceTypes::Repeated(_, count) => *count,
-            SequenceTypes::Fields(fields) => fields.len(),
-        }
+        self.fields.len()
     }
 
     fn run<'de, V: Visitor<'de>>(mut self, visitor: V) -> NativeResult<V::Value> {
@@ -114,31 +110,15 @@ impl<'scope, 'runtime> Sequence<'scope, 'runtime> {
     }
 
     pub(super) fn visit<'de, V: Visitor<'de>>(
-        cx: &'scope mut ConversionContext<'runtime>,
-        roots: RootSet,
+        cx: Frame<'scope, 'runtime>,
+        values: ArgumentValues<'runtime>,
         fields: Vec<TypeArgument>,
         visitor: V,
     ) -> NativeResult<V::Value> {
         Self {
             cx,
-            roots,
-            fields: SequenceTypes::Fields(fields),
-            next: 0,
-        }
-        .run(visitor)
-    }
-
-    pub(super) fn visit_repeated<'de, V: Visitor<'de>>(
-        cx: &'scope mut ConversionContext<'runtime>,
-        roots: RootSet,
-        count: usize,
-        field: TypeArgument,
-        visitor: V,
-    ) -> NativeResult<V::Value> {
-        Self {
-            cx,
-            roots,
-            fields: SequenceTypes::Repeated(field, count),
+            values,
+            fields,
             next: 0,
         }
         .run(visitor)
@@ -155,16 +135,10 @@ impl<'de> SeqAccess<'de> for Sequence<'_, '_> {
         if self.next == self.count() {
             return Ok(None);
         }
-        let field = match &self.fields {
-            SequenceTypes::Repeated(field, _) => field,
-            SequenceTypes::Fields(fields) => &fields[self.next],
-        };
-        let value = self
-            .roots
-            .get(self.cx.runtime().gc(), self.next)
-            .ok_or_else(|| unsupported("expired child snapshot"))?;
-        let result = decode(self.cx, field, &value, seed)
-            .map_err(|error| error.at_conversion(format_args!("element {}", self.next)))?;
+        let field = &self.fields[self.next];
+        let value = self.values.get(&mut self.cx, self.next)?;
+        let result = decode(&mut self.cx, field, &value, seed)
+            .map_err(|error| error.at(ErrorLocation::Element(self.next)))?;
         self.next += 1;
         Ok(Some(result))
     }
@@ -175,9 +149,9 @@ impl<'de> SeqAccess<'de> for Sequence<'_, '_> {
 }
 
 pub(super) struct Variant<'scope, 'runtime> {
-    cx: &'scope mut ConversionContext<'runtime>,
+    cx: Frame<'scope, 'runtime>,
     pub(super) name: String,
-    roots: RootSet,
+    values: ArgumentValues<'runtime>,
     fields: Vec<TypeArgument>,
 }
 
@@ -185,31 +159,24 @@ impl<'scope, 'runtime> Variant<'scope, 'runtime> {
     pub(super) fn new(
         cx: &'scope mut ConversionContext<'runtime>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
         let layout = cx.variant_layout(expected, value)?;
-        let name = cx.variant_name(expected, value)?;
+        let name = layout
+            .module()
+            .definition_name(layout.variant().declaration)
+            .map(str::to_owned)
+            .ok_or_else(|| RuntimeError::module_validation("enum conversion variant identity"))?;
         let fields = cx.variant_fields(&layout)?;
-        let Value::Enum(id) = value else {
-            return Err(unsupported("enum value"));
-        };
-        let snapshot = cx
-            .runtime()
-            .gc()
-            .enum_snapshot(*id)
-            .ok_or_else(|| unsupported("enum snapshot"))?;
-        if fields.len() != snapshot.fields.len() {
+        let mut cx = cx.scratch()?;
+        let values = cx.enum_arguments(value)?;
+        if fields.len() != values.len() {
             return Err(unsupported("enum payload arity"));
         }
-        let roots = cx
-            .runtime()
-            .gc()
-            .root_execution_values(snapshot.fields)
-            .ok_or_else(|| unsupported("enum snapshot roots"))?;
         Ok(Self {
             cx,
             name,
-            roots,
+            values,
             fields,
         })
     }
@@ -218,11 +185,8 @@ impl<'scope, 'runtime> Variant<'scope, 'runtime> {
         self.fields.len()
     }
 
-    pub(super) fn some<'de, V: Visitor<'de>>(self, visitor: V) -> NativeResult<V::Value> {
-        let value = self
-            .roots
-            .get(self.cx.runtime().gc(), 0)
-            .ok_or_else(|| unsupported("Option snapshot"))?;
+    pub(super) fn some<'de, V: Visitor<'de>>(mut self, visitor: V) -> NativeResult<V::Value> {
+        let value = self.values.get(&mut self.cx, 0)?;
         let field = &self.fields[0];
         self.cx.decode_scope(field, &value, |cx| {
             visitor.visit_some(Deserializer::new(cx, field, value))
@@ -251,22 +215,19 @@ impl<'de> VariantAccess<'de> for Variant<'_, '_> {
         }
     }
 
-    fn newtype_variant_seed<S: DeserializeSeed<'de>>(self, seed: S) -> NativeResult<S::Value> {
+    fn newtype_variant_seed<S: DeserializeSeed<'de>>(mut self, seed: S) -> NativeResult<S::Value> {
         if self.fields.len() != 1 {
             return Err(unsupported("newtype variant arity"));
         }
-        let value = self
-            .roots
-            .get(self.cx.runtime().gc(), 0)
-            .ok_or_else(|| unsupported("variant snapshot"))?;
-        decode(self.cx, &self.fields[0], &value, seed)
+        let value = self.values.get(&mut self.cx, 0)?;
+        decode(&mut self.cx, &self.fields[0], &value, seed)
     }
 
     fn tuple_variant<V: Visitor<'de>>(self, len: usize, visitor: V) -> NativeResult<V::Value> {
         if self.fields.len() != len {
             return Err(unsupported("tuple variant arity"));
         }
-        Sequence::visit(self.cx, self.roots, self.fields, visitor)
+        Sequence::visit(self.cx, self.values, self.fields, visitor)
     }
 
     fn struct_variant<V: Visitor<'de>>(

@@ -1,5 +1,7 @@
 //! Execute the selected native operation carried by an implementation-local fact.
 use super::{owner, path};
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime,
     frame::driver::ReturnAction,
@@ -14,13 +16,18 @@ use crate::{
         binding::{Codec, NativeBinding, NativeResult},
         catalog::DeclarationCatalog,
         context::ScriptCall,
+        conversion::arguments::ArgumentValues,
         declarations::{MethodDecl, SelectedCall},
         module::NativeModule,
         typed::NativeContext,
         types::{Type, same_definition},
     },
-    value::Value,
+    value::{
+        place::{PublishedResult, ResultPlace},
+        view::ValueView,
+    },
 };
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
 use kagari_common::identity::DefinitionKind;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
@@ -35,22 +42,27 @@ use std::{
     },
 };
 
-fn invoke_selected(
-    runtime: &Runtime,
+fn invoke_selected<'result>(
+    runtime: &mut Runtime,
     _: &ExecutableModule,
-    target: ScriptCall<'_>,
-    arguments: &[Value],
-) -> NativeResult<Value> {
+    target: ScriptCall<'_, '_>,
+    arguments: ArgumentValues<'_>,
+    destination: ResultPlace<'result>,
+) -> NativeResult<PublishedResult<'result>> {
     let ScriptCall::Pinned(function) = target else {
         panic!("pinned native operation")
     };
-    let stack = runtime.enter_pinned_execution_stack(function)?;
-    stack.push_pinned_call(runtime, function, arguments)?;
-    stack.start_native_entry(runtime, invoke_selected)?;
-    let ReturnAction::Complete(result) = stack.finish_native_return(runtime)? else {
-        panic!("selected return")
-    };
-    Ok(result)
+    let mut stack_activation = runtime.enter_pinned_execution_stack(function)?;
+    stack_activation.with(|runtime, stack| {
+        stack.push_pinned_call(runtime, function, arguments)?;
+        stack.start_native_entry(runtime, invoke_selected)?;
+        let ReturnAction::Complete(result) = stack.finish_native_return(runtime)? else {
+            panic!("selected return")
+        };
+        stack.with_result(runtime, result, |runtime, value| {
+            destination.publish(runtime, &value)
+        })
+    })
 }
 
 #[test]
@@ -88,10 +100,10 @@ fn same_batch_override_executes_its_compiler_selected_requirement_in_both_orders
                         Codec::Exact(Type::i32()),
                         move |cx| {
                             callback_count.fetch_add(1, Ordering::SeqCst);
-                            let Value::I32(value) = cx.argument(0)? else {
+                            let Some(value) = cx.argument(0)?.as_i32() else {
                                 return Err(conflict("i32 receiver"));
                             };
-                            Ok(Value::I32(value + 2))
+                            Ok(ValueView::from(value + 2))
                         },
                     )),
                 )],
@@ -154,7 +166,7 @@ fn same_batch_override_executes_its_compiler_selected_requirement_in_both_orders
         let root = sources
             .set(
                 "forward-call.kgr",
-                "use forward::calls::Answer; fn main() -> i32 { 40.answer() }".into(),
+                include_str!("../../../../../../tests/fixtures/native/selected-forward.kgr").into(),
                 SourceLayer::Base,
             )
             .unwrap();
@@ -173,7 +185,7 @@ fn same_batch_override_executes_its_compiler_selected_requirement_in_both_orders
             .unwrap();
         let mut runtime = Runtime::default();
         NativeModule::install_all(&modules, &mut runtime).unwrap();
-        let loaded_program = runtime.load_program("forward-call", bytecode).unwrap();
+        let loaded_program = load_bytecode(&mut runtime, "forward-call", bytecode).unwrap();
         let loaded = runtime.select_program(&loaded_program).unwrap();
         let (owner, slot) = loaded
             .members()
@@ -193,22 +205,30 @@ fn same_batch_override_executes_its_compiler_selected_requirement_in_both_orders
                     .map(|slot| (owner, slot))
             })
             .expect("compiler selected override import");
-        let stack = runtime.enter_execution_stack(&owner).unwrap();
-        stack
-            .push_callable(
-                &runtime,
-                owner.clone(),
-                CallableTarget::Native(NativeImportId::new(slot)),
-                &[Value::I32(40)],
-                None,
-            )
+        let roots = runtime.collected_gc_stats().root_registrations;
+        let mut stack_activation = runtime.enter_execution_stack(&owner).unwrap();
+        stack_activation
+            .with(|runtime, stack| {
+                stack
+                    .push_callable(
+                        runtime,
+                        owner.clone(),
+                        CallableTarget::Native(NativeImportId::new(slot)),
+                        ArgumentValues::scalars(&[ValueView::from(40i32)]),
+                        None,
+                    )
+                    .unwrap();
+                stack.start_native_entry(runtime, invoke_selected).unwrap();
+                let ReturnAction::Complete(result) = stack.finish_native_return(runtime).unwrap()
+                else {
+                    panic!("override return")
+                };
+                assert_eq!(result.payload(), Some((ValueType::I32, 42)));
+                assert_eq!(calls.load(Ordering::SeqCst), 1);
+                assert_eq!(runtime.collected_gc_stats().root_registrations, roots);
+
+                Ok(())
+            })
             .unwrap();
-        stack.start_native_entry(&runtime, invoke_selected).unwrap();
-        let ReturnAction::Complete(result) = stack.finish_native_return(&runtime).unwrap() else {
-            panic!("override return")
-        };
-        assert_eq!(result, Value::I32(42));
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
-        assert_eq!(runtime.gc().active_roots(), 0);
     }
 }

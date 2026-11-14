@@ -1,12 +1,14 @@
 //! Cold shared contracts, source-free loading and callback ownership boundaries.
 use crate::test_support as support;
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 
 use crate::{
     Runtime,
     error::RuntimeError,
     host::{HostCallContext, HostError},
-    native::{builder::ModuleBuilder, module::NativeModule},
-    value::Value,
+    native::{builder::ModuleBuilder, host, module::NativeModule},
+    value::{carriers::RootedValue, view::ValueView},
 };
 use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact},
@@ -19,7 +21,6 @@ use kagari_common::identity::{
 };
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy},
-    collection::CollectionAccess,
     declaration::{
         FnDecl, Param, TypeDef, TypeDefKind,
         host::{
@@ -81,7 +82,10 @@ fn declaration(context: &DefinitionContext, package: &str) -> DefinitionMetadata
 
 fn bound(
     declarations: DefinitionMetadata<ModuleDecl>,
-    callback: impl for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+    callback: impl for<'call> Fn(
+        &mut HostCallContext<'call>,
+        &[ValueView<'call>],
+    ) -> Result<ValueView<'call>, HostError>
     + Send
     + Sync
     + 'static,
@@ -89,7 +93,7 @@ fn bound(
     let mut builder =
         ModuleBuilder::from_declaration(declarations, &Default::default(), BTreeMap::new())?;
     let function = builder.declared_function("echo")?;
-    builder.bind(function, callback)?;
+    builder.bind(function, host::callback(callback))?;
     builder.finish()
 }
 
@@ -117,7 +121,7 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
     let required = declaration(&context, "game");
     let bytecode = free_function_program(&required);
     let mut runtime = Runtime::default();
-    assert!(runtime.load_program("host", bytecode.clone()).is_err());
+    assert!(load_bytecode(&mut runtime, "host", bytecode.clone()).is_err());
     assert_eq!(runtime.modules().loaded_count(), 0);
     bound(required.clone(), |_, _| {
         panic!("linking must not invoke Rust")
@@ -125,7 +129,7 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
     .unwrap()
     .install(&mut runtime)
     .unwrap();
-    let loaded_program = runtime.load_program("host", bytecode).unwrap();
+    let loaded_program = load_bytecode(&mut runtime, "host", bytecode).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     let shared = runtime.select_program(&loaded_program).unwrap();
     assert!(std::ptr::eq(&loaded.bytecode, &shared.bytecode));
@@ -170,30 +174,29 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
     let mut second = Runtime::default();
     module.install(&mut first).unwrap();
     module.install(&mut second).unwrap();
-    let a_program = first
-        .load_program("same", free_function_program(&declaration))
-        .unwrap();
+    let a_program = load_bytecode(&mut first, "same", free_function_program(&declaration)).unwrap();
     let a = first.select_program(&a_program).unwrap();
-    let b_program = second
-        .load_program("same", free_function_program(&declaration))
-        .unwrap();
+    let b_program =
+        load_bytecode(&mut second, "same", free_function_program(&declaration)).unwrap();
     let b = second.select_program(&b_program).unwrap();
     // Native import slot zero exists in both programs, but its owner is mandatory.
     assert_eq!(a.bytecode.native_imports.len(), 1);
     assert_eq!(b.bytecode.native_imports.len(), 1);
     assert_eq!(a.key(), b.key());
-    assert!(invoke(&second, &a, 0, &[Value::I32(1)]).is_err());
+    assert!(invoke(&mut second, &a, 0, &[RootedValue::from(1i32)]).is_err());
     assert!(second.validate_executable_module(&a).is_err());
     assert!(second.module_instance_snapshot(&a).is_none());
     assert!(
         second
-            .write_module_slot(&a, ModuleSlot::new(0), Value::Unit)
+            .write_module_slot(&a, ModuleSlot::new(0), &RootedValue::unit())
             .is_err()
     );
     assert!(second.validate_executable_module(&b).is_ok());
     assert_eq!(
-        invoke(&second, &b, 0, &[Value::I32(7)]).unwrap(),
-        Value::I32(7)
+        invoke(&mut second, &b, 0, &[RootedValue::from(7i32)])
+            .unwrap()
+            .as_i32(),
+        Some(7)
     );
 }
 
@@ -205,21 +208,21 @@ fn callback_arguments_and_result_obey_the_declared_representation() {
     let called = calls.clone();
     let module = bound(declaration.clone(), move |_, _| {
         called.fetch_add(1, Ordering::SeqCst);
-        Ok(Value::Bool(true))
+        Ok(ValueView::from(true))
     })
     .unwrap();
     let mut runtime = Runtime::default();
     module.install(&mut runtime).unwrap();
-    let loaded_program = runtime
-        .load_program("host", free_function_program(&declaration))
-        .unwrap();
+    let loaded_program =
+        load_bytecode(&mut runtime, "host", free_function_program(&declaration)).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
-    assert!(invoke(&runtime, &loaded, 0, &[]).is_err());
-    assert!(invoke(&runtime, &loaded, 0, &[Value::Bool(true)]).is_err());
+    let roots = runtime.gc_stats().root_registrations;
+    assert!(invoke(&mut runtime, &loaded, 0, &[]).is_err());
+    assert!(invoke(&mut runtime, &loaded, 0, &[RootedValue::from(true)]).is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 0);
-    assert!(invoke(&runtime, &loaded, 0, &[Value::I32(1)]).is_err());
+    assert!(invoke(&mut runtime, &loaded, 0, &[RootedValue::from(1i32)]).is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
 }
 
 #[test]
@@ -257,15 +260,18 @@ fn offline_roundtrip_and_binding_link_do_not_run_callbacks() {
     let mut runtime = Runtime::default();
     bound(declaration, move |_, _| {
         called.fetch_add(1, Ordering::SeqCst);
-        Ok(Value::I32(7))
+        Ok(ValueView::from(7i32))
     })
     .unwrap()
     .install(&mut runtime)
     .unwrap();
     let (definitions, decoded) = imported.into_parts();
-    let loaded_program = runtime
-        .load_program("offline", scoped(&definitions, decoded.program))
-        .unwrap();
+    let loaded_program = load_bytecode(
+        &mut runtime,
+        "offline",
+        scoped(&definitions, decoded.program),
+    )
+    .unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     assert_ne!(
@@ -309,11 +315,7 @@ fn linking_checks_identity_signature_borrow_and_effects() {
     }
     for expected in changes {
         assert_ne!(encoded(&expected), encoded(&original));
-        assert!(
-            runtime
-                .load_program("mismatch", free_function_program(&expected))
-                .is_err()
-        );
+        assert!(load_bytecode(&mut runtime, "mismatch", free_function_program(&expected)).is_err());
     }
     let mut text = declaration(&context, "text").into_records();
     text.functions[0].params[0].ty = Ty::Builtin(BuiltinType::String);
@@ -325,12 +327,12 @@ fn linking_checks_identity_signature_borrow_and_effects() {
     let (definitions, mut borrowed) = text.into_parts();
     borrowed.functions[0].host_policy.as_mut().unwrap().passing[0] = HostPassingStyle::SharedBorrow;
     assert!(
-        runtime
-            .load_program(
-                "borrow-mismatch",
-                free_function_program(&scoped(&definitions, borrowed))
-            )
-            .is_err()
+        load_bytecode(
+            &mut runtime,
+            "borrow-mismatch",
+            free_function_program(&scoped(&definitions, borrowed))
+        )
+        .is_err()
     );
     let mut docs = original.records().clone();
     let function = original
@@ -342,9 +344,7 @@ fn linking_checks_identity_signature_borrow_and_effects() {
         .insert(function, "Updated help text".into());
     let docs = scoped(original.definitions(), docs);
     assert_eq!(encoded(&docs), encoded(&original));
-    runtime
-        .load_program("docs", free_function_program(&docs))
-        .unwrap();
+    load_bytecode(&mut runtime, "docs", free_function_program(&docs)).unwrap();
 }
 
 #[test]
@@ -395,25 +395,22 @@ fn invalid_registration_leaves_registry_unchanged() {
     bad.functions[0].host_policy.as_mut().unwrap().passing[0] = HostPassingStyle::UniqueBorrow;
     assert!(bound(scoped(original.definitions(), bad), |_, _| unreachable!()).is_err());
     let mut runtime = Runtime::default();
-    assert!(
-        runtime
-            .load_program("missing", free_function_program(&original))
-            .is_err()
-    );
+    assert!(load_bytecode(&mut runtime, "missing", free_function_program(&original)).is_err());
     assert_eq!(runtime.modules().loaded_count(), 0);
-    bound(original.clone(), |_, _| Ok(Value::I32(7)))
+    bound(original.clone(), |_, _| Ok(ValueView::from(7i32)))
         .unwrap()
         .install(&mut runtime)
         .unwrap();
-    let duplicate = bound(original.clone(), |_, _| Ok(Value::I32(9))).unwrap();
+    let duplicate = bound(original.clone(), |_, _| Ok(ValueView::from(9i32))).unwrap();
     assert!(duplicate.install(&mut runtime).is_err());
-    let loaded_program = runtime
-        .load_program("original", free_function_program(&original))
-        .unwrap();
+    let loaded_program =
+        load_bytecode(&mut runtime, "original", free_function_program(&original)).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     assert_eq!(
-        invoke(&runtime, &loaded, 0, &[Value::I32(1)]).unwrap(),
-        Value::I32(7)
+        invoke(&mut runtime, &loaded, 0, &[RootedValue::from(1i32)])
+            .unwrap()
+            .as_i32(),
+        Some(7)
     );
 }
 
@@ -446,12 +443,12 @@ fn immutable_configuration_contracts_are_portable_and_reject_shared_objects() {
         .install(&mut runtime)
         .unwrap();
     assert!(
-        runtime
-            .load_program(
-                "configuration-mismatch",
-                free_function_program(&configuration)
-            )
-            .is_err()
+        load_bytecode(
+            &mut runtime,
+            "configuration-mismatch",
+            free_function_program(&configuration)
+        )
+        .is_err()
     );
     let option = context.intern(&binding::option_declaration()).unwrap();
     let root = context
@@ -484,10 +481,7 @@ fn immutable_configuration_contracts_are_portable_and_reject_shared_objects() {
     records.collect_definitions(&context).unwrap();
     for result in [
         Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
-        Ty::Tuple(vec![Ty::Set(
-            Box::new(Ty::Builtin(BuiltinType::I32)),
-            CollectionAccess::Mutable,
-        )]),
+        Ty::Tuple(vec![Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)))]),
         option_of(Ty::Host(object)),
     ] {
         let mut invalid = records.clone();

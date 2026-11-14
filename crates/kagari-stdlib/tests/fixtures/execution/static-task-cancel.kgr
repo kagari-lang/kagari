@@ -1,0 +1,21 @@
+static var attempts: i32 = 0;
+
+static val value: i32 = initialize();
+
+fn initialize() -> i32 {
+    attempts += 1;
+    print("cancel");
+    42
+}
+
+pub fn factory() -> fn() -> Future<i32> {
+    async || value
+}
+
+pub fn read() -> i32 {
+    value
+}
+
+pub fn count() -> i32 {
+    attempts
+}

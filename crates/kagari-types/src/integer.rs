@@ -1,5 +1,8 @@
 //! Fixed-width integer operations shared by constant evaluation and execution.
-use crate::arithmetic::{self, ArithmeticError, IntegerBinaryOp};
+use crate::{
+    arithmetic::{self, IntegerBinaryOp},
+    scalar::error::ScalarError,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -29,6 +32,12 @@ pub fn wrap(value: i128, bits: u32, signed: bool) -> i128 {
     }
 }
 
+/// Evaluate in the selected fixed-width domain with checked arithmetic.
+///
+/// # Errors
+///
+/// Rejects unsupported widths before shift counts, then preserves arithmetic
+/// overflow and zero-divisor reasons. Operand-domain admission belongs to callers.
 #[inline]
 pub fn integer_operation(
     op: IntegerOp,
@@ -36,12 +45,12 @@ pub fn integer_operation(
     rhs: i128,
     bits: u32,
     signed: bool,
-) -> Result<i128, &'static str> {
+) -> Result<i128, ScalarError> {
     if !matches!(bits, 8 | 16 | 32 | 64) {
-        return Err("invalid integer width");
+        return Err(ScalarError::InvalidIntegerWidth);
     }
     if matches!(op, IntegerOp::Shl | IntegerOp::Shr) && (rhs < 0 || rhs >= i128::from(bits)) {
-        return Err("integer shift out of range");
+        return Err(ScalarError::ShiftOutOfRange);
     }
     let result = match op {
         IntegerOp::CheckedAdd
@@ -57,8 +66,7 @@ pub fn integer_operation(
                 IntegerOp::CheckedRem => IntegerBinaryOp::Rem,
                 _ => unreachable!(),
             };
-            return arithmetic::fixed_binary(op, lhs, rhs, bits, signed)
-                .map_err(ArithmeticError::message);
+            return arithmetic::fixed_binary(op, lhs, rhs, bits, signed).map_err(ScalarError::from);
         }
         IntegerOp::BitAnd => lhs & rhs,
         IntegerOp::BitOr => lhs | rhs,
@@ -183,6 +191,22 @@ pub fn arithmetic_method(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_width_precedes_shift_validation() {
+        for bits in [0, 1, 7, 128, u32::MAX] {
+            assert_eq!(
+                integer_operation(IntegerOp::Shl, 1, -1, bits, true),
+                Err(ScalarError::InvalidIntegerWidth)
+            );
+        }
+        for count in [-1, 32, i128::MAX] {
+            assert_eq!(
+                integer_operation(IntegerOp::Shl, 1, count, 32, true),
+                Err(ScalarError::ShiftOutOfRange)
+            );
+        }
+    }
 
     #[test]
     fn explicit_policies_match_rust_at_every_width_boundary() {

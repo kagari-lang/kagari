@@ -1,11 +1,15 @@
 //! Distinct executable descriptor owners, with caller inputs kept outside preparation.
-use super::{Phases, compare, compile, preparation, snapshot};
+use super::{Phases, PreparationSource, assert_reclaimed, compare, compile, preparation, snapshot};
+use crate::execution_metadata::environments::AdmittedEnvironment;
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime,
     diagnostics::allocations::{self, Counts},
-    execution_metadata::MetadataRoot,
+    execution_metadata::managed::{ProtectedMetadata, sources::MetadataSource},
     frame::types::EnvironmentRecord,
-    value::Value,
+    module::managed::source::RevisionSource,
+    value::carriers::RootedValue,
 };
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget},
@@ -14,17 +18,7 @@ use kagari_bytecode::{
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
-const SOURCE: &str = r#"
-    trait Read { fn read(self) -> i32; }
-    impl Read for i32 { fn read(self) -> i32 { self } }
-    fn relay<T>(value: T) -> T { value }
-    trait Forward {
-        fn forward<T>(self, value: T) -> T { relay(value) }
-        fn checked<T: Read>(self, value: T) -> i32 { value.read() }
-    }
-    impl Forward for i32 {}
-    fn main() -> i32 { val f: Forward = 0; f.checked(7); f.forward(8) }
-"#;
+const SOURCE: &str = include_str!("../../../tests/fixtures/metadata/applications.kgr");
 
 fn method_lifecycle(
     code: &DefinitionMetadata<BytecodeProgram>,
@@ -33,7 +27,7 @@ fn method_lifecycle(
 ) -> (Phases, Counts) {
     allocations::measure(|| {
         let mut runtime = Runtime::default();
-        let program = runtime.load_program("memory", code.clone()).unwrap();
+        let program = load_bytecode(&mut runtime, "memory", code.clone()).unwrap();
         let loaded = runtime.select_program(&program).unwrap();
         let (table, definition) = loaded
             .bytecode
@@ -52,45 +46,46 @@ fn method_lifecycle(
             .iter()
             .position(|method| loaded.definition_name(method.method) == Some("forward"))
             .unwrap();
-        let value = runtime
-            .make_interface(&loaded, table, Value::I32(0))
+        runtime.collect_garbage().unwrap();
+        let baseline = runtime.gc_stats();
+        let root = runtime
+            .make_interface(&loaded, table, &RootedValue::from(0_i32))
             .unwrap();
-        let root = runtime.root_value(value).unwrap();
-        let Value::Interface(id) = value else {
-            panic!("interface fixture")
-        };
         let interface = runtime
-            .gc
-            .interface_snapshot(id)
-            .unwrap()
-            .description
-            .interface_type()
-            .clone();
+            .with_metadata_graph(&[MetadataSource::RootedInterface(&root)], |cx, graph, _| {
+                let Some(ProtectedMetadata::Interface(value)) = graph.single_root() else {
+                    panic!("actual interface fixture");
+                };
+                Ok(cx.read(value, |value| value.description().interface_type().clone()))
+            })
+            .unwrap();
         let inputs = (1..=count)
             .map(|width| {
                 let ty: Ty = Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); width]);
                 runtime.resolve_type_arguments(&loaded, &[ty]).unwrap()
             })
             .collect::<Vec<_>>();
-        let (setup, cold, warm, repeated) = preparation(&runtime, || {
+        let mut retained = Vec::with_capacity(count);
+        let mut first = true;
+        let (setup, cold, warm, repeated) = preparation(&mut runtime, |runtime| {
             if prepare {
                 for arguments in &inputs {
-                    drop(
-                        runtime
-                            .resolve_interface_method_slot(&value, &interface, slot, arguments)
-                            .unwrap(),
-                    );
+                    let prepared = runtime
+                        .resolve_interface_method_slot(&root, &interface, slot, arguments)
+                        .unwrap();
+                    if first {
+                        retained.push(prepared);
+                    }
                 }
             }
+            first = false;
         });
         let staged = runtime
             .stage_reload_program(&program, None, code.clone())
             .unwrap();
         runtime.publish_staged_reload(staged).unwrap();
-        drop((root, inputs, interface, loaded));
-        runtime.collect_garbage().unwrap();
-        assert_eq!(runtime.gc.stats().method_applications, 0);
-        assert_eq!(runtime.gc.stats().environments, 0);
+        drop((retained, root, inputs, interface, loaded));
+        assert_reclaimed(&mut runtime, baseline);
         let retired = snapshot();
         Phases {
             setup,
@@ -109,7 +104,7 @@ fn shared_lifecycle(
 ) -> (Phases, Counts) {
     allocations::measure(|| {
         let mut runtime = Runtime::default();
-        let program = runtime.load_program("memory", code.clone()).unwrap();
+        let program = load_bytecode(&mut runtime, "memory", code.clone()).unwrap();
         let loaded = runtime.select_program(&program).unwrap();
         let (function, module, target, contract) = loaded
             .bytecode
@@ -138,51 +133,71 @@ fn shared_lifecycle(
         let selected = runtime
             .select_call_route(&owner.bind_call_route(target).unwrap())
             .unwrap();
+        runtime.collect_garbage().unwrap();
+        let baseline = runtime.gc_stats();
+        let input_source = PreparationSource::new(&mut runtime);
+        let mut prepared_source = PreparationSource::new(&mut runtime);
         let inputs = (1..=count)
             .map(|width| {
                 let ty: Ty = Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); width]);
                 let arguments = runtime.resolve_type_arguments(&loaded, &[ty]).unwrap();
                 runtime
                     .alloc_environment(
+                        input_source.execution,
                         EnvironmentRecord::new(
-                            runtime.definition_context(),
+                            &runtime.definition_context().snapshot(),
                             body.parameters.clone(),
                             arguments,
                         )
                         .unwrap(),
+                        &[MetadataSource::Revision {
+                            owner: &loaded,
+                            source: RevisionSource::Current,
+                        }],
                     )
                     .unwrap()
             })
             .collect::<Vec<_>>();
-        let roots = runtime
-            .root_metadata(
-                inputs
-                    .iter()
-                    .map(|environment| MetadataRoot::Environment(environment.id))
-                    .collect(),
-            )
-            .unwrap();
-        let (setup, cold, warm, repeated) = preparation(&runtime, || {
-            if prepare {
-                for environment in &inputs {
-                    runtime
-                        .prepare_selected_shared_environment(
-                            &loaded,
-                            Some(environment.clone()),
-                            &selected,
-                            contract,
-                        )
-                        .unwrap();
+        let mut retained: Vec<AdmittedEnvironment> = Vec::with_capacity(count);
+        let (setup, cold, warm, repeated) = preparation(&mut runtime, |runtime| {
+            prepared_source.run(runtime, |runtime, execution, first| {
+                if prepare {
+                    for (index, environment) in inputs.iter().enumerate() {
+                        let mut protected = vec![
+                            MetadataSource::Revision {
+                                owner: &loaded,
+                                source: RevisionSource::Current,
+                            },
+                            MetadataSource::Environment(environment.source()),
+                        ];
+                        if !first {
+                            protected.push(MetadataSource::Environment(retained[index].source()));
+                        }
+                        let prepared = runtime
+                            .prepare_selected_shared_environment(
+                                execution,
+                                &loaded,
+                                Some(environment.facts().clone()),
+                                &selected,
+                                contract,
+                                &mut protected,
+                            )
+                            .unwrap();
+                        if first {
+                            retained.push(prepared);
+                        }
+                    }
                 }
-            }
+            });
         });
         let staged = runtime
             .stage_reload_program(&program, None, code.clone())
             .unwrap();
         runtime.publish_staged_reload(staged).unwrap();
-        drop((roots, inputs, selected, owner, loaded));
-        runtime.collect_garbage().unwrap();
-        assert_eq!(runtime.gc.stats().environments, 0);
+        prepared_source.retire(&mut runtime);
+        input_source.retire(&mut runtime);
+        drop((retained, inputs, selected, owner, loaded));
+        assert_reclaimed(&mut runtime, baseline);
         let retired = snapshot();
         Phases {
             setup,
@@ -201,7 +216,7 @@ fn witness_lifecycle(
 ) -> (Phases, Counts) {
     allocations::measure(|| {
         let mut runtime = Runtime::default();
-        let program = runtime.load_program("memory", code.clone()).unwrap();
+        let program = load_bytecode(&mut runtime, "memory", code.clone()).unwrap();
         let loaded = runtime.select_program(&program).unwrap();
         let witnesses = loaded
             .bytecode
@@ -216,45 +231,78 @@ fn witness_lifecycle(
                 _ => None,
             })
             .unwrap();
+        runtime.collect_garbage().unwrap();
+        let baseline = runtime.gc_stats();
+        let input_source = PreparationSource::new(&mut runtime);
+        let mut prepared_source = PreparationSource::new(&mut runtime);
         let inputs = (0..count)
             .map(|_| {
                 runtime
                     .alloc_environment(
-                        EnvironmentRecord::new(runtime.definition_context(), vec![], vec![])
-                            .unwrap(),
+                        input_source.execution,
+                        EnvironmentRecord::new(
+                            &runtime.definition_context().snapshot(),
+                            vec![],
+                            vec![],
+                        )
+                        .unwrap(),
+                        &[MetadataSource::Revision {
+                            owner: &loaded,
+                            source: RevisionSource::Current,
+                        }],
                     )
                     .unwrap()
             })
             .collect::<Vec<_>>();
-        let roots = runtime
-            .root_metadata(
-                inputs
-                    .iter()
-                    .map(|environment| MetadataRoot::Environment(environment.id))
-                    .collect(),
-            )
-            .unwrap();
-        let (setup, cold, warm, repeated) = preparation(&runtime, || {
-            if prepare {
-                for environment in &inputs {
-                    runtime
-                        .bind_operations_in(&loaded, Some(environment.clone()), witnesses)
-                        .unwrap();
+        let mut retained: Vec<Vec<MetadataSource<'_>>> = Vec::with_capacity(count);
+        let (setup, cold, warm, repeated) = preparation(&mut runtime, |runtime| {
+            prepared_source.run(runtime, |runtime, execution, first| {
+                if prepare {
+                    for (index, environment) in inputs.iter().enumerate() {
+                        let mut protected = vec![
+                            MetadataSource::Revision {
+                                owner: &loaded,
+                                source: RevisionSource::Current,
+                            },
+                            MetadataSource::Environment(environment.source()),
+                        ];
+                        if !first {
+                            protected.extend_from_slice(&retained[index]);
+                        }
+                        runtime
+                            .bind_operations_in(
+                                execution,
+                                &loaded,
+                                Some(environment.facts().clone()),
+                                witnesses,
+                                &mut protected,
+                            )
+                            .unwrap();
+                        if first {
+                            retained.push(
+                                protected
+                                    .into_iter()
+                                    .filter(|source| {
+                                        matches!(source, MetadataSource::Operations(_))
+                                    })
+                                    .collect::<Vec<_>>(),
+                            );
+                        }
+                    }
                 }
-            }
+            });
         });
-        let old_groups = runtime.gc.stats().operation_groups;
         let staged = runtime
             .stage_reload_program(&program, None, code.clone())
             .unwrap();
         runtime.publish_staged_reload(staged).unwrap();
-        drop((roots, inputs, loaded));
-        let collection = runtime.collect_garbage().unwrap();
-        assert_eq!(collection.reclaimed_operation_groups, old_groups);
-        // Linking the replacement prepares its own closed interface-call witness.
-        // Old groups must retire; the current program's distinct group stays live.
-        assert_eq!(runtime.gc.stats().operation_groups, 1);
-        assert_eq!(runtime.gc.stats().environments, 0);
+        prepared_source.retire(&mut runtime);
+        input_source.retire(&mut runtime);
+        drop(retained);
+        drop((inputs, loaded));
+        // The identical replacement owns its current closed witness. Complete
+        // object/provider/root baselines detect retained old preparation graphs.
+        assert_reclaimed(&mut runtime, baseline);
         let retired = snapshot();
         Phases {
             setup,

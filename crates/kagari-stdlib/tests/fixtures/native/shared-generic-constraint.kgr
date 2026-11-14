@@ -1,0 +1,35 @@
+use example::generic_operation::{ Identity, invoke };
+
+struct Source {
+    var calls: i32
+}
+
+impl Identity for Source {
+    fn identity<T>(self, value: T) -> T {
+        self.calls += 1;
+        value
+    }
+}
+
+trait Relay {
+    fn relay<S: Identity, T>(self, source: S, value: T) -> T {
+        invoke(source, value)
+    }
+}
+
+impl Relay for i32 {}
+
+struct Item {
+    val value: i32
+}
+
+fn main() -> i32 {
+    val relay: Relay = 0;
+    val source = Source { calls: 0 };
+    val result = relay.relay(source, Item { value: 42 });
+    if relay.relay(source, "ok") == "ok" && source.calls == 2 {
+        result.value
+    } else {
+        0
+    }
+}

@@ -8,7 +8,7 @@ use thiserror::Error;
 /// boundaries. An Err does not imply the heap is recoverable: Faulted heaps only
 /// allow shutdown. Ordinary typed field access/traversal instead panic on contract
 /// violations; dynamic layout admission and downcasts retain explicit errors.
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Error, PartialEq, Eq)]
 pub enum GcError {
     #[error("the handle belongs to another heap")]
     ForeignHeap,
@@ -24,6 +24,10 @@ pub enum GcError {
     Closed,
     #[error("resource limit: {0}")]
     Limit(&'static str),
+    /// The external root-source owner rejected storage growth at its own bound.
+    /// This is not a collector fault or an allocator failure.
+    #[error("root source capacity limit exceeded")]
+    SourceLimit,
     #[error("allocation failed")]
     Allocation,
     #[error("provider contract failed: {0}")]

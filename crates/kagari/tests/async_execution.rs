@@ -2,13 +2,13 @@
 use kagari::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine, builder::KagariEngineBuilder},
-    error::{EmbeddingError, RuntimeFailureKind},
-    program::PreparedProgram,
+    program::Compilation,
     runtime::Runtime,
 };
+use kagari_runtime::error::RuntimeErrorKind;
+use kagari_runtime::execution::owned::DriveResult;
 use kagari_runtime::{
     frame::types::arguments::TypeArgument,
-    gc::roots::RootedValue,
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
@@ -16,12 +16,12 @@ use kagari_runtime::{
         conversion::{FromKagari, KagariType, context::ConversionContext},
         types::Type,
     },
-    value::Value,
+    value::{carriers::RootedValue, view::ValueView},
 };
-use kagari_vm::vm::owned::DriveResult;
 use std::{
     future::Future,
     pin::Pin,
+    slice::from_ref,
     sync::mpsc::{self, SyncSender, TrySendError},
     sync::{
         Arc,
@@ -42,20 +42,17 @@ mod fixture;
 use fixture::{Fixture, slice};
 
 impl Fixture {
-    fn cold(&self, input: i32) -> RootedValue {
+    fn cold(&mut self, input: i32) -> RootedValue {
         let execution = self
             .runtime
-            .backend()
             .start(
-                &self.runtime.runtime().select_program(&self.module).unwrap(),
+                &self.runtime.select_program(&self.module).unwrap(),
                 "create",
-                &[Value::I32(input)],
+                &[RootedValue::from(input)],
                 Default::default(),
             )
             .unwrap();
-        let DriveResult::Complete(result) =
-            self.runtime.backend().drive(&execution, slice()).unwrap()
-        else {
+        let DriveResult::Complete(result) = self.runtime.drive(&execution, slice()).unwrap() else {
             panic!("cold creation");
         };
         result.unwrap()
@@ -94,7 +91,7 @@ impl FromKagari for ActiveI32 {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         ty: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
         assert!(cx.runtime().execution_root().is_some());
         Ok(Self(i32::from_kagari(cx, ty, value)?))
@@ -109,7 +106,7 @@ fn sdk_scheduler_source_free_wake_contract() {
     assert!(f.runtime.poll(&mut Context::from_waker(&wake)).is_pending());
     let create = f
         .runtime
-        .async_function::<(i32,), ActiveI32>(&f.module.root(), "create")
+        .bind_async_function::<(i32,), ActiveI32>(&f.module.root(), "create")
         .unwrap();
     for (input, expected) in [(1, 8), (21, 42)] {
         let mut ticket = f.runtime.submit_async(&create, (input,)).unwrap();
@@ -145,8 +142,8 @@ fn sdk_scheduler_source_free_wake_contract() {
 
 #[test]
 fn sdk_owned_native_wait_contract() {
-    let f = Fixture::new();
-    assert!(f.program.bytecode().modules().len() > 1);
+    let mut f = Fixture::new();
+    assert!(f.program.program().bytecode().modules().len() > 1);
     assert!(
         f.runtime
             .execute(&f.module, "run", &[], &Default::default())
@@ -161,11 +158,10 @@ fn sdk_owned_native_wait_contract() {
     assert_eq!(f.starts.load(Ordering::SeqCst), 0);
     let execution = f
         .runtime
-        .backend()
         .start(
-            &f.runtime.runtime().select_program(&f.module).unwrap(),
+            &f.runtime.select_program(&f.module).unwrap(),
             "wait",
-            &[future.value(f.runtime.runtime().gc()).unwrap()],
+            from_ref(&future),
             Default::default(),
         )
         .unwrap();
@@ -177,14 +173,14 @@ fn sdk_owned_native_wait_contract() {
         "registration observes queued readiness"
     );
     assert!(matches!(
-        f.runtime.backend().drive(&execution, slice()).unwrap(),
+        f.runtime.drive(&execution, slice()).unwrap(),
         DriveResult::Waiting
     ));
     assert!(!execution.is_ready());
     assert_eq!(f.starts.load(Ordering::SeqCst), 1);
     assert_eq!(*f.inputs.lock().unwrap(), [21]);
     drop(future);
-    f.runtime.runtime().collect_garbage().unwrap();
+    f.runtime.collect_garbage().unwrap();
     let completion = f.sent.lock().unwrap().pop().unwrap();
     std::thread::spawn(move || {
         assert_eq!(completion.complete(Ok(42)), CompletionStatus::Accepted);
@@ -200,64 +196,47 @@ fn sdk_owned_native_wait_contract() {
         1,
         "readiness and another root never drive this continuation"
     );
-    let DriveResult::Complete(result) = f.runtime.backend().drive(&execution, slice()).unwrap()
-    else {
+    let DriveResult::Complete(result) = f.runtime.drive(&execution, slice()).unwrap() else {
         panic!("ready continuation");
     };
-    assert_eq!(
-        result.unwrap().value(f.runtime.runtime().gc()),
-        Some(Value::I32(42))
-    );
+    assert_eq!(result.unwrap().as_i32(), Some(42));
     assert!(!execution.is_ready());
     assert!(
-        f.runtime.backend().drive(&execution, slice()).is_err(),
+        f.runtime.drive(&execution, slice()).is_err(),
         "retired owner cannot resume twice"
     );
     for (input, output) in [(0, 7), (1, 8)] {
         let future = f.cold(input);
-        let execution = f
-            .runtime
-            .backend()
-            .start_future(
-                &future.value(f.runtime.runtime().gc()).unwrap(),
-                Default::default(),
-            )
-            .unwrap();
-        let DriveResult::Complete(result) = f.runtime.backend().drive(&execution, slice()).unwrap()
-        else {
+        let execution = f.runtime.start_future(&future, Default::default()).unwrap();
+        let DriveResult::Complete(result) = f.runtime.drive(&execution, slice()).unwrap() else {
             panic!("immediate publication");
         };
-        assert_eq!(
-            result.unwrap().value(f.runtime.runtime().gc()),
-            Some(Value::I32(output))
-        );
+        assert_eq!(result.unwrap().as_i32(), Some(output));
     }
     let shared = ExecutionContext::default();
     let left_future = f.cold(15);
     let right_future = f.cold(16);
     let left = f
         .runtime
-        .backend()
         .start(
-            &f.runtime.runtime().select_program(&f.module).unwrap(),
+            &f.runtime.select_program(&f.module).unwrap(),
             "wait",
-            &[left_future.value(f.runtime.runtime().gc()).unwrap()],
+            from_ref(&left_future),
             shared.interpreter_options().unwrap(),
         )
         .unwrap();
     let right = f
         .runtime
-        .backend()
         .start(
-            &f.runtime.runtime().select_program(&f.module).unwrap(),
+            &f.runtime.select_program(&f.module).unwrap(),
             "wait",
-            &[right_future.value(f.runtime.runtime().gc()).unwrap()],
+            from_ref(&right_future),
             shared.interpreter_options().unwrap(),
         )
         .unwrap();
     for owner in [&left, &right] {
         assert!(matches!(
-            f.runtime.backend().drive(owner, slice()).unwrap(),
+            f.runtime.drive(owner, slice()).unwrap(),
             DriveResult::Waiting
         ));
     }
@@ -270,82 +249,66 @@ fn sdk_owned_native_wait_contract() {
     );
     assert!(!right.is_ready(), "independent waiter remains pending");
     assert!(matches!(
-        f.runtime.backend().drive(&left, slice()).unwrap(),
-        DriveResult::Complete(Err(error)) if matches!(EmbeddingError::from(error.clone()), EmbeddingError::Runtime {
-            kind: RuntimeFailureKind::Cancelled,
-            ..
-        })
+        f.runtime.drive(&left, slice()).unwrap(),
+        DriveResult::Complete(Err(error)) if matches!(error.clone(), ref error if error.kind() == RuntimeErrorKind::Cancelled)
     ));
     assert_eq!(left_completion.complete(Ok(99)), CompletionStatus::Stale);
     assert_eq!(
         right_completion.complete(Ok(43)),
         CompletionStatus::Accepted
     );
-    let DriveResult::Complete(result) = f.runtime.backend().drive(&right, slice()).unwrap() else {
+    let DriveResult::Complete(result) = f.runtime.drive(&right, slice()).unwrap() else {
         panic!("uncancelled sibling execution");
     };
-    assert_eq!(
-        result.unwrap().value(f.runtime.runtime().gc()),
-        Some(Value::I32(43))
-    );
+    assert_eq!(result.unwrap().as_i32(), Some(43));
     for abandon in [false, true] {
         let future = f.cold(10);
         let context = ExecutionContext::default();
         let execution = f
             .runtime
-            .backend()
-            .start_future(
-                &future.value(f.runtime.runtime().gc()).unwrap(),
-                context.interpreter_options().unwrap(),
-            )
+            .start_future(&future, context.interpreter_options().unwrap())
             .unwrap();
         assert!(matches!(
-            f.runtime.backend().drive(&execution, slice()).unwrap(),
+            f.runtime.drive(&execution, slice()).unwrap(),
             DriveResult::Waiting
         ));
         let completion = f.sent.lock().unwrap().pop().unwrap();
         if abandon {
             drop(execution);
-            assert_eq!(f.runtime.runtime().drain_retired_executions().unwrap(), 1);
+            assert_eq!(f.runtime.drain_retired_executions().unwrap(), 1);
         } else {
             let wake = Arc::new(Notice::default());
             execution.set_waker(&Waker::from(wake.clone()));
             context.cancellation.cancel();
             assert_eq!(wake.0.load(Ordering::SeqCst), 1);
-            let DriveResult::Complete(Err(error)) =
-                f.runtime.backend().drive(&execution, slice()).unwrap()
+            let DriveResult::Complete(Err(error)) = f.runtime.drive(&execution, slice()).unwrap()
             else {
                 panic!("terminal cancellation");
             };
-            let EmbeddingError::Runtime { kind, .. } = EmbeddingError::from(error) else {
-                panic!("runtime cancellation diagnostic");
-            };
-            assert_eq!(kind, RuntimeFailureKind::Cancelled);
+
+            assert_eq!(error.kind(), RuntimeErrorKind::Cancelled);
         }
         assert_eq!(completion.complete(Ok(9)), CompletionStatus::Stale);
     }
     assert_eq!(f.cancels.load(Ordering::SeqCst), 3);
-    assert_eq!(
-        f.runtime
-            .runtime()
-            .resources()
-            .counters()
-            .current_call_depth,
-        0
-    );
+    assert_eq!(f.runtime.resources().counters().current_call_depth, 0);
 }
 
 #[cfg(feature = "native")]
 mod native {
     use super::{Fixture, slice};
+    use kagari::{
+        context::{ExecutionContext, JitPolicy},
+        program::native::NativeCompiler,
+    };
     use kagari_abi::native::{BackendId, BackendTarget};
     use kagari_codegen::{
         BackendConfiguration, BackendFunctionInput, CodegenBackend, diagnostic::BackendCompileError,
     };
     use kagari_contract::native::NativeCompilationProduct;
-    use kagari_runtime::{native::completion::CompletionStatus, value::Value};
-    use kagari_vm::vm::native::PreparedNativeEntry;
-    use kagari_vm::vm::owned::DriveResult;
+    use kagari_runtime::execution::native::PreparedNativeEntry;
+    use kagari_runtime::execution::owned::DriveResult;
+    use kagari_runtime::native::completion::CompletionStatus;
     use std::sync::atomic::Ordering;
 
     struct Backend {
@@ -375,17 +338,17 @@ mod native {
 
     #[test]
     fn sdk_native_preparation_declines_resume_before_entry() {
-        let f = Fixture::new();
+        let mut f = Fixture::new();
+        // Runtime policy must admit JIT preparation so this witness reaches the
+        // resume-body capability decision rather than the disabled-policy guard.
+        f.runtime.set_default_context(ExecutionContext {
+            jit_policy: JitPolicy::Enabled,
+            ..Default::default()
+        });
         let mut backend = Backend { calls: 0 };
-        let prepared = f
-            .runtime
-            .prepare_native(
-                &f.program,
-                &f.module,
-                "run",
-                &mut backend,
-                &Default::default(),
-            )
+        let prepared = NativeCompiler::default()
+            .prepare(&f.program, "run", &mut backend, &Default::default())
+            .and_then(|native_code| (native_code).install(&mut f.runtime, &f.module))
             .unwrap();
         let PreparedNativeEntry::Unsupported { diagnostics, .. } = &prepared else {
             panic!("resume body requires interpreter");
@@ -404,16 +367,15 @@ mod native {
         assert_eq!(f.starts.load(Ordering::SeqCst), 0);
         let execution = f
             .runtime
-            .backend()
             .start(
-                &f.runtime.runtime().select_program(&f.module).unwrap(),
+                &f.runtime.select_program(&f.module).unwrap(),
                 "run",
                 &[],
                 Default::default(),
             )
             .unwrap();
         assert!(matches!(
-            f.runtime.backend().drive(&execution, slice()).unwrap(),
+            f.runtime.drive(&execution, slice()).unwrap(),
             DriveResult::Waiting
         ));
         assert_eq!(f.starts.load(Ordering::SeqCst), 1);
@@ -421,14 +383,10 @@ mod native {
             f.sent.lock().unwrap().pop().unwrap().complete(Ok(42)),
             CompletionStatus::Accepted
         );
-        let DriveResult::Complete(result) = f.runtime.backend().drive(&execution, slice()).unwrap()
-        else {
+        let DriveResult::Complete(result) = f.runtime.drive(&execution, slice()).unwrap() else {
             panic!("interpreter continuation");
         };
-        assert_eq!(
-            result.unwrap().value(f.runtime.runtime().gc()),
-            Some(Value::I32(42))
-        );
+        assert_eq!(result.unwrap().as_i32(), Some(42));
         assert_eq!(backend.calls, 0);
     }
 }

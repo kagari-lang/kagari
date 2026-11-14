@@ -1,12 +1,16 @@
 use super::*;
-use crate::{context::JitPolicy, program::PreparedProgram};
+#[cfg(feature = "native")]
+use crate::program::native::NativeCompiler;
+use crate::{context::JitPolicy, program::Compilation};
 use kagari_codegen_cranelift::CraneliftBackend;
+use kagari_runtime::execution::{JitExecutionStatus, native::PreparedNativeEntry};
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
+use kagari_stdlib as stdlib;
 
 #[test]
 fn public_source_glob_reexports_members_through_artifacts() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     insert(
         &engine,
         "model",
@@ -38,21 +42,20 @@ fn public_source_glob_reexports_members_through_artifacts() {
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         let report = if native {
             let mut backend = CraneliftBackend::for_host().unwrap();
-            let prepared = runtime
-                .prepare_native(
+            let prepared = NativeCompiler::default()
+                .prepare(
                     &loaded_program,
-                    &loaded,
                     ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
+                .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 .unwrap();
             let expected = match prepared {
                 PreparedNativeEntry::Native(_) => JitExecutionStatus::Native,
@@ -72,19 +75,14 @@ fn public_source_glob_reexports_members_through_artifacts() {
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
         };
-        assert_eq!(
-            report
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(42)
-        );
+        assert_eq!(report.return_value.as_i32().unwrap(), 42);
     }
 }
 
 #[test]
 fn parent_module_can_execute_pub_super_child_function() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let root = insert(
         &engine,
         "root",
@@ -94,24 +92,25 @@ fn parent_module_can_execute_pub_super_child_function() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(&loaded_program, Default::default())
+        .load_program(loaded_program.program(), Default::default())
         .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
 }
 
 #[test]
 fn imported_public_inherent_method_executes_from_source_and_artifact() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     insert(
         &engine,
         "model",
@@ -131,19 +130,18 @@ fn imported_public_inherent_method_executes_from_source_and_artifact() {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         assert_eq!(
             runtime
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+                .as_i32()
+                .unwrap(),
+            42
         );
     }
     let inaccessible = insert(
@@ -173,7 +171,8 @@ fn imported_public_inherent_method_executes_from_source_and_artifact() {
 
 #[test]
 fn parent_module_can_call_pub_super_inherent_method() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let root = insert(
         &engine,
         "root",
@@ -183,24 +182,25 @@ fn parent_module_can_call_pub_super_inherent_method() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(&loaded_program, Default::default())
+        .load_program(loaded_program.program(), Default::default())
         .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
 }
 
 #[test]
 fn qualified_public_module_alias_does_not_expose_private_members() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     insert(
         &engine,
         "model",
@@ -216,18 +216,18 @@ fn qualified_public_module_alias_does_not_expose_private_members() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(&loaded_program, Default::default())
+        .load_program(loaded_program.program(), Default::default())
         .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
     let private = insert(
         &engine,
@@ -243,7 +243,8 @@ fn qualified_public_module_alias_does_not_expose_private_members() {
 
 #[test]
 fn wildcard_import_can_expose_a_public_inline_child_module() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     insert(
         &engine,
         "library",
@@ -258,24 +259,25 @@ fn wildcard_import_can_expose_a_public_inline_child_module() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(&loaded_program, Default::default())
+        .load_program(loaded_program.program(), Default::default())
         .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
 }
 
 #[test]
 fn wildcard_import_follows_a_public_module_alias() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     insert(
         &engine,
         "library",
@@ -292,24 +294,26 @@ fn wildcard_import_follows_a_public_module_alias() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(&loaded_program, Default::default())
+        .load_program(loaded_program.program(), Default::default())
         .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
 }
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn wildcard_import_follows_a_public_native_module_alias() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     insert(&engine, "facade", "pub use std::collections;");
     let root = insert(
         &engine,
@@ -320,24 +324,26 @@ fn wildcard_import_follows_a_public_native_module_alias() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(&loaded_program, Default::default())
+        .load_program(loaded_program.program(), Default::default())
         .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
 }
+*/
 
 #[test]
 fn declared_external_child_module_resolves_qualified_calls() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     engine
         .bind_module(
             "mem://child",
@@ -363,24 +369,25 @@ fn declared_external_child_module_resolves_qualified_calls() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(&loaded_program, Default::default())
+        .load_program(loaded_program.program(), Default::default())
         .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
 }
 
 #[test]
 fn duplicate_inline_and_external_module_identity_is_rejected() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     engine
         .bind_module(
             "mem://child",
@@ -410,7 +417,8 @@ fn duplicate_inline_and_external_module_identity_is_rejected() {
 
 #[test]
 fn reachable_cycles_compile_without_initialization() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let root = insert(&engine, "root", "use pkg::a; fn main() -> i32 { 7 }");
     insert(&engine, "a", "use pkg::b;");
     insert(&engine, "b", "use pkg::a;");

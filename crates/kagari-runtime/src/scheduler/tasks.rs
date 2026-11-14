@@ -1,7 +1,7 @@
 //! Managed scope Tasks share the invocation ready ring and retire automatically.
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, RuntimeErrorKind, fault::EngineFault},
     error_trace::asynchronous::SpawnOrigin,
     module::ExecutableModule,
     native::binding::NativeResult,
@@ -12,7 +12,8 @@ use crate::{
         store::TaskState,
     },
 };
-use std::sync::Arc;
+
+use std::{mem, sync::Arc};
 
 /// Detached diagnostics for a managed scope failure. It retains no script result
 /// root. Failures also observed by script waiters are intentionally reported.
@@ -36,7 +37,7 @@ impl Runtime {
     /// per-Task dispatcher. Legacy `create_task_scope` keeps manual report/drive
     /// ownership until those callers migrate. Scope-owner drop still cancels jobs.
     pub fn create_scheduled_task_scope(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
         options: ExecutionOptions,
     ) -> NativeResult<TaskScopeOwner> {
@@ -48,10 +49,12 @@ impl Runtime {
         )
     }
 
-    pub(crate) fn acquire_scheduled_task(&self, id: TaskId) -> NativeResult<TaskAcquisition<'_>> {
+    pub(crate) fn acquire_scheduled_task(
+        &mut self,
+        id: TaskId,
+    ) -> NativeResult<TaskAcquisition<'_>> {
         let scope = self
             .tasks
-            .borrow()
             .tasks
             .get(id.0)
             .ok_or_else(|| RuntimeError::module_validation("retired scheduled Task"))?
@@ -59,9 +62,9 @@ impl Runtime {
         self.acquire_task_inner(scope, id)
     }
 
-    pub(crate) fn retire_managed_task(&self, id: TaskId) {
+    pub(crate) fn retire_managed_task(&mut self, id: TaskId) {
         let record = {
-            let mut tasks = self.tasks.borrow_mut();
+            let tasks = &mut self.tasks;
             let Some(record) = tasks.tasks.get(id.0) else {
                 return;
             };
@@ -79,9 +82,9 @@ impl Runtime {
         if let TaskState::Terminal(Err(failure)) = record.state {
             // Includes failures during queued admission, before an activation exists.
             if failure.error.kind() == RuntimeErrorKind::EngineFault {
-                self.quarantine_execution_invariant("scheduled Task failed");
+                self.quarantine_execution_invariant(EngineFault::ScheduledTaskFailed);
             }
-            let mut events = self.scheduler.failures.borrow_mut();
+            let events = &mut self.scheduler.failures;
             if events.len() < self.scheduler.limits.max_task_failure_events.get()
                 && events.try_reserve(1).is_ok()
             {
@@ -92,20 +95,18 @@ impl Runtime {
                     failure,
                 });
             } else {
-                self.scheduler
-                    .suppressed
-                    .set(self.scheduler.suppressed.get().saturating_add(1));
+                self.scheduler.suppressed = self.scheduler.suppressed.saturating_add(1);
             }
         }
     }
 
     /// Drain detached failure diagnostics, then an explicit overflow count.
     /// Ignoring this buffer never prevents Task cleanup or reusing admission slots.
-    pub fn take_task_event(&self) -> Option<TaskEvent> {
-        if let Some(event) = self.scheduler.failures.borrow_mut().pop_front() {
+    pub fn take_task_event(&mut self) -> Option<TaskEvent> {
+        if let Some(event) = self.scheduler.failures.pop_front() {
             return Some(TaskEvent::Failed(Box::new(event)));
         }
-        let count = self.scheduler.suppressed.replace(0);
+        let count = mem::take(&mut self.scheduler.suppressed);
         (count != 0).then_some(TaskEvent::Suppressed { count })
     }
 }

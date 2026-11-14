@@ -2,19 +2,23 @@ use crate::{
     BytecodeArtifact,
     context::ExecutionContext,
     engine::{KagariEngine, source::ArtifactOptions},
-    error::{EmbeddingError, RuntimeFailureKind},
-    program::PreparedProgram,
+    error::EmbeddingError,
+    program::Program,
     runtime::{LoadOptions, ReloadOptions},
 };
 use kagari_common::identity::metadata::DefinitionMetadata;
+use kagari_runtime::error::RuntimeErrorKind;
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     host::{HostCallContext, HostError},
     module::entry::ProgramEntry,
-    native::{builder::ModuleBuilder, module::NativeModule},
-    value::Value,
-    value_semantics::script_equal,
+    native::{
+        builder::ModuleBuilder, conversion::context::ConversionContext, host, module::NativeModule,
+    },
+    value::{carriers::RootedValue, view::ValueView},
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_types::declaration::logging;
 
 mod host_paths;
@@ -30,7 +34,10 @@ fn compile_artifact(
 }
 
 fn logging_module(
-    entry: impl for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+    entry: impl for<'call> Fn(
+        &mut HostCallContext<'call>,
+        &[ValueView<'call>],
+    ) -> Result<ValueView<'call>, HostError>
     + Send
     + Sync
     + 'static,
@@ -44,13 +51,14 @@ fn logging_module(
     )
     .unwrap();
     let log = builder.declared_function("log").unwrap();
-    builder.bind(log, entry).unwrap();
+    builder.bind(log, host::callback(entry)).unwrap();
     builder.finish().unwrap()
 }
 
 #[test]
 fn compiles_loads_executes_and_reloads_through_embedding_api() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let context = ExecutionContext::default();
     let first = engine
         .compile_to_program(
@@ -77,43 +85,39 @@ fn compiles_loads_executes_and_reloads_through_embedding_api() {
     let report = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .expect("entry should execute");
-    assert_eq!(
-        report
-            .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(1)
-    );
+    assert_eq!(report.return_value.as_i32().unwrap(), 1);
 
-    let previous = runtime.runtime().select_program(&loaded).unwrap();
+    let previous = runtime.select_program(&loaded).unwrap();
     runtime
-        .reload_program(
-            &loaded,
-            &second,
-            ReloadOptions {
-                program_name: Some("game.main".to_owned()),
-            },
-        )
+        .program(&loaded)
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|candidate| {
+            runtime.replace_program(
+                &loaded,
+                &candidate,
+                ReloadOptions {
+                    program_name: Some("game.main".to_owned()),
+
+                    ..Default::default()
+                },
+            )
+        })
         .expect("compatible module should reload");
-    let reloaded = runtime.runtime().select_program(&loaded).unwrap();
+    let reloaded = runtime.select_program(&loaded).unwrap();
     assert_eq!(reloaded.id, previous.id);
     assert_eq!(reloaded.epoch.0, previous.epoch.0 + 1);
 
     let report = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .expect("reloaded entry should execute");
-    assert_eq!(
-        report
-            .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(2)
-    );
+    assert_eq!(report.return_value.as_i32().unwrap(), 2);
 }
 
 #[test]
 fn compile_failures_return_structured_diagnostics() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let error = engine
         .compile_source(SourceFile::new("bad.kgr", "fn main( -> i32 { 1 }"))
         .expect_err("parse failure should be structured");
@@ -141,7 +145,8 @@ fn compile_failures_return_structured_diagnostics() {
 
 #[test]
 fn analysis_failures_return_structured_diagnostics() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let error = engine
         .compile_source(SourceFile::new(
             "bad_type.kgr",
@@ -161,7 +166,8 @@ fn analysis_failures_return_structured_diagnostics() {
 
 #[test]
 fn each_execute_uses_its_cancellation_without_changing_runtime_defaults() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let mut runtime = engine.runtime(ExecutionContext::default());
     let artifact = engine
         .compile_to_program(
@@ -180,9 +186,9 @@ fn each_execute_uses_its_cancellation_without_changing_runtime_defaults() {
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+                .as_i32()
+                .unwrap(),
+            42
         );
     }
 
@@ -204,16 +210,17 @@ fn each_execute_uses_its_cancellation_without_changing_runtime_defaults() {
             )
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
-    assert!(!runtime.runtime().is_quarantined());
+    assert!(!runtime.is_quarantined());
 }
 
 #[test]
 fn execute_entry_accepts_args_boundary_and_rejects_unimplemented_arguments() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let context = ExecutionContext::default();
     let artifact = engine
         .compile_to_program(
@@ -232,22 +239,25 @@ fn execute_entry_accepts_args_boundary_and_rejects_unimplemented_arguments() {
         .expect("module should load");
 
     let error = runtime
-        .execute(&loaded, ProgramEntry::Main, &[Value::I32(1)], &context)
+        .execute(
+            &loaded,
+            ProgramEntry::Main,
+            &[RootedValue::from(1_i32)],
+            &context,
+        )
         .expect_err("argument passing is not implemented yet");
 
     assert_eq!(error.code(), "KG_RUNTIME_UNSUPPORTED_EXECUTION");
     assert!(matches!(
         error,
-        EmbeddingError::Runtime {
-            kind: RuntimeFailureKind::UnsupportedExecution,
-            ..
-        }
+        ref error if error.kind() == RuntimeErrorKind::UnsupportedExecution
     ));
 }
 
 #[test]
 fn installed_host_and_reflection_helpers_are_available() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let print_artifact = compile_artifact(&engine, "print.kgr", r#"fn main() { print("x"); }"#);
     let type_of_artifact = engine
         .compile_to_artifact(
@@ -256,17 +266,13 @@ fn installed_host_and_reflection_helpers_are_available() {
         )
         .expect("reflection source should compile with reflection profile");
     let mut runtime = engine.runtime(ExecutionContext::default());
-    logging_module(|_, _| Ok(Value::Unit))
-        .install(runtime.runtime_mut())
+    logging_module(|_, _| Ok(ValueView::unit()))
+        .install(&mut runtime)
         .unwrap();
     let print_module = runtime
         .load_program(
-            &PreparedProgram::from_artifact(
-                print_artifact,
-                &Default::default(),
-                &Default::default(),
-            )
-            .unwrap(),
+            &Program::from_artifact(print_artifact, &Default::default(), &Default::default())
+                .unwrap(),
             LoadOptions {
                 program_name: Some("print".to_owned()),
             },
@@ -274,48 +280,37 @@ fn installed_host_and_reflection_helpers_are_available() {
         .expect("print module should load");
     let type_of_module = runtime
         .load_program(
-            &PreparedProgram::from_artifact(
-                type_of_artifact,
-                &Default::default(),
-                &Default::default(),
-            )
-            .unwrap(),
+            &Program::from_artifact(type_of_artifact, &Default::default(), &Default::default())
+                .unwrap(),
             LoadOptions {
                 program_name: Some("type_of".to_owned()),
             },
         )
         .expect("type_of module should load");
 
-    assert_eq!(
-        runtime
-            .execute(
-                &print_module,
-                ProgramEntry::Main,
-                &[],
-                &ExecutionContext::default()
-            )
-            .unwrap()
-            .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::Unit
-    );
-    assert!(
-        script_equal(
-            runtime.runtime().gc(),
-            &(runtime
-                .execute(
-                    &type_of_module,
-                    ProgramEntry::Main,
-                    &[],
-                    &ExecutionContext::default()
-                )
-                .unwrap()
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result")),
-            &(runtime.runtime().gc().alloc_string("i32".into()).unwrap())
+    runtime
+        .execute_typed::<_, ()>(
+            &print_module,
+            ProgramEntry::Main,
+            (),
+            &ExecutionContext::default(),
+        )
+        .unwrap();
+    let result = runtime
+        .execute(
+            &type_of_module,
+            ProgramEntry::Main,
+            &[],
+            &ExecutionContext::default(),
         )
         .unwrap()
+        .return_value;
+    let owner = runtime.select_program(&type_of_module).unwrap();
+    assert_eq!(
+        ConversionContext::new(&mut runtime, &owner)
+            .unwrap()
+            .decode::<String>(&result)
+            .unwrap(),
+        "i32"
     );
 }

@@ -5,18 +5,18 @@ use crate::diagnostics::{self, Event};
 use crate::{
     Runtime,
     error::RuntimeError,
+    execution::roots::SessionId,
     execution_metadata::{
-        call_contracts::ScopedInterfaceCall, groups::OperationId, operation::BoundOperation,
+        groups::{AdmittedOperationGroup, OperationId},
+        managed::sources::MetadataSource,
+        operation::BoundOperation,
     },
-    frame::{
-        ExecutionFrame,
-        types::{TypeEnvironment, compatibility::TypeView, operations::OperationBindings},
-    },
-    gc::interfaces::InterfaceResultBinding,
+    frame::types::{TypeEnvironment, compatibility::TypeView, operations::OperationBindings},
     module::ExecutableModule,
     native::registry::callable_primitive,
-    objects::{invocation::MethodInvocation, method_view::SelectionView},
-    value::Value,
+    objects::{
+        constructions::ConstructionEvidence, interfaces::description::InterfaceResultBinding,
+    },
 };
 use std::sync::Arc;
 
@@ -97,64 +97,29 @@ pub(super) fn resolve_requirement(
 }
 
 impl Runtime {
-    pub(crate) fn resolve_interface_invocation(
-        &self,
-        frame: &ExecutionFrame,
-        call: &ScopedInterfaceCall,
-        receiver: Option<&Value>,
-    ) -> Result<(MethodInvocation, Option<Value>), RuntimeError> {
-        let invalid = || RuntimeError::module_validation("generic call operation environment");
-        if let Some(operation) = call.operation {
-            let method = MethodInvocation::from_operation(self, operation)?;
-            let method =
-                self.apply_method_invocation(method, &call.arguments, call.operations.clone())?;
-            return Ok((method, receiver.copied()));
-        }
-        let receiver = receiver.ok_or_else(invalid)?;
-        let id = self.select_interface_snapshot(receiver, call.interface_type())?;
-        let method = MethodInvocation::from_interface(self, id, call.slot)?;
-        let receiver = self.gc.interface_metadata(id).ok_or_else(invalid)?.data;
-        let method =
-            self.apply_method_invocation(method, &call.arguments, call.operations.clone())?;
-        let compatible = {
-            let view = method.view(self)?;
-            let SelectionView::Interface { snapshot, .. } = &view.selection else {
-                return Err(invalid());
-            };
-            snapshot
-                .description
-                .interface_view()
-                .compatible(call.interface.view(frame.loaded()))
-        };
-        if !compatible {
-            return Err(invalid());
-        }
-        Ok((method, Some(receiver)))
-    }
-
     /// Bind already-verified witnesses in their lexical executable scope. Host
     /// bindings use this same path without manufacturing an execution frame.
     pub(crate) fn bind_operations_in(
-        &self,
+        &mut self,
+        execution: SessionId,
         owner: &ExecutableModule,
         environment: Option<TypeEnvironment>,
         witnesses: &[OperationWitness],
+        protected: &mut Vec<MetadataSource<'_>>,
     ) -> Result<OperationBindings, RuntimeError> {
         if witnesses.is_empty() {
             return Ok(OperationBindings::default());
         }
         self.validate_executable_module(owner)?;
         let environment_id = environment.as_ref().map(|environment| environment.id);
-        if let Some(id) = environment_id
-            && self.gc.environment(id).is_none()
-        {
-            return Err(RuntimeError::module_validation(
-                "invalid operation preparation scope",
-            ));
-        }
+        let snapshot = environment
+            .as_ref()
+            .map(|environment| self.environment_snapshot_in(protected, environment))
+            .transpose()?;
         if let Some(prepared) = self
             .modules
             .operation_bindings(owner, environment_id, witnesses)
+            && self.operations_are_protected(protected, &prepared)?
         {
             return Ok(prepared);
         }
@@ -163,13 +128,37 @@ impl Runtime {
         let scope = OperationScope { owner, environment };
         let invalid = || RuntimeError::module_validation("generic call operation environment");
         let mut operations = OperationBindings::default();
-        for witness in witnesses {
-            let operation = match witness {
+        for (index, witness) in witnesses.iter().enumerate() {
+            if index.is_multiple_of(1024) {
+                self.resources.poll_execution()?;
+            }
+            let (operation, dictionary) = match witness {
                 OperationWitness::SharedAdapter(adapter) => {
-                    self.bind_shared_adapter(scope.owner, scope.environment.clone(), adapter)?
+                    let dictionary = self.bind_shared_adapter(
+                        execution,
+                        scope.owner,
+                        scope.environment.clone(),
+                        adapter,
+                        protected,
+                    )?;
+                    let id = OperationId {
+                        group: dictionary.record().id(),
+                        member: 0,
+                    };
+                    protected.try_reserve(1).map_err(|_| {
+                        RuntimeError::resource_limit("operation preparation sources")
+                    })?;
+                    protected.push(MetadataSource::Operations(dictionary.source()));
+                    (id, dictionary.record().clone())
                 }
                 OperationWitness::SharedMethod(selected) => {
-                    self.bind_shared_method(&scope, selected)?
+                    let (id, dictionary) =
+                        self.bind_shared_method(execution, &scope, selected, protected)?;
+                    protected.try_reserve(1).map_err(|_| {
+                        RuntimeError::resource_limit("operation preparation sources")
+                    })?;
+                    protected.push(MetadataSource::Operations(dictionary.source()));
+                    (id, dictionary.record().clone())
                 }
                 OperationWitness::Forward(required) => {
                     let receiver = TypeView::new(
@@ -180,13 +169,19 @@ impl Runtime {
                     .identity()
                     .ok_or_else(invalid)?;
                     let required = resolve_requirement(scope.environment.as_ref(), required)?;
-                    scope
-                        .environment
-                        .as_ref()
-                        .and_then(|environment| {
-                            environment.operation(&self.gc, &required, &receiver)
-                        })
-                        .ok_or_else(invalid)?
+                    let required = scope.owner.identity_admission().runtime_in(
+                        &required,
+                        &self.definition_context().snapshot(),
+                        &Default::default(),
+                    )?;
+                    let snapshot = snapshot.as_ref().ok_or_else(invalid)?;
+                    let id = snapshot
+                        .operation(&required, &receiver)
+                        .ok_or_else(invalid)?;
+                    (
+                        id,
+                        snapshot.groups.get(&id.group).ok_or_else(invalid)?.clone(),
+                    )
                 }
                 OperationWitness::Selected(selected) => {
                     let module = scope
@@ -293,44 +288,84 @@ impl Runtime {
                             .identity()
                             .ok_or_else(invalid)?,
                     );
-                    self.gc.alloc_bound_operation(BoundOperation {
-                        receiver_identity,
-                        application: None,
-                        associated_interface,
-                        generic: None,
-                        slot,
-                        primitive: callable_primitive(selected, owner.definitions()),
-                        requirement: selected.requirement.clone(),
-                        owner,
-                        target,
-                        signature: selected.signature.clone(),
-                    })?
+                    let dictionary = self.alloc_operation_group(
+                        execution,
+                        vec![BoundOperation {
+                            requirement_key: owner.identity_admission().runtime_in(
+                                &selected.requirement,
+                                &self.definition_context().snapshot(),
+                                &Default::default(),
+                            )?,
+                            interface_key: owner.identity_admission().runtime_in(
+                                &associated_interface,
+                                &self.definition_context().snapshot(),
+                                &Default::default(),
+                            )?,
+                            receiver_identity,
+                            application: None,
+                            associated_interface,
+                            generic: None,
+                            slot,
+                            primitive: callable_primitive(selected, owner.definitions()),
+                            requirement: selected.requirement.clone(),
+                            owner,
+                            target,
+                            signature: selected.signature.clone(),
+                        }],
+                        protected,
+                    )?;
+                    let id = OperationId {
+                        group: dictionary.record().id(),
+                        member: 0,
+                    };
+                    protected.try_reserve(1).map_err(|_| {
+                        RuntimeError::resource_limit("operation preparation sources")
+                    })?;
+                    protected.push(MetadataSource::Operations(dictionary.source()));
+                    (id, dictionary.record().clone())
                 }
             };
-            operations.push(&self.gc, operation)?;
+            operations.push(&dictionary, operation)?;
         }
-        self.publish_operation_bindings(owner, environment_id, witnesses, operations.clone())?;
+        self.publish_operation_bindings(
+            owner,
+            environment_id,
+            witnesses,
+            operations.clone(),
+            protected,
+        )?;
         Ok(operations)
     }
 }
 
 impl Runtime {
     fn bind_shared_method(
-        &self,
+        &mut self,
+        execution: SessionId,
         scope: &OperationScope<'_>,
         selected: &SharedMethodWitness,
-    ) -> Result<OperationId, RuntimeError> {
+        protected: &mut Vec<MetadataSource<'_>>,
+    ) -> Result<(OperationId, AdmittedOperationGroup), RuntimeError> {
         let binding = interface_binding(
             scope.owner,
             &selected.implementation,
             self.construction_dependencies(
+                execution,
                 scope.owner,
                 scope.environment.clone(),
-                &selected.operations,
-                &selected.constructions,
+                ConstructionEvidence {
+                    operations: &selected.operations,
+                    constructions: &selected.constructions,
+                },
+                protected,
             )?,
         )?;
         let required = resolve_requirement(scope.environment.as_ref(), &selected.requirement)?;
+        let required = scope.owner.identity_admission().runtime_in(
+            &required,
+            &self.definition_context().snapshot(),
+            &Default::default(),
+        )?;
         let receiver = TypeView::new(
             &selected.requirement.receiver,
             scope.owner,
@@ -338,14 +373,12 @@ impl Runtime {
         )
         .identity()
         .ok_or_else(|| RuntimeError::module_validation("shared operation receiver identity"))?;
-        let group = self.bind_table_operations(&binding)?;
-        self.gc
-            .operation_group(group)
-            .and_then(|group| {
-                group
-                    .operation(&required, &receiver)
-                    .or_else(|| group.selected_method(&required, &receiver))
-            })
-            .ok_or_else(|| RuntimeError::module_validation("shared constraint method selection"))
+        let group = self.bind_table_operations(execution, &binding, protected)?;
+        let id = group
+            .record()
+            .operation(&required, &receiver)
+            .or_else(|| group.record().selected_method(&required, &receiver))
+            .ok_or_else(|| RuntimeError::module_validation("shared constraint method selection"))?;
+        Ok((id, group))
     }
 }

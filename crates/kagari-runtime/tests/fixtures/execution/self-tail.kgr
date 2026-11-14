@@ -1,0 +1,50 @@
+pub fn sum(n: i64, acc: i64) -> i64 {
+    if n == 0 {
+        return acc;
+    }
+    sum(n - 1, acc + n)
+}
+
+pub fn ordinary(n: i64) -> i64 {
+    if n == 0 {
+        return 0;
+    }
+    n + ordinary(n - 1)
+}
+
+pub fn scalar_loop(n: i64, acc: i64) -> i64 {
+    var left = n;
+    var total = acc;
+    while left != 0 {
+        val next = left - 1;
+        total += left;
+        left = next;
+    }
+    total
+}
+
+pub fn permute(n: i64, a: i64, b: i64, c: i64, d: i64) -> i64 {
+    if n == 0 {
+        return a * 1000 + b * 100 + c * 10 + d;
+    }
+    permute(n - 1, b, a, d, c)
+}
+
+pub fn fanout(n: i64, a: i64, b: i64) -> i64 {
+    if n == 0 {
+        return a * 10 + b;
+    }
+    fanout(n - 1, b, b)
+}
+
+pub fn nested() -> i64 {
+    sum(100000, 0) + 17
+}
+
+pub fn trapped(n: i64, acc: i64) -> i64 {
+    if n == 0 {
+        val zero: i64 = 0;
+        return 1 / zero;
+    }
+    trapped(n - 1, acc + 1)
+}

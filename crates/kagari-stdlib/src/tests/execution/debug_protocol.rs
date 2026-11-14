@@ -1,0 +1,146 @@
+#[cfg(test)]
+use crate::tests::support::bytecode::load_bytecode;
+use kagari_runtime::{
+    Runtime, RuntimeConfig,
+    debug::{DebugWatch, SourceBreakpoint},
+    debug_protocol::{
+        DebugAdapterEvent, DebugAdapterRequest, DebugAdapterResponse, DebugProtocolAdapter,
+    },
+    module::entry::ProgramEntry,
+};
+
+use crate::tests::execution::common::{compile_test_bytecode, standard_runtime};
+
+fn debug_runtime(_module_name: &str) -> Runtime {
+    standard_runtime(RuntimeConfig {
+        ..RuntimeConfig::default()
+    })
+}
+
+#[test]
+fn debug_protocol_adapter_smoke_test_attaches_breaks_and_evaluates_watch() {
+    let source = include_str!("../../../tests/fixtures/execution/debug-watch.kgr");
+    let mut runtime = debug_runtime("adapter.kgr");
+    let loaded = load_bytecode(&mut runtime, "adapter.kgr", compile_test_bytecode(source))
+        .expect("module should load");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
+    let mut vm = runtime;
+    let mut adapter = DebugProtocolAdapter::recording();
+
+    let response = adapter
+        .handle_request(&mut vm, DebugAdapterRequest::Attach)
+        .expect("adapter should attach");
+    assert!(matches!(response, DebugAdapterResponse::Attached { .. }));
+
+    let breakpoint_response = adapter
+        .handle_request(
+            &mut vm,
+            DebugAdapterRequest::SetBreakpoint(SourceBreakpoint::at_source_offset(
+                "adapter.kgr",
+                source
+                    .find("value +")
+                    .expect("source should contain tail expr"),
+            )),
+        )
+        .expect("adapter should set breakpoint");
+    let DebugAdapterResponse::BreakpointSet { breakpoint_id } = breakpoint_response else {
+        panic!("expected breakpoint response");
+    };
+
+    let report = vm
+        .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
+        .expect("debugged module should execute");
+    assert_eq!(report.return_value.as_i32(), Some(7));
+    let flushed = adapter
+        .handle_request(&mut vm, DebugAdapterRequest::FlushEvents)
+        .expect("adapter should flush debug events");
+    let DebugAdapterResponse::EventsFlushed { emitted } = flushed else {
+        panic!("expected flushed response");
+    };
+    assert!(emitted >= 2);
+
+    let events = adapter.sink().events();
+    assert!(events.iter().any(|event| matches!(
+        event,
+        DebugAdapterEvent::BreakpointResolved(resolved)
+            if resolved.breakpoint_id == breakpoint_id
+    )));
+    let pause = events
+        .iter()
+        .find_map(|event| match event {
+            DebugAdapterEvent::Paused(pause) => Some(pause),
+            _ => None,
+        })
+        .expect("adapter should emit pause event");
+    let frame = pause.top_frame().expect("pause should expose a frame");
+
+    let watch = adapter
+        .handle_request(
+            &mut vm,
+            DebugAdapterRequest::EvaluateWatch {
+                pause_index: 0,
+                frame_id: frame.id,
+                watch: DebugWatch::Binding("value".to_owned()),
+            },
+        )
+        .expect("adapter should evaluate watch");
+    let DebugAdapterResponse::WatchValue { value } = watch else {
+        panic!("watch response");
+    };
+    assert_eq!(value.as_i32(), Some(3));
+}
+
+#[test]
+fn debug_protocol_adapter_routes_step_and_run_to_cursor_requests() {
+    let source = include_str!("../../../tests/fixtures/execution/debug-step.kgr");
+    let mut runtime = debug_runtime("adapter_step.kgr");
+    let loaded = load_bytecode(
+        &mut runtime,
+        "adapter_step.kgr",
+        compile_test_bytecode(source),
+    )
+    .expect("module should load");
+    let _loaded_program = loaded;
+    let loaded = runtime.select_program(&_loaded_program).unwrap();
+    let mut vm = runtime;
+    let mut adapter = DebugProtocolAdapter::recording();
+    adapter
+        .handle_request(&mut vm, DebugAdapterRequest::Attach)
+        .expect("adapter should attach");
+
+    assert!(matches!(
+        adapter
+            .handle_request(
+                &mut vm,
+                DebugAdapterRequest::RunToCursor {
+                    source_uri: "adapter_step.kgr".to_owned(),
+                    source_offset: source
+                        .find("second")
+                        .expect("source should contain cursor target"),
+                },
+            )
+            .expect("run to cursor should configure breakpoint"),
+        DebugAdapterResponse::BreakpointSet { .. }
+    ));
+    assert!(matches!(
+        adapter
+            .handle_request(&mut vm, DebugAdapterRequest::StepInto)
+            .expect("step into should configure"),
+        DebugAdapterResponse::StepConfigured
+    ));
+
+    vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
+        .expect("debugged module should execute");
+    let flushed = adapter
+        .flush_events(&vm)
+        .expect("adapter should flush step and breakpoint pauses");
+    assert!(flushed >= 1);
+    assert!(
+        adapter
+            .sink()
+            .events()
+            .iter()
+            .any(|event| matches!(event, DebugAdapterEvent::Paused(_)))
+    );
+}

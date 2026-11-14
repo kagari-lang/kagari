@@ -100,12 +100,7 @@ fn add_iterator_view(
     for kind in [Protocol::Iterator, Protocol::Iterable] {
         if matches!(
             receiver,
-            TypeId::Range(_, _)
-                | TypeId::Iter(_)
-                | TypeId::Array(_)
-                | TypeId::Map { .. }
-                | TypeId::Set(_, _)
-                | TypeId::Builtin(BuiltinType::String)
+            TypeId::Range(_, _) | TypeId::Array(_) | TypeId::Builtin(BuiltinType::String)
         ) && let Some(outputs) = traits::iteration_outputs(
             definitions,
             kind,

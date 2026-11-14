@@ -4,17 +4,14 @@ mod character;
 mod comparison;
 pub(crate) mod enumerations;
 mod future;
-mod hash;
 mod host;
 mod iteration;
-mod lists;
 mod numeric;
 mod propagation;
 mod protocols;
 mod ranges;
 pub(crate) mod string;
 mod tasks;
-mod vector;
 
 use crate::{catalog::documentation, identity, namespaces};
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, map::DefinitionContext};
@@ -27,17 +24,17 @@ use kagari_runtime::{
             references::DraftReference,
         },
         binding::{Codec, NativeBinding, NativeResult},
-        context::CallContext,
+        context::NativeCall,
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_types::{
     declaration::TypeDefKind,
     ty::{GenericBound, Ty},
 };
 
-type Entry = for<'call> fn(&mut CallContext<'call>) -> NativeResult<Value>;
+type Entry = for<'call> fn(&mut NativeCall<'call>) -> NativeResult<ValueView<'call>>;
 
 pub(crate) fn contribute(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     protocols::declare(module)?;
@@ -46,16 +43,8 @@ pub(crate) fn contribute(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     if owner == namespaces::module("alloc", "string") {
         string::declare(module)?;
     }
-    if owner == namespaces::module("alloc", "vec") {
-        vector::declare(module)?;
-        comparison::concrete(module, "List")?;
-    }
     if owner == namespaces::module("std", "collections") {
-        hash::declare(module)?;
-        lists::defaults(module)?;
         comparison::public_functions(module)?;
-        comparison::concrete(module, "Set")?;
-        comparison::concrete(module, "Map")?;
         comparison::interface_debug(module)?;
     }
     if owner == namespaces::module("core", "host") {
@@ -111,29 +100,17 @@ pub(crate) fn public_types() -> Vec<(ModuleIdentity, DefinitionKind, String)> {
         }));
     }
     types.extend(
-        [
-            "HashMap",
-            "HashSet",
-            "Ref",
-            "RefMut",
-            "Future",
-            "Task",
-            "TaskScope",
-        ]
-        .into_iter()
-        .map(|name| {
-            (
-                namespaces::type_owner(name),
-                DefinitionKind::AssociatedType,
-                name.into(),
-            )
-        }),
+        ["Ref", "RefMut", "Future", "Task", "TaskScope"]
+            .into_iter()
+            .map(|name| {
+                (
+                    namespaces::type_owner(name),
+                    DefinitionKind::AssociatedType,
+                    name.into(),
+                )
+            }),
     );
-    types.push((
-        namespaces::type_owner("Vec"),
-        DefinitionKind::AssociatedType,
-        "Vec".into(),
-    ));
+
     types.push((
         namespaces::type_owner("String"),
         DefinitionKind::AssociatedType,
@@ -146,11 +123,7 @@ pub(crate) fn public_types() -> Vec<(ModuleIdentity, DefinitionKind, String)> {
             (*name).into(),
         )
     }));
-    types.push((
-        namespaces::type_owner("CollectionCursor"),
-        DefinitionKind::AssociatedType,
-        "CollectionCursor".into(),
-    ));
+
     types.extend(ranges::KINDS.iter().map(|kind| {
         (
             namespaces::type_owner(kind.name()),
@@ -291,8 +264,14 @@ pub(crate) const MODULES: &[(&str, &str, (&str, &str))] = &[
     ("core", "num", numeric::MODULE_DOCS),
     ("core", "option", enumerations::OPTION_MODULE_DOCS),
     ("core", "result", enumerations::RESULT_MODULE_DOCS),
-    ("alloc", "vec", vector::MODULE_DOCS),
     ("core", "str", protocols::STR_MODULE_DOCS),
     ("alloc", "string", string::MODULE_DOCS),
-    ("std", "collections", hash::MODULE_DOCS),
+    (
+        "std",
+        "collections",
+        (
+            "Collection interface declarations and checked comparisons. Concrete storage providers are installed separately.",
+            "fn length(values: std::collections::List<i32>) -> u64 { values.len() }",
+        ),
+    ),
 ];

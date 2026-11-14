@@ -3,17 +3,18 @@ use super::Fixture;
 use crate::{context::ExecutionContext, engine::EngineConfig, runtime::Runtime};
 use kagari_runtime::{
     Runtime as CoreRuntime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, RuntimeErrorKind, fault::EngineFault},
     frame::ExecutionFrame,
-    gc::roots::RootedValue,
     module::ExecutableModule,
     native::{
         binding::NativeResult, completion::CompletionStatus, conversion::context::ConversionContext,
     },
     scheduler::{TurnBudget, result::ScheduledResult, tasks::TaskEvent, wake::DriverRegistration},
     session::{ExecutionEvent, ExecutionObserver},
-    value::Value,
+    value::carriers::RootedValue,
 };
+use std::slice;
+
 use std::{
     cell::Cell,
     future::Future,
@@ -111,18 +112,22 @@ impl HostLoop {
 
 const SOURCE: &str = include_str!("../../../../../tests/fixtures/embedding/async/scheduler.kgr");
 
-pub(super) fn decode(runtime: &CoreRuntime, value: &RootedValue) -> NativeResult<i32> {
+pub(super) fn decode(runtime: &mut CoreRuntime, value: &RootedValue) -> NativeResult<i32> {
     let owner = runtime
         .execution_root()
         .expect("conversion retains active invocation");
     ConversionContext::new(runtime, &owner)?.decode(value)
 }
 
-pub(super) fn scheduled(f: &Fixture, entry: &str, arguments: &[Value]) -> ScheduledResult<i32> {
+pub(super) fn scheduled(
+    entry: &str,
+    arguments: &[RootedValue],
+    f: &mut Fixture,
+) -> ScheduledResult<i32> {
     let future = f.invoke(entry, arguments);
+    let selected_execution = f.start_future(&future);
     f.runtime
-        .runtime()
-        .schedule_execution(f.start_future(&future), decode)
+        .schedule_execution(selected_execution, decode)
         .unwrap()
 }
 
@@ -148,7 +153,7 @@ fn scheduler_scope_io_cached_results_and_retirement() {
         .runtime
         .create_task_scope_with_context(&f.module, &Default::default())
         .unwrap();
-    let task = f.invoke("launch", &[f.value(scope.capability())]);
+    let task = f.invoke("launch", &[(scope.capability()).clone()]);
     assert_eq!(
         f.starts.load(Ordering::SeqCst),
         0,
@@ -157,7 +162,7 @@ fn scheduler_scope_io_cached_results_and_retirement() {
     host.until(&mut f.runtime, || f.starts.load(Ordering::SeqCst) == 1);
     host.settle(&mut f.runtime);
     // The scope task started without any scheduled host invocation present.
-    let mut observer = scheduled(&f, "observe", &[f.value(&task)]);
+    let mut observer = scheduled("observe", slice::from_ref(&task), &mut f);
     host.settle(&mut f.runtime);
     assert!(!observer.is_finished());
     let completion = f.sent.lock().unwrap().pop().unwrap();
@@ -170,9 +175,9 @@ fn scheduler_scope_io_cached_results_and_retirement() {
     host.until(&mut f.runtime, || observer.is_finished());
     assert_eq!(result(&mut observer).unwrap(), 41);
     // No host TaskId report was consumed. The cached result survives retirement.
-    let another = f.invoke("fast", &[f.value(scope.capability())]);
-    let mut second = scheduled(&f, "observe", &[f.value(&another)]);
-    let mut cached = scheduled(&f, "observe", &[f.value(&task)]);
+    let another = f.invoke("fast", &[(scope.capability()).clone()]);
+    let mut second = scheduled("observe", slice::from_ref(&another), &mut f);
+    let mut cached = scheduled("observe", slice::from_ref(&task), &mut f);
     host.until(&mut f.runtime, || {
         second.is_finished() && cached.is_finished()
     });
@@ -180,7 +185,7 @@ fn scheduler_scope_io_cached_results_and_retirement() {
     assert_eq!(result(&mut cached).unwrap(), 41);
     assert!(f.runtime.take_task_event().is_none());
     host.settle(&mut f.runtime);
-    let _cancelled = f.invoke("launch", &[f.value(scope.capability())]);
+    let _cancelled = f.invoke("launch", &[(scope.capability()).clone()]);
     host.until(&mut f.runtime, || f.starts.load(Ordering::SeqCst) == 2);
     let late = f.sent.lock().unwrap().pop().unwrap();
     drop(scope);
@@ -195,11 +200,10 @@ fn scheduler_shared_budget_and_driver_handoff() {
     let external = HostLoop::new();
     let borrowed = HostLoop::new();
     assert!(f.runtime.poll(&mut external.context()).is_pending());
-    let mut left = scheduled(&f, "long", &[]);
-    let mut right = scheduled(&f, "io", &[Value::I32(10)]);
+    let mut left = scheduled("long", &[], &mut f);
+    let mut right = scheduled("io", &[RootedValue::from(10_i32)], &mut f);
     let driver = f
         .runtime
-        .runtime()
         .borrow_scheduler_driver(&borrowed.context())
         .unwrap();
     let budget = TurnBudget {
@@ -246,9 +250,8 @@ fn scheduler_conversion_context_results_and_local_cancellation() {
     options.inputs.unix_time_millis = 123;
     let execution = f
         .runtime
-        .backend()
         .start(
-            &f.runtime.runtime().select_program(&f.module).unwrap(),
+            &f.runtime.select_program(&f.module).unwrap(),
             "value",
             &[],
             options.interpreter_options().unwrap(),
@@ -257,7 +260,6 @@ fn scheduler_conversion_context_results_and_local_cancellation() {
     let id = execution.execution_id();
     let mut ticket = f
         .runtime
-        .runtime()
         .schedule_execution(execution, move |runtime, value| {
             assert_eq!(runtime.execution_time_millis()?, 123);
             assert!(runtime.execution_root().is_some());
@@ -273,34 +275,28 @@ fn scheduler_conversion_context_results_and_local_cancellation() {
     host.until(&mut f.runtime, || ticket.is_finished());
     waiter.receive.recv_timeout(Duration::from_secs(2)).unwrap();
     assert!(
-        f.runtime.runtime().execution_root().is_none(),
+        f.runtime.execution_root().is_none(),
         "published only after activation exit"
     );
     assert_eq!(result(&mut ticket).unwrap().get(), 42);
-    let mut before = scheduled(&f, "io", &[Value::I32(10)]);
-    f.runtime
-        .runtime()
-        .cancel_scheduled_execution(&before)
-        .unwrap();
+    let mut before = scheduled("io", &[RootedValue::from(10_i32)], &mut f);
+    f.runtime.cancel_scheduled_execution(&before).unwrap();
     assert_eq!(
         result(&mut before).unwrap_err().kind(),
         RuntimeErrorKind::Cancelled
     );
     assert_eq!(f.starts.load(Ordering::SeqCst), 0);
-    drop(scheduled(&f, "io", &[Value::I32(11)]));
+    drop(scheduled("io", &[RootedValue::from(11_i32)], &mut f));
     host.settle(&mut f.runtime);
     assert_eq!(
         f.starts.load(Ordering::SeqCst),
         0,
         "receiver drop before first drive is cold"
     );
-    let mut pending = scheduled(&f, "io", &[Value::I32(10)]);
+    let mut pending = scheduled("io", &[RootedValue::from(10_i32)], &mut f);
     host.until(&mut f.runtime, || f.starts.load(Ordering::SeqCst) == 1);
     let late = f.sent.lock().unwrap().pop().unwrap();
-    f.runtime
-        .runtime()
-        .cancel_scheduled_execution(&pending)
-        .unwrap();
+    f.runtime.cancel_scheduled_execution(&pending).unwrap();
     // No subsequent scheduler poll is necessary for provider cancellation.
     assert_eq!(f.cancels.load(Ordering::SeqCst), 1);
     assert_eq!(late.complete(Ok(1)), CompletionStatus::Stale);
@@ -308,7 +304,7 @@ fn scheduler_conversion_context_results_and_local_cancellation() {
         result(&mut pending).unwrap_err().kind(),
         RuntimeErrorKind::Cancelled
     );
-    let abandoned = scheduled(&f, "io", &[Value::I32(11)]);
+    let abandoned = scheduled("io", &[RootedValue::from(11_i32)], &mut f);
     host.until(&mut f.runtime, || f.starts.load(Ordering::SeqCst) == 2);
     drop(abandoned);
     host.until(&mut f.runtime, || f.cancels.load(Ordering::SeqCst) == 2);
@@ -328,8 +324,8 @@ fn scheduler_failure_overflow_shutdown_and_ticket_teardown() {
         .create_task_scope_with_context(&f.module, &Default::default())
         .unwrap();
     for _ in 0..3 {
-        let task = f.invoke("fail", &[f.value(scope.capability())]);
-        let mut observe = scheduled(&f, "observe", &[f.value(&task)]);
+        let task = f.invoke("fail", &[(scope.capability()).clone()]);
+        let mut observe = scheduled("observe", slice::from_ref(&task), &mut f);
         host.until(&mut f.runtime, || observe.is_finished());
         assert_eq!(
             result(&mut observe).unwrap_err().kind(),
@@ -344,10 +340,10 @@ fn scheduler_failure_overflow_shutdown_and_ticket_teardown() {
         f.runtime.take_task_event(),
         Some(TaskEvent::Suppressed { count: 2 })
     ));
-    let mut pending = scheduled(&f, "io", &[Value::I32(10)]);
+    let mut pending = scheduled("io", &[RootedValue::from(10_i32)], &mut f);
     host.until(&mut f.runtime, || f.starts.load(Ordering::SeqCst) == 1);
     let late = f.sent.lock().unwrap().pop().unwrap();
-    let selected = f.runtime.runtime().select_program(&f.module).unwrap();
+    let selected = f.runtime.select_program(&f.module).unwrap();
     f.runtime.close().unwrap();
     f.runtime.close().unwrap();
     assert!(matches!(
@@ -362,12 +358,11 @@ fn scheduler_failure_overflow_shutdown_and_ticket_teardown() {
     assert!(scope.is_closed());
     assert!(
         f.runtime
-            .backend()
             .start(&selected, "value", &[], Default::default())
             .is_err()
     );
     let mut other = Fixture::source(SOURCE);
-    let mut ticket = scheduled(&other, "io", &[Value::I32(10)]);
+    let mut ticket = scheduled("io", &[RootedValue::from(10_i32)], &mut other);
     assert!(other.runtime.poll(&mut host.context()).is_pending());
     drop(other);
     assert_eq!(
@@ -393,9 +388,8 @@ fn scheduler_receiver_drop_during_conversion_retires_output() {
     let (abandoned, dropped) = mpsc::sync_channel(1);
     let execution = f
         .runtime
-        .backend()
         .start(
-            &f.runtime.runtime().select_program(&f.module).unwrap(),
+            &f.runtime.select_program(&f.module).unwrap(),
             "value",
             &[],
             Default::default(),
@@ -403,7 +397,6 @@ fn scheduler_receiver_drop_during_conversion_retires_output() {
         .unwrap();
     let ticket = f
         .runtime
-        .runtime()
         .schedule_execution(execution, move |runtime, value| {
             assert_eq!(decode(runtime, value)?, 42);
             converting.send(()).unwrap();
@@ -423,8 +416,8 @@ fn scheduler_receiver_drop_during_conversion_retires_output() {
     );
     worker.join().unwrap();
     assert_eq!(drops.load(Ordering::SeqCst), 1);
-    assert!(!f.runtime.runtime().is_quarantined());
-    assert!(f.runtime.runtime().execution_root().is_none());
+    assert!(!f.runtime.is_quarantined());
+    assert!(f.runtime.execution_root().is_none());
     f.runtime.close().unwrap();
     assert_eq!(drops.load(Ordering::SeqCst), 1);
 }
@@ -452,7 +445,7 @@ fn scheduler_entry_failure_is_an_outcome_and_preserves_other_work() {
     for (task_entry, resume_task) in [(false, false), (true, false), (true, true)] {
         let mut f = Fixture::source(SOURCE);
         let host = HostLoop::new();
-        let mut pending = scheduled(&f, "io", &[Value::I32(10)]);
+        let mut pending = scheduled("io", &[RootedValue::from(10_i32)], &mut f);
         assert!(f.runtime.poll(&mut host.context()).is_pending());
         host.settle(&mut f.runtime);
         let late = f.sent.lock().unwrap().pop().unwrap();
@@ -461,7 +454,7 @@ fn scheduler_entry_failure_is_an_outcome_and_preserves_other_work() {
             .create_task_scope_with_context(&f.module, &Default::default())
             .unwrap();
         let mut rejected = if task_entry {
-            let task = f.invoke("busy", &[f.value(scope.capability())]);
+            let task = f.invoke("busy", &[(scope.capability()).clone()]);
             if resume_task {
                 let one = NonZeroUsize::new(1).unwrap();
                 assert!(
@@ -478,26 +471,21 @@ fn scheduler_entry_failure_is_an_outcome_and_preserves_other_work() {
                         .is_pending()
                 );
             }
-            scheduled(&f, "observe", &[f.value(&task)])
+            scheduled("observe", slice::from_ref(&task), &mut f)
         } else {
             let execution = f
                 .runtime
-                .backend()
                 .start(
-                    &f.runtime.runtime().select_program(&f.module).unwrap(),
+                    &f.runtime.select_program(&f.module).unwrap(),
                     "value",
                     &[],
                     Default::default(),
                 )
                 .unwrap();
-            f.runtime
-                .runtime()
-                .schedule_execution(execution, decode)
-                .unwrap()
+            f.runtime.schedule_execution(execution, decode).unwrap()
         };
-        let mut sibling = scheduled(&f, "long", &[]);
+        let mut sibling = scheduled("long", &[], &mut f);
         f.runtime
-            .runtime()
             .set_execution_observer(RejectEntry(Some(RuntimeError::module_validation(
                 "scheduler entry rejected",
             ))))
@@ -507,7 +495,7 @@ fn scheduler_entry_failure_is_an_outcome_and_preserves_other_work() {
         });
         let error = result(&mut rejected).unwrap_err();
         assert_eq!(
-            error.message(),
+            error.to_string(),
             "module validation failed: scheduler entry rejected"
         );
         assert!(error.trace().is_some());
@@ -516,14 +504,14 @@ fn scheduler_entry_failure_is_an_outcome_and_preserves_other_work() {
                 panic!("failed Task retired and reported")
             };
             assert_eq!(
-                event.failure.error.message(),
+                event.failure.error.to_string(),
                 "module validation failed: scheduler entry rejected"
             );
         } else {
             assert!(!error.trace().unwrap().frames.is_empty());
         }
         assert_eq!(result(&mut sibling).unwrap(), 200);
-        assert!(!f.runtime.runtime().is_quarantined());
+        assert!(!f.runtime.is_quarantined());
         assert_eq!(f.cancels.load(Ordering::SeqCst), 0);
         assert_eq!(late.complete(Ok(9)), CompletionStatus::Accepted);
         host.until(&mut f.runtime, || pending.is_finished());
@@ -535,7 +523,7 @@ fn scheduler_entry_failure_is_an_outcome_and_preserves_other_work() {
 fn scheduler_fatal_entry_failure_drains_other_work() {
     for (task_entry, resume_task) in [(false, false), (true, false), (true, true)] {
         let mut f = Fixture::source(SOURCE);
-        let mut pending = scheduled(&f, "io", &[Value::I32(10)]);
+        let mut pending = scheduled("io", &[RootedValue::from(10_i32)], &mut f);
         assert!(
             f.runtime
                 .poll(&mut Context::from_waker(Waker::noop()))
@@ -547,7 +535,7 @@ fn scheduler_fatal_entry_failure_drains_other_work() {
             .create_task_scope_with_context(&f.module, &Default::default())
             .unwrap();
         let mut rejected = if task_entry {
-            let task = f.invoke("busy", &[f.value(scope.capability())]);
+            let task = f.invoke("busy", &[(scope.capability()).clone()]);
             if resume_task {
                 let one = NonZeroUsize::new(1).unwrap();
                 assert!(
@@ -564,35 +552,29 @@ fn scheduler_fatal_entry_failure_drains_other_work() {
                         .is_pending()
                 );
             }
-            scheduled(&f, "observe", &[f.value(&task)])
+            scheduled("observe", slice::from_ref(&task), &mut f)
         } else {
             let execution = f
                 .runtime
-                .backend()
                 .start(
-                    &f.runtime.runtime().select_program(&f.module).unwrap(),
+                    &f.runtime.select_program(&f.module).unwrap(),
                     "value",
                     &[],
                     Default::default(),
                 )
                 .unwrap();
-            f.runtime
-                .runtime()
-                .schedule_execution(execution, decode)
-                .unwrap()
+            f.runtime.schedule_execution(execution, decode).unwrap()
         };
         f.runtime
-            .runtime()
-            .set_execution_observer(RejectEntry(Some(RuntimeError::new(
-                RuntimeErrorKind::EngineFault,
-                "fatal scheduler entry",
+            .set_execution_observer(RejectEntry(Some(RuntimeError::from(
+                EngineFault::HostInvariant("fatal scheduler entry"),
             ))))
             .unwrap();
         assert!(matches!(
             f.runtime.poll(&mut Context::from_waker(Waker::noop())),
             Poll::Ready(Err(_))
         ));
-        assert!(f.runtime.runtime().is_quarantined());
+        assert!(f.runtime.is_quarantined());
         assert!(rejected.is_finished() && pending.is_finished());
         assert_eq!(
             result(&mut pending).unwrap_err().kind(),
@@ -604,9 +586,9 @@ fn scheduler_fatal_entry_failure_drains_other_work() {
             let Some(TaskEvent::Failed(event)) = f.runtime.take_task_event() else {
                 panic!("fatal Task outcome")
             };
-            assert_eq!(event.failure.error.message(), "fatal scheduler entry");
+            assert_eq!(event.failure.error.to_string(), "fatal scheduler entry");
         } else {
-            assert_eq!(error.message(), "fatal scheduler entry");
+            assert_eq!(error.to_string(), "fatal scheduler entry");
             assert!(!error.trace().unwrap().frames.is_empty());
         }
         assert_eq!(f.cancels.load(Ordering::SeqCst), 1);
@@ -628,9 +610,8 @@ fn scheduler_off_driver_result_drop_fault_wakes_io_driver() {
     let host = HostLoop::new();
     let execution = f
         .runtime
-        .backend()
         .start(
-            &f.runtime.runtime().select_program(&f.module).unwrap(),
+            &f.runtime.select_program(&f.module).unwrap(),
             "value",
             &[],
             Default::default(),
@@ -638,10 +619,9 @@ fn scheduler_off_driver_result_drop_fault_wakes_io_driver() {
         .unwrap();
     let completed = f
         .runtime
-        .runtime()
         .schedule_execution(execution, |_, _| Ok(CleanupFault))
         .unwrap();
-    let mut pending = scheduled(&f, "io", &[Value::I32(10)]);
+    let mut pending = scheduled("io", &[RootedValue::from(10_i32)], &mut f);
     assert!(f.runtime.poll(&mut host.context()).is_pending());
     host.until(&mut f.runtime, || {
         completed.is_finished() && f.starts.load(Ordering::SeqCst) == 1
@@ -657,7 +637,7 @@ fn scheduler_off_driver_result_drop_fault_wakes_io_driver() {
         f.runtime.poll(&mut host.context()),
         Poll::Ready(Err(_))
     ));
-    assert!(f.runtime.runtime().is_quarantined());
+    assert!(f.runtime.is_quarantined());
     assert_eq!(
         result(&mut pending).unwrap_err().kind(),
         RuntimeErrorKind::EngineFault
@@ -670,7 +650,7 @@ fn scheduler_off_driver_result_drop_fault_wakes_io_driver() {
 fn scheduler_cleanup_fault_drains_without_later_poll() {
     for entry_failure in [false, true] {
         let mut f = Fixture::source(SOURCE);
-        let mut pending = scheduled(&f, "io", &[Value::I32(10)]);
+        let mut pending = scheduled("io", &[RootedValue::from(10_i32)], &mut f);
         assert!(
             f.runtime
                 .poll(&mut Context::from_waker(Waker::noop()))
@@ -680,9 +660,8 @@ fn scheduler_cleanup_fault_drains_without_later_poll() {
         let late = f.sent.lock().unwrap().pop().unwrap();
         let execution = f
             .runtime
-            .backend()
             .start(
-                &f.runtime.runtime().select_program(&f.module).unwrap(),
+                &f.runtime.select_program(&f.module).unwrap(),
                 "value",
                 &[],
                 Default::default(),
@@ -691,7 +670,6 @@ fn scheduler_cleanup_fault_drains_without_later_poll() {
         let fault = CleanupFault;
         let mut cancelled = f
             .runtime
-            .runtime()
             .schedule_execution(execution, move |runtime, value| {
                 let _held = &fault;
                 decode(runtime, value)
@@ -699,7 +677,6 @@ fn scheduler_cleanup_fault_drains_without_later_poll() {
             .unwrap();
         if entry_failure {
             f.runtime
-                .runtime()
                 .set_execution_observer(RejectEntry(Some(RuntimeError::module_validation(
                     "rejected before cleanup fault",
                 ))))
@@ -709,14 +686,9 @@ fn scheduler_cleanup_fault_drains_without_later_poll() {
                 Poll::Ready(Err(_))
             ));
         } else {
-            assert!(
-                f.runtime
-                    .runtime()
-                    .cancel_scheduled_execution(&cancelled)
-                    .is_err()
-            );
+            assert!(f.runtime.cancel_scheduled_execution(&cancelled).is_err());
         }
-        assert!(f.runtime.runtime().is_quarantined());
+        assert!(f.runtime.is_quarantined());
         assert!(pending.is_finished() && cancelled.is_finished());
         assert_eq!(
             result(&mut pending).unwrap_err().kind(),
@@ -735,9 +707,8 @@ fn scheduler_conversion_fault_drains_other_invocations() {
     let mut f = Fixture::source(SOURCE);
     let execution = f
         .runtime
-        .backend()
         .start(
-            &f.runtime.runtime().select_program(&f.module).unwrap(),
+            &f.runtime.select_program(&f.module).unwrap(),
             "value",
             &[],
             Default::default(),
@@ -745,17 +716,16 @@ fn scheduler_conversion_fault_drains_other_invocations() {
         .unwrap();
     let mut broken = f
         .runtime
-        .runtime()
         .schedule_execution(execution, |_, _| -> NativeResult<i32> {
             panic!("host conversion failed")
         })
         .unwrap();
-    let mut remaining = scheduled(&f, "io", &[Value::I32(10)]);
+    let mut remaining = scheduled("io", &[RootedValue::from(10_i32)], &mut f);
     assert!(matches!(
         f.runtime.poll(&mut Context::from_waker(Waker::noop())),
         Poll::Ready(Err(_))
     ));
-    assert!(f.runtime.runtime().is_quarantined());
+    assert!(f.runtime.is_quarantined());
     assert!(broken.is_finished() && remaining.is_finished());
     assert_eq!(
         result(&mut broken).unwrap_err().kind(),

@@ -11,11 +11,10 @@ use crate::{
         binding::{Codec, NativeBinding, NativeResult},
         catalog::DeclarationCatalog,
         declarations::{FunctionDecl, MethodDecl},
-        storage::{NativePayload, NativeStorage},
+        storage::NativeStorage,
         types::Type,
     },
-    resource::HeapCharge,
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_common::identity::{ModuleIdentity, PackageId, metadata::DefinitionMetadata};
 use kagari_types::declaration::{FnDecl, TypeDefKind, native::NativeStorageLayout};
@@ -40,7 +39,7 @@ fn unit_binding(parameters: usize) -> NativeBinding {
     NativeBinding::new(
         vec![Codec::Value; parameters],
         Codec::Exact(Type::unit()),
-        |_| Ok(Value::Unit),
+        |_| Ok(ValueView::unit()),
     )
 }
 
@@ -74,16 +73,7 @@ impl NativeAdapter<Rc<()>, Rc<()>> for LocalAdapter {
     }
 }
 
-#[derive(Debug)]
-struct Payload;
-
-impl NativePayload for Payload {
-    fn trace<'payload>(&'payload self, _: &mut dyn FnMut(&'payload Value)) {}
-
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(0, 0))
-    }
-}
+crate::native_data! { struct Payload {} }
 
 #[test]
 fn transfer_drops_local_authoring_and_prepares_once_on_destination_thread() {
@@ -105,7 +95,7 @@ fn transfer_drops_local_authoring_and_prepares_once_on_destination_thread() {
             0,
             |_, _| Ok(()),
         )?;
-        module.bind_storage(&payload, NativeStorage::payload::<Payload>())?;
+        module.bind_storage(&payload, NativeStorage::data::<Payload>())?;
         module.inherent(payload.apply([])?, |methods| {
             methods.define(MethodDecl::static_method("direct").implementation_send(
                 TransferAdapter {
@@ -241,7 +231,7 @@ fn local_pending_rejection_reports_canonical_target_without_preparation() {
             Err(error) => error,
         };
         assert!(
-            error.message().contains("transfer::entries::local"),
+            error.to_string().contains("transfer::entries::local"),
             "{error}"
         );
         assert_eq!(factories.get(), 0);
@@ -314,7 +304,7 @@ fn default_wrapper_preserves_local_or_transferable_category_and_authored_signatu
             };
             assert!(
                 error
-                    .message()
+                    .to_string()
                     .contains("transfer::entries::__default_3_Run_run"),
                 "{error}"
             );
@@ -364,7 +354,7 @@ fn transferable_default_still_rejects_foreign_token_owners() {
         let error = transferred.into_modules().expect_err("foreign token owner");
         assert!(
             error
-                .message()
+                .to_string()
                 .contains("foreign native default requirement owner"),
             "{error}"
         );

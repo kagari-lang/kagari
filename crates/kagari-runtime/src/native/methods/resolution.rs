@@ -36,9 +36,12 @@ impl AppliedReceiver {
                 let PublicItem::InherentTable(table) = item else {
                     continue;
                 };
+                let canonical = owner
+                    .identity_admission()
+                    .runtime(table.as_ref(), &Default::default())?;
                 if match_receiver(
-                    &table.generic_params,
-                    &table.for_type,
+                    &canonical.generic_params,
+                    &canonical.for_type,
                     self.type_argument().ty(),
                     &Default::default(),
                 )

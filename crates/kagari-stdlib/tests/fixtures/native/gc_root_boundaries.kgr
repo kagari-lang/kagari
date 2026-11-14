@@ -1,0 +1,16 @@
+struct Record {
+    val values: [i32],
+    val name: String
+}
+
+fn main() ->(Record, [String], ()) {
+    (Record { values: [1], name: "leaf" }, ["seen"], ())
+}
+
+pub fn leaf(record: Record) -> [i32] {
+    record.values
+}
+
+pub fn name(record: Record) -> String {
+    record.name
+}

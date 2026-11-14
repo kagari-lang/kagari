@@ -1,0 +1,15 @@
+trait Reader {
+    type Item;
+    fn read(self) -> Self::Item;
+}
+
+impl Reader for i32 {
+    type Item = i32;
+    fn read(self) -> i32 {
+        self
+    }
+}
+
+fn main() -> Reader<Item = i32> {
+    7
+}

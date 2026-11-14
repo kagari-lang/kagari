@@ -2,11 +2,12 @@ use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Compilation,
     runtime::tests::language::numeric_checks::NumericChecks,
 };
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 mod boundaries;
 mod contracts;
@@ -82,7 +83,7 @@ impl Float {
 fn engine() -> KagariEngine {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    KagariEngine::new(config)
+    KagariEngine::with_native_modules(config, stdlib::modules().unwrap()).unwrap()
 }
 
 fn context() -> ExecutionContext {
@@ -92,7 +93,7 @@ fn context() -> ExecutionContext {
     }
 }
 
-fn programs(source: &str) -> [(&'static str, PreparedProgram); 2] {
+fn programs(source: &str) -> [(&'static str, Compilation); 2] {
     let compiler = engine();
     let checked = compiler
         .compile_source(SourceFile::new("float-methods.kgr", source))
@@ -105,7 +106,7 @@ fn programs(source: &str) -> [(&'static str, PreparedProgram); 2] {
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
     let encoded =
-        PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
     [("source", direct), ("encoded", encoded)]
 }
 
@@ -117,24 +118,28 @@ fn execute_checks(checks: Vec<String>) {
     }
 }
 
-fn assert_checks(program: &PreparedProgram, route: &str, source: &str, checks: &NumericChecks) {
+fn assert_checks(program: &Compilation, route: &str, source: &str, checks: &NumericChecks) {
     let consumer = engine();
     let context = context();
     let mut runtime = consumer.runtime(context.clone());
-    let loaded = runtime.load_program(program, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(program.program(), Default::default())
+        .unwrap();
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     let result = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap_or_else(|error| panic!("{route}: {error:?}\n{source}"));
-    let value = result.return_value.value(runtime.runtime().gc()).unwrap();
-    let Value::I32(marker) = value else {
-        panic!("{route}: expected numeric check marker, got {value:?}\n{source}");
-    };
+    let marker = result.return_value.as_i32().unwrap_or_else(|| {
+        panic!(
+            "{route}: expected numeric check marker, got {:?}\n{source}",
+            result.return_value
+        )
+    });
     checks.assert_result(marker, route, source);
     drop(result);
-    assert_eq!(runtime.runtime().gc().active_roots(), 0, "{route}");
-    assert_eq!(
-        runtime.runtime().resources().counters().current_call_depth,
-        0
-    );
-    assert!(!runtime.runtime().is_quarantined());
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, roots, "{route}");
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    assert!(!runtime.is_quarantined());
 }

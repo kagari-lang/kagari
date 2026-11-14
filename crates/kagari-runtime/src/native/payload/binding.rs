@@ -2,7 +2,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::{arguments::TypeArgument, bindings::TypeBindings},
-    module::{ExecutableModule, Module},
+    module::{ExecutableModule, Module, managed::source::RevisionSource},
     native::{
         binding::NativeResult,
         payload::{NativeType, TypeRecord, managed::AppliedSchema},
@@ -20,7 +20,7 @@ use std::{marker::PhantomData, sync::Arc};
 
 impl Runtime {
     pub fn bind_native_type<T: NativePayload>(
-        &self,
+        &mut self,
         owner: &Module,
         declaration: &TypeRef,
         arguments: &[TypeArgument],
@@ -34,14 +34,14 @@ impl Runtime {
     }
 
     pub fn bind_native_type_declaration<T: NativePayload>(
-        &self,
+        &mut self,
         owner: &Module,
         declaration: DefinitionId,
         definitions: &DefinitionTable,
         arguments: &[TypeArgument],
     ) -> NativeResult<NativeType<T>> {
-        self.gc().ensure_no_native_borrow()?;
         let snapshot = self.capture_module(owner)?;
+        self.resources().ensure_execution_allowed()?;
         let owner = &snapshot.root;
         let id = self
             .definition_context()
@@ -64,7 +64,7 @@ impl Runtime {
             argument.validate(self)?;
         }
         let environment = Arc::new(TypeBindings::new(
-            self.definition_context(),
+            &self.definition_context().snapshot(),
             declared.generic_params.clone(),
             arguments.to_vec(),
         )?);
@@ -81,15 +81,15 @@ impl Runtime {
             .type_arguments(owner, Some(environment), &[expression])?
             .pop()
             .ok_or_else(invalid)?;
-        self.prepare_native_type(owner, argument)
+        self.prepare_native_type(owner, argument, RevisionSource::Current)
     }
 
     pub(crate) fn prepare_native_type<T: Send + 'static>(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
         argument: TypeArgument,
+        origin: RevisionSource<'_>,
     ) -> NativeResult<NativeType<T>> {
-        self.gc().ensure_no_native_borrow()?;
         self.resources().ensure_execution_allowed()?;
         self.validate_executable_module(owner)?;
         argument.validate(self)?;
@@ -100,11 +100,12 @@ impl Runtime {
             .native_entries
             .storage
             .get_id(nominal.declaration)
+            .cloned()
             .ok_or_else(invalid)?;
         if storage.layout() != NativeStorageLayout::Opaque || !storage.accepts_payload::<T>() {
             return Err(invalid());
         }
-        let rust_type = RustType::prepare(self, owner, argument.clone())?;
+        let rust_type = RustType::prepare(self, owner, argument.clone(), origin)?;
         let managed = storage
             .managed_schema()
             .map(|schema| {
@@ -114,7 +115,7 @@ impl Runtime {
         Ok(NativeType {
             record: Arc::new(TypeRecord {
                 rust_type,
-                storage: storage.clone(),
+                storage,
                 managed,
             }),
             mapping: PhantomData,

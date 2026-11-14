@@ -2,6 +2,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
+    execution_metadata::groups::{OperationGroupId, group::OperationGroup},
     frame::types::{EnvironmentRecord, arguments::TypeArgument, compatibility::TypeView},
     module::{
         ExecutableModule,
@@ -11,7 +12,7 @@ use crate::{
         },
     },
 };
-use kagari_common::identity::{map::DefinitionContext, table::DefinitionId};
+use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use kagari_contract::callable::generic::GenericBody;
 use kagari_types::{
     declaration::requirement::NativeCallableRequirement,
@@ -20,7 +21,11 @@ use kagari_types::{
         substitution::{normalize_projections, substitute_parameters},
     },
 };
-use std::{collections::BTreeMap, slice, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    slice,
+    sync::Arc,
+};
 
 /// Checked associated-type facts; contains no selected operation or environment.
 #[derive(Debug, Clone)]
@@ -34,7 +39,7 @@ pub(crate) struct AssociatedInterface {
 
 #[derive(Debug, Clone)]
 pub(crate) struct TypeBindings {
-    definitions: DefinitionContext,
+    definitions: DefinitionTable,
     parameters: Arc<[GenericParam]>,
     arguments: Arc<[TypeArgument]>,
     parent: Option<Arc<TypeBindings>>,
@@ -79,12 +84,8 @@ impl AssociatedInterface {
         }
         Ok(Self {
             lookup_scope: Some(selected.owner().publication_definitions()),
-            receiver: mapping
-                .remap(&self.receiver, &Default::default())?
-                .into_records(),
-            interface: mapping
-                .remap(&self.interface, &Default::default())?
-                .into_records(),
+            receiver: mapping.remap_applied(&self.receiver, &Default::default())?,
+            interface: mapping.remap_applied(&self.interface, &Default::default())?,
             owner: self.owner.clone(),
             outputs,
         })
@@ -97,17 +98,35 @@ impl EnvironmentRecord {
         runtime: &Runtime,
         selected: &SelectedTarget,
         mapping: &PublicationMapping,
+        groups: &HashMap<OperationGroupId, Arc<OperationGroup>>,
     ) -> Result<Self, RuntimeError> {
         Ok(Self {
             types: Arc::new(self.types.transported(runtime, selected, mapping)?),
             constructions: self.constructions.transported(runtime, selected)?,
             parent: self.parent,
-            operations: self.operations.transported(runtime, selected)?,
+            operations: self.operations.transported(runtime, selected, groups)?,
         })
     }
 }
 
 impl TypeBindings {
+    pub(crate) fn closed_definitions<'a>(
+        &'a self,
+        fallback: &'a DefinitionTable,
+    ) -> &'a DefinitionTable {
+        let mut table = fallback;
+        for argument in self.arguments.iter() {
+            let candidate = argument.definitions();
+            if candidate.id() == table.id() && candidate.len() > table.len() {
+                table = candidate;
+            }
+        }
+        match &self.parent {
+            Some(parent) => parent.closed_definitions(table),
+            None => table,
+        }
+    }
+
     fn transported(
         &self,
         runtime: &Runtime,
@@ -115,7 +134,7 @@ impl TypeBindings {
         mapping: &PublicationMapping,
     ) -> Result<Self, RuntimeError> {
         Ok(Self {
-            definitions: self.definitions.clone(),
+            definitions: selected.owner().definitions().clone(),
             parameters: mapping
                 .remap(&self.parameters.to_vec(), &Default::default())?
                 .into_records()
@@ -136,7 +155,7 @@ impl TypeBindings {
     }
 
     pub(crate) fn new(
-        definitions: &DefinitionContext,
+        definitions: &DefinitionTable,
         parameters: Vec<GenericParam>,
         arguments: Vec<TypeArgument>,
     ) -> Result<Self, RuntimeError> {
@@ -147,9 +166,8 @@ impl TypeBindings {
                 "generic call type arguments",
             ));
         }
-        let table = definitions.snapshot();
         for parameter in &parameters {
-            table
+            definitions
                 .resolve(parameter.owner)
                 .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
         }
@@ -165,7 +183,7 @@ impl TypeBindings {
     pub(crate) fn include(&mut self, parent: Option<Arc<Self>>) -> Result<(), RuntimeError> {
         if let Some(parent) = parent {
             if self.parent.is_some()
-                || self.definitions.snapshot().id() != parent.definitions.snapshot().id()
+                || self.definitions.id() != parent.definitions.id()
                 || self.parameters.iter().any(|parameter| {
                     parent
                         .argument_id(parameter.owner, parameter.position)
@@ -263,25 +281,33 @@ impl TypeBindings {
                     outputs,
                     ..
                 } = fact;
-                (ty == receiver
-                    && applied.declaration == interface.declaration
-                    && applied.arguments == interface.arguments
-                    && interface
-                        .associated_types
-                        .iter()
-                        .all(|(id, ty)| applied.associated_types.get(id) == Some(ty)))
-                .then(|| {
-                    outputs
-                        .get(&member)
-                        .map(|argument| argument.view(owner))
-                        .or_else(|| {
-                            applied
-                                .associated_types
-                                .get(&member)
-                                .map(|ty| TypeView::new(ty, owner, None))
-                        })
-                })
-                .flatten()
+                let admission = fact
+                    .lookup_scope
+                    .as_ref()
+                    .map(|scope| scope.identity_admission())
+                    .unwrap_or_else(|| owner.identity_admission());
+                let definitions = self.closed_definitions(admission.target());
+                let cancel = Default::default();
+                let expected = admission.runtime_in(interface, definitions, &cancel).ok()?;
+                let actual = admission.runtime_in(applied, definitions, &cancel).ok()?;
+                let receiver = admission.runtime_in(receiver, definitions, &cancel).ok()?;
+                let actual_receiver = admission.runtime_in(ty, definitions, &cancel).ok()?;
+                // Keys follow the supplying lookup scope, including after transport;
+                // output values keep their independent original type provenance.
+                let member = admission.lexical_id(member)?;
+                (actual_receiver == receiver && actual.satisfies(&expected))
+                    .then(|| {
+                        outputs
+                            .get(&member)
+                            .map(|argument| argument.view(owner))
+                            .or_else(|| {
+                                applied
+                                    .associated_types
+                                    .get(&member)
+                                    .map(|ty| TypeView::new(ty, owner, None))
+                            })
+                    })
+                    .flatten()
             })
             .or_else(|| {
                 self.parent

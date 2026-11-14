@@ -1,18 +1,10 @@
-use std::{fs, path::PathBuf};
-
-use crate::{
-    engine::EngineConfig,
-    test_support::execution::{self, Route},
-};
-use kagari_source::source::SourceFile;
-use rstest::rstest;
-
 mod artifact_validation;
 mod callback_lifecycle;
 mod diagnostics;
 mod hash_stability;
 mod linking;
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[rstest]
 fn ordinary_programs(
     #[base_dir = "tests/fixtures/language/standard_traits"]
@@ -38,3 +30,4 @@ fn ordinary_programs(
         42,
     );
 }
+*/

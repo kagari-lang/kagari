@@ -1,15 +1,17 @@
 //! Shared preparation for ordinary source/SDK contracts. Registration and
 //! invalidation tests should build their own engine instead of using this helper.
+#[cfg(feature = "native")]
+use crate::program::native::NativeCompiler;
 use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{EngineConfig, KagariEngine, source::CheckedModule},
-    program::PreparedProgram,
+    program::Compilation,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_runtime::value::Value;
+use kagari_stdlib as stdlib;
 use std::sync::{Mutex, OnceLock};
 
 pub fn engine(config: EngineConfig) -> KagariEngine {
@@ -17,7 +19,12 @@ pub fn engine(config: EngineConfig) -> KagariEngine {
     // AnalysisDatabase is Send, not Sync. The lock only protects cloning the
     // native-only baseline; no source analysis or execution runs under it.
     BASELINE
-        .get_or_init(|| Mutex::new(KagariEngine::default()))
+        .get_or_init(|| {
+            Mutex::new(
+                KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                    .unwrap(),
+            )
+        })
         .lock()
         .unwrap()
         .new_session(config)
@@ -50,8 +57,7 @@ pub fn assert_returns_i32(
                 &artifact.records().to_bytes(artifact.definitions()).unwrap(),
             )
             .unwrap();
-            PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default())
-                .unwrap()
+            Compilation::from_artifact(decoded, &Default::default(), &Default::default()).unwrap()
         });
     assert_prepared_returns_i32(engine, direct.as_ref(), encoded.as_ref(), routes, expected);
 }
@@ -65,7 +71,7 @@ pub fn assert_artifact_returns_i32(
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
     let program =
-        PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
     assert_prepared_returns_i32(
         engine,
         None,
@@ -77,8 +83,8 @@ pub fn assert_artifact_returns_i32(
 
 fn assert_prepared_returns_i32(
     engine: &KagariEngine,
-    direct: Option<&PreparedProgram>,
-    encoded: Option<&PreparedProgram>,
+    direct: Option<&Compilation>,
+    encoded: Option<&Compilation>,
     routes: &[Route],
     expected: i32,
 ) {
@@ -97,32 +103,30 @@ fn assert_prepared_returns_i32(
             ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(program, Default::default()).unwrap();
+        let loaded = runtime
+            .load_program(program.program(), Default::default())
+            .unwrap();
+        runtime.collect_garbage().unwrap();
+        let roots = runtime.gc_stats().root_registrations;
         let result = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
-            let prepared = runtime
-                .prepare_native(
+            let prepared = NativeCompiler::default()
+                .prepare(
                     program,
-                    &loaded,
                     ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
+                .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
-        assert_eq!(
-            result
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(expected),
-            "{route:?}"
-        );
+        assert_eq!(result.return_value.as_i32().unwrap(), expected, "{route:?}");
         drop(result);
-        assert_eq!(runtime.runtime().gc().active_roots(), 0, "{route:?}");
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc_stats().root_registrations, roots, "{route:?}");
     }
 }

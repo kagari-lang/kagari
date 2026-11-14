@@ -164,21 +164,3 @@ pub fn cycle(scope: TaskScope, tasks: Vec<Task<i32>>, nested: bool) -> Task<i32>
         )
     )
 }
-
-async fn recurse(n: i32) -> i32 {
-    if n == 0 {
-        1
-    } else {
-        val (a, b) = join(
-            recurse(n - 1),
-            async {
-                0
-            }
-        ).await;
-        a + b
-    }
-}
-
-pub async fn deep() -> i32 {
-    recurse(20).await
-}

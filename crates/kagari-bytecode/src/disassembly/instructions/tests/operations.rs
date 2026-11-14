@@ -1,11 +1,8 @@
 use crate::{
-    disassembly::instructions::tests::{Fixture, r, t},
+    disassembly::instructions::tests::{Fixture, r},
     instruction::{BinaryOp, BytecodeInstruction, UnaryOp},
 };
-use kagari_contract::{
-    numeric::{NumericConversion, NumericOperation},
-    operations::{IterOp, StringIterKind},
-};
+use kagari_contract::numeric::{NumericConversion, NumericOperation};
 use kagari_types::{integer::IntegerOp, scalar::BuiltinType};
 
 #[test]
@@ -106,46 +103,5 @@ fn unary_binary_and_numeric_operations_remain_distinct_and_typed() {
             }
         }),
         "convert s0, src=s1, source=f64, target=i8"
-    );
-}
-
-#[test]
-fn every_iterator_mode_and_optional_input_is_explicit() {
-    let fixture = Fixture::new();
-    for (op, name) in [
-        (IterOp::New, "new"),
-        (IterOp::Next, "next"),
-        (IterOp::String(StringIterKind::Chars), "string.chars"),
-        (IterOp::String(StringIterKind::Bytes), "string.bytes"),
-        (
-            IterOp::String(StringIterKind::CharIndices),
-            "string.char_indices",
-        ),
-        (IterOp::String(StringIterKind::Split), "string.split"),
-        (IterOp::String(StringIterKind::SplitN), "string.split_n"),
-        (
-            IterOp::String(StringIterKind::Whitespace),
-            "string.whitespace",
-        ),
-        (IterOp::String(StringIterKind::Lines), "string.lines"),
-    ] {
-        assert_eq!(
-            fixture.render(&BytecodeInstruction::Iter {
-                dst: r(0),
-                value: Some(r(1)),
-                ty: t(),
-                op
-            }),
-            format!("iter.{name} s0, value=s1, type=i32")
-        );
-    }
-    assert_eq!(
-        fixture.render(&BytecodeInstruction::Iter {
-            dst: r(0),
-            value: None,
-            ty: t(),
-            op: IterOp::New
-        }),
-        "iter.new s0, value=none, type=i32"
     );
 }

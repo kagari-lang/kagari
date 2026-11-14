@@ -1,0 +1,28 @@
+use std::collections::{ HashMap, HashSet, Map, MutableMap, MutableSet, Set };
+
+fn map_sum(values: MutableMap<i32, i32>) -> i32 {
+    val view: Map<i32, i32> = values;
+    var result = 0;
+    for (key, value) in view {
+        result += key + value;
+    }
+    result
+}
+
+fn set_sum(values: MutableSet<i32>) -> i32 {
+    val view: Set<i32> = values;
+    var result = 0;
+    for value in view {
+        result += value;
+    }
+    result
+}
+
+fn main() -> i32 {
+    val map: HashMap<i32, i32> = HashMap::new();
+    map.insert(1, 19);
+    val set: HashSet<i32> = HashSet::new();
+    set.insert(10);
+    set.insert(12);
+    map_sum(map) + set_sum(set)
+}

@@ -1,5 +1,5 @@
 use super::{artifact, engine};
-use crate::program::PreparedProgram;
+use crate::program::Program;
 use kagari_runtime::module::entry::ProgramEntry;
 use rstest::rstest;
 
@@ -11,7 +11,7 @@ use rstest::rstest;
 #[case::variant_member("fn main() { enums::wrong_variant(enums::make(40, 2)); }")]
 fn native_enum_operations_reject_wrong_payloads_members_and_indices(#[case] body: &str) {
     let engine = engine();
-    let program = PreparedProgram::from_artifact(
+    let program = Program::from_artifact(
         artifact(&engine, body),
         &Default::default(),
         &Default::default(),
@@ -19,17 +19,21 @@ fn native_enum_operations_reject_wrong_payloads_members_and_indices(#[case] body
     .unwrap();
     let mut runtime = engine.runtime(Default::default());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     assert!(
         runtime
             .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
             .is_err(),
         "{body}"
     );
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert!(runtime.execution_root().is_none());
+    runtime.collect_garbage().unwrap();
     assert_eq!(
-        runtime.runtime().resources().counters().current_call_depth,
-        0
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
     );
-    runtime.runtime().collect_garbage().unwrap();
-    assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
 }

@@ -1,0 +1,5 @@
+use example::typed::Label;
+
+fn main() -> String {
+    Label::Text("雪").append(("🌱", "!"))
+}

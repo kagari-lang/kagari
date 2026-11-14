@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from benchmark_lua import summarize, window_rows, workload_digest
+from benchmark_lua import summarize, workload_digest
 from benchmark_results import ORIGINAL, EvidenceError, compare, expected_rows, validate_report
 
 
@@ -189,22 +189,6 @@ class BenchmarkResultsTests(unittest.TestCase):
                     sample=sample, run=0, pair=0, variant="candidate"))
         validate_report(report)
         report["raw"] = [row for row in report["raw"] if row["phase"] != "collect"]
-        with self.assertRaises(EvidenceError):
-            validate_report(report)
-
-    def test_window_harness_framing_and_batched_regions(self):
-        rows = list(window_rows(["running 1 test\n",
-            "test probe ... WINDOW,32,8,tail,32,0,3200,6400,9600\n", "ok\n"]))
-        self.assertEqual([row["phase"] for row in rows], ["admit", "retire", "fragment"])
-        self.assertEqual([int(row["ns"]) / int(row["batch"]) for row in rows], [100, 200, 300])
-        report = fixture()["baseline"]
-        report["metadata"].update(suite="windows", workload=None, setup_samples_per_workload=1)
-        report["raw"] = [dict(phase=phase, workload=workload, engine=engine,
-            size=256, batch=32, ns=3200, checksum=0, sample=sample, run=0, pair=0, variant="candidate")
-            for (phase, workload, engine), count in expected_rows(report["metadata"]).items()
-            for sample in range(count)]
-        validate_report(report)
-        report["raw"][0]["batch"] = 1
         with self.assertRaises(EvidenceError):
             validate_report(report)
 

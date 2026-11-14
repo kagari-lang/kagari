@@ -1,0 +1,13 @@
+use example::struct_scope::Player;
+
+pub fn inspect(player: Ref<Player>) -> String {
+    player.inspect()
+}
+
+pub fn damage(player: RefMut<Player>, amount: i32) -> i32 {
+    player.damage(amount)
+}
+
+pub fn copy(player: Player) -> Player {
+    player
+}

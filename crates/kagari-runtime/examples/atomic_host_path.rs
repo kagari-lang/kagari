@@ -7,7 +7,7 @@ use kagari_runtime::{
     error::RuntimeErrorKind,
     host::{HostError, HostObjectId, HostPathAdapter, HostSchemaEpoch, PreparedHostPathWrite},
     native::builder::ModuleBuilder,
-    value::Value,
+    value::{carriers::RootedValue, view::ValueView},
 };
 use kagari_types::{
     declaration::path::{
@@ -101,9 +101,9 @@ fn main() {
         .bind_path(
             &path,
             HostPathAdapter::new()
-                .with_read(move |_, _| Ok(Value::I32(read_hp.load(Ordering::SeqCst))))
+                .with_read(move |_, _| Ok(ValueView::from(read_hp.load(Ordering::SeqCst))))
                 .with_prepare_write(move |_, _, record| {
-                    let Value::I32(value) = record.new_value else {
+                    let Some(value) = record.new_value.as_i32() else {
                         return Err(HostError::new("hp expects i32"));
                     };
                     if value < 0 {
@@ -122,7 +122,7 @@ fn main() {
         .bind_path(
             &preview,
             HostPathAdapter::new()
-                .with_read(move |_, _| Ok(Value::I32(preview_hp.load(Ordering::SeqCst)))),
+                .with_read(move |_, _| Ok(ValueView::from(preview_hp.load(Ordering::SeqCst)))),
         )
         .unwrap();
     let mut runtime = Runtime::default();
@@ -137,27 +137,33 @@ fn main() {
         .unwrap();
     let path = runtime.resolve_host_path(&path).unwrap();
     let preview = runtime.resolve_host_path(&preview).unwrap();
-    let root = runtime.gc().alloc_host_root(root).unwrap();
+    let root = runtime.host_root_value(root).unwrap();
     assert_eq!(
-        runtime.read_host_path(&root, preview, vec![]).unwrap(),
-        Value::I32(10)
+        runtime
+            .read_host_path(&root, preview, &[])
+            .unwrap()
+            .as_i32(),
+        Some(10)
     );
     runtime
-        .set_host_path(&root, path, vec![], Value::I32(20))
+        .set_host_path(&root, path, &[], &RootedValue::from(20))
         .unwrap();
     let error = runtime
-        .set_host_path(&root, preview, vec![], Value::I32(30))
+        .set_host_path(&root, preview, &[], &RootedValue::from(30))
         .unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::TypedPathValidation);
     assert_eq!(hp.load(Ordering::SeqCst), 20);
     assert_eq!(runtime.host_dirty_paths().len(), 1);
     assert!(!runtime.is_quarantined());
     let record = runtime.host_dirty_paths().remove(0);
-    assert_eq!(record.old_value, Some(Value::I32(10)));
-    assert_eq!(record.new_value, Value::I32(20));
+    assert_eq!(
+        record.old_value.as_ref().and_then(RootedValue::as_i32),
+        Some(10)
+    );
+    assert_eq!(record.new_value.as_i32(), Some(20));
     runtime.clear_host_dirty_paths();
     runtime
-        .set_host_path(&root, path, vec![], Value::I32(30))
+        .set_host_path(&root, path, &[], &RootedValue::from(30))
         .unwrap();
     assert_eq!(hp.load(Ordering::SeqCst), 30);
     println!("readonly view preserved hp=20; writable path updated hp=30");

@@ -4,13 +4,14 @@ use kagari::{
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
 };
+use kagari_runtime::execution::JitExecutionStatus;
 use kagari_runtime::{
     host::{HostCallContext, HostError},
-    native::builder::ModuleBuilder,
-    value::Value,
+    native::{builder::ModuleBuilder, host},
+    value::view::ValueView,
 };
+use kagari_stdlib as stdlib;
 use kagari_types::declaration::logging;
-use kagari_vm::vm::JitExecutionStatus;
 use std::{env, path::PathBuf};
 
 fn main() {
@@ -31,6 +32,7 @@ fn main() {
     // The CLI producer installs host::log. Loading validates all carried native
     // declarations, including services unused by the selected scalar entry.
     let mut engine = KagariEngine::builder().expect("engine registrations");
+    engine.install_all(stdlib::modules().unwrap()).unwrap();
     let mut logging = ModuleBuilder::from_declaration(
         logging::declaration().expect("logging declaration"),
         engine.declarations(),
@@ -39,18 +41,17 @@ fn main() {
     .expect("logging module");
     let log = logging.declared_function("log").expect("log function");
     logging
-        .bind(log, |cx: &HostCallContext<'_>, args: &[Value]| {
-            let [Value::Str(message)] = args else {
-                return Err(HostError::new("host.log expects one string argument"));
-            };
-            let message = cx
-                .runtime()
-                .gc()
-                .string(*message)
-                .ok_or_else(|| HostError::new("invalid host.log string"))?;
-            println!("{}", &*message);
-            Ok(Value::Unit)
-        })
+        .bind(
+            log,
+            host::callback(|cx: &mut HostCallContext<'_>, args: &[ValueView<'_>]| {
+                let [message] = args else {
+                    return Err(HostError::new("host.log expects one string argument"));
+                };
+                cx.read_string(message, |message| println!("{message}"))
+                    .map_err(|error| HostError::new(error.to_string()))?;
+                Ok(ValueView::unit())
+            }),
+        )
         .expect("log binding");
     engine
         .install(logging.finish().expect("complete logging module"))
@@ -60,7 +61,7 @@ fn main() {
         .load_program(bundle.program(), Default::default())
         .expect("load program");
     let native = bundle
-        .install(&runtime, &loaded)
+        .install(&mut runtime, &loaded)
         .expect("install native entry");
     let entry = bundle.entry();
     let report = runtime
@@ -70,9 +71,6 @@ fn main() {
         report.jit.as_ref().expect("execution route").status,
         JitExecutionStatus::Native
     );
-    assert_eq!(
-        report.return_value.value(runtime.runtime().gc()),
-        Some(Value::I32(42))
-    );
+    assert_eq!(report.return_value.as_i32(), Some(42));
     println!("Native: 42 (compiler-free host)");
 }

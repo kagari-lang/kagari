@@ -1,17 +1,21 @@
 //! Storage lifecycle accounting and field throughput, measured in separate builds.
 //! Run with --release; --features diagnostics selects allocation accounting only.
+use kagari_stdlib as stdlib;
 #[cfg(feature = "diagnostics")]
 mod memory;
 #[cfg(not(feature = "diagnostics"))]
+mod reload;
+#[cfg(not(feature = "diagnostics"))]
 mod revisions;
+mod sharing;
 
 use kagari::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_source::source::SourceFile;
-use std::time::Instant;
+use std::{env, time::Instant};
 
 #[cfg(feature = "diagnostics")]
 use kagari_runtime::diagnostics::allocations::Allocator;
@@ -50,7 +54,7 @@ fn sample(name: &str, operations: i32, mut action: impl FnMut() -> i32) {
 }
 
 #[cfg(not(feature = "diagnostics"))]
-fn lifecycle(engine: &KagariEngine, program: &PreparedProgram, context: &ExecutionContext) {
+fn lifecycle(engine: &KagariEngine, program: &Program, context: &ExecutionContext) {
     for name in [
         "points",
         "nodes",
@@ -63,20 +67,25 @@ fn lifecycle(engine: &KagariEngine, program: &PreparedProgram, context: &Executi
         for sample in 0..14 {
             let mut runtime = engine.runtime(context.clone());
             let loaded = runtime.load_program(program, Default::default()).unwrap();
-            let baseline = runtime.runtime().collect_garbage().unwrap().live_objects;
+            runtime.collect_garbage().unwrap();
+            let baseline = runtime.gc_stats();
             let start = Instant::now();
             let values: ScriptValue = runtime
                 .execute_typed(&loaded, name, (POPULATION,), context)
                 .unwrap();
             let construction = start.elapsed().as_nanos();
             let start = Instant::now();
-            runtime.runtime().collect_garbage().unwrap();
+            runtime.collect_garbage().unwrap();
             let live_gc = start.elapsed().as_nanos();
             drop(values);
             let start = Instant::now();
-            let empty = runtime.runtime().collect_garbage().unwrap();
+            runtime.collect_garbage().unwrap();
             let release_gc = start.elapsed().as_nanos();
-            assert_eq!(empty.live_objects, baseline);
+            assert_eq!(runtime.gc_stats().objects, baseline.objects);
+            assert_eq!(
+                runtime.gc_stats().root_registrations,
+                baseline.root_registrations
+            );
             if sample >= 3 {
                 for (phase, ns) in phases.iter_mut().zip([construction, live_gc, release_gc]) {
                     phase[sample - 3] = ns;
@@ -98,10 +107,20 @@ fn lifecycle(engine: &KagariEngine, program: &PreparedProgram, context: &Executi
 }
 
 fn main() {
+    #[cfg(not(feature = "diagnostics"))]
+    if env::args().nth(1).as_deref() == Some("--reload") {
+        reload::run();
+        return;
+    }
+    if env::args().nth(1).as_deref() == Some("--sharing") {
+        sharing::run();
+        return;
+    }
+
     // Explicit collections separate live storage, reserved capacity and release.
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = None;
-    let engine = KagariEngine::new(config);
+    let engine = KagariEngine::with_native_modules(config, stdlib::modules().unwrap()).unwrap();
     let start = Instant::now();
     let artifact = engine
         .compile_to_artifact(SourceFile::new("storage.kgr", SOURCE), Default::default())
@@ -109,7 +128,7 @@ fn main() {
     let compiled = start.elapsed().as_nanos();
     let start = Instant::now();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     println!(
         "setup,compile_ns={compiled},prepare_ns={}",
         start.elapsed().as_nanos()
@@ -140,7 +159,7 @@ fn main() {
         let numbers: ScriptValue = runtime
             .execute_typed(&loaded, "numbers", (POPULATION,), &context)
             .unwrap();
-        runtime.runtime().collect_garbage().unwrap();
+        runtime.collect_garbage().unwrap();
         sample("scalar", ITERATIONS, || {
             runtime
                 .execute_typed(&loaded, "scalar", (ITERATIONS,), &context)

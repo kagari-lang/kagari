@@ -664,6 +664,7 @@ pub(super) fn program_count_limit(
                 metadata.semantic.slots.len(),
                 metadata.params.len(),
                 metadata.parameter_slots.len(),
+                metadata.self_tail_calls.len(),
                 metadata.origins.len(),
                 metadata.instruction_origins.len(),
                 metadata.slots.len(),

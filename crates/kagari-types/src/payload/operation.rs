@@ -6,7 +6,7 @@ use crate::{
         comparison::{Comparison, ComparisonDomain},
         shared,
     },
-    scalar::{BuiltinType, IntegerType},
+    scalar::{BuiltinType, IntegerType, error::ScalarError},
 };
 
 mod select;
@@ -169,7 +169,7 @@ impl ScalarOperation {
     /// Evaluate complete carriers using the same semantics as prepared handlers.
     /// Domain failures precede arithmetic; no Value allocation or function pointer.
     #[inline(never)]
-    pub fn evaluate(self, lhs: u64, rhs: u64) -> Result<u64, &'static str> {
+    pub fn evaluate(self, lhs: u64, rhs: u64) -> Result<u64, ScalarError> {
         match self {
             Self::Integer { domain, op } => shared::integer(op, domain, lhs, rhs),
             Self::Float { domain, op } => shared::float(op, domain, lhs, rhs),

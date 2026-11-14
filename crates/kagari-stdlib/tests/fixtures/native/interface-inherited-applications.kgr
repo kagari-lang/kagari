@@ -1,0 +1,40 @@
+pub trait Identity {
+    fn identity<T>(self, value: T) -> T {
+        value
+    }
+    fn delayed<T>(self, value: T) -> fn() -> T {
+        || value
+    }
+}
+
+pub trait Child: Identity {}
+
+struct Empty {}
+
+pub struct Item {
+    pub var value: i32
+}
+
+impl Identity for Empty {}
+
+impl Child for Empty {}
+
+pub fn make() -> Child {
+    Empty {}
+}
+
+pub fn item() -> Item {
+    Item { value: 42 }
+}
+
+pub fn scalar_evidence(target: Child) -> i32 {
+    target.identity(1)
+}
+
+pub fn object_evidence(target: Child, value: Item) -> Item {
+    target.identity(value)
+}
+
+pub fn closure_evidence(target: Child, value: Item) -> fn() -> Item {
+    target.delayed(value)
+}

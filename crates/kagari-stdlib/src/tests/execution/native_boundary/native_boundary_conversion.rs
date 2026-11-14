@@ -1,0 +1,811 @@
+#[cfg(test)]
+use crate::tests::support::bytecode::load_bytecode;
+mod dto;
+mod host_adapter;
+mod scoped_capabilities;
+mod scoped_pairs;
+mod scoped_struct;
+use crate::{
+    declarations::StandardDeclarations,
+    tests::execution::native_boundary::{
+        compile_program, publish_unused_version, support::round_trip_program,
+    },
+};
+use kagari_runtime::{
+    Runtime, RuntimeConfig,
+    error::{RuntimeError, RuntimeErrorKind},
+    execution::memory::GcHeapConfig,
+    frame::types::arguments::TypeArgument,
+    module::{InstalledProgram, entry::ProgramEntry},
+    native::{
+        binding::{Codec, NativeBinding, NativeResult},
+        builder::ModuleBuilder,
+        catalog::DeclarationCatalog,
+        conversion::{
+            FromKagari, IntoKagari, KagariType,
+            context::{ConversionContext, ConversionLimits},
+        },
+        declarations::{FunctionDecl, MethodDecl},
+        module::NativeModule,
+        objects::Object,
+        payload::Opaque,
+        typed::NativeContext,
+        types::Type,
+    },
+    value::{carriers::RootedValue, view::ValueView},
+};
+
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId},
+};
+
+use kagari_types::declaration::module::ModuleDecl;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+
+#[test]
+fn conversion_limits_terminate_only_active_sessions_and_release_scratch_roots() {
+    let module = ModuleBuilder::new(
+        "example::typed",
+        &StandardDeclarations::default().catalog().unwrap(),
+    )
+    .unwrap()
+    .finish()
+    .unwrap();
+    let (mut vm, owner) = source_free_vm(
+        include_str!("../../../../tests/fixtures/native/typed-empty-entry.kgr"),
+        &module,
+    );
+    let _owner_program = owner;
+    let owner = vm.select_program(&_owner_program).unwrap();
+    let runtime = &mut vm;
+    let baseline = runtime.gc_stats();
+    let input = ConversionContext::new(runtime, &owner)
+        .unwrap()
+        .encode(("a".to_owned(), "b".to_owned()))
+        .unwrap();
+    for limits in [
+        ConversionLimits {
+            max_depth: 1,
+            ..Default::default()
+        },
+        ConversionLimits {
+            max_nodes: 2,
+            ..Default::default()
+        },
+        ConversionLimits {
+            max_string_bytes: 1,
+            ..Default::default()
+        },
+    ] {
+        for active in [false, true] {
+            for decode in [false, true] {
+                runtime.collect_garbage().unwrap();
+                let roots = runtime.gc_stats().root_registrations;
+                let run = |runtime: &mut Runtime| {
+                    let error = {
+                        let mut cx =
+                            ConversionContext::with_limits(runtime, &owner, limits).unwrap();
+                        let error = if decode {
+                            cx.decode::<(String, String)>(&input).unwrap_err()
+                        } else {
+                            cx.encode(("a".to_owned(), "b".to_owned())).unwrap_err()
+                        };
+                        assert_eq!(cx.runtime().gc_stats().root_registrations, roots);
+                        error
+                    };
+                    assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
+                    if active {
+                        assert_eq!(runtime.resources().termination(), Some(error.clone()));
+                        assert_eq!(runtime.resources().poll_execution().unwrap_err(), error);
+                    } else {
+                        assert!(runtime.resources().termination().is_none());
+                        runtime.resources().poll_execution().unwrap();
+                    }
+                };
+                if active {
+                    let mut session = runtime
+                        .begin_execution(&owner, runtime.execution_options())
+                        .unwrap();
+                    run(session.runtime_mut());
+                } else {
+                    run(runtime);
+                }
+                assert!(runtime.resources().termination().is_none());
+                let value = ConversionContext::new(runtime, &owner)
+                    .unwrap()
+                    .encode(7i32)
+                    .unwrap();
+                assert_eq!(value.as_i32(), Some(7));
+                drop(value);
+                assert_eq!(runtime.gc_stats().root_registrations, roots);
+                assert_eq!(runtime.resources().counters().current_call_depth, 0);
+            }
+        }
+    }
+    drop(input);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
+}
+
+#[test]
+fn script_objects_cross_typed_entries_without_exposing_heap_ids() {
+    let catalog = StandardDeclarations::default().catalog().unwrap();
+    let module = ModuleBuilder::new("example::typed", &catalog)
+        .unwrap()
+        .finish()
+        .unwrap();
+    let (mut vm, loaded) = source_free_vm(
+        include_str!("../../../../tests/fixtures/native/typed-object-entries.kgr"),
+        &module,
+    );
+    let _loaded_program = loaded;
+    let loaded = vm.select_program(&_loaded_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
+    let player: Object = vm
+        .execute_typed(&_loaded_program, "make", (), &Default::default())
+        .unwrap();
+    let hp = vm.bind_field::<i32>(player.object_type(), "hp").unwrap();
+    assert_eq!(
+        vm.execute_typed::<_, i32>(
+            &_loaded_program,
+            "damage",
+            (player.clone(), 15i32),
+            &Default::default()
+        )
+        .unwrap(),
+        85
+    );
+    vm.collect_garbage().unwrap();
+    let mut cx = NativeContext::new(&mut vm, &loaded).unwrap();
+    assert_eq!(player.get(&mut cx, &hp).unwrap(), 85);
+    player.set(&mut cx, &hp, 42).unwrap();
+    assert_eq!(
+        cx.runtime_mut()
+            .execute_typed::<_, i32>(
+                &_loaded_program,
+                "damage",
+                (player.clone(), 2i32),
+                &Default::default()
+            )
+            .unwrap(),
+        40
+    );
+    drop(player);
+    cx.collect_garbage().unwrap();
+    assert_eq!(cx.runtime().gc_stats().objects, baseline.objects);
+}
+
+#[test]
+fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments() {
+    struct Label(String);
+
+    impl KagariType for Label {
+        fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
+            let module = ModuleDecl::new(ModuleIdentity {
+                package: PackageId("example".into()),
+                path: vec!["typed".into()],
+            });
+            catalog
+                .type_reference(&DefinitionPath {
+                    module: module.identity,
+                    path: vec![DefinitionPathSegment {
+                        kind: DefinitionKind::Enum,
+                        name: "Label".into(),
+                        occurrence: 0,
+                    }],
+                })?
+                .apply([])
+        }
+    }
+
+    impl FromKagari for Label {
+        fn from_kagari(
+            cx: &mut ConversionContext<'_>,
+            expected: &TypeArgument,
+            value: &ValueView<'_>,
+        ) -> NativeResult<Self> {
+            let (text,): (String,) = cx.decode_variant(expected, value, "Text")?;
+            Ok(Self(text))
+        }
+    }
+    let catalog = StandardDeclarations::default().catalog().unwrap();
+    let mut module = ModuleBuilder::new("example::typed", &catalog).unwrap();
+    let mut label = module.define_enum("Label").unwrap();
+    label
+        .variant("Text", [String::kagari_type(&catalog).unwrap()])
+        .unwrap();
+    let label = label.finish().unwrap();
+    let catalog = module.declarations().clone();
+    module
+        .implement(label, |group| {
+            group.inherent_impl(|methods| {
+                let method = methods.define_method(
+                    MethodDecl::instance("append")
+                        .parameter("suffix", <(String, String)>::kagari_type(&catalog)?)
+                        .returns(String::kagari_type(&catalog)?),
+                )?;
+                methods.bind(
+                    method,
+                    |cx: &mut NativeContext<'_>,
+                     receiver: Label,
+                     (suffix,): ((String, String),)|
+                     -> NativeResult<String> {
+                        cx.collect_garbage()?;
+                        Ok(format!("{}{}{}", receiver.0, suffix.0, suffix.1))
+                    },
+                )
+            })
+        })
+        .unwrap();
+    let module = module.finish().unwrap();
+    let (mut vm, loaded) = source_free_vm(
+        include_str!("../../../../tests/fixtures/native/typed-label-receiver.kgr"),
+        &module,
+    );
+    let _loaded_program = loaded;
+    let loaded = vm.select_program(&_loaded_program).unwrap();
+    let result = vm
+        .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
+        .unwrap()
+        .return_value;
+    assert_eq!(
+        ConversionContext::new(&mut vm, &loaded)
+            .unwrap()
+            .decode::<String>(&result)
+            .unwrap(),
+        "雪🌱!"
+    );
+}
+
+fn source_free_vm(source: &str, module: &NativeModule) -> (Runtime, InstalledProgram) {
+    let program = compile_program(source, Some(module));
+    let program = round_trip_program(program);
+    let mut runtime = Runtime::new(RuntimeConfig {
+        gc: GcHeapConfig {
+            collection_threshold: Some(1),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+    module.install(&mut runtime).unwrap();
+    let loaded = load_bytecode(&mut runtime, "typed-native", program).unwrap();
+    runtime.collect_garbage().unwrap();
+    (runtime, loaded)
+}
+
+#[test]
+fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loading() {
+    let catalog = StandardDeclarations::default().catalog().unwrap();
+    let mut module = ModuleBuilder::new("example::typed", &catalog).unwrap();
+    {
+        let registered_function = module
+            .define_function(
+                FunctionDecl::new("wrap")
+                    .parameter(
+                        "input",
+                        <Option<(String, String)>>::kagari_type(module.declarations()).unwrap(),
+                    )
+                    .returns(
+                        <Result<Option<(String, String)>, String>>::kagari_type(
+                            module.declarations(),
+                        )
+                        .unwrap(),
+                    ),
+            )
+            .unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                |cx: &mut NativeContext<'_>,
+                 (input,): (Option<(String, String)>,)|
+                 -> NativeResult<Result<Option<(String, String)>, String>> {
+                    cx.collect_garbage()?;
+                    if input.is_none() {
+                        Ok(Err("empty input".into()))
+                    } else {
+                        Ok(Ok(input))
+                    }
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
+    {
+        let registered_function = module
+            .define_function(
+                FunctionDecl::new("inspect")
+                    .parameter(
+                        "input",
+                        <Result<Option<(String, String)>, String>>::kagari_type(
+                            module.declarations(),
+                        )
+                        .unwrap(),
+                    )
+                    .returns(Type::i32()),
+            )
+            .unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                |cx: &mut NativeContext<'_>,
+                 (input,): (Result<Option<(String, String)>, String>,)|
+                 -> NativeResult<i32> {
+                    cx.collect_garbage()?;
+                    Ok(match input {
+                        Ok(Some(items)) if items == ("雪".to_owned(), "🌱".to_owned()) => 40,
+                        Err(message) if message == "empty input" => 2,
+                        _ => -100,
+                    })
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
+    let module = module.finish().unwrap();
+    let (mut vm, loaded) = source_free_vm(
+        include_str!("../../../../tests/fixtures/native/typed-business-results.kgr"),
+        &module,
+    );
+    let _loaded_program = loaded;
+    let loaded = vm.select_program(&_loaded_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
+    assert_eq!(
+        vm.execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
+            .unwrap()
+            .return_value
+            .as_i32(),
+        Some(42)
+    );
+    publish_unused_version(&mut vm, &_loaded_program);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+}
+
+#[test]
+fn typed_concrete_result_uses_the_compiler_selected_interface_adapter() {
+    kagari_runtime::native_data! { struct FieldCount { len: u64 } }
+    let catalog = StandardDeclarations::default().catalog().unwrap();
+    let mut module = ModuleBuilder::new("example::typed", &catalog).unwrap();
+    let fields = module.register_type::<Opaque<FieldCount>>().unwrap();
+    let mut counted = module.define_trait("Counted").unwrap();
+    counted
+        .define_method(MethodDecl::instance("len").returns(Type::u64()))
+        .unwrap();
+    let counted = counted.finish().unwrap();
+    module
+        .implement(fields.clone(), |group| {
+            group.trait_impl(counted.apply([])?, |methods| {
+                methods.bind(
+                    "len",
+                    NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::u64()), |cx| {
+                        cx.with_payload::<FieldCount, _>(0, |fields| {
+                            Ok(ValueView::from(fields.len))
+                        })
+                    }),
+                )
+            })
+        })
+        .unwrap();
+    let split = module
+        .define_function(
+            FunctionDecl::new("split")
+                .parameter("text", String::kagari_type(module.declarations()).unwrap())
+                .parameter(
+                    "separator",
+                    String::kagari_type(module.declarations()).unwrap(),
+                )
+                .returns(counted.apply([]).unwrap().ty()),
+        )
+        .unwrap();
+    module
+        .function(&split, |function| function.produces(fields))
+        .unwrap();
+    module
+        .bind(
+            split,
+            |cx: &mut NativeContext<'_>,
+             (text, separator): (String, String)|
+             -> NativeResult<Opaque<FieldCount>> {
+                cx.collect_garbage()?;
+                cx.create_opaque(FieldCount {
+                    len: text.split(&separator).count() as u64,
+                })
+            },
+        )
+        .unwrap();
+    let (mut vm, program) = source_free_vm(
+        include_str!("../../../../tests/fixtures/native/typed_concrete_payload.kgr"),
+        &module.finish().unwrap(),
+    );
+    let _owner = vm.select_program(&program).unwrap();
+    assert_eq!(
+        vm.execute_typed::<_, u64>(&program, "main", (), &Default::default())
+            .unwrap(),
+        3
+    );
+}
+
+#[test]
+fn failed_output_preserves_callback_effects_and_traps_release_conversion_roots() {
+    struct Invalid;
+
+    impl KagariType for Invalid {
+        fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
+            i32::kagari_type(catalog)
+        }
+    }
+
+    impl IntoKagari for Invalid {
+        fn into_kagari<'call>(
+            self,
+            _: &mut ConversionContext<'call>,
+            _: &TypeArgument,
+        ) -> NativeResult<ValueView<'call>> {
+            Ok(ValueView::from(true))
+        }
+    }
+    let catalog = StandardDeclarations::default().catalog().unwrap();
+    let mut module = ModuleBuilder::new("example::typed", &catalog).unwrap();
+    let effects = Arc::new(AtomicUsize::new(0));
+    let observed = effects.clone();
+    {
+        let registered_function = module
+            .define_function(
+                FunctionDecl::new("broken")
+                    .returns(<Invalid>::kagari_type(module.declarations()).unwrap()),
+            )
+            .unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                move |_: &mut NativeContext<'_>, (): ()| -> NativeResult<Invalid> {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    Ok(Invalid)
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
+    {
+        let registered_function = module.define_function(FunctionDecl::new("trap")).unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                |_: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
+                    Err(RuntimeError::resource_limit("explicit native failure"))
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
+    let module = module.finish().unwrap();
+    let (mut vm, loaded) = source_free_vm(
+        include_str!("../../../../tests/fixtures/native/typed-invalid-output.kgr"),
+        &module,
+    );
+    let _loaded_program = loaded;
+    let loaded = vm.select_program(&_loaded_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
+    let error = vm
+        .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
+        .unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+    assert!(
+        error
+            .to_string()
+            .contains("converted value differs from its declaration")
+    );
+    assert_eq!(effects.load(Ordering::SeqCst), 1);
+    assert!(
+        vm.execute_module(&loaded, "fails", vm.execution_options())
+            .is_err()
+    );
+    assert_eq!(
+        vm.execute_module(&loaded, "healthy", vm.execution_options())
+            .unwrap()
+            .return_value
+            .as_i32(),
+        Some(42)
+    );
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+}
+
+#[test]
+fn typed_host_entries_convert_composites_and_retain_returned_handles() {
+    struct RetainedTuple(RootedValue);
+
+    impl KagariType for RetainedTuple {
+        fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
+            <(i32, i32)>::kagari_type(catalog)
+        }
+    }
+
+    impl FromKagari for RetainedTuple {
+        const PRESERVES_IDENTITY: bool = true;
+
+        fn from_kagari(
+            cx: &mut ConversionContext<'_>,
+            _: &TypeArgument,
+            value: &ValueView<'_>,
+        ) -> NativeResult<Self> {
+            cx.retain(value).map(Self)
+        }
+    }
+    let module = ModuleBuilder::new(
+        "example::typed",
+        &StandardDeclarations::default().catalog().unwrap(),
+    )
+    .unwrap()
+    .finish()
+    .unwrap();
+    let (mut vm, loaded) = source_free_vm(
+        include_str!("../../../../tests/fixtures/native/typed-host-composites.kgr"),
+        &module,
+    );
+    let _loaded_program = loaded;
+    let _loaded = vm.select_program(&_loaded_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
+    type Data = Result<Option<((String, i32),)>, String>;
+    for value in [
+        Ok(Some((("雪".into(), 42),))),
+        Ok(None),
+        Err("business failure".into()),
+    ] {
+        let result: Data = vm
+            .execute_typed(
+                &_loaded_program,
+                "echo",
+                (value.clone(),),
+                &Default::default(),
+            )
+            .unwrap();
+        assert_eq!(result, value);
+    }
+    let tuple: (i32, i32) = vm
+        .execute_typed(&_loaded_program, "tuple", ((20, 22),), &Default::default())
+        .unwrap();
+    assert_eq!(tuple, (20, 22));
+    vm.execute_typed::<_, ()>(&_loaded_program, "unit", (), &Default::default())
+        .unwrap();
+    let retained: RetainedTuple = vm
+        .execute_typed(&_loaded_program, "retain", ((20, 22),), &Default::default())
+        .unwrap();
+    vm.collect_garbage().unwrap();
+    assert_eq!(
+        ConversionContext::new(&mut vm, &_loaded)
+            .unwrap()
+            .decode::<(i32, i32)>(&retained.0)
+            .unwrap(),
+        (20, 22)
+    );
+    drop(retained);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+}
+
+#[test]
+fn typed_entry_signature_rejection_precedes_effects_and_data_failure_preserves_them() {
+    struct Fails;
+
+    impl KagariType for Fails {
+        fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
+            i32::kagari_type(catalog)
+        }
+    }
+
+    impl FromKagari for Fails {
+        fn from_kagari(
+            _: &mut ConversionContext<'_>,
+            _: &TypeArgument,
+            _: &ValueView<'_>,
+        ) -> NativeResult<Self> {
+            Err(RuntimeError::module_validation(
+                "data-dependent output rejection",
+            ))
+        }
+    }
+    let mut module = ModuleBuilder::new(
+        "example::typed",
+        &StandardDeclarations::default().catalog().unwrap(),
+    )
+    .unwrap();
+    let effects = Arc::new(AtomicUsize::new(0));
+    let observed = effects.clone();
+    {
+        let registered_function = module.define_function(FunctionDecl::new("effect")).unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                move |_: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
+    let module = module.finish().unwrap();
+    let (mut vm, loaded) = source_free_vm(
+        include_str!("../../../../tests/fixtures/native/typed-output-effects.kgr"),
+        &module,
+    );
+    let _loaded_program = loaded;
+    let _loaded = vm.select_program(&_loaded_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
+    assert!(
+        vm.execute_typed::<_, String>(&_loaded_program, "run", (42i32,), &Default::default())
+            .is_err()
+    );
+    assert!(
+        vm.execute_typed::<_, i32>(&_loaded_program, "run", (true,), &Default::default())
+            .is_err()
+    );
+    assert!(
+        vm.execute_typed::<_, i32>(&_loaded_program, "run", (), &Default::default())
+            .is_err()
+    );
+    assert_eq!(effects.load(Ordering::SeqCst), 0);
+    assert!(
+        vm.execute_typed::<_, Fails>(&_loaded_program, "run", (42i32,), &Default::default())
+            .is_err()
+    );
+    assert_eq!(effects.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        vm.execute_typed::<_, i32>(&_loaded_program, "run", (42i32,), &Default::default())
+            .unwrap(),
+        42
+    );
+    assert_eq!(effects.load(Ordering::SeqCst), 2);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+}
+
+#[test]
+fn moving_a_result_out_of_its_report_keeps_it_rooted_without_manual_registration() {
+    let module = ModuleBuilder::new(
+        "example::typed",
+        &StandardDeclarations::default().catalog().unwrap(),
+    )
+    .unwrap()
+    .finish()
+    .unwrap();
+    let (mut vm, loaded) = source_free_vm(
+        include_str!("../../../../tests/fixtures/native/typed-report-result.kgr"),
+        &module,
+    );
+    let _loaded_program = loaded;
+    let loaded = vm.select_program(&_loaded_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
+    let result = vm
+        .execute_module(&loaded, "make", vm.execution_options())
+        .unwrap()
+        .return_value;
+    let clone = result.clone();
+    drop(result);
+    vm.execute_module(&loaded, "idle", vm.execution_options())
+        .unwrap();
+    vm.collect_garbage().unwrap();
+    {
+        let mut cx = ConversionContext::new(&mut vm, &loaded).unwrap();
+        let array = cx.import(&clone).unwrap();
+        assert_eq!(cx.array_len(&array).unwrap(), 1);
+        assert_eq!(
+            cx.array_element(&array, 0).unwrap().unwrap().as_i32(),
+            Some(42)
+        );
+    }
+    let mut other = Runtime::default();
+    assert_eq!(
+        other
+            .host_scope(std::slice::from_ref(&clone))
+            .err()
+            .unwrap()
+            .kind(),
+        RuntimeErrorKind::ModuleValidation
+    );
+    assert!(!other.is_quarantined());
+    drop(clone);
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+}
+
+#[test]
+fn native_collect_polls_between_iterator_steps_and_releases_the_failed_call() {
+    let cancellation = CancellationToken::default();
+    let steps = Arc::new(AtomicUsize::new(0));
+    let observed = steps.clone();
+    let cancel = cancellation.clone();
+    let mut module = ModuleBuilder::new(
+        "example::typed",
+        &StandardDeclarations::default().catalog().unwrap(),
+    )
+    .unwrap();
+    {
+        let registered_function = module
+            .define_function(FunctionDecl::new("gather").returns(Type::i32()))
+            .unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                move |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<i32> {
+                    let values = cx.collect((0..100).inspect(|_| {
+                        if observed.fetch_add(1, Ordering::SeqCst) == 2 {
+                            cancel.cancel();
+                        }
+                    }))?;
+                    Ok(values.into_iter().sum())
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
+    let module = module.finish().unwrap();
+    let (mut vm, loaded) = source_free_vm(
+        include_str!("../../../../tests/fixtures/native/typed-native-collect.kgr"),
+        &module,
+    );
+    let _loaded_program = loaded;
+    let loaded = vm.select_program(&_loaded_program).unwrap();
+    vm.collect_garbage().unwrap();
+    let baseline = vm.gc_stats();
+    let mut options = vm.execution_options();
+    options.cancellation = cancellation;
+    let mut session = vm.begin_execution(&loaded, options).unwrap();
+    let session_options = session.runtime().execution_options();
+    let inherited = session_options.clone();
+    assert!(
+        session
+            .runtime_mut()
+            .execute_module(&loaded, ProgramEntry::Main, inherited)
+            .is_err()
+    );
+    assert_eq!(steps.load(Ordering::SeqCst), 3);
+    drop(session);
+    assert_eq!(
+        vm.execute_typed::<_, i32>(&_loaded_program, "healthy", (), &Default::default())
+            .unwrap(),
+        42
+    );
+    vm.collect_garbage().unwrap();
+    assert_eq!(vm.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        vm.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+}

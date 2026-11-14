@@ -1,12 +1,14 @@
 //! Rust argument converters checked against explicit Kagari declarations.
-use crate::native::{
-    binding::{Codec, NativeBinding, NativeResult},
-    callable::CallableHandle,
-    context::CallContext,
-    returns::NativeOutput,
-    scalar::NativeScalar,
-    types::Type,
-    views::{SequenceHandle, SequenceMutHandle, ValueHandle},
+use crate::{
+    native::{
+        binding::{Codec, NativeBinding, NativeResult},
+        callable::CallableHandle,
+        context::NativeCall,
+        scalar::NativeScalar,
+        types::Type,
+        views::ValueHandle,
+    },
+    value::view::ValueView,
 };
 
 pub trait NativeFunction<Arguments, Result> {
@@ -15,31 +17,62 @@ pub trait NativeFunction<Arguments, Result> {
 
 impl<F, R> NativeFunction<(), R> for F
 where
-    F: for<'call> Fn(&mut CallContext<'call>) -> NativeResult<R> + Send + Sync + 'static,
-    R: NativeOutput,
+    F: for<'call> Fn(&mut NativeCall<'call>) -> NativeResult<R> + Send + Sync + 'static,
+    R: NativeScalar,
 {
     fn binding(self) -> NativeBinding {
-        let mut binding = NativeBinding::new(Vec::<Codec>::new(), R::codec(), move |cx| {
-            self(cx).map(R::encode)
-        });
-        binding.converted_result = R::SCALAR;
+        let mut binding = NativeBinding::new(
+            Vec::<Codec>::new(),
+            Codec::Exact(Type::scalar(R::abi_type())),
+            move |cx| self(cx).map(R::encode),
+        );
+        binding.converted_result = true;
         binding
+    }
+}
+
+/// Inference marker for a value returned with the Native call's lifetime.
+#[doc(hidden)]
+pub struct ValueResult;
+
+impl<F> NativeFunction<(), ValueResult> for F
+where
+    F: for<'call> Fn(&mut NativeCall<'call>) -> NativeResult<ValueView<'call>>
+        + Send
+        + Sync
+        + 'static,
+{
+    fn binding(self) -> NativeBinding {
+        NativeBinding::new(Vec::<Codec>::new(), Codec::Value, move |cx| self(cx))
     }
 }
 
 macro_rules! function {
     ($($argument:ident:$local:ident:$slot:expr),+) => {
         impl<F, R, $($argument),+> NativeFunction<($($argument,)+), R> for F
-        where F: for<'call> Fn(&mut CallContext<'call>, $($argument),+) -> NativeResult<R> + Send + Sync + 'static,
-            R: NativeOutput, $($argument: NativeScalar),+ {
+        where F: for<'call> Fn(&mut NativeCall<'call>, $($argument),+) -> NativeResult<R> + Send + Sync + 'static,
+            R: NativeScalar, $($argument: NativeScalar),+ {
             fn binding(self) -> NativeBinding {
                 let mut binding = NativeBinding::new(vec![$(Codec::Exact(Type::scalar($argument::abi_type()))),+],
-                    R::codec(), move |cx| {
+                    Codec::Exact(Type::scalar(R::abi_type())), move |cx| {
                         $(let $local = $argument::decode(cx.argument($slot)?)?;)+
                         self(cx, $($local),+).map(R::encode)
                     });
-                binding.converted_result = R::SCALAR;
+                binding.converted_result = true;
                 binding
+            }
+        }
+
+        impl<F, $($argument),+> NativeFunction<($($argument,)+), ValueResult> for F
+        where F: for<'call> Fn(&mut NativeCall<'call>, $($argument),+) -> NativeResult<ValueView<'call>>
+                + Send + Sync + 'static,
+            $($argument: NativeScalar),+ {
+            fn binding(self) -> NativeBinding {
+                NativeBinding::new(vec![$(Codec::Exact(Type::scalar($argument::abi_type()))),+],
+                    Codec::Value, move |cx| {
+                        $(let $local = $argument::decode(cx.argument($slot)?)?;)+
+                        self(cx, $($local),+)
+                    })
             }
         }
     };
@@ -48,14 +81,6 @@ macro_rules! function {
 function!(A:a:0);
 function!(A:a:0, B:b:1);
 function!(A:a:0, B:b:1, C:c:2);
-
-/// Inference marker for a call-scoped sequence parameter, never a runtime value.
-#[doc(hidden)]
-pub struct SequenceArgument;
-
-/// Inference marker for a mutable call-scoped sequence parameter.
-#[doc(hidden)]
-pub struct SequenceMutArgument;
 
 macro_rules! view_type {
     ($call:lifetime; view $view:ident) => { $view<$call> };
@@ -83,16 +108,29 @@ macro_rules! argument_value {
 macro_rules! view_function {
     ([$($scalar:ident),*]; $($marker:ty => $kind:ident $type:ident, $codec:ident, $local:ident:$slot:expr);+) => {
         impl<F, R, $($scalar),*> NativeFunction<($($marker,)+), R> for F
-        where F: for<'call> Fn(&mut CallContext<'call>, $(view_type!('call; $kind $type)),+) -> NativeResult<R> + Send + Sync + 'static,
-            R: NativeOutput, $($scalar: NativeScalar),* {
+        where F: for<'call> Fn(&mut NativeCall<'call>, $(view_type!('call; $kind $type)),+) -> NativeResult<R> + Send + Sync + 'static,
+            R: NativeScalar, $($scalar: NativeScalar),* {
             fn binding(self) -> NativeBinding {
                 let mut binding = NativeBinding::new(
-                    vec![$(argument_codec!($kind $codec)),+], R::codec(), move |cx| {
+                    vec![$(argument_codec!($kind $codec)),+], Codec::Exact(Type::scalar(R::abi_type())), move |cx| {
                         $(let $local = argument_value!(cx, $slot; $kind $type);)+
                         self(cx, $($local),+).map(R::encode)
                     });
-                binding.converted_result = R::SCALAR;
+                binding.converted_result = true;
                 binding
+            }
+        }
+
+        impl<F, $($scalar),*> NativeFunction<($($marker,)+), ValueResult> for F
+        where F: for<'call> Fn(&mut NativeCall<'call>, $(view_type!('call; $kind $type)),+) -> NativeResult<ValueView<'call>>
+                + Send + Sync + 'static,
+            $($scalar: NativeScalar),* {
+            fn binding(self) -> NativeBinding {
+                NativeBinding::new(
+                    vec![$(argument_codec!($kind $codec)),+], Codec::Value, move |cx| {
+                        $(let $local = argument_value!(cx, $slot; $kind $type);)+
+                        self(cx, $($local),+)
+                    })
             }
         }
     };
@@ -109,9 +147,6 @@ macro_rules! single_view_functions {
     };
 }
 
-single_view_functions!(SequenceArgument, SequenceHandle, Sequence);
-single_view_functions!(SequenceMutArgument, SequenceMutHandle, MutableSequence);
-
 /// Inference marker for a function-typed argument.
 #[doc(hidden)]
 pub struct CallableArgument;
@@ -123,6 +158,4 @@ single_view_functions!(CallableArgument, CallableHandle, Callable);
 pub struct ValueArgument;
 
 single_view_functions!(ValueArgument, ValueHandle, Value);
-view_function!([]; SequenceArgument => view SequenceHandle, Sequence, values:0; CallableArgument => view CallableHandle, Callable, callback:1);
-view_function!([]; SequenceMutArgument => view SequenceMutHandle, MutableSequence, values:0; CallableArgument => view CallableHandle, Callable, callback:1);
 view_function!([]; ValueArgument => view ValueHandle, Value, value:0; CallableArgument => view CallableHandle, Callable, callback:1);

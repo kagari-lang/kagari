@@ -90,7 +90,7 @@ fn substitution_checks_combined_depth_after_inserting_a_replacement() {
     let outer = owner(&context, "Outer");
     let mut replacement = Ty::Builtin(BuiltinType::I32);
     for _ in 0..MAX_TYPE_DEPTH - 1 {
-        replacement = Ty::Iter(Box::new(replacement));
+        replacement = Ty::Array(Box::new(replacement));
     }
     let mut substitution = TypeSubstitution::default();
     substitution.bind(&outer, 0, &replacement);
@@ -101,7 +101,7 @@ fn substitution_checks_combined_depth_after_inserting_a_replacement() {
     );
     assert_eq!(
         substitution.apply(
-            &Ty::Iter(Box::new(parameter(&outer, 0))),
+            &Ty::Array(Box::new(parameter(&outer, 0))),
             &CancellationToken::default()
         ),
         Err(TypeTransformError::LimitExceeded)

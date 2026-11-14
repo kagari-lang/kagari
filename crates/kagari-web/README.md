@@ -74,7 +74,7 @@ fn main() -> u64 {
 - `f32`, `f64`: string `value`; Rust's shortest display, including `NaN`, `inf`,
   `-inf` and `-0`. Consumers choose whether/how to turn these into JS numbers.
 - `string`: string `value`, boolean `truncated`.
-- `opaque`: `kind` only (`tuple`, `range`, `array`, `map`, `set`, `enum`, `struct`,
+- `opaque`: `kind` only (`char`, `tuple`, `range`, `array`, `map`, `set`, `enum`, `struct`,
   `gc_handle`, `interface`, `closure`, `cell`, `host_root`, `host_path_view`,
   `ephemeral`). No graph traversal, heap addresses or retained JS object handles.
 

@@ -1,0 +1,10 @@
+struct Point {
+    var x: i32
+}
+
+fn main() -> i32 {
+    val point = Point { x: 1 };
+    val alias = point;
+    set_field(point, "x", 9);
+    alias.x
+}

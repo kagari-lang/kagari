@@ -1,7 +1,19 @@
 //! Source-free nominal checks and optional origin forwarding at the policy boundary.
 use super::*;
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
-use crate::{error_trace::ErrorTrace, module::ExecutableModule};
+use crate::{
+    error::RuntimeErrorKind,
+    error_trace::ErrorTrace,
+    module::ExecutableModule,
+    native::types::VariantRef,
+    value::{
+        aggregates::enumerations::EnumObject,
+        carriers::{RootedValue, ScopedValue},
+    },
+};
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
@@ -17,7 +29,7 @@ impl PairPolicy for Unused {
         unreachable!()
     }
 
-    fn on_output(&self, _: &PairContext<'_>, _: usize) -> NativeResult<PairDecision> {
+    fn on_output(&self, _: &mut PairContext<'_>, _: usize) -> NativeResult<PairDecision> {
         unreachable!()
     }
 }
@@ -63,22 +75,22 @@ fn fixture(runtime: &mut Runtime) -> (ExecutableModule, Vec<TypeArgument>, Varia
             }],
         })
         .collect();
-    let owner_program = runtime
-        .load_program(
-            "pair-origin",
-            ProgramFixture {
-                root: ModuleRef::new(0),
-                exports: Default::default(),
-                modules: vec![BytecodeModule {
-                    identity,
-                    enumerations: layouts,
-                    ..Default::default()
-                }],
-            }
-            .metadata(definitions.snapshot(), &Default::default())
-            .unwrap(),
-        )
-        .unwrap();
+    let owner_program = load_bytecode(
+        runtime,
+        "pair-origin",
+        ProgramFixture {
+            root: ModuleRef::new(0),
+            exports: Default::default(),
+            modules: vec![BytecodeModule {
+                identity,
+                enumerations: layouts,
+                ..Default::default()
+            }],
+        }
+        .metadata(definitions.snapshot(), &Default::default())
+        .unwrap(),
+    )
+    .unwrap();
     let owner = runtime.select_program(&owner_program).unwrap();
     let types = types
         .into_iter()
@@ -118,61 +130,78 @@ fn composition_preserves_original_optional_origin_and_checks_payload_identity() 
         owner: owner.clone(),
         inputs: [types[0].clone(), types[0].clone()],
         output: types[1].clone(),
-        values: [Value::Unit; 2],
         policy: Arc::new(Unused),
     };
+    let baseline = runtime.collected_gc_stats().root_registrations;
     for origin in [None, Some(ErrorTrace::capture(runtime.resources()))] {
         let layout = runtime
             .checked_enum_variant(&owner, &types[0], &error)
             .unwrap();
-        let original = runtime
-            .gc()
-            .alloc_enum_origin(EnumTag::Declared(layout), vec![Value::I32(7)], || {
-                origin.clone()
+        let root = runtime
+            .memory
+            .scope(&runtime.resources, |cx, _| {
+                let object =
+                    EnumObject::alloc(cx, layout, &[ScopedValue::from(7_i32)], origin.clone())?;
+                ScopedValue::managed(object).retain(cx)
             })
             .unwrap();
-        let root = runtime.root_value(Value::Enum(original)).unwrap();
         let outputs = [Some(root), None];
-        let cx = PairContext {
-            runtime: &runtime,
-            contract: &contract,
-            outputs: &outputs,
+        let forwarded = {
+            let mut cx = PairContext {
+                runtime: &mut runtime,
+                contract: &contract,
+                outputs: &outputs,
+            };
+            let same_output = cx.output(0).unwrap().unwrap();
+            assert_eq!(
+                cx.runtime.collected_gc_stats().root_registrations,
+                baseline + 1
+            );
+            drop(same_output);
+            let forwarded = cx.forward_variant(0, &types[1], &error).unwrap();
+            for (target, variant, reason) in [
+                (&types[2], &error, "different error payload type"),
+                (&types[3], &error, "different nominal carrier"),
+                (&types[1], &foreign, "foreign same-spelled variant"),
+            ] {
+                assert_eq!(
+                    cx.forward_variant(0, target, variant).unwrap_err().kind(),
+                    RuntimeErrorKind::ModuleValidation,
+                    "{reason}"
+                );
+            }
+            assert_eq!(
+                cx.allocate_enum(&types[1], &error, vec![RootedValue::from(true)])
+                    .unwrap_err()
+                    .kind(),
+                RuntimeErrorKind::ScriptTrap,
+                "malformed target payload must reach semantic payload admission"
+            );
+            forwarded
         };
-        let forwarded = cx.forward_variant(0, &types[1], &error).unwrap();
-        let value = cx.value(&forwarded).unwrap();
-        match (&origin, runtime.gc().result_error_trace(&value)) {
-            (None, None) => {}
-            (Some(before), Some(after)) => assert!(Arc::ptr_eq(before, &after)),
-            other => panic!("origin changed: {other:?}"),
-        }
-        assert!(
-            cx.forward_variant(0, &types[2], &error).is_err(),
-            "different error payload type"
-        );
-        assert!(
-            cx.forward_variant(0, &types[3], &error).is_err(),
-            "different nominal carrier"
-        );
-        assert!(
-            cx.forward_variant(0, &types[1], &foreign).is_err(),
-            "foreign same-spelled variant"
-        );
-        assert!(
-            cx.allocate_enum(&types[1], &error, vec![Value::Bool(true)])
-                .is_err(),
-            "malformed target payload"
-        );
         runtime.collect_garbage().unwrap();
-        assert_eq!(
-            runtime
-                .gc()
-                .enum_view(match value {
-                    Value::Enum(id) => id,
-                    _ => unreachable!(),
-                })
-                .unwrap()
-                .fields,
-            vec![Value::I32(7)]
-        );
+        runtime
+            .memory
+            .scope(&runtime.resources, |cx, _| {
+                let value = forwarded.get(cx)?;
+                let object = cx.downcast::<EnumObject>(value.object().unwrap())?;
+                let after = cx.read(object, |object| object.origin().cloned());
+                match (&origin, after) {
+                    (None, None) => {}
+                    (Some(before), Some(after)) => assert!(Arc::ptr_eq(before, &after)),
+                    other => panic!("origin changed: {other:?}"),
+                }
+                assert_eq!(cx.read(object, EnumObject::len), 1);
+                assert_eq!(
+                    EnumObject::get(cx, object, 0)?.scalar_payload(),
+                    Some((ValueType::I32, 7))
+                );
+                Ok(())
+            })
+            .unwrap();
+        drop(outputs);
+        drop(forwarded);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.collected_gc_stats().root_registrations, baseline);
     }
 }

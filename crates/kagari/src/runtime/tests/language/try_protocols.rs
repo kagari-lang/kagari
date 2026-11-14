@@ -2,10 +2,12 @@
 use crate::{
     BytecodeArtifact,
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Program,
 };
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::module::entry::ProgramEntry;
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use rstest::rstest;
 use std::{fs, path::PathBuf};
 
@@ -24,7 +26,7 @@ fn ordinary_execution(
         .unwrap_or_else(|error| panic!("failed to read fixture {}: {error}", path.display()));
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    let engine = KagariEngine::new(config);
+    let engine = KagariEngine::with_native_modules(config, stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("memory://try-protocols.kgr", &source),
@@ -35,23 +37,33 @@ fn ordinary_execution(
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let mut runtime = engine.runtime(Default::default());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     assert_eq!(
         runtime
             .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert!(runtime.execution_root().is_none());
+    runtime.collect_garbage().unwrap();
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
     // Retire materialized module constants before checking execution-root cleanup.
     runtime
-        .reload_program(&loaded, &program, Default::default())
+        .program(&loaded)
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(&program, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
         .unwrap();
-    runtime.runtime().collect_garbage().unwrap();
-    assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
 }

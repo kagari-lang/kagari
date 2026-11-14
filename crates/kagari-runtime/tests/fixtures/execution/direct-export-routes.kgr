@@ -1,0 +1,29 @@
+mod implementation {
+    pub fn value() -> i32 {
+        42
+    }
+    pub fn identity(value: i32) -> i32 {
+        value
+    }
+    fn secret() -> bool {
+        true
+    }
+}
+
+pub use crate::implementation::value as answer;
+
+pub use crate::implementation::identity as echo;
+
+pub use crate as again;
+
+pub fn template<T>(value: T) -> T {
+    value
+}
+
+pub fn wrapper() -> i32 {
+    template(7)
+}
+
+fn main() -> i32 {
+    3
+}

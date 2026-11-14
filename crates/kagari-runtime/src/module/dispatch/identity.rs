@@ -1,12 +1,14 @@
 //! Metadata-only correspondence between exact publications of one installation.
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, reason::CancellationReason},
     module::{
-        Installation, VerifiedProgram,
+        ModuleStore, VerifiedProgram,
+        admission::DefinitionAdmission,
         dispatch::{PublicationToken, invalid},
     },
     reload::updates::headers,
 };
+
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -106,6 +108,7 @@ impl RemapDefinitions for References {
 /// shared DefinitionTable alone cannot distinguish reordered semantic impl owners.
 #[derive(Debug)]
 pub struct PublicationDefinitions {
+    admission: Arc<DefinitionAdmission>,
     pub(super) token: PublicationToken,
     published: AtomicBool,
     original: DefinitionTable,
@@ -116,6 +119,10 @@ pub struct PublicationDefinitions {
 }
 
 impl PublicationDefinitions {
+    pub(crate) fn identity_admission(&self) -> &DefinitionAdmission {
+        &self.admission
+    }
+
     pub(in crate::module) fn mark_published(&self) {
         self.published.store(true, Ordering::Release);
     }
@@ -197,10 +204,66 @@ impl PublicationDefinitions {
 pub struct PublicationMapping {
     source: Arc<PublicationDefinitions>,
     target: Arc<PublicationDefinitions>,
-    preferred: HashMap<StableDeclarationId, DefinitionId>,
+    preferred: Arc<HashMap<StableDeclarationId, DefinitionId>>,
 }
 
 impl PublicationMapping {
+    /// Transport lexical keys in applied metadata while preserving closed
+    /// supplied arguments in their checked installation scope. Such a mixed
+    /// record is not a portable product or a new single-scope verification seal.
+    pub(crate) fn remap_applied<T: RemapDefinitions>(
+        &self,
+        records: &T,
+        cancel: &CancellationToken,
+    ) -> Result<T, RuntimeError> {
+        records
+            .remap_definitions(&mut DefinitionMapper::new(
+                &mut |id| {
+                    if self.source.stable.contains_key(id) {
+                        self.map(*id)
+                            .map_err(|_| DefinitionMappingError::InvalidContract)
+                    } else {
+                        self.target.admission.target().resolve(*id)?;
+                        Ok(*id)
+                    }
+                },
+                &self.target.original,
+                cancel,
+            ))
+            .map_err(mapping_error)
+    }
+
+    /// Closed descriptor keys use the admitted Runtime scope; binder transport
+    /// still follows checked semantic correspondence in the original products.
+    pub(crate) fn remap_closed<T: RemapDefinitions>(
+        &self,
+        records: &T,
+        cancel: &CancellationToken,
+    ) -> Result<T, RuntimeError> {
+        records
+            .remap_definitions(&mut DefinitionMapper::new(
+                &mut |id| {
+                    if let Some(original) = self.source.admission.product_id(*id) {
+                        let selected = self
+                            .map(original)
+                            .map_err(|_| DefinitionMappingError::InvalidContract)?;
+                        self.target
+                            .admission
+                            .runtime_id(selected)
+                            .map_err(|_| DefinitionMappingError::InvalidContract)
+                    } else {
+                        // Supplied closed arguments retain their own provenance.
+                        // Only source-owned declaration keys need binder transport.
+                        self.target.admission.target().resolve(*id)?;
+                        Ok(*id)
+                    }
+                },
+                self.target.admission.target(),
+                cancel,
+            ))
+            .map_err(mapping_error)
+    }
+
     pub(super) fn new(
         source: Arc<PublicationDefinitions>,
         target: Arc<PublicationDefinitions>,
@@ -212,10 +275,7 @@ impl PublicationMapping {
         let mut chosen = HashMap::new();
         // Exact transport retains each original ID; no preferred correspondence
         // is consulted by map() in this case.
-        for id in preferred
-            .into_iter()
-            .filter(|_| source.token != target.token)
-        {
+        for id in preferred {
             let stable = target.stable_declaration(id)?;
             if chosen.insert(stable, id).is_some_and(|old| old != id) {
                 return Err(invalid("ambiguous selected binder correspondence"));
@@ -224,7 +284,23 @@ impl PublicationMapping {
         Ok(Self {
             source,
             target,
-            preferred: chosen,
+            preferred: Arc::new(chosen),
+        })
+    }
+
+    /// Reuse the selected binder correspondence for another retained source.
+    /// This changes only the metadata origin; it performs no ID search or inference.
+    pub(super) fn for_source(
+        &self,
+        source: Arc<PublicationDefinitions>,
+    ) -> Result<Self, RuntimeError> {
+        if !source.same_installation(&self.target) {
+            return Err(invalid("foreign publication mapping"));
+        }
+        Ok(Self {
+            source,
+            target: self.target.clone(),
+            preferred: self.preferred.clone(),
         })
     }
 
@@ -275,10 +351,11 @@ impl PublicationMapping {
 
 impl DeclarationIndex {
     pub(super) fn prepare(
-        installation: &Installation,
+        store: &ModuleStore,
         token: PublicationToken,
         previous: Option<&Self>,
         program: &VerifiedProgram,
+        admission: Arc<DefinitionAdmission>,
     ) -> Result<(Self, Arc<PublicationDefinitions>), RuntimeError> {
         let cancel = CancellationToken::default();
         let mut correspondence = DeclarationCorrespondence::new().map_err(mapping_error)?;
@@ -342,7 +419,7 @@ impl DeclarationIndex {
                             "installation declaration index",
                         ));
                     }
-                    let identity = StableDeclarationId(installation.reserve_declaration()?);
+                    let identity = StableDeclarationId(store.reserve_declaration()?);
                     known.insert(canonical, identity);
                     identity
                 }
@@ -374,6 +451,7 @@ impl DeclarationIndex {
             headers,
         };
         let scope = PublicationDefinitions {
+            admission,
             token,
             published: AtomicBool::new(false),
             original: program.definitions().clone(),
@@ -388,10 +466,9 @@ impl DeclarationIndex {
 
 pub(super) fn mapping_error(error: DefinitionMappingError) -> RuntimeError {
     match error {
-        DefinitionMappingError::Cancelled => RuntimeError::new(
-            RuntimeErrorKind::Cancelled,
-            "declaration correspondence cancelled",
-        ),
+        DefinitionMappingError::Cancelled => {
+            RuntimeError::from(CancellationReason::DeclarationCorrespondenceCancelled)
+        }
         DefinitionMappingError::LimitExceeded => {
             RuntimeError::resource_limit("declaration correspondence")
         }

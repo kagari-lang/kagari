@@ -1,0 +1,50 @@
+use example::methods::{ Player, Describe };
+
+pub fn make() -> Player {
+    Player::new(100)
+}
+
+pub fn hit(player: Player, amount: i32) -> i32 {
+    player.damage(amount)
+}
+
+pub fn echo(player: Player) -> i32 {
+    player.echo::<i32>(7)
+}
+
+pub fn inspect(player: Player) -> String {
+    player.inspect()
+}
+
+pub fn describe(player: Player) -> String {
+    player.describe()
+}
+
+struct ScriptPlayer {}
+
+impl Describe for ScriptPlayer {
+    fn describe(self) -> String {
+        "script"
+    }
+}
+
+pub fn ordinary() -> String {
+    ScriptPlayer {}.describe()
+}
+
+pub fn scoped_inspect(player: Ref<Player>) -> String {
+    player.inspect()
+}
+
+pub fn scoped_damage(player: RefMut<Player>) -> i32 {
+    player.damage(1)
+}
+
+pub fn scoped_read_mut(player: RefMut<Player>) -> String {
+    player.inspect()
+}
+
+pub fn scoped_recurse(player: RefMut<Player>) -> i32 {
+    player.damage(1);
+    scoped_recurse(player)
+}

@@ -16,9 +16,12 @@ use kagari_runtime::{
     Runtime as CoreRuntime,
     error::RuntimeError,
     frame::{ExecutionFrame, transfer::ReturnValue},
-    module::{Program, entry::ProgramEntry, execution::ExecutionInstruction},
+    module::{InstalledProgram, entry::ProgramEntry, execution::instruction::ExecutionInstruction},
     session::{ExecutionEvent, ExecutionObserver},
-    value::Value,
+    value::{
+        carriers::{RootedValue, StoredValue},
+        view::ValueView,
+    },
 };
 use mlua::{Function, HookTriggers, Lua, VmState};
 
@@ -81,8 +84,8 @@ impl ExecutionObserver for InstructionCounts {
 }
 
 fn execute(
-    runtime: &Runtime,
-    module: &Program,
+    runtime: &mut Runtime,
+    module: &InstalledProgram,
     context: &ExecutionContext,
     entry: ProgramEntry<'_>,
     expected: i32,
@@ -90,20 +93,12 @@ fn execute(
     let result = runtime
         .execute(module, entry, &[], context)
         .expect("profile execution");
-    assert_eq!(
-        black_box(
-            result
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result")
-        ),
-        Value::I32(expected)
-    );
+    assert_eq!(black_box(result.return_value.as_i32()), Some(expected));
 }
 
 pub(super) fn run(
-    runtime: &Runtime,
-    module: &Program,
+    runtime: &mut Runtime,
+    module: &InstalledProgram,
     context: &ExecutionContext,
     entry: ProgramEntry<'_>,
     name: &str,
@@ -112,10 +107,12 @@ pub(super) fn run(
     for _ in 0..3 {
         execute(runtime, module, context, entry, expected);
     }
-    let before = runtime.runtime().gc().stats();
+    let before = runtime.gc_stats();
     println!(
-        "PROFILE_LAYOUT,value_bytes={},instruction_bytes={},execution_bytes={},return_packet_bytes={}",
-        size_of::<Value>(),
+        "PROFILE_LAYOUT,stored_value_bytes={},host_value_bytes={},view_bytes={},instruction_bytes={},execution_bytes={},return_packet_bytes={}",
+        size_of::<StoredValue>(),
+        size_of::<RootedValue>(),
+        size_of::<ValueView<'_>>(),
         size_of::<BytecodeInstruction>(),
         size_of::<ExecutionInstruction>(),
         size_of::<ReturnValue>()
@@ -129,16 +126,18 @@ pub(super) fn run(
         calls += 1;
     }
     let elapsed = start.elapsed();
-    let after = runtime.runtime().gc().stats();
-    // allocated_objects counts live objects, so include reclaimed objects to
-    // recover cumulative allocations during the window.
+    let after = runtime.gc_stats();
+    // These are retained GC observations, not cumulative allocation counts or
+    // the total Runtime/control/source footprint. No allocation total is inferred.
     println!(
-        "PROFILE_DONE,{name},calls={calls},ns={},gc_collections={},heap_object_allocations={},live_objects_delta={}",
+        "PROFILE_DONE,{name},calls={calls},ns={},gc_cycles={},live_objects_delta={},root_registrations_delta={},gc_backing_bytes_delta={},provider_units_before={},provider_units_after={}",
         elapsed.as_nanos(),
-        after.collections - before.collections,
-        after.allocated_objects as i128 - before.allocated_objects as i128
-            + (after.reclaimed_objects - before.reclaimed_objects) as i128,
-        after.allocated_objects as i128 - before.allocated_objects as i128
+        after.completed_cycles - before.completed_cycles,
+        after.objects as i128 - before.objects as i128,
+        after.root_registrations as i128 - before.root_registrations as i128,
+        after.backing_bytes as i128 - before.backing_bytes as i128,
+        before.provider_units,
+        after.provider_units,
     );
     io::stdout().flush().unwrap();
     // Counting is deliberately outside the sampling window; observer callbacks
@@ -147,33 +146,30 @@ pub(super) fn run(
 }
 
 pub(super) fn count(
-    runtime: &Runtime,
-    module: &Program,
+    runtime: &mut Runtime,
+    module: &InstalledProgram,
     context: &ExecutionContext,
     entry: ProgramEntry<'_>,
     expected: i32,
 ) {
     runtime
-        .runtime()
         .set_execution_observer(InstructionCounts::default())
         .unwrap();
     {
-        let selected = runtime.runtime().select_program(module).unwrap();
-        let session = runtime
-            .runtime()
+        let selected = runtime.select_program(module).unwrap();
+        let mut session = runtime
             .begin_execution(&selected, Default::default())
             .unwrap();
-        runtime.runtime().attach_execution_observer().unwrap();
-        let report = runtime.execute(module, entry, &[], context).unwrap();
-        assert_eq!(
-            report.return_value.value(runtime.runtime().gc()).unwrap(),
-            Value::I32(expected)
-        );
+        session.runtime_mut().attach_execution_observer().unwrap();
+        let report = session
+            .runtime_mut()
+            .execute(module, entry, &[], context)
+            .unwrap();
+        assert_eq!(report.return_value.as_i32(), Some(expected));
         drop(report);
         drop(session);
     }
     let mut counts: Vec<_> = runtime
-        .runtime()
         .execution_observer::<InstructionCounts>()
         .unwrap()
         .counts
@@ -182,21 +178,18 @@ pub(super) fn count(
         .cloned()
         .collect();
     {
-        let observer = runtime
-            .runtime()
-            .execution_observer::<InstructionCounts>()
-            .unwrap();
+        let observer = runtime.execution_observer::<InstructionCounts>().unwrap();
         let mut layouts = observer.layouts.iter().collect::<Vec<_>>();
         layouts.sort_by_key(|(name, _)| *name);
         for (name, (logical, physical, scalars, managed)) in layouts {
             println!(
                 "FRAME_LAYOUT,{name},logical_slots={logical},physical_slots={physical},scalar_slots={scalars},managed_slots={managed},scalar_payload_bytes={},initialization_bytes={scalars},managed_value_bytes={}",
                 scalars * size_of::<u64>(),
-                managed * size_of::<Value>(),
+                managed * size_of::<StoredValue>(),
             );
         }
     }
-    runtime.runtime().clear_execution_observer().unwrap();
+    runtime.clear_execution_observer().unwrap();
     counts.sort_by_key(|(_, count)| Reverse(*count));
     println!(
         "INSTRUCTION_TOTAL,{}",

@@ -1,0 +1,9 @@
+fn main() -> i32 {
+    var x = 0;
+    var sum = 0;
+    while x < 20 {
+        sum += x % 7;
+        x += 1;
+    }
+    sum
+}

@@ -2,11 +2,12 @@
 use crate::{
     BytecodeArtifact,
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_common::identity::metadata::DefinitionMetadata;
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use rstest::rstest;
 use std::{fs, path::PathBuf};
 
@@ -17,6 +18,7 @@ mod rejection;
 
 fn engine() -> KagariEngine {
     let mut builder = KagariEngine::builder().unwrap();
+    builder.install_all(stdlib::modules().unwrap()).unwrap();
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     builder.config(config);
@@ -50,25 +52,24 @@ fn native_registered_enums_execute_from_serialized_artifacts_with_traced_payload
         BytecodeArtifact::from_bytes(&original.records().to_bytes(original.definitions()).unwrap())
             .unwrap();
     let program =
-        PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
     // A fresh Engine loads the executable; it never analyzes the source above.
     let mut runtime = engine().runtime(Default::default());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     for _ in 0..3 {
         let report = runtime
             .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
             .unwrap();
-        assert_eq!(
-            report
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(42),
-            "{body}"
-        );
+        assert_eq!(report.return_value.as_i32().unwrap(), 42, "{body}");
         drop(report);
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
-        runtime.runtime().collect_garbage().unwrap();
-        assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+        assert!(runtime.execution_root().is_none());
+        runtime.collect_garbage().unwrap();
+        assert_eq!(
+            runtime.gc_stats().root_registrations,
+            baseline.root_registrations
+        );
+        assert_eq!(runtime.gc_stats().objects, baseline.objects);
     }
 }

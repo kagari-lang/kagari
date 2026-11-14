@@ -1,15 +1,10 @@
 #![cfg(feature = "source")]
 //! Public typed calls: no raw values, factory staging or per-Task driving.
-use kagari::{
-    context::ExecutionContext,
-    engine::KagariEngine,
-    error::{EmbeddingError, RuntimeFailureKind},
-    runtime::Runtime,
-};
+use kagari::{context::ExecutionContext, engine::KagariEngine, runtime::Runtime};
+use kagari_runtime::error::RuntimeErrorKind;
 use kagari_runtime::{
     frame::types::arguments::TypeArgument,
-    gc::roots::RootSet,
-    module::Program,
+    module::InstalledProgram,
     native::{
         adapter::Async,
         binding::NativeResult,
@@ -18,7 +13,7 @@ use kagari_runtime::{
         completion::{Completion, CompletionStatus},
         conversion::{
             FromKagari, IntoKagari, KagariType,
-            arguments::{IntoKagariArguments, KagariArguments},
+            arguments::{ArgumentValues, IntoKagariArguments, KagariArguments, PreparedArguments},
             context::ConversionContext,
         },
         declarations::FunctionDecl,
@@ -28,9 +23,10 @@ use kagari_runtime::{
         types::Type,
     },
     task::value::TaskScope,
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use std::{
     cell::Cell,
     future::{Future, poll_fn},
@@ -56,11 +52,19 @@ fn relative_typed_members_and_current_reload_workflow() {
     objects_example::main();
 }
 
+// Keep the Tokio transfer contract in this existing public async consumer target.
+#[path = "async_facade/runtime_transfer.rs"]
+mod runtime_transfer;
+
+// These typed-handle contracts use only the public SDK and retained artifacts.
+#[path = "async_facade/typed_calls.rs"]
+mod typed_calls;
+
 const SOURCE: &str = include_str!("fixtures/embedding/async/public-facade.kgr");
 
 struct Fixture {
     runtime: Runtime,
-    module: Program,
+    module: InstalledProgram,
     starts: Arc<AtomicUsize>,
     touches: Arc<AtomicUsize>,
     cancels: Arc<AtomicUsize>,
@@ -74,6 +78,7 @@ impl Fixture {
         let cancels = Arc::new(AtomicUsize::new(0));
         let sent = Arc::new(Mutex::new(Vec::new()));
         let mut engine = KagariEngine::builder().unwrap();
+        engine.install_all(stdlib::modules().unwrap()).unwrap();
         let mut provider = ModuleBuilder::new("test::typed", engine.declarations()).unwrap();
         let touch = provider
             .define_function(
@@ -158,13 +163,10 @@ fn notice() -> (Waker, Receiver<()>) {
     (Waker::from(Arc::new(Notice(send))), receive)
 }
 
-fn cancelled<T>(result: Result<T, EmbeddingError>) {
+fn cancelled<T>(result: Result<T, kagari_runtime::error::RuntimeError>) {
     assert!(matches!(
         result,
-        Err(EmbeddingError::Runtime {
-            kind: RuntimeFailureKind::Cancelled,
-            ..
-        })
+        Err(ref error) if error.kind() == RuntimeErrorKind::Cancelled
     ));
 }
 
@@ -184,7 +186,7 @@ impl FromKagari for Output {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         ty: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
         Ok(Self {
             value: Cell::new(i32::from_kagari(cx, ty, value)?),
@@ -202,7 +204,11 @@ impl KagariType for Input {
 }
 
 impl IntoKagari for Input {
-    fn into_kagari(self, cx: &mut ConversionContext<'_>, ty: &TypeArgument) -> NativeResult<Value> {
+    fn into_kagari<'call>(
+        self,
+        cx: &mut ConversionContext<'call>,
+        ty: &TypeArgument,
+    ) -> NativeResult<ValueView<'call>> {
         assert_eq!(cx.runtime().execution_time_millis()?, 123);
         (*self.0).into_kagari(cx, ty)
     }
@@ -217,7 +223,11 @@ impl KagariType for PanickingInput {
 }
 
 impl IntoKagari for PanickingInput {
-    fn into_kagari(self, _: &mut ConversionContext<'_>, _: &TypeArgument) -> NativeResult<Value> {
+    fn into_kagari<'call>(
+        self,
+        _: &mut ConversionContext<'call>,
+        _: &TypeArgument,
+    ) -> NativeResult<ValueView<'call>> {
         panic!("argument converter panic");
     }
 }
@@ -231,11 +241,11 @@ impl KagariArguments for PanickingArguments {
 }
 
 impl IntoKagariArguments for PanickingArguments {
-    fn into_arguments(
+    fn encode_arguments<'call>(
         self,
-        _: &mut ConversionContext<'_>,
-        _: &[TypeArgument],
-    ) -> NativeResult<RootSet> {
+        _: &mut ConversionContext<'call>,
+        _: &PreparedArguments<'_, Self>,
+    ) -> NativeResult<ArgumentValues<'call>> {
         panic!("argument converter panic");
     }
 }
@@ -245,18 +255,22 @@ fn panicking_async_admission_retires_without_another_driver_turn() {
     let mut f = Fixture::new();
     let function = f
         .runtime
-        .async_function::<PanickingArguments, i32>(&f.module.root(), "factory")
+        .bind_async_function::<PanickingArguments, i32>(&f.module.root(), "factory")
         .unwrap();
     let make = f
         .runtime
-        .function::<(), Interface>(&f.module.root(), "loader")
+        .bind_function::<(), Interface>(&f.module.root(), "loader")
         .unwrap();
     let loader = f.runtime.call(&make, ()).unwrap();
-    let method = f
-        .runtime
-        .async_interface_method::<(PanickingInput,), i32>(&loader, "load")
+    let method = loader
+        .member(&mut f.runtime, "load")
+        .and_then(|member| {
+            f.runtime
+                .bind_async_interface_method::<(PanickingInput,), i32>(&member)
+        })
         .unwrap();
-    let roots = f.runtime.runtime().gc().active_roots();
+    f.runtime.collect_garbage().unwrap();
+    let roots = f.runtime.gc_stats().root_registrations;
     let mut retired = Vec::new();
     for interface in [false, true] {
         let panic = catch_unwind(AssertUnwindSafe(|| {
@@ -273,10 +287,14 @@ fn panicking_async_admission_retires_without_another_driver_turn() {
             panic.downcast_ref::<&str>(),
             Some(&"argument converter panic")
         );
-        assert!(f.runtime.runtime().execution_root().is_none());
-        assert_eq!(f.runtime.runtime().gc().active_roots(), roots);
+        assert!(f.runtime.execution_root().is_none());
         // This must be an empty observation, not the operation that performs cleanup.
-        retired.push(f.runtime.runtime().drain_retired_executions().unwrap());
+        retired.push(f.runtime.drain_retired_executions().unwrap());
+        assert_eq!(*retired.last().unwrap(), 0);
+        // A dropped lease can leave a release notice, independently of retired
+        // executions. Service notices only after proving no owner was abandoned.
+        f.runtime.collect_garbage().unwrap();
+        assert_eq!(f.runtime.gc_stats().root_registrations, roots);
     }
     assert_eq!(
         retired,
@@ -285,7 +303,7 @@ fn panicking_async_admission_retires_without_another_driver_turn() {
     );
     assert_eq!(f.starts.load(Ordering::SeqCst), 0);
     assert_eq!(f.touches.load(Ordering::SeqCst), 0);
-    assert!(f.runtime.runtime().check_scheduler_health().is_ok());
+    assert!(f.runtime.check_scheduler_health().is_ok());
 }
 
 #[test]
@@ -293,7 +311,7 @@ fn typed_direct_await_drives_tasks_without_a_pump_and_preserves_context() {
     let mut f = Fixture::new();
     let function = f
         .runtime
-        .async_function::<(Input,), Output>(&f.module.root(), "factory")
+        .bind_async_function::<(Input,), Output>(&f.module.root(), "factory")
         .unwrap();
     let mut context = ExecutionContext::default();
     context.inputs.unix_time_millis = 123;
@@ -318,7 +336,7 @@ fn typed_direct_await_drives_tasks_without_a_pump_and_preserves_context() {
     let scope = f.runtime.create_task_scope(&f.module).unwrap();
     let scoped = f
         .runtime
-        .async_function::<(TaskScope,), i32>(&f.module.root(), "scoped")
+        .bind_async_function::<(TaskScope,), i32>(&f.module.root(), "scoped")
         .unwrap();
     assert_eq!(
         executor
@@ -334,7 +352,7 @@ fn typed_call_drop_cleans_up_without_another_poll() {
     let mut f = Fixture::new();
     let function = f
         .runtime
-        .async_function::<(i32,), i32>(&f.module.root(), "factory")
+        .bind_async_function::<(i32,), i32>(&f.module.root(), "factory")
         .unwrap();
     drop(f.runtime.call_async(&function, (10,)).unwrap());
     assert_eq!(f.touches.load(Ordering::SeqCst), 0);
@@ -352,7 +370,7 @@ fn typed_call_drop_cleans_up_without_another_poll() {
 
     let pair = f
         .runtime
-        .async_function::<(), (i32, i32)>(&f.module.root(), "pair")
+        .bind_async_function::<(), (i32, i32)>(&f.module.root(), "pair")
         .unwrap();
     let mut call = f.runtime.call_async(&pair, ()).unwrap();
     for _ in 0..100 {
@@ -382,7 +400,7 @@ fn typed_pending_lifetime_contract() {
     let mut f = Fixture::new();
     let factory = f
         .runtime
-        .async_function::<(i32,), Output>(&f.module.root(), "factory")
+        .bind_async_function::<(i32,), Output>(&f.module.root(), "factory")
         .unwrap();
     drop(f.runtime.submit_async(&factory, (10,)).unwrap());
     assert!(
@@ -436,17 +454,17 @@ fn typed_submission_teardown_and_external_driver_handoff() {
     let scope = f.runtime.create_task_scope(&f.module).unwrap();
     let launch = f
         .runtime
-        .function::<(TaskScope,), ()>(&f.module.root(), "launch")
+        .bind_function::<(TaskScope,), ()>(&f.module.root(), "launch")
         .unwrap();
     f.runtime.call(&launch, (scope.handle(),)).unwrap();
     let load = f
         .runtime
-        .async_function::<(i32,), i32>(&f.module.root(), "load")
+        .bind_async_function::<(i32,), i32>(&f.module.root(), "load")
         .unwrap();
     let mut submitted = f.runtime.submit_async(&load, (11,)).unwrap();
     let long = f
         .runtime
-        .async_function::<(), i32>(&f.module.root(), "long")
+        .bind_async_function::<(), i32>(&f.module.root(), "long")
         .unwrap();
     let executor = tokio::runtime::Builder::new_current_thread()
         .build()

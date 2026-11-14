@@ -49,8 +49,10 @@ No public standard algorithm is expanded into a second compiler implementation.
 Direct native calls share existing Rust helpers. Resumable calls retain explicit
 roots and continuations on the active execution frames, release dynamic borrows
 before callbacks, and preserve each original logical operation's charge. Native,
-script and nested native callbacks share cancellation, call-depth and allocation
-limits. Iterator captures retain the checked import and defining dependency versions.
+script and nested native callbacks share cancellation, sticky termination and
+execution-space accounting. Native/Rust-stack admission is separately guarded;
+see [execution control](security.md#execution-control). Iterator captures retain
+the checked import and defining dependency versions.
 Core iterator/range operations use the same typed primitives as native entrypoints.
 
 Storage mutations preserve their commit point: preparation failures publish no
@@ -81,7 +83,7 @@ The repository contains bytecode-first implementation components:
 
 - `crates/kagari-bytecode/src/lib.rs`
 - `crates/kagari-mir/src/lib.rs`
-- `crates/kagari-vm/src/lib.rs`
+- `crates/kagari-runtime/src/lib.rs`
 - `crates/kagari-runtime/src/backend.rs`
 - `crates/kagari-codegen-cranelift/src/lib.rs`
 
@@ -157,7 +159,8 @@ Observer events, per-instruction cancellation/GC checks and nonzero interpreter
 slices consume the final verified executable's actual instructions. Deterministic
 compiler selection may remove transport, choose an atomic direct destination, or
 combine a control-only comparison with its branch. Runtime preparation remains
-one-to-one with that final input and may not skip boundaries still present there.
+one-to-one with that final input. The verified scalar self-tail transfer described
+below may retire its caller's terminal Return; other boundaries remain present.
 Recompilation need not preserve internal PCs, event/cancellation ordinals or drive
 counts. Required statement/call/loop states, left-to-right once-only evaluation,
 trap order, completed side effects and success-only mutation commits remain intact.
@@ -169,6 +172,46 @@ Boolean or ordered-inverse substitution that would change NaN behavior. Removed
 micro-steps do not require synthetic pending-store/successor phases. Existing
 call/await continuations still own suspension and once-only completion. There is
 no general phase engine, execution charging or cancellation-policy change.
+
+### Scalar self-tail replacement
+
+The interpreter can reuse a frame for a verified
+[self-tail candidate](bytecode.md#execution-model) when the activation's prepared
+ordinary target is that exact executing body. All arguments finish evaluation
+before admission. Their values/domains are checked before destructive writes;
+prepared parallel moves preserve snapshots through permutations and repeated
+sources. The transfer resets scalar initialization to parameter homes and starts
+the selected body at PC zero. It keeps the same stack/source marks and parent
+return destination, so eventual output is published to the parent once.
+
+Replacement allocates no parameter pack, frame or root per iteration. It consumes
+the ordinary Call boundary and retains cancellation, GC and bounded-slice checks
+before the next body instruction. The retired caller's following Return is not
+executed. It does not promise equal drive counts or exhaustion depth between
+optimized and full-history modes. Scalar arithmetic/effects retain their original
+order; this is no transformation of non-tail recursion into an accumulator.
+
+Observation, active Native/Rust-stack reentry, lexical environments and uncommon
+frame cleanup use the retained ordinary Call/Return path. Managed, shared generic,
+mutual, async and compiled tail transfers remain outside this first scope.
+Ordinary current-target selection is bound for the uninterrupted activation.
+After a genuine park/resume, existing call-link refresh recomputes self eligibility.
+If the target differs, the old caller uses an ordinary call to the current body;
+that new body's later eligible self calls can reuse its frame. There is no
+per-iteration publication lookup or version check.
+
+ExecutionFrame::tail_calls_elided, ErrorFrame::tail_calls_elided and
+DebugFrame::tail_calls_elided report that earlier self-tail callers in the active
+chain were replaced. This bounded Boolean does not count or reconstruct them;
+omitted_frames still counts truncated physical trace entries. ErrorTrace display
+marks such frames with `[self-tail callers elided]`. Argument/admission failures
+retain the current caller; failures after replacement show the real surviving
+body/origin. Enabling observation after replacement disables further reuse and
+reports the existing marker. A host needing complete history must observe before
+entry. Supported compiled products retain their existing unsupported-before-entry
+fallback for script-call bodies; no compiled recursion/deoptimization is added.
+
+### Semantic origins
 
 Mandatory semantic origin IDs are separate from final PCs. Interpreter traces select
 the actual origin of the selected instruction; native polls/traps carry their exact
@@ -439,24 +482,27 @@ The backend VM exposes `start` and `drive` for verified script entries, includin
 resume bodies. Start validates and retains arguments without executing script. An `OwnedExecution` token contains
 a checked session identity and retirement/cancellation notification state, not a
 Runtime borrow. `drive` borrows the runtime for one exclusive activation and returns
-`Runnable`, `Waiting` or `Complete(Result<RootedValue, VmError>)`. Its nonzero
+`Runnable`, `Waiting` or `Complete(Result<RootedValue, RuntimeError>)`. Its nonzero
 instruction slice is a scheduling interval; native calls remain cooperative and a slice may overrun
 until all transient resources have left. Synchronous execute/reentry uses the same
 frame store and interpreter without host-visible slice exits. The slice counts
 actual final executable boundaries, not removed transport or semantic-origin count;
 a closed managed handoff/cold transition does not consume a second instruction.
-Actual waits are polled before checking slice exhaustion. Native completion roots
+Actual waits are polled before checking slice exhaustion. Native completion protects
 its result before a runnable exit and is not reinvoked on resume.
 
-Independent roots retain their own frames, cancellation, code pins and call-depth
-state. Runtime current call depth is restored for the selected root and is zero
-between activations; changing slices cannot bypass its limit. Runtime-owned operand
-windows reuse retired identities with generation checks. Out-of-order frame cleanup
-compacts their banks while preserving live window identities and roots.
+Independent roots retain their own frames, source banks, cancellation, code pins
+and committed VM-byte accounts. Logical depth is diagnostic and restored for the
+selected root, zero between activations. Changing slices cannot bypass VM-byte or
+Native-stack guards. Complete execution identities check owner/index/generation;
+retirement clears source edges before backing reuse. Independent executions need
+no bank compaction or per-frame Window identity registry.
 
-Live cursors stay rooted in parked frames, preserving progress. Structural writes
-commit while parked and invalidate the cursor before its next source read. Mutation guards, live scoped host values, native
-borrows and synchronous reentry prevent a slice exit. Drop requests retirement;
+Iterator values stay rooted in parked frames, preserving provider-owned progress.
+Runtime does not implement a universal container cursor or structural-write policy.
+Mutation guards, live scoped Host values, Native borrows and synchronous reentry prevent a slice exit. Off-thread owner Drop
+coalesces a retirement notice; the idle driver still validates each record before
+release. A terminal owner requests no new retirement.
 `drain_retired_executions`, the next owned start/drive or runtime destruction releases
 the frames and roots. Host control wakers can be registered on the owner token.
 Independent-root entry/drive during an activation is rejected; ordinary checked
@@ -469,11 +515,13 @@ execution. No script execution, host callback, conversion or mutation separates 
 successful proof from commit. The parked state is established before readiness
 notification; successful slice exit does not prove the same graph again.
 
-Each transition checks runtime/session identity, scope shape, outstanding mutation,
-host/native borrows and native-entry state, then validates actual retained values
-under the GC collection guard. One operation-local traversal shares visited object
-identities across frames, while retaining frame-order error precedence and checking
-every root and traced Value before deduplication. Aliased tags, foreign/stale handles,
+Each transition checks Runtime/session identity, scope shape, outstanding mutation,
+Host/Native borrows and native-entry state. A bounded source with only its admitted
+revision prefix, actual inline cells and valid frame ranges contains no retained
+data requiring payload access. Managed cells or additional dependencies instead
+use fresh physical inspection under the paired GC/source scope. One operation-local
+traversal shares visited object identities across frames, while retaining frame-order error precedence and checking
+every root and traced value before deduplication. Aliased tags, foreign/stale handles,
 erased receivers and native traced edges still require validation. Trace-hook faults
 retain their error/quarantine behavior. Neither a safety permit nor traversal
 scratch survives the operation; aliases must be rechecked at the next transition.
@@ -485,12 +533,14 @@ are ordinary registered methods using transactional admission and cooperative ca
 
 ## Public frame access
 
-`ExecutionFrame::read_slot(runtime, Slot)`, `write_slot(runtime, Slot, Value)` and
-`jump_to(runtime, offset)` address the current final executable, not historical
-local/register namespaces or PCs. They retain runtime/session/window ownership,
+`ExecutionFrame::read_slot(runtime, Slot)` returns a protected ValueView.
+`FrameStack::write_slot(runtime, Slot, &ValueView)` and `copy_slot` own exclusive
+mutation; `ExecutionFrame::jump_to(runtime, offset)` redirects control. These APIs
+address the current final executable, not historical local/register namespaces
+or PCs. They retain Runtime/session/source ownership,
 bounds, heap identity and incoming representation/domain validation. Reuse guards
 also distinguish a completed logical definition from an initialized physical alias.
-Unavailable scalar inspection otherwise retains its `Value::Unit` result; scalar
+Unavailable scalar inspection otherwise returns an inline Unit view; scalar
 execution kernels reject uninitialized operands. Manual redirection never supplies
 the normal-entry verifier's initialization proof.
 
@@ -601,8 +651,8 @@ group exit removes the subscription but never cancels that shared Task.
 Parent-to-branch edges and Task waits share one bounded cycle check. Runtime
 `AsyncLimits.max_groups` and `max_group_depth` bound group count and ancestry;
 exhaustion terminates execution rather than returning a library Err. Branches
-inherit logical parent call depth, deterministic inputs and one shared RNG/host-call
-recording stream. Their admitted bodies and lexical type environments stay exact
+own independent bounded execution storage and inherit deterministic inputs and
+one shared RNG/host-call recording stream. Their admitted bodies and lexical type environments stay exact
 across reload; ordinary calls within those bodies select current implementations. These contracts also apply to source-free artifacts; composition adds no
 bytecode instruction or compiler-recognized Result behavior.
 
@@ -620,7 +670,10 @@ A bytecode Await stores the continuation destination in the session and advances
 the PC once. A pending poll requires a fresh safety proof of post-poll state before
 parking: an earlier admission check cannot authorize state changed by polling.
 Waiting commit neither sets nor clears readiness, so an already racing completion/
-cancellation wake remains durable. Missing or non-suspendable pending state is an
+cancellation wake remains durable. Its closed safety proof checks Runtime health and
+already admitted termination, without consuming a newly signaled cancellation.
+The next driver activation observes that cancellation before execution or accepting
+a result. Missing or non-suspendable pending state is an
 error, with the activation retained for diagnostics and cleanup. Subsequent driver
 activations poll the existing operation, never claim the Future or submit again.
 Successful conversion writes the checked destination and resumes at the saved PC.

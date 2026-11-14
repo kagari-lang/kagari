@@ -4,11 +4,13 @@ use kagari_bytecode::program::{identity, verify_program};
 use kagari_common::identity::map::DefinitionContext;
 use kagari_contract::types::PublicItem;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_types::{language as standard_traits, language::Protocol, scalar::BuiltinType, ty::Ty};
 
 #[test]
 fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine.compile_to_artifact(SourceFile::new("format-wire.kgr", "use std::fmt::{Debug};\nstruct Item {} impl Debug for Item { fn debug(self)->String { \"ok\" } } fn main()->i32 { val item=Item {}; item.debug(); 42 }"),Default::default()).unwrap();
     let context = DefinitionContext::new().unwrap();
     let artifact = artifact.import_into(&context, &Default::default()).unwrap();
@@ -78,11 +80,13 @@ fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
 
 #[test]
 fn portable_hash_implementations_require_explicit_comparison_contracts() {
-    let artifact = KagariEngine::default()
-        .compile_to_artifact(
-            SourceFile::new(
-                "key-wire.kgr",
-                r#"use std::hash::{Hash};
+    let artifact =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+            .unwrap()
+            .compile_to_artifact(
+                SourceFile::new(
+                    "key-wire.kgr",
+                    r#"use std::hash::{Hash};
 
 struct Key {val id:i32}
 impl PartialEq for Key {fn eq(self,other:Self)->bool {self.id==other.id}}
@@ -90,10 +94,10 @@ impl Eq for Key {}
 impl Hash for Key {fn hash(self)->i64 {self.id.hash()}}
 fn main()->i64 {Key{id:1}.hash()}
 "#,
-            ),
-            Default::default(),
-        )
-        .unwrap();
+                ),
+                Default::default(),
+            )
+            .unwrap();
     for missing in [Protocol::Eq, Protocol::PartialEq] {
         let mut program = artifact.records().program.clone();
         let module = &mut program.modules[program.root.index()];

@@ -1,0 +1,4 @@
+fn main() -> i32 {
+    val temporary = [1, 2];
+    1 / 0
+}

@@ -1,0 +1,73 @@
+use example::script_values::{ Identity, invoke };
+
+trait Read {
+    fn read(self) -> i32;
+}
+
+trait Write {
+    fn write(self);
+}
+
+impl Read for Item {
+    fn read(self) -> i32 {
+        self.value
+    }
+}
+
+impl Identity for i32 {
+    fn identity<T>(self, value: T) -> T {
+        value
+    }
+}
+
+trait Relay {
+    fn relay<T>(self, value: T) -> T {
+        invoke(0, value)
+    }
+}
+
+impl Relay for i32 {}
+
+pub struct Item {
+    pub var value: i32
+}
+
+pub fn number() -> i32 {
+    val r: Relay = 0;
+    r.relay(42)
+}
+
+pub fn text() -> String {
+    val r: Relay = 0;
+    r.relay("retained")
+}
+
+pub fn vector() ->(Item,) {
+    val r: Relay = 0;
+    r.relay((Item { value: 42 },))
+}
+
+pub fn closure() -> fn() -> Item {
+    val r: Relay = 0;
+    val item = Item { value: 42 };
+    val callback: fn() -> Item = || item;
+    r.relay(callback)
+}
+
+pub fn readonly() -> Read {
+    val r: Relay = 0;
+    val list: Read = Item { value: 42 };
+    r.relay(list)
+}
+
+pub fn read(list: Read) -> i32 {
+    list.read()
+}
+
+pub fn write(list: Write) {
+    list.write();
+}
+
+pub fn string_argument(text: String) -> String {
+    text
+}

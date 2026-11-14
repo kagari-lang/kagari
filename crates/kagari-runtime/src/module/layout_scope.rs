@@ -108,7 +108,7 @@ impl Runtime {
             })
             .collect();
         let bindings = Arc::new(TypeBindings::new(
-            self.definition_context(),
+            owner.definitions(),
             parameters,
             arguments.to_vec(),
         )?);

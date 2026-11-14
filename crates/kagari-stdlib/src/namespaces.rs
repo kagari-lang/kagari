@@ -82,8 +82,7 @@ pub fn receiver_owner(ty: &Ty, definitions: &DefinitionTable) -> Option<ModuleId
         Ty::Builtin(BuiltinType::Char) => module("core", "char"),
         Ty::Builtin(_) => module("core", "num"),
         Ty::Array(..) => module("core", "array"),
-        Ty::Map { .. } | Ty::Set(..) => module("std", "collections"),
-        Ty::Iter(_) => module("core", "iter"),
+
         Ty::Range(..) => module("core", "ops"),
         _ => return None,
     })

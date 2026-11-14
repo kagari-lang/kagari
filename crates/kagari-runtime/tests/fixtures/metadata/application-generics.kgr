@@ -1,0 +1,24 @@
+struct Marker {}
+
+fn marker() -> Marker {
+    Marker {}
+}
+
+trait Forward {
+    fn forward<T>(self, value: T) -> T {
+        value
+    }
+}
+
+impl Forward for i32 {}
+
+impl Forward for i64 {}
+
+fn main() -> i32 {
+    val receiver: Forward = 1;
+    receiver.forward(7)
+}
+
+fn other() -> Forward {
+    2i64
+}

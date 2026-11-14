@@ -1,0 +1,125 @@
+//! Custom serializers preserve work limits and validation-before-child effects.
+use super::{Transformed, module, program_for_source};
+use crate::bytecode_fixture::load_bytecode;
+use kagari_runtime::{
+    Runtime,
+    module::ExecutableModule,
+    native::{
+        binding::NativeResult,
+        catalog::DeclarationCatalog,
+        conversion::{
+            KagariType,
+            context::{ConversionContext, ConversionLimits},
+        },
+        module::NativeModule,
+        schema::TypeRegistration,
+        serde::{KagariSchema, Serde},
+        types::Type,
+    },
+};
+use serde::{Serialize, Serializer, ser::SerializeStruct};
+use std::{
+    cell::Cell,
+    fmt::{self, Display},
+    rc::Rc,
+};
+
+struct Formatted(Rc<Cell<usize>>);
+
+impl Display for Formatted {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for _ in 0..100 {
+            self.0.set(self.0.get() + 1);
+            formatter.write_str("ab")?;
+        }
+        Ok(())
+    }
+}
+
+impl Serialize for Formatted {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+
+impl KagariSchema for Formatted {
+    fn schema_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
+        String::kagari_type(catalog)
+    }
+
+    fn register_schema(registration: &mut TypeRegistration<'_>) -> NativeResult<Type> {
+        String::register_type(registration)
+    }
+}
+
+struct Duplicate(Rc<Cell<usize>>);
+
+impl Serialize for Duplicate {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut record = serializer.serialize_struct("Transformed", 2)?;
+        record.serialize_field("value", &1i32)?;
+        record.serialize_field("value", &Formatted(Rc::clone(&self.0)))?;
+        record.end()
+    }
+}
+
+impl KagariSchema for Duplicate {
+    fn schema_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
+        Serde::<Transformed>::kagari_type(catalog)
+    }
+
+    fn register_schema(registration: &mut TypeRegistration<'_>) -> NativeResult<Type> {
+        registration.dependency::<Serde<Transformed>>()
+    }
+}
+
+fn fixture() -> (Runtime, ExecutableModule) {
+    let module = module();
+    let program = program_for_source(
+        &module,
+        include_str!("../fixtures/native/serde_transformed.kgr"),
+    );
+    let mut runtime = Runtime::default();
+    let mut modules = kagari_stdlib::modules().unwrap();
+    modules.push(module);
+    NativeModule::install_all(&modules, &mut runtime).unwrap();
+    let owner_program = load_bytecode(&mut runtime, "serde", program).unwrap();
+    let owner = runtime.select_program(&owner_program).unwrap();
+    (runtime, owner)
+}
+
+#[test]
+fn serde_formatted_output_is_bounded_and_duplicate_fields_skip_child_effects() {
+    let (mut runtime, owner) = fixture();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
+    let calls = Rc::new(Cell::new(0));
+    let mut cx = ConversionContext::with_limits(
+        &mut runtime,
+        &owner,
+        ConversionLimits {
+            max_string_bytes: 2,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let error = cx.encode(Serde(Formatted(Rc::clone(&calls)))).unwrap_err();
+    assert!(error.to_string().contains("string byte limit"));
+    assert_eq!(calls.get(), 2);
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert_eq!(cx.runtime().gc_stats().objects, baseline.objects);
+    calls.set(0);
+    let error = cx.encode(Serde(Duplicate(Rc::clone(&calls)))).unwrap_err();
+    assert!(error.to_string().contains("duplicate object initializer"));
+    assert_eq!(calls.get(), 0);
+    cx.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(
+        cx.runtime().gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert_eq!(cx.runtime().gc_stats().objects, baseline.objects);
+}

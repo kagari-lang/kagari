@@ -1,0 +1,8 @@
+struct Point {
+    var x: i32,
+    var y: i32
+}
+
+fn main() -> Point {
+    Point { x: 1, y: 2 }
+}

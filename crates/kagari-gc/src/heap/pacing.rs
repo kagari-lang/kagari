@@ -102,6 +102,7 @@ impl Heap {
         &mut self,
         source: &mut impl RootScan,
     ) -> Result<Option<AutomaticReport>, GcError> {
+        self.ledger.begin(&self.physical);
         self.marking.check()?;
         let growth = self.ledger.allocation_growth;
         let releases = self.roots.pending_releases();

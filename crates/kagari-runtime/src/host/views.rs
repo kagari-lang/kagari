@@ -1,115 +1,150 @@
 //! Checked external-ID views and capability weakening at native boundaries.
 use crate::{
-    Runtime,
     error::RuntimeError,
-    gc::GcHeap,
-    host::{
-        HostBorrowKind, HostPathViewHandle, HostRegistry, path_access_allows,
-        validate_dynamic_arguments,
-    },
-    metadata::TypeId,
+    host::{HostBorrowKind, HostBorrowTable, HostRegistry, path_access_allows},
     native::binding::NativeResult,
-    value::{EphemeralValue, Value},
+    resource::ResourceState,
+    value::{
+        EphemeralValue,
+        carriers::ScopedValue,
+        host_values::{EphemeralObject, HostRootObject, paths::HostPathObject},
+        kind::ObjectKind,
+        properties::ValueProperties,
+    },
 };
+use kagari_gc::{access::Scope, error::GcError, object::Gc};
 use kagari_types::declaration::host::PathAccess;
-use std::iter;
 
 impl HostRegistry {
-    pub(crate) fn validate_view(
+    /// Validate a live external capability before creating an immutable shared
+    /// alias. All original path fields remain edges in the new actual provider.
+    pub(crate) fn narrow_argument_scoped<'gc>(
         &self,
-        heap: &GcHeap,
-        view: &HostPathViewHandle,
-    ) -> NativeResult<()> {
-        if !self.matches_root(view.root()) {
-            return Err(invalid());
-        }
-        for current in iter::successors(Some(view), |view| view.base()) {
-            let descriptor = self
-                .path_descriptors
-                .get(&current.descriptor_id())
-                .ok_or_else(invalid)?;
-            let input = current
-                .base()
-                .map_or(current.root().type_id(), HostPathViewHandle::result_type);
-            if current.root() != view.root()
-                || current.schema_epoch() != current.root().schema_epoch()
-                || descriptor.schema_epoch != current.schema_epoch()
-                || descriptor.root_type != input
-                || descriptor.result_type != current.result_type()
-                || !path_access_allows(descriptor.access, current.access())
-                || current
-                    .base()
-                    .is_some_and(|base| !path_access_allows(base.access(), current.access()))
-            {
-                return Err(invalid());
+        cx: &mut Scope<'gc>,
+        value: ScopedValue<'gc>,
+        borrows: &HostBorrowTable,
+        resources: &ResourceState,
+    ) -> Result<NativeResult<Option<ScopedValue<'gc>>>, GcError> {
+        let Some(object) = value.object() else {
+            return Ok(Err(invalid()));
+        };
+        match value.kind() {
+            Some(ObjectKind::HostRoot) => {
+                let root = cx.downcast::<HostRootObject>(object)?;
+                if !self.matches_root(cx.read(root, HostRootObject::handle)) {
+                    return Ok(Err(invalid()));
+                }
+                Ok(Ok(None))
             }
-            validate_dynamic_arguments(heap, descriptor, current.dynamic_args())?;
-        }
-        Ok(())
-    }
-}
-
-impl Runtime {
-    pub(crate) fn matches_host_identity(&self, value: &Value, expected: TypeId) -> bool {
-        if !self.gc.validate_value(value) {
-            return false;
-        }
-        match value {
-            Value::HostRoot(id) => self
-                .gc
-                .host_root(*id)
-                .is_some_and(|root| root.type_id() == expected && self.host.matches_root(root)),
-            Value::HostPathView(id) => self.gc.host_path(*id).is_some_and(|view| {
-                view.result_type() == expected && self.host.validate_view(&self.gc, &view).is_ok()
-            }),
-            Value::Ephemeral(id) => match self.gc.ephemeral(*id) {
-                Some(EphemeralValue::HostRef(token)) => {
-                    token.type_id() == expected
-                        && self
-                            .validate_host_borrow(token, HostBorrowKind::Shared)
-                            .is_ok()
+            Some(ObjectKind::HostPath) => {
+                let path = cx.downcast::<HostPathObject>(object)?;
+                if let Err(error) = self.validate_path_scoped(cx, path, resources)? {
+                    return Ok(Err(error));
                 }
-                Some(EphemeralValue::HostMut(token)) => {
-                    token.type_id() == expected
-                        && self
-                            .validate_host_borrow(token, HostBorrowKind::Unique)
-                            .is_ok()
+                let mut facts = cx.read(path, HostPathObject::facts);
+                if facts.access == PathAccess::ReadOnly {
+                    return Ok(Ok(None));
                 }
-                _ => false,
-            },
-            _ => false,
-        }
-    }
-
-    pub(crate) fn narrow_host_argument(&self, value: &Value) -> NativeResult<Option<Value>> {
-        match value {
-            Value::HostRoot(_) => Ok(None),
-            Value::HostPathView(id) => {
-                let view = self.gc.host_path(*id).ok_or_else(invalid)?;
-                self.host.validate_view(&self.gc, &view)?;
-                if view.access() == PathAccess::ReadOnly {
-                    return Ok(None);
+                facts.access = PathAccess::ReadOnly;
+                let base = HostPathObject::base(cx, path);
+                let count = cx.read(path, HostPathObject::len);
+                let mut arguments = Vec::new();
+                arguments.try_reserve_exact(count)?;
+                for index in 0..count {
+                    if index != 0
+                        && index.is_multiple_of(1024)
+                        && let Err(error) = resources.poll_closed()
+                    {
+                        return Ok(Err(error));
+                    }
+                    let ty = cx
+                        .read(path, |path| path.argument_type(index))
+                        .ok_or(GcError::Index)?;
+                    arguments.push((ty, HostPathObject::argument(cx, path, index)?));
                 }
-                let mut shared = view.as_ref().clone();
-                shared.access = PathAccess::ReadOnly;
-                self.gc.alloc_host_path(shared).map(Some)
+                HostPathObject::alloc(cx, facts, base, &arguments)
+                    .map(|path| Ok(Some(ScopedValue::managed(path))))
             }
-            Value::Ephemeral(id) => {
-                let Some(EphemeralValue::HostRef(token) | EphemeralValue::HostMut(token)) =
-                    self.gc.ephemeral(*id)
+            Some(ObjectKind::Ephemeral) => {
+                let object = cx.downcast::<EphemeralObject>(object)?;
+                let (EphemeralValue::HostRef(token) | EphemeralValue::HostMut(token)) =
+                    cx.read(object, EphemeralObject::value)
                 else {
-                    return Err(invalid());
+                    return Ok(Err(invalid()));
                 };
-                self.validate_host_borrow(token, HostBorrowKind::Shared)?;
-                if token.borrow_kind() == HostBorrowKind::Shared {
-                    return Ok(None);
+                if let Err(error) = borrows.validate(token, HostBorrowKind::Shared) {
+                    return Ok(Err(error));
                 }
-                self.gc
-                    .alloc_ephemeral(EphemeralValue::HostRef(token.shared()))
-                    .map(Some)
+                if token.borrow_kind() == HostBorrowKind::Shared {
+                    return Ok(Ok(None));
+                }
+                EphemeralObject::alloc(cx, EphemeralValue::HostRef(token.shared()))
+                    .map(|value| Ok(Some(value)))
             }
-            _ => Err(invalid()),
+            _ => Ok(Err(invalid())),
         }
+    }
+
+    /// Validate the current registry/epoch, complete access chain and labeled
+    /// dynamic fields while their actual provider remains admitted. No Host call.
+    pub(crate) fn validate_path_scoped<'gc>(
+        &self,
+        cx: &Scope<'gc>,
+        path: Gc<'gc, HostPathObject>,
+        resources: &ResourceState,
+    ) -> Result<NativeResult<()>, GcError> {
+        let root = cx.read(path, |path| path.facts().root);
+        if !self.matches_root(root) {
+            return Ok(Err(invalid()));
+        }
+        let mut current = Some(path);
+        let mut inspected = 0usize;
+        while let Some(path) = current {
+            inspected += 1;
+            if inspected == 1024 {
+                inspected = 0;
+                if let Err(error) = resources.poll_closed() {
+                    return Ok(Err(error));
+                }
+            }
+            let facts = cx.read(path, HostPathObject::facts);
+            let Some(descriptor) = self.path_descriptors.get(&facts.descriptor) else {
+                return Ok(Err(invalid()));
+            };
+            let base = HostPathObject::base(cx, path);
+            let input = base.map_or(root.type_id(), |base| {
+                cx.read(base, |base| base.facts().result)
+            });
+            if facts.root != root
+                || facts.epoch != root.schema_epoch()
+                || descriptor.schema_epoch != facts.epoch
+                || descriptor.root_type != input
+                || descriptor.result_type != facts.result
+                || !path_access_allows(descriptor.access, facts.access)
+                || base.is_some_and(|base| {
+                    !path_access_allows(cx.read(base, |base| base.facts().access), facts.access)
+                })
+                || cx.read(path, HostPathObject::len) != descriptor.dynamic_parameters.len()
+            {
+                return Ok(Err(invalid()));
+            }
+            for (index, parameter) in descriptor.dynamic_parameters.iter().enumerate() {
+                if index != 0
+                    && index.is_multiple_of(1024)
+                    && let Err(error) = resources.poll_closed()
+                {
+                    return Ok(Err(error));
+                }
+                if cx.read(path, |path| path.argument_type(index)) != Some(parameter.ty)
+                    || !ValueProperties::of(cx, HostPathObject::argument(cx, path, index)?)?
+                        .storable
+                {
+                    return Ok(Err(invalid()));
+                }
+            }
+            current = base;
+        }
+        Ok(Ok(()))
     }
 }
 
@@ -122,49 +157,129 @@ mod tests {
     use crate::{
         Runtime, RuntimeConfig,
         error::RuntimeErrorKind,
-        gc::GcHeapConfig,
+        execution::{memory::GcHeapConfig, roots::ExecutionRoots},
         host::{HostBorrowKind, HostObjectId},
         metadata::TypeId,
-        value::{EphemeralValue, Value},
+        value::{EphemeralValue, host_values::EphemeralObject, view::ValueView},
     };
 
     #[test]
     fn shared_external_alias_preserves_owner_epoch_and_original_unique_token() {
-        let runtime = Runtime::new(RuntimeConfig {
+        let mut runtime = Runtime::new(RuntimeConfig {
             gc: GcHeapConfig {
                 collection_threshold: Some(1),
                 ..Default::default()
             },
             ..Default::default()
         });
-        let frame = runtime.host_scope(&[]).unwrap();
+        let baseline = runtime.gc_stats();
+        let mut frame = runtime.host_scope(&[]).unwrap();
         let ty = TypeId::new(0);
         let original = frame.borrows().borrow_unique(HostObjectId(7), ty).unwrap();
-        let value = runtime.gc().alloc_host_mut(original).unwrap();
-        let roots = runtime
-            .gc()
-            .root_execution_values(vec![value, Value::Unit])
-            .unwrap();
-        let shared = runtime.narrow_host_argument(&value).unwrap().unwrap();
-        roots.set(runtime.gc(), 1, shared).unwrap();
-        runtime.collect_garbage().unwrap();
-        let Value::Ephemeral(id) = roots.get(runtime.gc(), 1).unwrap() else {
-            panic!("alias")
+        let rooted = {
+            let Runtime {
+                memory, resources, ..
+            } = frame.runtime_mut();
+            memory.scope(resources, |cx, _| {
+                EphemeralObject::alloc(cx, EphemeralValue::HostMut(original))?.retain(cx)
+            })
+        }
+        .unwrap();
+        let value = frame.import(&rooted).unwrap();
+        drop(rooted);
+        let shared = {
+            let Runtime {
+                memory,
+                host,
+                host_borrows,
+                resources,
+                ..
+            } = frame.runtime_mut();
+            memory
+                .scope(resources, |cx, roots| {
+                    ExecutionRoots::with(roots, cx, |slots| {
+                        let original = value.get(slots)?;
+                        let shared = host
+                            .narrow_argument_scoped(
+                                slots.scope(),
+                                original,
+                                host_borrows,
+                                resources,
+                            )?
+                            .unwrap()
+                            .expect("changed capability");
+                        // Source publication, rather than a retained Host root,
+                        // keeps the actual alias provider alive across collection.
+                        let location =
+                            slots.push_local(value.location().unwrap().execution, shared)?;
+                        ValueView::protected(shared, Some(location))
+                    })
+                })
+                .unwrap()
         };
-        let Some(EphemeralValue::HostRef(shared)) = runtime.gc().ephemeral(id) else {
+        frame.runtime_mut().collect_garbage().unwrap();
+        assert_eq!(
+            frame.runtime().gc_stats().root_registrations,
+            baseline.root_registrations
+        );
+        let (shared, retained_shared) = {
+            let Runtime {
+                memory,
+                host,
+                host_borrows,
+                resources,
+                ..
+            } = frame.runtime_mut();
+            memory
+                .scope(resources, |cx, roots| {
+                    ExecutionRoots::with(roots, cx, |slots| {
+                        let original_value = value.get(slots)?.object().unwrap();
+                        let original_value =
+                            slots.scope().downcast::<EphemeralObject>(original_value)?;
+                        assert_eq!(
+                            slots.scope().read(original_value, EphemeralObject::value),
+                            EphemeralValue::HostMut(original)
+                        );
+                        let shared_value = shared.get(slots)?;
+                        assert!(
+                            host.narrow_argument_scoped(
+                                slots.scope(),
+                                shared_value,
+                                host_borrows,
+                                resources
+                            )?
+                            .unwrap()
+                            .is_none()
+                        );
+                        let object = slots
+                            .scope()
+                            .downcast::<EphemeralObject>(shared_value.object().unwrap())?;
+                        Ok((
+                            slots.scope().read(object, EphemeralObject::value),
+                            shared_value.retain(slots.scope())?,
+                        ))
+                    })
+                })
+                .unwrap()
+        };
+        let EphemeralValue::HostRef(shared) = shared else {
             panic!("shared token")
         };
-        runtime
+        assert_eq!(shared, original.shared());
+        frame
+            .runtime()
             .validate_host_borrow(shared, HostBorrowKind::Shared)
             .unwrap();
         assert_eq!(
-            runtime
+            frame
+                .runtime()
                 .validate_host_borrow(shared, HostBorrowKind::Unique)
                 .unwrap_err()
                 .kind(),
             RuntimeErrorKind::HostBorrowConflict
         );
-        runtime
+        frame
+            .runtime()
             .validate_host_borrow(original, HostBorrowKind::Unique)
             .unwrap();
         let other = Runtime::default();
@@ -189,6 +304,33 @@ mod tests {
                 .unwrap_err()
                 .kind(),
             RuntimeErrorKind::ExpiredHostBorrow
+        );
+        // Retaining the actual wrapper cannot extend the Host reservation.
+        let expired = {
+            let Runtime {
+                memory,
+                host,
+                host_borrows,
+                resources,
+                ..
+            } = &mut runtime;
+            memory
+                .scope(resources, |cx, _| {
+                    let value = retained_shared.get(cx)?;
+                    Ok(host
+                        .narrow_argument_scoped(cx, value, host_borrows, resources)?
+                        .map(|alias| alias.is_some()))
+                })
+                .unwrap()
+                .unwrap_err()
+        };
+        assert_eq!(expired.kind(), RuntimeErrorKind::ExpiredHostBorrow);
+        drop(retained_shared);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc_stats().objects, baseline.objects);
+        assert_eq!(
+            runtime.gc_stats().root_registrations,
+            baseline.root_registrations
         );
     }
 }

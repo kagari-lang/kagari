@@ -3,7 +3,8 @@
 use crate::diagnostics::{self, Event};
 
 use crate::module::execution::{
-    ExecutionInstruction, ExecutionModule, layout::Location, managed::ManagedOperation,
+    ExecutionModule, instruction::ExecutionInstruction, layout::Location,
+    managed::ManagedOperation, tail::TailCall,
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
@@ -69,6 +70,7 @@ impl ExecutionModule {
         let module = &program.modules[slot.index()];
         for (prepared, function) in self.functions.iter_mut().zip(&module.functions) {
             let mut calls = Vec::new();
+            let mut tails = Vec::new();
             for (pc, instruction) in function.instructions.iter().enumerate() {
                 let BytecodeInstruction::Call { dst, callee, args } = instruction else {
                     continue;
@@ -137,7 +139,7 @@ impl ExecutionModule {
                     _ => continue,
                 };
                 prepared.has_call_contracts |= matches!(target, PreparedCallTarget::Static { .. });
-                let arguments = args
+                let arguments: Box<[Location]> = args
                     .iter()
                     .map(|register| {
                         prepared
@@ -156,8 +158,14 @@ impl ExecutionModule {
                 });
                 #[cfg(feature = "execution-diagnostics")]
                 diagnostics::record(Event::CallDescriptor);
-                prepared.instructions[pc] =
-                    ExecutionInstruction::managed(ManagedOperation::Call { index: calls.len() });
+                let operation = if function.metadata.self_tail_calls.binary_search(&pc).is_ok() {
+                    let index = tails.len();
+                    tails.push(TailCall::prepare(calls.len(), &arguments, &prepared.frame));
+                    ManagedOperation::SelfTailCall { index }
+                } else {
+                    ManagedOperation::Call { index: calls.len() }
+                };
+                prepared.instructions[pc] = ExecutionInstruction::managed(operation);
                 calls.push(PreparedCall {
                     pc,
                     target,
@@ -166,9 +174,7 @@ impl ExecutionModule {
                 });
             }
             prepared.calls = calls.into_boxed_slice();
-            // Native imports use the same current-selection/exact-admission path.
-            // Do not retain an old callback in the caller's physical fast path.
-            prepared.native_calls = 0;
+            prepared.self_tail_calls = tails.into_boxed_slice();
         }
     }
 }

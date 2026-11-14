@@ -1170,6 +1170,3 @@ mod mapping;
 
 #[cfg(test)]
 mod identity_tests;
-
-#[cfg(test)]
-mod string_iter_tests;

@@ -1,0 +1,5 @@
+use test::completion::value;
+
+fn main() {
+    value();
+}

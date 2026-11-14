@@ -9,11 +9,11 @@ use crate::{
 use kagari_common::cancellation::CancellationToken;
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
-    host::{HostCallContext, HostError},
-    native::{builder::ModuleBuilder, installation::NativeInstallation},
-    value::Value,
+    host::HostError,
+    native::{builder::ModuleBuilder, host, installation::NativeInstallation},
 };
 use kagari_source::{identity::FileId, source_database::SourceSnapshot};
+use kagari_stdlib as stdlib;
 use std::sync::{Mutex, OnceLock};
 
 pub(super) fn engine(vector: bool) -> KagariEngine {
@@ -24,6 +24,7 @@ pub(super) fn engine(vector: bool) -> KagariEngine {
     VECTOR
         .get_or_init(|| {
             let mut builder = KagariEngine::builder().unwrap();
+            builder.install_all(stdlib::modules().unwrap()).unwrap();
             let mut module = ModuleBuilder::from_declaration(
                 super::observe_vector(),
                 builder.declarations(),
@@ -32,9 +33,12 @@ pub(super) fn engine(vector: bool) -> KagariEngine {
             .unwrap();
             let vector = module.declared_function("vector").unwrap();
             module
-                .bind(vector, |_: &HostCallContext<'_>, _: &[Value]| {
-                    Err(HostError::new("compilation-only provider must not execute"))
-                })
+                .bind(
+                    vector,
+                    host::callback(|_, _| {
+                        Err(HostError::new("compilation-only provider must not execute"))
+                    }),
+                )
                 .unwrap();
             builder.install(module.finish().unwrap()).unwrap();
             Mutex::new(builder.build().unwrap())
@@ -58,6 +62,5 @@ pub(super) fn check_publication(sources: SourceSnapshot, root: FileId) -> Checke
 
 pub(super) fn installation() -> &'static NativeInstallation {
     static INSTALLATION: OnceLock<NativeInstallation> = OnceLock::new();
-    INSTALLATION
-        .get_or_init(|| NativeInstallation::prepare(&kagari_stdlib::modules().unwrap()).unwrap())
+    INSTALLATION.get_or_init(|| NativeInstallation::prepare(&stdlib::modules().unwrap()).unwrap())
 }

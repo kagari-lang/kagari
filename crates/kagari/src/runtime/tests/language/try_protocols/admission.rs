@@ -2,19 +2,24 @@ use crate::{BytecodeArtifact, engine::KagariEngine};
 use kagari_bytecode::program::{identity, verify_program};
 use kagari_common::identity::map::DefinitionContext;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_types::{language::Protocol, scalar::BuiltinType, ty::Ty};
 
 #[test]
 fn executable_from_adapters_reject_forged_source_types_and_targets() {
-    let artifact = KagariEngine::default()
-        .compile_to_artifact(
-            SourceFile::new(
-                "memory://try-witness.kgr",
-                "fn main()->Result<i32,i64> { val value: Result<i32,i32> = Err(42); Ok(value?) }",
-            ),
-            Default::default(),
-        )
-        .unwrap();
+    let artifact = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules().unwrap(),
+    )
+    .unwrap()
+    .compile_to_artifact(
+        SourceFile::new(
+            "memory://try-witness.kgr",
+            "fn main()->Result<i32,i64> { val value: Result<i32,i32> = Err(42); Ok(value?) }",
+        ),
+        Default::default(),
+    )
+    .unwrap();
     let context = DefinitionContext::new().unwrap();
     let artifact = artifact
         .import_into(&context, &Default::default())

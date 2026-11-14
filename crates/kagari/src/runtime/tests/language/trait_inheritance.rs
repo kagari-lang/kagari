@@ -1,14 +1,17 @@
+#[cfg(feature = "native")]
+use crate::program::native::NativeCompiler;
 use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{KagariEngine, source::ArtifactOptions},
     error::EmbeddingError,
-    program::PreparedProgram,
+    program::Compilation,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::identity::metadata::DefinitionMetadata;
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use rstest::rstest;
 use std::{fs, path::PathBuf};
 
@@ -18,10 +21,12 @@ mod lifecycle;
 mod linking;
 
 fn compile(source: &str) -> Result<DefinitionMetadata<BytecodeArtifact>, EmbeddingError> {
-    KagariEngine::default().compile_to_artifact(
-        SourceFile::new("inheritance.kgr", source),
-        ArtifactOptions::default(),
-    )
+    KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+        .unwrap()
+        .compile_to_artifact(
+            SourceFile::new("inheritance.kgr", source),
+            ArtifactOptions::default(),
+        )
 }
 
 fn execute(artifact: DefinitionMetadata<BytecodeArtifact>) {
@@ -42,34 +47,32 @@ fn execute(artifact: DefinitionMetadata<BytecodeArtifact>) {
             },
             ..Default::default()
         };
-        let mut runtime = KagariEngine::default().runtime(context.clone());
+        let mut runtime =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap()
+                .runtime(context.clone());
         let program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
-        let loaded = runtime.load_program(&program, Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        let loaded = runtime
+            .load_program(program.program(), Default::default())
+            .unwrap();
         let result = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
-            let prepared = runtime
-                .prepare_native(
+            let prepared = NativeCompiler::default()
+                .prepare(
                     &program,
-                    &loaded,
                     ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
+                .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
-        assert_eq!(
-            result
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(42)
-        );
+        assert_eq!(result.return_value.as_i32().unwrap(), 42);
     }
 }
 
@@ -111,21 +114,23 @@ fn interpreter_execution(
         } else {
             artifact.clone()
         };
-        let mut runtime = KagariEngine::default().runtime(context.clone());
+        let mut runtime =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap()
+                .runtime(context.clone());
         let program_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let program = runtime
-            .load_program(&program_program, Default::default())
+            .load_program(program_program.program(), Default::default())
             .unwrap();
         assert_eq!(
             runtime
                 .execute(&program, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+                .as_i32()
+                .unwrap(),
+            42
         );
     }
 }
@@ -147,20 +152,23 @@ fn encoded_execution(
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
     let context = ExecutionContext::default();
-    let mut runtime = KagariEngine::default().runtime(context.clone());
+    let mut runtime =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+            .unwrap()
+            .runtime(context.clone());
     let program_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let program = runtime
-        .load_program(&program_program, Default::default())
+        .load_program(program_program.program(), Default::default())
         .unwrap();
     assert_eq!(
         runtime
             .execute(&program, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
 }
 
@@ -178,19 +186,22 @@ fn direct_execution(
     });
     let artifact = compile(&source).unwrap();
     let context = ExecutionContext::default();
-    let mut runtime = KagariEngine::default().runtime(context.clone());
+    let mut runtime =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+            .unwrap()
+            .runtime(context.clone());
     let program_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let program = runtime
-        .load_program(&program_program, Default::default())
+        .load_program(program_program.program(), Default::default())
         .unwrap();
     assert_eq!(
         runtime
             .execute(&program, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
 }

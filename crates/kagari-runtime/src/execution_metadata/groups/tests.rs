@@ -1,118 +1,179 @@
 use super::*;
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
-    execution_metadata::applications::MethodApplication,
     execution_metadata::{
-        MetadataEdge, MetadataRoot,
         application_key::{ApplicationArguments, ApplicationKey, MethodIdentity},
+        applications::{ApplicationRecord, MethodApplication},
     },
-    frame::types::{EnvironmentRecord, compatibility::TypeView, construction::ConstructionScope},
-    module::{ExecutableModule, Program},
-    value::Value,
+    frame::types::{
+        EnvironmentRecord, compatibility::TypeView, construction::ConstructionScope,
+        operations::OperationSegment,
+    },
+    module::{ExecutableModule, InstalledProgram},
+    objects::interfaces::description::InterfaceResultBinding,
+    value::carriers::RootedValue,
 };
+use crate::{
+    execution::roots::SessionId, execution_metadata::managed::sources::MetadataSource,
+    module::managed::source::RevisionSource,
+};
+use kagari_bytecode::module::CallableTarget;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_contract::{
+    callable::witness::OperationWitness,
+    effects::EffectSet,
+    native_import::callables::{NativeCallableApplication, NativeCallableOrigin},
+};
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::Ty};
+use kagari_types::{callable::CallableImplementation, ty::Ty};
+use rstest::rstest;
 use std::sync::Arc;
 
-#[test]
-fn foreign_stale_and_exhausted_group_ids_cannot_alias_records() {
-    let mut first = OperationGroupStore::new(1);
-    let mut second = OperationGroupStore::new(2);
-    let old = first.insert(vec![]).unwrap();
-    let foreign = second.insert(vec![]).unwrap();
-    assert!(first.get(foreign).is_none());
-    assert!(second.get(old).is_none());
-    assert_eq!(first.detach(&HashSet::new()).len(), 1);
-    let next = first.insert(vec![]).unwrap();
-    assert_eq!(old.slot, next.slot);
-    assert_ne!(old.generation, next.generation);
-    assert!(first.get(old).is_none());
-    first.slots[next.slot].generation = u64::MAX;
-    assert_eq!(first.detach(&HashSet::new()).len(), 1);
-    let fresh = first.insert(vec![]).unwrap();
-    assert_ne!(fresh.slot, next.slot);
-    assert_eq!(first.count(), 1);
-}
-
-#[test]
-fn metadata_growth_reaches_safepoints_without_heap_allocations() {
+#[rstest]
+#[case::automatic(Some(4))]
+#[case::disabled(None)]
+fn dictionary_objects_contribute_to_runtime_collection_pressure(#[case] threshold: Option<usize>) {
     let mut config = RuntimeConfig::default();
-    config.gc.collection_threshold = Some(4);
-    let runtime = Runtime::new(config);
+    config.gc.collection_threshold = threshold;
+    let mut runtime = Runtime::new(config);
     for _ in 0..64 {
-        runtime.gc.alloc_operation_group(vec![]).unwrap();
+        let execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
+        runtime
+            .alloc_operation_group(execution, vec![], &[])
+            .unwrap();
+        runtime
+            .memory
+            .retire_execution(&runtime.resources, execution)
+            .unwrap();
         runtime.gc_safepoint().unwrap();
-        assert!(runtime.gc.stats().operation_groups < 4);
     }
-    assert_eq!(runtime.gc.stats().allocated_objects, 0);
-    assert_eq!(runtime.gc.stats().operation_groups, 0);
-    assert_eq!(runtime.gc.stats().collections, 16);
+    let stats = runtime.gc_stats();
+    if threshold.is_some() {
+        assert!(stats.completed_cycles > 0);
+        assert!(stats.objects < 64);
+    } else {
+        assert_eq!(stats.completed_cycles, 0);
+        assert_eq!(stats.objects, 64);
+    }
+    assert_eq!(stats.root_registrations, 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, 0);
 }
 
 #[test]
-fn detached_environments_reject_recycled_group_slots() {
-    let runtime = Runtime::default();
-    let old = runtime.gc.alloc_operation_group(vec![]).unwrap();
-    let mut environment =
-        EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
-    environment.add_receiver(&runtime.gc, old).unwrap();
-    let environment = runtime.alloc_environment(environment).unwrap();
-    runtime
-        .validate_metadata(MetadataEdge::Environment(environment.id))
+fn dictionary_edges_survive_source_retirement_without_reviving_old_capabilities() {
+    let mut runtime = Runtime::default();
+    let source = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let dictionary = runtime.alloc_operation_group(source, vec![], &[]).unwrap();
+    let mut record =
+        EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap();
+    record.add_receiver(dictionary.record()).unwrap();
+    let destination = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let environment = runtime
+        .alloc_environment(
+            destination,
+            record,
+            &[MetadataSource::AdmittedOperations(&dictionary)],
+        )
         .unwrap();
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, source)
+        .unwrap();
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, 2);
     assert_eq!(
         runtime
-            .collect_garbage()
-            .unwrap()
-            .reclaimed_operation_groups,
-        1
-    );
-    let replacement = runtime.gc.alloc_operation_group(vec![]).unwrap();
-    assert_eq!(old.slot, replacement.slot);
-    assert_ne!(old.generation, replacement.generation);
-    let before = runtime.gc.stats();
-    assert_eq!(
-        runtime
-            .validate_metadata(MetadataEdge::Environment(environment.id))
+            .operation_group_record(&dictionary)
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::ModuleValidation
     );
+    let snapshot = runtime.environment_snapshot(&environment).unwrap();
+    assert_eq!(snapshot.groups.len(), 1);
+    assert!(Arc::ptr_eq(
+        &snapshot.groups[&dictionary.record().id()],
+        dictionary.record()
+    ));
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, destination)
+        .unwrap();
+    assert_eq!(runtime.collect_garbage().unwrap().retired_owners, 2);
+    assert_eq!(runtime.gc_stats().objects, 0);
+    // Immutable descriptors outlive GC without retaining their actual graph.
+    assert_eq!(snapshot.groups.len(), 1);
+    assert_eq!(runtime.gc_stats().root_registrations, 0);
     assert!(!runtime.is_quarantined());
-    assert_eq!(runtime.gc.stats(), before);
-    assert!(runtime.gc.operation_group(replacement).is_some());
 }
 
 #[test]
-fn borrowed_group_views_reject_allocation_and_sweeping_before_detachment() {
-    let runtime = Runtime::default();
-    let id = runtime.gc.alloc_operation_group(vec![]).unwrap();
-    let view = runtime.gc.operation_group(id).unwrap();
-    let before = runtime.gc.stats();
-    assert!(runtime.gc.alloc_operation_group(vec![]).is_err());
-    assert_eq!(runtime.gc.stats(), before);
+fn dictionary_sources_check_foreign_execution_reuse_and_exact_facts() {
+    let mut runtime = Runtime::default();
+    let mut foreign = Runtime::default();
+    let source = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let dictionary = runtime.alloc_operation_group(source, vec![], &[]).unwrap();
     assert_eq!(
-        runtime.collect_garbage().unwrap_err().kind(),
-        RuntimeErrorKind::EngineFault
+        foreign
+            .operation_group_record(&dictionary)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::ModuleValidation
     );
-    assert_eq!(runtime.gc.stats(), before);
-    drop(view);
-    assert!(runtime.gc.operation_group(id).is_some());
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, source)
+        .unwrap();
+    let replacement_source = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let replacement = runtime
+        .alloc_operation_group(replacement_source, vec![], &[])
+        .unwrap();
+    assert_ne!(replacement.record().id(), dictionary.record().id());
+    assert_eq!(
+        runtime
+            .operation_group_record(&dictionary)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::ModuleValidation
+    );
+    let mismatched = AdmittedOperationGroup {
+        record: dictionary.record.clone(),
+        source: replacement.source,
+    };
+    let before = runtime.gc_stats();
+    assert_eq!(
+        runtime
+            .operation_group_record(&mismatched)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::ModuleValidation
+    );
+    assert_eq!(runtime.gc_stats(), before);
+    assert!(Arc::ptr_eq(
+        &runtime.operation_group_record(&replacement).unwrap(),
+        replacement.record()
+    ));
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, replacement_source)
+        .unwrap();
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, 0);
+    assert!(!runtime.is_quarantined());
+    assert!(!foreign.is_quarantined());
 }
 
-fn load() -> (Runtime, Program, ExecutableModule) {
-    let source = r#"
-        trait Read { fn read(self) -> i32; fn second(self) -> i32; }
-        impl Read for i32 { fn read(self) -> i32 { self } fn second(self) -> i32 { 2 } }
-        fn main() -> Read { 7 }
-    "#;
-    load_source(source)
+fn load() -> (Runtime, InstalledProgram, ExecutableModule) {
+    load_source(include_str!(
+        "../../../tests/fixtures/metadata/dictionary.kgr"
+    ))
 }
 
-fn load_source(source: &str) -> (Runtime, Program, ExecutableModule) {
+fn load_source(source: &str) -> (Runtime, InstalledProgram, ExecutableModule) {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("group.kgr", source.into(), SourceLayer::Base)
@@ -131,112 +192,141 @@ fn load_source(source: &str) -> (Runtime, Program, ExecutableModule) {
         .map(|program| program.into_unverified())
         .unwrap();
     let mut runtime = Runtime::default();
-    let loaded_program = runtime.load_program("group", code).unwrap();
+    let loaded_program = load_bytecode(&mut runtime, "group", code).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     (runtime, loaded_program, loaded)
 }
 
 #[test]
-fn operation_application_environment_cycles_release_the_actual_metadata_records() {
+fn rooted_operation_application_releases_its_old_provider_graph_after_reload() {
     for selected in [false, true] {
-        let (runtime, loaded_program, loaded) = load();
-        let table = loaded
-            .bytecode
-            .interface_tables
-            .iter()
-            .position(|table| {
-                table
-                    .methods
-                    .iter()
-                    .any(|method| loaded.definition_name(method.method) == Some("read"))
-            })
-            .unwrap();
-        let value = runtime
-            .make_interface(&loaded, table, Value::I32(7))
-            .unwrap();
-        let Value::Interface(id) = value else {
-            panic!("interface fixture");
-        };
-        let snapshot = runtime.gc.interface_snapshot(id).unwrap();
-        let group = runtime
-            .bind_table_operations(&snapshot.description.receiver_table)
-            .unwrap();
-        let requirement = NativeCallableRequirement {
-            receiver: snapshot.description.concrete_type.clone(),
-            interface: snapshot.description.interface_type().clone(),
-            member: snapshot.description.methods[0].as_ref().unwrap().method,
-            arguments: vec![],
-        };
-        let operation_id = runtime
-            .gc
-            .operation_group(group)
-            .unwrap()
-            .operation(
-                &requirement,
-                &TypeView::new(&requirement.receiver, &loaded, None)
-                    .identity()
-                    .unwrap(),
-            )
-            .unwrap();
-        let operation = runtime.gc.bound_operation(operation_id).unwrap();
-        let mut environment =
-            EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
+        let (mut runtime, installed, loaded, execution, dictionary) = selections();
+        let operation_id = dictionary.record().operation_ids().next().unwrap();
+        let operation = dictionary.record().get(operation_id).unwrap();
+        let mut record =
+            EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![])
+                .unwrap();
         if selected {
-            environment
-                .add_operation(&runtime.gc, operation_id)
+            record
+                .add_operation(dictionary.record(), operation_id)
                 .unwrap();
         } else {
-            environment.add_receiver(&runtime.gc, group).unwrap();
+            record.add_receiver(dictionary.record()).unwrap();
         }
-        let environment = runtime.alloc_environment(environment).unwrap();
-        let application_id = runtime
-            .gc
-            .alloc_method_application(MethodApplication {
-                signature: operation.signature.clone(),
-                scoped_signature: None,
-                environment: Some(environment.clone()),
-                result_adapter: None,
-            })
+        let environment = runtime
+            .alloc_environment(
+                execution,
+                record,
+                &[MetadataSource::AdmittedOperations(&dictionary)],
+            )
+            .unwrap();
+        let application = runtime
+            .alloc_application(
+                execution,
+                ApplicationRecord::Semantic(MethodApplication {
+                    signature: operation.signature.clone(),
+                    scoped_signature: None,
+                    environment: Some(environment.facts().clone()),
+                    result_adapter: None,
+                }),
+                &[MetadataSource::AdmittedEnvironment(&environment)],
+            )
             .unwrap();
         let key = ApplicationKey::new(
             MethodIdentity::Operation(operation_id),
             &ApplicationArguments::new(&loaded, vec![], ConstructionScope::new(&loaded)).unwrap(),
-            Some(group),
+            Some(dictionary.record().id()),
             &Default::default(),
         );
         runtime
-            .publish_method_application(&loaded, key, application_id)
+            .publish_method_application(
+                &loaded,
+                key.clone(),
+                &application,
+                &[MetadataSource::AdmittedApplication(&application)],
+            )
             .unwrap();
-        let environment_id = environment.id;
-        let root = runtime
-            .root_metadata(vec![MetadataRoot::Environment(environment.id)])
+        runtime.collect_garbage().unwrap();
+        let roots = runtime.gc_stats().root_registrations;
+        let root = runtime.retain_application(&application).unwrap();
+        runtime
+            .memory
+            .retire_execution(&runtime.resources, execution)
             .unwrap();
-        drop((environment, operation, snapshot));
         let candidate = runtime
-            .stage_reload_verified_program(&loaded_program, None, loaded.verified_program().clone())
+            .stage_reload_verified_program(&installed, None, loaded.verified_program().clone())
             .unwrap();
         runtime.publish_staged_reload(candidate).unwrap();
+        let current = runtime.select_program(&installed).unwrap();
         runtime.collect_garbage().unwrap();
-        assert_eq!(runtime.gc.stats().operation_groups, 1);
-        assert!(runtime.gc.environment(environment_id).is_some());
-        assert!(runtime.gc.method_application(application_id).is_some());
-        drop(root);
+        assert!(runtime.modules().loaded(loaded.key()).is_some());
+        assert_eq!(runtime.gc_stats().root_registrations, roots + 1);
         assert_eq!(
             runtime
-                .collect_garbage()
-                .unwrap()
-                .reclaimed_operation_groups,
-            1
+                .operation_group_record(&dictionary)
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::ModuleValidation
         );
-        assert_eq!(runtime.gc.stats().operation_groups, 0);
-        assert!(runtime.gc.operation_group(group).is_none());
-        assert!(runtime.gc.environment(environment_id).is_none());
-        assert!(runtime.gc.method_application(application_id).is_none());
+        let facts = runtime
+            .application_record_in(&[MetadataSource::HostApplication(&root)], application.id())
+            .unwrap();
+        let ApplicationRecord::Semantic(facts) = facts.as_ref() else {
+            panic!("semantic operation application");
+        };
+        assert_eq!(facts.signature, operation.signature);
+        assert_eq!(
+            facts.environment.as_ref().unwrap().id,
+            environment.facts().id
+        );
+        let snapshot = runtime
+            .environment_snapshot_in(
+                &[MetadataSource::HostApplication(&root)],
+                environment.facts(),
+            )
+            .unwrap();
+        assert!(snapshot.record.operations().validate(&snapshot.groups));
+        assert!(Arc::ptr_eq(
+            &snapshot.groups[&dictionary.record().id()],
+            dictionary.record()
+        ));
+        assert_eq!(
+            snapshot.operation(&operation.requirement_key, &operation.receiver_identity),
+            Some(operation_id)
+        );
+        assert_eq!(
+            runtime.modules.method_application(&loaded, &key),
+            Some(application.id())
+        );
+        let live = runtime.gc_stats().objects;
+        drop(root);
+        let collected = runtime.collect_garbage().unwrap();
+        assert!(
+            collected.retired_owners >= 3,
+            "application, environment and dictionary must retire"
+        );
+        assert!(runtime.gc_stats().objects <= live - 3);
+        assert!(
+            runtime.modules().loaded(loaded.key()).is_none(),
+            "pure cache/descriptors must not keep the old supplying revision alive"
+        );
+        assert!(runtime.modules().loaded(current.key()).is_some());
+        assert_eq!(runtime.gc_stats().root_registrations, roots);
+        // Still-retained immutable records and snapshots are facts, not GC roots.
+        assert_eq!(snapshot.groups.len(), 1);
+        assert_eq!(facts.signature, operation.signature);
+        assert!(!runtime.is_quarantined());
     }
 }
 
-fn selections() -> (Runtime, Program, ExecutableModule, Vec<OperationId>) {
-    let (runtime, loaded_program, loaded) = load();
+fn selections() -> (
+    Runtime,
+    InstalledProgram,
+    ExecutableModule,
+    SessionId,
+    AdmittedOperationGroup,
+) {
+    let (mut runtime, loaded_program, loaded) = load();
     let table = loaded
         .bytecode
         .interface_tables
@@ -248,199 +338,203 @@ fn selections() -> (Runtime, Program, ExecutableModule, Vec<OperationId>) {
                 .any(|method| loaded.definition_name(method.method) == Some("read"))
         })
         .unwrap();
-    let Value::Interface(id) = runtime
-        .make_interface(&loaded, table, Value::I32(7))
-        .unwrap()
-    else {
-        panic!("interface fixture");
+    let binding = InterfaceResultBinding {
+        owner: loaded.clone(),
+        table,
+        arguments: loaded.bytecode.interface_tables[table].arguments.clone(),
+        environment: None,
     };
-    let snapshot = runtime.gc.interface_snapshot(id).unwrap();
-    let group = runtime
-        .bind_table_operations(&snapshot.description.receiver_table)
+    let execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let dictionary = runtime
+        .bind_table_operations(
+            execution,
+            &binding,
+            &[MetadataSource::Revision {
+                owner: &loaded,
+                source: RevisionSource::Current,
+            }],
+        )
         .unwrap();
-    let operations = snapshot
-        .description
-        .methods
-        .iter()
-        .flatten()
-        .map(|method| {
-            runtime
-                .gc
-                .operation_group(group)
-                .unwrap()
-                .operation(
-                    &NativeCallableRequirement {
-                        receiver: snapshot.description.concrete_type.clone(),
-                        interface: snapshot.description.interface_type().clone(),
-                        member: method.method,
-                        arguments: vec![],
-                    },
-                    &TypeView::new(&snapshot.description.concrete_type, &loaded, None)
-                        .identity()
-                        .unwrap(),
-                )
-                .unwrap()
-        })
-        .collect();
-    drop(snapshot);
-    (runtime, loaded_program, loaded, operations)
+    (runtime, loaded_program, loaded, execution, dictionary)
 }
 
 #[test]
 fn selected_witnesses_keep_the_group_without_exposing_siblings() {
-    let (runtime, _loaded_program, _loaded, ids) = selections();
-    assert_eq!(ids.len(), 2);
-    let first = (*runtime.gc.bound_operation(ids[0]).unwrap()).clone();
-    let sibling = (*runtime.gc.bound_operation(ids[1]).unwrap()).clone();
-    let mut environment =
-        EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
-    environment.add_operation(&runtime.gc, ids[0]).unwrap();
-    let environment = runtime.alloc_environment(environment).unwrap();
-    let root = runtime
-        .root_metadata(vec![MetadataRoot::Environment(environment.id)])
-        .unwrap();
+    let (mut runtime, _installed, _loaded, source, dictionary) = selections();
     runtime.collect_garbage().unwrap();
-    assert_eq!(runtime.gc.stats().operation_groups, 1);
-    assert_eq!(
-        environment.operation(&runtime.gc, &first.requirement, &first.receiver_identity),
-        Some(ids[0])
-    );
-    assert!(runtime.gc.bound_operation(ids[1]).is_some());
-    assert!(
-        environment
-            .operation(
-                &runtime.gc,
-                &sibling.requirement,
-                &sibling.receiver_identity
-            )
-            .is_none()
-    );
-    assert!(
-        environment
-            .operation_slot(
-                &runtime.gc,
-                &sibling.receiver_identity,
-                &sibling.requirement.interface,
-                sibling.slot
-            )
-            .is_none()
-    );
+    let ids: Vec<_> = dictionary.record().operation_ids().collect();
+    assert_eq!(ids.len(), 2);
+    let first = dictionary.record().get(ids[0]).unwrap();
+    let sibling = dictionary.record().get(ids[1]).unwrap();
+    let destination = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let mut environment =
+        EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap();
+    environment
+        .add_operation(dictionary.record(), ids[0])
+        .unwrap();
+    let environment = runtime
+        .alloc_environment(
+            destination,
+            environment,
+            &[MetadataSource::AdmittedOperations(&dictionary)],
+        )
+        .unwrap();
     // Whole-receiver selection deliberately exposes its complete verified table.
     let mut receiver =
-        EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
-    receiver.add_receiver(&runtime.gc, ids[0].group).unwrap();
-    let receiver = runtime.alloc_environment(receiver).unwrap();
+        EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap();
+    receiver.add_receiver(dictionary.record()).unwrap();
+    let receiver = runtime
+        .alloc_environment(
+            destination,
+            receiver,
+            &[MetadataSource::AdmittedOperations(&dictionary)],
+        )
+        .unwrap();
+    let roots = runtime.gc_stats().root_registrations;
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, source)
+        .unwrap();
+    runtime.collect_garbage().unwrap();
+    let selected = runtime.environment_snapshot(&environment).unwrap();
+    assert!(selected.record.operations().validate(&selected.groups));
     assert_eq!(
-        receiver.operation(
-            &runtime.gc,
-            &sibling.requirement,
-            &sibling.receiver_identity
+        selected.operation(&first.requirement_key, &first.receiver_identity),
+        Some(ids[0])
+    );
+    assert!(selected.groups[&ids[1].group].get(ids[1]).is_some());
+    assert_eq!(
+        selected.operation(&sibling.requirement_key, &sibling.receiver_identity),
+        None
+    );
+    assert_eq!(
+        selected.operation_slot(
+            &sibling.receiver_identity,
+            &sibling.interface_key,
+            sibling.slot
+        ),
+        None
+    );
+    let whole = runtime.environment_snapshot(&receiver).unwrap();
+    assert_eq!(
+        whole.operation(&sibling.requirement_key, &sibling.receiver_identity),
+        Some(ids[1])
+    );
+    assert_eq!(
+        whole.operation_slot(
+            &sibling.receiver_identity,
+            &sibling.interface_key,
+            sibling.slot
         ),
         Some(ids[1])
     );
-    drop(root);
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
+    let objects = runtime.gc_stats().objects;
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, destination)
+        .unwrap();
+    // Both environments own the dictionary and its checked table environment.
+    assert_eq!(runtime.collect_garbage().unwrap().retired_owners, 4);
+    assert_eq!(runtime.gc_stats().objects, objects - 4);
+    // Snapshots still contain immutable facts, but cannot reopen retired state.
+    assert_eq!(selected.groups.len(), 1);
+    assert_eq!(whole.groups.len(), 1);
     assert_eq!(
         runtime
-            .collect_garbage()
+            .environment_snapshot(&environment)
+            .err()
             .unwrap()
-            .reclaimed_operation_groups,
-        1
+            .kind(),
+        RuntimeErrorKind::ModuleValidation
     );
-    // Detached descriptor views are not retention or access capabilities.
-    assert!(
-        environment
-            .operation(&runtime.gc, &first.requirement, &first.receiver_identity)
-            .is_none()
-    );
-    assert!(
-        receiver
-            .operation(
-                &runtime.gc,
-                &sibling.requirement,
-                &sibling.receiver_identity
-            )
-            .is_none()
+    assert_eq!(
+        runtime
+            .environment_snapshot(&receiver)
+            .err()
+            .unwrap()
+            .kind(),
+        RuntimeErrorKind::ModuleValidation
     );
 }
 
 #[test]
-fn operation_access_checks_owner_generation_and_member_bounds() {
-    let (runtime, _loaded_program, _loaded, ids) = selections();
-    let id = ids[0];
-    let descriptor = (*runtime.gc.bound_operation(id).unwrap()).clone();
-    let foreign = Runtime::default();
-    let foreign_id = foreign
-        .gc
-        .alloc_bound_operation(descriptor.clone())
-        .unwrap();
-    assert!(runtime.gc.bound_operation(foreign_id).is_none());
-    assert!(foreign.gc.bound_operation(id).is_none());
+fn operation_members_require_bounds_and_the_actual_supplying_dictionary() {
+    let (mut runtime, _installed, _loaded, source, dictionary) = selections();
+    let id = dictionary.record().operation_ids().next().unwrap();
     let invalid = OperationId {
         group: id.group,
         member: usize::MAX,
     };
-    assert!(runtime.gc.bound_operation(invalid).is_none());
-    let before = runtime.gc.stats();
+    assert!(dictionary.record().get(invalid).is_none());
+    let mut record =
+        EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap();
+    let types = record.types.clone();
     assert_eq!(
-        runtime
-            .validate_metadata(MetadataEdge::Operation(invalid))
+        record
+            .add_operation(dictionary.record(), invalid)
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::ModuleValidation
     );
-    let mut bindings =
-        EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
-    assert!(bindings.add_operation(&runtime.gc, invalid).is_err());
-    assert!(bindings.operations().is_empty());
-    assert_eq!(runtime.gc.stats(), before);
-    runtime.collect_garbage().unwrap();
-    let replacement = runtime
-        .gc
-        .alloc_bound_operation(descriptor.clone())
-        .unwrap();
-    assert_eq!(id.group.slot, replacement.group.slot);
-    assert_ne!(id.group.generation, replacement.group.generation);
-    assert!(runtime.gc.bound_operation(id).is_none());
-    assert!(bindings.add_operation(&runtime.gc, id).is_err());
-    assert!(bindings.operations().is_empty());
-    assert!(runtime.gc.bound_operation(replacement).is_some());
-    assert!(!runtime.is_quarantined());
-}
-
-#[test]
-fn invalid_operation_metadata_aborts_before_detaching_any_groups() {
-    let (runtime, _loaded_program, _loaded, ids) = selections();
-    let invalid = OperationId {
-        group: ids[0].group,
-        member: usize::MAX,
-    };
-    assert!(
-        runtime
-            .root_metadata(vec![MetadataRoot::Operation(invalid)])
-            .is_err()
-    );
-    let root = runtime.root_metadata(vec![]).unwrap();
-    root.corrupt_metadata_for_test(&runtime.gc, vec![MetadataRoot::Operation(invalid)]);
-    let before = runtime.gc.stats();
+    assert!(record.operations().is_empty());
+    assert!(Arc::ptr_eq(&record.types, &types));
+    record.add_operation(dictionary.record(), id).unwrap();
+    let destination = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let before = runtime.gc_stats();
     assert_eq!(
-        runtime.collect_garbage().unwrap_err().kind(),
-        RuntimeErrorKind::EngineFault
+        runtime
+            .alloc_environment(destination, record.clone(), &[])
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::ModuleValidation
     );
-    assert_eq!(runtime.gc.stats(), before);
-    for id in ids {
-        assert!(runtime.gc.bound_operation(id).is_some());
-    }
+    assert_eq!(runtime.gc_stats(), before);
+    // Valid pure facts from an unrelated dictionary cannot satisfy the required ID.
+    let other = runtime
+        .alloc_operation_group(destination, vec![], &[])
+        .unwrap();
+    let before = runtime.gc_stats();
+    assert_eq!(
+        runtime
+            .alloc_environment(
+                destination,
+                record.clone(),
+                &[MetadataSource::AdmittedOperations(&other)]
+            )
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::ModuleValidation
+    );
+    assert_eq!(runtime.gc_stats(), before);
+    let environment = runtime
+        .alloc_environment(
+            destination,
+            record,
+            &[MetadataSource::AdmittedOperations(&dictionary)],
+        )
+        .unwrap();
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, source)
+        .unwrap();
+    runtime.collect_garbage().unwrap();
+    runtime.validate_environment(&environment).unwrap();
+    assert!(!runtime.is_quarantined());
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, destination)
+        .unwrap();
+    runtime.collect_garbage().unwrap();
 }
 
 #[test]
 fn associated_type_snapshots_survive_selection_collection_without_owning_environments() {
-    let (runtime, _loaded_program, loaded) = load_source(
-        r#"
-        trait Reader { type Item; fn read(self) -> Self::Item; }
-        impl Reader for i32 { type Item = i32; fn read(self) -> i32 { self } }
-        fn main() -> Reader<Item = i32> { 7 }
-    "#,
-    );
+    let (mut runtime, _installed, loaded) = load_source(include_str!(
+        "../../../tests/fixtures/metadata/associated-dictionary.kgr"
+    ));
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     let table = loaded
         .bytecode
         .interface_tables
@@ -452,45 +546,64 @@ fn associated_type_snapshots_survive_selection_collection_without_owning_environ
                 .any(|method| loaded.definition_name(method.method) == Some("read"))
         })
         .unwrap();
-    let Value::Interface(value) = runtime
-        .make_interface(&loaded, table, Value::I32(7))
-        .unwrap()
-    else {
-        panic!("interface fixture")
-    };
-    let snapshot = runtime.gc.interface_snapshot(value).unwrap();
-    let group = runtime
-        .bind_table_operations(&snapshot.description.receiver_table)
+    let value = runtime
+        .make_interface(&loaded, table, &RootedValue::from(7i32))
         .unwrap();
-    let receiver = snapshot.description.concrete_type.clone();
-    let interface = snapshot.description.interface_type().clone();
+    let description = runtime.interface_description(&value).unwrap();
+    let execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let dictionary = runtime
+        .bind_table_operations(
+            execution,
+            &description.receiver_table,
+            &[MetadataSource::RootedInterface(&value)],
+        )
+        .unwrap();
+    let receiver = description.concrete_type.clone();
+    let interface = description.interface_type().clone();
     let (member, expected) = interface.associated_types.iter().next().unwrap();
     let member = *member;
     let expected = expected.clone();
-    drop(snapshot);
-    let mut environment =
-        EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
-    let before = environment.types.clone();
-    environment.add_receiver(&runtime.gc, group).unwrap();
+    drop((description, value));
+    let mut record =
+        EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap();
+    let before = record.types.clone();
+    record.add_receiver(dictionary.record()).unwrap();
     assert!(
         before
             .associated_output(&receiver, &interface, member)
             .is_none()
     );
-    let environment = runtime.alloc_environment(environment).unwrap();
-    let environment_id = environment.id;
-    let mut child = EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
-    child.include(Some(environment.clone())).unwrap();
+    let environment = runtime
+        .alloc_environment(
+            execution,
+            record,
+            &[MetadataSource::AdmittedOperations(&dictionary)],
+        )
+        .unwrap();
+    let snapshot = runtime.environment_snapshot(&environment).unwrap();
+    let mut child =
+        EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap();
+    child.include(Some(environment.facts().clone())).unwrap();
     let retained = child.types.clone();
-    drop((child, environment));
+    drop(child);
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, execution)
+        .unwrap();
+    assert!(runtime.collect_garbage().unwrap().retired_owners >= 2);
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
     assert_eq!(
         runtime
-            .collect_garbage()
+            .environment_snapshot(&environment)
+            .err()
             .unwrap()
-            .reclaimed_operation_groups,
-        1
+            .kind(),
+        RuntimeErrorKind::ModuleValidation
     );
-    assert!(runtime.gc.environment(environment_id).is_none());
     let actual = retained
         .associated_output(&receiver, &interface, member)
         .unwrap();
@@ -503,9 +616,172 @@ fn associated_type_snapshots_survive_selection_collection_without_owning_environ
         arguments: vec![],
     };
     assert_eq!(retained.resolve(&projection).unwrap(), expected);
-    let mut invalid = EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
-    let before = invalid.types.clone();
-    assert!(invalid.add_receiver(&runtime.gc, group).is_err());
-    assert!(invalid.operations().is_empty());
-    assert!(Arc::ptr_eq(&before, &invalid.types));
+    assert_eq!(
+        TypeView::new(&projection, &loaded, Some(&retained))
+            .closed()
+            .unwrap()
+            .as_ref(),
+        &expected,
+    );
+    // Facts remain usable after collection, but cannot authenticate publication.
+    let mut invalid =
+        EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap();
+    invalid.add_receiver(dictionary.record()).unwrap();
+    assert!(!invalid.operations().is_empty());
+    let destination = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let before = runtime.gc_stats();
+    for sources in [
+        vec![],
+        vec![MetadataSource::AdmittedOperations(&dictionary)],
+    ] {
+        let error = runtime
+            .alloc_environment(destination, invalid.clone(), &sources)
+            .unwrap_err();
+        assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+        assert_eq!(runtime.gc_stats(), before);
+    }
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, destination)
+        .unwrap();
+    assert!(!runtime.is_quarantined());
+
+    let (_, _, candidate) = load_source(include_str!(
+        "../../../tests/fixtures/metadata/associated-dictionary.kgr"
+    ));
+    let staged = runtime
+        .stage_reload_verified_program(&_installed, None, candidate.verified_program().clone())
+        .unwrap();
+    runtime.publish_staged_reload(staged).unwrap();
+    let selected = runtime
+        .select_call_route(
+            &loaded
+                .bind_call_route(CallableTarget::Script(loaded.bytecode.functions[0].id))
+                .unwrap(),
+        )
+        .unwrap();
+    let mapping = selected
+        .mapping_from(loaded.publication_definitions())
+        .unwrap();
+    let transported = snapshot
+        .record
+        .transported(&runtime, &selected, &mapping, &snapshot.groups)
+        .unwrap();
+    let projection = mapping
+        .remap_applied(&projection, &Default::default())
+        .unwrap();
+    assert_eq!(transported.types.resolve(&projection).unwrap(), expected);
+    let view = TypeView::new(&projection, selected.owner(), Some(&transported.types));
+    assert_eq!(view.closed().unwrap().as_ref(), &expected);
+    assert_eq!(view.normalized().unwrap().owner.key(), loaded.key());
+}
+
+#[test]
+fn witness_cache_reuses_protected_dictionaries_and_replaces_expired_optional_backing() {
+    let (mut runtime, _installed, loaded, execution, dictionary) = selections();
+    runtime.collect_garbage().unwrap();
+    let operation = dictionary
+        .record()
+        .get(dictionary.record().operation_ids().next().unwrap())
+        .unwrap();
+    let CallableTarget::Script(function) = operation.target else {
+        panic!("script fixture member")
+    };
+    let witness = OperationWitness::Selected(Box::new(NativeCallableApplication {
+        origin: NativeCallableOrigin::Implementation,
+        requirement: operation.requirement.clone(),
+        instance: loaded.bytecode.functions[function.index()]
+            .identity
+            .clone()
+            .unwrap(),
+        implementation: CallableImplementation::Script,
+        signature: operation.signature.clone(),
+        effects: EffectSet::native_call(),
+    }));
+    assert!(witness.structurally_valid(&[], loaded.definitions()));
+    let witnesses = [witness];
+    let mut sources = vec![MetadataSource::Revision {
+        owner: &loaded,
+        source: RevisionSource::Current,
+    }];
+    let roots = runtime.gc_stats().root_registrations;
+    let bindings = runtime
+        .bind_operations_in(execution, &loaded, None, &witnesses, &mut sources)
+        .unwrap();
+    let identity = bindings.identity().unwrap();
+    let [OperationSegment::Selected(first)] = identity.as_slice() else {
+        panic!("one selected witness")
+    };
+    let before = runtime.gc_stats();
+    let again = runtime
+        .bind_operations_in(execution, &loaded, None, &witnesses, &mut sources)
+        .unwrap();
+    assert_eq!(again.identity().as_deref(), bindings.identity().as_deref());
+    assert_eq!(runtime.gc_stats(), before);
+    assert_eq!(
+        runtime
+            .publish_operation_bindings(&loaded, None, &witnesses, bindings.clone(), &sources)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::ModuleValidation
+    );
+    assert_eq!(runtime.gc_stats(), before);
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, execution)
+        .unwrap();
+    runtime.collect_garbage().unwrap();
+    let objects = runtime.gc_stats().objects;
+    // The bounded cache keeps pure facts, not executable graph ownership.
+    assert!(!runtime.operations_are_protected(&[], &bindings).unwrap());
+    assert_eq!(
+        runtime
+            .operations_are_protected(&sources, &bindings)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::ModuleValidation
+    );
+    let replacement_execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let mut sources = vec![MetadataSource::Revision {
+        owner: &loaded,
+        source: RevisionSource::Current,
+    }];
+    let replacement = runtime
+        .bind_operations_in(
+            replacement_execution,
+            &loaded,
+            None,
+            &witnesses,
+            &mut sources,
+        )
+        .unwrap();
+    let replacement_identity = replacement.identity().unwrap();
+    let [OperationSegment::Selected(next)] = replacement_identity.as_slice() else {
+        panic!("replacement witness")
+    };
+    assert_ne!(first.group, next.group);
+    assert_eq!(runtime.gc_stats().objects, objects + 1);
+    let before = runtime.gc_stats();
+    let again = runtime
+        .bind_operations_in(
+            replacement_execution,
+            &loaded,
+            None,
+            &witnesses,
+            &mut sources,
+        )
+        .unwrap();
+    assert_eq!(
+        again.identity().as_deref(),
+        replacement.identity().as_deref()
+    );
+    assert_eq!(runtime.gc_stats(), before);
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, replacement_execution)
+        .unwrap();
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, objects);
+    assert!(!runtime.is_quarantined());
 }

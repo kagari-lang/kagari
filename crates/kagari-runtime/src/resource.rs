@@ -1,19 +1,33 @@
+pub(crate) mod candidate;
+pub(crate) mod native_stack;
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
-    execution_state::ExecutionState,
-    frame::values::ExecutionValues,
-    publication::PublicationState,
-    session::{
-        SessionState,
-        store::{SessionId, SessionStore},
+    error::{
+        RuntimeError, RuntimeErrorKind,
+        fault::EngineFault,
+        reason::{CancellationReason, ErrorReason},
     },
+    execution::roots::SessionId,
+    execution::space::DEFAULT_STACK_BYTES,
+    execution_state::ExecutionState,
+    frame::uncommon::UncommonFrames,
+    host::HostRegistryId,
+    module::ModuleKey,
+    publication::PublicationState,
+    resource::candidate::CandidateOrigin,
+    session::{ExecutionPhase, SessionState, store::SessionStore},
 };
+use kagari_gc::heap::accounting::AccountingReport;
+
 #[cfg(test)]
-use std::sync::{Arc, Weak};
+use std::sync::Weak;
 use std::{
-    cell::{Cell, Ref, RefCell, RefMut},
+    cell::{Cell, Ref, RefCell},
     mem,
     num::NonZeroUsize,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,44 +57,24 @@ impl Default for AsyncLimits {
     }
 }
 
-/// Runtime-wide protection against accidental recursion. No execution metering.
+/// Committed VM storage per execution and independent Native/Rust-stack protection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeLimits {
-    pub max_call_depth: Option<u32>,
+    /// Committed frame, slot and execution-source capacity per execution.
+    /// Defaults to 8 MiB; excludes managed heap and temporary allocator peaks.
+    pub max_stack_bytes: NonZeroUsize,
+
+    /// Nested Native/compiled entries sharing the Runtime's Rust stack.
+    /// Defaults to 32. Supported hosts additionally check remaining OS stack.
+    pub max_native_depth: NonZeroUsize,
 }
 
 impl Default for RuntimeLimits {
     fn default() -> Self {
         Self {
-            max_call_depth: Some(256),
+            max_stack_bytes: NonZeroUsize::new(DEFAULT_STACK_BYTES).expect("positive default"),
+            max_native_depth: NonZeroUsize::new(32).expect("positive default"),
         }
-    }
-}
-
-/// Committed payload occupancy and attributed backing pressure. Bytes exclude
-/// referenced GC objects and host-owned resources; providers document estimates.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct HeapCharge {
-    pub logical_units: usize,
-    pub retained_bytes: usize,
-}
-
-impl HeapCharge {
-    pub fn new(logical_units: usize, retained_bytes: usize) -> Self {
-        Self {
-            logical_units,
-            retained_bytes,
-        }
-    }
-
-    pub(crate) fn with_shallow_bytes(self, bytes: usize) -> Result<Self, RuntimeError> {
-        Ok(Self {
-            logical_units: self.logical_units,
-            retained_bytes: self
-                .retained_bytes
-                .checked_add(bytes)
-                .ok_or_else(|| RuntimeError::resource_limit("native retained bytes"))?,
-        })
     }
 }
 
@@ -88,10 +82,11 @@ impl HeapCharge {
 pub struct ResourceCounters {
     pub current_call_depth: u32,
     pub peak_call_depth: u32,
-    pub current_heap_units: usize,
-    pub peak_heap_units: usize,
-    /// Attributed backing bytes, not RSS or total runtime memory. The wide sum
-    /// permits preflighting any usize-sized storage change before reserving it.
+    /// Managed objects plus provider units and active conversion preparation.
+    pub current_heap_units: u128,
+    pub peak_heap_units: u128,
+    /// Committed provider-owned indirect backing. Excludes heap pages,
+    /// descriptor/control storage, external Rust state and process RSS.
     pub current_retained_bytes: u128,
     pub peak_retained_bytes: u128,
 }
@@ -102,41 +97,15 @@ pub struct ResourceState {
     #[cfg(test)]
     lifetime: Arc<()>,
     active_session: Cell<Option<SessionId>>,
+    static_failures: Arc<AtomicBool>,
     pub(crate) publication: PublicationState,
     pub(crate) sessions: SessionStore,
-    pub(crate) frame_values: RefCell<ExecutionValues>,
+    pub(crate) uncommon_frames: UncommonFrames,
     execution: ExecutionState,
     limits: RuntimeLimits,
+    native_depth: Cell<usize>,
     counters: RefCell<ResourceCounters>,
-}
-
-/// Exclusive, preflighted transition; no callbacks or reentry while held.
-pub(crate) struct HeapChange<'a> {
-    session: Option<Ref<'a, SessionState>>,
-    counters: RefMut<'a, ResourceCounters>,
-    base_units: usize,
-    base_bytes: u128,
-    max_units: usize,
-}
-
-impl HeapChange<'_> {
-    pub(crate) fn commit(mut self, charge: HeapCharge) {
-        assert!(
-            charge.logical_units <= self.max_units,
-            "preflighted heap change"
-        );
-        let units = self.base_units + charge.logical_units;
-        let bytes = self.base_bytes + charge.retained_bytes as u128;
-        self.counters.current_heap_units = units;
-        self.counters.peak_heap_units = self.counters.peak_heap_units.max(units);
-        self.counters.current_retained_bytes = bytes;
-        self.counters.peak_retained_bytes = self.counters.peak_retained_bytes.max(bytes);
-        if let Some(session) = self.session {
-            session
-                .peak_heap_units
-                .set(session.peak_heap_units.get().max(units));
-        }
-    }
+    temporary_heap_units: Cell<usize>,
 }
 
 /// Account temporary logical preparation units, not a backing-byte estimate.
@@ -147,7 +116,7 @@ pub(crate) struct TemporaryHeap<'a> {
 
 impl Drop for TemporaryHeap<'_> {
     fn drop(&mut self) {
-        self.resources.release_heap_units(self.units);
+        self.resources.release_temporary_heap(self.units);
     }
 }
 
@@ -170,19 +139,54 @@ impl ResourceState {
             #[cfg(test)]
             lifetime: Arc::new(()),
             active_session: Cell::new(None),
+            static_failures: Arc::new(AtomicBool::new(false)),
             publication: PublicationState::default(),
             sessions: SessionStore::default(),
-            frame_values: RefCell::default(),
+            uncommon_frames: UncommonFrames::default(),
             execution: Default::default(),
             limits,
+            native_depth: Cell::new(0),
             counters: RefCell::new(ResourceCounters::default()),
+            temporary_heap_units: Cell::new(0),
         }
+    }
+
+    pub(crate) fn static_failure_signal(&self) -> Arc<AtomicBool> {
+        self.static_failures.clone()
+    }
+
+    pub(crate) fn take_static_failures(&self) -> bool {
+        self.static_failures.swap(false, Ordering::AcqRel)
+    }
+
+    pub(crate) fn restore_static_failures(&self) {
+        self.static_failures.store(true, Ordering::Release);
     }
 
     pub(crate) fn active_session(&self) -> Option<Ref<'_, SessionState>> {
         self.active_session
             .get()
             .and_then(|id| self.sessions.get(id))
+    }
+
+    /// Compare activation identity while the caller already owns a checked
+    /// session-record loan. This grants no access to an unborrowed record.
+    pub(crate) fn active_session_id(&self) -> Option<SessionId> {
+        self.active_session.get()
+    }
+
+    pub(crate) fn candidate_owner(&self) -> Option<(HostRegistryId, ModuleKey)> {
+        self.active_session()
+            .filter(|session| session.options.phase == ExecutionPhase::CandidateInitialization)
+            .map(|session| session.root.program_identity())
+    }
+
+    /// Capture only immutable birth facts before entering a physical allocator.
+    pub(crate) fn candidate_origin(&self) -> CandidateOrigin {
+        self.active_session()
+            .filter(|session| session.options.phase == ExecutionPhase::CandidateInitialization)
+            .map(|session| session.candidate_origin.clone())
+            .unwrap_or_default()
     }
 
     pub(crate) fn replace_session(&self, session: Option<SessionId>) -> Option<SessionId> {
@@ -215,6 +219,22 @@ impl ResourceState {
         Ok(())
     }
 
+    /// Poll inside a closed source/control loan without capturing traces or
+    /// committing a new termination. The semantic boundary admits the returned
+    /// error after releasing those loans, preserving complete suspended frames.
+    pub(crate) fn poll_closed(&self) -> Result<(), RuntimeError> {
+        self.execution.ensure_allowed()?;
+        if let Some(session) = self.active_session() {
+            if let Some(error) = session.termination.borrow().as_ref() {
+                return Err(error.clone());
+            }
+            if session.options.cancellation.check().is_err() {
+                return Err(CancellationReason::ExecutionCancelled.into());
+            }
+        }
+        Ok(())
+    }
+
     /// Admit a failed execution operation before unwinding its frames.
     ///
     /// Resource exhaustion and cancellation terminate the active session, preserving
@@ -224,7 +244,10 @@ impl ResourceState {
     pub fn admit_execution_error(&self, error: RuntimeError) -> RuntimeError {
         if matches!(
             error.kind(),
-            RuntimeErrorKind::ResourceLimitExceeded | RuntimeErrorKind::Cancelled
+            RuntimeErrorKind::ResourceLimitExceeded
+                | RuntimeErrorKind::StackOverflow
+                | RuntimeErrorKind::AllocationFailure
+                | RuntimeErrorKind::Cancelled
         ) && let Some(session) = self.active_session()
         {
             return session.terminate(self, error);
@@ -234,6 +257,14 @@ impl ResourceState {
 
     pub(crate) fn limit(&self, name: &'static str) -> RuntimeError {
         self.admit_execution_error(RuntimeError::resource_limit(name))
+    }
+
+    pub(crate) fn stack_overflow(&self) -> RuntimeError {
+        self.admit_execution_error(RuntimeError::new(ErrorReason::StackOverflow))
+    }
+
+    pub(crate) fn allocation_failure(&self) -> RuntimeError {
+        self.admit_execution_error(RuntimeError::new(ErrorReason::AllocationFailure))
     }
 
     pub(crate) fn close_execution(&self) {
@@ -252,7 +283,7 @@ impl ResourceState {
         self.execution.is_quarantined()
     }
 
-    pub(crate) fn quarantine(&self, reason: &'static str) -> RuntimeError {
+    pub(crate) fn quarantine(&self, reason: EngineFault) -> RuntimeError {
         self.execution.quarantine(reason)
     }
 
@@ -272,6 +303,10 @@ impl ResourceState {
         *self.counters.borrow()
     }
 
+    pub(crate) fn stack_limit(&self) -> usize {
+        self.limits.max_stack_bytes.get()
+    }
+
     pub(crate) fn park_call_depth(&self) -> u32 {
         mem::take(&mut self.counters.borrow_mut().current_call_depth)
     }
@@ -282,22 +317,23 @@ impl ResourceState {
 
     pub(crate) fn enter_call(&self) -> Result<(), RuntimeError> {
         self.poll_execution()?;
+        self.record_call()
+            .map_err(|error| self.admit_execution_error(error))
+    }
+
+    /// Record an internal frame without trace capture under source/control loans.
+    /// The closed executor admits any failure after releasing all those loans.
+    pub(crate) fn enter_call_closed(&self) -> Result<(), RuntimeError> {
+        self.poll_closed()?;
+        self.record_call()
+    }
+
+    fn record_call(&self) -> Result<(), RuntimeError> {
         let mut counters = self.counters.borrow_mut();
         let next = counters
             .current_call_depth
             .checked_add(1)
-            .ok_or_else(|| self.limit("call depth"))?;
-        let base = self
-            .active_session()
-            .map_or(0, |session| session.depth_base.get());
-        let logical_depth = next
-            .checked_add(base)
-            .ok_or_else(|| self.limit("call depth"))?;
-        if let Some(max) = self.limits.max_call_depth
-            && logical_depth > max
-        {
-            return Err(self.limit("call depth"));
-        }
+            .ok_or_else(|| RuntimeError::new(ErrorReason::StackOverflow))?;
         counters.current_call_depth = next;
         counters.peak_call_depth = counters.peak_call_depth.max(next);
         if let Some(session) = self.active_session() {
@@ -313,88 +349,74 @@ impl ResourceState {
         if let Some(depth) = counters.current_call_depth.checked_sub(1) {
             counters.current_call_depth = depth;
         } else {
-            self.quarantine("call depth underflow during frame cleanup");
+            self.quarantine(EngineFault::CallDepthUnderflowDuringFrameCleanup);
         }
     }
 
+    /// Attribute a completed physical interval before its caller can execute
+    /// callbacks, observe counters or switch sessions. The collector remains the
+    /// sole authority for committed managed occupancy and intra-interval peaks.
+    pub(crate) fn observe_heap(&self, report: AccountingReport) {
+        if report.before == report.after && report.peak == report.before {
+            return;
+        }
+        let temporary = self.temporary_heap_units.get() as u128;
+        let peak = report.peak.units + temporary;
+        let mut counters = self.counters.borrow_mut();
+        counters.current_heap_units = report.after.units + temporary;
+        counters.peak_heap_units = counters.peak_heap_units.max(peak);
+        counters.current_retained_bytes = report.after.indirect_bytes as u128;
+        counters.peak_retained_bytes = counters
+            .peak_retained_bytes
+            .max(report.peak.indirect_bytes as u128);
+        if let Some(session) = self.active_session() {
+            session
+                .peak_heap_units
+                .set(session.peak_heap_units.get().max(peak));
+        }
+    }
+
+    /// Reserve before opening the physical interval that uses this scratch, and
+    /// keep the guard until that interval closes. Its peak then overlaps every
+    /// managed commit; reservation/polling must not run under physical loans.
     pub(crate) fn reserve_temporary_heap(
         &self,
         units: usize,
     ) -> Result<TemporaryHeap<'_>, RuntimeError> {
-        self.prepare_heap_change(HeapCharge::default(), units)?
-            .commit(HeapCharge::new(units, 0));
+        self.poll_execution()?;
+        let temporary = self
+            .temporary_heap_units
+            .get()
+            .checked_add(units)
+            .ok_or_else(|| self.limit("temporary heap units"))?;
+        let mut counters = self.counters.borrow_mut();
+        let current = counters.current_heap_units + units as u128;
+        counters.current_heap_units = current;
+        counters.peak_heap_units = counters.peak_heap_units.max(current);
+        self.temporary_heap_units.set(temporary);
+        if let Some(session) = self.active_session() {
+            session
+                .peak_heap_units
+                .set(session.peak_heap_units.get().max(current));
+        }
         Ok(TemporaryHeap {
             resources: self,
             units,
         })
     }
 
-    pub(crate) fn prepare_heap_change(
-        &self,
-        before: HeapCharge,
-        max_units: usize,
-    ) -> Result<HeapChange<'_>, RuntimeError> {
-        self.poll_execution()?;
-        let mut change = self.prepare_cleanup_heap_change(before, max_units)?;
-        change.session = self.active_session();
-        Ok(change)
-    }
-
-    /// Only sealed cleanup may bypass execution admission. It cannot invoke user
-    /// code; already terminated sessions still need to publish Task failures.
-    pub(crate) fn prepare_cleanup_heap_change(
-        &self,
-        before: HeapCharge,
-        max_units: usize,
-    ) -> Result<HeapChange<'_>, RuntimeError> {
-        let counters = self.counters.borrow_mut();
-        let base_units = counters
-            .current_heap_units
-            .checked_sub(before.logical_units)
-            .ok_or_else(|| self.quarantine("heap charge exceeds committed occupancy"))?;
-        let base_bytes = counters
-            .current_retained_bytes
-            .checked_sub(before.retained_bytes as u128)
-            .ok_or_else(|| self.quarantine("heap charge exceeds committed backing"))?;
-        base_units
-            .checked_add(max_units)
-            .ok_or_else(|| self.limit("heap units"))?;
-        // Actual Vec capacity is known only after reserve. Preflight the entire
-        // representable per-object range, not its requested minimum capacity.
-        base_bytes
-            .checked_add(usize::MAX as u128)
-            .ok_or_else(|| self.limit("retained bytes"))?;
-        Ok(HeapChange {
-            session: None,
-            counters,
-            base_units,
-            base_bytes,
-            max_units,
-        })
-    }
-
-    pub(crate) fn release_heap_charge(&self, charge: HeapCharge) {
+    fn release_temporary_heap(&self, units: usize) {
+        let Some(temporary) = self.temporary_heap_units.get().checked_sub(units) else {
+            self.quarantine(EngineFault::TemporaryHeapUnitsUnderflowDuringCleanup);
+            return;
+        };
         let mut counters = self.counters.borrow_mut();
-        let Some(units) = counters
-            .current_heap_units
-            .checked_sub(charge.logical_units)
-        else {
-            self.quarantine("heap charge underflow during cleanup");
+        let Some(current) = counters.current_heap_units.checked_sub(units as u128) else {
+            self.quarantine(EngineFault::TemporaryHeapUnitsUnderflowDuringCleanup);
             return;
         };
-        let Some(bytes) = counters
-            .current_retained_bytes
-            .checked_sub(charge.retained_bytes as u128)
-        else {
-            self.quarantine("backing charge underflow during cleanup");
-            return;
-        };
-        counters.current_heap_units = units;
-        counters.current_retained_bytes = bytes;
-    }
-
-    pub(crate) fn release_heap_units(&self, units: usize) {
-        self.release_heap_charge(HeapCharge::new(units, 0));
+        self.temporary_heap_units.set(temporary);
+        counters.current_heap_units = current;
     }
 }
 
@@ -410,16 +432,15 @@ mod tests {
 
     #[test]
     fn tracks_call_depth_peaks() {
-        let resources = ResourceState::new(RuntimeLimits {
-            max_call_depth: Some(2),
-        });
+        let resources = ResourceState::default();
 
         resources.enter_call().unwrap();
         resources.enter_call().unwrap();
         assert_eq!(resources.counters().peak_call_depth, 2);
-        assert!(resources.enter_call().is_err());
+        resources.enter_call().unwrap();
+        assert_eq!(resources.counters().peak_call_depth, 3);
         resources.leave_call();
-        assert_eq!(resources.counters().current_call_depth, 1);
+        assert_eq!(resources.counters().current_call_depth, 2);
     }
 }
 

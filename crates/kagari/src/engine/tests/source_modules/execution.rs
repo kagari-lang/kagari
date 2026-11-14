@@ -6,14 +6,22 @@ use kagari_bytecode::{
 };
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_runtime::{module::ModuleEpochRetention, session::TraceValue};
+use kagari_runtime::reload::ReloadValidationError;
+use kagari_runtime::{
+    error::RuntimeErrorKind,
+    execution::owned::DriveResult,
+    module::{ModuleEpochRetention, retention::RetentionOrigin},
+    session::TraceValue,
+};
+use kagari_stdlib as stdlib;
 
-use crate::program::PreparedProgram;
-use std::collections::HashSet;
+use crate::program::Program;
+use std::num::NonZeroUsize;
 
 #[test]
 fn unused_dependency_body_errors_prevent_compilation_with_owned_locations() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let dependency = insert(
         &engine,
         "dependency",
@@ -53,22 +61,15 @@ fn execution_report_records_code_inputs_and_ordered_host_results() {
     for artifact in [artifact, decoded] {
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
             .load_program(&loaded_program, Default::default())
             .unwrap();
-        let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
+        let _selected_loaded = runtime.select_program(&loaded).unwrap();
         let report = runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap();
-        assert_eq!(
-            report
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(42)
-        );
+        assert_eq!(report.return_value.as_i32().unwrap(), 42);
         let trace = report.trace.unwrap();
         assert_eq!(
             trace.code_fingerprint,
@@ -108,28 +109,27 @@ fn dependency_bindings_are_checked_before_execution() {
             .native_imports
             .is_empty()
     );
-    let mut missing = KagariEngine::default().runtime(context.clone());
+    let mut missing =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+            .unwrap()
+            .runtime(context.clone());
     assert!(
         missing
             .load_program(
-                &PreparedProgram::from_artifact(
-                    artifact.clone(),
-                    &Default::default(),
-                    &Default::default()
-                )
-                .unwrap(),
+                &Program::from_artifact(artifact.clone(), &Default::default(), &Default::default())
+                    .unwrap(),
                 Default::default()
             )
             .is_err()
     );
-    assert_eq!(missing.runtime().modules().loaded_count(), 0);
+    assert_eq!(missing.modules().loaded_count(), 0);
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
-    let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
+    let _selected_loaded = runtime.select_program(&loaded).unwrap();
     assert_eq!(_selected_loaded.epoch.0, 1);
     assert_eq!(
         runtime
@@ -141,16 +141,17 @@ fn dependency_bindings_are_checked_before_execution() {
             )
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
     assert!(calls.lock().unwrap().is_empty());
 }
 
 #[test]
 fn reload_rejects_same_named_dependency_type_changes_before_publication() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     for name in ["left", "right"] {
         insert(&engine, name, "pub struct Item { val value: i32 }");
     }
@@ -175,8 +176,7 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
             } else {
                 artifact.clone()
             };
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap()
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
         };
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
@@ -184,7 +184,10 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
             .load_program(&prepare(&artifacts[0]), Default::default())
             .unwrap();
         let error = runtime
-            .reload_program(&active, &prepare(&artifacts[1]), Default::default())
+            .program(&active)
+            .map_err(ReloadValidationError::Runtime)
+            .and_then(|base| base.prepare_replacement(&prepare(&artifacts[1]), &Default::default()))
+            .and_then(|candidate| runtime.replace_program(&active, &candidate, Default::default()))
             .unwrap_err();
         assert_eq!(error.code(), "KG_RELOAD_PUBLIC_EXPORT_MISMATCH");
         assert_eq!(
@@ -192,20 +195,24 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
                 .execute(&active, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+                .as_i32()
+                .unwrap(),
+            42
         );
         // Rejection leaves the baseline active, so a valid reload can still publish.
         runtime
-            .reload_program(&active, &prepare(&artifacts[0]), Default::default())
+            .program(&active)
+            .map_err(ReloadValidationError::Runtime)
+            .and_then(|base| base.prepare_replacement(&prepare(&artifacts[0]), &Default::default()))
+            .and_then(|candidate| runtime.replace_program(&active, &candidate, Default::default()))
             .unwrap();
     }
 }
 
 #[test]
 fn selected_program_bodies_call_current_dependencies_and_reject_stale_reload() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let prepare = |engine: &KagariEngine, root| {
         let checked = engine
             .compile_snapshot(engine.source_snapshot(), root, &Default::default())
@@ -225,9 +232,9 @@ fn selected_program_bodies_call_current_dependencies_and_reject_stale_reload() {
     let mut runtime = engine.runtime(context.clone());
     let old_program = first;
     let old = runtime
-        .load_program(&old_program, Default::default())
+        .load_program(old_program.program(), Default::default())
         .unwrap();
-    let _selected_old = runtime.runtime().select_program(&old).unwrap();
+    let _selected_old = runtime.select_program(&old).unwrap();
     let dependency = _selected_old
         .members()
         .find(|module| {
@@ -239,76 +246,102 @@ fn selected_program_bodies_call_current_dependencies_and_reject_stale_reload() {
         })
         .unwrap();
     let retention = runtime
-        .runtime()
-        .retain_module(&dependency, ModuleEpochRetention::ActiveCall)
+        .retain_module(
+            &dependency,
+            ModuleEpochRetention::ActiveCall,
+            RetentionOrigin::Current,
+        )
         .unwrap();
     let stale = runtime
-        .runtime()
-        .stage_reload_verified_program(&old, None, second.bytecode().clone())
+        .stage_reload_verified_program(&old, None, second.program().bytecode().clone())
         .unwrap();
-    let staged_members: HashSet<_> = stale
+    let staged_members: Vec<_> = stale
         .module()
         .members()
         .map(|module| module.key())
         .collect();
+    let queued = (0..2)
+        .map(|_| {
+            runtime
+                .start(
+                    &_selected_old,
+                    ProgramEntry::Main,
+                    &[],
+                    context.runtime_options(),
+                )
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
     runtime
-        .reload_program(&old, &second.clone(), Default::default())
+        .program(&old)
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement((second.clone()).program(), &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let new = old.clone();
-    assert!(
-        runtime
-            .runtime()
-            .collect_garbage()
+    runtime.collect_garbage().unwrap();
+    for member in _selected_old.members() {
+        runtime.validate_executable_module(&member).unwrap();
+    }
+    let selected_new = runtime.select_program(&new).unwrap();
+    for execution in queued {
+        let DriveResult::Complete(result) = runtime
+            .drive(&execution, NonZeroUsize::new(1024).unwrap())
             .unwrap()
-            .reclaimed_modules
-            .is_empty()
-    );
-    let selected_new = runtime.runtime().select_program(&new).unwrap();
-    for (module, value) in [(&_selected_old, 2), (&selected_new, 2), (&_selected_old, 2)] {
-        let _session = runtime
-            .runtime()
-            .begin_execution(module, context.runtime_options())
-            .unwrap();
+        else {
+            panic!("queued scalar body must complete");
+        };
         assert_eq!(
-            runtime
-                .backend()
-                .execute(module, ProgramEntry::Main)
-                .unwrap()
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(value)
+            result.unwrap().as_i32(),
+            Some(2),
+            "admitted old body calls the current dependency"
         );
     }
-    assert!(runtime.runtime().publish_staged_reload(stale).is_err());
+    assert_eq!(
+        runtime
+            .execute_module(&selected_new, ProgramEntry::Main, context.runtime_options())
+            .unwrap()
+            .return_value
+            .as_i32(),
+        Some(2)
+    );
+    let before_retirement = runtime.modules().loaded_count();
+    let old_members = _selected_old.members().count();
+    assert!(runtime.publish_staged_reload(stale).is_err());
     drop(retention);
-    let collected: HashSet<_> = runtime
-        .runtime()
-        .collect_garbage()
-        .unwrap()
-        .reclaimed_modules
-        .into_iter()
-        .collect();
-    let old_members: HashSet<_> = _selected_old
-        .members()
-        .map(|module| module.key())
-        .chain(staged_members)
-        .collect();
-    assert_eq!(collected, old_members);
+    runtime.collect_garbage().unwrap();
+    for member in _selected_old.members() {
+        assert_eq!(
+            runtime
+                .validate_executable_module(&member)
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::StaleHandle
+        );
+        assert!(runtime.modules().loaded(member.key()).is_none());
+    }
+    for key in &staged_members {
+        assert!(runtime.modules().loaded(*key).is_none());
+    }
+    assert_eq!(
+        runtime.modules().loaded_count(),
+        before_retirement - old_members - staged_members.len()
+    );
     assert_eq!(
         runtime
             .execute(&new, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(2)
+            .as_i32()
+            .unwrap(),
+        2
     );
 }
 
 #[test]
 fn malformed_programs_are_rejected_before_any_member_is_published() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     insert(
         &engine,
         "dependency",
@@ -409,26 +442,14 @@ fn malformed_programs_are_rejected_before_any_member_is_published() {
         corrupted.program = bad;
         let encoded = corrupted.to_bytes(artifact.definitions()).unwrap();
         let decoded = BytecodeArtifact::from_bytes(&encoded).unwrap();
-        assert!(
-            PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default())
-                .is_err()
-        );
-        assert_eq!(runtime.runtime().modules().loaded_count(), 0);
+        assert!(Program::from_artifact(decoded, &Default::default(), &Default::default()).is_err());
+        assert_eq!(runtime.modules().loaded_count(), 0);
     }
     let installed = runtime
         .load_program(
-            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap(),
+            &Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap(),
             Default::default(),
         )
         .unwrap();
-    assert_eq!(
-        runtime
-            .runtime()
-            .select_program(&installed)
-            .unwrap()
-            .epoch
-            .0,
-        1
-    );
+    assert_eq!(runtime.select_program(&installed).unwrap().epoch.0, 1);
 }

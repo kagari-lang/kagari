@@ -11,16 +11,16 @@ use crate::{
 };
 
 use kagari::{
-    BytecodeArtifact, engine::KagariEngine, error::EmbeddingError, program::PreparedProgram,
+    BytecodeArtifact, engine::KagariEngine, error::EmbeddingError, program::Program,
     runtime::Runtime,
 };
+use kagari_runtime::execution::owned::DriveResult;
 use kagari_runtime::{
-    module::{Program, entry::ProgramEntry},
+    module::{InstalledProgram, entry::ProgramEntry},
     session::owned::OwnedExecution,
 };
 #[cfg(feature = "source")]
 use kagari_source::source::SourceFile;
-use kagari_vm::vm::owned::DriveResult;
 use serde_json::to_string;
 use std::{
     fmt::Display,
@@ -42,7 +42,7 @@ const MAX_SLICE: u32 = 100_000;
 pub struct BrowserSession {
     engine: KagariEngine,
     runtime: Runtime,
-    module: Option<Program>,
+    module: Option<InstalledProgram>,
     active: Option<OwnedExecution>,
     output: Arc<Mutex<Output>>,
 }
@@ -124,7 +124,7 @@ impl BrowserSession {
             Ok(artifact) => artifact,
             Err(error) => return self.reject("WEB_ARTIFACT_DECODE", &error),
         };
-        match PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()) {
+        match Program::from_artifact(artifact, &Default::default(), &Default::default()) {
             Ok(program) => self.load(program),
             Err(error) => self.reject("WEB_ARTIFACT_VALIDATION", error),
         }
@@ -142,12 +142,10 @@ impl BrowserSession {
         };
         let result = self
             .runtime
-            .runtime()
             .select_program(module)
             .map_err(EmbeddingError::from)
             .and_then(|module| {
                 self.runtime
-                    .backend()
                     .start(&module, ProgramEntry::Main, &[], Default::default())
                     .map_err(EmbeddingError::from)
             });
@@ -169,7 +167,7 @@ impl BrowserSession {
         let Some(active) = &self.active else {
             return self.reject("WEB_NO_RUN", "start a run first");
         };
-        let response = match self.runtime.backend().drive(
+        let response = match self.runtime.drive(
             active,
             NonZeroUsize::new(slice as usize).expect("positive slice"),
         ) {
@@ -178,7 +176,7 @@ impl BrowserSession {
             Ok(DriveResult::Complete(result)) => {
                 self.active.take();
                 match result {
-                    Ok(root) => match OwnedResult::rooted(&root, self.runtime.runtime().gc()) {
+                    Ok(root) => match OwnedResult::rooted(&root, &mut self.runtime) {
                         Ok(result) => Response {
                             result: Some(result),
                             ..Response::new("complete")
@@ -208,7 +206,7 @@ impl BrowserSession {
     pub fn reset(&mut self) -> String {
         self.cancel();
         self.active.take();
-        if let Err(error) = self.runtime.runtime().drain_retired_executions() {
+        if let Err(error) = self.runtime.drain_retired_executions() {
             return self.respond(Response::error(WebError::sdk(&EmbeddingError::from(error))));
         }
         self.module = None;
@@ -223,7 +221,7 @@ impl BrowserSession {
 }
 
 impl BrowserSession {
-    fn load(&mut self, program: PreparedProgram) -> String {
+    fn load(&mut self, program: Program) -> String {
         let mut runtime = self.engine.runtime(Default::default());
         match runtime.load_program(&program, Default::default()) {
             Ok(module) => {
@@ -231,7 +229,7 @@ impl BrowserSession {
                 self.runtime = runtime;
                 self.respond(Response::new("ready"))
             }
-            Err(error) => self.respond(Response::error(WebError::sdk(&error))),
+            Err(error) => self.respond(Response::error(WebError::runtime(&error))),
         }
     }
 
@@ -259,6 +257,6 @@ impl Drop for BrowserSession {
         self.cancel();
         self.active.take();
         // Explicit reset reports cleanup failures; Drop cannot report a JSON response.
-        let _ = self.runtime.runtime().drain_retired_executions();
+        let _ = self.runtime.drain_retired_executions();
     }
 }

@@ -1,0 +1,14 @@
+use example::roots::{ Player, HasHp };
+
+fn hp<T: HasHp>(player: T) -> i32 {
+    player.hp()
+}
+
+pub fn main(player: Player) -> i32 {
+    player.heal(5);
+    hp(player)
+}
+
+pub fn read(player: Player) -> i32 {
+    hp(player)
+}

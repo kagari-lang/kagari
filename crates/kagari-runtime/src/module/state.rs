@@ -1,18 +1,13 @@
 //! Ready-only access to installation-owned persistent cells.
+use crate::{module::ExecutableModule, value::carriers::RootedValue};
+pub(crate) mod access;
 pub(super) mod cells;
 mod compatibility;
 pub(crate) mod initialization;
 
-use crate::{
-    Runtime,
-    error::RuntimeError,
-    module::{ExecutableModule, ModuleInstance, ModuleStore},
-    value::Value,
-};
-use kagari_bytecode::instruction::ModuleSlot;
 use kagari_common::span::Span;
 use kagari_contract::ids::FunctionRef;
-use std::{fmt, slice};
+use std::{collections::TryReserveError, fmt};
 
 /// A fixed introducing-generation recipe. A copy grants no initialization authority.
 #[derive(Debug, Clone)]
@@ -26,7 +21,7 @@ pub struct StaticRecipe {
 pub enum StaticState {
     Uninitialized(StaticRecipe),
     Initializing(StaticRecipe),
-    Ready(Value),
+    Ready(RootedValue),
     /// Bounded, owned diagnostic text; no frame, execution session or borrow is retained.
     Failed(StaticFailure),
 }
@@ -56,6 +51,20 @@ impl StaticFailure {
         &self.cause
     }
 
+    pub(in crate::module) fn retained_bytes(&self) -> usize {
+        self.cause.capacity()
+    }
+
+    pub(in crate::module) fn try_copy(&self) -> Result<Self, TryReserveError> {
+        let mut cause = String::new();
+        cause.try_reserve_exact(self.cause.len())?;
+        cause.push_str(&self.cause);
+        Ok(Self {
+            cause,
+            origin: self.origin,
+        })
+    }
+
     pub fn origin(&self) -> Option<Span> {
         self.origin
     }
@@ -64,129 +73,6 @@ impl StaticFailure {
 impl fmt::Display for StaticFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.cause)
-    }
-}
-
-impl Runtime {
-    pub(in crate::module) fn validate_module_state_access(
-        &self,
-        module: &ExecutableModule,
-    ) -> Result<(), RuntimeError> {
-        self.gc.ensure_execution_allowed()?;
-        self.validate_executable_module(module)?;
-        if self.is_candidate_initialization() || self.modules.is_staged(module) {
-            return Err(RuntimeError::execution_phase_violation(
-                "candidate cannot access static state",
-            ));
-        }
-        Ok(())
-    }
-
-    /// Inspect without forcing initialization. Editing the copy cannot change state.
-    pub fn module_instance_snapshot(&self, module: &ExecutableModule) -> Option<ModuleInstance> {
-        self.validate_module_state_access(module).ok()?;
-        self.modules.instance_snapshot(module.key())
-    }
-
-    /// Read an already initialized cell; never executes its recipe.
-    /// Drivers must root the result across safepoints.
-    pub fn read_module_slot(
-        &self,
-        module: &ExecutableModule,
-        slot: ModuleSlot,
-    ) -> Result<Value, RuntimeError> {
-        self.validate_module_state_access(module)?;
-        let contract = module
-            .bytecode
-            .module_slots
-            .get(slot.index())
-            .ok_or_else(|| RuntimeError::module_validation("static binding index out of bounds"))?;
-        let state = self.modules.static_state(module, slot).ok_or_else(|| {
-            self.resources()
-                .quarantine("loaded static binding disappeared")
-        })?;
-        match state {
-            StaticState::Ready(value) => {
-                self.validate_heap_payloads(slice::from_ref(&value))?;
-                if !self.matches_type_in(&value, &contract.contract.ty, module, None) {
-                    return Err(self
-                        .resources()
-                        .quarantine("invalid semantic value in static cell"));
-                }
-                Ok(value)
-            }
-            StaticState::Uninitialized(_) => Err(RuntimeError::module_validation(
-                "static initialization requires an execution transition",
-            )),
-            StaticState::Initializing(_) => {
-                self.poison_static_cycle(module, slot)?;
-                Err(RuntimeError::module_validation(
-                    "recursive static initialization",
-                ))
-            }
-            StaticState::Failed(cause) => Err(RuntimeError::module_validation(format!(
-                "static initialization failed: {cause}"
-            ))),
-        }
-    }
-
-    /// Replace a ready mutable cell after complete semantic and owner admission.
-    /// This is not an initialization API, including for mutable declarations.
-    pub fn write_module_slot(
-        &self,
-        module: &ExecutableModule,
-        slot: ModuleSlot,
-        value: Value,
-    ) -> Result<(), RuntimeError> {
-        self.validate_module_state_access(module)?;
-        let descriptor = module
-            .bytecode
-            .module_slots
-            .get(slot.index())
-            .ok_or_else(|| RuntimeError::module_validation("static binding index out of bounds"))?;
-        if !descriptor.contract.mutable {
-            return Err(RuntimeError::module_validation("immutable static binding"));
-        }
-        self.read_module_slot(module, slot)?;
-        self.validate_heap_payloads(slice::from_ref(&value))?;
-        if !self.matches_type_in(&value, &descriptor.contract.ty, module, None) {
-            return Err(RuntimeError::module_validation(
-                "static semantic type mismatch",
-            ));
-        }
-        self.modules
-            .replace_static(module, slot, value)
-            .ok_or_else(|| {
-                self.resources()
-                    .quarantine("loaded static binding disappeared")
-            })?;
-        Ok(())
-    }
-}
-
-impl ModuleStore {
-    fn static_state(&self, module: &ExecutableModule, slot: ModuleSlot) -> Option<StaticState> {
-        let store = self.inner.try_borrow().ok()?;
-        let record = store.resolve(module)?;
-        Some(store.bound_cell(record, slot.index())?.snapshot())
-    }
-
-    fn replace_static(
-        &self,
-        module: &ExecutableModule,
-        slot: ModuleSlot,
-        value: Value,
-    ) -> Option<()> {
-        let mut store = self.inner.try_borrow_mut().ok()?;
-        let record = store.resolve(module)?;
-        store.bound_cell(record, slot.index())?;
-        let id = *record.bindings.get(slot.index())?;
-        let cell = store.cells.get_mut(&id)?;
-        if !matches!(cell.state, StaticState::Ready(_)) {
-            return None;
-        }
-        cell.state = StaticState::Ready(value);
-        Some(())
     }
 }
 

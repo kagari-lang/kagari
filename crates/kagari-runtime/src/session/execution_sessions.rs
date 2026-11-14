@@ -1,4 +1,5 @@
-mod publication;
+#[cfg(test)]
+use crate::test_support::{bytecode::load_bytecode, update_programs::load_empty as load};
 
 use crate::test_support as support;
 use crate::test_support::native::program::ProgramFixture;
@@ -6,15 +7,20 @@ use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
-    gc::roots::RootedValue,
+    execution::roots::ExecutionRoots,
+    frame::types::compatibility::TypeView,
     host::{HostCallContext, HostPathDescriptorId},
-    module::Program,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
+    module::managed::source::RevisionSource,
+    native::{
+        builder::ModuleBuilder, conversion::context::ConversionContext, declarations::FunctionDecl,
+        host::callback, types::Type,
+    },
     reload::ReloadValidationError,
-    session::{DeterministicInputs, ExecutionPhase},
-    value::Value,
+    session::{DeterministicInputs, ExecutionEntry, ExecutionPhase},
+    value::{carriers::RootedValue, view::ValueView},
+    value_check::scoped,
 };
-use kagari_bytecode::{instruction::ModuleSlot, module::BytecodeModule, program::ModuleRef};
+use kagari_bytecode::{instruction::ModuleSlot, program::ModuleRef};
 use kagari_common::cancellation::CancellationToken;
 use kagari_common::identity::map::DefinitionContext;
 use kagari_types::{
@@ -28,24 +34,6 @@ use std::sync::{
 };
 use support::native::{invoke::invoke, program::free_function_program};
 
-fn load(runtime: &mut Runtime, name: &str) -> Program {
-    let context = DefinitionContext::new().unwrap();
-    runtime
-        .load_program(
-            name,
-            ProgramFixture {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule {
-                    ..Default::default()
-                }],
-            }
-            .metadata(context.snapshot(), &Default::default())
-            .unwrap(),
-        )
-        .unwrap()
-}
-
 #[test]
 fn deterministic_inputs_and_random_stream_belong_to_the_root_session() {
     let mut runtime = Runtime::default();
@@ -58,30 +46,50 @@ fn deterministic_inputs_and_random_stream_belong_to_the_root_session() {
         unix_time_millis: 123_456,
         random_seed: 42,
     };
-    let outer = runtime.begin_execution(&module, options.clone()).unwrap();
+    let mut outer = runtime
+        .admit_execution(
+            &module,
+            options.clone(),
+            ExecutionEntry::Program,
+            RevisionSource::Current,
+        )
+        .unwrap();
     let first = runtime.next_execution_random_u64().unwrap();
     let mut conflicting = options.clone();
     conflicting.inputs = DeterministicInputs {
         unix_time_millis: 999,
         random_seed: 999,
     };
-    let nested = runtime.begin_execution(&module, conflicting).unwrap();
+    let mut nested = runtime
+        .admit_execution(
+            &module,
+            conflicting,
+            ExecutionEntry::Program,
+            RevisionSource::Current,
+        )
+        .unwrap();
     assert_eq!(runtime.execution_time_millis().unwrap(), 123_456);
     let second = runtime.next_execution_random_u64().unwrap();
-    drop(outer);
+    outer.retire(&mut runtime);
     let third = runtime.next_execution_random_u64().unwrap();
-    drop(nested);
+    nested.retire(&mut runtime);
 
     let replay = runtime.begin_execution(&module, options.clone()).unwrap();
-    assert_eq!(runtime.execution_time_millis().unwrap(), 123_456);
-    assert_eq!(runtime.next_execution_random_u64().unwrap(), first);
-    assert_eq!(runtime.next_execution_random_u64().unwrap(), second);
-    assert_eq!(runtime.next_execution_random_u64().unwrap(), third);
+    assert_eq!(replay.runtime().execution_time_millis().unwrap(), 123_456);
+    assert_eq!(replay.runtime().next_execution_random_u64().unwrap(), first);
+    assert_eq!(
+        replay.runtime().next_execution_random_u64().unwrap(),
+        second
+    );
+    assert_eq!(replay.runtime().next_execution_random_u64().unwrap(), third);
     drop(replay);
 
     options.inputs.random_seed = 43;
     let changed = runtime.begin_execution(&module, options).unwrap();
-    assert_ne!(runtime.next_execution_random_u64().unwrap(), first);
+    assert_ne!(
+        changed.runtime().next_execution_random_u64().unwrap(),
+        first
+    );
     drop(changed);
     assert!(runtime.next_execution_random_u64().is_err());
 }
@@ -94,18 +102,32 @@ fn nested_scopes_share_cancellation_and_lifetime_even_if_outer_drops_first() {
     let options = runtime.execution_options();
 
     let token = options.cancellation.clone();
-    let outer = runtime.begin_execution(&module, options.clone()).unwrap();
+    let mut outer = runtime
+        .admit_execution(
+            &module,
+            options.clone(),
+            ExecutionEntry::Program,
+            RevisionSource::Current,
+        )
+        .unwrap();
     runtime.resources().poll_execution().unwrap();
     let escalation = options.clone();
 
-    let nested = runtime.begin_execution(&module, escalation).unwrap();
+    let mut nested = runtime
+        .admit_execution(
+            &module,
+            escalation,
+            ExecutionEntry::Program,
+            RevisionSource::Current,
+        )
+        .unwrap();
 
     runtime.resources().poll_execution().unwrap();
     token.cancel();
     let error = runtime.resources().poll_execution().unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::Cancelled);
 
-    drop(outer);
+    outer.retire(&mut runtime);
     assert!(runtime.resources().poll_execution().is_err());
     assert_eq!(
         runtime
@@ -114,7 +136,7 @@ fn nested_scopes_share_cancellation_and_lifetime_even_if_outer_drops_first() {
             .active_calls,
         1
     );
-    drop(nested);
+    nested.retire(&mut runtime);
     assert_eq!(
         runtime
             .modules()
@@ -126,8 +148,8 @@ fn nested_scopes_share_cancellation_and_lifetime_even_if_outer_drops_first() {
     let _next = runtime
         .begin_execution(&module, runtime.execution_options())
         .unwrap();
-    runtime.resources().poll_execution().unwrap();
-    runtime.resources().poll_execution().unwrap();
+    _next.runtime().resources().poll_execution().unwrap();
+    _next.runtime().resources().poll_execution().unwrap();
 }
 
 #[test]
@@ -140,22 +162,62 @@ fn nested_execution_rejects_an_unpinned_program_or_foreign_runtime() {
     let mut foreign = Runtime::default();
     let foreign_module_program = load(&mut foreign, "main");
     let foreign_module = foreign.select_program(&foreign_module_program).unwrap();
-    let session = runtime
+    let mut session = runtime
         .begin_execution(&module, runtime.execution_options())
         .unwrap();
+    let inherited = session.runtime().execution_options();
     assert!(
-        runtime
-            .begin_execution(&other, runtime.execution_options())
+        session
+            .runtime_mut()
+            .begin_execution(&other, inherited.clone())
             .is_err()
     );
     assert!(
-        runtime
-            .begin_execution(&foreign_module, runtime.execution_options())
+        session
+            .runtime_mut()
+            .begin_execution(&foreign_module, inherited)
             .is_err()
     );
+    let before = session.runtime().resources().counters();
+    let stats = session.runtime().gc_stats();
+    std::thread::scope(|threads| {
+        let runtime = session.runtime_mut();
+        let module = &module;
+        threads
+            .spawn(move || {
+                assert_eq!(
+                    runtime
+                        .begin_execution(module, Default::default())
+                        .err()
+                        .unwrap()
+                        .kind(),
+                    RuntimeErrorKind::ExecutionPhaseViolation
+                );
+                assert_eq!(
+                    runtime.collect_garbage().unwrap_err().kind(),
+                    RuntimeErrorKind::ExecutionPhaseViolation
+                );
+                assert_eq!(
+                    runtime
+                        .alloc_array(module, Ty::Builtin(BuiltinType::Unit), &[])
+                        .unwrap_err()
+                        .kind(),
+                    RuntimeErrorKind::ExecutionPhaseViolation
+                );
+            })
+            .join()
+            .unwrap();
+    });
+    assert_eq!(session.runtime().resources().counters(), before);
+    assert_eq!(session.runtime().gc_stats(), stats);
+    session.runtime().resources().poll_execution().unwrap();
     assert_eq!(session.root().key(), module.key());
     assert_eq!(
-        runtime.modules().retention_counts(other.key()).active_calls,
+        session
+            .runtime()
+            .modules()
+            .retention_counts(other.key())
+            .active_calls,
         0
     );
 }
@@ -168,28 +230,82 @@ fn cancellation_is_sticky_until_all_scopes_exit_and_next_root_can_run() {
     let token = CancellationToken::default();
     let mut options = runtime.execution_options();
     options.cancellation = token.clone();
-    let session = runtime.begin_execution(&module, options.clone()).unwrap();
-    let object = runtime
-        .alloc_array(&module, Ty::Builtin(BuiltinType::I32), vec![Value::I32(42)])
+    let mut session = runtime.begin_execution(&module, options.clone()).unwrap();
+    let before_objects = session.runtime().memory.stats().objects;
+    let object = session
+        .runtime_mut()
+        .alloc_array(&module, Ty::Builtin(BuiltinType::I32), &[42i32.into()])
         .unwrap();
     token.cancel();
+    // Cancellation detected by a matcher cannot inspect suspended frames while
+    // the caller still owns their control/source loans. Admission happens only
+    // after both loans end, before any invocation cleanup unwinds those frames.
+    let error = {
+        let Runtime {
+            memory,
+            resources,
+            host,
+            host_borrows,
+            ..
+        } = session.runtime_mut();
+        let id = resources.active_session().unwrap().id;
+        let _frames = resources.sessions.frames_mut(id).unwrap();
+        let expected = Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)));
+        let error = memory
+            .scope(resources, |cx, roots| {
+                ExecutionRoots::with(roots, cx, |slots| {
+                    let actual = object.get(slots.scope())?;
+                    Ok(scoped::matches(
+                        slots.scope(),
+                        actual,
+                        TypeView::new(&expected, &module, None),
+                        host,
+                        host_borrows,
+                        resources,
+                    ))
+                })
+            })
+            .unwrap()
+            .unwrap_err();
+        assert!(resources.termination().is_none());
+        error
+    };
+    let error = error.into_runtime(session.runtime());
+    assert_eq!(error.kind(), RuntimeErrorKind::Cancelled);
+    assert!(error.trace().is_none());
+    let error = session.runtime().resources().admit_execution_error(error);
+    assert!(error.trace().is_some());
+    assert!(Arc::ptr_eq(
+        error.trace().unwrap(),
+        session
+            .runtime()
+            .resources()
+            .termination()
+            .unwrap()
+            .trace()
+            .unwrap(),
+    ));
     assert_eq!(
-        runtime.gc_safepoint().unwrap_err().kind(),
+        session.runtime_mut().gc_safepoint().unwrap_err().kind(),
         RuntimeErrorKind::Cancelled
     );
     assert_eq!(
-        runtime
-            .alloc_array(&module, Ty::Builtin(BuiltinType::I32), vec![])
+        session
+            .runtime_mut()
+            .alloc_array(&module, Ty::Builtin(BuiltinType::I32), &[])
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::Cancelled
     );
+    let inherited = session.runtime().execution_options();
     assert!(
-        runtime
-            .begin_execution(&module, runtime.execution_options())
+        session
+            .runtime_mut()
+            .begin_execution(&module, inherited)
             .is_err()
     );
-    assert!(!runtime.is_quarantined());
+    assert!(!session.runtime().is_quarantined());
+    drop(object);
     drop(session);
     assert!(runtime.resources().termination().is_none());
     assert!(runtime.begin_execution(&module, options).is_err());
@@ -200,12 +316,12 @@ fn cancellation_is_sticky_until_all_scopes_exit_and_next_root_can_run() {
             .active_calls,
         0
     );
-    let _next = runtime
+    let mut _next = runtime
         .begin_execution(&module, runtime.execution_options())
         .unwrap();
-    runtime.collect_garbage().unwrap();
-    assert!(runtime.gc().array_len(object).is_none());
-    runtime.resources().poll_execution().unwrap();
+    _next.runtime_mut().collect_garbage().unwrap();
+    assert_eq!(_next.runtime().memory.stats().objects, before_objects);
+    _next.runtime().resources().poll_execution().unwrap();
 }
 
 #[test]
@@ -213,23 +329,58 @@ fn root_heap_peak_counters_do_not_reuse_a_previous_roots_peak() {
     let mut runtime = Runtime::default();
     let module_program = load(&mut runtime, "main");
     let module = runtime.select_program(&module_program).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
+    let installed_units = baseline.objects as u128 + baseline.provider_units;
+    assert!(installed_units > 0);
+    let previous_lifetime_peak = runtime.resources().counters().peak_heap_units;
+    assert_eq!(
+        runtime.resources().counters().current_heap_units,
+        installed_units
+    );
     for depth in [2, 1] {
-        let session = runtime
+        let mut session = runtime
             .begin_execution(&module, runtime.execution_options())
             .unwrap();
-        let array = runtime
+        assert_eq!(session.counters().current_heap_units, installed_units);
+        assert_eq!(session.counters().peak_heap_units, installed_units);
+        let expected_peak = installed_units + depth as u128 + 1;
+        let array = session
+            .runtime_mut()
             .alloc_array(
                 &module,
                 Ty::Builtin(BuiltinType::Unit),
-                vec![Value::Unit; depth as usize],
+                &vec![RootedValue::unit(); depth as usize],
             )
             .unwrap();
-        assert_eq!(session.counters().peak_heap_units, depth as usize + 1);
-        runtime.collect_garbage().unwrap();
-        assert!(runtime.gc().array_len(array).is_none());
+        assert_eq!(session.counters().current_heap_units, expected_peak);
+        assert_eq!(session.counters().peak_heap_units, expected_peak);
+        let committed = session.runtime().gc_stats();
+        assert_eq!(
+            expected_peak,
+            committed.objects as u128 + committed.provider_units
+        );
+        session.runtime_mut().collect_garbage().unwrap();
+        {
+            let mut cx = ConversionContext::new(session.runtime_mut(), &module).unwrap();
+            let value = cx.import(&array).unwrap();
+            assert_eq!(cx.array_len(&value).unwrap(), depth as usize);
+        }
+        drop(array);
+        session.runtime_mut().collect_garbage().unwrap();
+        assert_eq!(session.runtime().gc_stats().objects, baseline.objects);
+        assert_eq!(
+            session.runtime().gc_stats().root_registrations,
+            baseline.root_registrations
+        );
+        assert_eq!(session.counters().current_heap_units, installed_units);
+        assert_eq!(session.counters().peak_heap_units, expected_peak);
         drop(session);
     }
-    assert_eq!(runtime.resources().counters().peak_heap_units, 3);
+    assert_eq!(
+        runtime.resources().counters().peak_heap_units,
+        previous_lifetime_peak.max(installed_units + 3)
+    );
 }
 
 #[test]
@@ -285,34 +436,51 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
             .unwrap();
         let calls = calls.clone();
         builder
-            .bind(function, move |_: &HostCallContext<'_>, _: &[Value]| {
-                calls.fetch_add(1, Ordering::SeqCst);
-                Ok(Value::Unit)
-            })
+            .bind(
+                function,
+                callback(move |_: &mut HostCallContext<'_>, _| {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(ValueView::unit())
+                }),
+            )
             .unwrap();
     }
     let declarations = builder.finish().unwrap();
     let program = free_function_program(&declarations.to_declaration());
     declarations.install(&mut runtime).unwrap();
-    let module_program = runtime.load_program("main", program).unwrap();
+    let module_program = load_bytecode(&mut runtime, "main", program).unwrap();
     let module = runtime.select_program(&module_program).unwrap();
     let mut options = runtime.execution_options();
     options.phase = ExecutionPhase::CandidateInitialization;
-    let outer = runtime.begin_execution(&module, options).unwrap();
+    let mut outer = runtime
+        .admit_execution(
+            &module,
+            options,
+            ExecutionEntry::Program,
+            RevisionSource::Current,
+        )
+        .unwrap();
     let mut nested_options = runtime.execution_options();
     nested_options.phase = ExecutionPhase::Ordinary;
-    let nested = runtime.begin_execution(&module, nested_options).unwrap();
-    drop(outer);
+    let mut nested = runtime
+        .admit_execution(
+            &module,
+            nested_options,
+            ExecutionEntry::Program,
+            RevisionSource::Current,
+        )
+        .unwrap();
+    outer.retire(&mut runtime);
     assert_eq!(
         runtime.execution_options().phase,
         ExecutionPhase::CandidateInitialization
     );
-    invoke(&runtime, &module, 0, &[]).unwrap();
-    invoke(&runtime, &module, 1, &[]).unwrap();
+    let _ = invoke(&mut runtime, &module, 0, &[]).unwrap();
+    let _ = invoke(&mut runtime, &module, 1, &[]).unwrap();
     let before = runtime.resources().counters();
     for slot in 2..5 {
         assert_eq!(
-            invoke(&runtime, &module, slot, &[]).unwrap_err().kind(),
+            invoke(&mut runtime, &module, slot, &[]).unwrap_err().kind(),
             RuntimeErrorKind::ExecutionPhaseViolation
         );
     }
@@ -320,14 +488,14 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
     let missing = HostPathDescriptorId::new(99);
     assert_eq!(
         runtime
-            .read_host_path(&Value::Unit, missing, vec![])
+            .read_host_path(&RootedValue::unit(), missing, &[])
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::ExecutionPhaseViolation
     );
     assert_eq!(
         runtime
-            .set_host_path(&Value::Unit, missing, vec![], Value::Unit)
+            .set_host_path(&RootedValue::unit(), missing, &[], &RootedValue::unit())
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::ExecutionPhaseViolation
@@ -335,9 +503,9 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
     assert!(runtime.host_dirty_paths().is_empty());
     assert_eq!(runtime.resources().counters(), before);
     assert_eq!(calls.load(Ordering::SeqCst), 2);
-    drop(nested);
+    nested.retire(&mut runtime);
     assert_eq!(runtime.execution_options().phase, ExecutionPhase::Ordinary);
-    invoke(&runtime, &module, 3, &[]).unwrap();
+    let _ = invoke(&mut runtime, &module, 3, &[]).unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 3);
 }
 
@@ -346,20 +514,24 @@ fn candidate_initialization_cannot_silently_join_an_ordinary_session() {
     let mut runtime = Runtime::default();
     let module_program = load(&mut runtime, "main");
     let module = runtime.select_program(&module_program).unwrap();
-    let _session = runtime
+    let mut _session = runtime
         .begin_execution(&module, runtime.execution_options())
         .unwrap();
-    let mut options = runtime.execution_options();
+    let mut options = _session.runtime().execution_options();
     options.phase = ExecutionPhase::CandidateInitialization;
     assert_eq!(
-        runtime
+        _session
+            .runtime_mut()
             .begin_execution(&module, options)
             .err()
             .expect("ordinary session must reject candidate entry")
             .kind(),
         RuntimeErrorKind::ExecutionPhaseViolation
     );
-    assert_eq!(runtime.execution_options().phase, ExecutionPhase::Ordinary);
+    assert_eq!(
+        _session.runtime().execution_options().phase,
+        ExecutionPhase::Ordinary
+    );
 }
 
 #[test]
@@ -389,60 +561,53 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
         builder
             .bind(
                 function,
-                move |context: &HostCallContext<'_>, _: &[Value]| {
+                callback(move |context, _| {
                     if symbol == "old" {
                         let retained = retained.lock().unwrap();
-                        return Ok(retained
-                            .as_ref()
-                            .unwrap()
-                            .value(context.runtime().gc())
-                            .unwrap());
+                        return Ok(context.import(retained.as_ref().unwrap()).unwrap());
                     }
                     let owner = context.runtime().execution_root().unwrap();
-                    let inner = Value::Array(
-                        context
-                            .runtime()
-                            .alloc_array(
-                                &owner,
-                                Ty::Builtin(BuiltinType::I32),
-                                vec![Value::I32(42)],
-                            )
-                            .unwrap(),
-                    );
-                    Ok(Value::Array(
-                        context
-                            .runtime()
-                            .alloc_array(
-                                &owner,
-                                Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
-                                vec![inner],
-                            )
-                            .unwrap(),
-                    ))
-                },
+                    let inner = context
+                        .runtime_mut()
+                        .alloc_array(
+                            &owner,
+                            Ty::Builtin(BuiltinType::I32),
+                            &[RootedValue::from(42i32)],
+                        )
+                        .unwrap();
+                    let outer = context
+                        .runtime_mut()
+                        .alloc_array(
+                            &owner,
+                            Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
+                            &[inner],
+                        )
+                        .unwrap();
+                    Ok(context.import(&outer).unwrap())
+                }),
             )
             .unwrap();
     }
     let declarations = builder.finish().unwrap();
     let program = free_function_program(&declarations.to_declaration());
     declarations.install(&mut runtime).unwrap();
-    let baseline_program = runtime.load_program("main", program).unwrap();
+    let baseline_program = load_bytecode(&mut runtime, "main", program).unwrap();
     let baseline = runtime.select_program(&baseline_program).unwrap();
     let old_object = runtime
         .alloc_array(
             &baseline,
             Ty::Builtin(BuiltinType::I32),
-            vec![Value::I32(7)],
+            &[RootedValue::from(7i32)],
         )
         .unwrap();
     let old_object = runtime
         .alloc_array(
             &baseline,
             Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
-            vec![Value::Array(old_object)],
+            &[old_object],
         )
         .unwrap();
-    let root = runtime.root_value(Value::Array(old_object)).unwrap();
+    let root = old_object;
     *retained.lock().unwrap() = Some(root.clone());
     let candidate = runtime
         .stage_reload_program(&baseline_program, None, {
@@ -459,30 +624,49 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
             .unwrap()
         })
         .unwrap();
-    let session = runtime.begin_candidate_initialization(&candidate).unwrap();
+    let mut session = runtime.begin_candidate_initialization(&candidate).unwrap();
     assert_eq!(
-        invoke(&runtime, candidate.module(), 0, &[])
+        invoke(session.runtime_mut(), candidate.module(), 0, &[])
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::ExecutionPhaseViolation
     );
-    let fresh = invoke(&runtime, candidate.module(), 1, &[]).unwrap();
-    let fresh = runtime.root_value(fresh).unwrap();
-    runtime.collect_garbage().unwrap();
-    assert!(
-        runtime
-            .gc()
-            .validate_value(&fresh.value(runtime.gc()).unwrap())
-    );
-    assert!(
-        runtime
-            .gc()
-            .validate_value(&root.value(runtime.gc()).unwrap())
-    );
+    let fresh = invoke(session.runtime_mut(), candidate.module(), 1, &[]).unwrap();
+    session.runtime_mut().collect_garbage().unwrap();
     drop(session);
+    // A new session for the same exact staged program may use its retained data;
+    // allocation provenance does not depend on the retired SessionId or Arc.
+    {
+        let mut session = runtime.begin_candidate_initialization(&candidate).unwrap();
+        let mut cx = ConversionContext::new(session.runtime_mut(), candidate.module()).unwrap();
+        let fresh = cx.import(&fresh).unwrap();
+        assert_eq!(cx.array_len(&fresh).unwrap(), 1);
+        let inner = cx.array_element(&fresh, 0usize).unwrap().unwrap();
+        assert_eq!(
+            cx.array_element(&inner, 0usize).unwrap().unwrap().as_i32(),
+            Some(42)
+        );
+        cx.array_set(&inner, 0usize, &ValueView::from(43i32))
+            .unwrap();
+        assert_eq!(
+            cx.array_element(&inner, 0usize).unwrap().unwrap().as_i32(),
+            Some(43)
+        );
+        assert_eq!(
+            cx.import(&root).unwrap_err().kind(),
+            RuntimeErrorKind::ExecutionPhaseViolation
+        );
+    }
     runtime.publish_staged_reload(candidate).unwrap();
     let current = runtime.select_program(&baseline_program).unwrap();
-    assert!(invoke(&runtime, &current, 0, &[]).is_ok());
+    let old = invoke(&mut runtime, &current, 0, &[]).unwrap();
+    let mut cx = ConversionContext::new(&mut runtime, &current).unwrap();
+    let old = cx.import(&old).unwrap();
+    let inner = cx.array_element(&old, 0usize).unwrap().unwrap();
+    assert_eq!(
+        cx.array_element(&inner, 0usize).unwrap().unwrap().as_i32(),
+        Some(7)
+    );
 }
 
 #[test]
@@ -505,26 +689,37 @@ fn candidate_module_state_access_is_denied_for_every_program() {
             .unwrap()
         })
         .unwrap();
-    let session = runtime.begin_candidate_initialization(&candidate).unwrap();
+    let mut session = runtime.begin_candidate_initialization(&candidate).unwrap();
     for external in [&old, &other, candidate.module()] {
-        assert!(runtime.module_instance_snapshot(external).is_none());
+        assert!(
+            session
+                .runtime_mut()
+                .module_instance_snapshot(external)
+                .is_none()
+        );
         assert_eq!(
-            runtime
+            session
+                .runtime_mut()
                 .read_module_slot(external, ModuleSlot::new(0))
                 .unwrap_err()
                 .kind(),
             RuntimeErrorKind::ExecutionPhaseViolation
         );
     }
-    let empty = runtime.gc().alloc_tuple(vec![]).unwrap();
+    let empty = {
+        let mut cx = ConversionContext::new(session.runtime_mut(), candidate.module()).unwrap();
+        let value = cx.allocate_tuple(&[]).unwrap();
+        cx.retain(&value).unwrap()
+    };
     assert_eq!(
-        runtime
-            .write_module_slot(candidate.module(), ModuleSlot::new(0), empty)
+        session
+            .runtime_mut()
+            .write_module_slot(candidate.module(), ModuleSlot::new(0), &empty)
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::ExecutionPhaseViolation
     );
-    assert!(!runtime.is_quarantined());
+    assert!(!session.runtime_mut().is_quarantined());
     drop(session);
     assert_eq!(
         runtime.modules().retention_counts(other.key()).active_calls,
@@ -555,12 +750,16 @@ fn candidate_cannot_publish_static_values_between_initialization_and_publication
             .unwrap(),
         )
         .unwrap();
-    let session = runtime.begin_candidate_initialization(&candidate).unwrap();
-    let local = runtime.gc().alloc_tuple(vec![]).unwrap();
+    let mut session = runtime.begin_candidate_initialization(&candidate).unwrap();
+    let local = {
+        let mut cx = ConversionContext::new(session.runtime_mut(), candidate.module()).unwrap();
+        let value = cx.allocate_tuple(&[]).unwrap();
+        cx.retain(&value).unwrap()
+    };
     drop(session);
     assert_eq!(
         runtime
-            .write_module_slot(candidate.module(), ModuleSlot::new(0), local)
+            .write_module_slot(candidate.module(), ModuleSlot::new(0), &local)
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::ExecutionPhaseViolation
@@ -604,20 +803,31 @@ fn candidate_termination_is_cached_after_the_session_is_dropped() {
         let mut options = runtime.execution_options();
         let token = CancellationToken::default();
         options.cancellation = token.clone();
-        let outer = runtime.begin_execution(&baseline, options).unwrap();
+        let mut outer = runtime.begin_execution(&baseline, options).unwrap();
         if mode == 0 {
             token.cancel();
         }
         let expected = RuntimeErrorKind::Cancelled;
         if mode == 0 {
-            assert!(runtime.begin_candidate_initialization(&candidate).is_err());
+            assert!(
+                outer
+                    .runtime_mut()
+                    .begin_candidate_initialization(&candidate)
+                    .is_err()
+            );
         } else {
-            let session = runtime.begin_candidate_initialization(&candidate).unwrap();
+            let session = outer
+                .runtime_mut()
+                .begin_candidate_initialization(&candidate)
+                .unwrap();
             token.cancel();
             drop(session);
         }
         assert_eq!(candidate.initialization_error().unwrap().kind(), expected);
-        assert_eq!(runtime.execution_root().unwrap().key(), baseline.key());
+        assert_eq!(
+            outer.runtime().execution_root().unwrap().key(),
+            baseline.key()
+        );
         drop(outer);
         assert!(runtime.begin_candidate_initialization(&candidate).is_err());
         let error = runtime.publish_staged_reload(candidate).unwrap_err();

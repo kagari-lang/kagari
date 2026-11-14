@@ -6,11 +6,9 @@ use std::{hint::black_box, sync::Arc, time::Instant};
 use kagari::engine::{KagariEngine, source::ArtifactOptions};
 use kagari_runtime::{
     Runtime, module::VerifiedProgram, module::entry::ProgramEntry, native::module::NativeModule,
-    value::Value,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_stdlib as standard;
-use kagari_vm::vm::Vm;
 
 fn main() {
     let mut source = String::new();
@@ -21,7 +19,9 @@ fn main() {
 
     let mut compile_samples = Vec::new();
     for _ in 0..5 {
-        let engine = KagariEngine::default();
+        let engine =
+            KagariEngine::with_native_modules(Default::default(), standard::modules().unwrap())
+                .unwrap();
         let start = Instant::now();
         let artifact = engine
             .compile_to_artifact(
@@ -38,7 +38,9 @@ fn main() {
         compile_samples[2]
     );
 
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), standard::modules().unwrap())
+            .unwrap();
     let file = engine
         .set_source("baseline.kgr", source.clone(), SourceLayer::Base)
         .unwrap();
@@ -101,29 +103,25 @@ fn main() {
         Arc::strong_count(&first_loaded.bytecode)
     );
 
-    let vm = Vm::new(first_runtime);
+    let mut vm = first_runtime;
     const CALLS: u32 = 10_000;
     for _ in 0..100 {
         black_box(
-            vm.execute(&first_loaded, ProgramEntry::Main)
+            vm.execute_module(&first_loaded, ProgramEntry::Main, vm.execution_options())
                 .unwrap()
                 .return_value
-                .value(vm.runtime().gc())
-                .expect("retained execution result"),
+                .as_i32(),
         );
     }
     let start = Instant::now();
     let mut checksum = 0_i64;
     for _ in 0..CALLS {
-        let Value::I32(value) = vm
-            .execute(&first_loaded, ProgramEntry::Main)
+        let value = vm
+            .execute_module(&first_loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result")
-        else {
-            unreachable!("benchmark entry returns i32")
-        };
+            .as_i32()
+            .expect("benchmark entry returns i32");
         checksum += i64::from(value);
     }
     println!(

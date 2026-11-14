@@ -1,10 +1,11 @@
 //! One observable suite for source, artifacts and the existing JIT/fallback.
 //! No bytecode layouts or arena IDs appear in the fixture expectations.
+use crate::program::native::NativeCompiler;
 use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::source::PreparationOptions,
     error::EmbeddingError,
-    program::PreparedProgram,
+    program::Compilation,
     runtime::Runtime,
 };
 use kagari_bytecode::artifact::{ArtifactCompatibility, KbcArtifact};
@@ -16,21 +17,24 @@ use kagari_common::{
         metadata::DefinitionMetadata,
     },
 };
+use kagari_runtime::execution::{
+    ExecutionReport, JitExecutionStatus,
+    native::{PreparedNativeEntry, PreparedNativeExecution},
+    owned::DriveResult,
+};
 use kagari_runtime::{
     Runtime as CoreRuntime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionFrame,
-    gc::GcHeap,
     host::{HostCallContext, HostError},
-    module::{Program, entry::ProgramEntry},
+    module::{ExecutableModule, InstalledProgram, entry::ProgramEntry},
     native::{
-        builder::ModuleBuilder, conversion::context::ConversionContext, module::NativeModule,
-        types::Type,
+        builder::ModuleBuilder, conversion::context::ConversionContext, host, module::NativeModule,
     },
     reload::ReloadValidationError,
     resource::RuntimeLimits,
     session::{ExecutionEvent, ExecutionObserver},
-    value::Value,
+    value::{carriers::RootedValue, view::ValueView},
     value_semantics::script_equal,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
@@ -38,14 +42,6 @@ use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{FnDecl, host::HostCallPolicy, logging, module::ModuleDecl},
-};
-use kagari_vm::{
-    error::VmError,
-    vm::{
-        ExecutionReport, JitExecutionStatus,
-        native::{PreparedNativeEntry, PreparedNativeExecution},
-        owned::DriveResult,
-    },
 };
 use std::{
     cell::Cell,
@@ -92,7 +88,7 @@ impl Route {
 
 #[derive(Debug)]
 enum Expected {
-    Value(fn(&GcHeap) -> Value),
+    Value(fn(&mut ConversionContext<'_>) -> RootedValue),
     Diagnostic(&'static str),
     IndexTrap,
     HostFailure,
@@ -124,7 +120,7 @@ struct RecordingHost {
 
 struct PublishedReload<'a> {
     candidate: &'a Case<'a>,
-    selected_result: fn(&GcHeap) -> Value,
+    selected_result: fn(&mut ConversionContext<'_>) -> RootedValue,
     native_entry: &'a str,
 }
 
@@ -190,7 +186,10 @@ impl<'a> Case<'a> {
 }
 
 fn logging_module(
-    entry: impl for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+    entry: impl for<'call> Fn(
+        &mut HostCallContext<'call>,
+        &[ValueView<'call>],
+    ) -> Result<ValueView<'call>, HostError>
     + Send
     + Sync
     + 'static,
@@ -204,22 +203,15 @@ fn logging_module(
     )
     .unwrap();
     let log = builder.declared_function("log").unwrap();
-    builder.bind(log, entry).unwrap();
+    builder.bind(log, host::callback(entry)).unwrap();
     builder.finish().unwrap()
 }
 
 fn observe_vector() -> DefinitionMetadata<ModuleDecl> {
     let context = DefinitionContext::new().unwrap();
-    let vector = StandardDeclarations::default().vec(Type::i32()).unwrap();
-    let vector = DefinitionMetadata::checked(
-        vector.definitions().unwrap().clone(),
-        vector.abi().clone(),
-        &Default::default(),
-    )
-    .unwrap()
-    .import_into(&context, &Default::default())
-    .unwrap()
-    .into_records();
+    let vector = kagari_types::ty::Ty::Array(Box::new(kagari_types::ty::Ty::Builtin(
+        kagari_types::scalar::BuiltinType::I32,
+    )));
     let identity = ModuleIdentity {
         package: PackageId("observe".into()),
         path: vec![],
@@ -302,7 +294,7 @@ fn compile(case: &Case<'_>, publication: bool) -> Option<RoutePrograms> {
     let encoded =
         KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
-    let encoded = PreparedProgram::from_artifact(
+    let encoded = Compilation::from_artifact(
         encoded,
         &ArtifactCompatibility::default(),
         &Default::default(),
@@ -312,12 +304,12 @@ fn compile(case: &Case<'_>, publication: bool) -> Option<RoutePrograms> {
 }
 
 struct RoutePrograms {
-    source: PreparedProgram,
-    encoded: PreparedProgram,
+    source: Compilation,
+    encoded: Compilation,
 }
 
 impl RoutePrograms {
-    fn get(&self, route: Route) -> &PreparedProgram {
+    fn get(&self, route: Route) -> &Compilation {
         match route {
             Route::Source | Route::Jit => &self.source,
             Route::Artifact | Route::ArtifactJit => &self.encoded,
@@ -346,33 +338,29 @@ fn run_routes(case: &Case<'_>) {
 }
 
 fn assert_outcome(
-    runtime: &CoreRuntime,
+    runtime: &mut CoreRuntime,
+    owner: &ExecutableModule,
     case: &Case<'_>,
     route: Route,
     attempt: usize,
-    outcome: Result<ExecutionReport, VmError>,
+    outcome: Result<ExecutionReport, RuntimeError>,
 ) {
-    match (&case.expected, outcome.as_ref().map_err(VmError::cause)) {
+    match (&case.expected, outcome.as_ref()) {
         (Expected::Value(expected), Ok(report)) => {
-            let actual = report
-                .return_value
-                .value(runtime.gc())
-                .expect("retained execution result");
+            let expected = expected(&mut ConversionContext::new(runtime, owner).unwrap());
             assert!(
-                script_equal(runtime.gc(), &actual, &expected(runtime.gc())).unwrap(),
+                script_equal(runtime, &report.return_value, &expected).unwrap(),
                 "{} ({route:?}, attempt {attempt})",
                 case.name
             );
         }
-        (Expected::IndexTrap, Err(VmError::InvalidIndex(_))) => {}
-        (Expected::IndexTrap, Err(VmError::RuntimeError(error)))
-            if error.kind() == RuntimeErrorKind::IndexOutOfBounds => {}
-        (Expected::HostFailure, Err(VmError::RuntimeError(error)))
+        (Expected::IndexTrap, Err(error)) if error.kind() == RuntimeErrorKind::IndexOutOfBounds => {
+        }
+        (Expected::HostFailure, Err(error))
             if error.kind() == RuntimeErrorKind::HostCallFailure => {}
-        (Expected::ScriptTrap(message), Err(VmError::RuntimeError(error)))
-            if error.kind() == RuntimeErrorKind::ScriptTrap && error.message() == *message => {}
-        (Expected::Cancelled, Err(VmError::RuntimeError(error)))
-            if error.kind() == RuntimeErrorKind::Cancelled => {}
+        (Expected::ScriptTrap(message), Err(error))
+            if error.kind() == RuntimeErrorKind::ScriptTrap && error.to_string() == *message => {}
+        (Expected::Cancelled, Err(error)) if error.kind() == RuntimeErrorKind::Cancelled => {}
         (expected, actual) => panic!(
             "{} ({route:?}, attempt {attempt}): expected {expected:?}, got {actual:?}",
             case.name
@@ -381,25 +369,15 @@ fn assert_outcome(
 }
 
 fn execute_route(
-    runtime: &Runtime,
-    program: &PreparedProgram,
-    loaded: &Program,
+    runtime: &mut Runtime,
+    loaded: &InstalledProgram,
     case: &Case<'_>,
     route: Route,
-    backend: &mut CraneliftBackend,
-) -> Result<ExecutionReport, VmError> {
-    let selected = runtime.runtime().select_program(loaded)?;
+    prepared: Option<&PreparedNativeEntry>,
+) -> Result<ExecutionReport, RuntimeError> {
     match route {
         Route::Jit | Route::ArtifactJit => {
-            let prepared = runtime
-                .prepare_native(
-                    program,
-                    loaded,
-                    ProgramEntry::Main,
-                    backend,
-                    &Default::default(),
-                )
-                .unwrap();
+            let prepared = prepared.expect("native route is prepared before execution admission");
             if case.require_native {
                 assert!(
                     matches!(prepared, PreparedNativeEntry::Native(_)),
@@ -407,11 +385,14 @@ fn execute_route(
                     case.name
                 );
             }
-            // Retain the VM's exact error variants in this compiler/SDK contract
-            // matrix. Native preparation uses the public SDK's trusted handoff.
-            let outcome = runtime
-                .vm
-                .execute_prepared(&selected, ProgramEntry::Main, &prepared);
+            // Both execution routes retain Core's typed reasons and traces.
+            // Native preparation uses the SDK's trusted finalized handoff.
+            let outcome = runtime.execute_prepared_module(
+                &runtime.select_program(loaded)?,
+                ProgramEntry::Main,
+                prepared,
+                runtime.execution_options(),
+            );
             if case.require_native
                 && let Ok(report) = &outcome
             {
@@ -422,15 +403,32 @@ fn execute_route(
             }
             outcome
         }
-        _ => runtime.vm.execute(&selected, ProgramEntry::Main),
+        _ => {
+            let context = runtime.default_context().clone();
+            runtime.execute(loaded, ProgramEntry::Main, &[], &context)
+        }
     }
+}
+
+fn prepare_native(
+    runtime: &mut Runtime,
+    compiler: &mut NativeCompiler,
+    program: &Compilation,
+    loaded: &InstalledProgram,
+    entry: ProgramEntry<'_>,
+    backend: &mut CraneliftBackend,
+) -> PreparedNativeEntry {
+    let code = compiler
+        .prepare(program, entry, backend, &Default::default())
+        .unwrap();
+    code.install(runtime, loaded).unwrap()
 }
 
 fn run(
     case: &Case<'_>,
     route: Route,
-    module: &PreparedProgram,
-    candidate_program: Option<&PreparedProgram>,
+    module: &Compilation,
+    candidate_program: Option<&Compilation>,
 ) {
     let observe = observe_vector();
     let mut runtime = preparation::installation().runtime(RuntimeConfig {
@@ -447,10 +445,12 @@ fn run(
     let cancellation = CancellationToken::default();
     let cancel = cancellation.clone();
     logging_module(move |cx, args| {
-        let [Value::Str(id)] = args else {
+        let [message] = args else {
             return Err(HostError::new("log requires one string"));
         };
-        let message = cx.runtime().gc().string(*id).unwrap().to_owned();
+        let message = cx
+            .read_string(message, str::to_owned)
+            .map_err(|error| HostError::new(error.to_string()))?;
         let mut state = capture.lock().unwrap();
         state.calls.push(HostCall {
             symbol: "host.log",
@@ -469,11 +469,11 @@ fn run(
         if cancel_call == Some(state.calls.len()) {
             cancel.cancel();
         }
-        Ok(Value::Unit)
+        Ok(ValueView::unit())
     })
     .install(&mut runtime)
     .unwrap();
-    let observed_vector = Arc::new(Mutex::new(None));
+    let observed_vector = Arc::new(Mutex::new(None::<RootedValue>));
     if case.vector.is_some() {
         let capture_vector = observed_vector.clone();
         let capture_host = host.clone();
@@ -485,25 +485,43 @@ fn run(
         .unwrap();
         let vector = builder.declared_function("vector").unwrap();
         builder
-            .bind(vector, move |_: &HostCallContext<'_>, _: &[Value]| {
-                capture_host.lock().unwrap().calls.push(HostCall {
-                    symbol: "observe.vector",
-                    args: vec![],
-                });
-                (*capture_vector.lock().unwrap())
-                    .ok_or_else(|| HostError::new("Vec fixture is not initialized"))
-            })
+            .bind(
+                vector,
+                host::callback(move |cx, _| {
+                    capture_host.lock().unwrap().calls.push(HostCall {
+                        symbol: "observe.vector",
+                        args: vec![],
+                    });
+                    let root = capture_vector
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .cloned()
+                        .ok_or_else(|| HostError::new("array fixture is not initialized"))?;
+                    cx.import(&root)
+                        .map_err(|error| HostError::new(error.to_string()))
+                }),
+            )
             .unwrap();
         builder.finish().unwrap().install(&mut runtime).unwrap();
     }
     let loaded = runtime
-        .load_verified_program(case.name, module.bytecode().clone())
+        .load_verified_program(case.name, module.clone().into_program().into_verified())
         .unwrap_or_else(|error| panic!("{} ({route:?}): {error}", case.name));
     let selected = runtime.select_program(&loaded).unwrap();
     let retained = case.vector.map(|(initial, _)| {
-        let mut conversion = ConversionContext::new(&runtime, &selected).unwrap();
-        let rooted = conversion.encode(initial.to_vec()).unwrap();
-        *observed_vector.lock().unwrap() = Some(rooted.value(runtime.gc()).unwrap());
+        let rooted = runtime
+            .alloc_array(
+                &selected,
+                kagari_types::ty::Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
+                &initial
+                    .iter()
+                    .copied()
+                    .map(RootedValue::from)
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
+        *observed_vector.lock().unwrap() = Some(rooted.clone());
         rooted
     });
     if let Some(at) = case.cancel_at {
@@ -522,32 +540,32 @@ fn run(
         },
         ..Default::default()
     };
-    let vm = Runtime::new(runtime, context);
-    let session = (case.cancel_call.is_some() || case.cancel_at.is_some()).then(|| {
-        let mut options = vm.runtime().execution_options();
-        options.cancellation = cancellation.clone();
-        vm.runtime().begin_execution(&selected, options).unwrap()
-    });
-    if case.cancel_at.is_some() {
-        vm.runtime().attach_execution_observer().unwrap();
-    }
+    let mut vm = {
+        let mut runtime = runtime;
+        runtime.set_default_context(context);
+        runtime
+    };
+    let mut compiler = NativeCompiler::default();
     let mut backend = CraneliftBackend::for_host().unwrap();
-    for attempt in 0..case.repeat {
-        let outcome = execute_route(&vm, module, &loaded, case, route, &mut backend);
-        assert_outcome(vm.runtime(), case, route, attempt, outcome);
-    }
-    if let Some(reload) = &case.published_reload {
-        let candidate = reload.candidate;
-        let program = candidate_program.expect("published candidate must compile");
-        let old_native = matches!(route, Route::Jit | Route::ArtifactJit).then(|| {
+    let prepared = matches!(route, Route::Jit | Route::ArtifactJit).then(|| {
+        prepare_native(
+            &mut vm,
+            &mut compiler,
+            module,
+            &loaded,
+            ProgramEntry::Main,
+            &mut backend,
+        )
+    });
+    let old_native = case.published_reload.as_ref().and_then(|reload| {
+        matches!(route, Route::Jit | Route::ArtifactJit).then(|| {
             [
                 ProgramEntry::Main,
                 ProgramEntry::Export(reload.native_entry),
             ]
             .map(|entry| {
-                let prepared = vm
-                    .prepare_native(module, &loaded, entry, &mut backend, &Default::default())
-                    .unwrap();
+                let prepared =
+                    prepare_native(&mut vm, &mut compiler, module, &loaded, entry, &mut backend);
                 if matches!(entry, ProgramEntry::Export(_)) {
                     assert!(
                         matches!(prepared, PreparedNativeEntry::Native(_)),
@@ -557,30 +575,64 @@ fn run(
                 }
                 (entry, prepared)
             })
-        });
+        })
+    });
+    vm.collect_garbage().unwrap();
+    let retained_roots = vm.gc_stats().root_registrations;
+    let run = |runtime: &mut Runtime| {
+        if case.cancel_at.is_some() {
+            runtime.attach_execution_observer().unwrap();
+        }
+        for attempt in 0..case.repeat {
+            let outcome = execute_route(runtime, &loaded, case, route, prepared.as_ref());
+            assert_outcome(runtime, &selected, case, route, attempt, outcome);
+        }
+        assert_eq!(
+            runtime.resources().counters().current_call_depth,
+            0,
+            "{} ({route:?}): call resources must be released before session cleanup",
+            case.name
+        );
+    };
+    if case.cancel_call.is_some() || case.cancel_at.is_some() {
+        let mut options = vm.execution_options();
+        options.cancellation = cancellation.clone();
+        let mut session = vm.begin_execution(&selected, options).unwrap();
+        run(session.runtime_mut());
+    } else {
+        run(&mut vm);
+    }
+    if let Some(reload) = &case.published_reload {
+        let candidate = reload.candidate;
+        let program = candidate_program.expect("published candidate must compile");
         // Queue the exact old body before publication; no synchronous activation
         // remains while the host publishes. Its ordinary calls still select current.
         let old_execution = vm
-            .vm
-            .start(
-                &selected,
-                ProgramEntry::Main,
-                &[],
-                vm.runtime().execution_options(),
-            )
+            .start(&selected, ProgramEntry::Main, &[], vm.execution_options())
             .unwrap();
         let stale = vm
-            .runtime()
-            .stage_reload_verified_program(&loaded, None, program.bytecode().clone())
+            .stage_reload_verified_program(&loaded, None, program.program().bytecode().clone())
             .unwrap();
-        vm.reload_program(&loaded, program, Default::default())
+        vm.program(&loaded)
+            .map_err(ReloadValidationError::Runtime)
+            .and_then(|base| base.prepare_replacement(program.program(), &Default::default()))
+            .and_then(|candidate| vm.replace_program(&loaded, &candidate, Default::default()))
             .unwrap();
         let current = loaded.clone();
-        let current_selected = vm.runtime().select_program(&current).unwrap();
+        let current_selected = vm.select_program(&current).unwrap();
+        let current_native = matches!(route, Route::Jit | Route::ArtifactJit).then(|| {
+            prepare_native(
+                &mut vm,
+                &mut compiler,
+                program,
+                &current,
+                ProgramEntry::Main,
+                &mut backend,
+            )
+        });
         assert_ne!(current_selected.key(), selected.key());
-        assert!(vm.runtime().execution_root().is_none());
+        assert!(vm.execution_root().is_none());
         let DriveResult::Complete(result) = vm
-            .vm
             .drive(&old_execution, NonZeroUsize::new(1024).unwrap())
             .unwrap()
         else {
@@ -590,16 +642,14 @@ fn run(
             );
         };
         let result = result.unwrap();
+        let expected =
+            (reload.selected_result)(&mut ConversionContext::new(&mut vm, &selected).unwrap());
         assert!(
-            script_equal(
-                vm.runtime().gc(),
-                &result.value(vm.runtime().gc()).unwrap(),
-                &(reload.selected_result)(vm.runtime().gc()),
-            )
-            .unwrap(),
+            script_equal(&mut vm, &result, &expected).unwrap(),
             "{} ({route:?}): old body must call the current dependency",
             case.name
         );
+        drop(expected);
         drop(result);
         if let Some(entries) = &old_native {
             for (entry, prepared) in entries {
@@ -609,20 +659,20 @@ fn run(
                         // entry, even when the host explicitly requests fallback.
                         for fallback_reason in [None, Some("interpret current entry")] {
                             let error = vm
-                                .vm
-                                .execute_prepared(
+                                .execute_prepared_module(
                                     &selected,
                                     *entry,
                                     PreparedNativeExecution {
                                         prepared,
                                         fallback_reason,
                                     },
+                                    vm.execution_options(),
                                 )
                                 .unwrap_err();
                             assert!(
                                 matches!(
-                                    error.cause(),
-                                    VmError::RuntimeError(error)
+                                    &error,
+                                    error
                                         if error.kind() == RuntimeErrorKind::ModuleValidation
                                 ),
                                 "{} ({route:?}): {error:?}",
@@ -631,75 +681,67 @@ fn run(
                         }
                     }
                     PreparedNativeEntry::Unsupported { .. } => {
-                        let outcome =
-                            vm.vm
-                                .execute_prepared(&selected, ProgramEntry::Main, prepared);
+                        let outcome = vm.execute_prepared_module(
+                            &selected,
+                            ProgramEntry::Main,
+                            prepared,
+                            vm.execution_options(),
+                        );
                         assert_eq!(
                             outcome.as_ref().unwrap().jit.as_ref().unwrap().status,
                             JitExecutionStatus::InterpreterFallback
                         );
-                        assert_outcome(vm.runtime(), candidate, route, 0, outcome);
+                        assert_outcome(&mut vm, &current_selected, candidate, route, 0, outcome);
                     }
                 }
             }
         }
-        assert_outcome(
-            vm.runtime(),
-            candidate,
-            route,
-            0,
-            vm.vm.execute(&selected, ProgramEntry::Main),
-        );
-        assert_outcome(
-            vm.runtime(),
-            candidate,
-            route,
-            0,
-            execute_route(&vm, program, &current, candidate, route, &mut backend),
-        );
-        let before = vm.runtime().modules().loaded_count();
+        let outcome = vm.execute_module(&selected, ProgramEntry::Main, vm.execution_options());
+        assert_outcome(&mut vm, &current_selected, candidate, route, 0, outcome);
+        let outcome = execute_route(&mut vm, &current, candidate, route, current_native.as_ref());
+        assert_outcome(&mut vm, &current_selected, candidate, route, 0, outcome);
+        let before = vm.modules().loaded_count();
         let stale_members = stale.module().members().count();
         assert!(matches!(
-            vm.runtime().publish_staged_reload(stale),
+            vm.publish_staged_reload(stale),
             Err(ReloadValidationError::ModuleNotActive { .. })
         ));
         assert_eq!(
-            vm.runtime().select_program(&current).unwrap().key(),
+            vm.select_program(&current).unwrap().key(),
             current_selected.key()
         );
-        assert_eq!(
-            vm.runtime().modules().loaded_count(),
-            before - stale_members
-        );
-        assert_outcome(
-            vm.runtime(),
-            candidate,
-            route,
-            1,
-            execute_route(&vm, program, &current, candidate, route, &mut backend),
-        );
+        assert_eq!(vm.modules().loaded_count(), before - stale_members);
+        let outcome = execute_route(&mut vm, &current, candidate, route, current_native.as_ref());
+        assert_outcome(&mut vm, &current_selected, candidate, route, 1, outcome);
     }
     assert_eq!(
-        vm.runtime().resources().counters().current_call_depth,
+        vm.resources().counters().current_call_depth,
         0,
         "{} ({route:?}): call resources must be released after success or failure",
         case.name
     );
-    drop(session);
     if let Some((_, expected)) = case.vector {
+        vm.collect_garbage().unwrap();
         assert_eq!(
-            vm.runtime().gc().active_roots(),
-            1,
-            "only the explicit observer root remains"
+            vm.gc_stats().root_registrations,
+            retained_roots,
+            "calls release their roots and preserve the explicit observer root"
         );
-        vm.runtime().collect_garbage().unwrap();
-        let Value::GcHandle(array) = retained.as_ref().unwrap().value(vm.runtime().gc()).unwrap()
-        else {
-            unreachable!()
-        };
+        let owner = vm.select_program(&loaded).unwrap();
+        let mut cx = ConversionContext::new(&mut vm, &owner).unwrap();
+        let array = cx.import(retained.as_ref().unwrap()).unwrap();
+        assert_eq!(cx.array_len(&array).unwrap(), expected.len());
+        let actual = (0..expected.len())
+            .map(|index| {
+                cx.array_element(&array, index)
+                    .unwrap()
+                    .unwrap()
+                    .as_i32()
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
         assert_eq!(
-            vm.runtime().gc().sequence_snapshot(array),
-            Some(expected.iter().copied().map(Value::I32).collect()),
+            actual, expected,
             "{} ({route:?}): post-execution heap state",
             case.name
         );

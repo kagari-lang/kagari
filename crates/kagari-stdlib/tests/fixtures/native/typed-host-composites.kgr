@@ -1,0 +1,15 @@
+pub fn echo(value: Result<Option<((String, i32),)>, String>) -> Result<
+    Option<((String, i32),)>, String
+> {
+    value
+}
+
+pub fn retain(value: (i32, i32)) ->(i32, i32) {
+    value
+}
+
+pub fn tuple(value: (i32, i32)) ->(i32, i32) {
+    value
+}
+
+pub fn unit() {}

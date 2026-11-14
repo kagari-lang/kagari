@@ -1,29 +1,33 @@
 //! Cancellation control never invokes a factory or resumes script instructions.
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, RuntimeErrorKind, reason::CancellationReason},
     error_trace::ErrorTrace,
-    native::binding::NativeResult,
+    native::{binding::NativeResult, conversion::context::inputs::ValueInput},
     session::ExecutionPhase,
     task::{CancellationCause, TaskId, store::TaskState},
-    value::Value,
+    value::carriers::RootedValue,
 };
+
 use std::{mem, sync::atomic::Ordering};
 
 impl Runtime {
     /// Cancelling a terminal Task is a no-op, including after report retirement.
-    pub fn cancel_task(&self, value: &Value) -> NativeResult<()> {
+    pub fn cancel_task(&mut self, value: &RootedValue) -> NativeResult<()> {
+        self.cancel_task_input(ValueInput::Root(value))
+    }
+
+    pub(crate) fn cancel_task_input(&mut self, value: ValueInput<'_, '_>) -> NativeResult<()> {
         self.resources().poll_execution()?;
         if self.execution_options().phase != ExecutionPhase::Ordinary {
             return Err(RuntimeError::execution_phase_violation("task cancellation"));
         }
-        let (id, outcome) = self.gc().task_snapshot(value)?;
-        if outcome.is_some() {
+        let (id, ready) = self.task_state_input(value)?;
+        if ready {
             return Ok(());
         }
         let signal = self
             .tasks
-            .borrow()
             .tasks
             .get(id.0)
             .ok_or_else(|| RuntimeError::module_validation("retired unfinished Task"))?
@@ -35,22 +39,20 @@ impl Runtime {
 
     /// Drain cancelled tasks even if their dispatcher is unavailable. This is a
     /// cleanup capability, not authority to run ready work from another scope.
-    pub fn drain_cancelled_tasks(&self) -> NativeResult<usize> {
+    pub fn drain_cancelled_tasks(&mut self) -> NativeResult<usize> {
         self.require_idle_driver()?;
-        self.gc().ensure_no_native_borrow()?;
         let fault = self
             .resources()
             .ensure_execution_allowed()
             .err()
             .filter(|error| error.kind() == RuntimeErrorKind::EngineFault);
         if fault.is_some() {
-            for (_, scope) in self.tasks.borrow().scopes.iter() {
-                scope.control.closing.store(true, Ordering::Release);
+            for (_, scope) in self.tasks.scopes.iter() {
+                scope.control.status.closing.store(true, Ordering::Release);
             }
         }
         let ids = self
             .tasks
-            .borrow()
             .tasks
             .iter()
             .filter(|(_, task)| {
@@ -63,7 +65,7 @@ impl Runtime {
         let mut failure = None;
         for id in ids {
             let state = {
-                let mut tasks = self.tasks.borrow_mut();
+                let tasks = &mut self.tasks;
                 let record = tasks.tasks.get_mut(id.0).expect("cancelled task record");
                 mem::replace(&mut record.state, TaskState::Driving)
             };
@@ -93,9 +95,7 @@ impl Runtime {
                 .err()
                 .or(selected)
                 .or_else(|| fault.clone())
-                .unwrap_or_else(|| {
-                    RuntimeError::new(RuntimeErrorKind::Cancelled, "task cancelled")
-                });
+                .unwrap_or_else(|| RuntimeError::from(CancellationReason::TaskCancelled));
             let error = match trace {
                 Some(trace) => error.with_trace(trace),
                 None => error,
@@ -109,14 +109,14 @@ impl Runtime {
         failure.map_or(Ok(count), Err)
     }
 
-    pub(crate) fn release_dropped_task_scopes(&self) {
-        let mut tasks = self.tasks.borrow_mut();
+    pub(crate) fn release_dropped_task_scopes(&mut self) {
+        let tasks = &mut self.tasks;
         let ids = tasks
             .scopes
             .iter()
             .filter(|(_, scope)| {
                 scope.control.owner_dropped.load(Ordering::Acquire)
-                    && scope.control.closed.load(Ordering::Acquire)
+                    && scope.control.status.closed.load(Ordering::Acquire)
             })
             .map(|(id, _)| id)
             .collect::<Vec<_>>();
@@ -134,7 +134,6 @@ impl Runtime {
             }
             discarded_scopes.push(tasks.scopes.remove(scope));
         }
-        drop(tasks);
         // User dispatcher destructors must run outside the registry borrow.
         drop(discarded_tasks);
         drop(discarded_scopes);
@@ -143,7 +142,7 @@ impl Runtime {
 
 impl Drop for Runtime {
     fn drop(&mut self) {
-        self.modules().retire_installations();
+        let _ = self.retire_installations();
         let _ = self.close();
     }
 }

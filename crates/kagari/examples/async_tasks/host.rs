@@ -1,8 +1,6 @@
 //! This same host is exercised by the independent source-free feature consumer.
 use super::provider::FakeIo;
-use kagari::{
-    engine::KagariEngine, error::EmbeddingError, program::PreparedProgram, runtime::Runtime,
-};
+use kagari::{engine::KagariEngine, error::EmbeddingError, program::Program, runtime::Runtime};
 use kagari_runtime::{
     error::RuntimeErrorKind,
     native::{completion::CompletionStatus, objects::Object},
@@ -21,7 +19,8 @@ use std::{
 
 type HostResult<T> = Result<T, Box<dyn Error>>;
 
-fn diagnostic(error: EmbeddingError) -> Box<dyn Error> {
+fn diagnostic(error: impl Into<EmbeddingError>) -> Box<dyn Error> {
+    let error = error.into();
     format!("{error:?}").into()
 }
 
@@ -68,27 +67,29 @@ fn settle(runtime: &mut Runtime, wake: &Waker, ready: &Receiver<()>) -> HostResu
     Err("demo exceeded notification bound".into())
 }
 
-pub fn run(engine: KagariEngine, program: PreparedProgram, io: FakeIo) -> HostResult<()> {
+pub fn run(engine: KagariEngine, program: Program, io: FakeIo) -> HostResult<()> {
     let mut runtime = engine.runtime(Default::default());
     let module = runtime
         .load_program(&program, Default::default())
         .map_err(diagnostic)?;
+    runtime.collect_garbage()?;
+    let baseline = runtime.gc_stats();
     let (send, ready) = mpsc::sync_channel(1);
     let wake = Waker::from(Arc::new(Notify(send)));
     assert!(runtime.poll(&mut Context::from_waker(&wake)).is_pending());
     let scope = runtime.create_task_scope(&module).map_err(diagnostic)?;
     let make = runtime
-        .function::<(), Object>(&module.root(), "job")
+        .bind_function::<(), Object>(&module.root(), "job")
         .map_err(diagnostic)?;
     let handler = runtime
-        .function::<(TaskScope, Object), bool>(&module.root(), "handle")
+        .bind_function::<(TaskScope, Object), bool>(&module.root(), "handle")
         .map_err(diagnostic)?;
     let ping = runtime
-        .function::<(), i32>(&module.root(), "ping")
+        .bind_function::<(), i32>(&module.root(), "ping")
         .map_err(diagnostic)?;
     let job = runtime.call(&make, ()).map_err(diagnostic)?;
     let total = runtime
-        .field::<i32>(job.object_type(), "total")
+        .bind_field::<i32>(job.object_type(), "total")
         .map_err(diagnostic)?;
     assert!(
         runtime
@@ -159,10 +160,23 @@ pub fn run(engine: KagariEngine, program: PreparedProgram, io: FakeIo) -> HostRe
     assert_eq!(io.cancelled(), 1);
     assert_eq!(late.completion.complete(Ok(999)), CompletionStatus::Stale);
     println!("Task cancelled by scope close; late reply rejected");
-    drop((scope, job));
-    runtime.runtime().collect_garbage()?;
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
-    assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+    drop((scope, job, make, handler, ping, total));
+    // Current publication owns prepared environments and String constants. Its
+    // cold equivalent lets the host check execution cleanup independently.
+    let selected = runtime.select_program(&module).map_err(diagnostic)?;
+    let replacement = runtime
+        .stage_reload_verified_program(&module, None, selected.verified_program().clone())
+        .map_err(diagnostic)?;
+    runtime
+        .publish_staged_reload(replacement)
+        .map_err(diagnostic)?;
+    runtime.collect_garbage()?;
+    assert!(runtime.validate_executable_module(&selected).is_err());
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
     runtime.close().map_err(diagnostic)?;
     Ok(())
 }

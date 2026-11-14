@@ -1,11 +1,17 @@
 use crate::{
     Runtime,
+    closure::ClosureMode,
     error::RuntimeErrorKind,
-    module::{ExecutableModule, VerifiedProgram, dispatch::CallRouteKind},
+    executor::Executor,
+    module::{
+        ExecutableModule, VerifiedProgram, admission::DefinitionAdmission, dispatch::CallRouteKind,
+    },
     native::{
         binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
+        conversion::{arguments::ArgumentValues, context::ConversionContext},
         declarations::FunctionDecl,
+        future::claims::FutureContract,
         module::NativeModule,
         storage::NativeStorage,
         types::Type,
@@ -14,7 +20,6 @@ use crate::{
         FunctionSource, FunctionSourceTarget, ProgramSourceSnapshot, SourceDeclaration,
         SourceQuery, SourceUnavailableReason,
     },
-    value::Value,
 };
 use kagari_bytecode::{
     artifact::{ArtifactCompatibility, KbcArtifact},
@@ -128,14 +133,17 @@ fn source_only_inventory_imports_without_reverification_and_honors_cancellation(
             .all(|(a, b)| Arc::ptr_eq(a, b))
     );
     let context = DefinitionContext::new().unwrap();
-    let imported = attached.normalized(&context, &cancel).unwrap();
-    assert!(attached.same_version(&imported));
-    let imported_package = imported.source_package().unwrap();
+    let admission = DefinitionAdmission::prepare(&attached, &context, &cancel).unwrap();
+    let imported_package = attached.source_package().unwrap();
     imported_package
         .records()
         .visit_definition_ids(
             &mut |id| {
-                assert_eq!(id.table(), imported.definitions().id());
+                let mapped = admission.runtime_id(*id).unwrap();
+                let original = attached.definitions().resolve(*id).unwrap();
+                let local = admission.target().resolve(mapped).unwrap();
+                assert_eq!(original.to_path(), local.to_path());
+                assert_eq!(admission.product_id(mapped), Some(*id));
                 Ok(())
             },
             &cancel,
@@ -150,14 +158,14 @@ fn source_only_inventory_imports_without_reverification_and_honors_cancellation(
             )
             .is_err()
     );
-    let rebound = imported
+    let rebound = attached
         .clone()
         .with_source_package(package.clone(), &cancel)
         .unwrap();
     assert!(rebound.same_version(&attached));
     let mut runtime = Runtime::default();
     let program = runtime
-        .load_verified_program("inventory", imported)
+        .load_verified_program("inventory", attached.clone())
         .unwrap();
     let snapshot = runtime.source_snapshot(&program).unwrap();
     assert_eq!(
@@ -182,16 +190,13 @@ fn source_only_inventory_imports_without_reverification_and_honors_cancellation(
         RuntimeErrorKind::Cancelled
     );
     assert_eq!(
-        attached
-            .normalized(&context, &cancelled)
+        DefinitionAdmission::prepare(&attached, &context, &cancelled)
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::Cancelled
     );
     assert_eq!(
-        rebound
-            .clone()
-            .normalized(&context, &cancelled)
+        DefinitionAdmission::prepare(&rebound, runtime.definition_context(), &cancelled)
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::Cancelled
@@ -240,22 +245,26 @@ fn current_routes_exact_values_frames_and_source_only_history() {
                 == CallRouteKind::BodyOwned
         })
         .unwrap();
-    let root = runtime
-        .root_value(
-            runtime
-                .make_closure(&old, generated.id, vec![], None)
-                .unwrap(),
-        )
-        .unwrap();
+    let root = {
+        let mut conversion = ConversionContext::new(&mut runtime, &old).unwrap();
+        let value = conversion
+            .allocate_script_closure(generated.id, &[], None, ClosureMode::Retained)
+            .unwrap();
+        conversion.retain(&value).unwrap()
+    };
     let exact = runtime.value_source_target(&root).unwrap();
     let frame_target = {
-        let stack = runtime.enter_execution_stack(&old).unwrap();
-        stack
-            .push_closure(&runtime, &root.value(runtime.gc()).unwrap(), &[], None)
-            .unwrap();
-        let frame = stack.current().unwrap();
-        assert!(Runtime::default().frame_source_target(&frame).is_err());
-        runtime.frame_source_target(&frame).unwrap()
+        let mut stack_activation = runtime.enter_execution_stack(&old).unwrap();
+        stack_activation
+            .with(|runtime, stack| {
+                stack
+                    .push_rooted_closure(runtime, &root, ArgumentValues::scalars(&[]))
+                    .unwrap();
+                let frame = stack.current(runtime).unwrap();
+                assert!(Runtime::default().frame_source_target(&frame).is_err());
+                Ok(runtime.frame_source_target(&frame).unwrap())
+            })
+            .unwrap()
     };
     let next = format!(
         "// moved unchanged definitions\r\n{}",
@@ -351,14 +360,11 @@ fn source_free_packages_stripping_mismatch_and_locator_authority(#[case] retaine
     let other = runtime.load_verified_program("other", code).unwrap();
     let snapshot = runtime.source_snapshot(&program).unwrap();
     let locator = declaration(&snapshot, "value");
-    let query = runtime
-        .function_source(
-            &runtime
-                .bind_function::<(), i32>(&program.root(), "value")
-                .unwrap()
-                .source_target(),
-        )
-        .unwrap();
+    let target = runtime
+        .bind_function::<(), i32>(&program.root(), "value")
+        .unwrap()
+        .source_target();
+    let query = runtime.function_source(&target).unwrap();
     if retained {
         assert!(available(query).text.contains("{ 1 }"));
         assert!(
@@ -460,7 +466,7 @@ fn native_origins_never_fabricate_text() {
 
 #[test]
 fn cold_future_observation_is_exact_and_does_not_claim_the_body() {
-    let text = "pub async fn work() -> i32 { 7 } fn main() {}";
+    let text = include_str!("../../tests/fixtures/source/cold-observation.kgr");
     let provider = future_provider();
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(vec![Arc::new(provider.to_declaration())]);
@@ -482,49 +488,46 @@ fn cold_future_observation_is_exact_and_does_not_claim_the_body() {
         .iter()
         .find(|function| function.name == "work")
         .unwrap();
-    let resume = owner
-        .bytecode
-        .functions
-        .iter()
-        .find(|function| function.metadata.effects.may_suspend)
-        .unwrap();
-    let root = {
-        let stack = runtime.enter_execution_stack(&owner).unwrap();
-        stack
-            .push(&runtime, owner.slot(), factory.id, &[], None)
-            .unwrap();
-        let value = stack
-            .make_future(
-                &runtime,
-                resume.id,
-                vec![],
-                factory.metadata.semantic.result.as_ref().unwrap(),
-            )
-            .unwrap();
-        runtime.root_value(value).unwrap()
-    };
+    // Execute the actual cold factory. No manual capture pack or old heap
+    // accessor constructs the Future or claims it during source inspection.
+    let root = Executor::new(
+        &mut runtime,
+        &owner,
+        factory.id,
+        ArgumentValues::scalars(&[]),
+    )
+    .unwrap()
+    .run(|runtime, stack, value| stack.retain_result(runtime, value))
+    .unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     let exact = runtime.value_source_target(&root).unwrap();
+    let observed_text = available(runtime.function_source(&exact).unwrap()).text;
+    assert!(observed_text.contains("pub async fn work() -> i32"));
+    assert!(observed_text.contains("\n    7\n"));
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
     assert!(
-        available(runtime.function_source(&exact).unwrap())
-            .text
-            .contains("{ 7 }")
-    );
-    let Value::GcHandle(id) = root.value(runtime.gc()).unwrap() else {
-        panic!("Future value")
-    };
-    assert!(
-        runtime.gc().future_script(id).unwrap().is_some(),
+        runtime
+            .memory
+            .scope(&runtime.resources, |cx, _| {
+                let value = root.get(cx)?;
+                FutureContract::read(cx, value).map(|contract| contract.script.is_some())
+            })
+            .unwrap(),
         "inspection must not claim the Future"
     );
-    drop(runtime.gc().take_cold_future(id).unwrap());
+    let claimed = {
+        let mut scope = runtime.host_scope(&[]).unwrap();
+        let value = scope.import(&root).unwrap();
+        scope.runtime_mut().claim_future(&value).unwrap()
+    };
+    drop(claimed);
     let consumed = runtime.value_source_target(&root).unwrap();
     assert!(
         matches!(runtime.function_source(&consumed).unwrap(), SourceQuery::Unavailable(source) if source.reason == SourceUnavailableReason::NoObservedBody && source.publication == Some(owner.publication_token()))
     );
-    assert!(
-        available(runtime.function_source(&exact).unwrap())
-            .text
-            .contains("{ 7 }")
+    assert_eq!(
+        available(runtime.function_source(&exact).unwrap()).text,
+        observed_text
     );
 }
 

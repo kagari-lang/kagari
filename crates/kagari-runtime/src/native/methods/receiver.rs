@@ -2,7 +2,6 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    gc::roots::RootedValue,
     module::{ExecutableModule, retention::ProgramLease},
     native::{
         binding::NativeResult,
@@ -10,7 +9,7 @@ use crate::{
         conversion::{IntoKagari, KagariType, context::ConversionContext},
         types::Type,
     },
-    value::Value,
+    value::{carriers::RootedValue, view::ValueView},
 };
 use kagari_types::ty::Ty;
 
@@ -80,11 +79,11 @@ impl KagariType for RetainedReceiver {
 }
 
 impl IntoKagari for RetainedReceiver {
-    fn into_kagari(
+    fn into_kagari<'call>(
         self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ValueView<'call>> {
         self.applied.validate(cx.runtime())?;
         if !self
             .applied
@@ -94,10 +93,7 @@ impl IntoKagari for RetainedReceiver {
         {
             return Err(RuntimeError::module_validation("method receiver scope"));
         }
-        let value = self
-            .root
-            .value(cx.runtime().gc())
-            .ok_or_else(|| RuntimeError::module_validation("foreign or expired method receiver"))?;
+        let value = cx.import(&self.root)?;
         cx.check_value(expected, &value)?;
         Ok(value)
     }

@@ -1,0 +1,8 @@
+fn helper(value: i32) -> i32 {
+    value + 1
+}
+
+fn main() -> i32 {
+    val seed = 2;
+    helper(seed)
+}

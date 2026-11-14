@@ -2,7 +2,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::{arguments::TypeArgument, bindings::TypeBindings, compatibility::TypeView},
-    module::{Module, ModuleEpochRetention},
+    module::{Module, ModuleEpochRetention, managed::source::RevisionSource},
     native::{
         binding::NativeResult,
         conversion::{arguments::KagariArguments, context::ConversionContext},
@@ -19,7 +19,7 @@ use std::{marker::PhantomData, slice, sync::Arc};
 
 impl Runtime {
     pub fn bind_enum_type(
-        &self,
+        &mut self,
         owner: &Module,
         name: &str,
         arguments: &[TypeArgument],
@@ -36,12 +36,11 @@ impl Runtime {
     }
 
     pub fn bind_enum_type_declaration(
-        &self,
+        &mut self,
         owner: &Module,
         declaration: &DefinitionPath,
         arguments: &[TypeArgument],
     ) -> NativeResult<EnumType> {
-        self.gc().ensure_no_native_borrow()?;
         let snapshot = self.capture_module(owner)?;
         let owner = &snapshot.root;
         for argument in arguments {
@@ -106,7 +105,7 @@ impl Runtime {
             return Err(invalid());
         }
         let environment = Arc::new(TypeBindings::new(
-            self.definition_context(),
+            member.definitions(),
             declared.generic_params.clone(),
             arguments.to_vec(),
         )?);
@@ -124,7 +123,11 @@ impl Runtime {
             .pop()
             .ok_or_else(invalid)?;
         let program = self
-            .retain_program(&member, ModuleEpochRetention::RuntimeValue)
+            .retain_program(
+                &member,
+                ModuleEpochRetention::RuntimeValue,
+                RevisionSource::Current,
+            )
             .ok_or_else(invalid)?;
         Ok(EnumType(Arc::new(TypeRecord {
             owner: member,
@@ -134,7 +137,7 @@ impl Runtime {
     }
 
     pub fn bind_enum_variant<A: KagariArguments>(
-        &self,
+        &mut self,
         ty: &EnumType,
         name: &str,
     ) -> NativeResult<EnumVariant<A>> {
@@ -142,10 +145,9 @@ impl Runtime {
     }
 
     pub fn bind_enum_variant_declaration<A: KagariArguments>(
-        &self,
+        &mut self,
         member: &EnumMember,
     ) -> NativeResult<EnumVariant<A>> {
-        self.gc().ensure_no_native_borrow()?;
         self.resources().ensure_execution_allowed()?;
         self.validate_executable_module(member.enum_type.owner())?;
         let mut payload = Vec::new();

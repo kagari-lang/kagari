@@ -4,8 +4,9 @@ use crate::{
     error::RuntimeError,
     frame::types::{TypeEnvironment, arguments::TypeArgument},
     module::{ExecutableModule, VerifiedProgram},
-    native::binding::NativeResult,
-    value::Value,
+    native::{binding::NativeResult, conversion::context::ConversionContext},
+    objects::interfaces::InterfaceRequest,
+    value::view::ValueView,
 };
 use kagari_bytecode::{program::ModuleRef, trait_bounds::views::native_result_target};
 use kagari_contract::native_import::NativeImport;
@@ -61,32 +62,34 @@ impl LinkedResultAdapter {
         })
     }
 
-    pub(crate) fn convert(
+    pub(crate) fn convert<'call>(
         &self,
-        runtime: &Runtime,
-        owner: &ExecutableModule,
-        value: Value,
-    ) -> NativeResult<Value> {
-        let _root = runtime
-            .root_value(value)
-            .ok_or_else(|| RuntimeError::module_validation("native result root"))?;
+        cx: &mut ConversionContext<'call>,
+        value: ValueView<'_>,
+    ) -> NativeResult<ValueView<'call>> {
+        let owner = cx.owner();
         let resolved;
         let arguments = match &self.applied {
             Some(arguments) => arguments,
             None => {
-                resolved = runtime.resolve_type_arguments(owner, &self.arguments)?;
+                resolved = cx
+                    .runtime()
+                    .resolve_type_arguments(owner, &self.arguments)?;
                 &resolved
             }
         };
         let implementation = owner
             .member(self.owner)
             .ok_or_else(|| RuntimeError::module_validation("native result owner"))?;
-        runtime.make_interface_applied(
-            &implementation,
-            self.table,
-            arguments,
-            self.environment.as_ref(),
-            value,
+        cx.make_interface(
+            InterfaceRequest {
+                implementation: &implementation,
+                table: self.table,
+                arguments,
+                environment: self.environment.as_ref(),
+                view: false,
+            },
+            &value,
         )
     }
 }

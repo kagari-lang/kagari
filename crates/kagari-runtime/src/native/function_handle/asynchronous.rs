@@ -2,18 +2,19 @@
 use crate::{
     Runtime,
     error::RuntimeError,
+    execution_metadata::managed::sources::MetadataSource,
     frame::{
         factory::{FactoryEntry, QueuedFactory},
         types::arguments::TypeArgument,
     },
-    module::{Module, dispatch::CallRoute},
+    module::{Module, dispatch::CallRoute, managed::source::RevisionSource},
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
         composition::future_output,
         conversion::{
             FromKagari, KagariType,
-            arguments::{IntoKagariArguments, KagariArguments, encode_arguments},
+            arguments::{IntoKagariArguments, KagariArguments, PreparedArguments},
             context::ConversionContext,
         },
         function_handle::Function,
@@ -57,11 +58,14 @@ impl<R: KagariType> KagariType for FutureOutput<R> {
 
 impl Runtime {
     pub fn bind_async_function<A: KagariArguments + 'static, R: KagariType + 'static>(
-        &self,
+        &mut self,
         owner: &Module,
         path: &str,
     ) -> NativeResult<AsyncFunction<A, R>> {
-        AsyncFunction::from_function(self, self.bind_function(owner, path)?)
+        {
+            let function = self.bind_function(owner, path)?;
+            AsyncFunction::from_function(self, function)
+        }
     }
 }
 
@@ -71,11 +75,15 @@ impl<A, R> AsyncFunction<A, R> {
     }
 
     pub(crate) fn from_function(
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         function: Function<A, FutureOutput<R>>,
     ) -> NativeResult<Self> {
         let prepared = function.prepare_call(runtime)?;
-        future_output(runtime, prepared.owner(), &prepared.signature.result)?;
+        future_output(
+            runtime,
+            prepared.owner(),
+            &prepared.selection.signature.result,
+        )?;
         Ok(Self { function })
     }
 
@@ -89,7 +97,7 @@ impl<A: IntoKagariArguments, R: FromKagari + Send + 'static> AsyncFunction<A, R>
     /// receiver polls only results; a backend scheduler must drive the runtime.
     pub fn schedule(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         arguments: A,
         mut options: ExecutionOptions,
     ) -> NativeResult<ScheduledResult<R>> {
@@ -103,29 +111,61 @@ impl<A: IntoKagariArguments, R: FromKagari + Send + 'static> AsyncFunction<A, R>
         let external = options.cancellation.clone();
         options.cancellation = Default::default();
         let prepared = self.function.prepare_call(runtime)?;
+        let prepared = &prepared.selection;
         let output = future_output(runtime, prepared.owner(), &prepared.signature.result)?;
-        let session = runtime.begin_pinned_execution_with_options(&prepared, options)?;
-        let execution = runtime.initialize_owned_factory(session, external, || {
-            let mut cx = ConversionContext::new(runtime, prepared.owner())?;
-            let (roots, values) = encode_arguments(&mut cx, &prepared.signature.params, arguments)?;
-            runtime.gc().validate_async_values(&values)?;
+        let session = runtime.begin_pinned_execution_with_options(prepared, options)?;
+        let mut completion_environment = None;
+        let execution = Runtime::initialize_owned_factory(session, external, |runtime| {
+            let execution = runtime
+                .resources()
+                .active_session()
+                .ok_or_else(|| RuntimeError::module_validation("factory argument execution"))?
+                .id;
+            completion_environment = prepared.admit_owned_environment(runtime, execution)?;
+            let mut cx = ConversionContext::for_selected(
+                runtime,
+                prepared.owner(),
+                execution,
+                prepared.body_origin(),
+                completion_environment
+                    .as_ref()
+                    .map(MetadataSource::AdmittedEnvironment),
+            )?;
+            let mapping = PreparedArguments::<A>::from_binding(&cx, &prepared.signature.params);
+            let values = mapping.encode(&mut cx, arguments)?;
+            let arguments = cx.queue_arguments(values)?;
             cx.poll()?;
             Ok(QueuedFactory {
                 owner: prepared.owner().clone(),
                 future: prepared.signature.result.clone(),
                 entry: FactoryEntry::Pinned {
                     function: prepared.clone(),
-                    arguments: values,
-                    roots,
+                    arguments,
                 },
             })
         })?;
+        let invocation = execution.id;
         let owner = prepared.owner().clone();
         runtime.schedule_execution(execution, move |runtime, root| {
-            let value = root
-                .value(runtime.gc())
-                .ok_or_else(|| RuntimeError::module_validation("async result root"))?;
-            ConversionContext::new(runtime, &owner)?.decode_prepared(&output, &value)
+            if runtime.resources().active_session().map(|state| state.id) != Some(invocation) {
+                return Err(RuntimeError::module_validation(
+                    "factory completion execution",
+                ));
+            }
+            let origin = runtime
+                .admitted_origin(&owner)?
+                .ok_or_else(|| RuntimeError::module_validation("factory completion body source"))?;
+            let mut conversion = ConversionContext::for_selected(
+                runtime,
+                &owner,
+                invocation,
+                RevisionSource::Execution(origin),
+                completion_environment
+                    .as_ref()
+                    .map(MetadataSource::AdmittedEnvironment),
+            )?;
+            let value = conversion.import(root)?;
+            conversion.decode_prepared(&output, &value)
         })
     }
 }

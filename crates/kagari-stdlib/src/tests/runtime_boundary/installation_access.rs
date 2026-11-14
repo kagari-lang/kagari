@@ -1,6 +1,10 @@
 use super::support;
+use crate::tests::support::bytecode::load_bytecode;
 use rstest::rstest;
 
+use crate::tests::support::native::invoke::invoke;
+use crate::tests::support::native::program::ProgramFixture;
+use crate::tests::support::native::program::free_function_program;
 use crate::{declarations::StandardDeclarations, namespaces};
 use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
 use kagari_common::{
@@ -18,24 +22,19 @@ use kagari_runtime::{
     native::{
         binding::NativeResult,
         builder::ModuleBuilder,
-        context::CallContext,
+        context::NativeCall,
         declarations::{FunctionDecl, MethodDecl},
+        host,
         module::NativeModule,
         types::Type,
     },
     reload::ReloadValidationError,
     session::ExecutionOptions,
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::declaration::{NativeDeclaration, TraitDef, host::HostCallPolicy};
-use support::{
-    native::{
-        invoke::invoke,
-        program::{ProgramFixture, free_function_program},
-    },
-    update_publication::publish_without_execution,
-};
+use support::update_publication::publish_without_execution;
 
 #[test]
 fn installed_function_needs_no_execution_permissions() {
@@ -51,24 +50,26 @@ fn installed_function_needs_no_execution_permissions() {
         )
         .unwrap();
     builder
-        .bind(function, |_: &HostCallContext<'_>, _: &[Value]| {
-            Ok(Value::I32(42))
-        })
+        .bind(
+            function,
+            host::callback(|_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
+                Ok(ValueView::from(42i32))
+            }),
+        )
         .unwrap();
     let module = builder.finish().unwrap();
     let program = free_function_program(&module.to_declaration());
     let mut runtime = Runtime::default();
-    assert!(
-        runtime
-            .load_program("uninstalled", program.clone())
-            .is_err()
-    );
+    assert!(load_bytecode(&mut runtime, "uninstalled", program.clone()).is_err());
     assert_eq!(runtime.modules().loaded_count(), 0);
     module.install(&mut runtime).unwrap();
-    let loaded = runtime.load_program("installed", program).unwrap();
+    let loaded = load_bytecode(&mut runtime, "installed", program).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    assert_eq!(invoke(&runtime, &loaded, 0, &[]).unwrap(), Value::I32(42));
+    assert_eq!(
+        invoke(&mut runtime, &loaded, 0, &[]).unwrap().as_i32(),
+        Some(42)
+    );
 }
 
 #[test]
@@ -87,19 +88,24 @@ fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
         )
         .unwrap();
     builder
-        .bind(function, move |_: &HostCallContext<'_>, _: &[Value]| {
-            callback_cancel.cancel();
-            Ok(Value::I32(42))
-        })
+        .bind(
+            function,
+            host::callback(move |_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
+                callback_cancel.cancel();
+                Ok(ValueView::from(42i32))
+            }),
+        )
         .unwrap();
     let module = builder.finish().unwrap();
     let program = free_function_program(&module.to_declaration());
     let mut runtime = Runtime::default();
     module.install(&mut runtime).unwrap();
-    let loaded = runtime.load_program("cancel", program).unwrap();
+    let loaded = load_bytecode(&mut runtime, "cancel", program).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let session = runtime
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
+    let mut session = runtime
         .begin_execution(
             &loaded,
             ExecutionOptions {
@@ -109,19 +115,26 @@ fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
         )
         .unwrap();
     assert_eq!(
-        invoke(&runtime, &loaded, 0, &[]).unwrap_err().kind(),
+        invoke(session.runtime_mut(), &loaded, 0, &[])
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::Cancelled
     );
     assert_eq!(
-        runtime.resources().poll_execution().unwrap_err().kind(),
+        session
+            .runtime()
+            .resources()
+            .poll_execution()
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::Cancelled
     );
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(session.runtime().gc_stats().root_registrations, roots);
     drop(session);
     let _next = runtime
         .begin_execution(&loaded, ExecutionOptions::default())
         .unwrap();
-    runtime.resources().poll_execution().unwrap();
+    _next.runtime().resources().poll_execution().unwrap();
 }
 
 #[rstest]
@@ -172,22 +185,17 @@ fn ordinary_installed_traits_require_exact_contracts_without_calls(#[case] priva
     };
     // A plain declaration alone has no native privilege or installation dependency.
     let mut runtime = Runtime::default();
-    runtime
-        .load_program("plain", program(contract.clone(), false))
-        .unwrap();
+    load_bytecode(&mut runtime, "plain", program(contract.clone(), false)).unwrap();
     installed.install(&mut runtime).unwrap();
-    let active = runtime
-        .load_program("registered", program(contract.clone(), false))
-        .unwrap();
+    let active =
+        load_bytecode(&mut runtime, "registered", program(contract.clone(), false)).unwrap();
     let _active_program = active;
-    runtime
-        .load_program("private", program(contract.clone(), true))
-        .unwrap();
+    load_bytecode(&mut runtime, "private", program(contract.clone(), true)).unwrap();
     let mut forged = contract;
     forged.methods[0].params[0].name = "forged_receiver".into();
     let candidate = program(forged.clone(), private);
     VerifiedProgram::new(candidate.clone(), &context).unwrap();
-    assert!(runtime.load_program("forged", candidate.clone()).is_err());
+    assert!(load_bytecode(&mut runtime, "forged", candidate.clone()).is_err());
     assert!(
         runtime
             .stage_reload_program(&_active_program, Some("registered".into()), candidate)
@@ -207,7 +215,7 @@ fn native_declarations_require_exact_installation_without_calls() {
         .define_function(FunctionDecl::new("answer").returns(Type::i32()))
         .unwrap();
     builder
-        .bind(function, |_: &mut CallContext<'_>| -> NativeResult<i32> {
+        .bind(function, |_: &mut NativeCall<'_>| -> NativeResult<i32> {
             panic!("declaration validation must not execute native code")
         })
         .unwrap();
@@ -246,24 +254,14 @@ fn native_declarations_require_exact_installation_without_calls() {
     };
     let mut runtime = Runtime::default();
     VerifiedProgram::new(program(contract.clone()), &context).unwrap();
-    assert!(
-        runtime
-            .load_program("uninstalled", program(contract.clone()))
-            .is_err()
-    );
+    assert!(load_bytecode(&mut runtime, "uninstalled", program(contract.clone())).is_err());
     installed.install(&mut runtime).unwrap();
-    let active = runtime
-        .load_program("registered", program(contract.clone()))
-        .unwrap();
+    let active = load_bytecode(&mut runtime, "registered", program(contract.clone())).unwrap();
     let _active_program = active;
     let mut forged = contract;
     forged.function.return_type = Type::bool().abi().clone();
     VerifiedProgram::new(program(forged.clone()), &context).unwrap();
-    assert!(
-        runtime
-            .load_program("forged", program(forged.clone()))
-            .is_err()
-    );
+    assert!(load_bytecode(&mut runtime, "forged", program(forged.clone())).is_err());
     assert!(
         runtime
             .stage_reload_program(&_active_program, Some("registered".into()), program(forged))
@@ -322,14 +320,9 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
             DefinitionMetadata::checked(context.snapshot(), program, &Default::default()).unwrap()
         };
         let mut runtime = Runtime::default();
-        assert!(
-            runtime
-                .load_program("uninstalled_core", program(base.clone()))
-                .is_err()
-        );
+        assert!(load_bytecode(&mut runtime, "uninstalled_core", program(base.clone())).is_err());
         NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
-        runtime
-            .load_program("core", program(base.clone()))
+        load_bytecode(&mut runtime, "core", program(base.clone()))
             .unwrap_or_else(|error| panic!("{:?}: {error}", definition.identity));
         let missing_name = base
             .public_items
@@ -345,18 +338,10 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
         missing.public_items.retain(
             |item| !matches!(item, PublicItem::Trait(trait_) if trait_.name == missing_name),
         );
-        assert!(
-            runtime
-                .load_program("missing_core", program(missing))
-                .is_err()
-        );
+        assert!(load_bytecode(&mut runtime, "missing_core", program(missing)).is_err());
         let mut duplicate = base.clone();
         duplicate.public_items.push(base.public_items[0].clone());
-        assert!(
-            runtime
-                .load_program("duplicate_core", program(duplicate))
-                .is_err()
-        );
+        assert!(load_bytecode(&mut runtime, "duplicate_core", program(duplicate)).is_err());
     }
 
     // Renaming self changes interface eligibility in the complete library closure.
@@ -388,9 +373,7 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
     VerifiedProgram::new(program(base.clone()), &context).unwrap();
     let mut runtime = Runtime::default();
     NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
-    let active = runtime
-        .load_program("public_core", program(base.clone()))
-        .unwrap();
+    let active = load_bytecode(&mut runtime, "public_core", program(base.clone())).unwrap();
     let _active_program = active;
     let mut forged = base;
     let contract = forged
@@ -405,9 +388,7 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
     let contract = contract.clone();
     let forged = program(forged);
     VerifiedProgram::new(forged.clone(), &context).unwrap();
-    let error = runtime
-        .load_program("forged_core", forged.clone())
-        .unwrap_err();
+    let error = load_bytecode(&mut runtime, "forged_core", forged.clone()).unwrap_err();
     assert!(
         error
             .to_string()
@@ -432,7 +413,7 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
         ..Default::default()
     });
     VerifiedProgram::new(private.clone(), &context).unwrap();
-    let error = runtime.load_program("private_core", private).unwrap_err();
+    let error = load_bytecode(&mut runtime, "private_core", private).unwrap_err();
     assert!(
         error
             .to_string()

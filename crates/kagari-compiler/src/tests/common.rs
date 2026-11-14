@@ -101,6 +101,7 @@ pub fn standard_array_index_binding() -> DefinitionPath {
     )
 }
 
+/* stdlib test support paused (NC01-NC06).
 pub fn standard_vec_binding(name: &str) -> DefinitionPath {
     let contract = match name {
         "push" => None,
@@ -147,7 +148,7 @@ pub fn standard_vec_binding(name: &str) -> DefinitionPath {
             matches_interface
         },
     )
-}
+} */
 
 pub fn program_ok(text: &str) -> CheckedProgram {
     let mut sources = SourceDatabase::default();

@@ -1,0 +1,39 @@
+use std::collections::{ HashMap };
+
+use std::hash::{ Hash };
+
+struct Key {
+    val value: i32
+}
+
+impl PartialEq for Key {
+    fn eq(self, other: Key) -> bool {
+        self.value == other.value
+    }
+}
+
+impl Eq for Key {}
+
+impl Hash for Key {
+    fn hash(self) -> i64 {
+        7
+    }
+}
+
+fn main() -> i32 {
+    val map = HashMap::new();
+    map.insert(Key { value: 1 }, 20);
+    map.insert(Key { value: 2 }, 22);
+    map.insert(Key { value: 1 }, 21);
+    val second = Key { value: 2 };
+    val first = Key { value: 1 };
+    val found = map.get(first);
+    if map.len() == (2 as u64) && map.contains_key(second) {
+        match found {
+            Some(value) => value + 21,
+            None => 0
+        }
+    } else {
+        0
+    }
+}

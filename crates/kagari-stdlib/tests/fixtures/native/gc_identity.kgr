@@ -1,0 +1,7 @@
+struct Empty {
+    val value: ()
+}
+
+fn main() ->([i32], Empty) {
+    ([], Empty { value: () })
+}

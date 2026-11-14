@@ -1,7 +1,7 @@
 //! One mutable loan/finalization kernel for Root callbacks and scoped handles.
 
 use crate::{
-    access::{Access, Mutation, ObjectMut, Retention},
+    access::{Access, ChargeState, Mutation, ObjectMut, Retention},
     error::GcError,
     heap::{Heap, Phase},
     object::{GcObject, ObjectRef},
@@ -92,6 +92,7 @@ impl Access<'_> {
             object,
             mutation,
             finished: false,
+            charge_state: ChargeState::Dirty,
             panicking_on_entry: thread::panicking(),
         })
     }
@@ -105,6 +106,7 @@ impl<'op, T: GcObject> ObjectMut<'op, T> {
         &mut self,
         operation: impl for<'scope> FnOnce(&'scope mut T, &mut Mutation<'scope, T>) -> R,
     ) -> thread::Result<R> {
+        self.charge_state = ChargeState::Dirty;
         let (result, admitted, continuation, force_restart) = {
             let parent = &mut self.mutation;
             let mut mutation = Mutation {
@@ -151,12 +153,60 @@ impl<'op, T: GcObject> ObjectMut<'op, T> {
     /// Honor with_object_mut's complete provider contract. Do not expose general
     /// mutable T to safe callers, bypass barriers/charge admission, or let owned
     /// edges escape. A safe wrapper may project a scalar field whose mutation
-    /// cannot change traced edges, scan coordinates or accounted capacity.
+    /// cannot change traced edges, scan coordinates or accounted charge.
     /// Safe wrappers must tolerate mem::forget: never rely on guard destruction
-    /// alone to commit capacity changes or establish valid traced storage. Finish
-    /// capacity-changing provider operations before exposing a safe result.
+    /// alone to commit charge changes or establish valid traced storage. Call
+    /// commit_accounting or finish after changing charge, before exposing a safe
+    /// result that may be forgotten. Reference edits still require publication.
     pub unsafe fn parts(&mut self) -> (&mut T, &mut Mutation<'op, T>) {
+        self.charge_state = ChargeState::Dirty;
         (self.object, &mut self.mutation)
+    }
+
+    /// Commit this provider's admitted bytes and logical units while retaining
+    /// the exclusive loan. The scanner fallback remains installed even if this
+    /// guard is subsequently forgotten. A later parts/apply edit needs a new
+    /// checkpoint; finish/Drop performs it automatically when needed.
+    /// Errors fault the heap, as with finalization, and are not retried by Drop.
+    /// This is cleanup of an admitted loan, not new access or growth admission.
+    pub fn commit_accounting(&mut self) -> Result<(), GcError> {
+        match self.charge_state {
+            ChargeState::Committed => return Ok(()),
+            ChargeState::Failed => return Err(GcError::Faulted),
+            ChargeState::Dirty => {}
+        }
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let charge = self.object.charge();
+            if charge.bytes > self.mutation.admitted_bytes {
+                return Err(GcError::Provider("capacity growth was not admitted"));
+            }
+            let indirect = self.mutation.ledger.check(
+                self.mutation.old_charge.bytes,
+                charge.bytes,
+                self.mutation.max_indirect,
+            )?;
+            let units = self
+                .mutation
+                .ledger
+                .check_units(self.mutation.old_charge.units, charge.units)?;
+            self.mutation.ledger.indirect = indirect;
+            self.mutation.ledger.units = units;
+            self.mutation
+                .ledger
+                .grew(charge.bytes.saturating_sub(self.mutation.old_charge.bytes));
+            self.mutation
+                .ledger
+                .observe(self.mutation.retention.physical);
+            self.mutation.old_charge = charge;
+            self.charge_state = ChargeState::Committed;
+            Ok(())
+        }))
+        .unwrap_or(Err(GcError::Provider("mutation charge panicked")));
+        if result.is_err() {
+            self.charge_state = ChargeState::Failed;
+            self.mutation.retention.marking.phase = Phase::Faulted;
+        }
+        result
     }
 
     /// Finish explicitly to observe accounting/contract failures. Drop performs
@@ -180,29 +230,7 @@ impl<'op, T: GcObject> ObjectMut<'op, T> {
             // explicit failure/unwind invalidation.
             active.restart = !self.mutation.scan_reusable || self.mutation.force_restart;
         }
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            let charge = self.object.charge();
-            if charge.bytes > self.mutation.admitted_bytes {
-                return Err(GcError::Provider("capacity growth was not admitted"));
-            }
-            self.mutation.ledger.indirect = self.mutation.ledger.check(
-                self.mutation.old_charge.bytes,
-                charge.bytes,
-                self.mutation.max_indirect,
-            )?;
-            self.mutation
-                .ledger
-                .grew(charge.bytes.saturating_sub(self.mutation.old_charge.bytes));
-            self.mutation
-                .ledger
-                .observe(self.mutation.retention.physical);
-            Ok(())
-        }));
-        let result = result.unwrap_or(Err(GcError::Provider("mutation charge panicked")));
-        if result.is_err() {
-            self.mutation.retention.marking.phase = Phase::Faulted;
-        }
-        result
+        self.commit_accounting()
     }
 }
 

@@ -8,14 +8,13 @@ use crate::{
         declarations::FunctionDecl,
         types::{Type, TypeRef},
     },
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_common::identity::map::DefinitionContext;
 use kagari_hir::{
     analysis::AnalysisDatabase, declarations::DeclarationId, native::render::declaration_source,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_stdlib::catalog as standard_catalog;
 use kagari_types::{
     declaration::TypeDefKind,
     scalar::BuiltinType,
@@ -80,8 +79,7 @@ fn registered_enum_views_are_parsed_with_full_documentation_and_owning_sites() {
     let event = event(&mut module);
     let data = event.variant("Data").unwrap();
     let module = Arc::new(module.finish().unwrap().to_declaration());
-    let mut providers = standard_catalog::shared().unwrap();
-    providers.push(module.clone());
+    let providers = vec![module.clone()];
     let generated = declaration_source(&module, &providers).unwrap();
     let mut database = AnalysisDatabase::default();
     database.set_native_modules(providers);
@@ -124,8 +122,7 @@ fn source_analysis_uses_registered_enum_constructors_and_patterns() {
         ModuleBuilder::new("application::events", &DeclarationCatalog::default()).unwrap();
     event(&mut module);
     let module = Arc::new(module.finish().unwrap().to_declaration());
-    let mut providers = standard_catalog::shared().unwrap();
-    providers.push(module);
+    let providers = vec![module];
     let mut sources = SourceDatabase::default();
     let file = sources.set("main.kgr", "use application::events::Event; fn main() -> i32 { val event = Event::Data(40, 2); match event { Event::Data(value, sequence) => value + sequence, Event::Closed => 0, Event::Nested(_) => 1 } }".into(), SourceLayer::Base).unwrap();
     let mut database = AnalysisDatabase::default();
@@ -147,8 +144,7 @@ fn changed_enum_payload_view_cannot_attach_to_the_registered_declaration() {
         ModuleBuilder::new("application::events", &DeclarationCatalog::default()).unwrap();
     event(&mut module);
     let module = Arc::new(module.finish().unwrap().to_declaration());
-    let mut providers = standard_catalog::shared().unwrap();
-    providers.push(module);
+    let providers = vec![module];
     let mut views = providers
         .iter()
         .map(|module| declaration_source(module, &providers).unwrap())
@@ -306,7 +302,7 @@ fn declared_native_enum_signatures_reject_missing_provider_contracts() {
     module
         .bind(
             function,
-            NativeBinding::new(vec![Codec::Value], Codec::Value, |_| Ok(Value::Unit)),
+            NativeBinding::new(vec![Codec::Value], Codec::Value, |_| Ok(ValueView::unit())),
         )
         .unwrap();
     let error = module.finish().unwrap_err();

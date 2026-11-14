@@ -1,8 +1,9 @@
-use crate::{Runtime, error::RuntimeErrorKind, value::Value};
+pub(crate) mod scalars;
+
+use crate::{Runtime, error::RuntimeErrorKind};
 use kagari_abi::native_call::{
     JIT_STATUS_CANCELLED, JIT_STATUS_ENGINE_FAULT, JIT_STATUS_INVALID_HEAP_REFERENCE,
-    JIT_STATUS_INVALID_RUNTIME, JIT_STATUS_OK, JIT_STATUS_RESOURCE_LIMIT, JIT_VALUE_TAG_BOOL,
-    JIT_VALUE_TAG_I32, JIT_VALUE_TAG_UNIT, JitValue, NativeHelperTable,
+    JIT_STATUS_INVALID_RUNTIME, JIT_STATUS_OK, JIT_STATUS_RESOURCE_LIMIT, NativeHelperTable,
 };
 use std::ffi::c_void;
 
@@ -13,7 +14,7 @@ pub static NATIVE_HELPERS: NativeHelperTable = NativeHelperTable {
 
 unsafe extern "C" fn poll_from_context(runtime: *const c_void, offset: u64) -> i32 {
     // SAFETY: the invocation context holds the live runtime for this call.
-    unsafe { jit_poll_execution(runtime.cast(), offset) }
+    unsafe { jit_poll_execution(runtime.cast_mut().cast(), offset) }
 }
 
 /// Publish a verified program point, poll cancellation and service GC.
@@ -21,9 +22,11 @@ unsafe extern "C" fn poll_from_context(runtime: *const c_void, offset: u64) -> i
 ///
 /// # Safety
 /// A non-null pointer must reference a live Runtime for the duration of this call.
-/// Generated code must obey that runtime's single-threaded execution ownership.
-pub unsafe extern "C" fn jit_poll_execution(runtime: *const Runtime, offset: u64) -> i32 {
-    let Some(runtime) = (unsafe { runtime.as_ref() }) else {
+/// Generated code must own the exclusive Runtime invocation borrow and hold no
+/// bank, frame or payload reference across the helper. The opaque C pointer does
+/// not grant shared-reference mutation.
+pub unsafe extern "C" fn jit_poll_execution(runtime: *mut Runtime, offset: u64) -> i32 {
+    let Some(runtime) = (unsafe { runtime.as_mut() }) else {
         return JIT_STATUS_INVALID_RUNTIME;
     };
     match usize::try_from(offset)
@@ -37,18 +40,11 @@ pub unsafe extern "C" fn jit_poll_execution(runtime: *const Runtime, offset: u64
         return match error.kind() {
             RuntimeErrorKind::EngineFault => JIT_STATUS_ENGINE_FAULT,
             RuntimeErrorKind::Cancelled => JIT_STATUS_CANCELLED,
-            RuntimeErrorKind::ResourceLimitExceeded => JIT_STATUS_RESOURCE_LIMIT,
+            RuntimeErrorKind::ResourceLimitExceeded
+            | RuntimeErrorKind::StackOverflow
+            | RuntimeErrorKind::AllocationFailure => JIT_STATUS_RESOURCE_LIMIT,
             _ => JIT_STATUS_INVALID_HEAP_REFERENCE,
         };
     }
     JIT_STATUS_OK
-}
-
-pub fn decode_native_value(value: JitValue) -> Option<Value> {
-    match value.tag {
-        JIT_VALUE_TAG_UNIT => Some(Value::Unit),
-        JIT_VALUE_TAG_BOOL => Some(Value::Bool(value.payload != 0)),
-        JIT_VALUE_TAG_I32 => i32::try_from(value.payload).ok().map(Value::I32),
-        _ => None,
-    }
 }

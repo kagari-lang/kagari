@@ -5,8 +5,10 @@ use crate::diagnostics::{self, Event};
 use crate::{
     Runtime,
     error::RuntimeError,
+    execution::roots::SessionId,
     execution_metadata::{
         MetadataEdge, application_key::ApplicationArguments, groups::OperationId,
+        managed::sources::MetadataSource,
     },
     frame::types::{
         TypeEnvironment, arguments::TypeArgument, compatibility::TypeView,
@@ -43,24 +45,34 @@ impl ScopedInterfaceCall {
         interface
     }
 
-    pub(crate) fn trace<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
-        self.operations.trace_metadata(pending);
-        self.arguments.constructions().trace(pending);
-        pending.extend(self.operation.map(MetadataEdge::Operation));
+    pub(crate) fn trace<'a, E>(
+        &'a self,
+        visit: &mut (impl FnMut(MetadataEdge<'a>) -> Result<(), E> + ?Sized),
+    ) -> Result<(), E> {
+        self.operations.trace_metadata(visit)?;
+        self.arguments.constructions().trace(visit)?;
+        if let Some(operation) = self.operation {
+            visit(MetadataEdge::Operation(operation))?;
+        }
+        Ok(())
     }
 }
 
 impl Runtime {
     pub(crate) fn prepare_scoped_interface_call(
-        &self,
+        &mut self,
+        execution: SessionId,
         owner: &ExecutableModule,
         environment: TypeEnvironment,
         site: InterfaceCallSite,
+        protected: &mut Vec<MetadataSource<'_>>,
     ) -> Result<Arc<ScopedInterfaceCall>, RuntimeError> {
         self.validate_executable_module(owner)?;
         let scope = environment.id;
-        self.validate_environment(scope)?;
-        if let Some(prepared) = self.modules.interface_call(owner, scope, site) {
+        self.validate_environment_in(protected, &environment)?;
+        if let Some(prepared) = self.modules.interface_call(owner, scope, site)
+            && self.interface_call_is_protected(protected, &prepared)?
+        {
             return Ok(prepared);
         }
         let invalid = || RuntimeError::module_validation("invalid linked interface contract");
@@ -71,16 +83,19 @@ impl Runtime {
         let Some(LinkedCall::Interface { contract, .. }) = links.call_contract(site.ordinal) else {
             return Err(invalid());
         };
-        let prepared = self.build_interface_call(owner, Some(environment), contract)?;
-        self.publish_interface_call(owner, scope, site, prepared.clone())?;
+        let prepared =
+            self.build_interface_call(execution, owner, Some(environment), contract, protected)?;
+        self.publish_interface_call(owner, scope, site, prepared.clone(), protected)?;
         Ok(prepared)
     }
 
     pub(crate) fn build_interface_call(
-        &self,
+        &mut self,
+        execution: SessionId,
         owner: &ExecutableModule,
         environment: Option<TypeEnvironment>,
         contract: &InterfaceCallContract,
+        protected: &mut Vec<MetadataSource<'_>>,
     ) -> Result<Arc<ScopedInterfaceCall>, RuntimeError> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::InterfaceCallPreparation);
@@ -105,8 +120,8 @@ impl Runtime {
                 .identity()
                 .ok_or_else(invalid)?;
             Some(
-                environment
-                    .operation_slot(&self.gc, &receiver, interface_type, contract.method_slot)
+                self.environment_snapshot_in(protected, environment)?
+                    .operation_slot(&receiver, interface_type, contract.method_slot)
                     .ok_or_else(invalid)?,
             )
         } else {
@@ -115,9 +130,21 @@ impl Runtime {
         let arguments = ApplicationArguments::new(
             owner,
             self.type_arguments(owner, types, &contract.arguments)?,
-            self.bind_constructions_in(owner, environment.clone(), &contract.constructions)?,
+            self.bind_constructions_in(
+                execution,
+                owner,
+                environment.clone(),
+                &contract.constructions,
+                protected,
+            )?,
         )?;
-        let operations = self.bind_operations_in(owner, environment, &contract.operations)?;
+        let operations = self.bind_operations_in(
+            execution,
+            owner,
+            environment,
+            &contract.operations,
+            protected,
+        )?;
         let prepared = Arc::new(ScopedInterfaceCall {
             interface,
             arguments,

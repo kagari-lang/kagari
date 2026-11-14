@@ -2,16 +2,19 @@ use crate::{BytecodeArtifact, engine::KagariEngine};
 use kagari_bytecode::instruction::BytecodeInstruction;
 use kagari_common::identity::map::DefinitionContext;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
 fn malformed_nominal_enum_operations_are_rejected_before_execution() {
-    let artifact = KagariEngine::default()
-        .compile_to_artifact(
-            SourceFile::new("verified.kgr", "fn main()->Option<i32> { Some(42) }"),
-            Default::default(),
-        )
-        .unwrap();
+    let artifact =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+            .unwrap()
+            .compile_to_artifact(
+                SourceFile::new("verified.kgr", "fn main()->Option<i32> { Some(42) }"),
+                Default::default(),
+            )
+            .unwrap();
     let context = DefinitionContext::new().unwrap();
     let artifact = artifact
         .import_into(&context, &Default::default())

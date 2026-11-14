@@ -1,0 +1,6 @@
+fn main() -> u64 {
+    val values = Vec::from([1, 2]);
+    val alias = values;
+    values.push(3);
+    alias.len()
+}

@@ -1,5 +1,5 @@
 //! Explicit loading of trusted native bundles without compiler dependencies.
-use crate::{program::PreparedProgram, runtime::Runtime};
+use crate::{program::Program, runtime::Runtime};
 use blake3::hash;
 use kagari_abi::{
     native::NativeCodeOwner, native_call::JitCompiledFunction, representation::ValueType,
@@ -13,8 +13,8 @@ use kagari_contract::{
         NativeBundleManifest,
     },
 };
-use kagari_runtime::module::{Program, entry::ProgramEntry};
-use kagari_vm::vm::native::PreparedNativeEntry;
+use kagari_runtime::execution::native::PreparedNativeEntry;
+use kagari_runtime::module::{InstalledProgram, entry::ProgramEntry, retention::RetentionOrigin};
 use libloading::Library;
 use std::{
     fs::File,
@@ -47,7 +47,7 @@ impl NativeCodeOwner for LibraryOwner {}
 #[derive(Debug, Clone)]
 pub struct AotBundle {
     manifest: NativeBundleManifest,
-    program: PreparedProgram,
+    program: Program,
     product: Arc<NativeCompilationProduct>,
 }
 
@@ -95,7 +95,7 @@ impl AotBundle {
                 "deployment bytecode must not contain compiler input".into(),
             ));
         }
-        let program = PreparedProgram::from_artifact(artifact, &Default::default(), cancel)
+        let program = Program::from_artifact(artifact, &Default::default(), cancel)
             .map_err(|e| AotError(e.to_string()))?;
         let target = match manifest.export.as_deref() {
             Some(path) => program.bytecode().exported_function(path),
@@ -139,7 +139,7 @@ impl AotBundle {
         })
     }
 
-    pub fn program(&self) -> &PreparedProgram {
+    pub fn program(&self) -> &Program {
         &self.program
     }
 
@@ -154,11 +154,10 @@ impl AotBundle {
     /// Installation is separate from execution and does not run script code.
     pub fn install(
         &self,
-        runtime: &Runtime,
-        program: &Program,
+        runtime: &mut Runtime,
+        program: &InstalledProgram,
     ) -> Result<PreparedNativeEntry, AotError> {
         let loaded = runtime
-            .runtime()
             .select_program(program)
             .map_err(|error| AotError(error.to_string()))?;
         if !self
@@ -182,9 +181,7 @@ impl AotBundle {
         // SAFETY: load's caller guarantees code correctness; verified correspondence
         // and the retained library owner bind this exact immutable Program and entry.
         let installed = unsafe {
-            runtime
-                .runtime()
-                .install_native_function(&owner, self.product.clone())
+            runtime.install_native_function(&owner, self.product.clone(), RetentionOrigin::Current)
         }
         .map_err(|e| AotError(e.to_string()))?;
         Ok(PreparedNativeEntry::Native(installed))

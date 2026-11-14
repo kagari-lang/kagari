@@ -1,5 +1,11 @@
 # Collection Interfaces and Storage
 
+Implementation status after Runtime detachment: concrete Vec/HashMap/HashSet and
+universal cursor providers are withdrawn. This document retains their library
+semantic contract for [NC reconstruction](../native-collections-plan.md), not a
+claim of current callable coverage. Runtime has no privileged storage/layout/type
+family or collection adapter. Custom traits remain ordinary installed declarations.
+
 This defines the collection access and construction contract. Value, identity
 and failure rules are defined in [value semantics](value-semantics.md).
 The standard library owns the collection traits and the three default
@@ -25,7 +31,8 @@ arrays; their length is established at construction and is absent from the type.
 Arrays permit bounded element replacement and share identity through assignment,
 arguments and returns. They do not implement List/MutableList or expose growth,
 removal, capacity or detached sequence edits. Their core registrations supply
-len/is_empty, Index and Iterable independently of Vec's declarations.
+len/is_empty and Index independently of Vec's declarations. Builtin Iterable
+registration awaits a library-owned cursor; custom Iterator/Iterable calls remain supported.
 
 `Vec<T>` is distinct nominal native sequence storage. It implements List and
 MutableList through ordinary checked registrations. Use `Vec::from(array)` or

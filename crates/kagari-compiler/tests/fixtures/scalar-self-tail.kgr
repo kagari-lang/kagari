@@ -1,0 +1,47 @@
+pub fn sum(n: i64, acc: i64) -> i64 {
+    if n == 0 {
+        return acc;
+    }
+    sum(n - 1, acc + n)
+}
+
+pub fn merged(n: i64, acc: i64) -> i64 {
+    if n == 0 {
+        acc
+    } else {
+        merged(n - 1, acc + n)
+    }
+}
+
+pub fn peer(n: i64, acc: i64) -> i64 {
+    n + acc
+}
+
+pub fn managed(n: i64, text: String) -> String {
+    if n == 0 {
+        return text;
+    }
+    managed(n - 1, text)
+}
+
+pub fn ordinary(n: i64) -> i64 {
+    if n == 0 {
+        0
+    } else {
+        n + ordinary(n - 1)
+    }
+}
+
+pub fn adapted(n: i64) -> i64 {
+    sum(n, 0) + 1
+}
+
+pub fn scalar_loop(n: i64, acc: i64) -> i64 {
+    var left = n;
+    var total = acc;
+    while left != 0 {
+        total += left;
+        left -= 1;
+    }
+    total
+}

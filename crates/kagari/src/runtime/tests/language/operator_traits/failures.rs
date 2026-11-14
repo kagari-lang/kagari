@@ -2,17 +2,22 @@ use crate::{
     BytecodeArtifact,
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Program,
     test_support::cancellation as support,
 };
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::{
+    error::reason::{CancellationReason, ErrorReason, IndexError},
+    module::entry::ProgramEntry,
+};
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
+use kagari_types::{arithmetic::ArithmeticError, scalar::error::ScalarError};
 
 #[test]
 fn operator_traps_and_cancellation_release_execution_roots() {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    let engine = KagariEngine::new(config);
+    let engine = KagariEngine::with_native_modules(config, stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(
@@ -37,41 +42,53 @@ fn main()->i32 {Number{value:42}+1}
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
-    for entry in ["fail_add", "fail_index", "exhaust"] {
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
+    for (entry, expected_reason, expected_code) in [
+        (
+            "fail_add",
+            ErrorReason::Scalar(ScalarError::Arithmetic(ArithmeticError::DivisionByZero)),
+            "KG_RUNTIME_SCRIPT_TRAP",
+        ),
+        (
+            "fail_index",
+            ErrorReason::Index(IndexError::InvalidIndex { index: 2 }),
+            "KG_RUNTIME_INDEX_OUT_OF_BOUNDS",
+        ),
+        (
+            "exhaust",
+            ErrorReason::Cancelled(CancellationReason::ExecutionCancelled),
+            "KG_RUNTIME_CANCELLED",
+        ),
+    ] {
         let options = context.clone();
-        let cancellation = (entry == "exhaust").then(|| {
-            support::cancel_after(
-                runtime.runtime(),
-                &runtime.runtime().select_program(&loaded).unwrap(),
-                30,
-            )
-        });
-        let error = runtime.execute(&loaded, entry, &[], &options).unwrap_err();
-        assert!(
-            !format!("{error:?}").contains("MissingFunction"),
-            "{entry}: {error:?}"
-        );
-        let expected = if entry == "exhaust" {
-            "KG_RUNTIME_CANCELLED"
+        let error = if entry == "exhaust" {
+            let selected = runtime.select_program(&loaded).unwrap();
+            let mut cancellation = support::cancel_after(&mut runtime, &selected, 30);
+            cancellation
+                .runtime_mut()
+                .execute(&loaded, entry, &[], &options)
+                .unwrap_err()
         } else {
-            "KG_RUNTIME_SCRIPT_TRAP"
+            runtime.execute(&loaded, entry, &[], &options).unwrap_err()
         };
-        assert_eq!(error.code(), expected, "{entry}: {error:?}");
-        drop(cancellation);
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
-        assert!(!runtime.runtime().is_quarantined());
+        assert_eq!(error.reason(), &expected_reason, "{entry}: {error:?}");
+        assert_eq!(error.code(), expected_code, "{entry}: {error:?}");
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc_stats().root_registrations, roots);
+        assert!(!runtime.is_quarantined());
         assert_eq!(
             runtime
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+                .as_i32()
+                .unwrap(),
+            42
         );
     }
 }

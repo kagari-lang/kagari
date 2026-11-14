@@ -65,7 +65,7 @@ macro_rules! composite_schema {
     };
 }
 
-composite_schema!(Vec<T>);
+composite_schema!(Box<T>);
 composite_schema!(Option<T>);
 composite_schema!(Result<T, E>);
 

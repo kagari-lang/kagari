@@ -5,6 +5,8 @@
 //! Neither routes nor publication tokens retain an executable lease. A selected
 //! target must be retained/published by the existing frame or computation owner
 //! before crossing a collection boundary.
+pub(in crate::module) mod bindings;
+pub(super) mod facts;
 pub mod identity;
 mod tables;
 #[cfg(test)]
@@ -15,25 +17,27 @@ use crate::{
     error::RuntimeError,
     host::HostRegistryId,
     module::{
-        ExecutableModule, InstallationId, ModuleKey, Program,
+        ExecutableModule, InstallationId, InstalledProgram,
         dispatch::{
+            bindings::{PreparedSelection, RouteIdentity},
+            facts::RouteSelection,
             identity::{
                 DeclarationIndex, PublicationDefinitions, PublicationMapping, StableDeclarationId,
             },
-            tables::{DispatchTables, RouteSelection},
+            tables::DispatchTables,
         },
     },
     reload::ModuleEpoch,
     session::ExecutionPhase,
 };
 use kagari_bytecode::{module::CallableTarget, program::ModuleRef};
-use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
+use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{
     callable::generic::GenericBody, native_import::NativeImport, types::ConcreteFunctionIdentity,
     updates::BodyClassification,
 };
 use kagari_types::callable::Signature;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 /// Exact installation publication identity, available before publication.
 /// This copyable diagnostic/association key contains no code, GC root or lease;
@@ -81,15 +85,12 @@ pub enum CallRouteKind {
 /// this binding. The metadata scope is not an executable owner or a runtime root.
 #[derive(Debug, Clone)]
 pub struct CallRoute {
-    scope: Arc<PublicationDefinitions>,
-    origin: ModuleKey,
-    target: CallableTarget,
-    selection: RouteSelection,
+    inner: Arc<RouteIdentity>,
 }
 
 impl CallRoute {
     pub fn kind(&self) -> CallRouteKind {
-        match &self.selection {
+        match self.inner.selection.as_ref() {
             RouteSelection::Named { shared: false, .. } => CallRouteKind::Named,
             RouteSelection::Named { shared: true, .. } => CallRouteKind::Shared,
             RouteSelection::Native { .. } => CallRouteKind::Native,
@@ -98,22 +99,22 @@ impl CallRoute {
     }
 
     pub fn definitions(&self) -> &Arc<PublicationDefinitions> {
-        &self.scope
+        &self.inner.scope
     }
 
     pub fn declaration(&self) -> Result<Option<StableDeclarationId>, RuntimeError> {
-        let id = match &self.selection {
+        let id = match self.inner.selection.as_ref() {
             RouteSelection::Named { application, .. } => application.declaration,
             RouteSelection::Native { import, .. } => import.instance.declaration,
             RouteSelection::BodyOwned => return Ok(None),
         };
-        self.scope.stable_declaration(id).map(Some)
+        self.inner.scope.stable_declaration(id).map(Some)
     }
 
     /// Original checked application. Shared entry arguments/witnesses are separate
     /// call-site evidence; these identity arguments must not be used as an environment.
     pub fn application(&self) -> Option<&ConcreteFunctionIdentity> {
-        match &self.selection {
+        match self.inner.selection.as_ref() {
             RouteSelection::Named { application, .. } => Some(application),
             RouteSelection::Native { import, .. } => Some(&import.instance),
             RouteSelection::BodyOwned => None,
@@ -128,10 +129,14 @@ impl CallRoute {
 pub struct SelectedTarget {
     owner: ExecutableModule,
     target: CallableTarget,
-    mapping: PublicationMapping,
+    mapping: Arc<PublicationMapping>,
 }
 
 impl SelectedTarget {
+    pub(crate) fn into_entry(self) -> (ExecutableModule, CallableTarget) {
+        (self.owner, self.target)
+    }
+
     pub fn owner(&self) -> &ExecutableModule {
         &self.owner
     }
@@ -173,14 +178,10 @@ impl SelectedTarget {
         &self,
         source: Arc<PublicationDefinitions>,
     ) -> Result<PublicationMapping, RuntimeError> {
-        PublicationMapping::new(
-            source,
-            self.owner.publication_definitions(),
-            self.record().binders.iter().copied(),
-        )
+        self.mapping.for_source(source)
     }
 
-    fn record(&self) -> &tables::TargetRecord {
+    fn record(&self) -> &facts::TargetRecord {
         self.owner
             .program
             .dispatch
@@ -194,10 +195,11 @@ pub(super) struct PublicationDispatch {
     index: DeclarationIndex,
     pub(super) scope: Arc<PublicationDefinitions>,
     tables: DispatchTables,
+    routes: HashMap<facts::Placement, CallRoute>,
 }
 
 impl PublicationDispatch {
-    fn target(&self, module: ModuleRef, target: CallableTarget) -> Option<&tables::TargetRecord> {
+    fn target(&self, module: ModuleRef, target: CallableTarget) -> Option<&facts::TargetRecord> {
         self.tables.target(module, target)
     }
 }
@@ -216,17 +218,12 @@ impl ExecutableModule {
     /// This is backend linking metadata, not public-name/visibility admission.
     /// Calling still requires Runtime validation and existing argument/access checks.
     pub fn bind_call_route(&self, target: CallableTarget) -> Result<CallRoute, RuntimeError> {
-        let record = self
-            .program
+        self.program
             .dispatch
-            .target(self.slot, target)
-            .ok_or_else(|| invalid("missing checked callable route"))?;
-        Ok(CallRoute {
-            scope: self.publication_definitions(),
-            origin: self.key(),
-            target,
-            selection: record.selection.clone(),
-        })
+            .routes
+            .get(&(self.slot, target))
+            .cloned()
+            .ok_or_else(|| invalid("missing checked callable route"))
     }
 
     pub fn stable_declaration(
@@ -246,7 +243,10 @@ impl StagedReload {
 
 impl Runtime {
     /// Capture current association identity without returning an executable lease.
-    pub fn publication_token(&self, program: &Program) -> Result<PublicationToken, RuntimeError> {
+    pub fn publication_token(
+        &self,
+        program: &InstalledProgram,
+    ) -> Result<PublicationToken, RuntimeError> {
         self.select_program(program)
             .map(|owner| owner.publication_token())
     }
@@ -256,7 +256,7 @@ impl Runtime {
     /// installed code through a retained external binding. No environment is inferred.
     pub fn select_call_route(&self, route: &CallRoute) -> Result<SelectedTarget, RuntimeError> {
         self.resources().ensure_execution_allowed()?;
-        let token = route.scope.token;
+        let token = route.inner.scope.token;
         let installation = self
             .modules
             .installations
@@ -279,63 +279,48 @@ impl Runtime {
             }
             candidate
         } else {
-            let current = installation.capture_current()?;
-            if !route.scope.is_published() {
+            let current = self.modules.capture_current(installation)?;
+            if !route.inner.scope.is_published() {
                 return Err(RuntimeError::execution_phase_violation(
                     "staged callable requires candidate execution",
                 ));
             }
             current
         };
-        // A linked route already names the exact target in its publication. Only
-        // crossing publications needs declaration correspondence and selection.
-        let (owner, target) = if root.publication_token() == token {
-            let owner = self
-                .modules
-                .loaded(route.origin)
-                .filter(|owner| owner.publication_token() == token)
-                .ok_or_else(|| invalid("linked callable body was released"))?;
-            (owner, route.target)
+        let prepared = if root.publication_token() == token
+            || matches!(route.inner.selection.as_ref(), RouteSelection::BodyOwned)
+        {
+            route.inner.initial.clone()
         } else {
-            match &route.selection {
-                RouteSelection::BodyOwned => {
-                    let owner = self
-                        .modules
-                        .loaded(route.origin)
-                        .filter(|owner| owner.publication_token() == token)
-                        .ok_or_else(|| invalid("retained callable body was released"))?;
-                    (owner, route.target)
-                }
-                selection => {
-                    let (module, target) = root.program.dispatch.tables.select(
-                        &root.program.dispatch.scope,
-                        &route.scope,
-                        selection,
-                        &CancellationToken::default(),
-                    )?;
-                    let owner = root
-                        .member(module)
-                        .ok_or_else(|| invalid("current target module"))?;
-                    (owner, target)
-                }
-            }
+            self.modules.prepared_route(route)?
         };
-        self.validate_executable_module(&owner)?;
-        let record = owner
-            .program
-            .dispatch
-            .target(owner.slot(), target)
-            .ok_or_else(|| invalid("current target contract"))?;
-        let mapping = PublicationMapping::new(
-            route.scope.clone(),
-            owner.publication_definitions(),
-            record.binders.iter().copied(),
-        )?;
+        self.select_prepared_call(&prepared)
+    }
+
+    pub(crate) fn select_prepared_call(
+        &self,
+        prepared: &PreparedSelection,
+    ) -> Result<SelectedTarget, RuntimeError> {
+        let (owner, target) = self.select_prepared_entry(prepared)?;
         Ok(SelectedTarget {
             owner,
             target,
-            mapping,
+            mapping: prepared.mapping.clone(),
         })
+    }
+
+    /// Ordinary direct calls need only the checked entry; generic transport
+    /// metadata is retained by the table and is not cloned on this path.
+    pub(crate) fn select_prepared_entry(
+        &self,
+        prepared: &PreparedSelection,
+    ) -> Result<(ExecutableModule, CallableTarget), RuntimeError> {
+        let owner = self
+            .modules
+            .loaded(prepared.owner)
+            .ok_or_else(|| invalid("selected callable body was released"))?;
+        self.validate_executable_module(&owner)?;
+        Ok((owner, prepared.target))
     }
 }
 

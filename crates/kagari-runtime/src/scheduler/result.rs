@@ -1,12 +1,13 @@
 //! Per-invocation result transport. Polling observes owned output, never script state.
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
-    gc::roots::RootedValue,
+    error::{RuntimeError, reason::CancellationReason},
     native::binding::NativeResult,
     scheduler::wake::WakeHub,
     session::ExecutionId,
+    value::carriers::RootedValue,
 };
+
 use kagari_common::cancellation::CancellationToken;
 use std::{
     fmt,
@@ -129,7 +130,7 @@ impl<R> Drop for ScheduledResult<R> {
 }
 
 pub(crate) trait CompletionSink: Send {
-    fn prepare(&mut self, runtime: &Runtime, value: &RootedValue) -> NativeResult<()>;
+    fn prepare(&mut self, runtime: &mut Runtime, value: &RootedValue) -> NativeResult<()>;
 
     fn publish(self: Box<Self>, outcome: NativeResult<()>);
 }
@@ -142,9 +143,9 @@ struct TypedSink<R, F> {
 
 impl<R: Send, F> CompletionSink for TypedSink<R, F>
 where
-    F: FnOnce(&Runtime, &RootedValue) -> NativeResult<R> + Send,
+    F: FnOnce(&mut Runtime, &RootedValue) -> NativeResult<R> + Send,
 {
-    fn prepare(&mut self, runtime: &Runtime, value: &RootedValue) -> NativeResult<()> {
+    fn prepare(&mut self, runtime: &mut Runtime, value: &RootedValue) -> NativeResult<()> {
         if self
             .cell
             .state
@@ -152,9 +153,8 @@ where
             .unwrap_or_else(|e| e.into_inner())
             .abandoned
         {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::Cancelled,
-                "execution receiver dropped",
+            return Err(RuntimeError::from(
+                CancellationReason::ExecutionReceiverDropped,
             ));
         }
         self.prepared = Some(self.convert.take().expect("single result conversion")(
@@ -209,7 +209,7 @@ pub(crate) fn channel<R, F>(
 ) -> (ScheduledResult<R>, Box<dyn CompletionSink>)
 where
     R: Send + 'static,
-    F: FnOnce(&Runtime, &RootedValue) -> NativeResult<R> + Send + 'static,
+    F: FnOnce(&mut Runtime, &RootedValue) -> NativeResult<R> + Send + 'static,
 {
     let cell = Arc::new(ResultCell {
         state: Mutex::new(State {

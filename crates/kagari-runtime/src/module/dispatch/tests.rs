@@ -3,6 +3,7 @@ use crate::{
     module::{
         ExecutableModule, ModuleEpochRetention,
         dispatch::{CallRoute, CallRouteKind},
+        managed::source::RevisionSource,
     },
     test_support::update_programs as programs,
 };
@@ -106,15 +107,21 @@ fn staged_selection_and_abandonment_do_not_advance_identity_history() {
     let escaped = route(abandoned.module(), "added");
     assert!(runtime.select_call_route(&escaped).is_err());
     {
-        let _session = runtime.begin_candidate_initialization(&abandoned).unwrap();
+        let mut _session = runtime.begin_candidate_initialization(&abandoned).unwrap();
         assert_eq!(
-            runtime
+            _session
+                .runtime_mut()
                 .select_call_route(&escaped)
                 .unwrap()
                 .publication_token(),
             abandoned_token
         );
-        assert!(runtime.select_call_route(&old_route).is_err());
+        assert!(
+            _session
+                .runtime_mut()
+                .select_call_route(&old_route)
+                .is_err()
+        );
     }
     drop(abandoned);
     assert_eq!(
@@ -182,7 +189,11 @@ fn retained_generated_body_and_ordinary_inner_route_select_different_publication
         .unwrap();
     let old = runtime.select_program(&program).unwrap();
     let retained = runtime
-        .retain_program(&old, ModuleEpochRetention::RuntimeValue)
+        .retain_program(
+            &old,
+            ModuleEpochRetention::RuntimeValue,
+            RevisionSource::Current,
+        )
         .unwrap();
     let inner = route(&old, "a");
     let body = old
@@ -310,7 +321,7 @@ fn semantic_impl_order_and_additions_preserve_original_binder_transport() {
             .program
             .dispatch
             .tables
-            .target(old.slot(), binding.target)
+            .target(old.slot(), binding.inner.target)
             .unwrap();
         if let Some(generic) = &old_selected.generic {
             let mapped = selected

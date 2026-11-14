@@ -1,0 +1,37 @@
+use example::associated_values::Producer;
+
+pub struct Item {
+    pub var value: i32
+}
+
+pub struct Holder<T> {
+    val item: T
+}
+
+impl<T> Producer for Holder<T> {
+    type Items = (T,);
+    fn items(self) ->(T,) {
+        (self.item,)
+    }
+}
+
+pub trait Relay {
+    fn relay<P: Producer>(self, source: P) -> P::Items {
+        source.again()
+    }
+}
+
+impl Relay for i32 {}
+
+pub fn target() -> Relay {
+    0
+}
+
+pub fn holder() -> Holder<Item> {
+    Holder { item: Item { value: 42 } }
+}
+
+pub fn make() ->(Item,) {
+    val r: Relay = 0;
+    r.relay(Holder { item: Item { value: 42 } })
+}

@@ -1,24 +1,31 @@
+#[cfg(feature = "native")]
+use crate::program::native::NativeCompiler;
 use crate::{
-    context::ExecutionContext,
+    context::{ExecutionContext, JitPolicy},
     engine::{KagariEngine, source::ArtifactOptions},
-    program::PreparedProgram,
+    program::Compilation,
     runtime::LoadOptions,
 };
 use kagari_bytecode::artifact::KbcArtifact;
+use kagari_codegen_cranelift::CraneliftBackend;
+use kagari_runtime::execution::reentry::reenter;
 use kagari_runtime::{
-    host::{HostCallContext, HostError},
+    host::HostError,
     module::entry::ProgramEntry,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
-    value::Value,
+    native::{
+        builder::ModuleBuilder, conversion::context::ConversionContext, declarations::FunctionDecl,
+        host, types::Type,
+    },
+    value::view::ValueView,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{
     declaration::host::{HostCallPolicy, HostFunctionEffects, HostPassingStyle},
     scalar::BuiltinType,
     ty::Ty,
 };
-use kagari_vm::reentry::reenter;
 use std::sync::{Arc, Mutex};
 
 fn array() -> Type {
@@ -33,8 +40,8 @@ fn composite(standard: &StandardDeclarations) -> Type {
     let string = Type::scalar(BuiltinType::String);
     Type::tuple([
         array(),
-        standard.hash_map(string.clone(), Type::bool()).unwrap(),
-        standard.hash_set(string.clone()).unwrap(),
+        Type::tuple([string.clone(), Type::bool()]).unwrap(),
+        string.clone(),
         standard.option(Type::i32()).unwrap(),
         StandardDeclarations::enumeration("Result")
             .unwrap()
@@ -78,35 +85,47 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
     let trace = Arc::new(Mutex::new(Vec::new()));
     let calls = trace.clone();
     builder
-        .bind(make, move |context: &HostCallContext<'_>, _: &[Value]| {
-            calls.lock().unwrap().push("make");
-            let owner = context.runtime().execution_root().unwrap();
-            let payload = owner
-                .bytecode
-                .functions
-                .iter()
-                .find(|function| function.name == "payload")
-                .ok_or_else(|| HostError::new("missing pinned payload entry"))?
-                .id;
-            let payload = reenter(context, &owner, payload, &[])
-                .map_err(|error| HostError::new(format!("payload construction: {error:?}")))?;
-            Ok(payload.value(context.runtime().gc()).unwrap())
-        })
+        .bind(
+            make,
+            host::callback(move |context, _| {
+                calls.lock().unwrap().push("make");
+                let owner = context.runtime().execution_root().unwrap();
+                let payload = owner
+                    .bytecode
+                    .functions
+                    .iter()
+                    .find(|function| function.name == "payload")
+                    .ok_or_else(|| HostError::new("missing pinned payload entry"))?
+                    .id;
+                let arguments = context.retain_temporaries(&[]).unwrap();
+                let payload = reenter(context, &owner, payload, arguments)
+                    .map_err(|error| HostError::new(format!("payload construction: {error:?}")))?;
+                context
+                    .import(&payload)
+                    .map_err(|error| HostError::new(error.to_string()))
+            }),
+        )
         .unwrap();
     let calls = trace.clone();
     builder
         .bind(
             echo,
-            move |context: &HostCallContext<'_>, args: &[Value]| {
+            host::callback(move |context, args| {
                 calls.lock().unwrap().push("echo");
-                context.runtime().collect_garbage().unwrap();
+                context.runtime_mut().collect_garbage().unwrap();
                 Ok(args[0])
-            },
+            }),
         )
         .unwrap();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), vec![builder.finish().unwrap()])
-            .unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![builder.finish().unwrap()])
+            .collect(),
+    )
+    .unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(
@@ -124,27 +143,31 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
             artifact.clone()
         };
         let context = ExecutionContext {
+            jit_policy: if jit {
+                JitPolicy::Enabled
+            } else {
+                JitPolicy::Disabled
+            },
             ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
         trace.lock().unwrap().clear();
         let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, LoadOptions::default())
+            .load_program(loaded_program.program(), LoadOptions::default())
             .unwrap();
         assert!(trace.lock().unwrap().is_empty());
         let report = if jit {
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            let prepared = runtime
-                .prepare_native(
+            let mut backend = CraneliftBackend::for_host().unwrap();
+            let prepared = NativeCompiler::default()
+                .prepare(
                     &loaded_program,
-                    &loaded,
                     ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
+                .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
@@ -152,35 +175,39 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
         }
         .unwrap();
         let retained = report.return_value;
-        runtime.runtime().collect_garbage().unwrap();
-        let Value::Tuple(values) = retained.value(runtime.runtime().gc()).unwrap() else {
-            panic!("composite return")
-        };
-        let values = runtime.runtime().gc().tuple(values).unwrap().to_vec();
-        let [
-            Value::Array(array),
-            Value::Map(map),
-            Value::Set(set),
-            Value::Enum(option),
-            Value::Enum(result),
-        ] = values.as_slice()
-        else {
-            panic!("composite shapes")
-        };
-        let heap = runtime.runtime().gc();
-        assert_eq!(heap.array_snapshot(*array).unwrap(), [Value::I32(7)]);
-        let entries = heap.map_snapshot(*map).unwrap();
-        let [(Value::Str(key), Value::Bool(true))] = entries.as_slice() else {
-            panic!("map contents")
-        };
-        assert_eq!(&*heap.string(*key).unwrap(), "yes");
-        let entries = heap.set_snapshot(*set).unwrap();
-        let [Value::Str(key)] = entries.as_slice() else {
-            panic!("set contents")
-        };
-        assert_eq!(&*heap.string(*key).unwrap(), "name");
-        assert_eq!(heap.enum_snapshot(*option).unwrap().fields, [Value::I32(8)]);
-        assert_eq!(heap.enum_snapshot(*result).unwrap().fields, [Value::I32(9)]);
+        runtime.collect_garbage().unwrap();
+        let owner = runtime.select_program(&loaded).unwrap();
+        let mut cx = ConversionContext::new(&mut runtime, &owner).unwrap();
+        let tuple = cx.import(&retained).unwrap();
+        assert_eq!(cx.tuple_len(&tuple).unwrap(), 5);
+        let array = cx.tuple_element(&tuple, 0).unwrap();
+        assert_eq!(cx.array_len(&array).unwrap(), 1);
+        assert_eq!(
+            cx.array_element(&array, 0).unwrap().unwrap().as_i32(),
+            Some(7)
+        );
+        let record = cx.tuple_element(&tuple, 1).unwrap();
+        let ty = cx.type_for::<(String, bool)>().unwrap();
+        assert_eq!(
+            cx.decode_value::<(String, bool)>(&ty, &record).unwrap(),
+            ("yes".to_owned(), true)
+        );
+        let name = cx.tuple_element(&tuple, 2).unwrap();
+        let ty = cx.type_for::<String>().unwrap();
+        assert_eq!(cx.decode_value::<String>(&ty, &name).unwrap(), "name");
+        let option = cx.tuple_element(&tuple, 3).unwrap();
+        let ty = cx.type_for::<Option<i32>>().unwrap();
+        assert_eq!(
+            cx.decode_value::<Option<i32>>(&ty, &option).unwrap(),
+            Some(8)
+        );
+        let result = cx.tuple_element(&tuple, 4).unwrap();
+        let ty = cx.type_for::<Result<i32, String>>().unwrap();
+        assert_eq!(
+            cx.decode_value::<Result<i32, String>>(&ty, &result)
+                .unwrap(),
+            Ok(9)
+        );
         assert_eq!(*trace.lock().unwrap(), ["make", "echo"]);
     }
 }
@@ -200,13 +227,20 @@ fn offline_composite_signatures_reject_nested_source_mismatches() {
         )
         .unwrap();
     builder
-        .bind(take, |_: &HostCallContext<'_>, _: &[Value]| {
-            panic!("invalid source cannot invoke a host callback")
-        })
+        .bind(
+            take,
+            host::callback(|_, _| panic!("invalid source cannot invoke a host callback")),
+        )
         .unwrap();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), vec![builder.finish().unwrap()])
-            .unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![builder.finish().unwrap()])
+            .collect(),
+    )
+    .unwrap();
     let error = engine
         .compile_source(SourceFile::new(
             "bad.kgr",
@@ -236,26 +270,27 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
     builder
         .bind(
             take,
-            move |context: &HostCallContext<'_>, args: &[Value]| {
-                let Value::Array(array) = args[0] else {
-                    panic!("array argument")
-                };
-                assert!(
-                    context
-                        .runtime()
-                        .gc()
-                        .array_snapshot(array)
-                        .unwrap()
-                        .is_empty()
-                );
+            host::callback(move |context, args| {
+                let owner = context.runtime().execution_root().unwrap();
                 *calls.lock().unwrap() += 1;
-                Ok(Value::I32(42))
-            },
+                context
+                    .convert_value(&owner, |cx| {
+                        assert_eq!(cx.array_len(&args[0])?, 0);
+                        Ok(ValueView::from(42_i32))
+                    })
+                    .map_err(|error| HostError::new(error.to_string()))
+            }),
         )
         .unwrap();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), vec![builder.finish().unwrap()])
-            .unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![builder.finish().unwrap()])
+            .collect(),
+    )
+    .unwrap();
     for (argument, expected_calls) in [
         ("[]", 1),
         ("if true { [] } else { [] }", 1),
@@ -285,34 +320,29 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
             let mut runtime = engine.runtime(context.clone());
             *count.lock().unwrap() = 0;
             let loaded_program =
-                PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                Compilation::from_artifact(artifact, &Default::default(), &Default::default())
                     .unwrap();
             let loaded = runtime
-                .load_program(&loaded_program, LoadOptions::default())
+                .load_program(loaded_program.program(), LoadOptions::default())
                 .unwrap();
             let report = if jit {
-                let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-                let prepared = runtime
-                    .prepare_native(
+                let mut backend = CraneliftBackend::for_host().unwrap();
+                let prepared = {
+                    let native_code = NativeCompiler::default().prepare(
                         &loaded_program,
-                        &loaded,
                         ProgramEntry::Main,
                         &mut backend,
                         &context.cancellation,
-                    )
-                    .unwrap();
+                    );
+                    native_code.and_then(|native_code| (native_code).install(&mut runtime, &loaded))
+                }
+                .unwrap();
                 runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
             } else {
                 runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
             }
             .unwrap();
-            assert_eq!(
-                report
-                    .return_value
-                    .value(runtime.runtime().gc())
-                    .expect("retained execution result"),
-                Value::I32(42)
-            );
+            assert_eq!(report.return_value.as_i32().unwrap(), 42);
             assert_eq!(*count.lock().unwrap(), expected_calls);
         }
     }

@@ -220,7 +220,7 @@ Use the existing owners as templates, not a new universal runner:
   after fresh provider installation; it does not load a discarded synthetic program
   before source preparation. The synthetic source-free constructor remains a
   separate public-consumer proof, not an interchangeable source route.
-- VM source data under `kagari-vm/tests/fixtures` keeps its original execution,
+- VM source data under `kagari-runtime/tests/fixtures` keeps its original execution,
   GC, native-boundary and owned-drive Rust observations. Standard runtime setup has
   one owner, but reflection's unverified loader remains distinct from verified
   module admission. Stdlib runtime-boundary support shares compilation only across
@@ -331,7 +331,7 @@ require a separate integration executable. Cargo schedules test executables
 sequentially; the harness schedules cases within one executable concurrently.
 Compilation parallelism (`-j`) does not remove those execution barriers.
 
-The workspace keeps eight integration targets for concrete boundaries:
+The workspace keeps nine integration targets for concrete boundaries:
 
 | Package / target | Reason |
 | --- | --- |
@@ -340,9 +340,17 @@ The workspace keeps eight integration targets for concrete boundaries:
 | `kagari` / `async_execution` | Standalone native-wait/owned-execution consumer, including builds without source/native features. Source scenarios live in the runtime unit tree. |
 | `kagari` / `async_facade` | External consumer of public typed async calls, direct await and externally driven execution; keeps public API visibility and lifecycle checks outside the library harness. |
 | `kagari-analyzer` / `stdio` | Launches the actual analyzer process to verify framed stdio messages, synchronization, bounded transport and shutdown. |
-| `kagari-runtime` / `native_schema` | External derive, `native_data!` and Serde expansion against ordinary runtime visibility. Manual rollback cases live beside schema registration. |
-| `kagari-vm` / `allocation_contracts` | A single custom global allocator with thread-local measurement windows for the existing native/interface allocation assertions. |
-| `kagari-vm` / `library_measurements` | Ignored manual timing workload with a separate allocator process; ordinary test success is not a performance result. |
+| `kagari-stdlib` / `native_schema` | External derive, `native_data!` and Serde expansion against ordinary runtime visibility. Manual rollback cases live beside schema registration. |
+| `kagari-stdlib` / `allocation_contracts` | A single custom global allocator with thread-local measurement windows for the existing native/interface allocation assertions. |
+| `kagari-stdlib` / `library_measurements` | Ignored manual timing workload with a separate allocator process; ordinary test success is not a performance result. |
+| `kagari-runtime` / `core_calls` | Provider-independent whole-call measurement with an explicitly authored application Native module and a separate allocator process. |
+
+Runtime's unit/test/example graph excludes kagari-stdlib. Standard-library-dependent
+fixtures and consumer scenarios live in kagari-stdlib and use public Runtime APIs;
+no provider implementation is injected into Runtime's test crate. The stdlib schema
+consumer enables Runtime serde only through dev dependencies, without adding a
+standard-library product feature. Raw Runtime unit fixtures use recipient-local
+identity preparation; detached/source-free consumers keep the independent scope.
 
 Lifetime/compile-fail doctests, standalone AOT deployment and executable examples
 retain their separate purposes. The feature script uses standalone manifests;
@@ -382,7 +390,7 @@ Select by package, library and qualified test filter, for example:
 
 ```text
 cargo test -p kagari --lib -- runtime::tests::language::syntax_examples::source_examples::path_01__UP__UP_examples_syntax_array_operations_kgr
-cargo test -p kagari-vm --test allocation_contracts -- native_allocations::
+cargo test -p kagari-stdlib --test allocation_contracts -- native_allocations::
 ```
 
 Do not combine these examples into a routine workspace sweep.
@@ -416,13 +424,25 @@ Keep both observations in one lifecycle scenario rather than asserting that ever
 value created before publication calls old code. Preserve alias-binding identity,
 failed-publication atomicity, frozen declarations, static continuity and cleanup.
 
-SDK orchestration remains in the existing `embedding/generic_reload`,
-`embedding/typed_calls` and `runtime/update` unit modules. Their source inputs live
-under `crates/kagari/tests/fixtures/embedding/{reload,typed,source-updates}/`.
+SDK orchestration remains in the `embedding/generic_reload` and `runtime/update`
+unit modules and the existing public `async_facade` test target. Its typed_calls
+child owns typed-handle/reload/source observations, and runtime_transfer owns the
+Tokio task/Runtime migration contract. Their source inputs live
+under `crates/kagari/tests/fixtures/embedding/{reload,typed,source-updates}/`
+and `crates/kagari/tests/fixtures/embedding/runtime-transfer.kgr`.
 Use named `rstest` rows for shared orchestration, explicit versioned fixtures for
 substantial source changes, and guarded once-only replacements for small edits.
 Source-inspection fixtures with exact authored-definition assertions retain their
 intentional spelling; they are not ordinary formatting examples.
+
+Public Host trait/interface and concrete Native-result artifact contracts live
+in the existing artifact_features target's host_interfaces and native_results
+children. Keep their source producer, decoded consumer, registered callback and
+lifecycle assertions together; the target's feature/platform matrix remains CI.
+The generic result inputs live under tests/fixtures/embedding/native-results/.
+The decoded application-payload lifecycle case also owns Runtime shutdown with a
+retained Host lease and exactly-once payload disposal; keep that contract together
+with its ordinary collection assertions rather than duplicating a unit teardown.
 
 Runtime admission and historical specialization demands belong to
 `kagari-runtime/src/module/tests/update_admission.rs`; frozen named inventory and
@@ -442,7 +462,7 @@ It does not imply script-state snapshot/restore or migration APIs.
 For host interop changes, select the affected owner: runtime `native_schema` for
 DTO/derive/Serde, runtime `native::tests::host_registration` and stdlib
 `tests::runtime_boundary::installation_access` for exact contracts,
-VM `native_boundary` for Opaque take, scoped method/argument and portable reference
+VM `native_boundary` for Opaque retention, scoped method/argument and portable reference
 semantics, and SDK `scoped_calls` for execution-context integration. Production
 scope and callback lifetime proofs live beside their API as rustdoc tests; the
 standalone prototype is retired. A focused selection is:

@@ -1,8 +1,8 @@
 //! Notifications carry identities only. Publication never enters script execution.
 use crate::{
-    gc::roots::RootedValue,
     scheduler::wake::WakeHub,
     task::{CancellationCause, ScopeId, TaskId},
+    value::carriers::RootedValue,
 };
 use kagari_common::cancellation::{CancellationSubscription, CancellationToken};
 use std::{
@@ -34,13 +34,20 @@ impl<F: Fn(ReadyNotice) -> Result<(), DispatchUnavailable> + Send + Sync> TaskDi
     }
 }
 
-pub(crate) struct ScopeControl {
+/// Script capabilities retain only inert identity/status, never the dispatcher
+/// or cancellation subscriptions owned by the external control plane.
+#[derive(Debug)]
+pub(crate) struct ScopeStatus {
     pub id: ScopeId,
-    pub scheduler: Option<Arc<WakeHub>>,
     pub closing: AtomicBool,
-    pub owner_dropped: AtomicBool,
     pub failed: AtomicBool,
     pub closed: AtomicBool,
+}
+
+pub(crate) struct ScopeControl {
+    pub status: Arc<ScopeStatus>,
+    pub scheduler: Option<Arc<WakeHub>>,
+    pub owner_dropped: AtomicBool,
     dispatcher: Mutex<Arc<DispatcherGeneration>>,
     members: Mutex<Vec<Weak<TaskSignal>>>,
     external: OnceLock<CancellationSubscription>,
@@ -53,7 +60,7 @@ struct DispatcherGeneration {
 impl fmt::Debug for ScopeControl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ScopeControl")
-            .field("id", &self.id)
+            .field("id", &self.status.id)
             .finish_non_exhaustive()
     }
 }
@@ -66,12 +73,14 @@ impl ScopeControl {
         scheduler: Option<Arc<WakeHub>>,
     ) -> Arc<Self> {
         let control = Arc::new(Self {
-            id,
+            status: Arc::new(ScopeStatus {
+                id,
+                closing: AtomicBool::new(false),
+                failed: AtomicBool::new(false),
+                closed: AtomicBool::new(false),
+            }),
             scheduler,
-            closing: AtomicBool::new(false),
             owner_dropped: AtomicBool::new(false),
-            failed: AtomicBool::new(false),
-            closed: AtomicBool::new(false),
             dispatcher: Mutex::new(Arc::new(DispatcherGeneration {
                 callback: dispatcher,
             })),
@@ -108,7 +117,7 @@ impl ScopeControl {
     }
 
     pub fn close(&self, cause: CancellationCause) {
-        self.closing.store(true, Ordering::Release);
+        self.status.closing.store(true, Ordering::Release);
         self.cancel_members(cause);
         let _ = self.notify(None);
     }
@@ -117,19 +126,19 @@ impl ScopeControl {
         if let Some(hub) = &self.scheduler {
             hub.mark_ready();
         }
-        if self.failed.load(Ordering::Acquire) {
+        if self.status.failed.load(Ordering::Acquire) {
             return Err(DispatchUnavailable);
         }
         let dispatcher = {
             let dispatcher = self.dispatcher.lock().unwrap_or_else(|e| e.into_inner());
-            if self.failed.load(Ordering::Acquire) {
+            if self.status.failed.load(Ordering::Acquire) {
                 return Err(DispatchUnavailable);
             }
             dispatcher.clone()
         };
         if catch_unwind(AssertUnwindSafe(|| {
             dispatcher.callback.notify(ReadyNotice {
-                scope: self.id,
+                scope: self.status.id,
                 task,
             })
         }))
@@ -144,7 +153,7 @@ impl ScopeControl {
                 // the previous callback cannot poison its replacement.
                 return Ok(());
             }
-            self.failed.store(true, Ordering::Release);
+            self.status.failed.store(true, Ordering::Release);
             self.members
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -173,7 +182,7 @@ impl ScopeControl {
                     callback: dispatcher,
                 }),
             );
-            self.failed.store(false, Ordering::Release);
+            self.status.failed.store(false, Ordering::Release);
             previous
         };
         drop(previous);
@@ -273,7 +282,7 @@ pub struct TaskScopeOwner {
 
 impl TaskScopeOwner {
     pub fn id(&self) -> ScopeId {
-        self.control.id
+        self.control.status.id
     }
 
     pub fn capability(&self) -> &RootedValue {
@@ -285,7 +294,7 @@ impl TaskScopeOwner {
     }
 
     pub fn is_closed(&self) -> bool {
-        self.control.closed.load(Ordering::Acquire)
+        self.control.status.closed.load(Ordering::Acquire)
     }
 
     pub fn replace_dispatcher(

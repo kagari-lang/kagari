@@ -56,7 +56,6 @@ fn fingerprint() {
         "kagari-types",
         "kagari-bytecode",
         "kagari-runtime",
-        "kagari-vm",
         "kagari-mir",
         "kagari-compiler",
         "kagari-codegen",

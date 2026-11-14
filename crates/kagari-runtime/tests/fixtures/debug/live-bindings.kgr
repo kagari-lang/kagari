@@ -1,0 +1,6 @@
+fn main() -> i32 {
+    val text = ("debug constant", 5);
+    val alias = text;
+    val value = 3;
+    value + alias[1] - text[1] + 4
+}

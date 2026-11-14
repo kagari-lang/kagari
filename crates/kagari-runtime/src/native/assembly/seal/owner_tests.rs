@@ -178,7 +178,10 @@ fn assert_owner_rejected(providers: &DeclarationCatalog, name: &str) {
             panic!("rejected provider recipe must never execute")
         }))
         .expect_err("an external module owner cannot be redefined");
-    assert!(error.message().contains("external module owner"), "{error}");
+    assert!(
+        error.to_string().contains("external module owner"),
+        "{error}"
+    );
     set.finish().unwrap();
 }
 

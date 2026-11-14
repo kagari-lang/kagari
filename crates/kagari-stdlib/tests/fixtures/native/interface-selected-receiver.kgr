@@ -1,0 +1,35 @@
+use example::receiver::Read;
+
+struct Source<R> {
+    val value: R
+}
+
+impl<R> Read for Source<R> {
+    fn read(self) -> i32 {
+        42
+    }
+}
+
+trait Relay {
+    fn echo<T>(self, value: T) -> T {
+        val source: Read = Source { value };
+        source.echo(value)
+    }
+}
+
+impl Relay for i32 {}
+
+struct Item {
+    val value: i32
+}
+
+fn main() -> i32 {
+    val source: Read = Source { value: 1 };
+    val relay: Relay = 0;
+    val result = relay.echo(Item { value: 42 });
+    if source.echo("ok") == "ok" {
+        source.echo(result.value)
+    } else {
+        0
+    }
+}

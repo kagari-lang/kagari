@@ -1,15 +1,13 @@
 //! Owned roots parked at an instruction boundary; setup and retirement stay separate.
 use crate::Options;
-use kagari::{
-    context::ExecutionContext,
-    engine::KagariEngine,
-    error::{EmbeddingError, RuntimeFailureKind},
-    program::PreparedProgram,
-    runtime::Runtime,
+use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program, runtime::Runtime};
+use kagari_runtime::error::RuntimeErrorKind;
+use kagari_runtime::execution::owned::DriveResult;
+use kagari_runtime::{
+    module::ExecutableModule, session::owned::OwnedExecution, value::carriers::RootedValue,
 };
-use kagari_runtime::{module::ExecutableModule, session::owned::OwnedExecution, value::Value};
 use kagari_source::source::SourceFile;
-use kagari_vm::vm::owned::DriveResult;
+use kagari_stdlib as stdlib;
 use std::{hint::black_box, num::NonZeroUsize, time::Instant};
 
 #[cfg(feature = "diagnostics")]
@@ -32,11 +30,11 @@ struct Fixture {
 }
 
 impl Fixture {
-    fn new(engine: &KagariEngine, program: &PreparedProgram) -> Self {
+    fn new(engine: &KagariEngine, program: &Program) -> Self {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let program = runtime.load_program(program, Default::default()).unwrap();
-        let module = runtime.runtime().select_program(&program).unwrap();
+        let module = runtime.select_program(&program).unwrap();
         Self {
             runtime,
             module,
@@ -44,22 +42,20 @@ impl Fixture {
         }
     }
 
-    fn park(&self, roots: &mut Vec<Option<OwnedExecution>>, population: usize) {
+    fn park(&mut self, roots: &mut Vec<Option<OwnedExecution>>, population: usize) {
         assert!(roots.is_empty());
         for index in 0..population {
             let execution = self
                 .runtime
-                .backend()
                 .start(
                     &self.module,
                     "hold",
-                    &[Value::I32(index as i32 + 1)],
+                    &[RootedValue::from(index as i32 + 1)],
                     self.context.interpreter_options().unwrap(),
                 )
                 .unwrap();
             assert!(matches!(
                 self.runtime
-                    .backend()
                     .drive(&execution, NonZeroUsize::new(1).unwrap())
                     .unwrap(),
                 DriveResult::Runnable
@@ -69,7 +65,7 @@ impl Fixture {
     }
 
     fn retire(
-        &self,
+        &mut self,
         roots: &mut Vec<Option<OwnedExecution>>,
         order: &[usize],
         cancel: bool,
@@ -82,7 +78,6 @@ impl Fixture {
             }
             let DriveResult::Complete(result) = self
                 .runtime
-                .backend()
                 .drive(&execution, NonZeroUsize::new(10_000).unwrap())
                 .unwrap()
             else {
@@ -90,24 +85,18 @@ impl Fixture {
             };
             if cancel {
                 assert!(matches!(
-                    result.map_err(EmbeddingError::from),
-                    Err(EmbeddingError::Runtime {
-                        kind: RuntimeFailureKind::Cancelled,
-                        ..
-                    })
+                    result,
+                    Err(ref error) if error.kind() == RuntimeErrorKind::Cancelled
                 ));
                 checksum += 1;
             } else {
-                let value = result.unwrap().value(self.runtime.runtime().gc()).unwrap();
-                assert_eq!(value, Value::I32((index as i32 + 1) * 8));
+                let value = result.unwrap().as_i32();
+                assert_eq!(value, Some((index as i32 + 1) * 8));
                 checksum += i64::from((index as i32 + 1) * 8);
             }
         }
         roots.clear();
-        assert_eq!(
-            self.runtime.runtime().drain_retired_executions().unwrap(),
-            0
-        );
+        assert_eq!(self.runtime.drain_retired_executions().unwrap(), 0);
         checksum
     }
 }
@@ -132,7 +121,8 @@ fn release_order(population: usize, order: &str) -> Vec<usize> {
 }
 
 pub(super) fn run(options: &Options) {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("execution-controls.kgr", SOURCE),
@@ -140,8 +130,8 @@ pub(super) fn run(options: &Options) {
         )
         .unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
-    let fixture = Fixture::new(&engine, &program);
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let mut fixture = Fixture::new(&engine, &program);
     for (population, order) in CASES {
         for cancel in [false, true] {
             let indices = release_order(population, order);
@@ -149,7 +139,9 @@ pub(super) fn run(options: &Options) {
             let name = format!("roots_{population}_{order}_{mode}");
             #[cfg(feature = "diagnostics")]
             if options.diagnostics {
-                count(&engine, &program, population, &indices, cancel, &name);
+                for _ in 0..3 {
+                    count(&engine, &program, population, &indices, cancel, &name);
+                }
                 continue;
             }
             let mut roots = Vec::with_capacity(population);
@@ -161,7 +153,7 @@ pub(super) fn run(options: &Options) {
                 let checksum = fixture.retire(&mut roots, &indices, cancel);
                 let retirement = start.elapsed().as_nanos();
                 let start = Instant::now();
-                fixture.runtime.runtime().collect_garbage().unwrap();
+                fixture.runtime.collect_garbage().unwrap();
                 let collection = start.elapsed().as_nanos();
                 if sample >= options.warmups {
                     let sample = sample - options.warmups;
@@ -180,7 +172,7 @@ pub(super) fn run(options: &Options) {
 #[cfg(feature = "diagnostics")]
 fn count(
     engine: &KagariEngine,
-    program: &PreparedProgram,
+    program: &Program,
     population: usize,
     order: &[usize],
     cancel: bool,
@@ -188,21 +180,24 @@ fn count(
 ) {
     // Warm global lazy initialization outside accounting, then measure a complete
     // independent runtime lifetime. All retained capacities remain included.
-    let fixture = Fixture::new(engine, program);
+    let mut fixture = Fixture::new(engine, program);
     let mut roots = Vec::with_capacity(population);
     fixture.park(&mut roots, population);
     fixture.retire(&mut roots, order, cancel);
     drop(fixture);
     let ((phases, counts), total) = allocations::measure(|| {
         diagnostics::measure(|| {
-            let fixture = Fixture::new(engine, program);
+            let mut fixture = Fixture::new(engine, program);
             let setup = allocations::current().unwrap();
+            // Keep the setup peak in its snapshot; subsequent peaks cover the
+            // complete post-setup churn, including transient work between reads.
+            allocations::reset_peak();
             let mut phases = [(setup, setup); 3];
             for phase in &mut phases {
                 fixture.park(&mut roots, population);
                 phase.0 = allocations::current().unwrap();
                 fixture.retire(&mut roots, order, cancel);
-                fixture.runtime.runtime().collect_garbage().unwrap();
+                fixture.runtime.collect_garbage().unwrap();
                 phase.1 = allocations::current().unwrap();
             }
             (setup, phases)

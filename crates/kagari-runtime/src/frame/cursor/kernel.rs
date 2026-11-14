@@ -3,12 +3,13 @@
 use crate::diagnostics::{self, Event};
 
 use crate::{
-    error::RuntimeError,
+    error::{
+        RuntimeError,
+        fault::EngineFault,
+        reason::{CancellationReason, ErrorReason},
+    },
     frame::{
-        cursor::{
-            ExecutionCursor, objects::FieldContinuation, primitives::NativeContinuation,
-            scalars::ScalarExit,
-        },
+        cursor::{ExecutionCursor, objects::FieldContinuation, scalars::ScalarExit},
         driver::ExecutionAction,
         transfer::ReturnValue,
     },
@@ -16,9 +17,12 @@ use crate::{
         layout::Location,
         managed::{ManagedOperation, PreparedManagedOperation},
     },
+    module::managed::revision::RevisionState,
+    value_check::scoped::CheckError,
 };
 
 use kagari_bytecode::instruction::ConstantId;
+use kagari_gc::error::GcError;
 
 pub enum RegionExit {
     Slice,
@@ -46,6 +50,29 @@ impl From<RuntimeError> for RegionError {
     }
 }
 
+impl From<CheckError> for RegionError {
+    fn from(error: CheckError) -> Self {
+        match error {
+            CheckError::Storage(error) => Self::storage(error),
+            CheckError::Execution(error) => error.into(),
+        }
+    }
+}
+
+impl RegionError {
+    /// Defer Runtime mutation/trace capture until the closed source loan ends.
+    pub(in crate::frame) fn storage(error: GcError) -> Self {
+        match error {
+            GcError::Allocation => RuntimeError::new(ErrorReason::AllocationFailure),
+            GcError::SourceLimit => RuntimeError::new(ErrorReason::StackOverflow),
+            GcError::Limit(name) => RuntimeError::resource_limit(name),
+            GcError::Closed => RuntimeError::from(CancellationReason::RuntimeIsClosed),
+            error => RuntimeError::from(EngineFault::ManagedCollectionFailed(error)),
+        }
+        .into()
+    }
+}
+
 pub(super) enum CursorExit {
     Region(RegionExit),
     Transition(PreparedTransition),
@@ -53,13 +80,13 @@ pub(super) enum CursorExit {
 
 pub(super) enum PreparedTransition {
     Call { index: usize },
-    Native { index: usize },
+    Upcast { index: usize },
     Constant { dst: Location, constant: ConstantId },
     Field { index: usize },
     TupleWrite { operation: usize, index: u64 },
 }
 
-impl ExecutionCursor<'_> {
+impl ExecutionCursor<'_, '_, '_, '_> {
     /// Execute sealed nonallocating operations under one authority check. The driver
     /// has already polled and observed the first PC; subsequent logical PCs keep
     /// the same cancellation, collection and observation boundaries. No caller
@@ -74,7 +101,7 @@ impl ExecutionCursor<'_> {
         // Recompute after every allocating or reentrant boundary.
         // Candidate leases can expire on another thread. Their collection request
         // is polled at each logical PC, as are cancellation and observer requests.
-        let collection_due = self.runtime.gc().collection_due();
+        let collection_due = self.collection_due;
         let mut first = true;
         loop {
             match self.execute_scalars(remaining, collection_due, first)? {
@@ -86,6 +113,18 @@ impl ExecutionCursor<'_> {
                 ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Call { index })) => {
                     return Ok(CursorExit::Transition(PreparedTransition::Call { index }));
                 }
+                ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::SelfTailCall {
+                    index,
+                })) => {
+                    if let Some(index) = self.reuse_self_tail(index)? {
+                        return Ok(CursorExit::Transition(PreparedTransition::Call { index }));
+                    }
+                }
+                ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Upcast {
+                    index,
+                })) => {
+                    return Ok(CursorExit::Transition(PreparedTransition::Upcast { index }));
+                }
                 ScalarExit::Boundary => {
                     #[cfg(feature = "execution-diagnostics")]
                     diagnostics::record(Event::SlowBoundary);
@@ -95,19 +134,22 @@ impl ExecutionCursor<'_> {
                     dst,
                     constant,
                 })) => {
-                    let pool = &self.links.ok_or_else(|| self.invalid())?.constants;
-                    let Some(value) = pool.get(constant) else {
+                    let value = RevisionState::cached_constant(
+                        self.values.scope(),
+                        self.body,
+                        self.member,
+                        constant,
+                    )
+                    .map_err(RegionError::storage)?;
+                    let Some(value) = value else {
                         return Ok(CursorExit::Transition(PreparedTransition::Constant {
                             dst,
                             constant,
                         }));
                     };
-                    if !self.runtime.gc().validate_value(&value) {
-                        return Err(self.invalid().into());
-                    }
                     self.values
                         .write_location(dst, value)
-                        .ok_or_else(|| self.invalid())?;
+                        .map_err(RegionError::storage)?;
                 }
                 ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Copy {
                     dst,
@@ -119,13 +161,10 @@ impl ExecutionCursor<'_> {
                     let value = self
                         .values
                         .read_location(src)
-                        .ok_or_else(|| self.invalid())?;
-                    if !self.runtime.gc().validate_value(&value) {
-                        return Err(self.invalid().into());
-                    }
+                        .map_err(RegionError::storage)?;
                     self.values
                         .write_location(dst, value)
-                        .ok_or_else(|| self.invalid())?;
+                        .map_err(RegionError::storage)?;
                 }
                 ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Return {
                     value,
@@ -134,12 +173,12 @@ impl ExecutionCursor<'_> {
                     // Common retirement/publication permits no GC or callback gap.
                     let value = self
                         .values
-                        .managed
-                        .get(value.index())
-                        .copied()
-                        .ok_or_else(|| self.invalid())?;
+                        .read_managed(value)
+                        .map_err(RegionError::storage)?;
                     return Ok(CursorExit::Region(RegionExit::Return(
-                        ReturnValue::general(value),
+                        self.values
+                            .protect_return(value)
+                            .map_err(RegionError::storage)?,
                     )));
                 }
                 ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Field {
@@ -154,13 +193,6 @@ impl ExecutionCursor<'_> {
                 })) => {
                     if let Some(exit) = self.execute_index(index)? {
                         return Ok(exit);
-                    }
-                }
-                ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Native {
-                    index,
-                })) => {
-                    if let NativeContinuation::Callback = self.execute_native(index)? {
-                        return Ok(CursorExit::Transition(PreparedTransition::Native { index }));
                     }
                 }
             }

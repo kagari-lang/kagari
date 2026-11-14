@@ -1,49 +1,20 @@
-//! Range bound projection through checked pinned enum layouts.
-use crate::foundation::enumerations::value::{self as enums, EnumSymbols};
+//! Range bounds use the Native activation's prepared lexical signature and source.
 use kagari_runtime::{
-    error::RuntimeError,
-    native::{binding::NativeResult, context::CallContext},
-    value::Value,
+    native::{binding::NativeResult, context::NativeCall},
+    value::view::ValueView,
 };
-use std::ops::Bound;
 
-fn invalid() -> RuntimeError {
-    RuntimeError::module_validation("invalid foundation receiver")
+pub(crate) fn start_bound<'call>(cx: &mut NativeCall<'call>) -> NativeResult<ValueView<'call>> {
+    range_bound(cx, false)
 }
 
-pub(crate) fn start_bound(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    range_bound(symbols, cx, false)
+pub(crate) fn end_bound<'call>(cx: &mut NativeCall<'call>) -> NativeResult<ValueView<'call>> {
+    range_bound(cx, true)
 }
 
-pub(crate) fn end_bound(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    range_bound(symbols, cx, true)
-}
-
-fn range_bound(
-    symbols: &EnumSymbols,
-    cx: &mut CallContext<'_>,
-    upper: bool,
-) -> NativeResult<Value> {
-    let Value::Range(range) = cx.argument(0)? else {
-        return Err(invalid());
-    };
-    let range = cx.heap().range(range).ok_or_else(invalid)?;
-    let (member, fields) = match range.bound(
-        cx.owner().definitions(),
-        cx.argument_type(0)?,
-        cx.result_type(),
-        upper,
-    )? {
-        Bound::Included(value) => ("Included", vec![value]),
-        Bound::Excluded(value) => ("Excluded", vec![value]),
-        Bound::Unbounded => ("Unbounded", vec![]),
-    };
-    enums::allocate(
-        symbols,
-        cx,
-        &cx.result_type_argument()?,
-        "Bound",
-        member,
-        fields,
-    )
+fn range_bound<'call>(cx: &mut NativeCall<'call>, upper: bool) -> NativeResult<ValueView<'call>> {
+    let value = cx.argument(0)?;
+    let range = cx.argument_type_argument(0)?;
+    let bound = cx.result_type_argument()?;
+    cx.range_bound(&value, &range, &bound, upper)
 }

@@ -17,7 +17,7 @@ use kagari_runtime::{
         primitive::NativePrimitive,
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_types::{
     declaration::{TypeDefKind, VariantDef, native::NativeTypeConstructor},
@@ -114,7 +114,7 @@ fn representative(
                     Codec::Exact(result),
                     move |cx| {
                         counts.callbacks.fetch_add(1, Ordering::SeqCst);
-                        cx.allocate_enum(&cx.result_type_argument()?, &none, vec![])
+                        cx.allocate_enum(&cx.result_type_argument()?, &none, &[])
                     },
                 ))
             }),
@@ -138,7 +138,7 @@ fn representative(
                 .implementation_send(NativeBinding::new(
                     vec![],
                     Codec::Exact(Type::u64()),
-                    |_| Ok(Value::U64(42)),
+                    |_| Ok(ValueView::from(42u64)),
                 )),
         )?;
         Ok(())
@@ -271,7 +271,7 @@ fn semantic_first_then_concurrent_executable_use_prepares_once_on_another_thread
     for _ in 0..2 {
         let mut runtime = Runtime::default();
         NativeModule::install_all(&results[0], &mut runtime).unwrap();
-        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(runtime.gc_stats().root_registrations, 0);
     }
 }
 

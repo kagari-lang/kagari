@@ -10,6 +10,8 @@ pub struct Counts {
     pub requests: usize,
     pub requested_bytes: usize,
     pub net_bytes: i128,
+    /// Maximum net requested bytes since measurement or the last peak reset.
+    pub peak_net_bytes: i128,
 }
 
 thread_local! {
@@ -28,6 +30,7 @@ fn record(size: usize, released: usize, request: bool) {
             counts.requests += usize::from(request);
             counts.requested_bytes += size;
             counts.net_bytes += size as i128 - released as i128;
+            counts.peak_net_bytes = counts.peak_net_bytes.max(counts.net_bytes);
             active.set(Some(counts));
         }
     });
@@ -79,6 +82,17 @@ pub fn current() -> Option<Counts> {
     ACTIVE.with(Cell::get)
 }
 
+/// Start a peak interval at the current net bytes, preserving request/net totals.
+/// Capture the prior snapshot first to retain a preceding interval's peak.
+/// Panics if this thread has no active measurement.
+pub fn reset_peak() {
+    ACTIVE.with(|active| {
+        let mut counts = active.get().expect("active allocation measurement");
+        counts.peak_net_bytes = counts.net_bytes;
+        active.set(Some(counts));
+    });
+}
+
 /// Count allocator requests and net requested bytes, excluding allocator overhead.
 /// The caller must keep phase boundaries explicit; deallocations may predate measurement.
 pub fn measure<T>(operation: impl FnOnce() -> T) -> (T, Counts) {
@@ -91,4 +105,32 @@ pub fn measure<T>(operation: impl FnOnce() -> T) -> (T, Counts) {
     let counts = current().expect("active allocation measurement");
     drop(reset);
     (result, counts)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::diagnostics::allocations::{current, measure, reset_peak};
+    use std::hint::black_box;
+
+    #[test]
+    fn transient_peak_survives_release_and_reset_preserves_request_totals() {
+        let ((first, released), final_counts) = measure(|| {
+            let bytes = black_box(Vec::<u8>::with_capacity(8192));
+            let first = current().unwrap();
+            drop(bytes);
+            let released = current().unwrap();
+            reset_peak();
+            let bytes = black_box(Vec::<u8>::with_capacity(4096));
+            drop(bytes);
+            (first, released)
+        });
+        assert_eq!(first.net_bytes, 8192);
+        assert_eq!(first.peak_net_bytes, 8192);
+        assert_eq!(released.net_bytes, 0);
+        assert_eq!(released.peak_net_bytes, 8192);
+        assert_eq!(final_counts.net_bytes, 0);
+        assert_eq!(final_counts.peak_net_bytes, 4096);
+        assert_eq!(final_counts.requests, 2);
+        assert_eq!(final_counts.requested_bytes, 8192 + 4096);
+    }
 }

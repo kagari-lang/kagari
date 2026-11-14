@@ -1,0 +1,29 @@
+use core::ops::{ Bound, RangeBounds };
+
+enum ForeignBound {
+    Unbounded
+}
+
+fn lower<R: RangeBounds<u64>>(range: R) -> Bound<u64> {
+    range.start_bound()
+}
+
+pub fn valid() -> Bound<u64> {
+    lower(..)
+}
+
+pub fn included() -> Bound<u64> {
+    (18446744073709551615u64..).start_bound()
+}
+
+pub fn excluded() -> Bound<u64> {
+    (..4294967296u64).end_bound()
+}
+
+pub fn wrong_argument() -> Bound<i32> {
+    Bound::Unbounded
+}
+
+pub fn wrong_owner() -> ForeignBound {
+    ForeignBound::Unbounded
+}

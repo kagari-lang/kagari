@@ -1,7 +1,7 @@
 //! Local initializer and historical-demand contracts, independent of execution liveness.
 use crate::{
     Runtime,
-    module::{ExecutableModule, Program, VerifiedProgram, state::StaticState},
+    module::{ExecutableModule, InstalledProgram, VerifiedProgram, state::StaticState},
     reload::ReloadValidationError,
     test_support::{
         update_programs::{
@@ -17,14 +17,15 @@ use kagari_contract::updates::{BodyRecord, CallRequirement};
 use std::sync::Arc;
 
 fn rejected_without_effects(
-    runtime: &Runtime,
-    loaded_program: &Program,
+    runtime: &mut Runtime,
+    loaded_program: &InstalledProgram,
     candidate: &str,
     expected_error: Option<&str>,
 ) {
     let loaded = runtime.select_program(loaded_program).unwrap();
     let history = loaded.retained_demands().metadata().records().clone();
     let count = runtime.modules().loaded_count();
+    let heap = runtime.gc_stats();
     let code = bytecode(candidate, None);
     let artifact = source_free_artifact(code.clone());
     let verified = VerifiedProgram::new(code.clone(), &DefinitionContext::new().unwrap()).unwrap();
@@ -59,7 +60,7 @@ fn rejected_without_effects(
     assert_eq!(current.retained_demands().metadata().records(), &history);
     assert_eq!(runtime.modules().loaded_count(), count);
     assert_eq!(runtime.resources().counters().peak_call_depth, 0);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.gc_stats(), heap);
     for member in loaded.members() {
         assert!(
             runtime
@@ -98,7 +99,7 @@ fn lazy_initializer_freezes_expression_but_allows_transitive_helper_updates() {
             .is_some_and(|part| part.name == "STATE")
     );
     rejected_without_effects(
-        &runtime,
+        &mut runtime,
         &loaded_program,
         &source.replace("helper() + (1 + 2)", "helper() + 3"),
         Some(&format!(
@@ -304,7 +305,7 @@ fn source_free_candidates_require_historical_specializations_after_code_collecti
     let second_source = source
         .replace("run() -> i32 { generic(7) }", "run() -> i32 { 9 }")
         .replace("-> i32 { 11 }", "-> i32 { 12 }");
-    rejected_without_effects(&runtime, &first_program, &second_source, None);
+    rejected_without_effects(&mut runtime, &first_program, &second_source, None);
     let second_code = retained_candidate(&first, &second_source);
     assert_ne!(
         specialization(&second_code).instructions,
@@ -326,7 +327,7 @@ fn source_free_candidates_require_historical_specializations_after_code_collecti
     // Generation two has no source call to generic<i32>, and generation one's
     // executable graph has gone. Only the installation envelope can retain it.
     let third_source = second_source.replace("-> i32 { 12 }", "-> i32 { 13 }");
-    rejected_without_effects(&runtime, &first_program, &third_source, None);
+    rejected_without_effects(&mut runtime, &first_program, &third_source, None);
     let third_code = retained_candidate(&second, &third_source);
     assert_ne!(
         specialization(&third_code).instructions,

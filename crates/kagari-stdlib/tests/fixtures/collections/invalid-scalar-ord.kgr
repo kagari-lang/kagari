@@ -1,0 +1,11 @@
+use std::cmp::{ Ordering };
+
+impl Ord for i32 {
+    fn cmp(self, other: Self) -> Ordering {
+        Ordering::Equal
+    }
+}
+
+fn main() {
+    Vec::from([1, 3, 2]).sort();
+}

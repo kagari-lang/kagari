@@ -25,16 +25,40 @@ privilege matrix.
 
 ## Execution control
 
-`RuntimeConfig::limits` contains `RuntimeLimits::max_call_depth`, defaulting to
-`Some(256)`; `None` disables that protection. `ExecutionOptions::cancellation`
+`RuntimeConfig::limits` contains nonzero `RuntimeLimits::max_stack_bytes`
+(default 8 MiB) and `max_native_depth` (default 32). Each independent execution
+owns a bounded account for committed frame, scalar/managed slot, outgoing
+argument, Native/local and execution-source backing capacity. Empty frames count
+toward it; active uncommon control leases its entry footprint. Fixed Runtime/
+session directory headers and unassigned global pool spare capacity remain
+separately reported storage. Synchronous reentry shares that execution account; parked independent
+executions retain their own accounts. This bounds committed execution capacity,
+not managed heap, transient reallocation backing, arbitrary Rust callback state
+or process RSS. Exceeding the account reports `StackOverflow`; fallible allocator
+failure within it reports `AllocationFailure`.
+
+Native/compiled entry has a separate nested-entry guard shared across Runtime
+sessions. On supported native hosts, the guard also queries remaining OS thread
+stack and rejects entry below a 128 KiB reserve. It does not grow/switch stacks.
+On unsupported hosts, Wasm and Miri only the configured nested-entry ceiling is
+available. Arbitrarily small host thread stacks and recursion inside Rust
+callbacks remain host-owned; the guard cannot recover an already exhausted
+thread stack. Guard exhaustion reports `StackOverflow` with a distinct Native
+admission reason and releases admitted guards during unwind.
+
+Nonexecuting Host conversion/metadata preparation uses its own default 8 MiB
+source account; it does not consume an idle execution's configured budget.
+Active conversions use that execution's source/account.
+`ExecutionOptions::cancellation`
 provides cooperative cancellation. Nested calls, native callbacks and synchronous
 reentry share the root token and sticky termination state. A handler cannot
-swallow termination and resume that root. Cleanup always releases frame roots,
+swallow termination, stack exhaustion or allocation failure and resume that root.
+Cleanup always releases frame roots,
 borrow leases and generation retention. A fresh root can execute after cleanup;
 a reused cancelled token continues to reject execution.
 
 The interpreter and supported JIT poll at valid execution boundaries. Long native
-work uses `CallContext::poll` at appropriate chunks or callbacks. Indivisible
+work uses `NativeCall::poll` at appropriate chunks or callbacks. Indivisible
 primitive bulk operations, including primitive slice sorting, complete before the
 next poll. Prepared mutations commit their target and dirty record together.
 Cancellation cannot forcibly preempt a blocking Rust callback or guarantee a

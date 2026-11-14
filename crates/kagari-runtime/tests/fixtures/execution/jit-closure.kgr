@@ -1,0 +1,9 @@
+fn main() -> i32 {
+    var count = 40;
+    val next = || {
+        count = count + 1;
+        count
+    };
+    next();
+    next()
+}

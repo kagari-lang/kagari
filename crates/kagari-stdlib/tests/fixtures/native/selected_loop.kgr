@@ -1,0 +1,30 @@
+use example::calls::{ Step, repeat };
+
+struct Counter {
+    val amount: i32
+}
+
+impl Step for Counter {
+    fn step(self, value: i32) -> i32 {
+        value + self.amount
+    }
+}
+
+fn main() -> i32 {
+    repeat(Counter { amount: 14 }, 3)
+}
+
+trait Runner {
+    fn run<T: Step>(self, item: T) -> i32 {
+        repeat(item, 3)
+    }
+}
+
+struct Source {}
+
+impl Runner for Source {}
+
+pub fn shared() -> i32 {
+    val source: Runner = Source {};
+    source.run(Counter { amount: 14 })
+}

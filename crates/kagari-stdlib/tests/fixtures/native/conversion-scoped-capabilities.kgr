@@ -1,0 +1,26 @@
+use example::capabilities::{ Player, forward, inspect };
+
+fn bump(player: RefMut<Player>) -> i32 {
+    player.hp += 1;
+    player.hp
+}
+
+pub fn attempt(player: RefMut<Player>) -> i32 {
+    forward(player, |p: RefMut<Player>| bump(p))
+}
+
+fn relay(player: Ref<Player>) -> i32 {
+    forward(player, |p: RefMut<Player>| bump(p))
+}
+
+pub fn via_shared(player: RefMut<Player>) -> i32 {
+    relay(player)
+}
+
+pub fn read(player: Ref<Player>) -> i32 {
+    inspect(player, |p: Ref<Player>| p.hp)
+}
+
+pub fn direct(player: RefMut<Player>) -> i32 {
+    bump(player)
+}

@@ -28,7 +28,7 @@ pub struct OwnedMethod<S, A>(PhantomData<(S, A)>);
 #[doc(hidden)]
 pub struct Explicit;
 
-/// Inference marker for checked external-ID callbacks using existing host scopes.
+/// Authoring marker returned by native::host::callback for external-ID services.
 #[doc(hidden)]
 pub struct Host;
 

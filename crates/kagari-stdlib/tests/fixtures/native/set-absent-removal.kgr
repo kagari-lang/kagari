@@ -1,0 +1,32 @@
+use std::collections::HashSet;
+
+use std::hash::Hash;
+
+struct Key {
+    val number: i32
+}
+
+impl PartialEq for Key {
+    fn eq(self, other: Key) -> bool {
+        self.number == other.number
+    }
+}
+
+impl Eq for Key {}
+
+impl Hash for Key {
+    fn hash(self) -> i64 {
+        7
+    }
+}
+
+fn main() -> i32 {
+    val set: HashSet<Key> = HashSet::new();
+    set.insert(Key { number: 1 });
+    var visited = 0;
+    for item in set {
+        set.remove(Key { number: 2 });
+        visited += 1;
+    }
+    visited
+}

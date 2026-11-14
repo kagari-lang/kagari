@@ -12,7 +12,6 @@ use kagari_runtime::{
 };
 #[cfg(feature = "source")]
 use kagari_source::source_database::SourceDatabase;
-use kagari_stdlib as stdlib;
 use std::collections::HashSet;
 #[cfg(feature = "source")]
 use std::path::PathBuf;
@@ -30,8 +29,8 @@ pub struct KagariEngineBuilder {
 }
 
 impl KagariEngineBuilder {
-    pub(super) fn standard() -> NativeResult<Self> {
-        let mut builder = Self {
+    pub(super) fn empty() -> NativeResult<Self> {
+        Ok(Self {
             config: EngineConfig::default(),
             modules: Vec::new(),
             catalog: DeclarationCatalog::default(),
@@ -40,9 +39,7 @@ impl KagariEngineBuilder {
             declaration_cache: None,
             #[cfg(feature = "source")]
             source_root: None,
-        };
-        builder.install_all(stdlib::modules()?)?;
-        Ok(builder)
+        })
     }
 
     pub fn config(&mut self, config: EngineConfig) -> &mut Self {

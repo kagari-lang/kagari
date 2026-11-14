@@ -1,0 +1,15 @@
+use test::probe::{ keep, tick };
+
+fn main() {
+    val values = Vec::from([1, 2, 3, 4]);
+    keep(values);
+    values.retain(
+        |value| {
+            val count = tick();
+            if count == 3u64 {
+                val fail = 1 / 0;
+            }
+            value != 1
+        }
+    );
+}

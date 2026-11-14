@@ -1,34 +1,62 @@
-use crate::module::state::tests::{add_static, program as static_program, ready};
-use crate::test_support::native::program::ProgramFixture;
-use crate::value::Value;
+use crate::module::state::initialization::InitializationAttempt;
+use crate::{
+    Runtime, RuntimeConfig,
+    error::{RuntimeErrorKind, fault::EngineFault},
+    execution::memory::ManagedMemory,
+    host::HostRegistryId,
+    module::{
+        managed::{
+            InstallationState, cell::StaticCellObject, revision::RevisionState,
+            source::RevisionSource,
+        },
+        retention::RetentionOrigin,
+        staging::{PreparedProgramMetadata, StagedProgram},
+        state::tests::{add_static, program as static_program, ready},
+    },
+    reload::validate_verified_reload_candidate,
+    resource::ResourceState,
+    test_support::native::program::ProgramFixture,
+    value::{
+        carriers::{RootedValue, ScopedValue},
+        strings::StringObject,
+    },
+};
+use std::sync::atomic::AtomicBool;
+
 use kagari_types::visibility::Visibility;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
-use crate::host::HostRegistryId;
-use crate::reload::validate_verified_reload_candidate;
-use crate::resource::ResourceState;
-use crate::{Runtime, RuntimeConfig, error::RuntimeErrorKind, gc::GcHeap};
-use kagari_bytecode::instruction::{ConstantId, ConstantOperand};
+use kagari_bytecode::instruction::{ConstantId, ConstantOperand, ModuleSlot};
 use kagari_bytecode::program::ModuleRef;
 
 use super::*;
 
-fn collect(store: &ModuleStore) -> Vec<ModuleKey> {
-    GcHeap::new(Default::default(), ResourceState::default())
-        .collect(store, &[])
-        .unwrap()
-        .reclaimed_modules
+fn collect(
+    store: &ModuleStore,
+    memory: &mut ManagedMemory,
+    resources: &ResourceState,
+) -> Vec<ModuleKey> {
+    let abandoned = store.take_abandonment();
+    memory.collect(resources).unwrap();
+    store.dispose_retired(abandoned).unwrap()
 }
 
-fn slot_values(store: &ModuleStore) -> Vec<Value> {
-    let graph = store.collection_graph().unwrap();
-    let mut values = Vec::new();
-    for key in graph.roots() {
-        graph
-            .trace(key, &mut |value| values.push(*value), &mut Vec::new())
-            .unwrap();
+fn prepare(
+    store: &ModuleStore,
+    memory: &mut ManagedMemory,
+    metadata: PreparedProgramMetadata,
+    resources: &ResourceState,
+) -> StagedProgram {
+    let candidate = metadata.into_managed(store, memory, resources).unwrap();
+    if candidate.is_initial() {
+        candidate.finish_bindings(store, memory, resources).unwrap();
+        candidate
+    } else {
+        let baseline = store.capture_current(&candidate.installation).unwrap();
+        candidate
+            .bind_reload(store, &baseline, memory, resources)
+            .unwrap()
     }
-    values
 }
 
 #[test]
@@ -49,13 +77,10 @@ fn version_token_preserves_root_identity_without_retaining_execution() {
         .iter()
         .map(Arc::downgrade)
         .collect::<Vec<_>>();
-    let same_context = code.normalized(&context, &Default::default()).unwrap();
-    assert!(Arc::ptr_eq(&code.modules, &same_context.modules));
-    assert!(code.same_version(&same_context));
     let mut other_root = code.clone();
     other_root.root = ModuleRef::new(code.root.index() + 1);
     assert!(!code.same_version(&other_root));
-    drop((same_context, other_root));
+    drop(other_root);
     let mut runtime = Runtime::default();
     let old_program = runtime.load_verified_program("token", code).unwrap();
     let old = runtime.select_program(&old_program).unwrap();
@@ -72,12 +97,17 @@ fn version_token_preserves_root_identity_without_retaining_execution() {
     runtime.publish_staged_reload(next).unwrap();
 
     let current = runtime.select_program(&old_program).unwrap();
+    assert_ne!(token, current.verified_program().revision());
     runtime.collect_garbage().unwrap();
     assert!(runtime.modules().loaded(old.key()).is_none());
     assert!(runtime.validate_executable_module(&old).is_err());
     assert!(
         runtime
-            .retain_program(&old, ModuleEpochRetention::ActiveCall)
+            .retain_program(
+                &old,
+                ModuleEpochRetention::ActiveCall,
+                RevisionSource::Current
+            )
             .is_none()
     );
     assert!(runtime.validate_executable_module(&current).is_ok());
@@ -86,7 +116,7 @@ fn version_token_preserves_root_identity_without_retaining_execution() {
     assert!(current_graph.iter().all(|weak| weak.upgrade().is_none()));
     assert!(descriptor.upgrade().is_none());
     assert!(execution.upgrade().is_none());
-    assert_eq!(Arc::strong_count(&token), 1);
+    drop(token);
 }
 
 #[test]
@@ -155,53 +185,106 @@ fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
         .unwrap();
     let second = second_runtime.select_program(&second_program).unwrap();
 
-    // Scoped definition IDs are runtime-local; immutable executable preparation
-    // and the source revision remain shared across the identity adoption.
+    // Products retain their original immutable identity scope and code. Local
+    // admission records and execution state belong to their respective Runtime.
+    assert!(Arc::ptr_eq(&first.bytecode, &second.bytecode));
     assert!(Arc::ptr_eq(
         &first.program.code.execution,
         &second.program.code.execution
     ));
     assert!(Arc::ptr_eq(
-        &first.program.code.version,
-        &second.program.code.version
+        first.verified_program().dispatch_facts().unwrap(),
+        second.verified_program().dispatch_facts().unwrap(),
     ));
-    assert_ne!(first.definitions().id(), second.definitions().id());
+    assert!(Arc::ptr_eq(
+        &first.program.code.layout_facts,
+        &second.program.code.layout_facts,
+    ));
+    assert!(Arc::ptr_eq(
+        &first.program.retained_demands,
+        &second.program.retained_demands
+    ));
+    assert_eq!(
+        first.program.code.revision(),
+        second.program.code.revision()
+    );
+    assert_eq!(first.definitions().id(), second.definitions().id());
+    assert_ne!(
+        first.identity_admission().target().id(),
+        second.identity_admission().target().id()
+    );
     assert!(first_runtime.validate_executable_module(&first).is_ok());
     assert!(second_runtime.validate_executable_module(&second).is_ok());
     assert!(first_runtime.validate_executable_module(&second).is_err());
     assert!(second_runtime.validate_executable_module(&first).is_err());
+    // A populated pure-fact cache must still honor each caller's cancellation.
+    let cancellation = CancellationToken::default();
+    cancellation.cancel();
+    assert!(matches!(
+        RetainedDemands::initial(first.verified_program(), &cancellation),
+        Err(ReloadValidationError::Runtime(error)) if error.kind() == RuntimeErrorKind::Cancelled
+    ));
+    let history = RetainedDemands::initial(first.verified_program(), &Default::default()).unwrap();
+    assert!(Arc::ptr_eq(&history, &first.program.retained_demands));
     let shared = ConstantId::new(0);
-    let escaped = first_runtime.read_constant(&first, shared).unwrap();
-    let before = first_runtime.gc().stats();
+    let escaped = first_runtime
+        .read_constant(&first, shared, RetentionOrigin::Current)
+        .unwrap();
+    let before = first_runtime.collected_gc_stats();
     for _ in 0..100 {
-        assert_eq!(
-            first_runtime.read_constant(&first, shared).unwrap(),
-            escaped
-        );
+        let repeated = first_runtime
+            .read_constant(&first, shared, RetentionOrigin::Current)
+            .unwrap();
+        first_runtime
+            .memory
+            .scope(&first_runtime.resources, |cx, _| {
+                assert!(
+                    escaped
+                        .get(cx)?
+                        .object()
+                        .unwrap()
+                        .ptr_eq(repeated.get(cx)?.object().unwrap())
+                );
+                Ok(())
+            })
+            .unwrap();
     }
-    assert!(first_runtime.read_constant(&second, shared).is_err());
     assert!(
         first_runtime
-            .read_constant(&first, ConstantId::new(2))
+            .read_constant(&second, shared, RetentionOrigin::Current)
             .is_err()
     );
-    assert_eq!(first_runtime.gc().stats(), before);
-    let second_value = second_runtime.read_constant(&second, shared).unwrap();
-    assert_ne!(escaped, second_value);
-    for (runtime, value) in [(&first_runtime, escaped), (&second_runtime, second_value)] {
-        let Value::Str(id) = value else {
-            panic!("expected string")
-        };
-        assert_eq!(&*runtime.gc().string(id).unwrap(), "shared");
-    }
-    ready(&first_runtime, &first, 0, Value::I32(7));
-    assert!(matches!(
+    assert!(
         first_runtime
-            .module_instance_snapshot(&first)
-            .unwrap()
-            .module_slots[0],
-        StaticState::Ready(Value::I32(7))
-    ));
+            .read_constant(&first, ConstantId::new(2), RetentionOrigin::Current)
+            .is_err()
+    );
+    let after = first_runtime.collected_gc_stats();
+    assert_eq!(before.objects, after.objects);
+    assert_eq!(before.root_registrations, after.root_registrations);
+    let second_value = second_runtime
+        .read_constant(&second, shared, RetentionOrigin::Current)
+        .unwrap();
+    for (runtime, value) in [
+        (&mut first_runtime, &escaped),
+        (&mut second_runtime, &second_value),
+    ] {
+        assert_constant_text(runtime, value, "shared");
+    }
+    assert!(
+        second_runtime
+            .memory
+            .scope(&second_runtime.resources, |cx, _| escaped
+                .get(cx)
+                .map(|_| ()))
+            .is_err()
+    );
+    ready(&mut first_runtime, &first, 0, &RootedValue::from(7i32));
+    let first_snapshot = first_runtime.module_instance_snapshot(&first).unwrap();
+    let StaticState::Ready(value) = &first_snapshot.module_slots[0] else {
+        panic!("ready first instance");
+    };
+    assert_eq!(value.as_i32(), Some(7));
     assert!(matches!(
         second_runtime
             .module_instance_snapshot(&second)
@@ -209,15 +292,21 @@ fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
             .module_slots[0],
         StaticState::Uninitialized(_)
     ));
+    drop(first_snapshot);
 
     let pool_only = first_runtime
-        .read_constant(&first, ConstantId::new(1))
+        .read_constant(&first, ConstantId::new(1), RetentionOrigin::Current)
         .unwrap();
-    assert_eq!(
-        first_runtime.collect_garbage().unwrap().reclaimed_objects,
-        0
-    );
-    let escaped_root = first_runtime.root_value(escaped).unwrap();
+    assert_constant_text(&mut first_runtime, &pool_only, "pool-only");
+    drop(pool_only);
+    first_runtime.collect_garbage().unwrap();
+    let retained = first_runtime
+        .retain_module(
+            &first,
+            ModuleEpochRetention::RuntimeValue,
+            RetentionOrigin::Current,
+        )
+        .unwrap();
     let (definitions, mut replacement) = first
         .to_unverified(&CancellationToken::default())
         .unwrap()
@@ -237,32 +326,85 @@ fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
         )
         .unwrap();
     first_runtime.publish_staged_reload(candidate).unwrap();
-    let collected = first_runtime.collect_garbage().unwrap();
-    assert_eq!(collected.reclaimed_modules, vec![first.key()]);
-    assert_eq!(collected.reclaimed_objects, 1);
-    assert!(!first_runtime.gc().validate_value(&pool_only));
-    assert!(first_runtime.gc().validate_value(&escaped));
-    assert!(first_runtime.read_constant(&first, shared).is_err());
-    drop(escaped_root);
-    assert_eq!(
-        first_runtime.collect_garbage().unwrap().reclaimed_objects,
-        1
+    first_runtime.collect_garbage().unwrap();
+    assert!(first_runtime.modules().loaded(first.key()).is_some());
+    assert!(
+        first_runtime
+            .read_constant(&first, shared, RetentionOrigin::Current)
+            .is_err()
     );
-    assert!(!first_runtime.gc().validate_value(&escaped));
-    assert_eq!(
-        second_runtime.collect_garbage().unwrap().reclaimed_objects,
-        0
+    assert!(
+        first_runtime
+            .read_constant(&second, shared, RetentionOrigin::Retained(&retained))
+            .is_err()
     );
-    assert_eq!(
-        second_runtime.read_constant(&second, shared).unwrap(),
-        second_value
+    let exact = first_runtime
+        .read_constant(&first, shared, RetentionOrigin::Retained(&retained))
+        .unwrap();
+    first_runtime
+        .memory
+        .scope(&first_runtime.resources, |cx, _| {
+            assert!(
+                exact
+                    .get(cx)?
+                    .object()
+                    .unwrap()
+                    .ptr_eq(escaped.get(cx)?.object().unwrap())
+            );
+            Ok(())
+        })
+        .unwrap();
+    drop(exact);
+    drop(retained);
+    first_runtime.collect_garbage().unwrap();
+    assert!(first_runtime.modules().loaded(first.key()).is_none());
+    assert_constant_text(&mut first_runtime, &escaped, "shared");
+    assert!(
+        first_runtime
+            .read_constant(&first, shared, RetentionOrigin::Current)
+            .is_err()
     );
+    let before_drop = first_runtime.memory.stats().objects;
+    drop(escaped);
+    first_runtime.collect_garbage().unwrap();
+    assert_eq!(first_runtime.memory.stats().objects, before_drop - 1);
+    second_runtime.collect_garbage().unwrap();
+    assert_constant_text(&mut second_runtime, &second_value, "shared");
+    let repeated = second_runtime
+        .read_constant(&second, shared, RetentionOrigin::Current)
+        .unwrap();
+    second_runtime
+        .memory
+        .scope(&second_runtime.resources, |cx, _| {
+            assert!(
+                repeated
+                    .get(cx)?
+                    .object()
+                    .unwrap()
+                    .ptr_eq(second_value.get(cx)?.object().unwrap())
+            );
+            Ok(())
+        })
+        .unwrap();
+}
+
+fn assert_constant_text(runtime: &mut Runtime, value: &RootedValue, expected: &str) {
+    runtime
+        .memory
+        .scope(&runtime.resources, |cx, _| {
+            let object = cx.downcast::<StringObject>(value.get(cx)?.object().unwrap())?;
+            cx.read(object, |object| assert_eq!(object.as_str(), expected));
+            Ok(())
+        })
+        .unwrap();
 }
 
 #[test]
 fn staged_programs_keep_instances_alive_without_activating_them() {
     let context = DefinitionContext::new().unwrap();
     let mut store = ModuleStore::default();
+    let resources = &ResourceState::default();
+    let mut memory = ManagedMemory::new(Default::default());
     let mut root_identity = BytecodeModule::default().identity;
     root_identity.path.push("root".into());
     let installation = store
@@ -289,6 +431,18 @@ fn staged_programs_keep_instances_alive_without_activating_them() {
             true,
             Visibility::Private,
         );
+        if epoch == 2 {
+            // Only the abandoned candidate introduces this initializer. Attaching
+            // its new cell to current bindings would retain the entire candidate.
+            add_static(
+                &context,
+                &mut root,
+                "unpublished",
+                Ty::Builtin(BuiltinType::I32),
+                true,
+                Visibility::Private,
+            );
+        }
         let code = VerifiedProgram::new(
             ProgramFixture {
                 exports: Default::default(),
@@ -300,89 +454,115 @@ fn staged_programs_keep_instances_alive_without_activating_them() {
             &context,
         )
         .unwrap();
-        let admission = installation
-            .capture_current()
+        let admission = store
+            .capture_current(&installation)
             .ok()
             .map(|baseline| validate_verified_reload_candidate(&baseline, &code).unwrap());
-        store
-            .stage_verified_program(
+        {
+            let code = code;
+            let definitions =
+                DefinitionAdmission::prepare(&code, &context, &Default::default()).unwrap();
+            store.stage_verified_program(
                 installation.clone(),
                 "game.player",
                 ModuleEpoch(epoch),
                 code,
                 LinkedProgramBindings {
+                    definitions,
                     members: vec![LinkedHostBindings::default(), LinkedHostBindings::default()],
                     shared_traits: Default::default(),
                 },
                 admission,
             )
-            .unwrap()
+        }
+        .unwrap()
     };
-    let baseline = stage(1).publish(&store).unwrap();
-    let abandoned = stage(2);
-    let candidate = stage(3);
+    let baseline = prepare(&store, &mut memory, stage(1), resources)
+        .publish(&store, &mut memory, resources)
+        .unwrap();
+    let abandoned = prepare(&store, &mut memory, stage(2), resources);
+    let candidate = prepare(&store, &mut memory, stage(3), resources);
     let abandoned_keys = abandoned
         .module
         .members()
         .map(|m| m.key())
         .collect::<Vec<_>>();
-    for member in candidate.module.members() {
-        let mut inner = store.inner.borrow_mut();
-        let id = inner.resolve(&member).unwrap().bindings[0];
-        inner.cells.get_mut(&id).unwrap().state = StaticState::Ready(Value::I32(73));
-        drop(inner);
-        assert!(store.is_program_root(member.key()));
-    }
+    memory
+        .scope(resources, |cx, _| {
+            let revision = cx.get(candidate.revision())?;
+            for member in candidate.module.members() {
+                let cell =
+                    RevisionState::static_cell(cx, revision, member.slot(), ModuleSlot::new(0))?;
+                let attempt = Arc::new(InitializationAttempt::new(
+                    Arc::new(AtomicBool::new(false)),
+                    None,
+                ));
+                StaticCellObject::begin(cx, cell, attempt.clone())?;
+                StaticCellObject::complete(cx, cell, ScopedValue::from(73_i32), &attempt)?;
+            }
+            Ok(())
+        })
+        .unwrap();
     assert_eq!(
-        installation.capture_current().unwrap().key(),
+        store.capture_current(&installation).unwrap().key(),
         baseline.key()
     );
     assert_eq!(store.loaded_count(), 6);
-    assert!(collect(&store).is_empty());
-    assert_eq!(
-        slot_values(&store)
-            .into_iter()
-            .filter(|value| *value == Value::I32(73))
-            .count(),
-        2
-    );
+    assert!(collect(&store, &mut memory, resources).is_empty());
+    memory
+        .scope(resources, |cx, _| {
+            let revision = cx.get(candidate.revision())?;
+            for member in candidate.module.members() {
+                let cell =
+                    RevisionState::static_cell(cx, revision, member.slot(), ModuleSlot::new(0))?;
+                assert_eq!(
+                    StaticCellObject::read(cx, cell)?.scalar_payload(),
+                    ScopedValue::from(73_i32).scalar_payload()
+                );
+            }
+            Ok(())
+        })
+        .unwrap();
 
     drop(abandoned);
     for key in &abandoned_keys {
         assert!(store.loaded(*key).is_none());
-        assert!(store.instance_snapshot(*key).is_none());
     }
     assert_eq!(store.loaded_count(), 4);
     assert_eq!(
-        installation.capture_current().unwrap().key(),
+        store.capture_current(&installation).unwrap().key(),
         baseline.key()
     );
     assert_eq!(
-        collect(&store).into_iter().collect::<HashSet<_>>(),
+        collect(&store, &mut memory, resources)
+            .into_iter()
+            .collect::<HashSet<_>>(),
         abandoned_keys.into_iter().collect()
     );
 
-    let published = candidate.publish(&store).unwrap();
+    let published = candidate.publish(&store, &mut memory, resources).unwrap();
     assert_eq!(
-        installation.capture_current().unwrap().key(),
+        store.capture_current(&installation).unwrap().key(),
         published.key()
     );
-    for member in published.members() {
-        let instance = store.instance_snapshot(member.key()).unwrap();
-        assert!(matches!(
-            instance.module_slots.as_slice(),
-            [StaticState::Ready(Value::I32(73))]
-        ));
-    }
-    assert_eq!(collect(&store).len(), 2);
+    memory
+        .scope(resources, |cx, _| {
+            let current = store.current.borrow();
+            let installation = cx.get(&current[&installation.id].root)?;
+            let revision = InstallationState::current(cx, installation).unwrap();
+            for member in published.members() {
+                let cell =
+                    RevisionState::static_cell(cx, revision, member.slot(), ModuleSlot::new(0))?;
+                assert_eq!(
+                    StaticCellObject::read(cx, cell)?.scalar_payload(),
+                    ScopedValue::from(73_i32).scalar_payload()
+                );
+            }
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(collect(&store, &mut memory, resources).len(), 2);
     assert_eq!(store.loaded_count(), 2);
-    assert_eq!(
-        slot_values(&store)
-            .into_iter()
-            .filter(|value| *value == Value::I32(73))
-            .count(),
-        2
-    );
 }
 
 #[test]
@@ -395,22 +575,26 @@ fn abandoning_candidates_invalidates_access_even_after_quarantine() {
         .unwrap();
     let store = runtime.modules();
     let stage = |epoch| {
+        let code = VerifiedProgram::new(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
+            .unwrap(),
+            &context,
+        )
+        .unwrap();
+        let definitions =
+            DefinitionAdmission::prepare(&code, &context, &Default::default()).unwrap();
         store.stage_verified_program(
             installation.clone(),
             "candidate",
             ModuleEpoch(epoch),
-            VerifiedProgram::new(
-                ProgramFixture {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                }
-                .metadata(context.snapshot(), &Default::default())
-                .unwrap(),
-                &context,
-            )
-            .unwrap(),
+            code,
             LinkedProgramBindings {
+                definitions,
                 members: vec![LinkedHostBindings::default()],
                 shared_traits: Default::default(),
             },
@@ -419,13 +603,13 @@ fn abandoning_candidates_invalidates_access_even_after_quarantine() {
     };
     let candidate = stage(1).unwrap();
     assert_eq!(store.loaded_count(), 1);
-    assert!(installation.capture_current().is_err());
+    assert!(store.capture_current(&installation).is_err());
     drop(candidate);
     assert_eq!(store.loaded_count(), 0);
     let candidate = stage(3).unwrap();
-    runtime
-        .resources()
-        .quarantine("test failed initializer invariant");
+    runtime.resources().quarantine(EngineFault::HostInvariant(
+        "test failed initializer invariant",
+    ));
     drop(candidate);
     assert_eq!(store.loaded_count(), 0);
     assert!(runtime.is_quarantined());
@@ -435,61 +619,75 @@ fn abandoning_candidates_invalidates_access_even_after_quarantine() {
 fn assigns_stable_module_ids_across_epochs() {
     let context = DefinitionContext::new().unwrap();
     let mut store = ModuleStore::default();
+    let resources = &ResourceState::default();
+    let mut memory = ManagedMemory::new(Default::default());
     let installation = store
         .reserve_installation(
             HostRegistryId::default(),
             BytecodeModule::default().identity,
         )
         .unwrap();
-    let first = store
-        .stage_verified_program(
+    let first = {
+        let code = VerifiedProgram::new(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
+            .unwrap(),
+            &context,
+        )
+        .unwrap();
+        let definitions =
+            DefinitionAdmission::prepare(&code, &context, &Default::default()).unwrap();
+        store.stage_verified_program(
             installation.clone(),
             "game.player",
             ModuleEpoch(1),
-            VerifiedProgram::new(
-                ProgramFixture {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                }
-                .metadata(context.snapshot(), &Default::default())
-                .unwrap(),
-                &context,
-            )
-            .unwrap(),
+            code,
             LinkedProgramBindings {
+                definitions,
                 members: vec![LinkedHostBindings::default()],
                 shared_traits: Default::default(),
             },
             None,
         )
-        .unwrap()
-        .publish(&store)
+    }
+    .unwrap();
+    let first = prepare(&store, &mut memory, first, resources)
+        .publish(&store, &mut memory, resources)
         .unwrap();
-    let second = store
-        .stage_verified_program(
+    let second = {
+        let code = VerifiedProgram::new(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
+            .unwrap(),
+            &context,
+        )
+        .unwrap();
+        let definitions =
+            DefinitionAdmission::prepare(&code, &context, &Default::default()).unwrap();
+        store.stage_verified_program(
             installation.clone(),
             "game.player",
             ModuleEpoch(2),
-            VerifiedProgram::new(
-                ProgramFixture {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                }
-                .metadata(context.snapshot(), &Default::default())
-                .unwrap(),
-                &context,
-            )
-            .unwrap(),
+            code,
             LinkedProgramBindings {
+                definitions,
                 members: vec![LinkedHostBindings::default()],
                 shared_traits: Default::default(),
             },
             Some(validate_verified_reload_candidate(&first, first.verified_program()).unwrap()),
         )
-        .unwrap()
-        .publish(&store)
+    }
+    .unwrap();
+    let second = prepare(&store, &mut memory, second, resources)
+        .publish(&store, &mut memory, resources)
         .unwrap();
     let other_installation = store
         .reserve_installation(
@@ -497,30 +695,36 @@ fn assigns_stable_module_ids_across_epochs() {
             BytecodeModule::default().identity,
         )
         .unwrap();
-    let other = store
-        .stage_verified_program(
+    let other = {
+        let code = VerifiedProgram::new(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
+            .unwrap(),
+            &context,
+        )
+        .unwrap();
+        let definitions =
+            DefinitionAdmission::prepare(&code, &context, &Default::default()).unwrap();
+        store.stage_verified_program(
             other_installation,
             "game.world",
             ModuleEpoch(1),
-            VerifiedProgram::new(
-                ProgramFixture {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                }
-                .metadata(context.snapshot(), &Default::default())
-                .unwrap(),
-                &context,
-            )
-            .unwrap(),
+            code,
             LinkedProgramBindings {
+                definitions,
                 members: vec![LinkedHostBindings::default()],
                 shared_traits: Default::default(),
             },
             None,
         )
-        .unwrap()
-        .publish(&store)
+    }
+    .unwrap();
+    let other = prepare(&store, &mut memory, other, resources)
+        .publish(&store, &mut memory, resources)
         .unwrap();
 
     assert_eq!(first.id, second.id);
@@ -529,137 +733,125 @@ fn assigns_stable_module_ids_across_epochs() {
     assert_eq!(other.id.index(), 1);
     assert_eq!(store.loaded_count(), 3);
     assert_eq!(
-        installation.capture_current().unwrap().epoch,
+        store.capture_current(&installation).unwrap().epoch,
         ModuleEpoch(2)
     );
-}
-
-#[test]
-fn snapshot_during_mutable_instance_borrow_does_not_panic() {
-    let context = DefinitionContext::new().unwrap();
-    let mut store = ModuleStore::default();
-    let installation = store
-        .reserve_installation(
-            HostRegistryId::default(),
-            BytecodeModule::default().identity,
-        )
-        .unwrap();
-    let module = store
-        .stage_verified_program(
-            installation.clone(),
-            "game.snapshot",
-            ModuleEpoch(1),
-            VerifiedProgram::new(
-                ProgramFixture {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                }
-                .metadata(context.snapshot(), &Default::default())
-                .unwrap(),
-                &context,
-            )
-            .unwrap(),
-            LinkedProgramBindings {
-                members: vec![LinkedHostBindings::default()],
-                shared_traits: Default::default(),
-            },
-            None,
-        )
-        .unwrap()
-        .publish(&store)
-        .unwrap();
-    let held = store.inner.borrow_mut();
-    assert!(store.instance_snapshot(module.key()).is_none());
-    drop(held);
-    assert!(store.instance_snapshot(module.key()).is_some());
 }
 
 #[test]
 fn keeps_latest_and_retained_old_epochs_reachable() {
     let context = DefinitionContext::new().unwrap();
     let mut store = ModuleStore::default();
+    let resources = &ResourceState::default();
+    let mut memory = ManagedMemory::new(Default::default());
     let installation = store
         .reserve_installation(
             HostRegistryId::default(),
             BytecodeModule::default().identity,
         )
         .unwrap();
-    let first = store
-        .stage_verified_program(
+    let first = {
+        let code = VerifiedProgram::new(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
+            .unwrap(),
+            &context,
+        )
+        .unwrap();
+        let definitions =
+            DefinitionAdmission::prepare(&code, &context, &Default::default()).unwrap();
+        store.stage_verified_program(
             installation.clone(),
             "game.player",
             ModuleEpoch(1),
-            VerifiedProgram::new(
-                ProgramFixture {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                }
-                .metadata(context.snapshot(), &Default::default())
-                .unwrap(),
-                &context,
-            )
-            .unwrap(),
+            code,
             LinkedProgramBindings {
+                definitions,
                 members: vec![LinkedHostBindings::default()],
                 shared_traits: Default::default(),
             },
             None,
         )
-        .unwrap()
-        .publish(&store)
+    }
+    .unwrap();
+    let first = prepare(&store, &mut memory, first, resources)
+        .publish(&store, &mut memory, resources)
         .unwrap();
-    let second = store
-        .stage_verified_program(
+    let retained = memory
+        .scope(resources, |cx, _| {
+            let current = store.current.borrow();
+            let installation = cx.get(&current[&installation.id].root)?;
+            let revision = InstallationState::current(cx, installation).unwrap();
+            cx.retain(revision)
+        })
+        .unwrap();
+    let retained_copy = retained.clone();
+    let second = {
+        let code = VerifiedProgram::new(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
+            .unwrap(),
+            &context,
+        )
+        .unwrap();
+        let definitions =
+            DefinitionAdmission::prepare(&code, &context, &Default::default()).unwrap();
+        store.stage_verified_program(
             installation.clone(),
             "game.player",
             ModuleEpoch(2),
-            VerifiedProgram::new(
-                ProgramFixture {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                }
-                .metadata(context.snapshot(), &Default::default())
-                .unwrap(),
-                &context,
-            )
-            .unwrap(),
+            code,
             LinkedProgramBindings {
+                definitions,
                 members: vec![LinkedHostBindings::default()],
                 shared_traits: Default::default(),
             },
             Some(validate_verified_reload_candidate(&first, first.verified_program()).unwrap()),
         )
-        .unwrap()
-        .publish(&store)
+    }
+    .unwrap();
+    let second = prepare(&store, &mut memory, second, resources)
+        .publish(&store, &mut memory, resources)
         .unwrap();
 
-    assert!(store.is_program_root(second.key()));
-    assert!(!store.is_program_root(first.key()));
-    let call = store
-        .retain_module(&first, ModuleEpochRetention::ActiveCall)
-        .unwrap();
-    let value = store
-        .retain_module(&first, ModuleEpochRetention::RuntimeValue)
-        .unwrap();
-    let artifact = store
-        .retain_module(&first, ModuleEpochRetention::CompiledArtifact)
-        .unwrap();
-    assert!(store.is_program_root(first.key()));
-    assert_eq!(store.retention_counts(first.key()).active_calls, 1);
-    assert_eq!(store.retention_counts(first.key()).runtime_values, 1);
-    assert_eq!(store.retention_counts(first.key()).compiled_artifacts, 1);
-    assert!(collect(&store).is_empty());
+    assert!(collect(&store, &mut memory, resources).is_empty());
     assert!(store.loaded(first.key()).is_some());
-
-    drop(call);
-    drop(value);
-    drop(artifact);
-    assert_eq!(collect(&store), vec![first.key()]);
+    memory
+        .scope(resources, |cx, _| {
+            let revision = cx.get(&retained)?;
+            assert_eq!(
+                cx.read(revision, |revision| revision.code().key()),
+                first.key()
+            );
+            let installation = RevisionState::installation(cx, revision);
+            let selected = InstallationState::current(cx, installation).unwrap();
+            assert_eq!(
+                cx.read(selected, |revision| revision.code().key()),
+                second.key()
+            );
+            Ok(())
+        })
+        .unwrap();
+    drop(retained);
+    assert!(collect(&store, &mut memory, resources).is_empty());
+    drop(retained_copy);
+    assert_eq!(collect(&store, &mut memory, resources), vec![first.key()]);
     assert!(store.loaded(first.key()).is_none());
     assert!(store.loaded(second.key()).is_some());
+    store.revoke_publications(&mut memory, resources).unwrap();
+    assert_eq!(collect(&store, &mut memory, resources), vec![second.key()]);
+    assert_eq!(store.loaded_count(), 0);
+    assert_eq!(memory.stats().objects, 0);
+    assert_eq!(memory.stats().root_registrations, 0);
+    assert_eq!(memory.stats().provider_units, 0);
 }
 
 mod enum_declarations;

@@ -1,0 +1,26 @@
+pub fn pair() ->(fn() -> i32, [fn() -> i32]) {
+    val callbacks: [fn() -> i32] = [|| 0];
+    val result = || {
+        callbacks[0];
+        100 + answer()
+    };
+    callbacks[0] = result;
+    (result, callbacks)
+}
+
+pub fn make() -> fn() -> i32 {
+    val (result, _) = pair();
+    result
+}
+
+pub fn link(callbacks: [fn() -> i32], target: fn() -> i32) {
+    callbacks[0] = target;
+}
+
+pub fn invoke(callback: fn() -> i32) -> i32 {
+    callback()
+}
+
+pub fn answer() -> i32 {
+    42
+}

@@ -1,0 +1,11 @@
+struct Node {
+    val value: i32
+}
+
+pub fn values() -> [i32] {
+    [1, 2, 3, 4]
+}
+
+pub fn nodes() -> [Node] {
+    [Node { value: 42 }]
+}

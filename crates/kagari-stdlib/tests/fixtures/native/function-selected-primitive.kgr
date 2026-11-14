@@ -1,0 +1,5 @@
+use example::selected_hash::repeat;
+
+pub fn run() -> bool {
+    repeat(42) == 42.hash()
+}

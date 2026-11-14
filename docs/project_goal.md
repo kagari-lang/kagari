@@ -50,6 +50,13 @@ borrow scope while retaining once-only evaluation and completed effects.
 
 ## Reload and executable boundaries
 
+[Prepared call tables](architecture/runtime/reload.md#exact-old-bodies-current-ordinary-calls)
+preserve these selection semantics with independent immutable Program preparation
+and Runtime-local publication. New code uses normal final links; retained
+computations keep exact bodies and shared whole-version ownership. The
+[roadmap](implementation-roadmap.md#runtime-execution-model-review) owns remaining
+slot/Native-adapter, finer reclamation and native expansion work.
+
 Compile and validate candidates before atomic publication at the host/Actor
 top-level scheduling boundary, with no active synchronous execution, callback or
 reentry scope; parked executions and suspended tasks may remain. Ordinary calls
@@ -59,7 +66,7 @@ selection for every subsequent call. Frozen contracts and checked installation/t
 identity remain mandatory; business-state coordination belongs to the host.
 
 [Loading/activation](spec/module-activation.md) defines the implemented contract.
-Live `Program`/`Module` handles identify an installation; exact `ExecutableModule`
+Live `InstalledProgram`/`Module` handles identify an installation; exact `ExecutableModule`
 owners retain selected code. Named function values and typed `Function` bindings
 follow current implementations without retaining obsolete executable leases.
 Persistent static states and original initializer recipes are preserved. Existing

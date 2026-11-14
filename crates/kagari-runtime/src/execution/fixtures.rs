@@ -1,0 +1,78 @@
+//! Test-only instruction harness for bytecode without a source export contract.
+//!
+//! Raw opcode fixtures select explicit slots. They still run through the ordinary
+//! session, frame, native fallback and result-retention implementations; this does
+//! not introduce an executable name lookup or a public host entry capability.
+use crate::error::RuntimeError;
+
+use crate::execution::{ExecutionReport, Runtime, native::PreparedNativeExecution};
+use crate::{
+    module::ExecutableModule,
+    session::{ExecutionOptions, owned::OwnedExecution},
+    value::carriers::RootedValue,
+};
+use kagari_contract::ids::FunctionRef;
+
+pub(crate) trait FixtureExecution {
+    fn execute_fixture(
+        &mut self,
+        owner: &ExecutableModule,
+        function: FunctionRef,
+    ) -> Result<ExecutionReport, RuntimeError>;
+
+    fn execute_fixture_prepared<'p>(
+        &mut self,
+        owner: &ExecutableModule,
+        function: FunctionRef,
+        prepared: impl Into<PreparedNativeExecution<'p>>,
+    ) -> Result<ExecutionReport, RuntimeError>;
+
+    fn start_fixture(
+        &mut self,
+        owner: &ExecutableModule,
+        function: FunctionRef,
+        arguments: &[RootedValue],
+        options: ExecutionOptions,
+    ) -> Result<OwnedExecution, RuntimeError>;
+}
+
+impl FixtureExecution for Runtime {
+    fn execute_fixture(
+        &mut self,
+        owner: &ExecutableModule,
+        function: FunctionRef,
+    ) -> Result<ExecutionReport, RuntimeError> {
+        let (owner, function) = self.select_function(owner, function)?;
+        let session = self.begin_interpreter_execution(&owner, self.execution_options())?;
+        session
+            .runtime
+            .execute_selected(&owner, function, "instruction fixture", &session.scope)
+    }
+
+    fn execute_fixture_prepared<'p>(
+        &mut self,
+        owner: &ExecutableModule,
+        function: FunctionRef,
+        prepared: impl Into<PreparedNativeExecution<'p>>,
+    ) -> Result<ExecutionReport, RuntimeError> {
+        let (owner, function) = self.select_function(owner, function)?;
+        let session = self.begin_interpreter_execution(&owner, self.execution_options())?;
+        session.runtime.execute_prepared_selected(
+            &owner,
+            function,
+            "instruction fixture",
+            prepared,
+            &session.scope,
+        )
+    }
+
+    fn start_fixture(
+        &mut self,
+        owner: &ExecutableModule,
+        function: FunctionRef,
+        arguments: &[RootedValue],
+        options: ExecutionOptions,
+    ) -> Result<OwnedExecution, RuntimeError> {
+        self.start_owned_execution(owner, function, arguments, options)
+    }
+}

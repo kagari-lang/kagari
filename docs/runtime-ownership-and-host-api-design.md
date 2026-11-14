@@ -11,6 +11,10 @@ Static typing, checked identities, GC roots, scoped access and exact computation
 ownership remain enforced; ordinary calls select current implementations.
 This reference describes ownership and API contracts;
 [architecture](architecture.md) owns their implementation boundaries.
+The [Runtime execution map](architecture/runtime.md) separately shows current
+physical containment, concrete data structures and full call/reload paths,
+including Mutex/RefCell boundaries and differences from the requested exclusive
+Runtime model. It is an implementation inventory, not a replacement API contract.
 
 ## Relationship to existing proposals
 
@@ -21,8 +25,9 @@ payload editing and object/function/trait invocation described below.
 The [embedding guide](spec/embedding-api.md#typed-native-registration) owns ordinary
 Rust DTO derives and schema-backed Serde; [host interop](spec/host-interop.md) owns
 borrowed method adapters. Runtime-owned `Opaque<T>`
-uses the storage and roots described here; checked read, fixed-data edit and
-edge-free take are implemented. External Ref/RefMut scopes retain their separate
+uses the selected storage and roots described here. RR03 is moving checked read,
+fixed-data edit and managed fields to concrete GC providers; the complete Runtime
+consumer cutover is not yet runnable. Payload extraction is removed. External Ref/RefMut scopes retain their separate
 host ownership under the implemented branded scope contract. Shared resources
 inside a payload need their own Rust access guarantees.
 
@@ -187,7 +192,7 @@ because it is allocated. Active installations are roots; superseded versions nee
 a live frame, object, host handle or other reachable version to retain them.
 Cycles between old module state, closures and environments must be collectable
 once their external roots disappear. Immutable code independently held by a
-PreparedProgram may remain allocated without retaining runtime module state.
+Program may remain allocated without retaining runtime module state.
 
 Freeze the live sets before sweeping. Detach unreachable records, then release
 their storage without dereferencing already removed dependencies. Ordinary Rust
@@ -520,9 +525,18 @@ receivers and owned returns; split collects Vec<String> through NativeContext.
 SDK host access uses `runtime.with_context(&loaded, &execution, |cx| ...)` so object
 operations and nested calls inherit the chosen execution policy. The runtime-only
 NativeContext constructor remains useful for access without a script backend.
-Host-retained callbacks use `Function`; the superseded RootedCallable wrapper
-is removed. Advanced traced StoredCallable descriptors remain heap edges and must
-be kept reachable by their owning payload, never mistaken for host roots.
+Host-retained callbacks use `Function`. Advanced providers allocate StoredCallable
+inside NativeInit and keep its returned scoped Gc in an ordinary traced edge.
+NativeCall::callable_payload publishes the stored callback into its call source
+before invoking it, with no payload loan across reentry. The managed provider is
+not a clonable unrooted descriptor or an independently owning Host handle.
+Concrete providers admit generic script values through NativeInit::value, store
+fields with unsafe StoredValue::initialize and scan every initialized field.
+NativeCall::value_payload publishes a selected managed field into its Native
+suffix; scalars stay inline. Field and callback projection share exact source and
+physical provider admission, with no source/payload loan across execution.
+Providers still own the unsafe GcObject contract; generic public access does not
+expose source-bank operations or unchecked managed tags.
 
 Managed Rust payload editing uses Opaque<T> and a short borrow. In this
 example PlayerState is registered as containing no script references:
@@ -581,23 +595,7 @@ same Rust representation under two type names does not make them interchangeable
 Handwritten `NativePayload` remains an advanced tracing interface and receives no
 unrestricted mutable access through these handles.
 
-`Opaque<T>::take` moves the original payload without Clone/Copy. It requires the
-explicit unsafe `NativeTake` edge-free proof and a `NativeStorage::takeable`
-registration (`NativeStorage::data` also grants it). Handwritten empty tracing
-receives no extraction capability. Active loans, mutation/key guards and native
-operations reject take before mutation. Successful take invalidates every old
-host/script/parked alias and pinned receiver; reinsertion creates a fresh heap
-generation and cannot revive them. Managed script-edge payloads cannot be taken.
-
-The GC detaches payload storage immediately and releases its payload units. An
-inert moved identity is terminal for collector traversal only; normal value
-validation and access continue to reject it. Its one header unit remains charged
-until no heap/root/metadata edge retains that identity, then collection prunes it.
-This permits slot reuse and collection with stale aliases while preserving strict
-foreign/fabricated ID rejection. Rust owns exactly-once destruction of the returned
-payload; collection no longer destroys it.
-
-This facility applies to a payload exclusively owned by runtime storage. Arbitrary
+These loans apply to a payload exclusively owned by runtime storage. Arbitrary
 KGR fields do not become Rust &mut T. Externally shared host state continues to use
 its declared host interface, typed paths or host-managed synchronization. Ordinary
 object setters cannot bypass host-path preparation/commit or borrow validation.
@@ -738,14 +736,14 @@ Function and method invocation share one conversion, rooting and execution path.
 The normal API returns typed data or retained handles instead of a mandatory raw
 ExecutionReport. Observers provide optional execution statistics.
 
-For the SDK Runtime and an installed `Program`:
+For the canonical Runtime and an installed `Program`:
 
 ```rust
-let make = runtime.function::<(), Object>(&program.root(), "make_player")?;
+let make = runtime.bind_function::<(), Object>(&program.root(), "make_player")?;
 let player = runtime.call(&make, ())?;
 ```
 
-SDK `function` delegates to core `bind_function` and returns `Function<A, R>`.
+Canonical `bind_function` returns `Function<A, R>` directly.
 Sync/async binding follows the supplied Module's current public namespace under the
 [relative path rules](spec/embedding-api.md#installed-programs-and-public-paths).
 For `pub use internal::calculate as damage`, binding `damage` in that namespace
@@ -864,7 +862,7 @@ leaves existing handles and the source baseline usable.
 `AsyncFunction<A, R>` retains the same checked target and the lexical output scope
 of exactly one installed `Future<R>` layer. Admission converts and roots arguments
 without running the factory; completion conversion uses that original session and
-output scope. A Call exclusively borrows the SDK Runtime and drives the shared
+output scope. A Call exclusively borrows the canonical Runtime and drives the shared
 scheduler; a PendingCall retains only synchronized result/cancellation state, not a
 runtime borrow. Invocation and structured-child cleanup precede result publication.
 Dropping an unfinished Call before its first poll never runs its factory; dropping
@@ -879,7 +877,7 @@ objects keep identity and state, not an immutable old ordinary-call dependency s
 | Owner | Responsibility |
 | --- | --- |
 | kagari-runtime | Stores, identities, tracing, leases, object access, conversion context, native binding validation and call services |
-| kagari-vm | Drive checked executable calls using runtime-owned frames; preserve return/unwind ordering |
+| kagari-runtime execution/executor | Drive checked executable calls using the same Runtime frames; preserve return/unwind ordering |
 | kagari | Ergonomic registration and typed call/binding entrypoints composed from runtime mechanisms |
 | kagari-types | Existing source-independent declarations, nominal schemas, bounds, member access and documentation |
 | contract, MIR and bytecode | Checked member/call evidence, scoped signatures and bounded executable validation |

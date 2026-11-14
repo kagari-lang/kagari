@@ -32,12 +32,11 @@ const SCALARS: [BuiltinType; 11] = [
     BuiltinType::F64,
 ];
 
-fn constant<T: NativeScalar>(value: T) -> (Type, NativeBinding) {
+fn constant<T: NativeScalar + Copy + Send + Sync>(value: T) -> (Type, NativeBinding) {
     let ty = Type::scalar(T::abi_type());
-    let value = value.encode();
     (
         ty.clone(),
-        NativeBinding::new(vec![], Codec::Exact(ty), move |_| Ok(value)),
+        NativeBinding::new(vec![], Codec::Exact(ty), move |_| Ok(value.encode())),
     )
 }
 

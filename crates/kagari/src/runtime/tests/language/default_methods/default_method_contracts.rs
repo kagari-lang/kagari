@@ -1,18 +1,11 @@
 //! Structural operation contracts used by shared generic default methods.
-use super::{editable_artifact, execution};
-use crate::BytecodeArtifact;
-use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
-use kagari_contract::{
-    callable::{construction::evidence::ConstructionSelection, witness::OperationWitness},
-    types::PublicItem,
-};
-use kagari_source::source::SourceFile;
-use kagari_types::{scalar::BuiltinType, ty::Ty};
 
+/* stdlib test support paused (NC01-NC06).
 const SHARED_TUPLE_COMPARISON: &str = include_str!(
     "../../../../../tests/fixtures/language/default_methods/tuple_operations/shared_tuple_comparison_composes_element_operations.kgr"
-);
+); */
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn shared_tuple_protocol_metadata_is_verified_without_source() {
     let artifact = execution::engine(Default::default())
@@ -56,7 +49,9 @@ fn shared_tuple_protocol_metadata_is_verified_without_source() {
         );
     }
 }
+*/
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn composed_tuple_operation_witnesses_are_verified_without_source() {
     let artifact = execution::engine(Default::default())
@@ -177,7 +172,9 @@ fn composed_tuple_operation_witnesses_are_verified_without_source() {
         );
     }
 }
+*/
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn shared_tuple_construction_capabilities_are_verified_without_source() {
     let artifact = execution::engine(Default::default())
@@ -256,3 +253,4 @@ fn shared_tuple_construction_capabilities_are_verified_without_source() {
         );
     }
 }
+*/

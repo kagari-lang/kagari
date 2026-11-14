@@ -2,12 +2,14 @@
 //! This uses an explicitly finite source environment, not the default foundation's
 //! unknown protected callback closure, which can reject otherwise valid body updates.
 //! Run with `cargo run -p kagari --example host_objects`.
-use kagari::{engine::KagariEngine, program::PreparedProgram};
+use kagari::{engine::KagariEngine, program::Program};
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::native::{interfaces::Interface, objects::Object};
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_stdlib as stdlib;
 use kagari_stdlib::{modules, namespaces};
 use std::{
     future::{Future, poll_fn},
@@ -57,7 +59,7 @@ pub async fn evidence() -> i32 {
 }
 "#;
 
-fn prepare(hp: i32) -> PreparedProgram {
+fn prepare(hp: i32) -> Program {
     // Supply only this script and the complete Future storage provider it needs.
     // No provider is trimmed and no protected evidence is removed or overridden;
     // initial preparation and reload both use the normal artifact validator.
@@ -96,46 +98,50 @@ fn prepare(hp: i32) -> PreparedProgram {
     let bytecode = lower_program_to_bytecode(&mir, &Default::default()).unwrap();
     let artifact =
         KbcArtifact::from_verified(bytecode, Default::default(), &Default::default()).unwrap();
-    PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
+    Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
 }
 
 pub fn main() {
-    let engine = KagariEngine::builder().unwrap().build().unwrap();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let prepared = prepare(100);
     let mut runtime = engine.runtime(Default::default());
     let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
     // `api` is a namespace-only facade. Keep its canonical child across reload.
-    let users = loaded.module("api").unwrap().module("users").unwrap();
-    let player_type = runtime.object_type(&users, "Avatar").unwrap();
+    let facade = runtime.module(&loaded.root(), "api").unwrap();
+    let users = runtime.module(&facade, "users").unwrap();
+    let player_type = runtime.bind_type(&users, "Avatar", &[]).unwrap();
     let root_score = runtime
-        .function::<(), i32>(&loaded.root(), "score")
+        .bind_function::<(), i32>(&loaded.root(), "score")
         .unwrap();
-    let score = runtime.function::<(), i32>(&users, "score").unwrap();
-    let selected = runtime.function::<(), i32>(&users, "selected").unwrap();
+    let score = runtime.bind_function::<(), i32>(&users, "score").unwrap();
+    let selected = runtime
+        .bind_function::<(), i32>(&users, "selected")
+        .unwrap();
     assert_eq!(runtime.call(&root_score, ()).unwrap(), -1);
     assert_eq!(runtime.call(&score, ()).unwrap(), 100);
     assert_eq!(runtime.call(&selected, ()).unwrap(), 100);
     let new = runtime
-        .associated_function::<(), Object>(&player_type, "new")
+        .bind_associated_function::<(), Object>(&player_type, "new")
         .unwrap();
     let make = runtime
-        .async_function::<(), Object>(&users, "make")
+        .bind_async_function::<(), Object>(&users, "make")
         .unwrap();
-    let hp = runtime.field::<i32>(&player_type, "hp").unwrap();
+    let hp = runtime.bind_field::<i32>(&player_type, "hp").unwrap();
     let damage = runtime
-        .method::<(i32,), i32>(&player_type, "damage")
+        .bind_method::<(i32,), i32>(&player_type, "damage")
         .unwrap();
     let heal = runtime
-        .async_method::<(i32,), Object>(&player_type, "heal")
+        .bind_async_method::<(i32,), Object>(&player_type, "heal")
         .unwrap();
     let fresh = runtime
-        .async_associated_function::<(), Object>(&player_type, "fresh")
+        .bind_async_associated_function::<(), Object>(&player_type, "fresh")
         .unwrap();
     let roundtrip = runtime
-        .function::<(Object,), Object>(&users, "roundtrip")
+        .bind_function::<(Object,), Object>(&users, "roundtrip")
         .unwrap();
     let reader = runtime
-        .function::<(Object,), Interface>(&users, "reader")
+        .bind_function::<(Object,), Interface>(&users, "reader")
         .unwrap();
     let player = runtime.call(&new, ()).unwrap();
     let alias = runtime.call(&roundtrip, (player.clone(),)).unwrap();
@@ -154,9 +160,13 @@ pub fn main() {
     assert_eq!(runtime.get(&fresh_player, &hp).unwrap(), 100);
     // Script supplies the Interface; there is no arbitrary Rust Object-to-trait cast.
     let view = runtime.call(&reader, (player.clone(),)).unwrap();
-    let read = runtime.interface_method::<(), i32>(&view, "read").unwrap();
-    let later = runtime
-        .async_interface_method::<(), Object>(&view, "later")
+    let read = view
+        .member(&mut runtime, "read")
+        .and_then(|member| runtime.bind_interface_method::<(), i32>(&member))
+        .unwrap();
+    let later = view
+        .member(&mut runtime, "later")
+        .and_then(|member| runtime.bind_async_interface_method::<(), Object>(&member))
         .unwrap();
     assert_eq!(runtime.call_interface_method(&view, &read, ()).unwrap(), 85);
     let same = executor
@@ -171,31 +181,36 @@ pub fn main() {
 
     // Submitted arguments and callable authority are retained before publication.
     let echo = runtime
-        .async_function::<(Object,), Object>(&users, "roundtrip_async")
+        .bind_async_function::<(Object,), Object>(&users, "roundtrip_async")
         .unwrap();
     let argument = runtime.call(&new, ()).unwrap();
     let mut pending = runtime.submit_async(&echo, (argument.clone(),)).unwrap();
     runtime.set(&argument, &hp, 123).unwrap();
     drop(argument);
-    runtime.runtime().collect_garbage().unwrap();
+    runtime.collect_garbage().unwrap();
     let replacement = prepare(200);
     runtime
-        .reload_program(&loaded, &replacement, Default::default())
+        .program(&loaded)
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(&replacement, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
         .unwrap();
     // The retained binding still means `score`, now with its current body.
     // Only a fresh lookup through the retained Module follows the retargeted alias.
     assert_eq!(runtime.call(&score, ()).unwrap(), 200);
     assert_eq!(runtime.call(&selected, ()).unwrap(), 200);
-    let retargeted = runtime.function::<(), i32>(&users, "selected").unwrap();
+    let retargeted = runtime
+        .bind_function::<(), i32>(&users, "selected")
+        .unwrap();
     assert_eq!(runtime.call(&retargeted, ()).unwrap(), 201);
     let current = runtime
-        .async_function::<(), Object>(&users, "make")
+        .bind_async_function::<(), Object>(&users, "make")
         .unwrap();
     let new_player = executor
         .block_on(runtime.call_async(&current, ()).unwrap())
         .unwrap();
     let current_hp = runtime
-        .field::<i32>(new_player.object_type(), "hp")
+        .bind_field::<i32>(new_player.object_type(), "hp")
         .unwrap();
     assert_eq!(runtime.get(&new_player, &current_hp).unwrap(), 200);
     // PendingCall is result-only. An application driver must poll Runtime; direct
@@ -209,6 +224,8 @@ pub fn main() {
         }))
         .unwrap();
     assert_eq!(runtime.get(&old_player, &hp).unwrap(), 123);
+    runtime.set(&old_player, &hp, 124).unwrap();
+    assert_eq!(runtime.get(&old_player, &hp).unwrap(), 124);
     // Retained and newly bound functions both select the current implementation;
     // neither the async factory nor the associated constructor needs rebinding.
     let retained_player = executor
@@ -241,6 +258,10 @@ pub fn main() {
         constructed,
         healed_new,
     ));
-    assert_eq!(runtime.runtime().collect_garbage().unwrap().live_objects, 0);
+    // Installation and retained layout providers are managed too. Collection
+    // preserves those owners; close retires scheduling rather than the heap.
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.execution_id().is_none());
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
     runtime.close().unwrap();
 }

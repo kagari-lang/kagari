@@ -3,12 +3,14 @@
 use crate::diagnostics::{self, Event};
 
 use crate::{
-    RootedInterfaceMethod, Runtime,
+    Runtime,
     error::RuntimeError,
+    execution::roots::SessionId,
     execution_metadata::{
         application_key::{ApplicationArguments, ApplicationKey},
-        applications::MethodApplication,
-        groups::OperationGroupId,
+        applications::{ApplicationRecord, MethodApplication},
+        groups::AdmittedOperationGroup,
+        managed::sources::MetadataSource,
     },
     frame::types::{
         EnvironmentRecord,
@@ -21,43 +23,36 @@ use crate::{
 use kagari_types::callable::Signature;
 use std::slice;
 
-impl Runtime {
-    pub(super) fn apply_interface_method(
-        &self,
-        mut method: RootedInterfaceMethod,
-        arguments: &[TypeArgument],
-        operations: OperationBindings,
-        mut constructions: ConstructionScope,
-    ) -> Result<RootedInterfaceMethod, RuntimeError> {
-        let view = method.view(self)?;
-        if arguments.len() != view.type_parameters().len() {
-            return Err(RuntimeError::module_validation(
-                "interface method type arguments",
-            ));
-        }
-        for argument in arguments {
-            argument.validate(self)?;
-        }
-        constructions.extend(&ConstructionScope::new(view.proof_implementation()));
-        let arguments = ApplicationArguments::new(
-            view.proof_implementation(),
-            arguments.to_vec(),
-            constructions,
-        )?;
-        drop(view);
-        method.invocation =
-            self.apply_method_invocation(method.invocation, &arguments, operations)?;
-        method.refresh_roots(self)?;
-        Ok(method)
-    }
+/// Cohesive checked application input. Witnesses keep their own actual Host or
+/// execution sources through semantic application publication.
+pub(crate) struct MethodApplicationInput<'input> {
+    pub(crate) arguments: &'input [TypeArgument],
+    pub(crate) operations: OperationBindings,
+    pub(crate) constructions: ConstructionScope,
+    pub(crate) sources: &'input [MetadataSource<'input>],
+}
 
+impl<'input> MethodApplicationInput<'input> {
+    pub(crate) fn plain(arguments: &'input [TypeArgument]) -> Self {
+        Self {
+            arguments,
+            operations: OperationBindings::default(),
+            constructions: ConstructionScope::default(),
+            sources: &[],
+        }
+    }
+}
+
+impl Runtime {
     pub(crate) fn apply_method_invocation(
-        &self,
+        &mut self,
+        execution: SessionId,
         mut method: MethodInvocation,
         arguments: &ApplicationArguments,
         operations: OperationBindings,
+        protected: &mut Vec<MetadataSource<'_>>,
     ) -> Result<MethodInvocation, RuntimeError> {
-        let view = method.view(self)?;
+        let view = method.facts(self, protected)?;
         if arguments.values().len() != view.type_parameters().len() {
             return Err(RuntimeError::module_validation(
                 "interface method type arguments",
@@ -77,19 +72,53 @@ impl Runtime {
         let owner = view.proof_implementation().clone();
         let identity = view.identity();
         drop(view);
-        let receiver_operations = method.receiver_operations(self)?;
-        let key = ApplicationKey::new(identity, arguments, receiver_operations, &operations);
-        let application = if let Some(prepared) = self.modules.method_application(&owner, &key) {
+        let receiver_operations = method.receiver_operations(self, execution, protected)?;
+        if let Some(group) = &receiver_operations {
+            protected
+                .try_reserve(1)
+                .map_err(|_| RuntimeError::resource_limit("method dictionary sources"))?;
+            protected.push(MetadataSource::Operations(group.source()));
+        }
+        let key = ApplicationKey::new(
+            identity,
+            arguments,
+            receiver_operations
+                .as_ref()
+                .map(|group| group.record().id()),
+            &operations,
+        );
+        let cached = self
+            .modules
+            .method_application(&owner, &key)
+            .map(|id| self.copy_application_in(execution, id, protected))
+            .transpose()?
+            .flatten();
+        let application = if let Some(prepared) = cached {
+            if !matches!(prepared.record().as_ref(), ApplicationRecord::Semantic(_)) {
+                return Err(RuntimeError::module_validation(
+                    "semantic method application cache",
+                ));
+            }
             prepared
         } else {
             let prepared = self.prepare_method_application(
+                execution,
                 &method,
                 arguments,
                 operations,
-                receiver_operations,
+                receiver_operations.as_ref(),
+                protected,
             )?;
-            let prepared = self.gc.alloc_method_application(prepared)?;
-            self.publish_method_application(&owner, key, prepared)?;
+            let prepared = self.alloc_application(
+                execution,
+                ApplicationRecord::Semantic(prepared),
+                protected,
+            )?;
+            protected
+                .try_reserve(1)
+                .map_err(|_| RuntimeError::resource_limit("method application sources"))?;
+            protected.push(MetadataSource::Application(prepared.source()));
+            self.publish_method_application(&owner, key, &prepared, protected)?;
             prepared
         };
         method.application = Some(application);
@@ -97,64 +126,64 @@ impl Runtime {
     }
 
     fn prepare_method_application(
-        &self,
+        &mut self,
+        execution: SessionId,
         method: &MethodInvocation,
         arguments: &ApplicationArguments,
         operations: OperationBindings,
-        receiver_operations: Option<OperationGroupId>,
+        receiver_operations: Option<&AdmittedOperationGroup>,
+        protected: &mut Vec<MetadataSource<'_>>,
     ) -> Result<MethodApplication, RuntimeError> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::MethodPreparation);
-        let view = method.view(self)?;
-        let dependencies = view.receiver_environment();
-        let mut supplied = dependencies
-            .map(|environment| {
-                self.gc
-                    .environment(environment.id)
-                    .map(|record| record.operations().clone())
-                    .ok_or_else(|| {
-                        RuntimeError::module_validation("receiver operation environment")
-                    })
-            })
-            .transpose()?
+        let view = method.facts(self, protected)?;
+        let receiver = view
+            .receiver_environment()
+            .map(|environment| self.environment_snapshot_in(protected, environment))
+            .transpose()?;
+        let mut supplied = receiver
+            .as_ref()
+            .map(|snapshot| snapshot.record.operations().clone())
             .unwrap_or_default();
         supplied.extend(operations);
         let operations = supplied;
         let mut binders = EnvironmentRecord::new(
-            self.definition_context(),
+            view.proof_implementation().definitions(),
             view.type_parameters().to_vec(),
             arguments.values().to_vec(),
         )?;
-        let mut constructions =
-            self.construction_scope(view.proof_implementation(), view.receiver_environment())?;
+        let mut constructions = ConstructionScope::new(view.proof_implementation());
+        if let Some(receiver) = &receiver {
+            constructions.extend(&receiver.record.constructions);
+        }
         constructions.extend(arguments.constructions());
         binders.set_constructions(constructions.clone());
         binders.include(view.receiver_environment().cloned())?;
         if let Some(group) = receiver_operations {
-            binders.add_receiver(&self.gc, group)?;
+            binders.add_receiver(group.record())?;
         }
         // Associated results need selected output facts while the signature is
         // resolved, before publishing the executable application.
         binders.extend_operations(operations.clone());
-        let binders = Some(self.alloc_environment(binders)?);
+        protected
+            .try_reserve(1)
+            .map_err(|_| RuntimeError::resource_limit("method binder sources"))?;
+        let binders = self.alloc_environment(execution, binders, protected)?;
+        protected.push(MetadataSource::Environment(binders.source()));
         let result_adapter = view.result_adapter().map(|adapter| {
             let mut adapter = adapter.clone();
-            adapter.environment = binders.clone();
+            adapter.environment = Some(binders.facts().clone());
             adapter
         });
         let params = self.type_arguments(
             view.proof_implementation(),
-            binders
-                .as_ref()
-                .map(|environment| environment.types.clone()),
+            Some(binders.facts().types.clone()),
             view.parameter_types(),
         )?;
         let result = self
             .type_arguments(
                 view.proof_implementation(),
-                binders
-                    .as_ref()
-                    .map(|environment| environment.types.clone()),
+                Some(binders.facts().types.clone()),
                 slice::from_ref(view.return_type()),
             )?
             .pop()
@@ -172,20 +201,27 @@ impl Runtime {
             None
         } else {
             let mut environment = EnvironmentRecord::new(
-                self.definition_context(),
+                view.proof_implementation().definitions(),
                 view.entry_parameters().to_vec(),
                 self.type_arguments(
                     view.proof_implementation(),
-                    binders.map(|environment| environment.types.clone()),
+                    Some(binders.facts().types.clone()),
                     view.entry_arguments(),
                 )?,
             )?;
             environment.set_constructions(constructions);
             if let Some(group) = receiver_operations {
-                environment.add_receiver(&self.gc, group)?;
+                environment.add_receiver(group.record())?;
             }
             environment.extend_operations(operations);
-            Some(self.alloc_environment(environment)?)
+            {
+                protected
+                    .try_reserve(1)
+                    .map_err(|_| RuntimeError::resource_limit("method entry sources"))?;
+                let environment = self.alloc_environment(execution, environment, protected)?;
+                protected.push(MetadataSource::Environment(environment.source()));
+                Some(environment.facts().clone())
+            }
         };
         Ok(MethodApplication {
             signature,

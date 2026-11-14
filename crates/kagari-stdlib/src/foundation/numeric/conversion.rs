@@ -2,9 +2,9 @@
 use crate::foundation::enumerations::value::{self as enums, EnumSymbols};
 use kagari_runtime::{
     error::RuntimeError,
-    native::{binding::NativeResult, context::CallContext, scalar::NativeScalar},
+    native::{binding::NativeResult, context::NativeCall, scalar::NativeScalar},
     numeric,
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::num::{IntErrorKind, ParseIntError};
@@ -13,7 +13,7 @@ fn invalid() -> RuntimeError {
     RuntimeError::module_validation("foundation construction contract")
 }
 
-fn result_item(cx: &CallContext<'_>) -> NativeResult<BuiltinType> {
+fn result_item(cx: &NativeCall<'_>) -> NativeResult<BuiltinType> {
     let Ty::Enum(nominal) = cx.result_type() else {
         return Err(invalid());
     };
@@ -24,14 +24,13 @@ fn result_item(cx: &CallContext<'_>) -> NativeResult<BuiltinType> {
     Ok(*target)
 }
 
-pub(crate) fn from_str(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    let Value::Str(text) = cx.argument(0)? else {
-        return Err(invalid());
-    };
-    let parsed = {
-        let text = cx.heap().string(text).ok_or_else(invalid)?;
-        parse(result_item(cx)?, &text)?
-    };
+pub(crate) fn from_str<'call>(
+    symbols: &EnumSymbols,
+    cx: &mut NativeCall<'call>,
+) -> NativeResult<ValueView<'call>> {
+    let text = cx.argument(0)?;
+    let kind = result_item(cx)?;
+    let parsed = cx.read_strings(&[text], |[text]| parse(kind, text))??;
     result(
         symbols,
         cx,
@@ -48,12 +47,12 @@ pub(crate) fn from_str(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> Nativ
     )
 }
 
-fn result(
+fn result<'call>(
     symbols: &EnumSymbols,
-    cx: &CallContext<'_>,
-    value: Result<Value, &str>,
+    cx: &mut NativeCall<'call>,
+    value: Result<ValueView<'call>, &str>,
     error_type: &str,
-) -> NativeResult<Value> {
+) -> NativeResult<ValueView<'call>> {
     let (member, value) = match value {
         Ok(value) => ("Ok", value),
         Err(member) => (
@@ -64,22 +63,24 @@ fn result(
                 &cx.result_type_parameter(1)?,
                 error_type,
                 member,
-                vec![],
+                &[],
             )?,
         ),
     };
-    let _root = cx.heap().root_value(value).ok_or_else(invalid)?;
     enums::allocate(
         symbols,
         cx,
         &cx.result_type_argument()?,
         "Result",
         member,
-        vec![value],
+        &[value],
     )
 }
 
-pub(crate) fn try_from(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn try_from<'call>(
+    symbols: &EnumSymbols,
+    cx: &mut NativeCall<'call>,
+) -> NativeResult<ValueView<'call>> {
     let Ty::Builtin(source) = cx.argument_type(0)? else {
         return Err(invalid());
     };
@@ -100,7 +101,7 @@ fn integer_error(error: ParseIntError) -> u8 {
     }
 }
 
-fn parse(target: BuiltinType, text: &str) -> NativeResult<Result<Value, u8>> {
+fn parse<'call>(target: BuiltinType, text: &str) -> NativeResult<Result<ValueView<'call>, u8>> {
     macro_rules! integers {
         ($($kind:ident: $rust:ty),+) => {
             match target {
@@ -119,37 +120,30 @@ fn parse(target: BuiltinType, text: &str) -> NativeResult<Result<Value, u8>> {
 #[cfg(test)]
 mod tests {
     use super::parse;
-    use kagari_runtime::value::Value;
+    use kagari_runtime::native::scalar::NativeScalar;
     use kagari_types::scalar::BuiltinType;
 
     #[test]
     fn parsing_preserves_fixed_width_integer_boundaries() {
         for (kind, text, expected) in [
-            (BuiltinType::U64, "4294967296", Value::U64(1u64 << 32)),
-            (
-                BuiltinType::U64,
-                "18446744073709551615",
-                Value::U64(u64::MAX),
-            ),
-            (
-                BuiltinType::I64,
-                "-9223372036854775808",
-                Value::I64(i64::MIN),
-            ),
-            (
-                BuiltinType::I64,
-                "9223372036854775807",
-                Value::I64(i64::MAX),
-            ),
+            (BuiltinType::U64, "4294967296", (1u64 << 32).encode()),
+            (BuiltinType::U64, "18446744073709551615", u64::MAX.encode()),
+            (BuiltinType::I64, "-9223372036854775808", i64::MIN.encode()),
+            (BuiltinType::I64, "9223372036854775807", i64::MAX.encode()),
         ] {
-            assert_eq!(parse(kind, text).unwrap(), Ok(expected));
+            let actual = parse(kind, text).unwrap().unwrap();
+            if kind == BuiltinType::U64 {
+                assert_eq!(actual.as_u64(), expected.as_u64());
+            } else {
+                assert_eq!(actual.as_i64(), expected.as_i64());
+            }
         }
         for (kind, text) in [
             (BuiltinType::U64, "18446744073709551616"),
             (BuiltinType::I64, "-9223372036854775809"),
             (BuiltinType::I64, "9223372036854775808"),
         ] {
-            assert_eq!(parse(kind, text).unwrap(), Err(2));
+            assert_eq!(parse(kind, text).unwrap().unwrap_err(), 2);
         }
     }
 }

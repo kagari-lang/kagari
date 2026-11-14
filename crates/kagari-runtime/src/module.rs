@@ -1,5 +1,39 @@
+use crate::{
+    cache::ReloadDependencySnapshot,
+    error::{RuntimeError, reason::CancellationReason},
+    host::{HostPathDescriptorId, HostRegistryId},
+    metadata::TypeId,
+    module::{
+        admission::DefinitionAdmission,
+        dispatch::{
+            PublicationDispatch, PublicationToken, bindings::PublishedRoutes, facts::DispatchFacts,
+        },
+        execution::ExecutionModule,
+        installation::CurrentPublication,
+        layout_admission::{AggregateKind, LayoutAdmissions, LayoutEndpoint},
+        layout_identity::{LayoutFacts, LayoutIdentity, ProgramLayouts},
+        layout_scope::LayoutScope,
+        managed::revision::RevisionState,
+        records::ModuleRecord,
+        retention::{ProgramLease, RetentionRegistration, Retentions},
+        retirement::Retirements,
+        revision::ProgramRevision,
+        staging::{CandidateLease, PreparedProgramMetadata},
+        state::{
+            StaticState,
+            cells::{CellId, StaticBinding},
+        },
+    },
+    native::binding::LinkedNativeFunction,
+    program::Program,
+    reload::{
+        ModuleEpoch, ModuleEpochAllocator, ReloadValidationError,
+        updates::{ReloadAdmission, RetainedDemands, coverage::CoverageFacts},
+    },
+    source::ProgramSourceSnapshot,
+};
+pub(crate) mod admission;
 mod applied_layout_identity;
-pub(crate) mod collection;
 pub(crate) mod constants;
 mod descriptor_index;
 pub(crate) mod descriptors;
@@ -8,45 +42,23 @@ pub mod entry;
 pub mod execution;
 mod exports;
 mod installation;
+mod inventory;
 pub(crate) mod layout_admission;
 mod layout_identity;
 pub(crate) mod layout_scope;
 pub(crate) mod layout_storage;
 mod layouts;
 pub(crate) mod linked_execution;
-mod normalization;
+pub(crate) mod managed;
 mod records;
 pub mod retention;
+mod retirement;
+pub mod revision;
 pub(crate) mod staging;
 pub mod state;
 #[cfg(test)]
 mod tests;
-use crate::{
-    cache::ReloadDependencySnapshot,
-    error::{RuntimeError, RuntimeErrorKind},
-    host::{HostPathDescriptorId, HostRegistryId},
-    metadata::TypeId,
-    module::state::{
-        StaticState,
-        cells::{CellId, StaticCell},
-    },
-    module::{
-        dispatch::{PublicationDispatch, PublicationToken},
-        execution::ExecutionModule,
-        layout_admission::{AggregateKind, LayoutAdmissions, LayoutEndpoint},
-        layout_identity::{LayoutIdentity, ProgramLayouts},
-        layout_scope::LayoutScope,
-        records::ModuleRecord,
-        retention::{ProgramLease, Retentions},
-        staging::{CandidateLease, StagedProgram},
-    },
-    native::binding::LinkedNativeFunction,
-    reload::{
-        ModuleEpoch, ModuleEpochAllocator,
-        updates::{ReloadAdmission, RetainedDemands, coverage::CoverageFacts},
-    },
-    source::ProgramSourceSnapshot,
-};
+
 use kagari_bytecode::{
     artifact::{ArtifactFingerprint, ArtifactValidationError, validate_program_resource_limits},
     instruction::{EnumId, PathId, StructId},
@@ -63,6 +75,7 @@ use kagari_contract::{
     exports::ProgramExports,
     ids::FunctionRef,
     layout::{EnumLayout, EnumVariantLayout, StructLayout},
+    statics::StaticContract,
     updates::UpdateEvidence,
 };
 
@@ -76,13 +89,14 @@ use kagari_common::{
         table::{DefinitionId, DefinitionTable, DefinitionView},
     },
 };
+use kagari_gc::root::Root;
 use std::{
-    cell::{BorrowError, RefCell},
+    cell::{BorrowError, Cell, RefCell},
     collections::{HashMap, HashSet},
     ops::Deref,
     sync::{
-        Arc, Mutex, Weak,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc, OnceLock, Weak,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
@@ -135,7 +149,7 @@ pub struct InstallationId(pub(crate) u64);
 
 /// A live installation identity; cloning it does not retain an executable version.
 #[derive(Debug, Clone)]
-pub struct Program {
+pub struct InstalledProgram {
     pub(crate) installation: Arc<Installation>,
 }
 
@@ -151,8 +165,6 @@ pub(crate) struct Installation {
     registry_owner: HostRegistryId,
     pub(crate) id: InstallationId,
     root_identity: ModuleIdentity,
-    current: Mutex<Option<Arc<ProgramDescriptor>>>,
-    next_declaration: AtomicU64,
 }
 
 /// One captured namespace query; never exposed as an ordinary live handle.
@@ -179,6 +191,7 @@ pub struct ExecutableModule {
 /// Host bindings and module instances are created separately for each runtime.
 #[derive(Debug, Clone)]
 pub struct VerifiedProgram {
+    product: Option<Program>,
     product_identity: VerifiedProductIdentity,
     source_package: Option<VerifiedSourcePackage>,
     update_evidence: Arc<UpdateEvidence>,
@@ -191,15 +204,43 @@ pub struct VerifiedProgram {
     definitions: DefinitionTable,
     definition_references: Arc<[DefinitionId]>,
     execution: Arc<[ExecutionModule]>,
-    version: Arc<VersionToken>,
+    initial_demands: Arc<OnceLock<Arc<RetainedDemands>>>,
+    layout_facts: Arc<LayoutFacts>,
+    dispatch_facts: Arc<OnceLock<Result<Arc<DispatchFacts>, RuntimeError>>>,
+    version: ProgramRevision,
     dependencies: ReloadDependencySnapshot,
 }
 
-/// Exact preparation identity, deliberately independent of payload and execution leases.
-#[derive(Debug)]
-struct VersionToken;
-
 impl VerifiedProgram {
+    pub(crate) fn initial_demands(
+        &self,
+        cancel: &CancellationToken,
+    ) -> Result<Arc<RetainedDemands>, ReloadValidationError> {
+        let check = || {
+            cancel.check().map_err(|_| {
+                ReloadValidationError::Runtime(RuntimeError::from(
+                    CancellationReason::InitialDemandPreparationCancelled,
+                ))
+            })
+        };
+        check()?;
+        if let Some(demands) = self.initial_demands.get() {
+            return Ok(demands.clone());
+        }
+        // Pure portable metadata is identical for every recipient. Publish only a
+        // successful result: cancellation must not poison later preparations.
+        let demands = RetainedDemands::prepare_initial(self, cancel)?;
+        check()?;
+        Ok(self.initial_demands.get_or_init(|| demands).clone())
+    }
+
+    pub(in crate::module) fn dispatch_facts(&self) -> Result<&Arc<DispatchFacts>, RuntimeError> {
+        self.dispatch_facts
+            .get_or_init(|| DispatchFacts::prepare(self).map(Arc::new))
+            .as_ref()
+            .map_err(Clone::clone)
+    }
+
     /// Import scoped editable records, verify once, and retain immutable evidence.
     pub fn new(
         program: DefinitionMetadata<BytecodeProgram>,
@@ -292,16 +333,20 @@ impl VerifiedProgram {
             .collect::<Vec<HashSet<FunctionRef>>>()
             .into();
         Self {
+            product: None,
             product_identity: program.product_identity(),
             source_package: None,
             update_evidence: Arc::new(program.program().update_evidence.clone()),
             update_coverage,
             initializers,
             execution: execution.into(),
+            dispatch_facts: Arc::new(OnceLock::new()),
+            layout_facts: Arc::new(LayoutFacts::prepare(&modules)),
+            initial_demands: Arc::new(OnceLock::new()),
             root: program.program().root,
             exports: Arc::new(program.program().exports.clone()),
             export_targets: Arc::new(program.export_targets().clone()),
-            version: Arc::new(VersionToken),
+            version: ProgramRevision::new(),
             definitions,
             definition_references,
             modules,
@@ -322,10 +367,7 @@ impl VerifiedProgram {
             .for_product(self.product_identity, &self.definitions, cancel)
             .map_err(|error| match error {
                 SourcePackageError::Identity(DefinitionMappingError::Cancelled) => {
-                    RuntimeError::new(
-                        RuntimeErrorKind::Cancelled,
-                        "source package attachment cancelled",
-                    )
+                    RuntimeError::from(CancellationReason::SourcePackageAttachmentCancelled)
                 }
                 error => RuntimeError::module_validation(error.to_string()),
             })?;
@@ -367,7 +409,22 @@ impl VerifiedProgram {
     /// Identity of the immutable verified program, shared by clones and loads.
     /// Equal bytecode or a matching compatibility hash does not imply this identity.
     pub fn same_version(&self, other: &Self) -> bool {
-        self.root == other.root && Arc::ptr_eq(&self.version, &other.version)
+        self.root == other.root && self.version == other.version
+    }
+
+    /// Exact preparation identity without retaining this product's payload.
+    pub fn revision(&self) -> ProgramRevision {
+        self.version.clone()
+    }
+
+    /// Associate the exact canonical executable product without a preparation owner.
+    pub(crate) fn with_product(mut self, product: Program) -> Self {
+        self.product = Some(product);
+        self
+    }
+
+    pub(crate) fn product(&self) -> Option<&Program> {
+        self.product.as_ref()
     }
 
     pub fn definitions(&self) -> &DefinitionTable {
@@ -377,6 +434,7 @@ impl VerifiedProgram {
 
 #[derive(Debug)]
 struct ProgramDescriptor {
+    definitions: Arc<DefinitionAdmission>,
     source: ProgramSourceSnapshot,
     installation: InstallationId,
     code: VerifiedProgram,
@@ -398,12 +456,14 @@ pub struct LinkedModule {
     pub bytecode: Arc<BytecodeModule>,
     registry_owner: HostRegistryId,
     host_types: HashMap<DefinitionId, TypeId>,
+    static_contracts: Vec<StaticContract>,
     pub(crate) host_paths: Vec<HostPathDescriptorId>,
 }
 
 /// Runtime-linked capabilities and immutable native nominal authority for a publication.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct LinkedProgramBindings {
+    pub definitions: Arc<DefinitionAdmission>,
     pub members: Vec<LinkedHostBindings>,
     pub shared_traits: HashSet<DefinitionId>,
 }
@@ -424,6 +484,10 @@ impl Deref for ExecutableModule {
 }
 
 impl ExecutableModule {
+    pub(crate) fn identity_admission(&self) -> &Arc<DefinitionAdmission> {
+        &self.program.definitions
+    }
+
     /// Copy immutable source metadata without retaining this executable descriptor.
     pub fn source_snapshot(&self) -> ProgramSourceSnapshot {
         self.program.source.clone()
@@ -449,11 +513,15 @@ impl ExecutableModule {
     }
 
     pub(crate) fn is_shared_native_trait(&self, declaration: DefinitionId) -> bool {
-        self.program.layouts.is_shared_native_trait(declaration)
+        self.identity_admission()
+            .lexical_id(declaration)
+            .is_some_and(|id| self.program.layouts.is_shared_native_trait(id))
     }
 
     pub(crate) fn host_type(&self, id: DefinitionId) -> Option<TypeId> {
-        self.host_types.get(&id).copied()
+        self.host_types
+            .get(&self.identity_admission().lexical_id(id)?)
+            .copied()
     }
 
     /// Copy editable records and their retained identity scope, without the seal.
@@ -470,12 +538,17 @@ impl ExecutableModule {
     }
 
     pub(crate) fn definition(&self, id: DefinitionId) -> Result<DefinitionView<'_>, RuntimeError> {
+        let id = self
+            .identity_admission()
+            .lexical_id(id)
+            .ok_or_else(|| RuntimeError::module_validation("unadmitted declaration"))?;
         self.definitions()
             .resolve(id)
             .map_err(|error| RuntimeError::module_validation(error.to_string()))
     }
 
     pub(crate) fn definition_name(&self, id: DefinitionId) -> Option<&str> {
+        let id = self.identity_admission().lexical_id(id)?;
         self.definitions()
             .resolve(id)
             .ok()?
@@ -564,7 +637,7 @@ impl ExecutableModule {
     }
 }
 
-/// A verified layout that retains its immutable executable generation.
+/// A checked layout with immutable type provenance, without an executable-state root.
 #[derive(Debug, Clone)]
 pub struct EnumVariantRef {
     module: ExecutableModule,
@@ -599,13 +672,14 @@ impl PartialEq for EnumVariantRef {
     fn eq(&self, other: &Self) -> bool {
         self.module.registry_owner == other.module.registry_owner
             && self.module.installation_id() == other.module.installation_id()
-            && self.layout().declaration == other.layout().declaration
-            && self.layout().arguments == other.layout().arguments
-            && self.variant().declaration == other.variant().declaration
+            && self
+                .value_identity()
+                .zip(other.value_identity())
+                .is_some_and(|(a, b)| a == b)
     }
 }
 
-/// A verified layout that retains its immutable executable generation.
+/// A checked layout with immutable type provenance, without an executable-state root.
 #[derive(Debug, Clone)]
 pub struct StructLayoutRef {
     module: ExecutableModule,
@@ -690,15 +764,22 @@ pub struct ModuleStore {
     // Separate from executable storage so teardown can revoke metadata authority
     // even while storage is borrowed by a failing execution/collection path.
     installations: HashMap<InstallationId, Arc<Installation>>,
+    current: RefCell<HashMap<InstallationId, CurrentPublication>>,
+    next_declaration: Cell<u64>,
+    // Global installation revocation also invalidates an active admission proof.
+    // Publication does not change this flag or require a per-call version check.
+    retired: Cell<bool>,
     inner: RefCell<ModuleStoreInner>,
     abandoned: Arc<AtomicBool>,
+    retirements: Retirements,
 }
 
 #[derive(Debug, Default)]
 struct ModuleStoreInner {
+    routes: PublishedRoutes,
     epochs: ModuleEpochAllocator,
     next_cell: u64,
-    cells: HashMap<CellId, StaticCell>,
+    cells: HashMap<CellId, StaticBinding>,
     next_id: u64,
     next_installation: u64,
     ids_by_member: HashMap<(InstallationId, ModuleIdentity), ModuleId>,
@@ -743,6 +824,7 @@ impl ModuleStore {
         &self,
         module: &ExecutableModule,
         kind: ModuleEpochRetention,
+        revision: Root<RevisionState>,
     ) -> Option<ProgramLease> {
         let mut inner = self.inner.try_borrow_mut().ok()?;
         if !module
@@ -755,7 +837,7 @@ impl ModuleStore {
             inner
                 .retentions
                 .get_mut(&module.program_key())?
-                .retain_program(kind),
+                .retain_program(kind, revision),
         )
     }
 
@@ -767,8 +849,10 @@ impl ModuleStore {
         program: VerifiedProgram,
         bindings: LinkedProgramBindings,
         admission: Option<ReloadAdmission>,
-    ) -> Result<StagedProgram, RuntimeError> {
+    ) -> Result<PreparedProgramMetadata, RuntimeError> {
+        self.validate_installation(&installation, installation.registry_owner)?;
         let LinkedProgramBindings {
+            definitions,
             members: host_bindings,
             shared_traits,
         } = bindings;
@@ -780,14 +864,21 @@ impl ModuleStore {
         let (retained_demands, expected_base) = match admission {
             Some(admission) => (admission.demands, Some(admission.baseline)),
             None => (
-                RetainedDemands::initial(&program)
+                RetainedDemands::initial(&program, &CancellationToken::default())
                     .map_err(|error| RuntimeError::module_validation(error.to_string()))?,
                 None,
             ),
         };
+        // Raw verified loaders still install one canonical executable owner.
+        // Reuse admission's checked history and preserve explicitly shared products.
+        let program = if program.product().is_none() {
+            Program::with_checked_history(program, retained_demands.clone()).into_verified()
+        } else {
+            program
+        };
         let previous = expected_base
             .map(|baseline| {
-                let previous = installation.capture_current()?;
+                let previous = self.capture_current(&installation)?;
                 if previous.key() != baseline {
                     return Err(RuntimeError::module_validation("dispatch baseline changed"));
                 }
@@ -795,14 +886,15 @@ impl ModuleStore {
             })
             .transpose()?;
         let token = PublicationToken::new(installation.registry_owner, installation.id, epoch);
-        let dispatch = Arc::new(PublicationDispatch::prepare(
-            &installation,
+        let mut dispatch = PublicationDispatch::prepare(
+            self,
             token,
             previous
                 .as_ref()
                 .map(|previous| previous.program.dispatch.as_ref()),
             &program,
-        )?);
+            definitions.clone(),
+        )?;
         let source = ProgramSourceSnapshot::prepare(
             installation.registry_owner,
             dispatch.scope.clone(),
@@ -850,6 +942,13 @@ impl ModuleStore {
                     paths,
                 } = host_bindings;
                 native_links.push(native);
+                let static_contracts = bytecode
+                    .module_slots
+                    .iter()
+                    .map(|descriptor| {
+                        definitions.runtime(&descriptor.contract, &CancellationToken::default())
+                    })
+                    .collect::<Result<_, _>>()?;
                 Ok(LinkedModule {
                     id,
                     name: display,
@@ -857,16 +956,20 @@ impl ModuleStore {
                     bytecode,
                     registry_owner: installation.registry_owner,
                     host_types: types,
+                    static_contracts,
                     host_paths: paths,
                 })
             })
             .collect::<Result<Vec<_>, RuntimeError>>()?;
+        dispatch.bind_members(&modules)?;
+        let dispatch = Arc::new(dispatch);
         let program = Arc::new(ProgramDescriptor {
+            definitions,
             source,
             installation: installation.id,
             retained_demands,
             dispatch,
-            layouts: ProgramLayouts::prepare(&program.modules, shared_traits),
+            layouts: ProgramLayouts::prepare(program.layout_facts.clone(), shared_traits),
             layout_admissions: LayoutAdmissions::default(),
             code: program,
             root,
@@ -892,7 +995,7 @@ impl ModuleStore {
         // Allocation is fallible. Install abandonment authority first so a failure
         // cannot leave partially prepared records available as an ordinary load.
         inner.allocate_statics(&loaded)?;
-        Ok(StagedProgram {
+        Ok(PreparedProgramMetadata {
             installation,
             module: loaded,
             lease,
@@ -908,32 +1011,20 @@ impl ModuleStore {
         Ok(self.inner.try_borrow()?.resolve(module).is_some())
     }
 
-    pub(crate) fn instance_snapshot(&self, key: ModuleKey) -> Option<ModuleInstance> {
-        let inner = self.inner.try_borrow().ok()?;
-        inner.available(key)?;
-        let record = inner.records.get(&key)?;
-        if record.bindings.len() != record.module.bytecode.module_slots.len() {
-            return None;
-        }
-        Some(ModuleInstance {
-            id: record.module.id,
-            name: record.module.name.clone(),
-            epoch: record.module.epoch,
-            module_slots: record
-                .bindings
-                .iter()
-                .enumerate()
-                .map(|(slot, _)| inner.bound_cell(record, slot).map(|cell| cell.snapshot()))
-                .collect::<Option<_>>()?,
-        })
-    }
-
     pub(crate) fn is_staged(&self, module: &ExecutableModule) -> bool {
         self.inner
             .borrow()
             .staged
             .get(&module.program_key())
             .is_some_and(|lease| lease.strong_count() != 0)
+    }
+
+    pub(crate) fn take_abandonment(&self) -> bool {
+        self.abandoned.swap(false, Ordering::AcqRel)
+    }
+
+    pub(crate) fn restore_abandonment(&self) {
+        self.abandoned.store(true, Ordering::Release);
     }
 
     pub(crate) fn abandonment_pending(&self) -> bool {
@@ -963,10 +1054,30 @@ impl ModuleStore {
         &self,
         module: &ExecutableModule,
         kind: ModuleEpochRetention,
+        revision: Root<RevisionState>,
     ) -> Option<ProgramLease> {
         let mut inner = self.inner.try_borrow_mut().ok()?;
         inner.resolve(module)?;
-        Some(inner.retentions.get_mut(&module.key())?.retain_member(kind))
+        Some(
+            inner
+                .retentions
+                .get_mut(&module.key())?
+                .retain_member(kind, revision),
+        )
+    }
+
+    pub(crate) fn register_execution(
+        &self,
+        module: &ExecutableModule,
+    ) -> Option<RetentionRegistration> {
+        let mut inner = self.inner.try_borrow_mut().ok()?;
+        inner.resolve(module)?;
+        Some(
+            inner
+                .retentions
+                .get_mut(&module.key())?
+                .register_execution(),
+        )
     }
 
     pub fn retention_counts(&self, key: ModuleKey) -> ModuleEpochRetentionCounts {
@@ -990,30 +1101,4 @@ impl ModuleStore {
             compiled_artifacts: member.compiled_artifacts + program.compiled_artifacts,
         }
     }
-
-    #[cfg(test)]
-    fn is_program_root(&self, key: ModuleKey) -> bool {
-        let inner = self.inner.borrow();
-        let Some(module) = inner.available(key) else {
-            return false;
-        };
-        root_programs(&inner, self.current_roots().unwrap()).contains(&module.program_key())
-    }
-}
-
-fn root_programs(
-    inner: &ModuleStoreInner,
-    current: impl IntoIterator<Item = ModuleKey>,
-) -> HashSet<ModuleKey> {
-    current
-        .into_iter()
-        .chain(inner.staged.keys().copied())
-        .chain(
-            inner
-                .retentions
-                .iter()
-                .filter_map(|(key, counts)| counts.is_retained().then_some(*key)),
-        )
-        .filter_map(|key| inner.available(key).map(ExecutableModule::program_key))
-        .collect()
 }

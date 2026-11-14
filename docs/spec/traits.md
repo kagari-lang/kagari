@@ -7,7 +7,7 @@ The main goal is to preserve useful abstraction mechanisms from Rust-like langua
 Reflection rules are defined separately in [reflection.md](reflection.md).
 The 26 language traits are explicit standard-library registrations under core's
 ops, cmp, hash, fmt, iter and convert modules; see the
-[registration declarations](../../crates/kagari-stdlib/src/catalog/roles.rs).
+[registration declarations](../../crates/kagari-stdlib/src/foundation.rs).
 Their generated KGR views are analyzed as ordinary traits. Reserved
 `#[lang = "role"]` attributes identify declarations for syntax and implicit value
 rules; an application trait with the same name does not acquire that role.
@@ -963,10 +963,10 @@ An embedding path that already has a linked implementation can create and
 retain such a value explicitly:
 
 ```rust,ignore
-let value = vm.runtime().make_interface(&loaded_impl, table_index, concrete_value)?;
-let rooted = vm.runtime().root_value(value).expect("valid runtime-owned value");
-let value = rooted.value(vm.runtime().gc()).expect("owning runtime");
-let result = vm.invoke_interface_method(&value, &method_id, &[])?;
+let value = runtime.make_interface(&loaded_impl, table_index, concrete_value)?;
+let rooted = runtime.root_value(value).expect("valid runtime-owned value");
+let value = rooted.value(runtime.gc()).expect("owning runtime");
+let result = runtime.invoke_interface_method(&value, &method_id, &[])?;
 ```
 
 The root must remain alive while the host retains the value. The table index

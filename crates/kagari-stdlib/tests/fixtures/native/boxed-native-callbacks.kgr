@@ -1,0 +1,33 @@
+use example::boxed::{ add, text, through };
+
+pub fn evidence() -> i32 {
+    add(20, 22)
+}
+
+pub fn invoke(f: fn(i32, i32) -> i32, left: i32, right: i32) -> i32 {
+    f(left, right)
+}
+
+pub fn echo(f: fn(i32, i32) -> i32) -> fn(i32, i32) -> i32 {
+    f
+}
+
+pub fn capture(f: fn(i32, i32) -> i32) -> fn() -> i32 {
+    || f(20, 22)
+}
+
+pub fn wrong(f: fn(i32) -> i32) -> i32 {
+    f(42)
+}
+
+pub fn native(f: fn(i32, i32) -> i32) -> i32 {
+    through(f)
+}
+
+pub fn text_evidence() -> String {
+    text()
+}
+
+pub fn owned(callback: fn() -> String) -> String {
+    callback()
+}

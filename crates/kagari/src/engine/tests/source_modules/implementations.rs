@@ -1,5 +1,7 @@
 use super::*;
-use crate::{context::JitPolicy, program::PreparedProgram};
+#[cfg(feature = "native")]
+use crate::program::native::NativeCompiler;
+use crate::{context::JitPolicy, program::Compilation};
 use kagari_bytecode::{
     artifact::{ArtifactValidationError, KbcArtifact},
     program::{identity, verify_program},
@@ -8,11 +10,13 @@ use kagari_bytecode::{
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_contract::types::PublicItem;
 use kagari_runtime::module::entry::ProgramEntry;
+use kagari_stdlib as stdlib;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
 fn source_and_encoded_programs_execute_transitive_calls_and_shared_struct_layouts() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     insert(
         &engine,
         "shared",
@@ -59,26 +63,26 @@ fn source_and_encoded_programs_execute_transitive_calls_and_shared_struct_layout
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         assert_eq!(
             runtime
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+                .as_i32()
+                .unwrap(),
+            42
         );
     }
 }
 
 #[test]
 fn imported_closure_keeps_its_defining_module_and_capture_state() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     insert(
         &engine,
         "provider",
@@ -109,26 +113,26 @@ fn main() -> i32 {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         assert_eq!(
             runtime
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(42)
+                .as_i32()
+                .unwrap(),
+            42
         );
     }
 }
 
 #[test]
 fn imported_applied_trait_impl_runs_through_source_artifact_and_jit() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     insert(
         &engine,
         "api",
@@ -200,40 +204,34 @@ fn imported_applied_trait_impl_runs_through_source_artifact_and_jit() {
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
-            let prepared = runtime
-                .prepare_native(
+            let prepared = NativeCompiler::default()
+                .prepare(
                     &loaded_program,
-                    &loaded,
                     ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
+                .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
-        assert_eq!(
-            report
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(7)
-        );
+        assert_eq!(report.return_value.as_i32().unwrap(), 7);
     }
 }
 
 #[test]
 fn imported_generic_trait_method_specializes_across_execution_routes() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     insert(
         &engine,
         "api",
@@ -268,40 +266,34 @@ fn imported_generic_trait_method_specializes_across_execution_routes() {
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
-            let prepared = runtime
-                .prepare_native(
+            let prepared = NativeCompiler::default()
+                .prepare(
                     &loaded_program,
-                    &loaded,
                     ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
+                .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
-        assert_eq!(
-            report
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(42)
-        );
+        assert_eq!(report.return_value.as_i32().unwrap(), 42);
     }
 }
 
 #[test]
 fn dependency_defined_trait_impl_dispatches_through_bound_call() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     insert(
         &engine,
         "api",
@@ -336,40 +328,34 @@ fn dependency_defined_trait_impl_dispatches_through_bound_call() {
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
-            let prepared = runtime
-                .prepare_native(
+            let prepared = NativeCompiler::default()
+                .prepare(
                     &loaded_program,
-                    &loaded,
                     ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
+                .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
-        assert_eq!(
-            report
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(9)
-        );
+        assert_eq!(report.return_value.as_i32().unwrap(), 9);
     }
 }
 
 #[test]
 fn ambiguous_dependency_trait_implementations_reject_bound_call() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     insert(
         &engine,
         "api",
@@ -410,7 +396,8 @@ fn ambiguous_dependency_trait_implementations_reject_bound_call() {
 
 #[test]
 fn sibling_dependency_implementations_reject_even_when_unused_and_recover_after_edit() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     insert(
         &engine,
         "api",
@@ -463,7 +450,8 @@ fn sibling_dependency_implementations_reject_even_when_unused_and_recover_after_
 
 #[test]
 fn dependency_generic_implementation_overlap_respects_trait_arguments() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     insert(
         &engine,
         "api",
@@ -512,7 +500,8 @@ fn dependency_generic_implementation_overlap_respects_trait_arguments() {
 
 #[test]
 fn dependency_generic_implementation_is_specialized_for_reachable_calls() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     insert(
         &engine,
         "api",
@@ -547,40 +536,34 @@ fn dependency_generic_implementation_is_specialized_for_reachable_calls() {
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
-            let prepared = runtime
-                .prepare_native(
+            let prepared = NativeCompiler::default()
+                .prepare(
                     &loaded_program,
-                    &loaded,
                     ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
+                .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
-        assert_eq!(
-            report
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(18)
-        );
+        assert_eq!(report.return_value.as_i32().unwrap(), 18);
     }
 }
 
 #[test]
 fn dependency_generic_implementation_checks_specialized_bounds() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     insert(
         &engine,
         "api",
@@ -631,7 +614,8 @@ fn dependency_generic_implementation_checks_specialized_bounds() {
 
 #[test]
 fn dependency_generic_instances_follow_transitive_method_calls() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     insert(
         &engine,
         "api",
@@ -655,9 +639,9 @@ fn dependency_generic_instances_follow_transitive_method_calls() {
     let artifact = compile(&engine, root);
     let mut runtime = engine.runtime(Default::default());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(&loaded_program, Default::default())
+        .load_program(loaded_program.program(), Default::default())
         .unwrap();
     let report = runtime
         .execute(
@@ -667,18 +651,13 @@ fn dependency_generic_instances_follow_transitive_method_calls() {
             &ExecutionContext::default(),
         )
         .unwrap();
-    assert_eq!(
-        report
-            .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(4)
-    );
+    assert_eq!(report.return_value.as_i32().unwrap(), 4);
 }
 
 #[test]
 fn facade_call_signatures_supply_context_to_nominal_constructors() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     insert(
         &engine,
         "types",
@@ -713,40 +692,34 @@ fn facade_call_signatures_supply_context_to_nominal_constructors() {
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
-            let prepared = runtime
-                .prepare_native(
+            let prepared = NativeCompiler::default()
+                .prepare(
                     &loaded_program,
-                    &loaded,
                     ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
+                .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
-        assert_eq!(
-            report
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(42)
-        );
+        assert_eq!(report.return_value.as_i32().unwrap(), 42);
     }
 }
 
 #[test]
 fn public_generic_inherent_members_execute_across_source_and_artifact_modules() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     insert(
         &engine,
         "provider",
@@ -775,16 +748,17 @@ fn public_generic_inherent_members_execute_across_source_and_artifact_modules() 
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let prepared =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
-        let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        let loaded = runtime
+            .load_program(prepared.program(), Default::default())
+            .unwrap();
         assert_eq!(
             runtime
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc()),
-            Some(Value::I32(42))
+                .as_i32(),
+            Some(42)
         );
     }
 }

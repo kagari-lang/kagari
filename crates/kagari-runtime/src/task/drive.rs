@@ -1,15 +1,18 @@
 //! Exclusive task activations reuse the owned execution backend.
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, reason::CancellationReason},
     error_trace::ErrorTrace,
-    gc::roots::RootedValue,
+    execution::owned::DriveResult,
     native::binding::NativeResult,
     session::owned::OwnedExecution,
     task::{CancellationCause, ScopeId, TaskId, control::TaskScopeOwner, store::TaskState},
-    value::Value,
+    value::carriers::RootedValue,
 };
-use std::{mem, sync::atomic::Ordering, task::Waker};
+
+use std::{
+    marker::PhantomData, mem, num::NonZeroUsize, rc::Rc, sync::atomic::Ordering, task::Waker,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskDriveResult {
@@ -27,7 +30,8 @@ pub enum TaskAcquisition<'a> {
 /// The backend must return the execution after each slice. Dropping an unfinished
 /// activation requests cancellation and leaves cleanup to the control drain.
 pub struct TaskActivation<'a> {
-    runtime: &'a Runtime,
+    _thread: PhantomData<Rc<()>>,
+    runtime: &'a mut Runtime,
     task: TaskId,
     execution: Option<OwnedExecution>,
 }
@@ -37,10 +41,28 @@ impl TaskActivation<'_> {
         self.execution.as_ref().expect("live task activation")
     }
 
+    pub fn with_execution<T>(
+        &mut self,
+        access: impl FnOnce(&mut Runtime, &OwnedExecution) -> NativeResult<T>,
+    ) -> NativeResult<T> {
+        access(
+            self.runtime,
+            self.execution.as_ref().expect("live task activation"),
+        )
+    }
+
+    pub(crate) fn drive(&mut self, slice: NonZeroUsize) -> NativeResult<DriveResult> {
+        self.runtime.drive_with_completion(
+            self.execution.as_ref().expect("live task activation"),
+            slice,
+            |_, _| Ok(()),
+        )
+    }
+
     pub fn park(mut self, runnable: bool) -> NativeResult<TaskDriveResult> {
         self.runtime.require_idle_driver()?;
         let signal = {
-            let mut tasks = self.runtime.tasks.borrow_mut();
+            let tasks = &mut self.runtime.tasks;
             let record = tasks
                 .tasks
                 .get_mut(self.task.0)
@@ -64,7 +86,7 @@ impl TaskActivation<'_> {
         self.runtime.require_idle_driver()?;
         let error = self
             .runtime
-            .retire_scheduled_execution(self.execution(), error);
+            .retire_scheduled_execution(self.execution.as_ref().expect("active execution"), error);
         self.complete(Err(error))
     }
 
@@ -81,7 +103,7 @@ impl Drop for TaskActivation<'_> {
     fn drop(&mut self) {
         if let Some(execution) = self.execution.take() {
             let signal = {
-                let mut tasks = self.runtime.tasks.borrow_mut();
+                let tasks = &mut self.runtime.tasks;
                 let Some(record) = tasks.tasks.get_mut(self.task.0) else {
                     return;
                 };
@@ -97,8 +119,8 @@ impl Drop for TaskActivation<'_> {
 }
 
 impl Runtime {
-    pub fn task_id(&self, value: &Value) -> NativeResult<TaskId> {
-        self.gc().task_snapshot(value).map(|(id, _)| id)
+    pub fn task_id(&mut self, value: &RootedValue) -> NativeResult<TaskId> {
+        self.task_state(value).map(|(id, _)| id)
     }
 
     /// Readiness remains available even when a dispatcher drops a notification.
@@ -106,7 +128,6 @@ impl Runtime {
         self.validate_scope_owner(scope)?;
         Ok(self
             .tasks
-            .borrow()
             .tasks
             .iter()
             .filter(|(_, record)| {
@@ -119,12 +140,11 @@ impl Runtime {
     }
 
     pub fn acquire_task(
-        &self,
+        &mut self,
         scope: &TaskScopeOwner,
         task: TaskId,
     ) -> NativeResult<TaskAcquisition<'_>> {
         self.require_idle_driver()?;
-        self.gc().ensure_no_native_borrow()?;
         self.validate_scope_owner(scope)?;
         if scope.control.scheduler.is_some() {
             return Err(RuntimeError::module_validation(
@@ -135,14 +155,13 @@ impl Runtime {
     }
 
     pub(crate) fn acquire_task_inner(
-        &self,
+        &mut self,
         scope: ScopeId,
         task: TaskId,
     ) -> NativeResult<TaskAcquisition<'_>> {
         self.require_idle_driver()?;
-        self.gc().ensure_no_native_borrow()?;
         let (state, signal, options) = {
-            let mut tasks = self.tasks.borrow_mut();
+            let tasks = &mut self.tasks;
             let Some(record) = tasks.tasks.get_mut(task.0) else {
                 return Ok(TaskAcquisition::Inactive(TaskDriveResult::Stale));
             };
@@ -172,9 +191,8 @@ impl Runtime {
         let execution = match state {
             TaskState::Queued(factory) => {
                 let result = if signal.cancellation.check().is_err() {
-                    Err(RuntimeError::new(
-                        RuntimeErrorKind::Cancelled,
-                        "task cancelled before start",
+                    Err(RuntimeError::from(
+                        CancellationReason::TaskCancelledBeforeStart,
                     ))
                 } else {
                     self.start_queued_factory(factory, options)
@@ -211,9 +229,7 @@ impl Runtime {
                     let error = self
                         .finish_owned_execution(&execution)
                         .err()
-                        .unwrap_or_else(|| {
-                            RuntimeError::new(RuntimeErrorKind::Cancelled, "task cancelled")
-                        });
+                        .unwrap_or_else(|| RuntimeError::from(CancellationReason::TaskCancelled));
                     self.publish_task_result(task, Err(error.with_trace(trace)))?;
                     return Ok(TaskAcquisition::Inactive(TaskDriveResult::Complete));
                 }
@@ -222,6 +238,7 @@ impl Runtime {
             _ => unreachable!("checked task state"),
         };
         Ok(TaskAcquisition::Active(TaskActivation {
+            _thread: Default::default(),
             runtime: self,
             task,
             execution: Some(execution),

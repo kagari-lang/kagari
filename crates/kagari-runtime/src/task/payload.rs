@@ -1,68 +1,238 @@
-//! Task results are traced edges, not independent roots that retain heap cycles.
+//! Sealed Task caches trace results; script Scope capabilities retain status only.
+#[cfg(test)]
+mod tests;
 use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    gc::roots::RootedValue,
     module::ExecutableModule,
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
-        storage::{NativePayload, NativeStorage},
+        conversion::context::{ConversionContext, native::NativeContract},
+        storage::NativeStorage,
         types::TypeRef,
     },
-    resource::HeapCharge,
-    task::{ScopeId, TaskFailure, TaskId, control::ScopeControl},
-    value::Value,
+    task::{TaskFailure, TaskId, control::ScopeStatus},
+    value::{
+        carriers::{RootedValue, ScopedValue, StoredValue},
+        properties::ValueProperties,
+    },
 };
 use kagari_common::identity::table::DefinitionId;
+use kagari_gc::{
+    access::Scope,
+    error::GcError,
+    object::{Gc, GcObject, ObjectCharge},
+    scan::{EdgeVisitor, ScanBudget, ScanKind, ScanStatus},
+};
 use kagari_types::{
     declaration::{TypeDefKind, native::NativeStorageLayout},
     ty::Ty,
 };
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
+
+#[derive(Debug)]
+enum Outcome {
+    Pending,
+    Success(StoredValue),
+    Failure { failure: TaskFailure, bytes: usize },
+}
+
+/// A sealed description sampled outside provider charge/mutation callbacks.
+pub(crate) struct PreparedTaskFailure {
+    failure: TaskFailure,
+    bytes: usize,
+}
+
+impl PreparedTaskFailure {
+    pub(crate) fn new(failure: TaskFailure) -> Self {
+        let bytes = failure.error.retained_bytes();
+        Self { failure, bytes }
+    }
+}
 
 #[derive(Debug)]
 pub(crate) struct TaskPayload {
-    pub id: TaskId,
-    pub outcome: Option<Result<Value, TaskFailure>>,
+    id: TaskId,
+    outcome: Outcome,
+}
+
+/// Detached control snapshot. Managed values are copied only through get_result
+/// while their retained owner is admitted; no unrooted result leaves this model.
+pub(crate) enum TaskCompletion {
+    Pending,
+    Success,
+    Failure(TaskFailure),
 }
 
 impl TaskPayload {
-    pub(crate) fn outcome_bytes(outcome: Option<&Result<Value, TaskFailure>>) -> usize {
-        match outcome {
-            Some(Err(failure)) => failure.error.message_capacity(),
-            _ => 0,
+    pub(crate) fn alloc<'gc>(cx: &mut Scope<'gc>, id: TaskId) -> Result<Gc<'gc, Self>, GcError> {
+        // SAFETY: the pending fixed result coordinate contains no initialized edge.
+        unsafe {
+            cx.alloc_with(|_| {
+                Ok(Self {
+                    id,
+                    outcome: Outcome::Pending,
+                })
+            })
+        }
+    }
+
+    pub(crate) fn id(&self) -> TaskId {
+        self.id
+    }
+
+    pub(crate) fn is_ready(&self) -> bool {
+        !matches!(self.outcome, Outcome::Pending)
+    }
+
+    pub(crate) fn completion(&self) -> TaskCompletion {
+        match &self.outcome {
+            Outcome::Pending => TaskCompletion::Pending,
+            Outcome::Success(_) => TaskCompletion::Success,
+            Outcome::Failure { failure, .. } => TaskCompletion::Failure(failure.clone()),
+        }
+    }
+
+    pub(crate) fn get_result<'gc>(
+        cx: &Scope<'gc>,
+        owner: Gc<'gc, Self>,
+    ) -> Result<ScopedValue<'gc>, GcError> {
+        StoredValue::get_field(cx, owner, |owner| match &owner.outcome {
+            Outcome::Success(value) => Some(value),
+            _ => None,
+        })
+    }
+
+    fn check_pending(&self, id: TaskId) -> Result<(), GcError> {
+        if self.id != id || self.is_ready() {
+            return Err(GcError::Representation);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn succeed<'gc>(
+        cx: &mut Scope<'gc>,
+        owner: Gc<'gc, Self>,
+        id: TaskId,
+        value: ScopedValue<'gc>,
+    ) -> Result<(), GcError> {
+        cx.read(owner, |owner| owner.check_pending(id))?;
+        if !ValueProperties::of(cx, value)?.storable {
+            return Err(GcError::Representation);
+        }
+        // SAFETY: one admitted fixed coordinate; publish before the terminal
+        // commit. The target is protected even if this cache was already scanned.
+        unsafe {
+            cx.with_object_mut(owner, |owner, mutation| {
+                let value = StoredValue::publish_field(mutation, value)?;
+                owner.outcome = Outcome::Success(value);
+                mutation.continue_scan();
+                Ok(())
+            })
+        }
+    }
+
+    /// bytes is computed before entering provider mutation. Charge itself remains
+    /// constant-time, including errors with deep owned diagnostic context.
+    pub(crate) fn fail<'gc>(
+        cx: &mut Scope<'gc>,
+        owner: Gc<'gc, Self>,
+        id: TaskId,
+        prepared: PreparedTaskFailure,
+    ) -> Result<(), GcError> {
+        cx.read(owner, |owner| owner.check_pending(id))?;
+        let PreparedTaskFailure { failure, bytes } = prepared;
+        // SAFETY: no incoming GC edge; admit complete owned bytes before the
+        // no-fail terminal commit. Error-only cleanup executes no script/provider.
+        unsafe {
+            cx.with_object_mut(owner, |owner, mutation| {
+                mutation.prepare_charge(ObjectCharge { units: 1, bytes })?;
+                owner.outcome = Outcome::Failure { failure, bytes };
+                mutation.continue_scan();
+                Ok(())
+            })
         }
     }
 }
 
-impl NativePayload for TaskPayload {
-    fn trace<'a>(&'a self, visit: &mut dyn FnMut(&'a Value)) {
-        if let Some(Ok(value)) = &self.outcome {
-            visit(value);
-        }
+// SAFETY: one fixed result coordinate is initialized at most once. Incoming
+// references are published, holes are charged and pending visits retry in place.
+// Diagnostics own no GC references; charge is a stored scalar, Drop reads no peers.
+unsafe impl GcObject for TaskPayload {
+    type ScanState = bool;
+    const SCAN_KIND: ScanKind = ScanKind::Resumable;
+
+    fn begin_scan(&self) -> bool {
+        false
     }
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(
-            1,
-            Self::outcome_bytes(self.outcome.as_ref()),
-        ))
+    fn scan(
+        &self,
+        done: &mut bool,
+        budget: &mut ScanBudget,
+        visitor: &mut EdgeVisitor<'_>,
+    ) -> Result<ScanStatus, GcError> {
+        if !*done {
+            if !budget.take(1) {
+                return Ok(ScanStatus::Pending);
+            }
+            if let Outcome::Success(value) = &self.outcome {
+                // SAFETY: retained admitted cache owns this initialized cell.
+                if unsafe { value.scan(budget, visitor)? } == ScanStatus::Pending {
+                    return Ok(ScanStatus::Pending);
+                }
+            }
+            *done = true;
+        }
+        Ok(ScanStatus::Complete)
+    }
+
+    fn charge(&self) -> ObjectCharge {
+        ObjectCharge {
+            units: 1,
+            bytes: match &self.outcome {
+                Outcome::Failure { bytes, .. } => *bytes,
+                _ => 0,
+            },
+        }
     }
 }
 
 #[derive(Debug)]
 pub(crate) struct ScopePayload {
-    pub id: ScopeId,
-    pub control: Arc<ScopeControl>,
+    pub status: Arc<ScopeStatus>,
 }
 
-impl NativePayload for ScopePayload {
-    fn trace<'a>(&'a self, _: &mut dyn FnMut(&'a Value)) {}
+impl ScopePayload {
+    pub(crate) fn alloc<'gc>(
+        cx: &mut Scope<'gc>,
+        status: Arc<ScopeStatus>,
+    ) -> Result<Gc<'gc, Self>, GcError> {
+        cx.alloc_leaf(Self { status })
+    }
+}
 
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(1, 0))
+// SAFETY: the shared external status owns only immutable identity/atomics, no
+// dispatcher, subscription, Task root or GC edge. Drop can run no Host callback.
+unsafe impl GcObject for ScopePayload {
+    type ScanState = ();
+    const SCAN_KIND: ScanKind = ScanKind::EdgeFree;
+
+    fn begin_scan(&self) {}
+
+    fn scan(
+        &self,
+        _: &mut (),
+        _: &mut ScanBudget,
+        _: &mut EdgeVisitor<'_>,
+    ) -> Result<ScanStatus, GcError> {
+        Ok(ScanStatus::Complete)
+    }
+
+    fn charge(&self) -> ObjectCharge {
+        ObjectCharge { units: 1, bytes: 0 }
     }
 }
 
@@ -122,11 +292,11 @@ impl Runtime {
         Ok(id)
     }
 
-    pub(crate) fn allocate_task_payload<S: NativePayload>(
-        &self,
+    pub(crate) fn allocate_task_payload<S: GcObject + Debug>(
+        &mut self,
         owner: &ExecutableModule,
         ty: TypeArgument,
-        payload: S,
+        initialize: impl for<'gc> FnOnce(&mut Scope<'gc>) -> Result<Gc<'gc, S>, GcError>,
     ) -> NativeResult<RootedValue> {
         let Ty::NativeObject(nominal) = ty.ty() else {
             return Err(RuntimeError::module_validation("task storage type"));
@@ -135,11 +305,16 @@ impl Runtime {
             .native_entries
             .storage
             .get_id(nominal.declaration)
+            .cloned()
             .ok_or_else(|| RuntimeError::module_validation("task storage binding"))?;
-        let mut object = storage.prepare_payload(self.gc(), ty.ty(), payload, owner)?;
-        object.scope = Some(ty);
-        let value = Value::GcHandle(self.gc().alloc_native(object)?);
-        self.root_value(value)
-            .ok_or_else(|| RuntimeError::module_validation("task storage root"))
+        let mut conversion = ConversionContext::new(self, owner)?;
+        conversion.create_native_with(
+            NativeContract {
+                storage: &storage,
+                owner,
+                applied: &ty,
+            },
+            |init| initialize(init.scope()),
+        )
     }
 }

@@ -1,0 +1,13 @@
+trait Tag {
+    fn tag(self) -> i32;
+}
+
+impl Tag for i32 {
+    fn tag(self) -> i32 {
+        self / 0
+    }
+}
+
+fn main() -> i32 {
+    42
+}

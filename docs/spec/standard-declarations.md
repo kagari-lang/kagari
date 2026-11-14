@@ -232,7 +232,7 @@ Module completion checks the referenced enum providers and generic applications;
 installation rejects absent or conflicting dependencies atomically.
 These declarations use ordinary generated enum syntax and parsed nominal HIR.
 Native functions obtain scoped applied types through
-`CallContext::result_type_argument` or `argument_type_argument`.
+`NativeCall::result_type_argument` or `argument_type_argument`.
 `allocate_enum(&applied, &variant, fields)` checks the installed nominal owner,
 variant membership, substituted payload types and live heap handles before
 allocation. `enum_argument_is` and `enum_argument_field` inspect rooted arguments
@@ -248,7 +248,7 @@ For example, a scalar application entry can be declared and bound as follows:
 use kagari_runtime::native::{
     binding::NativeResult,
     builder::ModuleBuilder,
-    context::CallContext,
+    context::NativeCall,
     declarations::FunctionDecl,
     module::NativeModule,
     types::Type,
@@ -266,7 +266,7 @@ fn module() -> NativeResult<NativeModule> {
         function.returns(Type::i32())?;
         Ok(())
     })?;
-    module.bind(maximum, |_cx: &mut CallContext<'_>, left: i32, right: i32| -> NativeResult<i32> {
+    module.bind(maximum, |_cx: &mut NativeCall<'_>, left: i32, right: i32| -> NativeResult<i32> {
         Ok(left.max(right))
     })?;
     module.finish()
@@ -305,9 +305,11 @@ For example, a tooling host configures file materialization before sealing:
 
 ```rust
 use kagari::engine::KagariEngine;
+use kagari_stdlib as stdlib;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut builder = KagariEngine::builder()?;
+    builder.install_all(stdlib::modules()?)?;
     // Construct application modules against builder.declarations(), then install them.
     builder.declaration_cache("target/kagari-declarations");
     let engine = builder.build().map_err(|error| format!("{error:?}"))?;
@@ -356,7 +358,7 @@ exact bodies; ordinary calls inside them still use current implementations.
 ## Calls, roots and storage
 
 Ordinary native functions and their script callbacks execute synchronously.
-`CallContext` exposes checked arguments, selected calls, allocation and execution
+`NativeCall` exposes checked arguments, selected calls, allocation and execution
 checks. `CallableHandle` borrows a callback during its invocation. A payload that
 retains a callback uses `StoredCallable` and traces it. Returned script heap values
 must be rooted before further allocation or reentry; callback argument packs do
@@ -441,14 +443,14 @@ builders leave the fact false. Equality, hashing and payload access ignore it.
 Try and FromResidual are ordinary registered traits; their standard bodies live
 in the library alongside the carrier declarations. A native carrier uses
 `ModuleBuilder::implement`, `trait_impl`, `associated_type` and `bind`, just
-like other trait implementations. `CallContext::type_parameter` retains the
+like other trait implementations. `NativeCall::type_parameter` retains the
 selected result's executable scope when constructing its nested residual.
 Result FromResidual declares a checked F: From<E> callable requirement. Static
 bound methods can be selected or forwarded through the same validated witness
 path as receiver methods; no execution-time trait search is added.
 
 Result branch copies origin into its residual, and FromResidual copies it into
-the returned failure after conversion. `CallContext::forward_enum_origin` uses
+the returned failure after conversion. `NativeCall::forward_enum_origin` uses
 checked live enum values and a validated installed owner; both values must stay
 rooted across allocation. The compiler's generic `?` path emits ordinary selected
 calls and ControlFlow variant operations, without a Result-specific origin opcode.

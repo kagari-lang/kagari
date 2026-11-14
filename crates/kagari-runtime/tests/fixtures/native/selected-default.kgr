@@ -1,0 +1,5 @@
+use application::tokens::Run;
+
+fn main() -> i32 {
+    40.answer()
+}

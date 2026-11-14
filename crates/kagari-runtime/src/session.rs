@@ -1,22 +1,28 @@
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime, StagedReload,
-    clock::Instant,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, RuntimeErrorKind, fault::EngineFault, reason::CancellationReason},
     error_trace::ErrorTrace,
+    execution::{
+        memory::ManagedMemory,
+        roots::{DependencyId, SessionId},
+        space::ExecutionSpace,
+    },
     frame::{
         ExecutionFrame,
         factory::QueuedFactory,
         types::arguments::TypeArgument,
         waiting::{PendingWait, QueuedFuture},
     },
-    gc::GcHeap,
     host::HostFrameId,
-    module::{ExecutableModule, retention::ProgramLease},
-    publication::SynchronousActivation,
-    resource::{ResourceCounters, ResourceState},
-    session::store::SessionId,
-    value::Value,
+    module::{
+        ExecutableModule, managed::revision::RevisionState, retention::RetentionRegistration,
+    },
+    publication::ActivationMark,
+    resource::{ResourceCounters, ResourceState, candidate::CandidateOrigin},
 };
+
 use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
 use std::{
     any::Any,
@@ -30,8 +36,10 @@ use kagari_bytecode::artifact::ArtifactFingerprint;
 
 pub(crate) mod dependencies;
 pub mod group;
+pub(crate) mod native;
 pub mod owned;
 pub(crate) mod store;
+mod tracing;
 
 /// Only checked callable handles authorize entering a retained program outside
 /// the current dependency graph. Candidate entry remains independently gated.
@@ -87,58 +95,6 @@ pub enum TraceValue {
     Opaque(String),
 }
 
-impl TraceValue {
-    fn capture(heap: &GcHeap, value: &Value, depth: usize, remaining: &mut usize) -> Self {
-        if *remaining == 0 {
-            return Self::Opaque("trace value budget".into());
-        }
-        *remaining -= 1;
-
-        match value {
-            Value::Range(value) => Self::Opaque(format!("{:?}", heap.range(*value))),
-            Value::Unit => Self::Unit,
-            Value::Bool(value) => Self::Bool(*value),
-            Value::Char(value) => Self::Char(*value),
-            Value::I32(value) => Self::I32(*value),
-            Value::I64(value) => Self::I64(*value),
-            Value::U64(value) => Self::U64(*value),
-            Value::F32(value) => Self::F32Bits(value.to_bits()),
-            Value::F64(value) => Self::F64Bits(value.to_bits()),
-            Value::Str(id) => match heap.string(*id) {
-                Some(value) => Self::Str {
-                    prefix: value.chars().take(256).collect(),
-                    truncated: value.chars().nth(256).is_some(),
-                },
-                None => Self::Opaque("invalid string".into()),
-            },
-            Value::Tuple(id) if depth < 4 => match heap.tuple(*id) {
-                Some(values) => Self::Tuple {
-                    elements: values
-                        .iter()
-                        .take(16)
-                        .map(|value| Self::capture(heap, value, depth + 1, remaining))
-                        .collect(),
-                    truncated: values.len() > 16,
-                },
-                None => Self::Opaque("invalid tuple".into()),
-            },
-            Value::Tuple(_) => Self::Opaque("tuple depth limit".into()),
-            Value::Array(id) => Self::Opaque(format!("array:{id:?}")),
-            Value::Map(id) => Self::Opaque(format!("map:{id:?}")),
-            Value::Set(id) => Self::Opaque(format!("set:{id:?}")),
-            Value::Enum(id) => Self::Opaque(format!("enum:{id:?}")),
-            Value::Struct(id) => Self::Opaque(format!("struct:{id:?}")),
-            Value::GcHandle(id) => Self::Opaque(format!("gc:{id:?}")),
-            Value::Interface(id) => Self::Opaque(format!("interface:{id:?}")),
-            Value::Closure(id) => Self::Opaque(format!("closure:{id:?}")),
-            Value::Cell(id) => Self::Opaque(format!("cell:{id:?}")),
-            Value::HostRoot(_) => Self::Opaque("host root".into()),
-            Value::HostPathView(_) => Self::Opaque("host path".into()),
-            Value::Ephemeral(_) | Value::RuntimeEphemeral(_) => Self::Opaque("ephemeral".into()),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostCallTrace {
     pub symbol: String,
@@ -176,6 +132,37 @@ pub trait ExecutionObserver: Any + Debug + Send {
         Ok(())
     }
 
+    /// Decide whether this event needs retained live bindings before observation.
+    /// The default performs no value capture. Preparation may update observer
+    /// policy, but receives no mutable execution services. Runtime calls observe
+    /// immediately after capture without execution, publication or collection.
+    fn capture_binding_values(
+        &mut self,
+        _runtime: &Runtime,
+        _event: ExecutionEvent,
+        _frames: &[ExecutionFrame],
+    ) -> bool {
+        false
+    }
+
+    /// Inspect without lending mutable execution services. Reentry is excluded
+    /// while the observer's frame slice is borrowed:
+    /// ```compile_fail,E0596
+    /// use kagari_runtime::{Runtime, error::RuntimeError, frame::ExecutionFrame,
+    ///     module::entry::ProgramEntry, session::{ExecutionEvent, ExecutionObserver}};
+    /// #[derive(Debug)]
+    /// struct Reentrant;
+    /// impl ExecutionObserver for Reentrant {
+    ///     fn observe(&mut self, runtime: &Runtime, _: ExecutionEvent,
+    ///                frames: &[ExecutionFrame]) -> Result<(), RuntimeError> {
+    ///         if let Some(frame) = frames.last() {
+    ///             runtime.execute_module(frame.loaded(), ProgramEntry::Main,
+    ///                                    runtime.execution_options())?;
+    ///         }
+    ///         Ok(())
+    ///     }
+    /// }
+    /// ```
     fn observe(
         &mut self,
         runtime: &Runtime,
@@ -186,10 +173,10 @@ pub trait ExecutionObserver: Any + Debug + Send {
 
 #[derive(Debug)]
 pub(crate) struct SessionState {
+    pub(crate) space: Arc<ExecutionSpace>,
     pub id: SessionId,
     pub owner: RefCell<Option<Arc<owned::ExecutionOwner>>>,
     pub parked_depth: Cell<u32>,
-    pub depth_base: Cell<u32>,
     pub group_depth: Cell<usize>,
     pub logical_root: Cell<SessionId>,
     pub group_parent: Cell<Option<SessionId>>,
@@ -201,18 +188,20 @@ pub(crate) struct SessionState {
     pub host_scopes: RefCell<HashSet<HostFrameId>>,
     pub observer_attached: Cell<bool>,
     pub frame_scopes: RefCell<Vec<u64>>,
+    pub(crate) native_calls: RefCell<Vec<native::NativeFrame>>,
     pub next_frame_scope: Cell<u64>,
     pub scopes: Cell<usize>,
     pub peak_call_depth: Cell<u32>,
-    pub peak_heap_units: Cell<usize>,
+    pub peak_heap_units: Cell<u128>,
     pub root: ExecutableModule,
-    _program: ProgramLease,
+    pub(crate) candidate_origin: CandidateOrigin,
+    pub(crate) body: DependencyId<RevisionState>,
+    _registration: RetentionRegistration,
     pub options: ExecutionOptions,
     pub termination: RefCell<Option<RuntimeError>>,
     random_counter: Cell<u64>,
     host_calls: RefCell<Vec<HostCallTrace>>,
     dropped_host_calls: Cell<usize>,
-    started: Instant,
 }
 
 impl SessionState {
@@ -221,13 +210,16 @@ impl SessionState {
         root: ExecutableModule,
         options: ExecutionOptions,
         baseline: ResourceCounters,
-        program: ProgramLease,
+        registration: RetentionRegistration,
+        body: DependencyId<RevisionState>,
+        space: Arc<ExecutionSpace>,
     ) -> Self {
         Self {
             id,
+            space,
+            body,
             owner: RefCell::new(None),
             parked_depth: Cell::new(0),
-            depth_base: Cell::new(0),
             group_depth: Cell::new(0),
             logical_root: Cell::new(id),
             group_parent: Cell::new(None),
@@ -239,18 +231,23 @@ impl SessionState {
             host_scopes: RefCell::new(HashSet::new()),
             observer_attached: Cell::new(false),
             frame_scopes: RefCell::new(Vec::new()),
+            native_calls: RefCell::new(Vec::new()),
             next_frame_scope: Cell::new(0),
             scopes: Cell::new(0),
             peak_call_depth: Cell::new(baseline.current_call_depth),
             peak_heap_units: Cell::new(baseline.current_heap_units),
+            candidate_origin: if options.phase == ExecutionPhase::CandidateInitialization {
+                CandidateOrigin::new(root.program_identity())
+            } else {
+                CandidateOrigin::default()
+            },
             root,
-            _program: program,
+            _registration: registration,
             options,
             termination: RefCell::new(None),
             random_counter: Cell::new(0),
             host_calls: RefCell::new(Vec::new()),
             dropped_host_calls: Cell::new(0),
-            started: Instant::now(),
         }
     }
 
@@ -268,51 +265,6 @@ impl SessionState {
         value ^ (value >> 31)
     }
 
-    pub(crate) fn begin_host_call(
-        &self,
-        heap: &GcHeap,
-        symbol: &str,
-        args: &[Value],
-    ) -> Option<usize> {
-        if !self.options.record_host_calls {
-            return None;
-        }
-        let mut calls = self.host_calls.borrow_mut();
-        if calls.len() >= 10_000 {
-            self.dropped_host_calls
-                .set(self.dropped_host_calls.get().saturating_add(1));
-            return None;
-        }
-        let index = calls.len();
-        let mut remaining = 128;
-        calls.push(HostCallTrace {
-            symbol: symbol.chars().take(256).collect(),
-            symbol_truncated: symbol.chars().nth(256).is_some(),
-            arguments: args
-                .iter()
-                .take(32)
-                .map(|value| TraceValue::capture(heap, value, 0, &mut remaining))
-                .collect(),
-            omitted_arguments: args.len().saturating_sub(32),
-            outcome: None,
-        });
-        Some(index)
-    }
-
-    pub(crate) fn finish_host_call(
-        &self,
-        heap: &GcHeap,
-        index: usize,
-        result: &Result<Value, RuntimeError>,
-    ) {
-        if let Some(call) = self.host_calls.borrow_mut().get_mut(index) {
-            call.outcome = Some(match result {
-                Ok(value) => Ok(TraceValue::capture(heap, value, 0, &mut 128)),
-                Err(error) => Err(error.kind()),
-            });
-        }
-    }
-
     pub(crate) fn terminate(&self, resources: &ResourceState, error: RuntimeError) -> RuntimeError {
         let error = error.with_trace(ErrorTrace::capture_session(resources, self.id));
         self.termination.borrow_mut().get_or_insert(error).clone()
@@ -325,7 +277,7 @@ impl SessionState {
         if self.options.cancellation.check().is_err() {
             return Err(self.terminate(
                 resources,
-                RuntimeError::new(RuntimeErrorKind::Cancelled, "execution cancelled"),
+                RuntimeError::from(CancellationReason::ExecutionCancelled),
             ));
         }
         Ok(())
@@ -338,38 +290,43 @@ impl SessionState {
 ///
 /// ```compile_fail
 /// use kagari_runtime::{Runtime, module::ExecutableModule};
-/// fn detach(runtime: Runtime, module: &ExecutableModule) {
+/// fn detach(mut runtime: Runtime, module: &ExecutableModule) {
 ///     let session = runtime.begin_execution(module, runtime.execution_options()).unwrap();
 ///     drop(runtime);
 ///     drop(session);
 /// }
 /// ```
+/// Active admission cannot move to another thread:
+/// ```compile_fail,E0277
+/// use kagari_runtime::{Runtime, module::ExecutableModule};
+/// fn transfer(runtime: &mut Runtime, module: &ExecutableModule) {
+///     let session = runtime.begin_execution(module, Default::default()).unwrap();
+///     std::thread::scope(|threads| { threads.spawn(move || drop(session)); });
+/// }
+/// ```
 #[must_use]
 pub struct ExecutionSession<'runtime> {
+    pub(crate) runtime: &'runtime mut Runtime,
+    pub(crate) scope: SessionScope,
+}
+
+/// Session identity and cleanup authority. No heap or Runtime borrow is retained
+/// in this record; the owning activation supplies its service access on exit.
+pub(crate) struct SessionScope {
     pub(crate) id: SessionId,
-    pub(crate) resources: &'runtime ResourceState,
-    pub(crate) _activation: SynchronousActivation<'runtime>,
+    activation: Option<ActivationMark>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ExecutionCounters {
-    pub current_call_depth: u32,
-    pub peak_call_depth: u32,
-    pub current_heap_units: usize,
-    pub peak_heap_units: usize,
-    pub elapsed_wall_time_ms: u64,
-}
-
-impl ExecutionSession<'_> {
-    pub(crate) fn state(&self) -> Ref<'_, SessionState> {
-        self.resources
-            .sessions
-            .get(self.id)
-            .expect("live execution scope")
+impl SessionScope {
+    pub(crate) fn new(id: SessionId, activation: ActivationMark) -> Self {
+        Self {
+            id,
+            activation: Some(activation),
+        }
     }
 
-    pub fn trace(&self) -> Option<ExecutionTrace> {
-        let state = self.state();
+    pub(crate) fn trace(&self, resources: &ResourceState) -> Option<ExecutionTrace> {
+        let state = self.state(resources);
         state.options.record_host_calls.then(|| ExecutionTrace {
             root_identity: state.root.bytecode.identity.clone(),
             code_fingerprint: state.root.program_fingerprint(),
@@ -377,6 +334,42 @@ impl ExecutionSession<'_> {
             host_calls: state.host_calls.borrow().clone(),
             dropped_host_calls: state.dropped_host_calls.get(),
         })
+    }
+
+    pub(crate) fn state<'r>(&self, resources: &'r ResourceState) -> Ref<'r, SessionState> {
+        resources
+            .sessions
+            .get(self.id)
+            .expect("live execution scope")
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExecutionCounters {
+    pub current_call_depth: u32,
+    pub peak_call_depth: u32,
+    pub current_heap_units: u128,
+    pub peak_heap_units: u128,
+}
+
+impl ExecutionSession<'_> {
+    /// Inspect the admitted Runtime without driving it.
+    pub fn runtime(&self) -> &Runtime {
+        self.runtime
+    }
+
+    /// Reborrow the same Runtime services for a nested synchronous operation.
+    /// The session retains admission and cleanup authority across that operation.
+    pub fn runtime_mut(&mut self) -> &mut Runtime {
+        self.runtime
+    }
+
+    pub(crate) fn state(&self) -> Ref<'_, SessionState> {
+        self.scope.state(self.runtime.resources())
+    }
+
+    pub fn trace(&self) -> Option<ExecutionTrace> {
+        self.scope.trace(self.runtime.resources())
     }
 
     pub fn host_scope_count(&self) -> usize {
@@ -391,93 +384,123 @@ impl ExecutionSession<'_> {
 
     pub fn counters(&self) -> ExecutionCounters {
         let state = self.state();
-        let counters = self.resources.counters();
+        let counters = self.runtime.resources().counters();
         ExecutionCounters {
             current_call_depth: counters.current_call_depth,
             peak_call_depth: state.peak_call_depth.get(),
             current_heap_units: counters.current_heap_units,
             peak_heap_units: state.peak_heap_units.get(),
-            elapsed_wall_time_ms: state
-                .started
-                .elapsed()
-                .as_millis()
-                .min(u128::from(u64::MAX)) as u64,
+        }
+    }
+}
+
+impl SessionScope {
+    fn release(&self, resources: &ResourceState, memory: &mut ManagedMemory) {
+        let state = self.state(resources);
+        let scopes = state.scopes.get();
+        state.scopes.set(scopes - 1);
+        if scopes == 1 {
+            if state.owner.borrow().is_some() {
+                if !state.frame_scopes.borrow().is_empty()
+                    || !state.native_calls.borrow().is_empty()
+                    || !state.host_scopes.borrow().is_empty()
+                {
+                    resources.quarantine(EngineFault::OwnedActivationEndedWithActiveScopes);
+                }
+                state.parked_depth.set(resources.park_call_depth());
+                resources.end_execution(self.id);
+                return;
+            }
+            if resources
+                .sessions
+                .frames(self.id)
+                .is_none_or(|frames| !frames.is_empty())
+                || !state.frame_scopes.borrow().is_empty()
+                || !state.native_calls.borrow().is_empty()
+                || !state.host_scopes.borrow().is_empty()
+            {
+                resources.quarantine(EngineFault::ExecutionSessionEndedWithActiveResources);
+            }
+            resources.end_execution(self.id);
+            drop(state);
+            if let Some((_state, frames)) = resources.sessions.remove(self.id) {
+                // Retire before dropping detached Rust owners, including unwind.
+                // No user callback or collection intervenes in this closed handoff.
+                if let Err(error) = memory.retire_execution(resources, self.id)
+                    && !resources.is_quarantined()
+                {
+                    resources.quarantine(EngineFault::ExecutionStorageRetirementFailed(error));
+                }
+                // The whole-execution owner retired every frame/local suffix.
+                // Detached controls contain no additional managed storage to retire.
+                for mut frame in frames {
+                    frame.release_control(resources);
+                }
+            } else {
+                resources.quarantine(EngineFault::SessionRecordsRemainedBorrowedDuringCleanup);
+            }
+        }
+    }
+}
+
+impl SessionScope {
+    pub(crate) fn retire(&mut self, runtime: &mut Runtime) {
+        if let Some(activation) = self.activation.take() {
+            let resources = &runtime.resources;
+            let _activation = activation.attach(resources);
+            self.release(resources, &mut runtime.memory);
         }
     }
 }
 
 impl Drop for ExecutionSession<'_> {
     fn drop(&mut self) {
-        let state = self.state();
-        let scopes = state.scopes.get();
-        state.scopes.set(scopes - 1);
-        if scopes == 1 {
-            if state.owner.borrow().is_some() {
-                if !state.frame_scopes.borrow().is_empty() || !state.host_scopes.borrow().is_empty()
-                {
-                    self.resources
-                        .quarantine("owned activation ended with active scopes");
-                }
-                state.parked_depth.set(self.resources.park_call_depth());
-                self.resources.end_execution(self.id);
-                return;
-            }
-            if self
-                .resources
-                .sessions
-                .frames(self.id)
-                .is_none_or(|frames| !frames.is_empty())
-                || !state.frame_scopes.borrow().is_empty()
-                || !state.host_scopes.borrow().is_empty()
-            {
-                self.resources
-                    .quarantine("execution session ended with active resources");
-            }
-            self.resources.end_execution(self.id);
-            drop(state);
-            if let Some((_state, frames)) = self.resources.sessions.remove(self.id) {
-                for frame in frames {
-                    frame.release_values(self.resources);
-                }
-            } else {
-                self.resources
-                    .quarantine("session records remained borrowed during cleanup");
-            }
-        }
+        self.scope.retire(self.runtime);
     }
 }
 
 /// A separate initialization root that restores a suspended ordinary call on exit.
 pub struct CandidateSession<'runtime, 'candidate> {
     pub(crate) candidate: &'candidate StagedReload,
-    pub(crate) execution: Option<ExecutionSession<'runtime>>,
+    pub(crate) runtime: &'runtime mut Runtime,
+    pub(crate) execution: Option<SessionScope>,
     pub(crate) previous: Option<SessionId>,
-    pub(crate) resources: &'runtime ResourceState,
+}
+
+impl CandidateSession<'_, '_> {
+    /// Reborrow the isolated candidate's services. Ordinary publication remains
+    /// excluded until this guard retires candidate state and restores its parent.
+    pub fn runtime_mut(&mut self) -> &mut Runtime {
+        self.runtime
+    }
 }
 
 impl Drop for CandidateSession<'_, '_> {
     fn drop(&mut self) {
+        let resources = self.runtime.resources();
         if let Some(execution) = &self.execution
-            && let Err(error) = execution.state().poll(self.resources)
+            && let Err(error) = execution.state(resources).poll(resources)
         {
             self.candidate.record_initialization_error(error);
         }
         if self
             .execution
             .as_ref()
-            .is_some_and(|execution| execution.state().scopes.get() != 1)
+            .is_some_and(|execution| execution.state(resources).scopes.get() != 1)
         {
-            self.resources
-                .quarantine("candidate session ended with nested execution scopes");
+            resources.quarantine(EngineFault::CandidateSessionEndedWithNestedExecutionScopes);
         }
-        drop(self.execution.take());
+        if let Some(mut execution) = self.execution.take() {
+            execution.retire(self.runtime);
+        }
+        let resources = self.runtime.resources();
         let previous = self.previous.take().filter(|id| {
-            self.resources
+            resources
                 .sessions
                 .get(*id)
                 .is_some_and(|state| state.scopes.get() != 0)
         });
-        self.resources.replace_session(previous);
+        resources.replace_session(previous);
     }
 }
 
@@ -485,71 +508,76 @@ impl Drop for CandidateSession<'_, '_> {
 mod tests {
     use super::*;
     use crate::test_support::native::program::ProgramFixture;
-    use crate::value::Value;
+    use crate::value::{
+        aggregates::tuples::TupleObject, carriers::ScopedValue, strings::StringObject,
+    };
     use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
     use kagari_common::identity::map::DefinitionContext;
 
     #[test]
     fn trace_values_report_truncation_and_stop_at_a_shared_budget() {
-        let runtime = Runtime::default();
-        let heap = runtime.gc();
-        let mut budget = 128;
-        assert_eq!(
-            TraceValue::capture(
-                heap,
-                &heap.alloc_string("x".repeat(300)).unwrap(),
-                0,
-                &mut budget
-            ),
-            TraceValue::Str {
-                prefix: "x".repeat(256),
-                truncated: true,
-            }
-        );
-        let mut budget = 3;
-        let captured = TraceValue::capture(
-            heap,
-            &heap.alloc_tuple(vec![Value::I32(1); 20]).unwrap(),
-            0,
-            &mut budget,
-        );
-        let TraceValue::Tuple {
-            elements,
-            truncated,
-        } = captured
-        else {
-            panic!("expected tuple trace");
-        };
-        assert!(truncated);
-        assert_eq!(elements.len(), 16);
-        assert_eq!(&elements[..2], &[TraceValue::I32(1), TraceValue::I32(1)]);
-        assert!(elements[2..].iter().all(
-            |value| matches!(value, TraceValue::Opaque(reason) if reason == "trace value budget")
-        ));
+        let mut runtime = Runtime::default();
+        runtime
+            .memory
+            .scope(&runtime.resources, |cx, _| {
+                let text = StringObject::alloc(cx, "x".repeat(300))?;
+                let captured = TraceValue::capture(cx, ScopedValue::managed(text), 0, &mut 128)?;
+                assert_eq!(
+                    captured,
+                    TraceValue::Str {
+                        prefix: "x".repeat(256),
+                        truncated: true,
+                    }
+                );
+                let tuple = TupleObject::alloc(cx, &[ScopedValue::from(1_i32); 20])?;
+                let captured = TraceValue::capture(cx, ScopedValue::managed(tuple), 0, &mut 3)?;
+                let TraceValue::Tuple {
+                    elements,
+                    truncated,
+                } = captured
+                else {
+                    panic!("expected tuple trace");
+                };
+                assert!(truncated);
+                assert_eq!(elements.len(), 16);
+                assert_eq!(&elements[..2], &[TraceValue::I32(1), TraceValue::I32(1)]);
+                assert!(elements[2..].iter().all(|value| matches!(
+                    value,
+                    TraceValue::Opaque(reason) if reason == "trace value budget"
+                )));
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(runtime.gc_stats().root_registrations, 0);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc_stats().objects, 0);
     }
 
     #[test]
     fn trace_call_limit_reports_omitted_invocations() {
         let context = DefinitionContext::new().unwrap();
         let mut runtime = crate::Runtime::default();
-        let program = runtime
-            .load_program(
-                "trace-cap",
-                ProgramFixture {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                }
-                .metadata(context.snapshot(), &Default::default())
-                .unwrap(),
-            )
-            .unwrap();
+        let program = load_bytecode(
+            &mut runtime,
+            "trace-cap",
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
+            .unwrap(),
+        )
+        .unwrap();
         let module = runtime.select_program(&program).unwrap();
         let mut options = runtime.execution_options();
         options.record_host_calls = true;
-        let session = runtime.begin_execution(&module, options).unwrap();
+        let mut session = runtime.begin_execution(&module, options).unwrap();
         for _ in 0..10_001 {
-            session.state().begin_host_call(runtime.gc(), "ping", &[]);
+            session
+                .runtime_mut()
+                .begin_host_call_trace(|| Ok("ping".into()), &[])
+                .unwrap();
         }
         let trace = session.trace().unwrap();
         assert_eq!(trace.host_calls.len(), 10_000);

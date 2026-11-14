@@ -11,6 +11,7 @@ name = "kg"
 path = "src/main.rs"
 
 [dependencies]
+kagari-stdlib.workspace = true
 kagari-lint.workspace = true
 kagari-format.workspace = true
 serde.workspace = true
@@ -27,7 +28,6 @@ kagari-bytecode.workspace = true
 kagari-codegen-cranelift = { workspace = true, optional = true }
 kagari-syntax.workspace = true
 kagari-runtime.workspace = true
-kagari-vm.workspace = true
 
 [features]
 default = []

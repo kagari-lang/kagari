@@ -2,11 +2,13 @@ use crate::{BytecodeArtifact, engine::KagariEngine};
 use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 use kagari_contract::types::PublicItem;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_types::{declaration::AssociatedConstDef, scalar::BuiltinType, ty::Ty};
 
 #[test]
 fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine.compile_to_artifact(SourceFile::new("constants.kgr", "pub trait Limit { const VALUE: i32; } struct Number {} impl Limit for Number { const VALUE: i32 = 42; } fn main() -> i32 { Number::VALUE }"),  Default::default()).unwrap();
     let definitions = DefinitionContext::new().unwrap();
     let artifact = artifact

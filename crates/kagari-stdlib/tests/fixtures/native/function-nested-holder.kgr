@@ -1,0 +1,35 @@
+pub struct Item {
+    pub var value: i32
+}
+
+pub trait Read {
+    fn read(self) -> i32;
+}
+
+impl Read for Item {
+    fn read(self) -> i32 {
+        self.value
+    }
+}
+
+pub struct Holder<T> {
+    pub var value: T
+}
+
+impl<T> Holder<Vec<T>> {
+    pub fn first(self) -> T {
+        self.value[0]
+    }
+    pub fn read<U: Read>(self, value: U) -> i32 {
+        value.read()
+    }
+}
+
+pub fn make() -> Holder<Vec<Item>> {
+    Holder { value: Vec::from([Item { value: 42 }]) }
+}
+
+pub fn evidence() -> i32 {
+    val holder = make();
+    holder.read(holder.first())
+}

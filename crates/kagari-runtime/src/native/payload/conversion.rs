@@ -11,7 +11,7 @@ use crate::{
         storage::NativePayload,
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_types::ty::Ty;
 
@@ -24,11 +24,11 @@ impl<T: NativePayload> KagariType for Opaque<T> {
         registration.opaque::<T>()
     }
 
-    fn snapshot_field(
+    fn snapshot_field<'call>(
         &self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ValueView<'call>> {
         cx.encode_value(expected, self.clone())
     }
 
@@ -48,18 +48,18 @@ impl<T: NativePayload> FromKagari for Opaque<T> {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
         Self::from_checked(cx, expected, value)
     }
 }
 
 impl<T: NativePayload> IntoKagari for Opaque<T> {
-    fn into_kagari(
+    fn into_kagari<'call>(
         self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ValueView<'call>> {
         Self::check_type(cx, expected)?;
         let value = self.conversion(cx, expected)?;
         cx.check_value(expected, &value)?;
@@ -71,21 +71,17 @@ impl<T: Send + 'static> Opaque<T> {
     pub(crate) fn from_checked(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
         check_mapping::<T>(cx.runtime(), cx.owner(), expected)?;
         cx.check_value(expected, value)?;
-        let Value::GcHandle(id) = value else {
-            return Err(RuntimeError::module_validation("native object conversion"));
-        };
-        cx.runtime().gc().with_native::<T, _>(*id, |_| Ok(()))?;
+        let owner = cx.owner();
+        let origin = cx.owner_origin();
         let native_type = cx
-            .runtime()
-            .prepare_native_type(cx.owner(), expected.clone())?;
-        let root = cx
-            .runtime()
-            .root_value(*value)
-            .ok_or_else(|| RuntimeError::module_validation("native object retention"))?;
+            .runtime_mut()
+            .prepare_native_type(owner, expected.clone(), origin)?;
+        cx.check_native_view::<T>(value, native_type.contract())?;
+        let root = cx.retain(value)?;
         Ok(Self { root, native_type })
     }
 }

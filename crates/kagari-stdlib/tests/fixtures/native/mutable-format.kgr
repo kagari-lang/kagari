@@ -1,0 +1,9 @@
+struct Node {
+    var next: Option<Node>
+}
+
+fn main() -> Node {
+    val node = Node { next: None };
+    node.next = Some(node);
+    node
+}

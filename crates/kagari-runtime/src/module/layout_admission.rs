@@ -2,6 +2,8 @@
 //! Weak producer links cannot retain executable instances or create descriptor cycles.
 #[cfg(feature = "execution-diagnostics")]
 use crate::diagnostics::{self, Event};
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     frame::types::compatibility::TypeView,
     module::{
@@ -186,7 +188,7 @@ mod tests {
         Runtime,
         frame::types::bindings::TypeBindings,
         test_support::{layouts as layout_fixtures, native::program::ProgramFixture},
-        value::{EnumTag, Value},
+        value::{EnumTag, carriers::RootedValue},
         value_check,
     };
     use kagari_bytecode::{
@@ -203,6 +205,34 @@ mod tests {
         ty::{GenericParam, NominalTy, Ty},
     };
     use std::slice;
+
+    fn uncached_matches(
+        runtime: &mut Runtime,
+        value: &RootedValue,
+        expected: TypeView<'_>,
+    ) -> bool {
+        let Runtime {
+            memory,
+            host,
+            host_borrows,
+            resources,
+            ..
+        } = runtime;
+        memory
+            .scope(resources, |cx, _| {
+                let value = value.get(cx)?;
+                Ok(value_check::scoped::matches(
+                    cx,
+                    value,
+                    expected,
+                    host,
+                    host_borrows,
+                    resources,
+                ))
+            })
+            .unwrap()
+            .unwrap()
+    }
 
     fn installation_layouts() -> DefinitionMetadata<BytecodeProgram> {
         let context = DefinitionContext::new().unwrap();
@@ -261,19 +291,19 @@ mod tests {
     #[test]
     fn installation_nominals_reject_cached_fallback_and_nested_lexical_admission() {
         let mut runtime = Runtime::default();
-        let native_owner = layout_fixtures::sequence_owner(&mut runtime);
+        let native_owner = layout_fixtures::payload_owner(&mut runtime);
         let native_root = native_owner
             .definitions()
             .lookup_root(&native_owner.bytecode.identity)
             .unwrap();
         let native_declaration = native_owner
             .definitions()
-            .lookup_child(native_root, DefinitionKind::AssociatedType, "Vec", 0)
+            .lookup_child(native_root, DefinitionKind::AssociatedType, "Payload", 0)
             .unwrap();
         let code = installation_layouts();
-        let left_program = runtime.load_program("same", code.clone()).unwrap();
+        let left_program = load_bytecode(&mut runtime, "same", code.clone()).unwrap();
         let left = runtime.select_program(&left_program).unwrap();
-        let right_program = runtime.load_program("same", code.clone()).unwrap();
+        let right_program = load_bytecode(&mut runtime, "same", code.clone()).unwrap();
         let right = runtime.select_program(&right_program).unwrap();
         let record = left.struct_layout(StructId::new(0)).unwrap();
         let foreign_record = right.struct_layout(StructId::new(0)).unwrap();
@@ -293,10 +323,10 @@ mod tests {
         );
         let admission = NominalAdmission::structure(&record).unwrap();
         assert!(!admission.matches_struct(&foreign_record, argument.view(&left)));
-        let value = Value::Struct(runtime.alloc_struct(foreign_record, vec![]).unwrap());
-        assert!(!argument.matches(&runtime, &value, &left));
-        assert!(!value_check::matches_view(
-            runtime.gc(),
+        let value = runtime.alloc_struct(foreign_record, &[]).unwrap();
+        assert!(!value_check::matches_rooted(&mut runtime, &left, &argument, &value).unwrap());
+        assert!(!uncached_matches(
+            &mut runtime,
             &value,
             argument.view(&left)
         ));
@@ -338,7 +368,7 @@ mod tests {
         };
         let bindings = Arc::new(
             TypeBindings::new(
-                runtime.definition_context(),
+                &runtime.definition_context().snapshot(),
                 vec![parameter.clone()],
                 vec![foreign],
             )
@@ -377,14 +407,15 @@ mod tests {
         assert!(!variant.matches_layout(&foreign_variant));
         let admission = NominalAdmission::enumeration(&variant).unwrap();
         assert!(!admission.matches_enum(&foreign_variant, enum_argument.view(&left)));
-        let value = Value::Enum(
-            runtime
-                .alloc_enum(EnumTag::Declared(foreign_variant), vec![Value::I32(7)])
-                .unwrap(),
-        );
-        assert!(!enum_argument.matches(&runtime, &value, &left));
-        assert!(!value_check::matches_view(
-            runtime.gc(),
+        let value = runtime
+            .alloc_enum(
+                EnumTag::Declared(foreign_variant),
+                &[RootedValue::from(7i32)],
+            )
+            .unwrap();
+        assert!(!value_check::matches_rooted(&mut runtime, &left, &enum_argument, &value).unwrap());
+        assert!(!uncached_matches(
+            &mut runtime,
             &value,
             enum_argument.view(&left)
         ));
@@ -474,12 +505,21 @@ mod tests {
             .unwrap();
         assert!(variant.matches_layout(&current_enum));
         assert!(variant.matches_layout(&current_enum));
-        let current_value = Value::Enum(
-            runtime
-                .alloc_enum(EnumTag::Declared(current_enum), vec![Value::I32(7)])
-                .unwrap(),
+        let current_value = runtime
+            .alloc_enum(EnumTag::Declared(current_enum), &[RootedValue::from(7i32)])
+            .unwrap();
+        assert!(
+            value_check::matches_rooted(&mut runtime, &current, &enum_argument, &current_value)
+                .unwrap()
         );
-        assert!(enum_argument.matches(&runtime, &current_value, &current));
-        assert!(!foreign_enum_argument.matches(&runtime, &current_value, &right));
+        assert!(
+            !value_check::matches_rooted(
+                &mut runtime,
+                &right,
+                &foreign_enum_argument,
+                &current_value
+            )
+            .unwrap()
+        );
     }
 }

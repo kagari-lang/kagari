@@ -1,0 +1,38 @@
+pub struct Holder<T> {
+    pub var value: T,
+    pub var calls: i32
+}
+
+impl<T> Holder<T> {
+    pub fn create(value: T) -> Holder<T> {
+        Holder { value: value, calls: 0 }
+    }
+    pub fn get(self) -> T {
+        self.calls = self.calls + 1;
+        self.value
+    }
+    pub fn replace(self, value: T) -> T {
+        val old = self.value;
+        self.value = value;
+        old
+    }
+    pub fn choose<U>(self, value: U) -> U {
+        value
+    }
+    pub fn identity<U>(value: U) -> U {
+        value
+    }
+}
+
+pub fn other() -> Holder<String> {
+    Holder { value: "other", calls: 0 }
+}
+
+pub fn make() -> Holder<i32> {
+    Holder::create(42)
+}
+
+pub fn evidence() -> i32 {
+    val holder = make();
+    holder.get() + holder.replace(5) + holder.choose(2) + Holder::identity::<i32, i32>(3)
+}

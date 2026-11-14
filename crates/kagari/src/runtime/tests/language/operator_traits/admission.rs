@@ -3,24 +3,27 @@ use kagari_bytecode::program::{identity, verify_program};
 use kagari_common::identity::map::DefinitionContext;
 use kagari_contract::types::PublicItem;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_types::{language::Protocol, ty::Ty};
 
 #[test]
 fn portable_operator_contracts_reject_wrong_inputs_and_outputs() {
-    let artifact = KagariEngine::default()
-        .compile_to_artifact(
-            SourceFile::new(
-                "operator-wire.kgr",
-                r#"use std::ops::{Add};
+    let artifact =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+            .unwrap()
+            .compile_to_artifact(
+                SourceFile::new(
+                    "operator-wire.kgr",
+                    r#"use std::ops::{Add};
 
 struct Number{val value:i32}
 impl Add<i32> for Number {type Output=i32;fn add(self,rhs:i32)->i32 {self.value+rhs}}
 fn main()->i32 {Number{value:20}+22}
 "#,
-            ),
-            Default::default(),
-        )
-        .unwrap();
+                ),
+                Default::default(),
+            )
+            .unwrap();
     let definitions = DefinitionContext::new().unwrap();
     let artifact = artifact
         .import_into(&definitions, &Default::default())

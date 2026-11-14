@@ -16,11 +16,7 @@ impl Instruction {
                     rewrite(rhs);
                 }
             }
-            Self::Iter { value, .. } => {
-                if let Some(value) = value {
-                    rewrite(value);
-                }
-            }
+
             Self::Binary { lhs, rhs, .. } => {
                 rewrite(lhs);
                 rewrite(rhs);

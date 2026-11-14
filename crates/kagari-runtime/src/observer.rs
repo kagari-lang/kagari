@@ -1,14 +1,15 @@
 //! Runtime-owned observation. No observer storage is shared with an execution driver.
+pub(crate) mod values;
+use crate::{
+    Runtime,
+    error::{RuntimeError, RuntimeErrorKind, fault::EngineFault},
+    observer::values::{CaptureGuard, ObservedValues},
+    session::{ExecutionEvent, ExecutionId, ExecutionObserver},
+};
 use std::{
     any::Any,
     cell::{Ref, RefMut},
     mem,
-};
-
-use crate::{
-    Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
-    session::{ExecutionEvent, ExecutionId, ExecutionObserver},
 };
 
 impl Runtime {
@@ -94,7 +95,7 @@ impl Runtime {
             .frames(session.id)
             .ok_or_else(|| {
                 self.resources()
-                    .quarantine("observer installation encountered a borrowed stack")
+                    .quarantine(EngineFault::ObserverInstallationEncounteredABorrowedStack)
             })?;
         if !frames.is_empty() && !resumed {
             return Err(RuntimeError::module_validation(
@@ -114,13 +115,13 @@ impl Runtime {
         drop(frames);
         let session = self.resources().active_session().ok_or_else(|| {
             self.resources()
-                .quarantine("observer initialization lost its session")
+                .quarantine(EngineFault::ObserverInitializationLostItsSession)
         })?;
         session.observer_attached.set(true);
         Ok(true)
     }
 
-    pub fn observe_execution(&self, event: ExecutionEvent) -> Result<(), RuntimeError> {
+    pub fn observe_execution(&mut self, event: ExecutionEvent) -> Result<(), RuntimeError> {
         let Some(session) = self.resources().active_session() else {
             return Ok(());
         };
@@ -129,25 +130,42 @@ impl Runtime {
         }
         let id = session.id;
         drop(session);
-        let frames = self.resources().sessions.frames(id).ok_or_else(|| {
+        self.resources.ensure_synchronous_thread()?;
+        let frames = self.resources.sessions.frames(id).ok_or_else(|| {
             self.resources()
-                .quarantine("observer encountered a borrowed execution stack")
+                .quarantine(EngineFault::ObserverEncounteredABorrowedExecutionStack)
         })?;
         let mut observer = self.observer.try_borrow_mut().map_err(|_| {
             self.resources()
-                .quarantine("execution observer borrowed across execution")
+                .quarantine(EngineFault::ExecutionObserverBorrowedAcrossExecution)
         })?;
         let observer = observer.as_mut().ok_or_else(|| {
             self.resources()
-                .quarantine("active execution observer is missing")
+                .quarantine(EngineFault::ActiveExecutionObserverIsMissing)
         })?;
+        let capture = if observer.capture_binding_values(self, event, &frames) {
+            match ObservedValues::capture(&mut self.memory, &self.resources, id, &frames) {
+                Ok(values) => Some(values),
+                Err(error) => {
+                    drop(frames);
+                    return Err(self
+                        .resources
+                        .admit_execution_error(error.into_runtime(self)));
+                }
+            }
+        } else {
+            None
+        };
+        let _capture = capture
+            .map(|values| CaptureGuard::install(&self.observed_values, &self.resources, values))
+            .transpose()?;
         let result = observer.observe(self, event, &frames);
         if result
             .as_ref()
             .is_err_and(|error| error.kind() == RuntimeErrorKind::EngineFault)
         {
             self.resources()
-                .quarantine("execution observer encountered an engine fault");
+                .quarantine(EngineFault::ExecutionObserverEncounteredAnEngineFault);
         }
         result
     }

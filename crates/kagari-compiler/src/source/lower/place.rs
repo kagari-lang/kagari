@@ -122,8 +122,6 @@ impl FunctionLowerer<'_, '_> {
                             | Ty::NativeObject(_)
                             | Ty::Struct(_)
                             | Ty::Array(_)
-                            | Ty::Map { .. }
-                            | Ty::Set(_, _)
                     ) {
                     let dst = self.alloc_temp(ty);
                     if is_cell {

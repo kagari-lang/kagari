@@ -3,11 +3,13 @@ use kagari_bytecode::program::{identity, verify_program};
 use kagari_common::identity::map::DefinitionContext;
 use kagari_contract::types::PublicItem;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
 fn tampered_associated_schemas_and_bounds_are_rejected() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine.compile_to_artifact(SourceFile::new("associated-wire.kgr", "use std::hash::{Hash};\npub trait Read { type Item: Eq + Hash; } struct N {} impl Read for N { type Item = i32; } fn main() -> i32 { 42 }"),  Default::default()).unwrap();
     let context = DefinitionContext::new().unwrap();
     let artifact = artifact.import_into(&context, &Default::default()).unwrap();
@@ -68,7 +70,8 @@ fn tampered_associated_schemas_and_bounds_are_rejected() {
 
 #[test]
 fn generic_implementation_interface_tables_specialize_and_deduplicate() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(
@@ -107,7 +110,8 @@ fn generic_implementation_interface_tables_specialize_and_deduplicate() {
 
 #[test]
 fn interface_instance_bounds_are_checked_without_method_slots() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine.compile_to_artifact(SourceFile::new("empty-generic-wire.kgr", "use std::hash::{Hash};\ntrait Tag {} struct Holder<T> { val value: T } impl<T: Eq + Hash> Tag for Holder<T> {} fn main() -> i32 { val tagged: Tag = Holder { value: 42 }; 42 }"),  Default::default()).unwrap();
     let mut program = artifact.records().program.clone();
     let table = program.modules[program.root.index()]
@@ -123,7 +127,8 @@ fn interface_instance_bounds_are_checked_without_method_slots() {
 
 #[test]
 fn malformed_generic_interface_instances_are_rejected_before_execution() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine.compile_to_artifact(SourceFile::new("generic-wire.kgr", "use std::hash::{Hash};\ntrait Reader { type Item; fn read(self) -> Self::Item; } struct Holder<T> { val value: T } impl<T: Eq + Hash> Reader for Holder<T> { type Item = T; fn read(self) -> T { self.value } } fn main() -> i32 { val a: Reader<Item = i32> = Holder { value: 42 }; val b: Reader<Item = String> = Holder { value: \"text\" }; a.read() }"),  Default::default()).unwrap();
     let context = DefinitionContext::new().unwrap();
     let artifact = artifact.import_into(&context, &Default::default()).unwrap();

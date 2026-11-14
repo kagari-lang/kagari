@@ -1,0 +1,9 @@
+fn main() -> i32 {
+    val kept = [1];
+    print("cancel");
+    42
+}
+
+pub fn ready() -> i32 {
+    7
+}

@@ -14,12 +14,19 @@ use crate::{
     },
     lower::LoweredModule,
     resolver::resolved::{ResolvedName, ResolvedNames},
-    typeck::{scalar::ScalarValue, table::TypeTable},
+    typeck::{
+        scalar::{IntegerRangeError, ScalarValue},
+        table::TypeTable,
+    },
     types::TypeId,
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::{arithmetic::IntegerBinaryOp, integer, integer::IntegerOp, scalar::IntegerType};
+use kagari_types::{
+    arithmetic::IntegerBinaryOp,
+    integer::{self, IntegerOp},
+    scalar::{IntegerType, error::ScalarError},
+};
 use smallvec::SmallVec;
 use std::collections::HashMap;
 
@@ -142,7 +149,7 @@ impl Evaluator<'_> {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidConstInitializer {
                         const_name: item.name.clone(),
-                        reason: reason.to_owned(),
+                        reason: reason.to_string(),
                     })
                     .with_span(self.lowered.source_map.expr_span(id)),
                 );
@@ -151,11 +158,19 @@ impl Evaluator<'_> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+enum ConstEvalError {
+    #[error(transparent)]
+    Scalar(#[from] ScalarError),
+    #[error(transparent)]
+    IntegerRange(#[from] IntegerRangeError),
+}
+
 fn binary(
     op: BinaryOp,
     lhs: ScalarValue,
     rhs: ScalarValue,
-) -> Option<Result<ScalarValue, &'static str>> {
+) -> Option<Result<ScalarValue, ConstEvalError>> {
     let bit = match op {
         BinaryOp::BitAnd => Some(IntegerOp::BitAnd),
         BinaryOp::BitOr => Some(IntegerOp::BitOr),
@@ -256,7 +271,7 @@ fn scalar_bits(
     op: IntegerOp,
     lhs: ScalarValue,
     rhs: ScalarValue,
-) -> Option<Result<ScalarValue, &'static str>> {
+) -> Option<Result<ScalarValue, ConstEvalError>> {
     let ScalarValue::Integer { value: lhs, ty } = lhs else {
         return None;
     };
@@ -271,8 +286,8 @@ fn integer_value(
     lhs: i128,
     rhs: i128,
     ty: IntegerType,
-) -> Result<ScalarValue, &'static str> {
+) -> Result<ScalarValue, ConstEvalError> {
     let (bits, signed) = ty.layout();
-    integer::integer_operation(op, lhs, rhs, bits, signed)
-        .and_then(|value| ScalarValue::integer(value, ty))
+    let value = integer::integer_operation(op, lhs, rhs, bits, signed)?;
+    Ok(ScalarValue::integer(value, ty)?)
 }

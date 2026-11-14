@@ -1,0 +1,14 @@
+use test::probe::tick;
+
+pub fn make() -> Iterator<Item = (i32, i32)> {
+    Vec::from([100, 200]).map(|item| item).zip(
+        Vec::from([10, 20]).map(
+            |item| {
+                if tick() == 1u64 {
+                    val fail = 1 / 0;
+                };
+                item + 1
+            }
+        )
+    )
+}

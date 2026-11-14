@@ -1,0 +1,18 @@
+use test::boundary;
+
+use host;
+
+fn main() -> i32 {
+    val kept = [42];
+    boundary::choose(
+        true,
+        || {
+            host::log("cancel");
+            kept[0]
+        }
+    )
+}
+
+pub fn ready() -> i32 {
+    7
+}

@@ -93,22 +93,16 @@ impl LayoutTable {
     }
 }
 
-#[derive(Debug, Clone)]
-pub(super) struct ProgramLayouts {
+/// Pure layout correspondence is shared by every installation of this product.
+#[derive(Debug)]
+pub(super) struct LayoutFacts {
     structures: LayoutTable,
     enumerations: LayoutTable,
-    // Captured from actual installed providers, never from names or trait references.
-    // Detached descriptions keep this authority even if the Runtime later changes.
-    shared_traits: HashSet<DefinitionId>,
 }
 
-impl ProgramLayouts {
-    pub(super) fn prepare(
-        modules: &[Arc<BytecodeModule>],
-        shared_traits: HashSet<DefinitionId>,
-    ) -> Self {
+impl LayoutFacts {
+    pub(super) fn prepare(modules: &[Arc<BytecodeModule>]) -> Self {
         Self {
-            shared_traits,
             structures: LayoutTable::prepare(
                 &modules
                     .iter()
@@ -123,6 +117,22 @@ impl ProgramLayouts {
             ),
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct ProgramLayouts {
+    facts: Arc<LayoutFacts>,
+    // Provider authority is installation-local, never inferred from product names.
+    shared_traits: HashSet<DefinitionId>,
+}
+
+impl ProgramLayouts {
+    pub(super) fn prepare(facts: Arc<LayoutFacts>, shared_traits: HashSet<DefinitionId>) -> Self {
+        Self {
+            facts,
+            shared_traits,
+        }
+    }
 
     pub(super) fn is_shared_native_trait(&self, declaration: DefinitionId) -> bool {
         self.shared_traits.contains(&declaration)
@@ -130,17 +140,17 @@ impl ProgramLayouts {
 
     pub(super) fn counts(&self) -> (usize, usize) {
         (
-            self.structures.locations.len(),
-            self.enumerations.locations.len(),
+            self.facts.structures.locations.len(),
+            self.facts.enumerations.locations.len(),
         )
     }
 
     pub(super) fn structure(&self, member: ModuleRef, id: StructId) -> LayoutIdentity {
-        self.structures.members[member.index()][id.index()]
+        self.facts.structures.members[member.index()][id.index()]
     }
 
     pub(super) fn enumeration(&self, member: ModuleRef, id: EnumId) -> LayoutIdentity {
-        self.enumerations.members[member.index()][id.index()]
+        self.facts.enumerations.members[member.index()][id.index()]
     }
 
     pub(super) fn applied_structure(
@@ -148,7 +158,7 @@ impl ProgramLayouts {
         layout: &StructLayout,
         modules: &[Arc<BytecodeModule>],
     ) -> Option<LayoutIdentity> {
-        self.structures.applied(layout, |id| {
+        self.facts.structures.applied(layout, |id| {
             &modules[id.member.index()].structures[id.index]
         })
     }
@@ -158,7 +168,7 @@ impl ProgramLayouts {
         layout: &EnumLayout,
         modules: &[Arc<BytecodeModule>],
     ) -> Option<LayoutIdentity> {
-        self.enumerations.applied(layout, |id| {
+        self.facts.enumerations.applied(layout, |id| {
             &modules[id.member.index()].enumerations[id.index]
         })
     }

@@ -1,0 +1,41 @@
+struct Cursor {
+    var current: i32
+}
+
+impl Iterator for Cursor {
+    type Item = i32;
+    fn next(self) -> Option<i32> {
+        if self.current < 2 {
+            self.current += 1;
+            Some(21)
+        } else {
+            None
+        }
+    }
+}
+
+struct Items {}
+
+impl Iterable for Items {
+    type Item = i32;
+    type Iter = Cursor;
+    fn iter(self) -> Cursor {
+        Cursor { current: 0 }
+    }
+}
+
+trait Bag: Iterable<Item = i32> {}
+
+impl Bag for Items {}
+
+fn sum(values: Bag) -> i32 {
+    var result = 0;
+    for item in values {
+        result += item;
+    }
+    result
+}
+
+fn main() -> i32 {
+    sum(Items {})
+}

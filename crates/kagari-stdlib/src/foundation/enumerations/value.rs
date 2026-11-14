@@ -10,19 +10,18 @@ use kagari_runtime::{
         assembly::authoring::PendingBinding,
         binding::{Codec, NativeBinding, NativeResult},
         catalog::DeclarationCatalog,
-        context::CallContext,
+        context::NativeCall,
         types::{TypeRef, VariantRef},
     },
-    value::{EnumTag, Value},
+    value::view::ValueView,
 };
-use std::{cmp::Ordering, collections::BTreeMap};
+use std::collections::BTreeMap;
 
 pub(crate) type EnumRequest = (&'static str, &'static [&'static str]);
 pub(crate) const OPTION: EnumRequest = ("Option", &["Some", "None"]);
 pub(crate) const RESULT: EnumRequest = ("Result", &["Ok", "Err"]);
-pub(crate) const ORDERING: EnumRequest = ("Ordering", &["Less", "Equal", "Greater"]);
+
 pub(crate) const CONTROL_FLOW: EnumRequest = ("ControlFlow", &["Continue", "Break"]);
-pub(crate) const BOUND: EnumRequest = ("Bound", &["Included", "Excluded", "Unbounded"]);
 pub(crate) const PARSE_ERROR: EnumRequest = (
     "ParseError",
     &[
@@ -35,7 +34,8 @@ pub(crate) const PARSE_ERROR: EnumRequest = (
 );
 pub(crate) const CONVERSION_ERROR: EnumRequest = ("TryFromIntError", &["OutOfRange"]);
 
-pub(crate) type Entry = for<'call> fn(&EnumSymbols, &mut CallContext<'call>) -> NativeResult<Value>;
+pub(crate) type Entry =
+    for<'call> fn(&EnumSymbols, &mut NativeCall<'call>) -> NativeResult<ValueView<'call>>;
 
 struct Enumeration {
     declaration: TypeRef,
@@ -73,7 +73,7 @@ impl EnumSymbols {
         }
         let option = enumerations
             .get("Option")
-            .map(|enumeration| {
+            .map(|enumeration| -> NativeResult<_> {
                 Ok((
                     enumeration.declaration.variant("Some")?,
                     enumeration.declaration.variant("None")?,
@@ -117,27 +117,27 @@ pub(crate) fn pending(
     })
 }
 
-pub(crate) fn option(
+pub(crate) fn option<'call>(
     symbols: &EnumSymbols,
-    cx: &CallContext<'_>,
-    value: Option<Value>,
-) -> NativeResult<Value> {
+    cx: &mut NativeCall<'call>,
+    value: Option<ValueView<'call>>,
+) -> NativeResult<ValueView<'call>> {
     let (some, none) = symbols.option_members()?;
     cx.allocate_enum(
         &cx.result_type_argument()?,
         if value.is_some() { some } else { none },
-        value.into_iter().collect(),
+        value.as_slice(),
     )
 }
 
-pub(crate) fn allocate(
+pub(crate) fn allocate<'call>(
     symbols: &EnumSymbols,
-    cx: &CallContext<'_>,
+    cx: &mut NativeCall<'call>,
     ty: &TypeArgument,
     name: &str,
     member: &str,
-    fields: Vec<Value>,
-) -> NativeResult<Value> {
+    fields: &[ValueView<'_>],
+) -> NativeResult<ValueView<'call>> {
     let variant = symbols
         .enumeration(name)?
         .variants
@@ -146,22 +146,15 @@ pub(crate) fn allocate(
     cx.allocate_enum(ty, variant, fields)
 }
 
-/// The reader must not allocate on the script heap or invoke callbacks.
-pub(crate) fn read<R>(
+/// Validate nominal identity, then publish payload views before invoking the reader.
+pub(crate) fn read<'call, R>(
     symbols: &EnumSymbols,
-    cx: &CallContext<'_>,
-    value: &Value,
+    cx: &mut NativeCall<'call>,
+    value: &ValueView<'call>,
     name: &str,
-    read: impl FnOnce(&str, &[Value]) -> R,
+    read: impl FnOnce(&str, &[ValueView<'call>]) -> R,
 ) -> NativeResult<R> {
-    let Value::Enum(id) = value else {
-        return Err(RuntimeError::module_validation("library enum value"));
-    };
-    let view = cx
-        .heap()
-        .enum_view(*id)
-        .ok_or_else(|| RuntimeError::module_validation("library enum handle"))?;
-    let EnumTag::Declared(layout) = &view.tag;
+    let (layout, count) = cx.enum_shape(value)?;
     let enumeration = &symbols.enumeration(name)?.declaration;
     let expected = enumeration
         .definitions()
@@ -182,35 +175,33 @@ pub(crate) fn read<R>(
         .ok()
         .and_then(|member| member.segments().last().map(|segment| segment.name))
         .ok_or_else(|| RuntimeError::module_validation("library enum member"))?;
-    Ok(read(member, &view.fields))
+    if count == 0 {
+        return Ok(read(member, &[]));
+    }
+    if count == 1 {
+        return Ok(read(member, &[cx.enum_field(value, 0)?]));
+    }
+    let mut fields = Vec::new();
+    fields
+        .try_reserve_exact(count)
+        .map_err(|_| RuntimeError::resource_limit("library enum fields"))?;
+    for index in 0..count {
+        fields.push(cx.enum_field(value, index)?);
+    }
+    Ok(read(member, &fields))
 }
 
-/// Copy at most one payload; its caller roots it before allocation or reentry.
-pub(crate) fn read_option(
+/// Return at most one payload protected by the enclosing Native call.
+pub(crate) fn read_option<'call>(
     symbols: &EnumSymbols,
-    cx: &CallContext<'_>,
-    value: &Value,
-) -> NativeResult<Option<Value>> {
+    cx: &mut NativeCall<'call>,
+    value: &ValueView<'call>,
+) -> NativeResult<Option<ValueView<'call>>> {
     read(symbols, cx, value, "Option", |member, fields| {
         match (member, fields) {
             ("None", []) => Ok(None),
             ("Some", [value]) => Ok(Some(*value)),
             _ => Err(RuntimeError::module_validation("library Option member")),
-        }
-    })?
-}
-
-pub(crate) fn ordering(
-    symbols: &EnumSymbols,
-    cx: &CallContext<'_>,
-    value: &Value,
-) -> NativeResult<Ordering> {
-    read(symbols, cx, value, "Ordering", |member, fields| {
-        match (member, fields) {
-            ("Less", []) => Ok(Ordering::Less),
-            ("Equal", []) => Ok(Ordering::Equal),
-            ("Greater", []) => Ok(Ordering::Greater),
-            _ => Err(RuntimeError::module_validation("library Ordering member")),
         }
     })?
 }

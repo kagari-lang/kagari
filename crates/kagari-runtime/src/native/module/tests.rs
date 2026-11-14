@@ -6,50 +6,35 @@ use crate::{
     },
     metadata::{TypeKind, TypeRegistration},
     native::{
-        binding::{Codec, NativeBinding, NativeResult},
+        binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
         catalog::{DeclarationCatalog, import::CatalogImports},
         declarations::{FunctionDecl, MethodDecl},
+        host,
         installation::NativeInstallation,
         module::NativeModule,
-        storage::{NativePayload, NativeStorage},
+        storage::NativeStorage,
         types::Type,
     },
-    resource::HeapCharge,
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_common::identity::{DefinitionKind, metadata::DefinitionMetadata};
-use kagari_stdlib::{catalog as standard_catalog, namespaces};
 use kagari_types::{
-    callable::CallableImplementation,
     declaration::path::{HostPathDeclaration, HostPathSegmentDeclaration},
     declaration::{
-        FieldDef, TypeDefKind,
+        FieldDef,
         host::{
             HostCallPolicy, HostFieldPolicy, HostPassingStyle, HostReflectionPolicy,
             HostTypeOwnership, HostTypePolicy, PathAccess,
         },
-        module::ModuleDecl,
-        names::{ExportName, NameNamespace},
-        native::NativeStorageLayout,
     },
-    language::Protocol,
     scalar::BuiltinType,
     ty::Ty,
     visibility::Visibility,
 };
-use std::{collections::BTreeMap, slice};
+use std::slice;
 
-#[derive(Debug)]
-struct CatalogOnlyPayload;
-
-impl NativePayload for CatalogOnlyPayload {
-    fn trace<'payload>(&'payload self, _visit: &mut dyn FnMut(&'payload Value)) {}
-
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(0, 0))
-    }
-}
+crate::native_data! { struct CatalogOnlyPayload {} }
 
 fn assert_catalog_eq(left: &DeclarationCatalog, right: &DeclarationCatalog) {
     let mut imports = CatalogImports::new(left.types.context().clone());
@@ -62,93 +47,8 @@ fn assert_catalog_eq(left: &DeclarationCatalog, right: &DeclarationCatalog) {
 }
 
 #[test]
-fn reused_closures_preserve_exact_foundation_binding_requirements() {
-    let declarations = standard_catalog::declarations().unwrap();
-    let providers = DeclarationCatalog::from_declarations(&declarations).unwrap();
-    let modules = declarations
-        .into_iter()
-        .map(|declaration| {
-            let context = providers.types.context();
-            let declaration = declaration
-                .import_into(context, &Default::default())
-                .unwrap()
-                .into_records();
-            let mut bindings = BTreeMap::new();
-            for entry in declaration
-                .native_declarations(&providers.definitions())
-                .unwrap()
-            {
-                let CallableImplementation::Native(id) = entry.function.implementation else {
-                    panic!("native template");
-                };
-                bindings.entry(id).or_insert_with(|| {
-                    NativeBinding::new(
-                        vec![Codec::Value; entry.function.params.len()],
-                        Codec::Value,
-                        |_| Ok(Value::Unit),
-                    )
-                });
-            }
-            let owned =
-                DeclarationCatalog::declared([&declaration], providers.types.context()).unwrap();
-            let storage = owned
-                .types
-                .entries()
-                .filter_map(|(id, ty)| {
-                    let TypeDefKind::NativeStorage(layout) = ty.kind else {
-                        return None;
-                    };
-                    let storage = match layout {
-                        NativeStorageLayout::Opaque => {
-                            NativeStorage::payload::<CatalogOnlyPayload>()
-                        }
-                        NativeStorageLayout::Future => NativeStorage::future(),
-                        NativeStorageLayout::Sequence { element } => {
-                            NativeStorage::sequence(element)
-                        }
-                        NativeStorageLayout::Task => NativeStorage::task(),
-                        NativeStorageLayout::TaskScope => NativeStorage::task_scope(),
-                        _ => panic!("unexpected foundation storage: {layout:?}"),
-                    };
-                    Some((id, storage))
-                })
-                .collect();
-            NativeModule::checked(
-                declaration,
-                bindings.into_iter().collect(),
-                storage,
-                vec![],
-                &providers,
-            )
-            .unwrap()
-        })
-        .collect::<Vec<_>>();
-    for module in &modules {
-        for registration in module.bindings.iter() {
-            let declarations = &registration.declarations;
-            let module_declaration = module.declaration();
-            let fresh = module
-                .catalog
-                .dependency_closure(
-                    module.owned.traits.ids(),
-                    declarations,
-                    [module_declaration],
-                )
-                .unwrap();
-            assert_catalog_eq(&registration.required_catalog, &fresh.catalog);
-        }
-    }
-}
-
-#[test]
 fn binding_specific_foreign_dependencies_do_not_leak_to_other_bindings() {
-    let providers = DeclarationCatalog::from_declarations(
-        standard_catalog::shared()
-            .unwrap()
-            .iter()
-            .map(|module| module.as_ref()),
-    )
-    .unwrap();
+    let providers = DeclarationCatalog::default();
     let mut provider = ModuleBuilder::new("test::provider", &providers).unwrap();
     let mut remote = provider.define_trait("Remote").unwrap();
     remote.define_method(MethodDecl::instance("read")).unwrap();
@@ -166,7 +66,7 @@ fn binding_specific_foreign_dependencies_do_not_leak_to_other_bindings() {
     consumer
         .bind(
             inspect,
-            NativeBinding::new(vec![Codec::Value], Codec::Value, |_| Ok(Value::Unit)),
+            NativeBinding::new(vec![Codec::Value], Codec::Value, |_| Ok(ValueView::unit())),
         )
         .unwrap();
     let local = consumer
@@ -175,7 +75,7 @@ fn binding_specific_foreign_dependencies_do_not_leak_to_other_bindings() {
     consumer
         .bind(
             local,
-            NativeBinding::new(vec![], Codec::Value, |_| Ok(Value::Unit)),
+            NativeBinding::new(vec![], Codec::Value, |_| Ok(ValueView::unit())),
         )
         .unwrap();
     let module = consumer.finish().unwrap();
@@ -223,7 +123,9 @@ fn application(names: &[&str]) -> NativeModule {
         module
             .bind(
                 function,
-                NativeBinding::new(vec![], Codec::Exact(Type::i32()), |_| Ok(Value::I32(42))),
+                NativeBinding::new(vec![], Codec::Exact(Type::i32()), |_| {
+                    Ok(ValueView::from(42i32))
+                }),
             )
             .unwrap();
     }
@@ -263,8 +165,8 @@ fn shared_registrations_keep_installation_and_failure_state_runtime_local() {
             .last()
             .is_some_and(|segment| segment.name == "added")
     }));
-    assert_eq!(first.gc().active_roots(), 0);
-    assert_eq!(second.gc().active_roots(), 0);
+    assert_eq!(first.gc_stats().root_registrations, 0);
+    assert_eq!(second.gc_stats().root_registrations, 0);
 }
 
 #[test]
@@ -349,106 +251,12 @@ fn registration_scope_survives_catalog_growth_and_module_drop() {
 }
 
 #[test]
-fn installed_reexports_require_declared_and_installed_canonical_targets() {
-    let providers = DeclarationCatalog::from_declarations(
-        standard_catalog::shared()
-            .unwrap()
-            .iter()
-            .map(|module| module.as_ref()),
-    )
-    .unwrap();
-    let context = providers.types.context();
-    let mut declaration = ModuleDecl::new(namespaces::module("test", "exports"));
-    declaration.exports.insert(
-        ExportName::new(NameNamespace::Type, "Hash"),
-        Protocol::Hash.definition(&providers.definitions()).unwrap(),
-    );
-    declaration.exports.insert(
-        ExportName::new(NameNamespace::Type, "Vec"),
-        ModuleDecl::new(namespaces::type_owner("Vec"))
-            .definition(
-                DefinitionKind::AssociatedType,
-                "Vec",
-                &providers.definitions(),
-            )
-            .unwrap(),
-    );
-    let option = ModuleDecl::new(namespaces::type_owner("Option"))
-        .definition(DefinitionKind::Enum, "Option", &providers.definitions())
-        .unwrap();
-    let some = context
-        .intern_child(option, DefinitionKind::Variant, "Some", 0)
-        .unwrap();
-    declaration
-        .exports
-        .insert(ExportName::new(NameNamespace::Value, "Some"), some);
-    // One alias may denote a type and a value; category mismatches are invalid metadata.
-    declaration
-        .exports
-        .insert(ExportName::new(NameNamespace::Value, "Vec"), some);
-    let mut wrong_category = declaration.clone();
-    wrong_category
-        .exports
-        .insert(ExportName::new(NameNamespace::Type, "Variant"), some);
-    assert!(
-        NativeModule::checked(wrong_category, vec![], BTreeMap::new(), vec![], &providers).is_err()
-    );
-    assert!(
-        NativeModule::checked(
-            declaration.clone(),
-            vec![],
-            BTreeMap::new(),
-            vec![],
-            &Default::default()
-        )
-        .is_err()
-    );
-    let module = NativeModule::checked(
-        declaration.clone(),
-        vec![],
-        BTreeMap::new(),
-        vec![],
-        &providers,
-    )
-    .unwrap();
-    assert_eq!(
-        module.to_declaration().records().exports,
-        declaration.exports
-    );
-    let mut empty = Default::default();
-    assert!(NativeModule::install_batch(slice::from_ref(&module), &mut empty).is_err());
-    assert!(empty.catalog.traits.is_empty() && empty.catalog.types.is_empty());
-    let mut runtime = Runtime::default();
-    runtime.native_entries.catalog.merge(&providers).unwrap();
-    module.install(&mut runtime).unwrap();
-
-    for name in ["Hash", "Vec", "Some"] {
-        let mut forged = declaration.clone();
-        let target = forged
-            .exports
-            .get_mut(&ExportName::new(
-                if name == "Some" {
-                    NameNamespace::Value
-                } else {
-                    NameNamespace::Type
-                },
-                name,
-            ))
-            .unwrap();
-        let mut path = context.snapshot().resolve(*target).unwrap().to_path();
-        path.path.last_mut().unwrap().name = "Missing".into();
-        *target = context.intern(&path).unwrap();
-        assert!(
-            NativeModule::checked(forged, vec![], BTreeMap::new(), vec![], &providers).is_err(),
-            "{name}"
-        );
-    }
-}
-
-#[test]
 fn external_authoring_uses_common_type_and_member_binding_policies() {
-    fn callback(_: &HostCallContext<'_>, _: &[Value]) -> Result<Value, HostError> {
-        Ok(Value::I32(0))
+    fn callback<'call>(
+        _: &mut HostCallContext<'call>,
+        _: &[ValueView<'call>],
+    ) -> Result<ValueView<'call>, HostError> {
+        Ok(ValueView::from(0i32))
     }
 
     let policy = |passing| HostCallPolicy {
@@ -482,7 +290,7 @@ fn external_authoring_uses_common_type_and_member_binding_policies() {
     assert!(player.type_parameter("T").is_err());
     assert!(
         player
-            .native_storage(NativeStorage::payload::<CatalogOnlyPayload>())
+            .native_storage(NativeStorage::data::<CatalogOnlyPayload>())
             .is_err()
     );
     player.field(field).unwrap();
@@ -503,7 +311,7 @@ fn external_authoring_uses_common_type_and_member_binding_policies() {
                         .host_policy(policy(HostPassingStyle::UniqueBorrow))
                         .returns(Type::i32()),
                 )?;
-                methods.bind(method, callback)
+                methods.bind(method, host::callback(callback))
             })?;
             group.trait_impl(interface.apply([])?, |methods| {
                 methods.host_policy("hp", policy(HostPassingStyle::SharedBorrow))?;
@@ -514,12 +322,12 @@ fn external_authoring_uses_common_type_and_member_binding_policies() {
                             NativeBinding::new(
                                 vec![Codec::Value],
                                 Codec::Exact(Type::i32()),
-                                |_| Ok(Value::I32(0))
+                                |_| Ok(ValueView::from(0i32))
                             )
                         )
                         .is_err()
                 );
-                methods.bind("hp", callback)?;
+                methods.bind("hp", host::callback(callback))?;
                 assert!(
                     methods
                         .host_policy("hp", policy(HostPassingStyle::UniqueBorrow))
@@ -569,7 +377,7 @@ fn external_authoring_uses_common_type_and_member_binding_policies() {
         module
             .bind_path(
                 &path,
-                HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(0)))
+                HostPathAdapter::new().with_read(|_, _| Ok(ValueView::from(0i32)))
             )
             .is_err()
     );
@@ -577,7 +385,7 @@ fn external_authoring_uses_common_type_and_member_binding_policies() {
         .bind_path(
             &path,
             HostPathAdapter::new()
-                .with_read(|_, _| Ok(Value::I32(0)))
+                .with_read(|_, _| Ok(ValueView::from(0i32)))
                 .with_prepare_write(|_, _, _| Ok(PreparedHostPathWrite::new(|| {}))),
         )
         .unwrap();

@@ -610,7 +610,7 @@ Reuse existing owners rather than build a new mirrored opcode test suite:
 | Change | Local contracts / command selection |
 | --- | --- |
 | Numeric primitive/adapter replacement | `cargo test -p kagari-types --lib payload::tests --no-fail-fast`; select existing arithmetic owner cases as needed. Preserve malformed carriers, width bounds, signed MIN/-1, shifts, casts, NaN and signed zero. |
-| Prepared typed operations and commits | `cargo test -p kagari-vm --lib tests::numeric --no-fail-fast`; includes snapshots, predicate polarity, mixed constants, failed commits and rotated loops across existing artifact routes. |
+| Prepared typed operations and commits | `cargo test -p kagari-stdlib --lib tests::execution::numeric --no-fail-fast`; includes snapshots, predicate polarity, mixed constants, failed commits and rotated loops across existing artifact routes. |
 | Physical state and public-frame boundaries | `cargo test -p kagari-runtime --lib frame::execution_frames --no-fail-fast` plus `frame::cursor::tests` and the existing `physical_instruction_budget` filter. Add only uncovered outcome/state combinations at those owners. |
 | Canonical authority remains intact | Select existing compiler recurrence/native-input correspondence and invalid constant/branch initialization cases; no full compiler or backend matrix locally. |
 | Progress/poll changes | Select existing VM cancellation-after-effect, owned slicing and native-origin cases; retained frames/roots must clean up on traps and cancellation. |
@@ -849,7 +849,7 @@ numbers, observer counts, cancellation event ordinals or drive counts. This is n
 permission for runtime preparation to skip boundaries still present in its input.
 
 The evidence is the current [observer contract](../crates/kagari-runtime/src/session.rs),
-[driver](../crates/kagari-vm/src/executor/driver.rs),
+[driver](../crates/kagari-runtime/src/executor/driver.rs),
 [scheduling contract](spec/execution.md#owned-interpreter-driving) and
 [debugger safe points](spec/debugger.md#safe-debug-points), which explicitly do not
 require arbitrary pauses inside every VM instruction. Preserve statement/call/loop
@@ -1046,24 +1046,24 @@ related repairs and rerun affected/failing cases rather than restarting all chec
 cargo test -p kagari-compiler --lib tests::analysis::
 cargo test -p kagari-compiler --lib tests::codec::
 cargo test -p kagari-runtime --lib module::execution::allocation::tests::
-cargo test -p kagari-vm --lib optimized_execution_preserves_results_traps_and_source_origins
-cargo test -p kagari-vm --lib debug_session_resolves_breakpoints_and_inspects_live_locals
-cargo test -p kagari-vm --lib nested_breakpoints_and_traps_include_the_suspended_host_caller
-cargo test -p kagari-vm --lib async_owned_drive_contract
+cargo test -p kagari-runtime --lib optimized_execution_preserves_results_traps_and_source_origins
+cargo test -p kagari-runtime --lib debug_session_resolves_breakpoints_and_inspects_live_locals
+cargo test -p kagari-runtime --lib nested_breakpoints_and_traps_include_the_suspended_host_caller
+cargo test -p kagari-runtime --lib async_owned_drive_contract
 
 # BO02/BO03: all numeric widths and source-free routes; new predicate/operand cases
 # belong here, not in a parallel opcode-smoke suite.
-cargo test -p kagari-vm --lib tests::numeric::
+cargo test -p kagari-stdlib --lib tests::execution::numeric::
 
 # Representative managed, captured-state and pinned-code dependents of placement.
-cargo test -p kagari-vm --lib frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints
-cargo test -p kagari-vm --lib closures_keep_captured_objects_and_cells_alive_across_collection
-cargo test -p kagari-vm --lib rooted_closure_retains_its_old_program_after_new_publish
+cargo test -p kagari-runtime --lib frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints
+cargo test -p kagari-runtime --lib closures_keep_captured_objects_and_cells_alive_across_collection
+cargo test -p kagari-runtime --lib rooted_closure_retains_its_old_program_after_new_publish
 ```
 
 Use [compiler verification](../crates/kagari-compiler/src/tests/verify.rs),
-[numeric execution](../crates/kagari-vm/src/tests/numeric.rs),
-[debugger](../crates/kagari-vm/src/tests/execution/debugger.rs) and
+[numeric execution](../crates/kagari-stdlib/src/tests/execution/numeric.rs),
+[debugger](../crates/kagari-runtime/src/interpreter_tests/execution/debugger.rs) and
 [bytecode flow](../crates/kagari-bytecode/src/verifier/flow.rs) as existing owners.
 During BO01 name the exact additional source-free verifier, disassembly and native
 origin/AOT cases selected after the affected records are known. Include overwritten
@@ -1957,8 +1957,11 @@ BO10 owns the complete replacement and removal of its temporary adapters.
 
 ### BO10 implementation notes (in progress)
 
-The private catalog lives in `kagari-runtime/src/scalar_catalog.rs`, shared lexically
-by the enum/preparation and cursor macros. `module/execution/scalar.rs` owns input
+The original private catalog lived in `kagari-runtime/src/scalar_catalog.rs`, shared
+lexically by enum/preparation and cursor macros. The later
+[explicit generation migration](architecture/runtime/scalar-execution.md) replaces
+that source organization while preserving these numeric execution contracts.
+`module/execution/scalar.rs` owns input
 selection; `kagari-types/src/payload/operation.rs` and `operation/select.rs` own
 dynamic semantic identities/admission. This replaces the proposed separate opcode
 and handler modules without duplicating semantic implementations. All previous
@@ -2051,7 +2054,7 @@ IntegerBinaryKR { dst, lhs_bits: u64, rhs_slot, operation_and_domain }
 IntegerBinaryKK { dst, lhs_bits: u64, rhs_bits: u64, operation_and_domain }
 ```
 
-`scalar_catalog.rs` should enumerate these families instead of multiplying every
+The scalar instruction catalog enumerates these families instead of multiplying every
 semantic identity by every shape. `module/execution/scalar.rs` owns verified
 selection and inline admission; `frame/cursor/scalars.rs` owns slot reads, commits
 and dispatch. `kagari-types::payload` and its existing numeric owners retain one

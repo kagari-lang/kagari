@@ -1,4 +1,8 @@
+// Reuse explicit verified-loader fixture preparation at the Runtime boundary.
+#[path = "../../kagari-runtime/tests/support/bytecode.rs"]
+mod bytecode_fixture;
 use super::*;
+use bytecode_fixture::load_bytecode;
 use kagari::engine::KagariEngine;
 use kagari_abi::native::NativeLinkDescription;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
@@ -8,9 +12,10 @@ use kagari_runtime::{
     Runtime, RuntimeConfig,
     backend::{BackendInvocationError, native::InstalledNativeFunction},
     error::RuntimeErrorKind,
+    module::retention::RetentionOrigin,
     native::module::NativeModule,
     resource::RuntimeLimits,
-    value::Value,
+    value::carriers::RootedValue,
 };
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
@@ -22,7 +27,8 @@ use {
 };
 
 fn mir(source: &str) -> VerifiedMirProgram {
-    let checked = KagariEngine::default()
+    let checked = KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+        .unwrap()
         .compile_source(SourceFile::new("native.kgr", source))
         .unwrap();
     lower_program_to_mir(
@@ -95,24 +101,25 @@ fn finalized_code_and_installed_runtimes_move_execute_and_release_on_other_threa
     drop((backend, mir));
     let spawn = |product: Arc<NativeCompilationProduct>| {
         let mut runtime = runtime();
-        let loaded = runtime
-            .load_program("threaded-native", bytecode.clone())
-            .unwrap();
+        let loaded = load_bytecode(&mut runtime, "threaded-native", bytecode.clone()).unwrap();
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
         // SAFETY: this product was compiled from this exact bytecode's MIR;
         // the finalized owner retains immutable pages through invocation.
-        let installed = unsafe { runtime.install_native_function(&loaded, product) }.unwrap();
+        let installed =
+            unsafe { runtime.install_native_function(&loaded, product, RetentionOrigin::Current) }
+                .unwrap();
         assert_eq!(
-            runtime.invoke_native_function(&installed).unwrap(),
-            Value::I32(42)
+            runtime.invoke_native_function(&installed).unwrap().as_i32(),
+            Some(42)
         );
         thread::spawn(move || {
+            let baseline = runtime.gc_stats().root_registrations;
             assert_eq!(
-                runtime.invoke_native_function(&installed).unwrap(),
-                Value::I32(42)
+                runtime.invoke_native_function(&installed).unwrap().as_i32(),
+                Some(42)
             );
-            assert_eq!(runtime.gc().active_roots(), 0);
+            assert_eq!(runtime.gc_stats().root_registrations, baseline);
             drop(runtime);
             drop(installed);
         })
@@ -132,13 +139,13 @@ fn cranelift_backend_compiles_scalar_mir_and_products_outlive_the_backend() {
     let mut backend = CraneliftBackend::for_host().unwrap();
     let mut products = Vec::new();
     for (body, result) in [
-        ("40 + 2", Value::I32(42)),
-        ("!false", Value::Bool(true)),
-        ("-42", Value::I32(-42)),
-        ("40 < 42", Value::Bool(true)),
-        ("true == false", Value::Bool(false)),
+        ("40 + 2", RootedValue::from(42)),
+        ("!false", RootedValue::from(true)),
+        ("-42", RootedValue::from(-42)),
+        ("40 < 42", RootedValue::from(true)),
+        ("true == false", RootedValue::from(false)),
     ] {
-        let ty = if matches!(result, Value::Bool(_)) {
+        let ty = if result.as_bool().is_some() {
             "bool"
         } else {
             "i32"
@@ -166,24 +173,27 @@ fn cranelift_backend_compiles_scalar_mir_and_products_outlive_the_backend() {
     drop(backend);
     for (mir, code, expected, _points) in products {
         let mut runtime = runtime();
-        let module = runtime
-            .load_program(
-                "native",
-                lower_program_to_bytecode(&mir, &Default::default())
-                    .map(|program| program.into_unverified())
-                    .unwrap(),
-            )
-            .unwrap();
+        let module = load_bytecode(
+            &mut runtime,
+            "native",
+            lower_program_to_bytecode(&mir, &Default::default())
+                .map(|program| program.into_unverified())
+                .unwrap(),
+        )
+        .unwrap();
         let _module_program = module;
         let module = runtime.select_program(&_module_program).unwrap();
-        let installed = unsafe { runtime.install_native_function(&module, code.clone()) }.unwrap();
+        let installed = unsafe {
+            runtime.install_native_function(&module, code.clone(), RetentionOrigin::Current)
+        }
+        .unwrap();
         drop(code);
-        assert_eq!(
-            runtime.invoke_native_function(&installed).unwrap(),
-            expected
-        );
+        let baseline = runtime.gc_stats().root_registrations;
+        let actual = runtime.invoke_native_function(&installed).unwrap();
+        assert_eq!(actual.as_i32(), expected.as_i32());
+        assert_eq!(actual.as_bool(), expected.as_bool());
 
-        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(runtime.gc_stats().root_registrations, baseline);
     }
 }
 
@@ -191,7 +201,7 @@ fn cranelift_backend_compiles_scalar_mir_and_products_outlive_the_backend() {
 #[case::branch("fn main() -> i32 { if true { 1 } else { 2 } }")]
 #[case::local("fn main() -> i32 { val x = 1; x }")]
 #[case::division("fn main() -> i32 { 42 / 2 }")]
-#[case::char_literal("fn main() -> char { '🙂' }")]
+#[case::char_literal("fn main() -> char { '\u{1f642}' }")]
 #[case::char_comparison("fn main() -> bool { 'a' == 'z' }")]
 #[case::reference_parameter("struct Player {} fn main(value: Ref<Player>) -> i32 { 42 }")]
 #[case::static_read("static val value: i32 = 7; fn main() -> i32 { value }")]
@@ -253,9 +263,13 @@ fn checked_i32_traps_keep_the_exact_mir_point(#[case] expression: &str) {
             .unwrap();
         let function = &bytecode.records().modules[bytecode.records().root.index()].functions[0];
         let origin = function.metadata.origins[overflow_offset].clone();
-        let module_program = runtime.load_program("native", bytecode).unwrap();
+        let module_program = load_bytecode(&mut runtime, "native", bytecode).unwrap();
         let module = runtime.select_program(&module_program).unwrap();
-        let installed = unsafe { runtime.install_native_function(&module, code.clone()) }.unwrap();
+        let installed = unsafe {
+            runtime.install_native_function(&module, code.clone(), RetentionOrigin::Current)
+        }
+        .unwrap();
+        let baseline = runtime.gc_stats().root_registrations;
         let failure = runtime.invoke_native_function(&installed).unwrap_err();
         let BackendInvocationError::RuntimeFailure(error) = failure.error else {
             panic!("runtime trap")
@@ -271,6 +285,6 @@ fn checked_i32_traps_keep_the_exact_mir_point(#[case] expression: &str) {
         );
         assert_eq!(failure.trace.frames[0].source_span, Some(origin.span));
         assert_eq!(runtime.resources().counters().current_call_depth, 0);
-        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(runtime.gc_stats().root_registrations, baseline);
     }
 }

@@ -1,0 +1,36 @@
+use example::generic_helper::identity;
+
+use example::generic_helper::singleton;
+
+trait Forward {
+    fn forward<T>(self, value: T) -> T {
+        {
+            val (item,) = singleton(identity(value));
+            item
+        }
+    }
+}
+
+struct Source {}
+
+impl Forward for Source {}
+
+struct Item {
+    val value: i32
+}
+
+pub fn receiver() -> Forward {
+    Source {}
+}
+
+trait Run {
+    fn run(self, source: Forward) -> i32 {
+        source.forward(Item { value: 42 }).value
+    }
+}
+
+impl Run for i32 {}
+
+pub fn runner() -> Run {
+    7
+}

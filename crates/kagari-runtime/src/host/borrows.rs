@@ -1,15 +1,14 @@
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
-    gc::GcHeap,
+    error::{RuntimeError, fault::EngineFault},
     host::{
         ActiveBorrowFrame, BorrowEpoch, FrameBorrowRecord, FrameHostBorrowToken, HostBorrowKind,
-        HostBorrowOwner, HostBorrowTable, HostCallGuard, HostFrameId, HostObjectId,
-        PathBorrowState,
+        HostBorrowOwner, HostBorrowTable, HostCallGuard, HostFrameAccess, HostFrameId,
+        HostFrameMark, HostObjectId, PathBorrowState,
     },
     metadata::TypeId,
     resource::ResourceState,
-    value::Value,
 };
+
 use kagari_common::identity::table::DefinitionId;
 use std::sync::Arc;
 
@@ -101,11 +100,11 @@ impl HostBorrowTable {
         let next_frame = state
             .next_frame_id
             .checked_add(1)
-            .ok_or_else(|| invariant(resources, "host frame identity exhausted"))?;
+            .ok_or_else(|| invariant(resources, EngineFault::HostFrameIdentityExhausted))?;
         let next_epoch = state
             .next_epoch
             .checked_add(1)
-            .ok_or_else(|| invariant(resources, "host borrow epoch exhausted"))?;
+            .ok_or_else(|| invariant(resources, EngineFault::HostBorrowEpochExhausted))?;
         state
             .active_frames
             .try_reserve(1)
@@ -123,8 +122,7 @@ impl HostBorrowTable {
         Ok(HostCallGuard {
             table: self,
             resources,
-            frame_id,
-            epoch,
+            frame: Some(HostFrameAccess::Owned(HostFrameMark { frame_id, epoch })),
         })
     }
 
@@ -166,16 +164,6 @@ impl HostBorrowTable {
         Ok(())
     }
 
-    pub fn validate_no_escape(heap: &GcHeap, value: &Value) -> Result<(), RuntimeError> {
-        if value.contains_host_borrow(heap) {
-            Err(RuntimeError::host_borrow_escape(
-                "frame-scoped host borrow cannot outlive its call frame",
-            ))
-        } else {
-            Ok(())
-        }
-    }
-
     pub(super) fn borrow(
         &self,
         frame: &HostCallGuard<'_>,
@@ -194,11 +182,11 @@ impl HostBorrowTable {
         )?;
         Ok(FrameHostBorrowToken::new(
             self.owner,
-            frame.frame_id,
+            frame.frame_id(),
             object_id,
             borrow_kind,
             type_id,
-            frame.epoch,
+            frame.epoch(),
         ))
     }
 
@@ -212,12 +200,9 @@ impl HostBorrowTable {
             borrow_kind,
             ..
         } = record;
-        let HostCallGuard {
-            frame_id,
-            epoch,
-            resources,
-            ..
-        } = *frame;
+        let frame_id = frame.frame_id();
+        let epoch = frame.epoch();
+        let resources = frame.resources;
         if let Some(resources) = resources {
             resources.ensure_execution_allowed()?;
         }
@@ -278,10 +263,9 @@ impl HostBorrowTable {
         let path = &mut object_state.paths[slot];
         match borrow_kind {
             HostBorrowKind::Shared => {
-                path.shared_count = path
-                    .shared_count
-                    .checked_add(1)
-                    .ok_or_else(|| invariant(resources, "host shared borrow count exhausted"))?
+                path.shared_count = path.shared_count.checked_add(1).ok_or_else(|| {
+                    invariant(resources, EngineFault::HostSharedBorrowCountExhausted)
+                })?
             }
             HostBorrowKind::Unique => path.unique_count += 1,
         }
@@ -303,11 +287,17 @@ impl HostBorrowTable {
     ) {
         let mut state = self.state.borrow_mut();
         let Some(frame) = state.active_frames.remove(&frame_id) else {
-            invariant(resources, "host borrow frame disappeared during cleanup");
+            invariant(
+                resources,
+                EngineFault::HostBorrowFrameDisappearedDuringCleanup,
+            );
             return;
         };
         if frame.epoch != epoch {
-            invariant(resources, "host borrow frame epoch changed during cleanup");
+            invariant(
+                resources,
+                EngineFault::HostBorrowFrameEpochChangedDuringCleanup,
+            );
         }
 
         for record in frame.borrows {
@@ -324,19 +314,25 @@ impl HostBorrowTable {
                         HostBorrowKind::Unique => &mut path.unique_count,
                     };
                     *count = count.checked_sub(1).unwrap_or_else(|| {
-                        invariant(resources, "host path borrow count underflow");
+                        invariant(resources, EngineFault::HostPathBorrowCountUnderflow);
                         0
                     });
                     if path.shared_count == 0 && path.unique_count == 0 {
                         object_state.paths.swap_remove(slot);
                     }
                 } else {
-                    invariant(resources, "host path borrow disappeared during cleanup");
+                    invariant(
+                        resources,
+                        EngineFault::HostPathBorrowDisappearedDuringCleanup,
+                    );
                 }
 
                 remove_object = object_state.is_empty();
             } else {
-                invariant(resources, "host object borrow disappeared during cleanup");
+                invariant(
+                    resources,
+                    EngineFault::HostObjectBorrowDisappearedDuringCleanup,
+                );
             }
             if remove_object {
                 state.object_borrows.remove(&record.object_key());
@@ -345,9 +341,9 @@ impl HostBorrowTable {
     }
 }
 
-fn invariant(resources: Option<&ResourceState>, message: &'static str) -> RuntimeError {
+fn invariant(resources: Option<&ResourceState>, message: EngineFault) -> RuntimeError {
     resources.map_or_else(
-        || RuntimeError::new(RuntimeErrorKind::EngineFault, message),
+        || RuntimeError::from(message),
         |resources| resources.quarantine(message),
     )
 }

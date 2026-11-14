@@ -1,16 +1,18 @@
 //! Publication assertions compiled against each consuming test harness's runtime.
 use kagari_runtime::{
     Runtime,
-    module::{Program, VerifiedProgram, state::StaticState},
+    module::{InstalledProgram, VerifiedProgram, state::StaticState},
 };
 
 pub fn publish_without_execution(
     runtime: &mut Runtime,
-    loaded_program: &Program,
+    loaded_program: &InstalledProgram,
     candidate: VerifiedProgram,
 ) {
     let loaded = runtime.select_program(loaded_program).unwrap();
     let history = loaded.retained_demands().metadata().records().clone();
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     let staged = runtime
         .stage_reload_verified_program(loaded_program, None, candidate)
         .unwrap();
@@ -22,7 +24,8 @@ pub fn publish_without_execution(
     let published = runtime.select_program(loaded_program).unwrap();
     assert_ne!(published.key(), loaded.key());
     assert_eq!(runtime.resources().counters().peak_call_depth, 0);
-    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
     for member in published.members() {
         assert!(
             runtime

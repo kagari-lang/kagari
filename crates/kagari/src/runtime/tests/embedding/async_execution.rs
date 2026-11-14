@@ -2,18 +2,17 @@
 use super::native_program;
 use crate::{
     engine::{KagariEngine, builder::KagariEngineBuilder},
-    program::PreparedProgram,
+    program::Compilation,
     runtime::Runtime,
 };
-use kagari_runtime::value::Value;
-use kagari_vm::vm::owned::DriveResult;
+use kagari_runtime::execution::owned::DriveResult;
 
 // Shared with the source-free standalone consumer; it uses these parent imports.
 #[path = "../../../../tests/support/async_fixture.rs"]
 mod fixture;
-use crate::{BytecodeArtifact, RunResult, engine::EngineConfig, error::EmbeddingError};
+use crate::{BytecodeArtifact, engine::EngineConfig};
 use fixture::{Fixture, slice};
-use kagari_runtime::{gc::roots::RootedValue, session::owned::OwnedExecution};
+use kagari_runtime::{session::owned::OwnedExecution, value::carriers::RootedValue};
 use kagari_source::source::SourceFile;
 use std::num::NonZeroUsize;
 
@@ -57,26 +56,30 @@ impl Fixture {
         Self::with_prepared_program(config, install, |engine, _, _| prepare_source(engine, text))
     }
 
-    fn invoke(&self, entry: &str, arguments: &[Value]) -> RootedValue {
+    fn invoke(&mut self, entry: &str, arguments: &[RootedValue]) -> RootedValue {
         self.call(entry, arguments).unwrap()
     }
 
-    fn call(&self, entry: &str, arguments: &[Value]) -> RunResult<RootedValue> {
+    fn call(
+        &mut self,
+        entry: &str,
+        arguments: &[RootedValue],
+    ) -> kagari_runtime::native::binding::NativeResult<RootedValue> {
         if arguments.is_empty() {
             return self
                 .runtime
                 .execute(&self.module, entry, arguments, &Default::default())
                 .map(|report| report.return_value);
         }
-        let owner = self.runtime.backend().start(
-            &self.runtime.runtime().select_program(&self.module).unwrap(),
+        let owner = self.runtime.start(
+            &self.runtime.select_program(&self.module).unwrap(),
             entry,
             arguments,
             Default::default(),
         )?;
         for _ in 0..1000 {
-            match self.runtime.backend().drive(&owner, slice())? {
-                DriveResult::Complete(result) => return result.map_err(EmbeddingError::from),
+            match self.runtime.drive(&owner, slice())? {
+                DriveResult::Complete(result) => return result,
                 DriveResult::Runnable => {}
                 DriveResult::Waiting => panic!("synchronous entry waited"),
             }
@@ -84,27 +87,27 @@ impl Fixture {
         panic!("bounded ordinary call");
     }
 
-    fn value(&self, root: &RootedValue) -> Value {
-        root.value(self.runtime.runtime().gc()).unwrap()
-    }
-
-    fn start_future(&self, future: &RootedValue) -> OwnedExecution {
+    fn start_future(&mut self, future: &RootedValue) -> OwnedExecution {
         self.runtime
-            .backend()
-            .start_future(&self.value(future), Default::default())
+            .start_future(future, Default::default())
             .unwrap()
     }
 
-    fn complete(&self, owner: &OwnedExecution) -> RootedValue {
+    /* stdlib test support paused (NC01-NC06).
+    fn run_future(&mut self, future: &RootedValue) -> RootedValue {
+            let execution = self.start_future(future);
+            self.complete(&execution)
+        } */
+
+    fn complete(&mut self, owner: &OwnedExecution) -> RootedValue {
         for _ in 0..1000 {
             match self
                 .runtime
-                .backend()
                 .drive(owner, NonZeroUsize::new(1).unwrap())
                 .unwrap()
             {
                 DriveResult::Runnable => {
-                    self.runtime.runtime().collect_garbage().unwrap();
+                    self.runtime.collect_garbage().unwrap();
                 }
                 DriveResult::Complete(value) => return value.unwrap(),
                 DriveResult::Waiting => panic!("unexpected native wait"),
@@ -114,7 +117,7 @@ impl Fixture {
     }
 }
 
-fn prepare_source(engine: &KagariEngine, text: &str) -> PreparedProgram {
+fn prepare_source(engine: &KagariEngine, text: &str) -> Compilation {
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("async-script.kgr", text),
@@ -124,5 +127,5 @@ fn prepare_source(engine: &KagariEngine, text: &str) -> PreparedProgram {
     let artifact =
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
-    PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
+    Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
 }

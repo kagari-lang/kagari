@@ -1,14 +1,14 @@
 //! Local callables through encoded, source-free execution.
 
-use crate::{
-    BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
-};
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use crate::{BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::Program};
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn local_functions_execute_from_artifacts_without_export_leakage() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine.compile_to_artifact(SourceFile::new("local-functions.kgr", r#"
 pub fn main() -> i32 {
     val result = inner(41);
@@ -50,7 +50,7 @@ pub async fn asynchronous() -> i32 {
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
@@ -63,13 +63,9 @@ pub async fn asynchronous() -> i32 {
         "method",
     ] {
         let result = runtime.execute(&loaded, entry, &[], &context).unwrap();
-        assert_eq!(
-            result.return_value.value(runtime.runtime().gc()).unwrap(),
-            Value::I32(42),
-            "{entry}"
-        );
+        assert_eq!(result.return_value.as_i32().unwrap(), 42, "{entry}");
     }
-    let selected = runtime.runtime().select_program(&loaded).unwrap();
+    let selected = runtime.select_program(&loaded).unwrap();
     assert!(selected.exported_function("inner").is_none());
     assert!(selected.exported_function("main::inner").is_none());
     assert!(selected.exported_function("identity").is_none());
@@ -79,7 +75,7 @@ pub async fn asynchronous() -> i32 {
             .is_ok()
     );
     let function = runtime
-        .async_function::<(), i32>(&loaded.root(), "asynchronous")
+        .bind_async_function::<(), i32>(&loaded.root(), "asynchronous")
         .unwrap();
     let executor = tokio::runtime::Builder::new_current_thread()
         .build()

@@ -11,6 +11,7 @@ use crate::{
     },
 };
 use kagari_bytecode::instruction::{EnumId, StructId};
+use kagari_common::identity::table::DefinitionId;
 use kagari_contract::layout::{EnumLayout, StructLayout};
 use kagari_types::ty::{NominalTy, Ty};
 use std::{num::NonZeroUsize, sync::Arc};
@@ -57,6 +58,7 @@ impl ExecutableModule {
         &self,
         nominal: &NominalTy,
     ) -> Option<(ExecutableModule, StructId)> {
+        let declaration = self.identity_admission().lexical_id(nominal.declaration)?;
         self.members().find_map(|owner| {
             let id = owner
                 .bytecode
@@ -64,7 +66,11 @@ impl ExecutableModule {
                 .iter()
                 .enumerate()
                 .filter(|(_, layout)| {
-                    layout.declaration == nominal.declaration && layout.accepts(&nominal.arguments)
+                    layout.declaration == declaration
+                        && (layout.accepts(&nominal.arguments)
+                            || owner
+                                .identity_admission()
+                                .equivalent(&layout.arguments, &nominal.arguments))
                 })
                 .max_by_key(|(_, layout)| !layout.arguments.iter().all(Ty::is_concrete))?
                 .0;
@@ -76,6 +82,7 @@ impl ExecutableModule {
         &self,
         nominal: &NominalTy,
     ) -> Option<(ExecutableModule, EnumId)> {
+        let declaration = self.identity_admission().lexical_id(nominal.declaration)?;
         self.members().find_map(|owner| {
             let id = owner
                 .bytecode
@@ -83,7 +90,11 @@ impl ExecutableModule {
                 .iter()
                 .enumerate()
                 .filter(|(_, layout)| {
-                    layout.declaration == nominal.declaration && layout.accepts(&nominal.arguments)
+                    layout.declaration == declaration
+                        && (layout.accepts(&nominal.arguments)
+                            || owner
+                                .identity_admission()
+                                .equivalent(&layout.arguments, &nominal.arguments))
                 })
                 .max_by_key(|(_, layout)| !layout.arguments.iter().all(Ty::is_concrete))?
                 .0;
@@ -96,10 +107,13 @@ impl ExecutableModule {
             return None;
         }
         let template = self.bytecode.structures.get(id.index())?;
-        if !template.accepts(arguments) {
+        let same_arguments = self
+            .identity_admission()
+            .equivalent(&template.arguments, arguments);
+        if !same_arguments && !template.accepts(arguments) {
             return None;
         }
-        let applied = if template.arguments == arguments {
+        let applied = if same_arguments {
             None
         } else {
             Some(Arc::new(
@@ -131,11 +145,14 @@ impl ExecutableModule {
             return None;
         }
         let template = self.bytecode.enumerations.get(id.index())?;
-        if !template.accepts(arguments) {
+        let same_arguments = self
+            .identity_admission()
+            .equivalent(&template.arguments, arguments);
+        if !same_arguments && !template.accepts(arguments) {
             return None;
         }
         template.variants.get(variant as usize)?;
-        let applied = if template.arguments == arguments {
+        let applied = if same_arguments {
             None
         } else {
             Some(Arc::new(
@@ -370,6 +387,26 @@ impl StructLayoutRef {
 }
 
 impl EnumVariantRef {
+    /// Value equality and hashing use accepted identities, independently of the
+    /// lexical IDs retained by compiled layouts and applied payload scopes.
+    pub(crate) fn value_identity(&self) -> Option<(NominalTy, DefinitionId)> {
+        let Ty::Enum(nominal) = TypeView::new(
+            &self.type_expression(),
+            &self.module,
+            self.type_bindings().map(Arc::as_ref),
+        )
+        .closed()?
+        .into_owned() else {
+            return None;
+        };
+        let variant = self
+            .module
+            .identity_admission()
+            .runtime_id(self.variant().declaration)
+            .ok()?;
+        Some((nominal, variant))
+    }
+
     pub(crate) fn type_bindings(&self) -> Option<&Arc<TypeBindings>> {
         self.scope.as_ref().map(|scope| scope.bindings())
     }
@@ -383,16 +420,26 @@ impl EnumVariantRef {
         })
     }
 
+    fn argument_expressions(&self) -> &[Ty] {
+        if self.scope.is_some() {
+            &self.module.bytecode.enumerations[self.id.index()].arguments
+        } else {
+            &self.layout().arguments
+        }
+    }
+
+    /// Project one argument in its supplying lexical scope, without building a
+    /// synthetic nominal application or discarding prepared generic provenance.
+    pub(crate) fn argument_type(&self, position: usize) -> Option<TypeView<'_>> {
+        self.argument_expressions()
+            .get(position)
+            .map(|ty| TypeView::new(ty, &self.module, self.type_bindings().map(Arc::as_ref)))
+    }
+
     fn type_expression(&self) -> Ty {
         Ty::Enum(NominalTy {
             declaration: self.layout().declaration,
-            arguments: if self.scope.is_some() {
-                self.module.bytecode.enumerations[self.id.index()]
-                    .arguments
-                    .clone()
-            } else {
-                self.layout().arguments.clone()
-            },
+            arguments: self.argument_expressions().to_vec(),
             associated_types: Default::default(),
         })
     }

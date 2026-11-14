@@ -1,17 +1,18 @@
 //! Same recurrence through concrete and dynamic boundaries, plus bounded byte state.
 #[cfg(feature = "diagnostics")]
 use crate::diagnostics;
+use kagari_stdlib as stdlib;
 
 use crate::{Options, profile};
-use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_bytecode::instruction::BinaryOp;
 use kagari_runtime::{
     native::{
-        binding::NativeResult, builder::ModuleBuilder, context::CallContext,
+        binding::NativeResult, builder::ModuleBuilder, context::NativeCall,
         declarations::FunctionDecl, types::Type,
     },
     numeric,
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_source::source::SourceFile;
 use mlua::{Error as LuaError, Function, Lua};
@@ -70,17 +71,18 @@ pub fn byte_state() -> i32 { val memory: Vec<u8> = Vec::from([0u8; 256]); var st
     } sum }
 "#;
 
-fn native_step(_: &mut CallContext<'_>, state: i32) -> NativeResult<i32> {
+fn native_step(_: &mut NativeCall<'_>, state: i32) -> NativeResult<i32> {
     host_step(state)
 }
 
 fn host_step(state: i32) -> NativeResult<i32> {
-    let multiplied = numeric::binary(BinaryOp::Mul, Value::I32(state), Value::I32(3))?;
-    let added = numeric::binary(BinaryOp::Add, multiplied, Value::I32(7))?;
-    let Value::I32(result) = numeric::binary(BinaryOp::Rem, added, Value::I32(251))? else {
-        unreachable!()
-    };
-    Ok(result)
+    let multiplied = numeric::binary(BinaryOp::Mul, ValueView::from(state), ValueView::from(3i32))?;
+    let added = numeric::binary(BinaryOp::Add, multiplied, ValueView::from(7i32))?;
+    Ok(
+        numeric::binary(BinaryOp::Rem, added, ValueView::from(251i32))?
+            .as_i32()
+            .expect("checked scalar recurrence"),
+    )
 }
 
 fn reference(name: &str) -> i32 {
@@ -160,6 +162,7 @@ fn lua_source(name: &str) -> String {
 
 pub(super) fn run(options: &Options) {
     let mut builder = KagariEngine::builder().expect("standard engine");
+    builder.install_all(stdlib::modules().unwrap()).unwrap();
     let mut native = ModuleBuilder::new("bench::numeric", builder.declarations())
         .expect("benchmark native module");
     let step = native
@@ -184,9 +187,8 @@ pub(super) fn run(options: &Options) {
         start.elapsed().as_nanos()
     );
     let start = Instant::now();
-    let prepared =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-            .expect("forms verification");
+    let prepared = Program::from_artifact(artifact, &Default::default(), &Default::default())
+        .expect("forms verification");
     println!(
         "artifact_prepare,forms_module,kagari_vm,{N},1,0,{},0",
         start.elapsed().as_nanos()
@@ -245,16 +247,12 @@ pub(super) fn run(options: &Options) {
         }
         let entry: Function = lua.load(lua_source(name)).eval().unwrap();
         let expected = reference(name);
-        let execute = |engine: &str| {
+        let mut execute = |engine: &str| {
             if engine == "lua54" {
                 return entry.call::<i32>(()).unwrap();
             }
             let report = runtime.execute(&loaded, name, &[], &context).unwrap();
-            let Value::I32(value) = report.return_value.value(runtime.runtime().gc()).unwrap()
-            else {
-                panic!("forms result");
-            };
-            value
+            report.return_value.as_i32().expect("i32 forms result")
         };
         #[cfg(feature = "diagnostics")]
         if options.diagnostics {
@@ -264,11 +262,10 @@ pub(super) fn run(options: &Options) {
                 .load_program(&prepared, Default::default())
                 .unwrap();
             diagnostics::measure(
-                &diagnostic_runtime,
+                &mut diagnostic_runtime,
                 &diagnostic_module,
                 &context,
                 name.into(),
-                &[],
                 expected,
             );
             continue;
@@ -280,7 +277,7 @@ pub(super) fn run(options: &Options) {
         }
         if options.profile.is_some() {
             profile::count_lua(&lua, &entry, expected);
-            profile::run(&runtime, &loaded, &context, name.into(), name, expected);
+            profile::run(&mut runtime, &loaded, &context, name.into(), name, expected);
             continue;
         }
         for sample in 0..options.samples {

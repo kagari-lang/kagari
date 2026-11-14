@@ -165,6 +165,10 @@ impl ObjectVec {
         self.items.clear();
     }
 
+    pub fn truncate(&mut self, len: usize) {
+        self.items.truncate(len);
+    }
+
     pub fn alloc(access: &mut Access<'_>, items: &[Root<Node>]) -> Result<Root<Self>, GcError> {
         let descriptor = access.register::<Self>()?;
         // SAFETY: every initialized edge is imported from a live Root under exclusion.

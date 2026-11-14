@@ -18,7 +18,6 @@ libloading = { version = "0.9", optional = true }
 
 [dependencies]
 blake3 = { version = "1", optional = true }
-kagari-stdlib.workspace = true
 kagari-types.workspace = true
 kagari-source = { workspace = true, optional = true }
 kagari-package = { workspace = true, optional = true }
@@ -33,10 +32,11 @@ kagari-hir = { workspace = true, optional = true }
 kagari-bytecode.workspace = true
 kagari-runtime.workspace = true
 kagari-syntax = { workspace = true, optional = true }
-kagari-vm.workspace = true
 smallvec = { workspace = true, optional = true }
 
 [dev-dependencies]
+kagari-gc.workspace = true
+kagari-stdlib.workspace = true
 rstest.workspace = true
 serde.workspace = true
 kagari-derive.workspace = true
@@ -90,3 +90,7 @@ required-features = ["source", "serde"]
 [[example]]
 name = "scoped_host"
 required-features = ["source"]
+
+[[example]]
+name = "enum_layout_baseline"
+required-features = ["source", "kagari-runtime/execution-diagnostics"]

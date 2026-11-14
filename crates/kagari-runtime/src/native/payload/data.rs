@@ -1,13 +1,5 @@
 //! Fixed-size Rust data that cannot retain script or executable graph edges.
-use crate::{
-    native::{
-        binding::NativeResult,
-        storage::{NativePayload, NativeStorage},
-    },
-    resource::HeapCharge,
-    value::Value,
-};
-use std::{fmt::Debug, mem::size_of};
+use std::fmt::Debug;
 
 /// Data supported by direct native editing. Prefer `native_data!` for structs.
 /// Owned strings/containers and script handles require controlled setters instead.
@@ -64,21 +56,6 @@ tuple_data!(A, B, C, D, E, F);
 tuple_data!(A, B, C, D, E, F, G);
 tuple_data!(A, B, C, D, E, F, G, H);
 
-impl<T: NativeData> NativePayload for T {
-    fn trace<'payload>(&'payload self, _: &mut dyn FnMut(&'payload Value)) {}
-
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(
-            size_of::<T>().div_ceil(size_of::<usize>()),
-            0,
-        ))
-    }
-
-    fn registration_storage() -> NativeStorage {
-        NativeStorage::data::<T>()
-    }
-}
-
 /// Define a named data struct and check every field before granting direct-edit
 /// capability. The macro supplies Copy, Clone and Debug, plus empty tracing and
 /// constant accounting through NativeData. Register with `NativeStorage::data`.
@@ -91,10 +68,11 @@ impl<T: NativeData> NativePayload for T {
 /// }
 /// ```
 ///
-/// Even an otherwise copyable heap identity is not supported data:
+/// A scoped managed capability is not a recursively supported data field:
 /// ```compile_fail
-/// use kagari_runtime::{gc::HeapObjectId, native_data};
-/// native_data! { struct Invalid { child: HeapObjectId } }
+/// use kagari_runtime::native_data;
+/// use kagari_gc::object::Gc;
+/// native_data! { struct Invalid { child: Gc<'static, u64> } }
 /// ```
 #[macro_export]
 macro_rules! native_data {

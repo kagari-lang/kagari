@@ -50,15 +50,10 @@ pub(super) fn charge_types(
                     pending.extend(params);
                     pending.push(result);
                 }
-                Ty::Iter(value)
-                | Ty::Range(value, _)
-                | Ty::Array(value)
-                | Ty::Set(value, _)
-                | Ty::Reference { target: value, .. } => pending.push(value),
-                Ty::Map { key, value, .. } => {
-                    pending.push(key);
-                    pending.push(value);
+                Ty::Range(value, _) | Ty::Array(value) | Ty::Reference { target: value, .. } => {
+                    pending.push(value)
                 }
+
                 Ty::Host(_) | Ty::SelfType(_) | Ty::Parameter { .. } | Ty::Builtin(_) => {}
             }
         }

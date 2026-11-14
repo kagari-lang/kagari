@@ -1,0 +1,30 @@
+struct Item {
+    val value: i32
+}
+
+fn keep<T>(value: T) -> T {
+    value
+}
+
+trait Capture {
+    fn capture<T>(self, value: T) -> fn() -> i32 {
+        || {
+            val held: T = keep(value);
+            helper()
+        }
+    }
+}
+
+impl Capture for i32 {}
+
+fn helper() -> i32 {
+    42
+}
+
+fn make(source: Capture) -> fn() -> i32 {
+    source.capture(Item { value: 1 })
+}
+
+fn use_closure(call: fn() -> i32) -> i32 {
+    call()
+}

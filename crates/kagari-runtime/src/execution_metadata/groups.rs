@@ -1,157 +1,177 @@
-//! Runtime-owned operation groups, addressed by checked identities.
+//! Operation dictionaries publish directly into their execution's managed graph.
+pub(crate) mod group;
 use crate::{
+    Runtime,
     error::RuntimeError,
-    execution_metadata::{groups::group::OperationGroup, operation::BoundOperation},
-    gc::GcHeap,
+    execution::roots::{DependencyId, ExecutionRoots, SessionId, Slots},
+    execution_metadata::{
+        MetadataEdge,
+        groups::group::OperationGroup,
+        identity::MetadataIdentity,
+        managed::{
+            ProtectedMetadata,
+            groups::OperationGroupObject,
+            sources::{MetadataError, MetadataSource},
+        },
+        operation::BoundOperation,
+    },
 };
-use std::{
-    cell::Ref,
-    collections::{HashSet, TryReserveError},
-};
+use kagari_gc::{error::GcError, object::Gc};
+use std::sync::Arc;
 
+/// A never-reused semantic identity; it cannot reopen a dictionary by itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct OperationGroupId {
-    owner: u64,
-    slot: usize,
-    generation: u64,
-}
+pub(crate) struct OperationGroupId(MetadataIdentity);
 
-/// A member ordinal within one checked, non-renumbering operation group.
+/// A member ordinal within one immutable operation dictionary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct OperationId {
     pub(crate) group: OperationGroupId,
     pub(crate) member: usize,
 }
 
-#[derive(Debug)]
-struct Slot {
-    generation: u64,
-    group: Option<OperationGroup>,
+/// Immutable dictionary facts paired with their actual execution-owned source.
+/// Cloning this handle does not retain managed state after source retirement.
+#[derive(Debug, Clone)]
+pub(crate) struct AdmittedOperationGroup {
+    record: Arc<OperationGroup>,
+    source: DependencyId<OperationGroupObject>,
 }
 
-#[derive(Debug)]
-pub(crate) struct OperationGroupStore {
-    owner: u64,
-    slots: Vec<Slot>,
-    free: Vec<usize>,
-    count: usize,
-}
-
-impl OperationGroupStore {
-    pub(crate) fn new(owner: u64) -> Self {
-        Self {
-            owner,
-            slots: Vec::new(),
-            free: Vec::new(),
-            count: 0,
-        }
+impl AdmittedOperationGroup {
+    pub(crate) fn publish<'gc>(
+        slots: &mut Slots<'_, 'gc>,
+        execution: SessionId,
+        value: Gc<'gc, OperationGroupObject>,
+    ) -> Result<Self, GcError> {
+        let record = slots.scope().read(value, |value| value.record().clone());
+        let source = slots.push_dependency(execution, value)?;
+        Ok(Self { record, source })
     }
 
-    pub(crate) fn insert(
+    pub(crate) fn record(&self) -> &Arc<OperationGroup> {
+        &self.record
+    }
+
+    pub(crate) fn source(&self) -> DependencyId<OperationGroupObject> {
+        self.source
+    }
+
+    pub(crate) fn resolve<'gc>(
+        &self,
+        slots: &mut Slots<'_, 'gc>,
+    ) -> Result<Gc<'gc, OperationGroupObject>, GcError> {
+        let value = slots.dependency(self.source)?;
+        if !slots
+            .scope()
+            .read(value, |value| Arc::ptr_eq(value.record(), &self.record))
+        {
+            return Err(GcError::Representation);
+        }
+        Ok(value)
+    }
+}
+
+impl Runtime {
+    /// Copy an actual dictionary selected inside the caller's fixed graph.
+    /// The semantic ID selects among those targets and cannot recover one alone.
+    pub(crate) fn operation_group_in(
         &mut self,
-        entries: Vec<BoundOperation>,
-    ) -> Result<OperationGroupId, TryReserveError> {
-        let slot = match self.free.pop() {
-            Some(slot) => slot,
-            None => {
-                self.slots.try_reserve(1)?;
-                self.slots.push(Slot {
-                    generation: 0,
-                    group: None,
-                });
-                self.slots.len() - 1
-            }
-        };
-        let record = &mut self.slots[slot];
-        let id = OperationGroupId {
-            owner: self.owner,
-            slot,
-            generation: record.generation,
-        };
-        record.group = Some(OperationGroup::new(entries, id));
-        self.count += 1;
-        Ok(id)
-    }
-
-    pub(crate) fn get(&self, id: OperationGroupId) -> Option<&OperationGroup> {
-        if id.owner != self.owner {
-            return None;
-        }
-        let slot = self.slots.get(id.slot)?;
-        (slot.generation == id.generation)
-            .then_some(slot.group.as_ref())
-            .flatten()
-    }
-
-    pub(crate) fn operation(&self, id: OperationId) -> Option<&BoundOperation> {
-        self.get(id.group)?.get(id)
-    }
-
-    pub(crate) fn count(&self) -> usize {
-        self.count
-    }
-
-    /// The whole graph has been marked and validated before any store detaches.
-    pub(crate) fn detach(&mut self, live: &HashSet<OperationGroupId>) -> Vec<OperationGroup> {
-        let mut retired = Vec::new();
-        for (index, slot) in self.slots.iter_mut().enumerate() {
-            let id = OperationGroupId {
-                owner: self.owner,
-                slot: index,
-                generation: slot.generation,
+        execution: SessionId,
+        id: OperationGroupId,
+        protected: &[MetadataSource<'_>],
+    ) -> Result<AdmittedOperationGroup, RuntimeError> {
+        self.with_metadata_slots(protected, |slots, graph, resources| {
+            let Some(ProtectedMetadata::Operations(group)) =
+                graph.find(slots.scope(), MetadataEdge::Group(id), resources)?
+            else {
+                return Err(RuntimeError::module_validation(
+                    "operation dictionary is not protected",
+                )
+                .into());
             };
-            if !live.contains(&id)
-                && let Some(group) = slot.group.take()
-            {
-                retired.push(group);
-                self.count -= 1;
-                if let Some(generation) = slot.generation.checked_add(1) {
-                    slot.generation = generation;
-                    self.free.push(index);
-                }
-            }
-        }
-        retired
+            Ok(AdmittedOperationGroup::publish(slots, execution, group)?)
+        })
     }
-}
 
-impl GcHeap {
+    /// Allocate one dictionary and publish it into the destination execution's
+    /// dependency suffix. Its preparation/frame/Native owner must retire it.
+    /// Sources are authenticated before any fallible construction or slot growth.
     pub(crate) fn alloc_operation_group(
-        &self,
+        &mut self,
+        execution: SessionId,
         entries: Vec<BoundOperation>,
-    ) -> Result<OperationGroupId, RuntimeError> {
-        self.ensure_execution_allowed()?;
-        self.operation_groups
-            .try_borrow_mut()
-            .map_err(|_| RuntimeError::module_validation("operation group store is borrowed"))?
-            .insert(entries)
-            .map_err(|_| self.resource_limit("operation group storage"))
+        protected: &[MetadataSource<'_>],
+    ) -> Result<AdmittedOperationGroup, RuntimeError> {
+        self.resources.ensure_synchronous_thread()?;
+        self.resources.poll_execution()?;
+        // Storage retention does not authorize revoked transitive providers.
+        // Finish admission with no source/payload loan before allocating a node.
+        self.with_metadata_graph(protected, |_, _, _| Ok(()))?;
+        // Revoked code cannot become callable merely because an old revision's
+        // managed allocation still survives. Check availability before publishing.
+        for (index, operation) in entries.iter().enumerate() {
+            if index.is_multiple_of(1024) {
+                self.resources.poll_execution()?;
+            }
+            self.validate_executable_module(&operation.owner)?;
+        }
+        let Runtime {
+            memory,
+            modules,
+            metadata_ids,
+            resources,
+            ..
+        } = self;
+        let result = memory.scope(resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                Ok((|| -> Result<AdmittedOperationGroup, MetadataError> {
+                    slots.storage(execution)?;
+                    let mut targets = Vec::new();
+                    targets.try_reserve_exact(protected.len())?;
+                    for (index, source) in protected.iter().enumerate() {
+                        if index.is_multiple_of(1024) {
+                            resources.poll_closed()?;
+                        }
+                        targets.push(source.resolve(modules, slots)?);
+                    }
+                    let id = OperationGroupId(metadata_ids.fresh()?);
+                    let record = Arc::new(OperationGroup::new(entries, id, resources)?);
+                    let value = OperationGroupObject::alloc(
+                        slots.scope(),
+                        record.clone(),
+                        &targets,
+                        resources,
+                    )?;
+                    let source = slots.push_dependency(execution, value)?;
+                    Ok(AdmittedOperationGroup { record, source })
+                })())
+            })
+        });
+        result
+            .map_err(|error| self.metadata_input_error(error))?
+            .map_err(|error| match error {
+                MetadataError::Memory(error) => self.metadata_input_error(error),
+                MetadataError::Execution(error) => self.resources.admit_execution_error(error),
+            })
     }
 
-    pub(crate) fn alloc_bound_operation(
-        &self,
-        operation: BoundOperation,
-    ) -> Result<OperationId, RuntimeError> {
-        let group = self.alloc_operation_group(vec![operation])?;
-        Ok(OperationId { group, member: 0 })
-    }
-
-    pub(crate) fn bound_operation(&self, id: OperationId) -> Option<Ref<'_, BoundOperation>> {
-        Ref::filter_map(self.operation_groups.try_borrow().ok()?, |store| {
-            store.operation(id)
-        })
-        .ok()
-    }
-
-    pub(crate) fn operation_group(&self, id: OperationGroupId) -> Option<Ref<'_, OperationGroup>> {
-        Ref::filter_map(self.operation_groups.try_borrow().ok()?, |store| {
-            store.get(id)
-        })
-        .ok()
+    /// Read pure facts only after authenticating the actual source and descriptor.
+    pub(crate) fn operation_group_record(
+        &mut self,
+        group: &AdmittedOperationGroup,
+    ) -> Result<Arc<OperationGroup>, RuntimeError> {
+        self.with_metadata_graph(
+            &[MetadataSource::AdmittedOperations(group)],
+            |cx, graph, _| {
+                let Some(ProtectedMetadata::Operations(value)) = graph.single_root() else {
+                    return Err(GcError::Representation.into());
+                };
+                Ok(cx.read(value, |value| value.record().clone()))
+            },
+        )
     }
 }
-
-mod group;
 
 #[cfg(test)]
 mod tests;

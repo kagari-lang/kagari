@@ -1,10 +1,8 @@
 use super::*;
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::{ProgramFixture, certify};
-use crate::{
-    module::dispatch::CallRouteKind,
-    test_support::update_programs,
-    value::{EnumTag, Value},
-};
+use crate::{module::dispatch::CallRouteKind, test_support::update_programs, value::EnumTag};
 use kagari_bytecode::module::CallableTarget;
 use kagari_bytecode::{
     artifact::KbcArtifact,
@@ -116,30 +114,25 @@ fn source_free_imports_round_trip_and_bind_to_one_cell_without_initializing() {
             .module_slots[0],
         StaticState::Uninitialized(_)
     ));
-    let session = runtime
+    let mut session = runtime
         .begin_execution(&loaded, runtime.execution_options())
         .unwrap();
     assert!(matches!(
-        runtime.modules.static_state(&loaded, ModuleSlot::new(0)),
-        Some(StaticState::Uninitialized(_))
+        session
+            .runtime_mut()
+            .module_instance_snapshot(&loaded)
+            .unwrap()
+            .module_slots
+            .remove(0),
+        StaticState::Uninitialized(_)
     ));
     drop(session);
-    ready(&runtime, &owner, 0, Value::I32(7));
-    assert_eq!(
-        runtime
-            .read_module_slot(&alias, ModuleSlot::new(0))
-            .unwrap(),
-        Value::I32(7)
-    );
+    ready(&mut runtime, &owner, 0, &RootedValue::from(7));
+    assert_eq!(read_i32(&mut runtime, &alias, ModuleSlot::new(0)), 7);
     runtime
-        .write_module_slot(&loaded, ModuleSlot::new(0), Value::I32(42))
+        .write_module_slot(&loaded, ModuleSlot::new(0), &RootedValue::from(42))
         .unwrap();
-    assert_eq!(
-        runtime
-            .read_module_slot(&owner, ModuleSlot::new(0))
-            .unwrap(),
-        Value::I32(42)
-    );
+    assert_eq!(read_i32(&mut runtime, &owner, ModuleSlot::new(0)), 42);
 }
 
 #[test]
@@ -217,56 +210,38 @@ fn source_free_verification_rejects_forged_static_contracts_and_initializer_auth
 fn persistent_cell_callback_cycles_follow_joint_graph_edges_and_retirement() {
     let mut runtime = Runtime::default();
     let code = callback_program();
-    let old_program = runtime.load_program("callbacks", code.clone()).unwrap();
+    let old_program = load_bytecode(&mut runtime, "callbacks", code.clone()).unwrap();
     let old = runtime.select_program(&old_program).unwrap();
-    let closure = retained_callback(&runtime, &old);
-    ready(&runtime, &old, 0, closure);
+    let closure = retained_callback(&mut runtime, &old);
+    ready(&mut runtime, &old, 0, &closure);
+    drop(closure);
     let candidate = runtime
         .stage_reload_program(&old_program, None, code.clone())
         .unwrap();
     let current = candidate.module().clone();
     runtime.publish_staged_reload(candidate).unwrap();
-    assert!(
-        !runtime
-            .collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&old.key())
-    );
-    let replacement = retained_callback(&runtime, &current);
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.modules().loaded(old.key()).is_some());
+    let replacement = retained_callback(&mut runtime, &current);
     runtime
-        .write_module_slot(&current, ModuleSlot::new(0), replacement)
+        .write_module_slot(&current, ModuleSlot::new(0), &replacement)
         .unwrap();
-    assert!(
-        runtime
-            .collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&old.key())
-    );
-    assert!(!runtime.gc().validate_value(&closure));
-    let root = runtime.root_value(replacement).unwrap();
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.modules().loaded(old.key()).is_none());
+    let root = replacement;
     // Loading the same label preserves the previous installation. Explicit
     // retirement removes its current root; the retained value still owns the cycle.
-    runtime.modules.retire_installations();
-    let fresh_program = runtime.load_program("callbacks", code).unwrap();
+    runtime
+        .modules
+        .revoke_publications(&mut runtime.memory, &runtime.resources)
+        .unwrap();
+    let fresh_program = load_bytecode(&mut runtime, "callbacks", code).unwrap();
     let fresh = runtime.select_program(&fresh_program).unwrap();
-    assert!(
-        !runtime
-            .collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&current.key())
-    );
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.modules().loaded(current.key()).is_some());
     drop(root);
-    assert!(
-        runtime
-            .collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&current.key())
-    );
-    assert!(!runtime.gc().validate_value(&replacement));
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.modules().loaded(current.key()).is_none());
     assert_eq!(runtime.modules.inner.borrow().cells.len(), 1);
     assert!(matches!(
         runtime
@@ -326,23 +301,20 @@ fn empty_variant_does_not_hide_changed_private_payload_schema() {
         exports: Default::default(),
     }
     .build(&context);
-    let old_program = runtime
-        .load_program(
-            "choice",
-            DefinitionMetadata::checked(context.snapshot(), code.clone(), &Default::default())
-                .unwrap(),
+    let old_program = load_bytecode(
+        &mut runtime,
+        "choice",
+        DefinitionMetadata::checked(context.snapshot(), code.clone(), &Default::default()).unwrap(),
+    )
+    .unwrap();
+    let old = runtime.select_program(&old_program).unwrap();
+    let empty_value = runtime
+        .alloc_enum(
+            EnumTag::Declared(old.enum_variant(EnumId::new(0), 0).unwrap()),
+            &[],
         )
         .unwrap();
-    let old = runtime.select_program(&old_program).unwrap();
-    let empty_value = Value::Enum(
-        runtime
-            .alloc_enum(
-                EnumTag::Declared(old.enum_variant(EnumId::new(0), 0).unwrap()),
-                vec![],
-            )
-            .unwrap(),
-    );
-    ready(&runtime, &old, 0, empty_value);
+    ready(&mut runtime, &old, 0, &empty_value);
     let compatible = runtime
         .stage_reload_program(
             &old_program,
@@ -369,12 +341,10 @@ fn empty_variant_does_not_hide_changed_private_payload_schema() {
             )
             .is_err()
     );
-    assert_eq!(
-        runtime
-            .read_module_slot(&current, ModuleSlot::new(0))
-            .unwrap(),
-        empty_value
-    );
+    let read = runtime
+        .read_module_slot(&current, ModuleSlot::new(0))
+        .unwrap();
+    assert_same(&mut runtime, &read, &empty_value);
     assert_eq!(
         runtime.modules.current_for(&current).unwrap().key(),
         current.key()
@@ -385,9 +355,9 @@ fn empty_variant_does_not_hide_changed_private_payload_schema() {
 fn allocation_failure_invalidates_candidate_records_without_touching_published_cells() {
     let mut runtime = Runtime::default();
     let code = program(scalar(), true);
-    let old_program = runtime.load_program("exhaustion", code.clone()).unwrap();
+    let old_program = load_bytecode(&mut runtime, "exhaustion", code.clone()).unwrap();
     let old = runtime.select_program(&old_program).unwrap();
-    ready(&runtime, &old, 0, Value::I32(42));
+    ready(&mut runtime, &old, 0, &RootedValue::from(42));
     runtime.modules.inner.borrow_mut().next_cell = u64::MAX;
     assert!(
         runtime
@@ -406,17 +376,9 @@ fn allocation_failure_invalidates_candidate_records_without_touching_published_c
     assert_eq!(unavailable.len(), 1);
     assert!(runtime.modules.loaded(unavailable[0]).is_none());
     assert_eq!(runtime.modules.current_for(&old).unwrap().key(), old.key());
-    assert_eq!(
-        runtime.read_module_slot(&old, ModuleSlot::new(0)).unwrap(),
-        Value::I32(42)
-    );
-    assert!(
-        runtime
-            .collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .contains(&unavailable[0])
-    );
+    assert_eq!(read_i32(&mut runtime, &old, ModuleSlot::new(0)), 42);
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.modules().loaded(unavailable[0]).is_none());
     assert_eq!(runtime.modules.inner.borrow().cells.len(), 1);
 }
 
@@ -424,36 +386,39 @@ fn allocation_failure_invalidates_candidate_records_without_touching_published_c
 fn cycles_between_retired_installation_cells_are_collectible_together() {
     let mut runtime = Runtime::default();
     let code = callback_program();
-    let left_program = runtime.load_program("left", code.clone()).unwrap();
+    let left_program = load_bytecode(&mut runtime, "left", code.clone()).unwrap();
     let left = runtime.select_program(&left_program).unwrap();
-    let right_program = runtime.load_program("right", code.clone()).unwrap();
+    let right_program = load_bytecode(&mut runtime, "right", code.clone()).unwrap();
     let right = runtime.select_program(&right_program).unwrap();
-    let from_left = retained_callback(&runtime, &left);
-    let from_right = retained_callback(&runtime, &right);
-    ready(&runtime, &left, 0, from_right);
-    ready(&runtime, &right, 0, from_left);
-    let root = runtime.root_value(from_left).unwrap();
-    runtime.modules.retire_installations();
-    assert!(
-        runtime
-            .collect_garbage()
-            .unwrap()
-            .reclaimed_modules
-            .is_empty()
-    );
+    let from_left = retained_callback(&mut runtime, &left);
+    let from_right = retained_callback(&mut runtime, &right);
+    ready(&mut runtime, &left, 0, &from_right);
+    drop(from_right);
+    ready(&mut runtime, &right, 0, &from_left);
+    let root = from_left;
+    runtime
+        .modules
+        .revoke_publications(&mut runtime.memory, &runtime.resources)
+        .unwrap();
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.modules().loaded(left.key()).is_some());
+    assert!(runtime.modules().loaded(right.key()).is_some());
     drop(root);
-    let reclaimed = runtime.collect_garbage().unwrap();
-    assert!(reclaimed.reclaimed_modules.contains(&left.key()));
-    assert!(reclaimed.reclaimed_modules.contains(&right.key()));
-    assert_eq!(reclaimed.live_objects, 0);
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.modules().loaded(left.key()).is_none());
+    assert!(runtime.modules().loaded(right.key()).is_none());
+    assert_eq!(runtime.gc_stats().objects, 0);
     assert!(runtime.modules.inner.borrow().cells.is_empty());
 }
 
 fn callback_program() -> DefinitionMetadata<BytecodeProgram> {
-    update_programs::bytecode("static var state: fn() -> () = || {}; fn main() {}", None)
+    update_programs::bytecode(
+        include_str!("../../../../tests/fixtures/execution/static-callback-cycle.kgr"),
+        None,
+    )
 }
 
-fn retained_callback(runtime: &Runtime, module: &ExecutableModule) -> Value {
+fn retained_callback(runtime: &mut Runtime, module: &ExecutableModule) -> RootedValue {
     let function = module
         .bytecode
         .functions
@@ -467,7 +432,9 @@ fn retained_callback(runtime: &Runtime, module: &ExecutableModule) -> Value {
                     == CallRouteKind::BodyOwned
         })
         .unwrap();
-    runtime
-        .make_closure(module, function.id, vec![], None)
-        .unwrap()
+    let mut cx = ConversionContext::new(runtime, module).unwrap();
+    let value = cx
+        .allocate_script_closure(function.id, &[], None, ClosureMode::Retained)
+        .unwrap();
+    cx.retain(&value).unwrap()
 }

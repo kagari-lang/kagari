@@ -1,15 +1,15 @@
 //! Detached source changes. Building a batch never selects, compiles or publishes code.
 
+use crate::program::update::SourceEditTarget;
 use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
-use kagari_runtime::source::SourceDeclaration;
 
-/// One existing public function path or opaque installation-scoped authored locator.
+/// One existing public function path or opaque exact-base authored locator.
 /// Paths resolve once when submitted; declarations can identify private functions,
 /// methods and named locals without granting permission to call them.
 #[derive(Debug, Clone)]
 pub enum FunctionUpdateTarget {
     Path(String),
-    Declaration(SourceDeclaration),
+    Declaration(SourceEditTarget),
 }
 
 impl From<String> for FunctionUpdateTarget {
@@ -24,14 +24,14 @@ impl From<&str> for FunctionUpdateTarget {
     }
 }
 
-impl From<SourceDeclaration> for FunctionUpdateTarget {
-    fn from(declaration: SourceDeclaration) -> Self {
+impl From<SourceEditTarget> for FunctionUpdateTarget {
+    fn from(declaration: SourceEditTarget) -> Self {
         Self::Declaration(declaration)
     }
 }
 
-impl From<&SourceDeclaration> for FunctionUpdateTarget {
-    fn from(declaration: &SourceDeclaration) -> Self {
+impl From<&SourceEditTarget> for FunctionUpdateTarget {
+    fn from(declaration: &SourceEditTarget) -> Self {
         Self::Declaration(declaration.clone())
     }
 }
@@ -39,7 +39,7 @@ impl From<&SourceDeclaration> for FunctionUpdateTarget {
 /// A caller-chosen atomic batch of complete function/file replacements and file additions.
 /// Names identify captured documents, not filesystem reads. Submission rejects empty,
 /// duplicate or overlapping changes, more than 1,024 entries or more than 64 MiB of
-/// replacement UTF-8. Validation belongs to `Runtime::update`, not these data builders.
+/// replacement UTF-8. Validation belongs to `Program::prepare_update`.
 #[derive(Debug, Clone, Default)]
 pub struct Update {
     pub(crate) edits: Vec<Edit>,

@@ -3,7 +3,7 @@ use crate::{
     project::{locate, run_from},
     runtime_engine,
 };
-use kagari::{BytecodeArtifact, program::PreparedProgram};
+use kagari::{BytecodeArtifact, program::Program};
 use std::{
     collections::BTreeSet,
     fs,
@@ -107,13 +107,16 @@ fn project_builds_select_roots_and_store_independent_artifacts() {
         let artifact = BytecodeArtifact::from_bytes(&fs::read(path).unwrap()).unwrap();
         assert!(roots.insert(artifact.records().header.module_identity.clone()));
         let program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let mut runtime = engine.runtime(Default::default());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
         let entries = ["answer", "tool", "value"]
             .into_iter()
-            .filter(|entry| runtime.function::<(), i32>(&loaded.root(), entry).is_ok())
+            .filter(|entry| {
+                runtime
+                    .bind_function::<(), i32>(&loaded.root(), entry)
+                    .is_ok()
+            })
             .collect::<Vec<_>>();
         assert_eq!(
             entries.len(),
@@ -181,7 +184,7 @@ fn project_builds_select_roots_and_store_independent_artifacts() {
     let new_path = current.difference(&previous).next().unwrap();
     let artifact = BytecodeArtifact::from_bytes(&fs::read(new_path).unwrap()).unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let mut runtime = engine.runtime(Default::default());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     assert_eq!(

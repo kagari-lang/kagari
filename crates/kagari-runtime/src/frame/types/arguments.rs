@@ -14,10 +14,8 @@ use crate::{
         bindings::TypeBindings,
         compatibility::{TypeIdentity, TypeView},
     },
-    gc::GcHeap,
+    host::HostRegistryId,
     module::{EnumVariantRef, ExecutableModule, layout_admission::NominalAdmission},
-    value::Value,
-    value_check,
 };
 use kagari_types::{declaration::verify::types_in_scope, ty::Ty};
 use std::{
@@ -32,6 +30,7 @@ pub struct TypeArgument {
 
 #[derive(Debug)]
 struct TypeArgumentData {
+    registry: Option<HostRegistryId>,
     ty: Ty,
     definitions: DefinitionTable,
     origin: Option<Arc<TypeOrigin>>,
@@ -70,6 +69,7 @@ impl TypeArgument {
             ),
             None => TypeView::prepared(&self.data.ty, &self.data.ty, owner, None),
         }
+        .with_closed_scope(&self.data.definitions)
     }
 
     /// Exact immutable type/provenance identity, prepared once per supplied argument.
@@ -80,18 +80,6 @@ impl TypeArgument {
             .identity
             .get_or_init(|| self.view(fallback).identity().map(Arc::new))
             .clone()
-    }
-
-    pub(crate) fn matches_heap(
-        &self,
-        heap: &GcHeap,
-        value: &Value,
-        owner: &ExecutableModule,
-    ) -> bool {
-        if let Some(matches) = self.matches_admitted(heap, value, owner) {
-            return matches;
-        }
-        value_check::matches_view(heap, value, self.view(owner))
     }
 
     pub(crate) fn derive(
@@ -108,10 +96,17 @@ impl TypeArgument {
             ),
             None => (&self.data.ty, fallback, None),
         };
-        let ty = derive(expression)
+        let view = TypeView::new(expression, owner, environment.as_deref())
+            .normalized()
+            .ok_or_else(|| RuntimeError::module_validation("derived type scope"))?;
+        let ty = derive(view.ty)
             .ok_or_else(|| RuntimeError::module_validation("derived type expression"))?;
         runtime
-            .type_arguments(owner, environment, slice::from_ref(&ty))?
+            .type_arguments(
+                view.owner,
+                view.environment.cloned().map(Arc::new),
+                slice::from_ref(&ty),
+            )?
             .pop()
             .ok_or_else(|| RuntimeError::module_validation("derived type scope"))
     }
@@ -180,7 +175,15 @@ impl TypeArgument {
     }
 
     pub(crate) fn validate(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
-        let table = runtime.definition_context().snapshot();
+        if self
+            .data
+            .registry
+            .is_some_and(|registry| registry != runtime.host.owner())
+        {
+            return Err(RuntimeError::module_validation(
+                "foreign type argument registry",
+            ));
+        }
         if let Some(origin) = &self.data.origin
             && !origin.scope.owner.belongs_to(runtime.host.owner())
         {
@@ -188,21 +191,8 @@ impl TypeArgument {
                 "foreign type argument scope",
             ));
         }
-        // Construction validates immutable type facts. The append-only runtime
-        // scope can reuse that evidence; foreign scopes still check every ID.
-        if table.id() != self.data.definitions.id() {
-            self.data
-                .ty
-                .visit_definition_ids(
-                    &mut |id| {
-                        self.data.definitions.resolve(*id)?;
-                        table.resolve(*id)?;
-                        Ok(())
-                    },
-                    &Default::default(),
-                )
-                .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-        }
+        // Construction checks the immutable accepted closed prefix. Its local
+        // registry provenance is sufficient; later writer growth grants nothing.
         Ok(())
     }
 
@@ -219,36 +209,6 @@ impl TypeArgument {
         }
         Ok(())
     }
-
-    fn matches_admitted(
-        &self,
-        heap: &GcHeap,
-        value: &Value,
-        owner: &ExecutableModule,
-    ) -> Option<bool> {
-        let admission = self.data.admission.get()?;
-        Some(match value {
-            Value::Struct(id) => heap
-                .struct_layout(*id)
-                .is_some_and(|actual| admission.matches_struct(&actual, self.view(owner))),
-            Value::Enum(id) => heap
-                .enum_layout(*id)
-                .is_some_and(|actual| admission.matches_enum(&actual, self.view(owner))),
-            _ => false,
-        })
-    }
-
-    pub(crate) fn matches(
-        &self,
-        runtime: &Runtime,
-        value: &Value,
-        owner: &ExecutableModule,
-    ) -> bool {
-        if let Some(matches) = self.matches_admitted(&runtime.gc, value, owner) {
-            return matches;
-        }
-        runtime.matches_type_view(value, self.view(owner))
-    }
 }
 
 pub(crate) fn type_parameter(ty: &Ty, index: usize) -> Option<&Ty> {
@@ -258,20 +218,10 @@ pub(crate) fn type_parameter(ty: &Ty, index: usize) -> Option<&Ty> {
         | Ty::NativeObject(nominal)
         | Ty::Trait(nominal) => nominal.arguments.get(index),
         Ty::Tuple(items) => items.get(index),
-        Ty::Array(item)
-        | Ty::Set(item, _)
-        | Ty::Iter(item)
-        | Ty::Range(item, _)
-        | Ty::Reference { target: item, .. }
-            if index == 0 =>
-        {
+        Ty::Array(item) | Ty::Range(item, _) | Ty::Reference { target: item, .. } if index == 0 => {
             Some(item)
         }
-        Ty::Map { key, value, .. } => match index {
-            0 => Some(key),
-            1 => Some(value),
-            _ => None,
-        },
+
         _ => None,
     }
 }
@@ -293,9 +243,9 @@ fn contains_scoped_nominal(ty: &Ty) -> bool {
                 pending.extend(&ty.arguments);
                 pending.extend(ty.associated_types.values());
             }
-            Ty::Array(ty) | Ty::Iter(ty) | Ty::Range(ty, _) | Ty::Set(ty, _) => pending.push(ty),
+            Ty::Array(ty) | Ty::Range(ty, _) => pending.push(ty),
             Ty::Reference { target, .. } => pending.push(target),
-            Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+
             _ => {}
         }
     }
@@ -303,24 +253,6 @@ fn contains_scoped_nominal(ty: &Ty) -> bool {
 }
 
 impl Runtime {
-    pub(crate) fn matches_capture_type(
-        &self,
-        value: &Value,
-        ty: &Ty,
-        owner: &ExecutableModule,
-        environment: &TypeBindings,
-    ) -> bool {
-        // A mutable capture carries a cell handle; its semantic type describes
-        // the contained variable rather than that internal storage handle.
-        match value {
-            Value::Cell(id) => self
-                .gc
-                .captured_cell_value(*id)
-                .is_some_and(|value| self.matches_type_in(&value, ty, owner, Some(environment))),
-            _ => self.matches_type_in(value, ty, owner, Some(environment)),
-        }
-    }
-
     /// Prepare concrete scoped arguments against a specific loaded generation.
     /// Every identity must belong to the loaded module's retained definition prefix;
     /// this does not import foreign metadata or admit later definitions retroactively.
@@ -374,10 +306,10 @@ impl Runtime {
                 arguments.push(argument.clone());
                 continue;
             }
-            let ty = match &environment {
-                Some(environment) => environment.resolve(expression)?,
-                None => expression.clone(),
-            };
+            let ty = TypeView::new(expression, owner, environment.as_deref())
+                .closed()
+                .ok_or_else(invalid)?
+                .into_owned();
             if !ty.is_concrete() || !types_in_scope([&ty], &[], &Default::default(), &definitions) {
                 return Err(invalid());
             }
@@ -400,8 +332,18 @@ impl Runtime {
             } else {
                 None
             };
+            let mut registry = None;
+            ty.visit_definition_ids(
+                &mut |_| {
+                    registry = Some(self.host.owner());
+                    Ok(())
+                },
+                &Default::default(),
+            )
+            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
             let argument = TypeArgument {
                 data: Arc::new(TypeArgumentData {
+                    registry,
                     ty,
                     definitions: definitions.clone(),
                     origin,
@@ -418,59 +360,5 @@ impl Runtime {
             arguments.push(argument);
         }
         Ok(arguments)
-    }
-
-    pub(crate) fn matches_type_in(
-        &self,
-        value: &Value,
-        ty: &Ty,
-        owner: &ExecutableModule,
-        environment: Option<&TypeBindings>,
-    ) -> bool {
-        self.matches_type_view(value, TypeView::new(ty, owner, environment))
-    }
-
-    pub(crate) fn matches_type_view(&self, value: &Value, view: TypeView<'_>) -> bool {
-        if !self.gc.validate_value(value) {
-            return false;
-        }
-        if let Ty::Parameter {
-            owner: binder,
-            position,
-        } = view.ty
-        {
-            return view
-                .environment
-                .and_then(|environment| environment.argument(binder, *position))
-                .is_some_and(|argument| argument.matches(self, value, view.owner));
-        }
-        let Some(view) = view.normalized() else {
-            return false;
-        };
-        if let Ty::Reference { access, .. } = view.ty {
-            return self.scoped_view(value).ok().is_some_and(|actual| {
-                view.reference_target().is_some_and(|target| {
-                    self.host_borrows
-                        .scoped_matches_view(actual, target, *access)
-                })
-            });
-        }
-        if let (Value::Tuple(id), Ty::Tuple(types)) = (value, view.ty) {
-            let Some(values) = self.gc.tuple(*id) else {
-                return false;
-            };
-            return values.len() == types.len()
-                && values.iter().enumerate().all(|(index, value)| {
-                    view.parameter(index)
-                        .is_some_and(|view| self.matches_type_view(value, view))
-                });
-        }
-        if let Ty::Host(id) = view.ty {
-            return view
-                .owner
-                .host_type(*id)
-                .is_some_and(|expected| self.matches_host_identity(value, expected));
-        }
-        value_check::matches_view(&self.gc, value, view)
     }
 }

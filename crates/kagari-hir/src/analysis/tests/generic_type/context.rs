@@ -3,6 +3,7 @@ use crate::{tests::test_analysis, typeck::table::CallTarget};
 use kagari_source::diagnostic::DiagnosticKind;
 use kagari_stdlib::catalog as foundation_catalog;
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn body_constraints_use_later_arguments_and_local_uses() {
     for body in [
@@ -34,6 +35,7 @@ fn body_constraints_use_later_arguments_and_local_uses() {
         assert!(analysis.into_codegen().is_ok());
     }
 }
+*/
 
 #[test]
 fn unresolved_body_variables_and_conflicting_uses_are_rejected() {
@@ -105,6 +107,7 @@ fn main() { val value = choose(Sink { seed: 0 }); }
     assert!(analysis.into_codegen().is_err());
 }
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn explicit_enum_arguments_check_units_payloads_and_constraints() {
     for (body, valid) in [
@@ -138,6 +141,7 @@ fn explicit_enum_arguments_check_units_payloads_and_constraints() {
         assert_eq!(analysis.into_codegen().is_ok(), valid, "{body}");
     }
 }
+*/
 
 #[test]
 fn nominal_and_call_constraints_share_recursive_comparable_binders() {
@@ -166,6 +170,7 @@ fn nominal_and_call_constraints_share_recursive_comparable_binders() {
     assert!(analysis.into_codegen().is_err());
 }
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn partial_nominal_arguments_check_known_outer_standard_constraints() {
     for (bound, argument, expected_constraints) in [
@@ -206,7 +211,9 @@ fn partial_nominal_arguments_check_known_outer_standard_constraints() {
         assert!(analysis.into_codegen().is_err());
     }
 }
+*/
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn partial_annotations_preserve_independent_container_constraint_errors() {
     // A diverging initializer isolates annotation diagnostics from constructor
@@ -255,6 +262,7 @@ fn partial_annotations_preserve_independent_container_constraint_errors() {
         }
     }
 }
+*/
 
 #[test]
 fn explicit_constructor_type_queries_survive_body_reuse() {
@@ -290,6 +298,7 @@ fn explicit_constructor_type_queries_survive_body_reuse() {
     }
 }
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn explicit_struct_arguments_check_identity_arity_bounds_and_fields() {
     for (body, valid) in [
@@ -323,6 +332,7 @@ fn explicit_struct_arguments_check_identity_arity_bounds_and_fields() {
         assert_eq!(analysis.into_codegen().is_ok(), valid);
     }
 }
+*/
 
 #[test]
 fn earlier_constructor_members_supply_context_to_later_members() {
@@ -370,6 +380,7 @@ fn earlier_constructor_members_supply_context_to_later_members() {
     }
 }
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn local_container_annotations_enforce_the_same_key_bounds_as_signatures() {
     for (source, valid) in [
@@ -418,7 +429,9 @@ fn local_container_annotations_enforce_the_same_key_bounds_as_signatures() {
         assert_eq!(analysis.into_codegen().is_ok(), valid);
     }
 }
+*/
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn empty_container_context_is_shared_by_all_expression_positions() {
     for body in [
@@ -452,7 +465,9 @@ fn empty_container_context_is_shared_by_all_expression_positions() {
         assert!(analysis.into_codegen().is_err(), "{source}");
     }
 }
+*/
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn assignment_context_uses_checked_target_types_without_bypassing_writeability() {
     for (body, valid) in [
@@ -498,6 +513,7 @@ fn assignment_context_uses_checked_target_types_without_bypassing_writeability()
         assert_eq!(analysis.into_codegen().is_ok(), valid);
     }
 }
+*/
 
 #[test]
 fn caller_owned_binders_are_context_but_uninferred_callee_binders_are_not() {

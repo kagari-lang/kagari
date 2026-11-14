@@ -1,4 +1,21 @@
 //! Installation and invocation of trusted compiler products without a compiler dependency.
+use crate::{
+    Runtime,
+    backend::BackendInvocationError,
+    error::{RuntimeError, fault::EngineFault, reason::CancellationReason, trap::TrapReason},
+    error_trace::ErrorTrace,
+    jit_abi::{NATIVE_HELPERS, scalars::decode_native_value},
+    module::{
+        ExecutableModule, ModuleEpochRetention,
+        dispatch::CallRoute,
+        managed::source::RevisionSource,
+        retention::{ProgramLease, RetentionOrigin},
+    },
+    native::conversion::arguments::ArgumentValues,
+    resource::native_stack::NativeStackMark,
+    value::carriers::RootedValue,
+};
+use kagari_types::{arithmetic::ArithmeticError, scalar::error::ScalarError};
 use std::{mem, sync::Arc};
 
 use {
@@ -16,18 +33,6 @@ use {
 };
 
 use kagari_bytecode::module::CallableTarget;
-
-use crate::{
-    Runtime,
-    backend::BackendInvocationError,
-    error::{RuntimeError, RuntimeErrorKind},
-    error_trace::ErrorTrace,
-    jit_abi::{NATIVE_HELPERS, decode_native_value},
-    module::{
-        ExecutableModule, ModuleEpochRetention, dispatch::CallRoute, retention::ProgramLease,
-    },
-    value::Value,
-};
 
 /// Native code bound to one runtime and one exact executable publication.
 /// Cloning retains code memory and module instances; its descriptor is immutable.
@@ -59,6 +64,19 @@ pub struct NativeInvocationFailure {
     pub trace: Arc<ErrorTrace>,
 }
 
+struct NativeStackInvocation<'runtime> {
+    runtime: &'runtime mut Runtime,
+    mark: Option<NativeStackMark>,
+}
+
+impl Drop for NativeStackInvocation<'_> {
+    fn drop(&mut self) {
+        if let Some(mark) = self.mark.take() {
+            self.runtime.resources.leave_native_stack(mark);
+        }
+    }
+}
+
 impl Runtime {
     /// Bind executable memory to this runtime's verified module and dependency closure.
     /// Installation does not invoke code. Unsupported signatures fail before entry.
@@ -71,9 +89,10 @@ impl Runtime {
     /// of the product exists. Native code must not unwind through the C ABI.
     /// Descriptor validation cannot establish these properties for arbitrary pointers.
     pub unsafe fn install_native_function(
-        &self,
+        &mut self,
         module: &ExecutableModule,
         product: Arc<NativeCompilationProduct>,
+        origin: RetentionOrigin<'_>,
     ) -> Result<InstalledNativeFunction, BackendInvocationError> {
         self.validate_executable_module(module)
             .map_err(runtime_failure)?;
@@ -82,7 +101,11 @@ impl Runtime {
             .map_err(runtime_failure)?;
         validate_product(module, &product.artifact)?;
         let retention = self
-            .retain_program(module, ModuleEpochRetention::CompiledArtifact)
+            .retain_program(
+                module,
+                ModuleEpochRetention::CompiledArtifact,
+                origin.resolve(self, module).map_err(runtime_failure)?,
+            )
             .ok_or_else(|| {
                 runtime_failure(RuntimeError::module_validation(
                     "native dependency was released",
@@ -103,31 +126,38 @@ impl Runtime {
     /// A stale product is rejected before entry, not treated as a fallback request.
     /// Failures after native entry never request an interpreter restart.
     pub fn invoke_native_function(
-        &self,
+        &mut self,
         installed: &InstalledNativeFunction,
-    ) -> Result<Value, NativeInvocationFailure> {
-        let failure = |error| NativeInvocationFailure {
+    ) -> Result<RootedValue, NativeInvocationFailure> {
+        let failure = |runtime: &Runtime, error| NativeInvocationFailure {
             error,
-            trace: self.capture_error_trace(),
+            trace: runtime.capture_error_trace(),
         };
-        self.validate_executable_module(&installed.module)
-            .map_err(runtime_failure)
-            .map_err(failure)?;
+        self.with_revision_origin(
+            &installed.module,
+            RevisionSource::Host(installed._retention.revision()),
+            |_, _| Ok(()),
+        )
+        .map_err(runtime_failure)
+        .map_err(|error| failure(self, error))?;
         self.resources()
             .ensure_execution_allowed()
             .map_err(runtime_failure)
-            .map_err(failure)?;
+            .map_err(|error| failure(self, error))?;
         let selected = self
             .select_call_route(&installed.route)
             .map_err(runtime_failure)
-            .map_err(failure)?;
+            .map_err(|error| failure(self, error))?;
         if selected.owner().key() != installed.module.key()
             || selected.owner().program_fingerprint() != installed.module.program_fingerprint()
             || selected.target() != CallableTarget::Script(installed.artifact().function)
         {
-            return Err(failure(runtime_failure(RuntimeError::module_validation(
-                "installed native product does not match the current call target",
-            ))));
+            return Err(failure(
+                self,
+                runtime_failure(RuntimeError::module_validation(
+                    "installed native product does not match the current call target",
+                )),
+            ));
         }
         // The existing native subset has no observer callbacks. Metadata alone
         // does not grant permission to bypass an attached execution observer.
@@ -136,57 +166,90 @@ impl Runtime {
             .active_session()
             .is_some_and(|session| session.observer_attached.get())
         {
-            return Err(failure(BackendInvocationError::UnsupportedArtifact(
-                "native invocation with an execution observer is unsupported".into(),
-            )));
+            return Err(failure(
+                self,
+                BackendInvocationError::UnsupportedArtifact(
+                    "native invocation with an execution observer is unsupported".into(),
+                ),
+            ));
         }
-        let stack = self
+        let mut stack = self
             .enter_execution_stack(&installed.module)
-            .map_err(runtime_failure)
-            .map_err(failure)?;
+            .map_err(|error| {
+                let trace = error.trace().cloned().unwrap_or_default();
+                NativeInvocationFailure {
+                    error: runtime_failure(error),
+                    trace,
+                }
+            })?;
         stack
-            .push_callable(self, selected.owner().clone(), selected.target(), &[], None)
-            .map_err(runtime_failure)
-            .map_err(failure)?;
-        // Map failures while the frame still exists. The stack guard then unwinds
-        // only this call's frames on success, trap, cancellation or call-depth failure.
-        self.call_native_entry(installed).map_err(failure)
+            .with(|runtime, frames| {
+                frames
+                    .push_callable(
+                        runtime,
+                        selected.owner().clone(),
+                        selected.target(),
+                        ArgumentValues::scalars(&[]),
+                        None,
+                    )
+                    .map_err(|error| error.with_trace(runtime.capture_error_trace()))?;
+                Ok(runtime
+                    .call_native_entry(installed)
+                    .map_err(|error| failure(runtime, error)))
+            })
+            .map_err(|error| {
+                let trace = error.trace().cloned().unwrap_or_default();
+                NativeInvocationFailure {
+                    error: runtime_failure(error),
+                    trace,
+                }
+            })?
     }
 
     fn call_native_entry(
-        &self,
+        &mut self,
         installed: &InstalledNativeFunction,
-    ) -> Result<Value, BackendInvocationError> {
+    ) -> Result<RootedValue, BackendInvocationError> {
         let ExecutableEntryPoint::Native { address, .. } = installed.artifact().code.entry else {
             unreachable!("installation validates the entry")
         };
         // SAFETY: installation establishes code lifetime and ABI; the sealed handle
         // retains the product and versions, and the active frame supplies context.
         let function = unsafe { mem::transmute::<usize, JitCompiledFunction>(address) };
+        let mark = self
+            .resources
+            .enter_native_stack()
+            .map_err(runtime_failure)?;
+        let invocation = NativeStackInvocation {
+            runtime: self,
+            mark: Some(mark),
+        };
+        let runtime = &mut *invocation.runtime;
         let mut result = JitValue::default();
         let context = NativeInvocationContext {
-            runtime: (self as *const Self).cast(),
+            runtime: (runtime as *mut Self).cast_const().cast(),
             helpers: &NATIVE_HELPERS,
         };
         let status = unsafe { function(&context, &mut result) };
-        self.resources()
+        runtime
+            .resources()
             .ensure_execution_allowed()
             .map_err(runtime_failure)?;
-        check_status(self, status)?;
-        let value = decode_native_value(result).ok_or_else(|| {
+        check_status(runtime, status)?;
+        let (representation, value) = decode_native_value(result).ok_or_else(|| {
             runtime_failure(
-                self.resources()
-                    .quarantine("compiled function returned an invalid value"),
+                runtime
+                    .resources()
+                    .quarantine(EngineFault::CompiledFunctionReturnedAnInvalidValue),
             )
         })?;
         let expected = installed.module.bytecode.functions[installed.artifact().function.index()]
             .metadata
             .return_type;
-        if !value.has_representation(expected) {
-            return Err(runtime_failure(
-                self.resources()
-                    .quarantine("compiled function returned the wrong representation"),
-            ));
+        if representation != expected {
+            return Err(runtime_failure(runtime.resources().quarantine(
+                EngineFault::CompiledFunctionReturnedTheWrongRepresentation,
+            )));
         }
         Ok(value)
     }
@@ -262,22 +325,19 @@ fn check_status(runtime: &Runtime, status: i32) -> Result<(), BackendInvocationE
             .resources()
             .termination()
             .unwrap_or_else(|| RuntimeError::resource_limit("instruction steps")),
-        JIT_STATUS_CANCELLED => {
-            RuntimeError::new(RuntimeErrorKind::Cancelled, "execution cancelled")
-        }
+        JIT_STATUS_CANCELLED => RuntimeError::from(CancellationReason::ExecutionCancelled),
         JIT_STATUS_INTEGER_OVERFLOW => {
-            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "integer overflow")
+            RuntimeError::from(ScalarError::from(ArithmeticError::Overflow))
         }
-        JIT_STATUS_INVALID_HEAP_REFERENCE => RuntimeError::new(
-            RuntimeErrorKind::ScriptTrap,
-            "invalid heap reference at safepoint",
-        ),
+        JIT_STATUS_INVALID_HEAP_REFERENCE => {
+            RuntimeError::from(TrapReason::InvalidHeapReferenceAtSafepoint)
+        }
         JIT_STATUS_ENGINE_FAULT | JIT_STATUS_INVALID_RUNTIME => runtime
             .resources()
-            .quarantine("native execution reported an engine fault"),
+            .quarantine(EngineFault::NativeExecutionReportedAnEngineFault),
         _ => runtime
             .resources()
-            .quarantine("compiled function returned an unknown status"),
+            .quarantine(EngineFault::CompiledFunctionReturnedAnUnknownStatus),
     };
     Err(runtime_failure(error))
 }

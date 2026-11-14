@@ -6,11 +6,11 @@ use kagari_common::{
     identity::{ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata},
 };
 use kagari_runtime::{
-    host::HostCallContext,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
-    value::Value,
+    host::HostError,
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, host, types::Type},
 };
 use kagari_source::{identity::FileId, source_database::SourceLayer};
+use kagari_stdlib as stdlib;
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::declaration::host::{HostCallPolicy, HostPassingStyle};
 use std::sync::{Arc, Mutex};
@@ -38,12 +38,7 @@ fn insert(engine: &KagariEngine, name: &str, text: &str) -> FileId {
         .unwrap()
 }
 
-fn host_fixture() -> (
-    KagariEngine,
-    FileId,
-    ExecutionContext,
-    Arc<Mutex<Vec<Value>>>,
-) {
+fn host_fixture() -> (KagariEngine, FileId, ExecutionContext, Arc<Mutex<Vec<i32>>>) {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let recorded = calls.clone();
     let mut builder =
@@ -60,14 +55,26 @@ fn host_fixture() -> (
         )
         .unwrap();
     builder
-        .bind(record, move |_: &HostCallContext<'_>, args: &[Value]| {
-            recorded.lock().unwrap().push(args[0]);
-            Ok(args[0])
-        })
+        .bind(
+            record,
+            host::callback(move |_, args| {
+                let value = args[0]
+                    .as_i32()
+                    .ok_or_else(|| HostError::new("record expects i32"))?;
+                recorded.lock().unwrap().push(value);
+                Ok(args[0])
+            }),
+        )
         .unwrap();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), vec![builder.finish().unwrap()])
-            .unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![builder.finish().unwrap()])
+            .collect(),
+    )
+    .unwrap();
     insert(
         &engine,
         "shared",

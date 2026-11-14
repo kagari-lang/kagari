@@ -1,0 +1,5 @@
+use game::serde::Graph;
+
+pub fn inspect(input: Graph) -> i32 {
+    input.value
+}

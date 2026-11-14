@@ -35,6 +35,18 @@ registration require `&mut Scope`; conflicting accesses fail at compile time.
 `Scope::get/get_root/follow/downcast` and typed/dynamic field getters also accept
 shared access. Read callback results still cannot contain borrowed payload data.
 
+`Scope::inspect_edges` enumerates direct physical edges through the object's existing
+scanner, including erased Rust and dynamic providers. It does not traverse children,
+mark objects or register roots. Caller-owned `access::inspection::EdgeInspector`
+reuses pointer-free scan scratch; `capacity_bytes` reports its external capacity,
+separate from Heap's collection workspace. A closed visit receives same-scope Gc
+handles and can stop with ControlFlow. Checkpoints run between 1,024-unit turns,
+including turns that inspect empty fields; indivisible providers can exceed that
+allowance. Only shared Scope access is lent, so these callbacks cannot mutate or
+collect the heap. Language policy, cycle detection and fallible traversal queues
+remain with the caller. Gc equality/hashing observe allocation identity inside the
+same invariant scope; they create no persistent address or retention capability.
+
 Use `Root<T>` for owning host retention across scopes, `RootSet` for fixed replaceable
 root packs, and private `Edge<T>` fields for internal relationships. Root cloning shares
 one registration. Last-handle drop only queues a pre-reserved notification; it
@@ -51,6 +63,22 @@ edge imports and general mutation are unsafe provider APIs; they are not an ordi
 safe object builder. Stored Edge is neither Copy nor Clone and grants no safe
 independent dereference. `Access` retains low-level rooted/provider operations;
 both surfaces share allocation, mutation and publication kernels.
+
+`HeapStats::provider_units` sums committed provider logical costs separately from
+object count and bytes; units do not drive pacing. A provider changing charge
+must commit it before lending a forgettable safe proxy. Use
+`ObjectMut::commit_accounting` to checkpoint without ending the loan or clearing
+its scanner fallback; later edits need another checkpoint. Ordinary finish/Drop
+commits automatically. Scalar projections must preserve all charge quantities.
+
+`Heap::accounting()` and `RootDriver::accounting()` expose the latest access/service
+interval's committed before/after occupancy and independent peaks. Units combine
+object count and provider units as `u128`; bytes cover provider indirect backing.
+Growth followed by shrinkage inside the interval still contributes its peak;
+failed preflight requests do not. New access, step, collection, safepoint or shutdown
+starts an interval, including rejected access. Reading the detached report neither
+resets it nor grants heap access. Embedders attribute it after physical loans end;
+the collector contains no session policy or accounting callback.
 
 Providers declare `ScalarField` and `EdgeField` once with unsafe verified
 projections. Ordinary get/set/borrow_mut calls are safe: scalar fields preserve
@@ -109,10 +137,10 @@ import/publication primitives. Source loans cannot escape a driver scope, and a
 scan failure faults collection before sweep. Run the
 [reference-copy comparison](examples/root_access/main.rs) with
 `cargo run -p kagari-gc --release --example root_access`; the
-[plan](../../docs/gc-redesign-plan.md#remaining-decisions-and-work) tracks remaining
-integration and performance work.
-Runtime value/tag pairing, compact encodings and integration remain deferred;
-physical reference fields do not enforce language nominal types.
+[roadmap](../../docs/implementation-roadmap.md#gc-library-redesign) tracks remaining
+provider/performance/CI work. Runtime integrates its actual source/providers through
+ManagedMemory/RootDriver, with scoped/stored/rooted tagged carriers. Physical
+reference fields do not enforce script nominal types; Runtime supplies those checks.
 
 The [linked-list example](examples/linked_list/main.rs) shows a safe business API
 over that kernel. `values` is a lazy Iterator yielding `i64`, without a per-item
@@ -180,7 +208,7 @@ measured cycles of 50000 operations per case, rotating case order deterministica
 Setup and collection are outside timers; every sample verifies its result and
 GC samples verify reclamation afterward. This is warm single-object, collector-idle
 characterization, not allocation, reference barriers, GC pauses or script throughput.
-The [measurement summary](../../docs/gc-redesign-plan.md#current-field-access)
+The [measurement summary](../../docs/performance-baseline.md#current-field-access)
 records the environment, results and limitations. Pass `0 --dynamic-borrow`
 (and subsequent process indices) for dynamic scalar loans; `0 --alternating`
 visits 32 distinct objects round-robin and checks every final value.
@@ -196,7 +224,7 @@ clearing/dead collection of 512 and 8192 scalar leaves. Scope entry and root-ban
 creation are untimed; allocation includes storing into roots. Each batch checks
 values and reclamation. These are safe-API throughput comparisons, not identical
 collector contracts, pause distributions, dynamic script fields or Runtime results.
-The [method and results](../../docs/gc-redesign-plan.md#performance-evidence)
+The [method and results](../../docs/performance-baseline.md#standalone-gc-characterization-windows-2026-11-01)
 record ownership differences and the remaining performance gaps.
 
 Repeated typed allocation can reuse `let descriptor = heap.access()?.register::<T>()?`
@@ -213,7 +241,7 @@ and take the median of samples 3-13, then repeat seven sequential processes.
 Targets alternate between two retained objects; this measures repeated publication,
 not a fresh-white-target barrier on every iteration. Collection/result checks are
 outside the timed loops. First-white-target latency and integrated barriers
-remain [open measurements](../../docs/gc-redesign-plan.md#remaining-decisions-and-work).
+remain [open measurements](../../docs/implementation-roadmap.md#gc-library-redesign).
 
 When driving small incremental steps, inspect `StepReport::required_budget`.
 `Some(units)` requests a larger next allowance for a bounded scanner; it is
@@ -253,7 +281,7 @@ target/release/examples/sustained_allocation --burst
 ```
 
 Use the `.exe` suffix on Windows. Results, tail aggregation and remaining limits
-are in the [active plan](../../docs/gc-redesign-plan.md#collection-and-retained-capacity).
+are in the [performance record](../../docs/performance-baseline.md#collection-and-retained-capacity).
 
 Stable-ID page/root/descriptor tables now release empty blocks, including holes
 below a high live ID. Full collection and completing safepoints also shrink excess
@@ -267,15 +295,17 @@ object backing and RSS; it walks allocated blocks and is a diagnostic operation.
 The [capacity fixture](examples/metadata_capacity/main.rs) exercises a peak of
 8192 pages with one host root, 8192 independent roots, and 8192 descriptors, keeping
 one high-ID survivor in each case. Run
-`cargo run -p kagari-gc --release --example metadata_capacity`. The [recorded results](../../docs/gc-redesign-plan.md#collection-and-retained-capacity)
+`cargo run -p kagari-gc --release --example metadata_capacity`. The [recorded results](../../docs/performance-baseline.md#collection-and-retained-capacity)
 include memory exclusions, retained partial blocks and measured throughput costs.
 
 The library provides typed Rust and fixed dynamic allocation/access, roots,
-mutation, incremental tracing, sweep and contained disposal. Runtime cutover,
-arbitrary erased providers, native take/tombstones, integrated pressure/cancellation
-policy, full performance instrumentation and comparative acceptance remain at their
-[plan](../../docs/gc-redesign-plan.md) owners. There are no placeholder production
-entrypoints for deferred capabilities. Existing Runtime behavior is unchanged.
+mutation, incremental tracing, sweep and contained disposal. Runtime uses this
+library as its sole collector; actual revision/static/environment/application and
+Native providers share its active/parked execution source. See the
+[Runtime integration map](../../docs/gc-implementation-design.md#runtime-integration-map).
+Provider ergonomics, further GC performance, NC collection restoration and complete
+CI acceptance retain their [roadmap](../../docs/implementation-roadmap.md#gc-library-redesign)
+owners. There are no placeholder production entrypoints for deferred capabilities.
 
 ## Graph and memory-safety validation
 
@@ -318,5 +348,7 @@ cargo +nightly-2026-10-22 miri test --locked -p kagari-gc --target x86_64-unknow
 
 Set `MIRIFLAGS` in the calling shell before the Miri commands. Passing these
 executed paths is not proof of soundness or coverage of arbitrary unsafe providers.
-The [plan](../../docs/gc-redesign-plan.md#current-validation-evidence)
-records actual local evidence and remaining fuzzing, sanitizer and Runtime work.
+The [roadmap](../../docs/implementation-roadmap.md#gc-library-redesign) records
+remaining fuzzing, sanitizer and CI work. Runtime actual public Native-scope and
+parking transition witnesses also have scoped strict-provenance Miri evidence;
+they do not establish the complete platform/provider matrix.

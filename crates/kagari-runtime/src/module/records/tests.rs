@@ -1,8 +1,13 @@
 use super::*;
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
-    module::{LinkedModule, ModuleEpochRetention, Program, ProgramDescriptor, VerifiedProgram},
+    module::{
+        InstalledProgram, LinkedModule, ModuleEpochRetention, ProgramDescriptor, VerifiedProgram,
+        managed::source::RevisionSource, retention::RetentionOrigin,
+    },
     native::{
         binding::{BindingEntry, Codec, NativeBinding},
         builder::ModuleBuilder,
@@ -10,7 +15,7 @@ use crate::{
         declarations::FunctionDecl,
         types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_bytecode::{
     instruction::{EnumId, StructId},
@@ -28,7 +33,7 @@ use std::{slice, thread};
 
 fn fixture() -> (
     Runtime,
-    Program,
+    InstalledProgram,
     ExecutableModule,
     DefinitionMetadata<BytecodeProgram>,
 ) {
@@ -39,7 +44,9 @@ fn fixture() -> (
     builder
         .bind(
             function,
-            NativeBinding::new(vec![], Codec::Exact(Type::i32()), |_| Ok(Value::I32(3))),
+            NativeBinding::new(vec![], Codec::Exact(Type::i32()), |_| {
+                Ok(ValueView::from(3i32))
+            }),
         )
         .unwrap();
     let provider = builder.finish().unwrap();
@@ -49,18 +56,7 @@ fn fixture() -> (
     let root = sources
         .set(
             "records.kgr",
-            r#"
-        use test::probe::read;
-        struct Holder<T> { val value: T }
-        enum Wrapped<T> { Some(T), None }
-        trait Build {
-            fn make<T>(self, value: T) -> Holder<T> { Holder { value: value } }
-            fn wrap<T>(self, value: T) -> Wrapped<T> { Wrapped::Some(value) }
-        }
-        impl Build for i32 {}
-        fn main() -> i32 { val b: Build = 0; val h = b.make(7); val w = b.wrap(h.value); read() }
-    "#
-            .into(),
+            include_str!("../../../tests/fixtures/module/record-consumers.kgr").into(),
             SourceLayer::Base,
         )
         .unwrap();
@@ -78,7 +74,7 @@ fn fixture() -> (
         .unwrap();
     let mut runtime = Runtime::default();
     provider.install(&mut runtime).unwrap();
-    let loaded_program = runtime.load_program("records", code.clone()).unwrap();
+    let loaded_program = load_bytecode(&mut runtime, "records", code.clone()).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     (runtime, loaded_program, loaded, code)
 }
@@ -116,6 +112,7 @@ fn detached_copy(loaded: &ExecutableModule) -> ExecutableModule {
     ExecutableModule {
         slot: loaded.slot,
         program: Arc::new(ProgramDescriptor {
+            definitions: loaded.program.definitions.clone(),
             source: loaded.program.source.clone(),
             installation: loaded.program.installation,
             dispatch: loaded.program.dispatch.clone(),
@@ -136,6 +133,7 @@ fn detached_copy(loaded: &ExecutableModule) -> ExecutableModule {
                     bytecode: module.bytecode.clone(),
                     registry_owner: module.registry_owner,
                     host_types: module.host_types.clone(),
+                    static_contracts: module.static_contracts.clone(),
                     host_paths: module.host_paths.clone(),
                 })
                 .collect(),
@@ -205,7 +203,7 @@ fn immutable_descriptors_can_cross_threads_without_retaining_native_links_or_cac
 
 #[test]
 fn installed_layout_applications_reuse_caches_but_old_type_facts_survive_collection() {
-    let (runtime, loaded_program, loaded, code) = fixture();
+    let (mut runtime, loaded_program, loaded, code) = fixture();
     let args = [Ty::Builtin(BuiltinType::I32)];
     let id = generic_structure(&loaded);
     let enum_id = generic_enum(&loaded);
@@ -252,11 +250,11 @@ fn installed_layout_applications_reuse_caches_but_old_type_facts_survive_collect
     runtime.publish_staged_reload(candidate).unwrap();
 
     let latest = runtime.select_program(&loaded_program).unwrap();
-    let reclaimed = runtime.collect_garbage().unwrap().reclaimed_modules;
+    runtime.collect_garbage().unwrap();
     assert!(
         loaded
             .members()
-            .all(|module| reclaimed.contains(&module.key()))
+            .all(|module| runtime.modules().loaded(module.key()).is_none())
     );
     assert!(probe.upgrade().is_none());
     assert!(
@@ -287,7 +285,7 @@ fn installed_layout_applications_reuse_caches_but_old_type_facts_survive_collect
 
 #[test]
 fn layout_scopes_preserve_provenance_across_bounded_retention_and_retirement() {
-    let (runtime, loaded_program, loaded, code) = fixture();
+    let (mut runtime, loaded_program, loaded, code) = fixture();
     let id = generic_structure(&loaded);
     let declaration = loaded.bytecode.structures[id.index()].declaration;
     let parameter = GenericParam {
@@ -391,11 +389,11 @@ fn layout_scopes_preserve_provenance_across_bounded_retention_and_retirement() {
         .unwrap();
     assert!(!Arc::ptr_eq(&old_scope, &new_scope));
     assert_ne!(arguments[0].identity(&latest), fresh[0].identity(&latest));
-    let collected = runtime.collect_garbage().unwrap();
+    runtime.collect_garbage().unwrap();
     assert!(
         loaded
             .members()
-            .all(|member| collected.reclaimed_modules.contains(&member.key()))
+            .all(|member| runtime.modules().loaded(member.key()).is_none())
     );
     assert!(runtime.validate_executable_module(&loaded).is_err());
     assert_eq!(
@@ -442,7 +440,7 @@ fn layout_scopes_preserve_provenance_across_bounded_retention_and_retirement() {
 
 #[test]
 fn equivalent_member_layouts_share_prepared_identity_without_aliasing_versions() {
-    let (runtime, previous_program, _previous, code) = fixture();
+    let (mut runtime, previous_program, _previous, code) = fixture();
     let (definitions, mut code) = code.into_parts();
     let args = [Ty::Builtin(BuiltinType::I32)];
     let source = code.root.index();
@@ -696,15 +694,12 @@ fn equivalent_member_layouts_share_prepared_identity_without_aliasing_versions()
 
 #[test]
 fn layout_admission_is_bounded_and_does_not_retain_producer_programs() {
-    let (runtime, old_program, old, code) = fixture();
+    let (mut runtime, old_program, old, code) = fixture();
     let id = generic_structure(&old);
-    runtime
-        .publish_staged_reload(
-            runtime
-                .stage_reload_program(&old_program, None, code)
-                .unwrap(),
-        )
+    let candidate = runtime
+        .stage_reload_program(&old_program, None, code)
         .unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
 
     let latest = runtime.select_program(&old_program).unwrap();
     let arguments = [Ty::Builtin(BuiltinType::I32)];
@@ -819,7 +814,7 @@ fn link_lookup_checks_runtime_version_bounds_and_store_borrows() {
 
 #[test]
 fn abandoned_candidates_release_links_even_when_their_descriptors_are_retained() {
-    let (runtime, loaded_program, _loaded, code) = fixture();
+    let (mut runtime, loaded_program, _loaded, code) = fixture();
     let candidate = runtime
         .stage_reload_program(&loaded_program, None, code)
         .unwrap();
@@ -845,7 +840,7 @@ fn abandoned_candidates_release_links_even_when_their_descriptors_are_retained()
 
 #[test]
 fn matching_keys_and_copied_bindings_do_not_authorize_an_uninstalled_descriptor() {
-    let (runtime, _loaded_program, loaded, _) = fixture();
+    let (mut runtime, _loaded_program, loaded, _) = fixture();
     let forged = detached_copy(&loaded);
     assert_eq!(loaded.key(), forged.key());
     assert!(forged.belongs_to(runtime.host.owner()));
@@ -859,12 +854,20 @@ fn matching_keys_and_copied_bindings_do_not_authorize_an_uninstalled_descriptor(
     );
     assert!(
         runtime
-            .retain_program(&forged, ModuleEpochRetention::ActiveCall)
+            .retain_program(
+                &forged,
+                ModuleEpochRetention::ActiveCall,
+                RevisionSource::Current
+            )
             .is_none()
     );
     assert!(
         runtime
-            .retain_module(&forged, ModuleEpochRetention::RuntimeValue)
+            .retain_module(
+                &forged,
+                ModuleEpochRetention::RuntimeValue,
+                RetentionOrigin::Current
+            )
             .is_none()
     );
     assert!(

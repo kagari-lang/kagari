@@ -1,0 +1,7 @@
+use example::primitives::count;
+
+pub fn main() -> u64 {
+    val callable = |text: String| count(text);
+    count("discarded");
+    count("aé文") + callable("é")
+}

@@ -1,0 +1,23 @@
+pub struct Player {
+    pub var hp: i32
+}
+
+impl Player {
+    pub fn damage(self, amount: i32) -> i32 {
+        self.hp = self.hp - amount;
+        self.hp
+    }
+}
+
+pub fn damage_evidence() -> i32 {
+    make().damage(1)
+}
+
+pub fn make() -> Player {
+    Player { hp: 42 }
+}
+
+pub fn make_callback() -> fn() -> i32 {
+    val data = [42];
+    || data[0]
+}

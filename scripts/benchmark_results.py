@@ -14,8 +14,6 @@ FORMS = ("direct", "helper", "concrete_generic", "interface", "shared_generic",
 CONTROLS = tuple(f"roots_{population}_{order}_{mode}"
                  for population, order in ((1, "tail"), (32, "tail"), (256, "forward"), (256, "random"))
                  for mode in ("complete", "cancel"))
-WINDOWS = ("windows_1_0_tail", "windows_32_8_tail", "windows_256_128_tail",
-           "windows_256_0_random", "windows_256_8_forward", "windows_256_128_random")
 MATCHED_CONFIG = ("rustc", "cargo", "machine", "profile", "features", "parallelism",
                   "environment", "workload_sha256", "lock_sha256", "suite", "workload",
                   "samples_per_process", "warmups_per_route", "setup_samples_per_workload",
@@ -63,11 +61,10 @@ def expected_rows(metadata: dict) -> dict[tuple[str, str, str], int]:
                 result["execute", f"forms_{name}", engine] = samples
         for phase in ("source_to_artifact", "artifact_prepare", "runtime_init", "program_link"):
             result[phase, "forms_module", "kagari_vm"] = 1
-    elif metadata["suite"] in ("controls", "windows"):
+    elif metadata["suite"] == "controls":
         require(not metadata["workload"], "controls cannot select an original workload")
-        names, phases = (WINDOWS, ("admit", "retire", "fragment")) if metadata["suite"] == "windows" else (CONTROLS, ("admit", "retire", "collect"))
-        for name in names:
-            for phase in phases:
+        for name in CONTROLS:
+            for phase in ("admit", "retire", "collect"):
                 result[phase, name, "kagari_vm"] = samples
     else:
         raise EvidenceError("numeric diagnostics cannot establish interpreter acceptance")
@@ -112,9 +109,7 @@ def validate_report(report: dict) -> dict[tuple[int, str, str, str], list[dict]]
         contract = row["size"], row["batch"], row["checksum"]
         require(contracts.setdefault(key, contract) == contract,
                 f"changed size/batch/checksum for {key}")
-        if metadata["suite"] == "windows":
-            require(row["batch"] == 32 and row["checksum"] == 0, "invalid window batch contract")
-        elif row["phase"] not in ("execute", "retire"):
+        if row["phase"] not in ("execute", "retire"):
             require(row["batch"] == 1 and row["checksum"] == 0, "invalid setup contract")
         grouped[run, *key].append(row)
         process_ids.add(run)
@@ -177,7 +172,7 @@ def compare(report: dict, targets: dict[str, float] | None = None,
     measured, diagnostics = [], []
     for row in summaries:
         selected = (row["engine"] == "kagari_vm"
-                    and row["phase"] in ("execute", "admit", "retire", "collect", "fragment"))
+                    and row["phase"] in ("execute", "admit", "retire", "collect"))
         (measured if selected else diagnostics).append(row)
     target_names = {row["workload"] for row in measured
                     if row["phase"] in ("execute", "retire") and row["engine"] == "kagari_vm"}

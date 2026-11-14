@@ -5,15 +5,14 @@ use kagari_compiler::{bytecode::BytecodeLoweringError, source::lower::MirLowerin
 use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
+    program::ProgramPreparationError,
     reload::ReloadValidationError as RuntimeReloadValidationError,
     task::TaskFailureOrigin,
 };
 #[cfg(feature = "source")]
 use kagari_source::{diagnostic::Diagnostic, presentation::DiagnosticRecord, source::SourceFile};
-use kagari_vm::error::VmError;
 #[cfg(feature = "source")]
 use smallvec::SmallVec;
-use std::sync::Arc;
 #[cfg(feature = "source")]
 use std::{io, path::PathBuf};
 
@@ -34,39 +33,6 @@ impl CompilationPhase {
             Self::MirLowering => "KG_COMPILE_IR_LOWERING",
             Self::BytecodeLowering => "KG_COMPILE_BYTECODE_LOWERING",
             Self::ArtifactEncoding => "KG_COMPILE_ARTIFACT_ENCODING",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RuntimeFailureKind {
-    Cancelled,
-    ScriptTrap,
-    BytecodeVerification,
-    ExecutionPhaseViolation,
-    ResourceLimitExceeded,
-    HostCallFailure,
-    TypedPathValidation,
-    StaleModuleOrHostRoot,
-    ReloadValidation,
-    EngineInvariant,
-    UnsupportedExecution,
-}
-
-impl RuntimeFailureKind {
-    pub fn code(self) -> &'static str {
-        match self {
-            Self::Cancelled => "KG_RUNTIME_CANCELLED",
-            Self::ScriptTrap => "KG_RUNTIME_SCRIPT_TRAP",
-            Self::BytecodeVerification => "KG_BYTECODE_VERIFICATION_FAILED",
-            Self::ExecutionPhaseViolation => "KG_RUNTIME_EXECUTION_PHASE_VIOLATION",
-            Self::ResourceLimitExceeded => "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED",
-            Self::HostCallFailure => "KG_RUNTIME_HOST_CALL_FAILURE",
-            Self::TypedPathValidation => "KG_RUNTIME_TYPED_PATH_VALIDATION",
-            Self::StaleModuleOrHostRoot => "KG_RUNTIME_STALE_HANDLE",
-            Self::ReloadValidation => "KG_RELOAD_VALIDATION_FAILED",
-            Self::EngineInvariant => "KG_ENGINE_INVARIANT",
-            Self::UnsupportedExecution => "KG_RUNTIME_UNSUPPORTED_EXECUTION",
         }
     }
 }
@@ -96,14 +62,8 @@ pub enum EmbeddingError {
     ArtifactValidation {
         error: ArtifactValidationError,
     },
-    Load {
-        error: RuntimeError,
-    },
     Runtime {
-        kind: RuntimeFailureKind,
-        message: String,
-        trace: Option<Arc<ErrorTrace>>,
-        task_origin: Option<TaskFailureOrigin>,
+        error: RuntimeError,
     },
     ReloadValidation {
         code: String,
@@ -114,16 +74,14 @@ pub enum EmbeddingError {
 impl EmbeddingError {
     pub fn task_origin(&self) -> Option<TaskFailureOrigin> {
         match self {
-            Self::Runtime { task_origin, .. } => *task_origin,
-            Self::Load { error } => error.task_origin(),
+            Self::Runtime { error } => error.task_origin(),
             _ => None,
         }
     }
 
     pub fn error_trace(&self) -> Option<&ErrorTrace> {
         match self {
-            Self::Runtime { trace, .. } => trace.as_deref(),
-            Self::Load { error } => error.trace().map(AsRef::as_ref),
+            Self::Runtime { error } => error.trace().map(AsRef::as_ref),
             _ => None,
         }
     }
@@ -142,8 +100,7 @@ impl EmbeddingError {
                 .unwrap_or_else(|| "KG_DIAGNOSTIC_EMPTY".to_owned()),
             Self::Compilation { phase, .. } => phase.code().to_owned(),
             Self::ArtifactValidation { error } => error.code().to_owned(),
-            Self::Load { error } => error.code().to_owned(),
-            Self::Runtime { kind, .. } => kind.code().to_owned(),
+            Self::Runtime { error } => error.code().to_owned(),
             Self::ReloadValidation { code, .. } => code.clone(),
         }
     }
@@ -189,121 +146,43 @@ impl EmbeddingError {
         Self::ArtifactValidation { error }
     }
 
-    pub(crate) fn load(error: RuntimeError) -> Self {
-        Self::Load { error }
-    }
-
-    pub(crate) fn runtime(kind: RuntimeFailureKind, message: impl Into<String>) -> Self {
-        Self::Runtime {
-            kind,
-            message: message.into(),
-            trace: None,
-            task_origin: None,
-        }
-    }
-
-    pub(crate) fn reload_validation(error: impl Into<ReloadValidationError>) -> Self {
-        let error = error.into();
+    pub(crate) fn reload_validation(error: RuntimeReloadValidationError) -> Self {
         Self::ReloadValidation {
             code: error.code().to_owned(),
             message: error.to_string(),
         }
     }
-
-    pub(crate) fn vm(error: VmError) -> Self {
-        let trace = error.trace().cloned();
-        let task_origin = match error.cause() {
-            VmError::RuntimeError(error) => error.task_origin(),
-            _ => None,
-        };
-        let kind = match error.cause() {
-            VmError::Traced { .. } => unreachable!("unwrapped error"),
-            VmError::HostError(_) => RuntimeFailureKind::HostCallFailure,
-            VmError::RuntimeError(error) => match error.kind() {
-                RuntimeErrorKind::Cancelled => RuntimeFailureKind::Cancelled,
-                RuntimeErrorKind::EngineFault => RuntimeFailureKind::EngineInvariant,
-                RuntimeErrorKind::ExecutionPhaseViolation => {
-                    RuntimeFailureKind::ExecutionPhaseViolation
-                }
-                RuntimeErrorKind::ResourceLimitExceeded => {
-                    RuntimeFailureKind::ResourceLimitExceeded
-                }
-                RuntimeErrorKind::StaleHandle => RuntimeFailureKind::StaleModuleOrHostRoot,
-                RuntimeErrorKind::HostBorrowConflict
-                | RuntimeErrorKind::HostBorrowEscape
-                | RuntimeErrorKind::ExpiredHostBorrow
-                | RuntimeErrorKind::TypedPathValidation => RuntimeFailureKind::TypedPathValidation,
-                RuntimeErrorKind::HostCallFailure => RuntimeFailureKind::HostCallFailure,
-                RuntimeErrorKind::ModuleValidation => RuntimeFailureKind::BytecodeVerification,
-                RuntimeErrorKind::InvalidReflectiveRead
-                | RuntimeErrorKind::ScriptTrap
-                | RuntimeErrorKind::IndexOutOfBounds
-                | RuntimeErrorKind::InvalidReflectiveWrite
-                | RuntimeErrorKind::MetadataConflict => RuntimeFailureKind::ScriptTrap,
-            },
-            VmError::BytecodeVerification(_) => RuntimeFailureKind::BytecodeVerification,
-            VmError::InvalidFunctionRef(_)
-            | VmError::UnsupportedCallTarget(_)
-            | VmError::UnsupportedInstruction(_) => RuntimeFailureKind::BytecodeVerification,
-            VmError::JitInvocation(_) => RuntimeFailureKind::EngineInvariant,
-            VmError::MissingFunction(_)
-            | VmError::MissingField(_)
-            | VmError::InvalidIndex(_)
-            | VmError::InvalidBranchCondition
-            | VmError::BuiltinError(_)
-            | VmError::ReflectionError(_)
-            | VmError::Trap(_)
-            | VmError::TypeMismatch(_) => RuntimeFailureKind::ScriptTrap,
-        };
-        Self::Runtime {
-            kind,
-            message: match error.cause() {
-                VmError::RuntimeError(e) => e.message().to_owned(),
-                other => format!("{other:?}"),
-            },
-            trace,
-            task_origin,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum ReloadValidationError {
-    #[error("artifact validation failed: {0}")]
-    Artifact(ArtifactValidationError),
-    #[error("{0}")]
-    Runtime(RuntimeReloadValidationError),
-}
-
-impl ReloadValidationError {
-    pub fn code(&self) -> &'static str {
-        match self {
-            Self::Artifact(error) => error.code(),
-            Self::Runtime(error) => error.code(),
-        }
-    }
-}
-
-impl From<VmError> for EmbeddingError {
-    fn from(error: VmError) -> Self {
-        Self::vm(error)
-    }
 }
 
 impl From<RuntimeError> for EmbeddingError {
     fn from(error: RuntimeError) -> Self {
-        Self::vm(VmError::RuntimeError(error))
+        Self::Runtime { error }
     }
 }
 
-impl From<ArtifactValidationError> for ReloadValidationError {
-    fn from(error: ArtifactValidationError) -> Self {
-        Self::Artifact(error)
+impl From<ProgramPreparationError> for EmbeddingError {
+    fn from(error: ProgramPreparationError) -> Self {
+        match error {
+            ProgramPreparationError::Cancelled => Self::Cancelled,
+            ProgramPreparationError::Artifact(error) => Self::ArtifactValidation { error },
+            ProgramPreparationError::SourcePackage(error) => error.into(),
+            ProgramPreparationError::History(error) => Self::reload_validation(error),
+            ProgramPreparationError::Identity(error) => Self::Source {
+                message: error.to_string(),
+            },
+        }
     }
 }
 
-impl From<RuntimeReloadValidationError> for ReloadValidationError {
+impl From<RuntimeReloadValidationError> for EmbeddingError {
     fn from(error: RuntimeReloadValidationError) -> Self {
-        Self::Runtime(error)
+        match error {
+            RuntimeReloadValidationError::Runtime(error)
+                if error.kind() == RuntimeErrorKind::Cancelled =>
+            {
+                Self::Cancelled
+            }
+            error => Self::reload_validation(error),
+        }
     }
 }

@@ -2,7 +2,6 @@
 use crate::{
     error_trace::asynchronous::SpawnOrigin,
     frame::{factory::QueuedFactory, types::arguments::TypeArgument},
-    gc::roots::RootedValue,
     module::ExecutableModule,
     resource::AsyncLimits,
     session::{ExecutionOptions, owned::OwnedExecution},
@@ -10,6 +9,7 @@ use crate::{
         ScopeId, SpawnError, TaskFailure,
         control::{ScopeControl, TaskSignal},
     },
+    value::carriers::RootedValue,
 };
 use std::sync::{
     Arc,

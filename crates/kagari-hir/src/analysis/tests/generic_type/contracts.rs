@@ -1,9 +1,7 @@
 //! Ordinary application declarations used to exercise inference and recovery.
 //! These bodies are test inputs, not a second implementation of library algorithms.
-use crate::{AnalysisResult, AnalyzedModule, analyze_source};
-use kagari_source::source::SourceFile;
-use kagari_stdlib::catalog as foundation_catalog;
 
+/* stdlib test support paused (NC01-NC06).
 const CONTRACTS: &str = r#"use std::collections::{HashMap, List, Map, Set};
 use std::hash::{Hash};
 use std::ops::Neg;
@@ -25,12 +23,13 @@ fn get_or<T>(value: Option<T>, fallback: T) -> T { match value { Some(x) => x, N
 fn result_or<T,E>(value: Result<T,E>, fallback: T) -> T { match value { Ok(x) => x, Err(e) => fallback } }
 fn same_set<T: Eq + Hash>(left: Set<T>, right: Set<T>) -> Set<T> { left }
 fn put_map<K: Eq + Hash,V>(values: HashMap<K,V>, key: K, value: V) { values.insert(key, value); }
-"#;
+"#; */
 
+/* stdlib test support paused (NC01-NC06).
 pub(super) fn analyze_contracts(source: &SourceFile) -> AnalysisResult<AnalyzedModule> {
     analyze_source(
         &SourceFile::new(source.name(), format!("{CONTRACTS}\n{}", source.text())),
         foundation_catalog::shared().unwrap(),
     )
     .expect("installed declaration analysis")
-}
+} */

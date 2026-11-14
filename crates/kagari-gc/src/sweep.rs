@@ -4,7 +4,8 @@ use crate::{
     allocation::{PhysicalHeap, Reservation, page::Backing},
     descriptor::Descriptor,
     error::GcError,
-    object::ObjectRef,
+    heap::accounting::MemoryLedger,
+    object::{ObjectCharge, ObjectRef},
     root::RootEntry,
 };
 use std::{
@@ -63,24 +64,26 @@ impl RetirementBatch {
         self.len += 1;
     }
 
-    /// Detach from a known physical cursor, returning the admitted indirect charge.
+    /// Detach from a known physical cursor, returning the admitted provider charge.
     /// Adjacent objects of the same page and descriptor share one pair of pins.
     pub(crate) fn detach(
         &mut self,
         physical: &mut PhysicalHeap,
         page: u32,
         slot: usize,
-        available_bytes: Option<usize>,
-    ) -> Result<usize, GcError> {
+        ledger: Option<&MemoryLedger>,
+    ) -> Result<ObjectCharge, GcError> {
         assert!(self.len < RETIREMENT_CAP);
         let object = physical.object_at(page, slot)?;
-        let charge = if available_bytes.is_some() {
+        let charge = if ledger.is_some() {
             // SAFETY: initialized occupied object and its exact registered hook.
-            unsafe { object.descriptor.charge(object.pointer) }.bytes
+            unsafe { object.descriptor.charge(object.pointer) }
         } else {
-            0
+            ObjectCharge::default()
         };
-        if available_bytes.is_some_and(|bytes| charge > bytes) {
+        if ledger.is_some_and(|ledger| {
+            charge.bytes > ledger.indirect || charge.units as u128 > ledger.units
+        }) {
             return Err(GcError::Storage("retirement charge exceeds ledger"));
         }
         let previous = self

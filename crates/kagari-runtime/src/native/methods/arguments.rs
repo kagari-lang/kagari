@@ -2,13 +2,12 @@
 use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    gc::roots::RootSet,
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
         conversion::{
             KagariType,
-            arguments::{IntoKagariArguments, KagariArguments},
+            arguments::{ArgumentValues, IntoKagariArguments, KagariArguments, PreparedArguments},
             context::ConversionContext,
         },
         methods::receiver::RetainedReceiver,
@@ -39,31 +38,18 @@ impl<A: KagariArguments> KagariArguments for ReceiverArguments<A> {
 }
 
 impl<A: IntoKagariArguments> IntoKagariArguments for ReceiverArguments<A> {
-    fn into_arguments(
+    fn encode_arguments<'call>(
         self,
-        cx: &mut ConversionContext<'_>,
-        expected: &[TypeArgument],
-    ) -> NativeResult<RootSet> {
-        Self::check_types(cx, expected)?;
-        cx.argument_scope(|cx| {
-            let receiver = cx.encode_prepared(&expected[0], self.receiver)?;
-            let arguments = self.arguments.into_arguments(cx, &expected[1..])?;
-            let mut values = Vec::new();
-            values
-                .try_reserve_exact(expected.len())
-                .map_err(|_| RuntimeError::resource_limit("method arguments"))?;
-            values.push(receiver);
-            for slot in 0..expected.len() - 1 {
-                values.push(
-                    arguments
-                        .get(cx.runtime().gc(), slot)
-                        .ok_or_else(|| RuntimeError::module_validation("method argument root"))?,
-                );
-            }
-            cx.runtime()
-                .gc()
-                .root_execution_values(values)
-                .ok_or_else(|| RuntimeError::module_validation("method argument retention"))
-        })
+        cx: &mut ConversionContext<'call>,
+        prepared: &PreparedArguments<'_, Self>,
+    ) -> NativeResult<ArgumentValues<'call>> {
+        let (receiver_type, arguments_type) = prepared
+            .types()
+            .split_first()
+            .ok_or_else(|| RuntimeError::module_validation("missing method receiver"))?;
+        let receiver = cx.encode_prepared(receiver_type, self.receiver)?;
+        let arguments =
+            PreparedArguments::<A>::from_binding(cx, arguments_type).encode(cx, self.arguments)?;
+        cx.prefix_arguments(receiver, arguments)
     }
 }

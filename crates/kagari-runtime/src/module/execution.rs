@@ -2,15 +2,20 @@
 //! Logical PCs remain one-to-one with canonical code. Caller ordinals and physical
 //! operands are shared across definition scopes. Runtime links own identity-bearing
 //! call contracts; other cold boundary operands remain in canonical code.
+//! Verified self-tail transfers retain the terminal Return for ordinary fallback.
 pub(crate) mod aggregates;
 pub(crate) mod allocation;
 pub(crate) mod calls;
 pub(crate) mod fields;
 pub(crate) mod frames;
 pub(crate) mod indices;
+pub mod instruction;
+pub(crate) mod interfaces;
 pub(crate) mod layout;
 pub mod managed;
+pub mod operands;
 pub(crate) mod scalar;
+pub(crate) mod tail;
 
 use crate::{
     module::execution::{
@@ -19,116 +24,22 @@ use crate::{
         fields::PreparedFieldOperation,
         frames::CalleeLayout,
         indices::{IndexAccess, PreparedIndexOperation},
+        instruction::ExecutionInstruction,
+        interfaces::PreparedUpcast,
         layout::{FrameLayout, Location},
         managed::{ManagedOperation, PreparedManagedOperation},
+        tail::TailCall,
     },
-    value::{Value, scalar as scalar_value},
+    value::{carriers::ScopedValue, scalar as scalar_value},
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
-    instruction::{BytecodeInstruction, CallTarget, ConstantOperand, JumpTarget, Slot},
+    instruction::{BytecodeInstruction, ConstantOperand, Slot},
     module::{BytecodeModule, CallableTarget},
     suspension::AwaitLiveness,
 };
-use kagari_types::{
-    integer::IntegerOp,
-    payload::{
-        comparison::{Comparison, ComparisonDomain},
-        operation::{FloatOperation, FloatType, ShiftKind},
-    },
-    scalar::IntegerType,
-};
+use kagari_types::ty::Ty;
 use std::collections::BTreeMap;
-
-/// A bounded physical operand in a prepared function's value window.
-#[derive(Debug, Clone, Copy)]
-pub struct OperandSlot(u32);
-
-impl OperandSlot {
-    pub(crate) fn new(index: usize, managed: bool) -> Self {
-        // Sealed register/local counts are u16; this bit only classifies frame
-        // offsets and never truncates a runtime owner/slot/generation identity.
-        Self(index as u32 | if managed { 1 << 31 } else { 0 })
-    }
-
-    pub(crate) fn index(self) -> usize {
-        (self.0 & !(1 << 31)) as usize
-    }
-
-    pub(crate) fn managed(self) -> bool {
-        self.0 & (1 << 31) != 0
-    }
-
-    pub(crate) fn scalar(self) -> Option<ScalarSlot> {
-        (!self.managed()).then_some(ScalarSlot(self.0))
-    }
-}
-
-/// A sealed scalar-bank offset. General locations prove their class once during
-/// preparation; scalar execution cannot reinterpret a managed offset as payload.
-#[derive(Debug, Clone, Copy)]
-pub struct ScalarSlot(u32);
-
-impl ScalarSlot {
-    #[inline]
-    pub(crate) fn index(self) -> usize {
-        self.0 as usize
-    }
-}
-
-macro_rules! define_execution {
-    (binary { $(($bp:pat, $brr:ident, $brk:ident, $bt:ty, $be:path),)* }
-     shift { $(($sk:ident, $srr:ident, $srk:ident, $se:path),)* }
-     compare { $(($cd:ident, $crr:ident, $crk:ident, $jrr:ident, $jrk:ident, $ct:ty, $ce:path),)* }
-     simple_compare { $(($sd:ident, $qrr:ident, $qjrr:ident, $qe:path),)* }
-     unary { $(($u:ident, $ur:ident, $ue:path),)* }
-     convert { $(($cv:ident, $cs:ty, $ctarget:ty),)* }) => {
-        /// Closed prepared operations with admitted physical operands.
-        #[derive(Debug, Clone, Copy)]
-        pub enum ExecutionInstruction {
-            Constant { dst: ScalarSlot, value: u64 },
-            Move { dst: ScalarSlot, src: ScalarSlot },
-            $(
-                $brr { dst: ScalarSlot, lhs: ScalarSlot, rhs: ScalarSlot },
-                $brk { dst: ScalarSlot, lhs: ScalarSlot, rhs: $bt },
-            )*
-            $(
-                $srr { dst: ScalarSlot, lhs: ScalarSlot, rhs: ScalarSlot, count_domain: IntegerType },
-                $srk { dst: ScalarSlot, lhs: ScalarSlot, rhs: u64, count_domain: IntegerType },
-            )*
-            $(
-                $crr { dst: ScalarSlot, lhs: ScalarSlot, rhs: ScalarSlot, condition: Comparison },
-                $crk { dst: ScalarSlot, lhs: ScalarSlot, rhs: $ct, condition: Comparison },
-                $jrr { lhs: ScalarSlot, rhs: ScalarSlot, then_target: JumpTarget, else_target: JumpTarget, condition: Comparison },
-                $jrk { lhs: ScalarSlot, rhs: $ct, then_target: JumpTarget, else_target: JumpTarget, condition: Comparison },
-            )*
-            $(
-                $qrr { dst: ScalarSlot, lhs: ScalarSlot, rhs: ScalarSlot, condition: Comparison },
-                $qjrr { lhs: ScalarSlot, rhs: ScalarSlot, then_target: JumpTarget, else_target: JumpTarget, condition: Comparison },
-            )*
-            $($ur { dst: ScalarSlot, src: ScalarSlot },)*
-            $($cv { dst: ScalarSlot, src: ScalarSlot, source: $cs, target: $ctarget },)*
-            BoolToInteger { dst: ScalarSlot, src: ScalarSlot, target: IntegerType },
-            IntegerBinaryKR { dst: ScalarSlot, lhs: u64, rhs: ScalarSlot, op: IntegerOp, domain: IntegerType },
-            IntegerBinaryKK { dst: ScalarSlot, lhs: u64, rhs: u64, op: IntegerOp, domain: IntegerType },
-            FloatBinaryKR { dst: ScalarSlot, lhs: u64, rhs: ScalarSlot, op: FloatOperation, domain: FloatType },
-            FloatBinaryKK { dst: ScalarSlot, lhs: u64, rhs: u64, op: FloatOperation, domain: FloatType },
-            ShiftKR { dst: ScalarSlot, lhs: u64, rhs: ScalarSlot, kind: ShiftKind, count_domain: IntegerType },
-            ShiftKK { dst: ScalarSlot, lhs: u64, rhs: u64, kind: ShiftKind, count_domain: IntegerType },
-            CompareStoreKR { dst: ScalarSlot, lhs: u64, rhs: ScalarSlot, domain: ComparisonDomain, condition: Comparison },
-            CompareStoreKK { dst: ScalarSlot, lhs: u64, rhs: u64, domain: ComparisonDomain, condition: Comparison },
-            CompareBranchKR { lhs: u64, rhs: ScalarSlot, domain: ComparisonDomain, condition: Comparison, then_target: JumpTarget, else_target: JumpTarget },
-            Jump(JumpTarget),
-            Branch { cond: ScalarSlot, then_target: JumpTarget, else_target: JumpTarget },
-            Managed(PreparedManagedOperation),
-            Return { value: Option<ScalarSlot>, representation: ValueType },
-            /// Release the cursor before canonical operations requiring a boundary.
-            Boundary,
-        }
-    };
-}
-
-scalar_catalog!(define_execution);
 
 #[derive(Debug)]
 pub(crate) struct ExecutionModule {
@@ -144,9 +55,10 @@ pub(crate) struct ExecutionFunction {
     /// coalescing may share a location: any live logical alias keeps it alive.
     pub awaits: BTreeMap<usize, Box<[u64]>>,
     pub calls: Box<[PreparedCall]>,
+    pub self_tail_calls: Box<[TailCall]>,
     pub fields: Box<[PreparedFieldOperation]>,
     pub indices: Box<[PreparedIndexOperation]>,
-    pub native_calls: usize,
+    pub upcasts: Box<[PreparedUpcast]>,
     pub has_call_contracts: bool,
     has_linked_constants: bool,
     pub(crate) has_layout_operands: bool,
@@ -157,7 +69,7 @@ impl ExecutionFunction {
         self.has_call_contracts
             || self.has_linked_constants
             || self.has_layout_operands
-            || self.native_calls != 0
+            || !self.upcasts.is_empty()
     }
 }
 
@@ -165,6 +77,7 @@ impl ExecutionFunction {
 struct OperationTables {
     fields: Vec<PreparedFieldOperation>,
     indices: Vec<PreparedIndexOperation>,
+    upcasts: Vec<PreparedUpcast>,
 }
 
 impl ExecutionModule {
@@ -210,7 +123,6 @@ impl ExecutionModule {
                         })
                         .collect();
                     let mut sites = OperationTables::default();
-                    let mut native_calls = 0;
                     let mut layout_sites = 0;
                     let instructions: Box<[_]> = function
                         .instructions
@@ -232,9 +144,7 @@ impl ExecutionModule {
                                 instruction,
                                 slot_layout,
                                 module,
-                                &mut sites.fields,
-                                &mut sites.indices,
-                                &mut native_calls,
+                                &mut sites,
                             )
                         })
                         .collect();
@@ -251,10 +161,11 @@ impl ExecutionModule {
                         frame,
                         awaits,
                         calls: Box::default(),
+                        self_tail_calls: Box::default(),
                         has_layout_operands: layout_sites != 0,
                         fields: sites.fields.into_boxed_slice(),
                         indices: sites.indices.into_boxed_slice(),
-                        native_calls,
+                        upcasts: sites.upcasts.into_boxed_slice(),
                         has_call_contracts: false,
                     }
                 })
@@ -269,10 +180,13 @@ impl ExecutionInstruction {
         instruction: &BytecodeInstruction,
         slot_layout: &FrameLayout,
         module: &BytecodeModule,
-        fields: &mut Vec<PreparedFieldOperation>,
-        indices: &mut Vec<PreparedIndexOperation>,
-        native_calls: &mut usize,
+        tables: &mut OperationTables,
     ) -> Self {
+        let OperationTables {
+            fields,
+            indices,
+            upcasts,
+        } = tables;
         let location = |register: Slot| {
             slot_layout
                 .location(register.index())
@@ -281,24 +195,38 @@ impl ExecutionInstruction {
         let slot = |register: Slot| location(register).operand;
 
         match *instruction {
-            BytecodeInstruction::Call {
-                callee: CallTarget::Native(_),
-                ..
+            BytecodeInstruction::UpcastInterface {
+                dst,
+                value,
+                ref source,
+                ref target,
             } => {
-                let index = *native_calls;
-                *native_calls += 1;
-                Self::managed(ManagedOperation::Native { index })
+                let index = upcasts.len();
+                upcasts.push(PreparedUpcast {
+                    dst: location(dst),
+                    value: location(value),
+                    source: Ty::Trait(source.clone()),
+                    target: Ty::Trait(target.clone()),
+                });
+                Self::managed(ManagedOperation::Upcast { index })
             }
             BytecodeInstruction::LoadConst { dst, constant } => {
+                if slot(dst).is_unit() {
+                    debug_assert!(matches!(
+                        module.constants[constant.index()],
+                        ConstantOperand::Unit
+                    ));
+                    return Self::Unit;
+                }
                 let value = match module.constants[constant.index()] {
-                    ConstantOperand::Unit => Value::Unit,
-                    ConstantOperand::Bool(v) => Value::Bool(v),
-                    ConstantOperand::Char(v) => Value::Char(v),
-                    ConstantOperand::I32(v) => Value::I32(v),
-                    ConstantOperand::I64(v) => Value::I64(v),
-                    ConstantOperand::U64(v) => Value::U64(v),
-                    ConstantOperand::F32(v) => Value::F32(v),
-                    ConstantOperand::F64(v) => Value::F64(v),
+                    ConstantOperand::Unit => ScopedValue::unit(),
+                    ConstantOperand::Bool(v) => ScopedValue::from(v),
+                    ConstantOperand::Char(v) => ScopedValue::from(v),
+                    ConstantOperand::I32(v) => ScopedValue::from(v),
+                    ConstantOperand::I64(v) => ScopedValue::from(v),
+                    ConstantOperand::U64(v) => ScopedValue::from(v),
+                    ConstantOperand::F32(v) => ScopedValue::from(v),
+                    ConstantOperand::F64(v) => ScopedValue::from(v),
                     ConstantOperand::Str(_) => {
                         return Self::managed(ManagedOperation::Constant {
                             dst: location(dst),
@@ -364,7 +292,14 @@ impl ExecutionInstruction {
                 Self::managed(ManagedOperation::Return { value: slot(value) })
             }
             BytecodeInstruction::Return(value) => Self::Return {
-                value: value.map(|value| slot(value).scalar().expect("classified scalar return")),
+                value: value.and_then(|value| {
+                    let operand = slot(value);
+                    if operand.is_unit() {
+                        None
+                    } else {
+                        Some(operand.scalar().expect("classified scalar return"))
+                    }
+                }),
                 representation: value.map_or(ValueType::Unit, |register| {
                     location(register).representation
                 }),
@@ -374,6 +309,9 @@ impl ExecutionInstruction {
     }
 
     fn move_slots(dst: Location, src: Location) -> Self {
+        if dst.operand.is_unit() && src.operand.is_unit() {
+            return Self::Unit;
+        }
         match (dst.operand.scalar(), src.operand.scalar()) {
             (Some(dst), Some(src)) => Self::Move { dst, src },
             _ => Self::managed(ManagedOperation::Copy { dst, src }),
@@ -394,16 +332,17 @@ mod tests {
             cursor::kernel::{RegionError, RegionExit},
         },
         module::linked_execution::{
-            LinkedFunction, LinkedNativeCall,
+            LinkedFunction,
             layouts::{AggregateLayout, AppliedLayouts, FunctionLayouts},
         },
-        native::primitive::PrimitiveResult,
+        value::{carriers::StoredValue, place::PublishedResult},
     };
     use std::{mem::size_of, sync::OnceLock};
 
     #[test]
     fn physical_instruction_budget() {
         assert!(size_of::<ExecutionInstruction>() <= 24);
+        assert!(size_of::<ExecutionFrame>() <= 320);
         eprintln!(
             "layout metadata bytes: function={}, application={}, operand={}, application_cell={}",
             size_of::<FunctionLayouts>(),
@@ -412,10 +351,9 @@ mod tests {
             size_of::<OnceLock<AggregateLayout>>()
         );
         eprintln!(
-            "linked native bytes: slot={}, operand={}, result={}",
-            size_of::<LinkedNativeCall>(),
+            "call publication bytes: operand={}, result={}",
             size_of::<Location>(),
-            size_of::<PrimitiveResult>()
+            size_of::<PublishedResult<'static>>()
         );
         eprintln!(
             "region bytes: error={}, exit={}, result={}",
@@ -424,15 +362,14 @@ mod tests {
             size_of::<Result<RegionExit, RegionError>>()
         );
         eprintln!(
-            "execution metadata bytes: instruction={}, frame={}, linked_function={}, field_operation={}, index_operation={}, execution_function={}, constant_cell={}, previous_constant_cell={}",
+            "execution metadata bytes: instruction={}, frame={}, linked_function={}, field_operation={}, index_operation={}, execution_function={}, constant_cell={}",
             size_of::<ExecutionInstruction>(),
             size_of::<ExecutionFrame>(),
             size_of::<LinkedFunction>(),
             size_of::<PreparedFieldOperation>(),
             size_of::<PreparedIndexOperation>(),
             size_of::<ExecutionFunction>(),
-            size_of::<OnceLock<Value>>(),
-            size_of::<Option<Value>>()
+            size_of::<StoredValue>()
         );
     }
 }

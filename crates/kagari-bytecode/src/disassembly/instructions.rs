@@ -11,7 +11,7 @@ use crate::{
     disassembly::{
         instructions::{
             calls::{function, target},
-            operands::{binary, field, iter, numeric, optional_slot, scalar_operand, slots, unary},
+            operands::{binary, field, numeric, optional_slot, scalar_operand, slots, unary},
         },
         presentation::DisplayContext,
         resolution::{Resolution, contracts::types},
@@ -68,11 +68,7 @@ pub(crate) fn write_instruction(
             write!(writer, " dst=s{}, lhs=s{}, rhs=", dst.index(), lhs.index())?;
             optional_slot(writer, *rhs)
         }
-        BytecodeInstruction::Iter { dst, value, ty, op } => {
-            write!(writer, "iter.{} s{}, value=", iter(*op), dst.index())?;
-            optional_slot(writer, *value)?;
-            write!(writer, ", type={}", context.ty(ty))
-        }
+
         BytecodeInstruction::LoadConst { dst, constant } => write!(
             writer,
             "load_const s{}, @{module}:const#{}",

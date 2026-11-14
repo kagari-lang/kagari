@@ -1,6 +1,9 @@
 //! Directional preservation of authored contracts, independent of executable slots.
+mod projection;
 
-use crate::reload::{ReloadValidationError, identity_error};
+use crate::reload::{
+    ReloadValidationError, contracts::projection::ModuleContracts, identity_error,
+};
 use kagari_bytecode::module::BytecodeModule;
 use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use kagari_contract::types::{
@@ -18,8 +21,8 @@ use kagari_types::{
 use std::collections::{HashMap, HashSet};
 
 pub(super) fn validate(
-    previous: &[BytecodeModule],
-    candidate: &[BytecodeModule],
+    previous: &[&BytecodeModule],
+    candidate: &[&BytecodeModule],
     previous_definitions: &DefinitionTable,
     candidate_definitions: &DefinitionTable,
 ) -> Result<(), ReloadValidationError> {
@@ -28,7 +31,7 @@ pub(super) fn validate(
     let old_types = correspondence
         .import(
             &nominal_declarations(previous, previous_definitions)?,
-            inventory(previous),
+            inventory(previous.iter().copied()),
             previous_definitions,
             &cancel,
         )
@@ -36,7 +39,7 @@ pub(super) fn validate(
     let new_types = correspondence
         .import(
             &nominal_declarations(candidate, candidate_definitions)?,
-            inventory(candidate),
+            inventory(candidate.iter().copied()),
             candidate_definitions,
             &cancel,
         )
@@ -53,16 +56,22 @@ pub(super) fn validate(
         .collect::<HashSet<_>>();
     let old = correspondence
         .import(
-            &previous.to_vec(),
-            inventory(previous),
+            &previous
+                .iter()
+                .map(|module| ModuleContracts::prepare(module))
+                .collect::<Vec<_>>(),
+            inventory(previous.iter().copied()),
             previous_definitions,
             &cancel,
         )
         .map_err(identity_error)?;
     let new = correspondence
         .import(
-            &candidate.to_vec(),
-            inventory(candidate),
+            &candidate
+                .iter()
+                .map(|module| ModuleContracts::prepare(module))
+                .collect::<Vec<_>>(),
+            inventory(candidate.iter().copied()),
             candidate_definitions,
             &cancel,
         )
@@ -140,13 +149,13 @@ pub(super) fn validate(
             |record| record.declaration,
             definitions,
         )?;
-        for slot in &previous.module_slots {
+        for slot in &previous.statics {
             let candidate = candidate
-                .module_slots
+                .statics
                 .iter()
-                .find(|other| other.contract.declaration == slot.contract.declaration);
-            if candidate.is_none_or(|other| other.contract != slot.contract) {
-                return Err(changed(slot.contract.declaration, definitions));
+                .find(|other| other.declaration == slot.declaration);
+            if candidate.is_none_or(|other| *other != *slot) {
+                return Err(changed(slot.declaration, definitions));
             }
         }
         for item in &previous.public_items {
@@ -211,7 +220,7 @@ pub(super) fn validate(
 // have no explicit reference in the module. Import its verified ID as well rather
 // than trying to reconstruct it from an incomplete comparison scope.
 fn nominal_declarations(
-    modules: &[BytecodeModule],
+    modules: &[&BytecodeModule],
     definitions: &DefinitionTable,
 ) -> Result<Vec<TypeDeclaration>, ReloadValidationError> {
     let mut declarations = Vec::new();
@@ -264,11 +273,15 @@ pub(super) fn inventory<'a>(
 }
 
 fn preserve_ambiguous(
-    previous: &BytecodeModule,
-    candidate: &BytecodeModule,
+    previous: &ModuleContracts,
+    candidate: &ModuleContracts,
     definitions: &DefinitionTable,
     same_module_indices: bool,
 ) -> Result<(), ReloadValidationError> {
+    let Some(previous) = previous.ambiguous.first() else {
+        return Ok(());
+    };
+    let candidate = candidate.ambiguous.first().ok_or_else(invalid)?;
     let mut owners = HashSet::new();
     for record in &previous.named_declarations {
         if record.ambiguous_local_body.is_some() {

@@ -78,8 +78,7 @@ the [roadmap](docs/implementation-roadmap.md) records pending work.
 - `kagari-bytecode`: interpreter model, validation, codec and `.kbc` envelope
 - `kagari-codegen`: verified MIR compilation interface
 - `kagari-codegen-cranelift`: optional scalar native compiler and code-memory ownership
-- `kagari-runtime`: values, GC, host state, sessions, native calls, security and reload
-- `kagari-vm`: bytecode frame driver, debugger and prepared native selection
+- `kagari-runtime`: canonical Program/Runtime, interpreter/debugger, async tasks, GC, Host/Native APIs and reload
 - `kagari`: host SDK with independent `source` and `native` features
 - `kagari-cli`: the `kg` executable, arguments, filesystem IO and presentation
 

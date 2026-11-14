@@ -1,15 +1,16 @@
 //! Iterable terminal operations preserve ordered callbacks and completed effects.
 use crate::foundation::enumerations::value::{self as enums, EnumSymbols, option};
-use kagari_contract::operations::IterOp;
 use kagari_runtime::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::RuntimeError,
     native::{
         binding::{Codec, NativeBinding, NativeResult},
-        context::CallContext,
+        context::NativeCall,
         scalar::NativeScalar,
     },
-    value::Value,
+    value::view::ValueView,
 };
+use kagari_types::{arithmetic::ArithmeticError, scalar::error::ScalarError};
+use std::ops::ControlFlow;
 
 #[derive(Clone, Copy)]
 pub(crate) enum Terminal {
@@ -31,71 +32,78 @@ pub(crate) fn terminal_binding(terminal: Terminal, symbols: EnumSymbols) -> Nati
     })
 }
 
-pub(crate) fn identity(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn identity<'call>(cx: &mut NativeCall<'call>) -> NativeResult<ValueView<'call>> {
     cx.argument(0)
 }
 
-pub(crate) fn destination(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.call_values(cx.selected_at(0)?, &[cx.argument(0)?])
+pub(crate) fn destination<'call>(cx: &mut NativeCall<'call>) -> NativeResult<ValueView<'call>> {
+    let source = cx.argument(0)?;
+    cx.call_values(cx.selected_at(0)?, &[source])
 }
 
-pub(crate) fn fold(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    let callback = cx.callable(2)?.store();
-    let mut accumulator = cx.argument(1)?;
-    let root = cx.heap().root_value(accumulator).ok_or_else(invalid)?;
-    let cursor = cx.call_values(cx.selected_at(0)?, &[cx.argument(0)?])?;
-    let _cursor = cx.heap().root_value(cursor).ok_or_else(invalid)?;
-    loop {
-        cx.poll()?;
+pub(crate) fn fold<'call>(
+    symbols: &EnumSymbols,
+    cx: &mut NativeCall<'call>,
+) -> NativeResult<ValueView<'call>> {
+    let callback = cx.callable(2)?;
+    let accumulator = cx.argument(1)?;
+    let source = cx.argument(0)?;
+    let cursor = cx.call_values(cx.selected_at(0)?, &[source])?;
+    cx.with_value_loop(&accumulator, |cx, accumulator| {
         let result = cx.call_values(cx.selected_at(1)?, &[cursor])?;
         let Some(item) = enums::read_option(symbols, cx, &result)? else {
-            return Ok(accumulator);
+            return Ok(ControlFlow::Break(accumulator));
         };
-        let _item = cx.heap().root_value(item).ok_or_else(invalid)?;
-        accumulator = callback.call_values(cx, &[accumulator, item])?;
-        root.set(cx.heap(), accumulator).ok_or_else(invalid)?;
-    }
+        callback
+            .call_values(cx, &[accumulator, item])
+            .map(ControlFlow::Continue)
+    })
 }
 
-fn consume(
+fn consume<'call>(
     symbols: &EnumSymbols,
-    cx: &mut CallContext<'_>,
+    cx: &mut NativeCall<'call>,
     terminal: Terminal,
-) -> NativeResult<Value> {
+) -> NativeResult<ValueView<'call>> {
     let callback = if matches!(terminal, Terminal::Count) {
         None
     } else {
-        Some(cx.callable(1)?.store())
+        Some(cx.callable(1)?)
     };
-    let cursor = cx.call_values(cx.selected_at(0)?, &[cx.argument(0)?])?;
-    let _cursor = cx.heap().root_value(cursor).ok_or_else(invalid)?;
+    let source = cx.argument(0)?;
+    let cursor = cx.call_values(cx.selected_at(0)?, &[source])?;
     let mut count = 0u64;
     loop {
-        cx.poll()?;
-        let result = cx.call_values(cx.selected_at(1)?, &[cursor])?;
-        let Some(item) = enums::read_option(symbols, cx, &result)? else {
-            return match terminal {
-                Terminal::Count => Ok(count.encode()),
-                Terminal::Find => option(symbols, cx, None),
-                Terminal::Any => Ok(false.encode()),
-                Terminal::All => Ok(true.encode()),
-                Terminal::ForEach => Ok(Value::Unit),
+        let completed = cx.with_optional_value_temporaries(|cx| {
+            let result = cx.call_values(cx.selected_at(1)?, &[cursor])?;
+            let Some(item) = enums::read_option(symbols, cx, &result)? else {
+                return match terminal {
+                    Terminal::Count => Ok(Some(count.encode())),
+                    Terminal::Find => option(symbols, cx, None).map(Some),
+                    Terminal::Any => Ok(Some(false.encode())),
+                    Terminal::All => Ok(Some(true.encode())),
+                    Terminal::ForEach => Ok(Some(ValueView::unit())),
+                };
             };
-        };
-        let _item = cx.heap().root_value(item).ok_or_else(invalid)?;
-        if matches!(terminal, Terminal::Count) {
-            count = increment(count)?;
-            continue;
-        }
-        let result = callback
-            .as_ref()
-            .ok_or_else(invalid)?
-            .call_values(cx, &[item])?;
-        match terminal {
-            Terminal::Find if bool::decode(result)? => return option(symbols, cx, Some(item)),
-            Terminal::Any if bool::decode(result)? => return Ok(true.encode()),
-            Terminal::All if !bool::decode(result)? => return Ok(false.encode()),
-            _ => {}
+            if matches!(terminal, Terminal::Count) {
+                count = increment(count)?;
+                return Ok(None);
+            }
+            let result = callback
+                .as_ref()
+                .ok_or_else(invalid)?
+                .call_values(cx, &[item])?;
+            match terminal {
+                Terminal::Find if bool::decode(result)? => {
+                    option(symbols, cx, Some(item)).map(Some)
+                }
+                Terminal::Any if bool::decode(result)? => Ok(Some(true.encode())),
+                Terminal::All if !bool::decode(result)? => Ok(Some(false.encode())),
+                _ => Ok(None),
+            }
+        })?;
+        if let Some(value) = completed {
+            return Ok(value);
         }
     }
 }
@@ -107,16 +115,7 @@ fn invalid() -> RuntimeError {
 pub(super) fn increment(value: u64) -> NativeResult<u64> {
     value
         .checked_add(1)
-        .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "integer overflow"))
-}
-
-pub(crate) fn iter(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.iter_operation(0, IterOp::New)
-}
-
-pub(crate) fn next(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    let (some, none) = symbols.option_members()?;
-    cx.iterator_next_result(0, some, none)
+        .ok_or_else(|| RuntimeError::from(ScalarError::from(ArithmeticError::Overflow)))
 }
 
 #[cfg(test)]

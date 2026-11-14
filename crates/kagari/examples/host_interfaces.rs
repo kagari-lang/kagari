@@ -4,18 +4,19 @@ use kagari::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, metadata::DefinitionMetadata,
 };
 use kagari_runtime::{
-    host::{HostCallContext, HostError, HostObjectId, HostSchemaEpoch},
+    host::{HostError, HostObjectId, HostSchemaEpoch},
     module::entry::ProgramEntry,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
-    value::Value,
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, host, types::Type},
+    value::{kind::ObjectKind, view::ValueView},
 };
 use kagari_source::source_database::SourceLayer;
+use kagari_stdlib as stdlib;
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::declaration::host::{
     HostCallPolicy, HostFunctionEffects, HostPassingStyle, HostReflectionPolicy, HostTypeOwnership,
@@ -28,7 +29,8 @@ const SOURCE_URI: &str = "mem://host-interface";
 fn compile_offline() -> (KagariEngine, DefinitionMetadata<BytecodeArtifact>) {
     // Read the trait's checked ABI independently of its host implementation.
     // The source owns this private trait; Rust does not declare or export it.
-    let author = KagariEngine::default();
+    let author =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let contract_source = SOURCE
         .split("\nfn read<")
         .next()
@@ -85,12 +87,23 @@ fn compile_offline() -> (KagariEngine, DefinitionMetadata<BytecodeArtifact>) {
                         effects: Default::default(),
                     },
                 )?;
-                methods.bind("read", |_: &HostCallContext<'_>, args: &[Value]| {
-                    let [Value::HostRoot(_), Value::I32(amount)] = args else {
-                        return Err(HostError::new("checked Counter receiver and i32 argument"));
-                    };
-                    Ok(Value::I32(*amount))
-                })
+                methods.bind(
+                    "read",
+                    host::callback(|_, args| {
+                        let [receiver, amount] = args else {
+                            return Err(HostError::new(
+                                "checked Counter receiver and i32 argument",
+                            ));
+                        };
+                        if receiver.kind() != Some(ObjectKind::HostRoot) {
+                            return Err(HostError::new("checked Counter receiver"));
+                        }
+                        let amount = amount
+                            .as_i32()
+                            .ok_or_else(|| HostError::new("checked i32 argument"))?;
+                        Ok(ValueView::from(amount))
+                    }),
+                )
             })
         })
         .unwrap();
@@ -108,19 +121,30 @@ fn compile_offline() -> (KagariEngine, DefinitionMetadata<BytecodeArtifact>) {
         )
         .unwrap();
     module
-        .bind(make, |cx: &HostCallContext<'_>, _: &[Value]| {
-            let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
-            cx.runtime()
-                .gc()
-                .alloc_host_root(root)
-                .map_err(|error| HostError::new(error.to_string()))
-        })
+        .bind(
+            make,
+            host::callback(|cx, _| {
+                let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
+                let value = cx
+                    .runtime_mut()
+                    .host_root_value(root)
+                    .map_err(|error| HostError::new(error.to_string()))?;
+                cx.import(&value)
+                    .map_err(|error| HostError::new(error.to_string()))
+            }),
+        )
         .unwrap();
     // One checked installation owns both declarations and callbacks. Compilation
     // consumes the cold declarations and never executes either callback.
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), vec![module.finish().unwrap()])
-            .unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![module.finish().unwrap()])
+            .collect(),
+    )
+    .unwrap();
     let file = engine.bind_module(SOURCE_URI, path.module).unwrap();
     engine
         .set_source(SOURCE_URI, SOURCE.into(), SourceLayer::Base)
@@ -139,26 +163,20 @@ fn main() {
         ..Default::default()
     };
     let mut runtime = engine.runtime(context.clone());
-    let ty = runtime
-        .runtime()
-        .types()
-        .get_by_name("demo::Counter")
-        .unwrap()
-        .id;
+    let ty = runtime.types().get_by_name("demo::Counter").unwrap().id;
     runtime
-        .runtime_mut()
         .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
         .unwrap();
     let artifact =
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     let result = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap();
-    let value = result.return_value.value(runtime.runtime().gc()).unwrap();
-    assert_eq!(value, Value::I32(42));
+    let value = result.return_value.as_i32().expect("checked i32 result");
+    assert_eq!(value, 42);
     println!("static + dynamic host interface result: {value:?}");
 }

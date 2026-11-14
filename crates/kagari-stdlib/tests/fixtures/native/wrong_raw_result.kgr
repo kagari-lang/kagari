@@ -1,0 +1,9 @@
+use example::bad::broken;
+
+fn main() -> i32 {
+    broken()
+}
+
+pub fn healthy() -> i32 {
+    42
+}

@@ -1,0 +1,25 @@
+use std::cmp::Ordering;
+
+trait Keep {
+    fn keep<T: Ord>(self, a: T, b: T) -> fn() -> bool {
+        a.cmp(b);
+        val callbacks: [fn() -> bool] = [|| false];
+        val result = || {
+            callbacks[0];
+            a.cmp(b) == Ordering::Less
+        };
+        callbacks[0] = result;
+        result
+    }
+}
+
+impl Keep for i32 {}
+
+pub fn make() -> fn() -> bool {
+    val keeper: Keep = 0;
+    keeper.keep(1, 2)
+}
+
+pub fn invoke(callback: fn() -> bool) -> bool {
+    callback()
+}

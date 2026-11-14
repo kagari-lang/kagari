@@ -1,5 +1,5 @@
 //! Analyze native declaration views normally, then attach checked registration metadata.
-mod access;
+mod correspondence;
 
 use crate::{
     hir::{ids::FunctionId, item::function::FunctionKind, ty::TypeKind},
@@ -127,7 +127,7 @@ pub(crate) fn import_source(
     lowered.registered_declarations = definition.native_declarations(definitions)?;
     attach_types(definition, definitions, providers, &mut lowered)?;
     attach_functions(definition, &mut lowered)?;
-    access::attach(definition, definitions, &mut lowered)?;
+    correspondence::validate(definition, definitions, &mut lowered)?;
     attach_dependencies(metadata, providers, &mut lowered, cancel)?;
     Ok((parsed, Arc::new(lowered)))
 }
@@ -272,9 +272,7 @@ fn attach_types(
             TypeDefKind::Native(constructor) => match constructor {
                 NativeTypeConstructor::Reference(access) => NativeTypeKind::Reference(access),
                 NativeTypeConstructor::String => NativeTypeKind::String,
-                NativeTypeConstructor::Map => NativeTypeKind::HashMap,
-                NativeTypeConstructor::Set => NativeTypeKind::HashSet,
-                NativeTypeConstructor::Iter => NativeTypeKind::Iter,
+
                 NativeTypeConstructor::Range(kind) => NativeTypeKind::Range(kind),
             },
             _ => return Err(DeclarationError("missing native representation".into())),

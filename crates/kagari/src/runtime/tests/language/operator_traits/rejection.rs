@@ -1,5 +1,6 @@
 use crate::{engine::KagariEngine, error::EmbeddingError};
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn invalid_ordering_contracts_are_diagnostics() {
@@ -13,10 +14,12 @@ fn invalid_ordering_contracts_are_diagnostics() {
     ] {
         assert!(
             matches!(
-                KagariEngine::default().compile_to_artifact(
-                    SourceFile::new("bad-order.kgr", source),
-                    Default::default()
-                ),
+                KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                    .unwrap()
+                    .compile_to_artifact(
+                        SourceFile::new("bad-order.kgr", source),
+                        Default::default()
+                    ),
                 Err(EmbeddingError::Diagnostics { .. })
             ),
             "{source}"
@@ -32,10 +35,12 @@ fn index_does_not_grant_element_replacement_or_immutable_field_writes() {
         );
         assert!(
             matches!(
-                KagariEngine::default().compile_to_artifact(
-                    SourceFile::new("bad-index.kgr", source),
-                    Default::default()
-                ),
+                KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                    .unwrap()
+                    .compile_to_artifact(
+                        SourceFile::new("bad-index.kgr", source),
+                        Default::default()
+                    ),
                 Err(EmbeddingError::Diagnostics { .. })
             ),
             "{tail}"
@@ -55,10 +60,13 @@ fn invalid_operator_signatures_bounds_and_writes_are_diagnostics() {
         "use std::ops::{Add};\nimpl Add<i32> for i32 {type Output=i32;fn add(self,rhs:i32)->i32 {0}} fn main(){}",
         "use std::ops::{Neg};\nstruct X{} impl Neg for X {type Output=i32;fn neg(self)->i32 {42}} fn main(){val x=X{};val b=x && x;}",
     ] {
-        let result = KagariEngine::default().compile_to_artifact(
-            SourceFile::new("bad-operator.kgr", source),
-            Default::default(),
-        );
+        let result =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap()
+                .compile_to_artifact(
+                    SourceFile::new("bad-operator.kgr", source),
+                    Default::default(),
+                );
         assert!(
             matches!(result, Err(EmbeddingError::Diagnostics { .. })),
             "{source}: {result:?}"

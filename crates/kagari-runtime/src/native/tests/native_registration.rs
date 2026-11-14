@@ -5,36 +5,34 @@ use crate::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
-        context::CallContext,
+        context::NativeCall,
         declarations::{CallableRequirement, FunctionDecl, MethodDecl},
         module::NativeModule,
-        storage::{NativePayload, NativeStorage},
+        payload::data::NativeData,
+        storage::NativeStorage,
         types::{TraitRef, Type},
-        views::{SequenceHandle, SequenceMutHandle},
+        views::ValueHandle,
     },
-    resource::HeapCharge,
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_types::{declaration::module::ModuleDecl, scalar::BuiltinType};
 
-fn count(_cx: &mut CallContext<'_>) -> NativeResult<u64> {
+fn count(_cx: &mut NativeCall<'_>) -> NativeResult<u64> {
     Ok(1)
 }
 
-fn sequence_len(_cx: &mut CallContext<'_>, values: SequenceHandle<'_>) -> NativeResult<usize> {
-    values.len()
+fn answer<'call>(
+    _cx: &mut NativeCall<'call>,
+    _receiver: ValueHandle<'call>,
+) -> NativeResult<ValueView<'call>> {
+    Ok(ValueView::from(42i32))
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct EmptyPayload;
 
-impl NativePayload for EmptyPayload {
-    fn trace<'payload>(&'payload self, _visit: &mut dyn FnMut(&'payload Value)) {}
-
-    fn charge(&self) -> NativeResult<HeapCharge> {
-        Ok(HeapCharge::new(0, 0))
-    }
-}
+// SAFETY: This zero-sized registration fixture contains no fields or graph edges.
+unsafe impl NativeData for EmptyPayload {}
 
 #[test]
 fn inferred_binding_preserves_signedness() {
@@ -44,7 +42,7 @@ fn inferred_binding_preserves_signedness() {
         .define_function(FunctionDecl::new("count").returns(Type::i64()))
         .unwrap();
     let error = module.bind(function, count).unwrap_err();
-    assert!(error.message().contains("codec"));
+    assert!(error.to_string().contains("codec"));
 }
 
 #[test]
@@ -54,9 +52,13 @@ fn explicit_binding_uses_the_same_signature_check() {
     let function = module
         .define_function(FunctionDecl::new("count").returns(Type::u64()))
         .unwrap();
-    let wrong = NativeBinding::new(vec![], Codec::Exact(Type::i64()), |_| Ok(Value::I64(0)));
+    let wrong = NativeBinding::new(vec![], Codec::Exact(Type::i64()), |_| {
+        Ok(ValueView::from(0i64))
+    });
     assert!(module.bind(function.clone(), wrong).is_err());
-    let right = NativeBinding::new(vec![], Codec::Exact(Type::u64()), |_| Ok(Value::U64(0)));
+    let right = NativeBinding::new(vec![], Codec::Exact(Type::u64()), |_| {
+        Ok(ValueView::from(0u64))
+    });
     module.bind(function, right).unwrap();
     module.finish().unwrap();
 }
@@ -68,15 +70,15 @@ fn finalization_rejects_a_declaration_without_an_entry() {
     module
         .define_function(FunctionDecl::new("missing"))
         .unwrap();
-    assert!(module.finish().unwrap_err().message().contains("missing"));
+    assert!(module.finish().unwrap_err().to_string().contains("missing"));
 }
 
 #[test]
-fn sequence_conversion_rejects_opaque_storage_at_registration() {
+fn scalar_conversion_rejects_opaque_storage_at_registration() {
     let mut module = ModuleBuilder::new("example::opaque", &DeclarationCatalog::default()).unwrap();
     let mut declaration = module.define_type("Opaque").unwrap();
     declaration
-        .native_storage(NativeStorage::payload::<EmptyPayload>())
+        .native_storage(NativeStorage::data::<EmptyPayload>())
         .unwrap();
     let opaque = declaration.finish().unwrap();
     let len = module
@@ -88,62 +90,20 @@ fn sequence_conversion_rejects_opaque_storage_at_registration() {
         .unwrap();
     assert!(
         module
-            .bind(len.clone(), sequence_len)
+            .bind(len.clone(), count)
             .unwrap_err()
-            .message()
+            .to_string()
             .contains("codec")
     );
     module
         .bind(
             len,
             NativeBinding::new(vec![opaque.codec()], Codec::Exact(Type::u64()), |_| {
-                Ok(Value::U64(0))
+                Ok(ValueView::from(0u64))
             }),
         )
         .unwrap();
     module.finish().unwrap();
-}
-
-#[test]
-fn sequence_receiver_groups_allow_read_and_write_member_views() {
-    let mut module = ModuleBuilder::new("example::views", &DeclarationCatalog::default()).unwrap();
-    let mut declaration = module.define_type("Buffer").unwrap();
-    let item = declaration.type_parameter("T").unwrap();
-    declaration.sequence_storage(&item).unwrap();
-    let buffer = declaration.finish().unwrap();
-    let mut read = module.define_trait("Read").unwrap();
-    read.define_method(MethodDecl::instance("len").returns(Type::u64()))
-        .unwrap();
-    let read = read.finish().unwrap();
-    let mut write = module.define_trait("Write").unwrap();
-    write
-        .define_method(MethodDecl::instance("reverse"))
-        .unwrap();
-    let write = write.finish().unwrap();
-    module
-        .implement(buffer.apply([Type::i32()]).unwrap(), |group| {
-            group.receiver_codec(Codec::Sequence)?;
-            group.trait_impl(read.apply([])?, |methods| methods.bind("len", sequence_len))?;
-            group.trait_impl(write.apply([])?, |methods| {
-                methods.bind(
-                    "reverse",
-                    |_cx: &mut CallContext<'_>,
-                     mut values: SequenceMutHandle<'_>|
-                     -> NativeResult<()> {
-                        values.with_slice_mut::<i32, _>(|values| {
-                            values.reverse();
-                            Ok(())
-                        })
-                    },
-                )
-            })
-        })
-        .unwrap();
-    module
-        .finish()
-        .unwrap()
-        .install(&mut Runtime::default())
-        .unwrap();
 }
 
 #[test]
@@ -160,7 +120,7 @@ fn missing_or_unknown_trait_member_is_rejected() {
             implementation.trait_impl(measure.apply([])?, |_| Ok(()))
         })
         .unwrap_err();
-    assert!(error.message().contains("missing method"));
+    assert!(error.to_string().contains("missing method"));
 }
 
 #[test]
@@ -192,7 +152,9 @@ fn generic_receiver_groups_emit_independent_impl_binders() {
             group.trait_impl(read.apply([item.clone()])?, |methods| {
                 methods.bind(
                     "read",
-                    NativeBinding::new(vec![buffer.codec()], Codec::Value, |_| Ok(Value::I32(1))),
+                    NativeBinding::new(vec![buffer.codec()], Codec::Value, |_| {
+                        Ok(ValueView::from(1i32))
+                    }),
                 )
             })?;
             group.trait_impl(write.apply([item])?, |methods| {
@@ -201,7 +163,7 @@ fn generic_receiver_groups_emit_independent_impl_binders() {
                     NativeBinding::new(
                         vec![buffer.codec(), Codec::Value],
                         Codec::Exact(Type::unit()),
-                        |_| Ok(Value::Unit),
+                        |_| Ok(ValueView::unit()),
                     ),
                 )
             })
@@ -281,12 +243,7 @@ fn full_markdown_survives_builder_completion_and_cross_module_inheritance() {
                 methods.documentation("other", "Implementation-specific **override**.")?;
                 assert!(methods.documentation("missing", "invalid").is_err());
                 for method in ["read", "other"] {
-                    methods.bind(
-                        method,
-                        NativeBinding::new(vec![Codec::Value], Codec::Value, |_| {
-                            Ok(Value::I32(42))
-                        }),
-                    )?;
+                    methods.bind(method, answer)?;
                 }
                 Ok(())
             })?;
@@ -296,10 +253,7 @@ fn full_markdown_survives_builder_completion_and_cross_module_inheritance() {
                         .returns(Type::i32())
                         .documentation(markdown),
                 )?;
-                methods.bind(
-                    method,
-                    NativeBinding::new(vec![Codec::Value], Codec::Value, |_| Ok(Value::I32(42))),
-                )
+                methods.bind(method, answer)
             })
         })
         .unwrap();
@@ -387,7 +341,7 @@ fn scoped_type_inputs_preserve_snapshots_and_compare_complete_identity() {
                 NativeBinding::new(
                     vec![Codec::Exact(different)],
                     Codec::Exact(Type::unit()),
-                    |_| Ok(Value::Unit)
+                    |_| Ok(ValueView::unit())
                 )
             )
             .is_err()
@@ -398,7 +352,7 @@ fn scoped_type_inputs_preserve_snapshots_and_compare_complete_identity() {
             NativeBinding::new(
                 vec![Codec::Exact(exact)],
                 Codec::Exact(Type::unit()),
-                |_| Ok(Value::Unit),
+                |_| Ok(ValueView::unit()),
             ),
         )
         .unwrap();
@@ -443,7 +397,7 @@ fn selected_callbacks_require_proven_declared_bounds() {
         module
             .bind(
                 function,
-                NativeBinding::new(vec![Codec::Value], Codec::Value, |_| Ok(Value::Unit)),
+                NativeBinding::new(vec![Codec::Value], Codec::Value, |_| Ok(ValueView::unit())),
             )
             .unwrap();
         assert_eq!(module.finish().is_ok(), declare_bound);
@@ -523,7 +477,7 @@ fn native_default_rejects_unproven_operations_and_incompatible_codecs() {
             .bind(
                 method.clone(),
                 NativeBinding::new(vec![Codec::Value, Codec::Value], Codec::Value, |_| {
-                    Ok(Value::Unit)
+                    Ok(ValueView::unit())
                 }),
             )
             .unwrap();
@@ -532,7 +486,7 @@ fn native_default_rejects_unproven_operations_and_incompatible_codecs() {
                 .bind(
                     method,
                     NativeBinding::new(vec![Codec::Value, Codec::Value], Codec::Value, |_| Ok(
-                        Value::Unit
+                        ValueView::unit()
                     ),)
                 )
                 .is_err()
@@ -549,7 +503,7 @@ fn native_default_rejects_unproven_operations_and_incompatible_codecs() {
         .bind(
             method,
             NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::i32()), |_| {
-                Ok(Value::I32(0))
+                Ok(ValueView::from(0i32))
             }),
         )
         .unwrap();
@@ -557,7 +511,7 @@ fn native_default_rejects_unproven_operations_and_incompatible_codecs() {
         declaration
             .finish()
             .unwrap_err()
-            .message()
+            .to_string()
             .contains("codec")
     );
 }

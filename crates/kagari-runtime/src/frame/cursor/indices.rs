@@ -1,6 +1,6 @@
-//! Index access shares the checked heap kernels used by native sequence adapters.
+//! Closed sequence access uses the same physical providers as Native adapters.
 use crate::{
-    error::RuntimeErrorKind,
+    error::{RuntimeError, trap::TrapReason},
     frame::{
         ExecutionFrame,
         cursor::{
@@ -9,9 +9,15 @@ use crate::{
         },
     },
     module::execution::indices::{IndexAccess, PreparedIndexOperation},
-    value::Value,
+    value::{
+        aggregates::tuples::TupleObject, arrays::ArrayObject, kind::ObjectKind,
+        properties::ValueProperties,
+    },
+    value_check::{data::candidate_access, scoped},
 };
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::module::CallableTarget;
+use kagari_gc::error::GcError;
 
 impl ExecutionFrame {
     pub(super) fn prepared_index(&self, index: usize) -> Option<&PreparedIndexOperation> {
@@ -27,7 +33,7 @@ impl ExecutionFrame {
     }
 }
 
-impl ExecutionCursor<'_> {
+impl ExecutionCursor<'_, '_, '_, '_> {
     #[inline(never)]
     pub(super) fn execute_index(
         &mut self,
@@ -38,23 +44,26 @@ impl ExecutionCursor<'_> {
             .indices
             .get(ordinal)
             .ok_or_else(|| self.invalid())?;
-        // Preserve base, index, value evaluation order before interpreting the
-        // index. Locations are sealed, but current heap identities remain checked.
-        let read = |location| {
-            self.values
-                .read_location(location)
-                .ok_or_else(|| self.invalid())
-        };
-        let base = read(operation.base)?;
-        let index = read(operation.index)?;
+        // Keep base, index and value reads in their original left-to-right order.
+        let base = self
+            .values
+            .read_location(operation.base)
+            .map_err(RegionError::storage)?;
+        let index_value = self
+            .values
+            .read_location(operation.index)
+            .map_err(RegionError::storage)?;
         let value = match operation.access {
             IndexAccess::Read { .. } => None,
-            IndexAccess::Write { value } => Some(read(value)?),
+            IndexAccess::Write { value } => Some(
+                self.values
+                    .read_location(value)
+                    .map_err(RegionError::storage)?,
+            ),
         };
-        let index = match index {
-            Value::I32(index) if index >= 0 => index as u64,
-            Value::I64(index) if index >= 0 => index as u64,
-            Value::U64(index) => index,
+        let index = match index_value.scalar_payload() {
+            Some((ValueType::I32 | ValueType::I64, bits)) if bits as i64 >= 0 => bits,
+            Some((ValueType::U64, bits)) => bits,
             _ => {
                 return Err(RegionError::TypeMismatch(match operation.access {
                     IndexAccess::Read { .. } => "read_index expects non-negative integer index",
@@ -64,51 +73,92 @@ impl ExecutionCursor<'_> {
         };
         match operation.access {
             IndexAccess::Read { dst } => {
-                let value = match base {
-                    Value::Array(id) => self.runtime.gc().array_get(id, index),
-                    Value::Tuple(id) => self
-                        .runtime
-                        .gc()
-                        .tuple(id)
-                        .and_then(|values| values.get(usize::try_from(index).ok()?).copied()),
+                let object = base.object().ok_or(RegionError::TypeMismatch(
+                    "read_index expects array or tuple value",
+                ))?;
+                let cx = self.values.scope();
+                candidate_access(cx, base, self.resources).map_err(RegionError::from)?;
+                let value = match base.kind() {
+                    Some(ObjectKind::Array) => {
+                        let array = cx
+                            .downcast::<ArrayObject>(object)
+                            .map_err(RegionError::storage)?;
+                        ArrayObject::get(
+                            cx,
+                            array,
+                            usize::try_from(index).map_err(|_| RegionError::InvalidIndex(index))?,
+                        )
+                    }
+                    Some(ObjectKind::Tuple) => {
+                        let tuple = cx
+                            .downcast::<TupleObject>(object)
+                            .map_err(RegionError::storage)?;
+                        TupleObject::get(
+                            cx,
+                            tuple,
+                            usize::try_from(index).map_err(|_| RegionError::InvalidIndex(index))?,
+                        )
+                    }
                     _ => {
                         return Err(RegionError::TypeMismatch(
                             "read_index expects array or tuple value",
                         ));
                     }
                 }
-                .ok_or(RegionError::InvalidIndex(index))?;
-                if !self.runtime.gc().validate_value(&value) {
-                    return Err(self.invalid().into());
-                }
+                .map_err(|error| index_error(error, index))?;
                 self.values
                     .write_location(dst, value)
-                    .ok_or_else(|| self.invalid())?;
+                    .map_err(RegionError::storage)?;
             }
             IndexAccess::Write { .. } => {
                 let value = value.ok_or_else(|| self.invalid())?;
-                match base {
-                    Value::Array(id) => {
-                        if !value.is_default_heap_payload(self.runtime.gc()) {
+                match base.kind() {
+                    Some(ObjectKind::Array) => {
+                        let cx = self.values.scope();
+                        if !ValueProperties::of(cx, value)
+                            .map_err(RegionError::storage)?
+                            .storable
+                        {
                             return Err(RegionError::TypeMismatch(
                                 "write_index expects default-storable value",
                             ));
                         }
-                        // This kernel validates current access/element type/bounds.
-                        // Replacement cannot grow the script heap or invoke user
-                        // code; type checks may allocate temporary Rust metadata.
-                        self.runtime
-                            .gc()
-                            .array_set(id, index, value)
-                            .map_err(|error| {
-                                if error.kind() == RuntimeErrorKind::IndexOutOfBounds {
-                                    RegionError::InvalidIndex(index)
-                                } else {
-                                    error.into()
-                                }
-                            })?;
+                        candidate_access(cx, value, self.resources).map_err(RegionError::from)?;
+                        candidate_access(cx, base, self.resources).map_err(RegionError::from)?;
+                        let array = cx
+                            .downcast::<ArrayObject>(base.object().ok_or({
+                                RegionError::TypeMismatch(
+                                    "write_index expects array or tuple value",
+                                )
+                            })?)
+                            .map_err(RegionError::storage)?;
+                        if !cx
+                            .read(array, |array| {
+                                scoped::matches(
+                                    cx,
+                                    value,
+                                    array.contract().view(),
+                                    self.host,
+                                    self.host_borrows,
+                                    self.resources,
+                                )
+                            })
+                            .map_err(RegionError::from)?
+                        {
+                            return Err(RuntimeError::from(
+                                TrapReason::InvalidSequenceBufferOrPayload,
+                            )
+                            .into());
+                        }
+                        ArrayObject::set(
+                            cx,
+                            array,
+                            usize::try_from(index).map_err(|_| RegionError::InvalidIndex(index))?,
+                            value,
+                        )
+                        .map_err(|error| index_error(error, index))?;
                     }
-                    Value::Tuple(_) => {
+                    Some(ObjectKind::Tuple) => {
                         return Ok(Some(CursorExit::Transition(
                             PreparedTransition::TupleWrite {
                                 operation: ordinal,
@@ -125,5 +175,12 @@ impl ExecutionCursor<'_> {
             }
         }
         Ok(None)
+    }
+}
+
+fn index_error(error: GcError, index: u64) -> RegionError {
+    match error {
+        GcError::Index => RegionError::InvalidIndex(index),
+        error => RegionError::storage(error),
     }
 }

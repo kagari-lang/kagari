@@ -1,4 +1,5 @@
 //! Run with `cargo run -p kagari --example async_tasks --no-default-features --features source`.
+use kagari_stdlib as stdlib;
 mod host;
 mod provider;
 
@@ -10,6 +11,7 @@ use std::{env, error::Error, fs, path::Path};
 fn main() -> Result<(), Box<dyn Error>> {
     let io = FakeIo::default();
     let mut builder = KagariEngine::builder()?;
+    builder.install_all(stdlib::modules()?)?;
     builder.install(io.module("demo::rpc", builder.declarations())?)?;
     builder.install(io.module("demo::database", builder.declarations())?)?;
     let engine = builder.build().map_err(|error| format!("{error:?}"))?;
@@ -41,6 +43,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         let program = engine
             .prepare(&checked, Default::default())
             .map_err(|error| format!("{error:?}"))?;
-        host::run(engine, program, io)
+        host::run(engine, program.into_program(), io)
     }
 }

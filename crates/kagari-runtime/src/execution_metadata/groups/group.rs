@@ -1,11 +1,12 @@
 //! Immutable group membership and indexes; selected witnesses keep their own visibility.
 use crate::{
+    error::RuntimeError,
     execution_metadata::{
-        MetadataEdge,
         groups::{OperationGroupId, OperationId},
         operation::BoundOperation,
     },
     frame::types::{bindings::AssociatedInterface, compatibility::TypeIdentity},
+    resource::ResourceState,
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::NominalTy};
@@ -13,50 +14,83 @@ use std::{collections::HashMap, sync::Arc};
 
 #[derive(Debug, Default)]
 struct ReceiverMethods {
-    slots: Vec<Option<usize>>,
     members: HashMap<DefinitionId, usize>,
 }
+
+type SlotIndex = HashMap<NominalTy, HashMap<Arc<TypeIdentity>, Vec<Option<usize>>>>;
 
 #[derive(Debug)]
 pub(crate) struct OperationGroup {
     id: OperationGroupId,
     entries: Vec<BoundOperation>,
     index: HashMap<NominalTy, HashMap<Arc<TypeIdentity>, ReceiverMethods>>,
+    slots: SlotIndex,
 }
 
 impl OperationGroup {
-    pub(crate) fn trace_metadata<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
-        pending.extend(self.entries.iter().enumerate().map(|(member, _)| {
-            MetadataEdge::Operation(OperationId {
-                group: self.id,
-                member,
-            })
-        }));
+    pub(crate) fn id(&self) -> OperationGroupId {
+        self.id
     }
 
-    pub(crate) fn new(entries: Vec<BoundOperation>, id: OperationGroupId) -> Self {
+    pub(in crate::execution_metadata) fn entries(&self) -> &[BoundOperation] {
+        &self.entries
+    }
+
+    pub(super) fn new(
+        entries: Vec<BoundOperation>,
+        id: OperationGroupId,
+        resources: &ResourceState,
+    ) -> Result<Self, RuntimeError> {
+        let reserve = |_| RuntimeError::resource_limit("operation dictionary indexes");
         let mut index: HashMap<NominalTy, HashMap<Arc<TypeIdentity>, ReceiverMethods>> =
             HashMap::new();
+        let mut slots = SlotIndex::new();
         for (position, operation) in entries.iter().enumerate() {
-            let methods = index
-                .entry(operation.requirement.interface.clone())
-                .or_default()
+            if position.is_multiple_of(1024) {
+                resources.poll_closed()?;
+            }
+            index.try_reserve(1).map_err(reserve)?;
+            let receivers = index
+                .entry(operation.requirement_key.interface.clone())
+                .or_default();
+            receivers.try_reserve(1).map_err(reserve)?;
+            let methods = receivers
                 .entry(operation.receiver_identity.clone())
                 .or_default();
-            let slot = operation.slot as usize;
-            methods
-                .slots
-                .resize(methods.slots.len().max(slot + 1), None);
-            methods.slots[slot].get_or_insert(position);
+            methods.members.try_reserve(1).map_err(reserve)?;
+            let slot = usize::try_from(operation.slot)
+                .map_err(|_| RuntimeError::resource_limit("operation dictionary slot index"))?;
+            let end = slot
+                .checked_add(1)
+                .ok_or_else(|| RuntimeError::resource_limit("operation dictionary slot index"))?;
+            slots.try_reserve(1).map_err(reserve)?;
+            let receivers = slots.entry(operation.interface_key.clone()).or_default();
+            receivers.try_reserve(1).map_err(reserve)?;
+            let receiver_slots = receivers
+                .entry(operation.receiver_identity.clone())
+                .or_default();
+            let growth = end.saturating_sub(receiver_slots.len());
+            receiver_slots.try_reserve(growth).map_err(reserve)?;
+            while receiver_slots.len() < end {
+                resources.poll_closed()?;
+                let chunk_end = end.min(receiver_slots.len().saturating_add(1024));
+                receiver_slots.resize(chunk_end, None);
+            }
+            receiver_slots[slot].get_or_insert(position);
             methods
                 .members
-                .entry(operation.requirement.member)
+                .entry(operation.requirement_key.member)
                 .or_insert(position);
         }
-        Self { id, entries, index }
+        Ok(Self {
+            id,
+            entries,
+            index,
+            slots,
+        })
     }
 
-    pub(crate) fn operation_ids(&self) -> impl Iterator<Item = OperationId> + '_ {
+    pub(crate) fn operation_ids(&self) -> impl ExactSizeIterator<Item = OperationId> + '_ {
         (0..self.entries.len()).map(|member| OperationId {
             group: self.id,
             member,
@@ -69,7 +103,9 @@ impl OperationGroup {
             .flatten()
     }
 
-    pub(crate) fn associated_interfaces(&self) -> impl Iterator<Item = AssociatedInterface> + '_ {
+    pub(crate) fn associated_interfaces(
+        &self,
+    ) -> impl ExactSizeIterator<Item = AssociatedInterface> + '_ {
         self.entries.iter().map(|operation| AssociatedInterface {
             lookup_scope: None,
             outputs: Default::default(),
@@ -90,8 +126,9 @@ impl OperationGroup {
         slot: u32,
     ) -> Option<OperationId> {
         let position = self
-            .methods(receiver, interface)?
             .slots
+            .get(interface)?
+            .get(receiver)?
             .get(slot as usize)?
             .as_ref()?;
         self.entries.get(*position).map(|_| OperationId {
@@ -110,9 +147,9 @@ impl OperationGroup {
         let mut matches = self.entries.iter().enumerate().filter(|(_, operation)| {
             operation.generic.is_some()
                 && operation.receiver_identity.as_ref() == receiver
-                && operation.requirement.member == required.member
+                && operation.requirement_key.member == required.member
                 && operation
-                    .requirement
+                    .requirement_key
                     .interface
                     .satisfies(&required.interface)
         });

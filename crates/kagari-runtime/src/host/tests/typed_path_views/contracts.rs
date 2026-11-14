@@ -1,5 +1,23 @@
 use super::*;
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
+use crate::{
+    execution::roots::ExecutionRoots,
+    host::HostCallContext,
+    native::conversion::context::ConversionContext,
+    value::{
+        EphemeralValue,
+        arrays::ArrayObject,
+        carriers::{RootedValue, ScopedValue},
+        host_values::{
+            EphemeralObject,
+            paths::{HostPathObject, PathFacts},
+        },
+        properties::ValueProperties,
+        view::ValueView,
+    },
+};
 use kagari_bytecode::artifact::{ArtifactBuildOptions, KbcArtifact};
 use kagari_contract::types::PublicItem;
 use kagari_types::declaration::{TypeDeclaration, path::HostPathDeclaration};
@@ -127,7 +145,7 @@ fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
                 .unwrap(),
             )
             .unwrap();
-        let mut adapter = HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(7)));
+        let mut adapter = HostPathAdapter::new().with_read(|_, _| Ok(ValueView::from(7i32)));
         if path.records().access == PathAccess::ReadWrite {
             adapter = adapter.with_prepare_write(|_, _, _| Ok(PreparedHostPathWrite::new(|| {})));
         }
@@ -200,17 +218,17 @@ fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
             fingerprint(&runtime, original)
         );
     }
-    bound
-        .load_program(
-            "cold-paths",
-            DefinitionMetadata::checked(
-                offline.definitions().clone(),
-                offline.records().program.clone(),
-                &Default::default(),
-            )
-            .unwrap(),
+    load_bytecode(
+        &mut bound,
+        "cold-paths",
+        DefinitionMetadata::checked(
+            offline.definitions().clone(),
+            offline.records().program.clone(),
+            &Default::default(),
         )
-        .unwrap();
+        .unwrap(),
+    )
+    .unwrap();
 }
 
 #[test]
@@ -276,80 +294,95 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
     );
     let allocation = allocation_owner(&mut runtime);
     let read_allocation = allocation.clone();
-    let previous = Arc::new(Mutex::new(None));
-    let read_previous = previous.clone();
-    let write_previous = previous.clone();
+    runtime.collect_garbage().unwrap();
+    let baseline_objects = runtime.gc_stats().objects;
     runtime
         .register_host_path_adapter(
             descriptor,
             HostPathAdapter::new()
-                .with_read(move |cx, _| {
-                    let runtime = cx.runtime();
-                    let value = runtime
-                        .alloc_array(
-                            &read_allocation,
-                            Ty::Builtin(BuiltinType::I32),
-                            vec![Value::I32(1)],
-                        )
-                        .unwrap();
-                    *read_previous.lock().unwrap() = Some(value);
-                    Ok(Value::Array(value))
+                .with_read(move |call, _| {
+                    call.convert_value(&read_allocation, |cx| {
+                        let element = cx.type_for::<i32>()?;
+                        let value = cx.encode_value(&element, 1)?;
+                        cx.allocate_array(&element, &[value])
+                    })
+                    .map_err(|error| HostError::new(error.to_string()))
                 })
-                .with_prepare_write(move |cx, _, record| {
-                    let value = record.new_value;
-                    let runtime = cx.runtime();
-                    // The scoped host descriptor and both script arrays are roots.
-                    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 3);
-                    assert_eq!(
-                        runtime
-                            .gc()
-                            .array_get(write_previous.lock().unwrap().unwrap(), 0),
-                        Some(Value::I32(1))
-                    );
-                    let Value::Array(next) = value else {
-                        panic!("array path value")
-                    };
-                    assert_eq!(runtime.gc().array_get(next, 0), Some(Value::I32(2)));
+                .with_prepare_write(move |call, _, record| {
+                    let before = call.runtime().gc_stats().root_registrations;
+                    call.runtime_mut().collect_garbage().unwrap();
+                    assert_eq!(call.runtime().gc_stats().root_registrations, before);
+                    assert_eq!(call.runtime().gc_stats().objects, baseline_objects + 3);
+                    let old = record.old_value.expect("previous array");
+                    let next = record.new_value;
+                    {
+                        let Runtime {
+                            memory, resources, ..
+                        } = call.runtime_mut();
+                        memory.scope(resources, |cx, roots| {
+                            ExecutionRoots::with(roots, cx, |slots| {
+                                for (view, expected) in [(old, 1_i32), (next, 2_i32)] {
+                                    let value = view.get(slots)?.object().unwrap();
+                                    let object = slots.scope().downcast::<ArrayObject>(value)?;
+                                    assert_eq!(
+                                        ArrayObject::get(slots.scope(), object, 0)?
+                                            .scalar_payload(),
+                                        ScopedValue::from(expected).scalar_payload()
+                                    );
+                                }
+                                Ok(())
+                            })
+                        })
+                    }
+                    .unwrap();
                     Ok(PreparedHostPathWrite::new(|| {}))
                 }),
         )
         .unwrap();
-    let next = runtime
-        .alloc_array(
-            &allocation,
-            Ty::Builtin(BuiltinType::I32),
-            vec![Value::I32(2)],
-        )
-        .unwrap();
+    let root_value = runtime.host_root_value(root).unwrap();
+    let array = |runtime: &mut Runtime, owner: &ExecutableModule, items: &[i32]| -> RootedValue {
+        let mut cx = ConversionContext::new(runtime, owner).unwrap();
+        let element = cx.type_for::<i32>().unwrap();
+        let values = items
+            .iter()
+            .map(|value| cx.encode_value(&element, *value).unwrap())
+            .collect::<Vec<_>>();
+        let value = cx.allocate_array(&element, &values).unwrap();
+        cx.retain(&value).unwrap()
+    };
+    let next = array(&mut runtime, &allocation, &[2]);
     runtime
-        .set_host_path(
-            &runtime.gc().alloc_host_root(root).unwrap(),
-            descriptor,
-            vec![],
-            Value::Array(next),
-        )
+        .set_host_path(&root_value, descriptor, &[], &next)
         .unwrap();
-    assert_eq!(runtime.gc().active_roots(), 0);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
+    drop(next);
+    drop(root_value);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline_objects + 2);
+    let snapshot = runtime.host_dirty_paths();
+    let before = runtime.gc_stats().root_registrations;
     runtime.clear_host_dirty_paths();
-    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 2);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline_objects + 2);
+    assert_eq!(runtime.gc_stats().root_registrations, before);
+    assert_eq!(snapshot.len(), 1);
+    drop(snapshot);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline_objects);
     let mut foreign = Runtime::default();
     let foreign_owner = allocation_owner(&mut foreign);
-    let other = foreign
-        .alloc_array(&foreign_owner, Ty::Builtin(BuiltinType::I32), vec![])
-        .unwrap();
-    assert!(
+    let other = array(&mut foreign, &foreign_owner, &[]);
+    let root_value = runtime.host_root_value(root).unwrap();
+    assert_eq!(
         runtime
-            .set_host_path(
-                &runtime.gc().alloc_host_root(root).unwrap(),
-                descriptor,
-                vec![],
-                Value::Array(other)
-            )
-            .is_err()
+            .set_host_path(&root_value, descriptor, &[], &other)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::TypedPathValidation
     );
     assert!(runtime.host_dirty_paths().is_empty());
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    drop(root_value);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline_objects);
 }
 
 #[test]
@@ -444,31 +477,31 @@ fn registers_typed_host_roots_and_simple_path_views() {
         })
         .unwrap();
 
+    let root_value = runtime.host_root_value(root).unwrap();
     let view = runtime
-        .make_host_path_view(root, descriptor_id, DynamicPathArguments::empty())
+        .make_host_path_view(&root_value, descriptor_id, &[])
         .unwrap();
-
     assert_eq!(root.object_id(), HostObjectId(1));
     assert_eq!(root.type_id(), player_id);
-    assert_eq!(view.root(), root);
-    assert_eq!(view.descriptor_id(), descriptor_id);
-    assert_eq!(view.result_type(), i32_id);
-    assert_eq!(view.access(), PathAccess::ReadWrite);
-    assert!(view.dynamic_args().is_empty());
-    assert!(
-        !runtime
-            .gc()
-            .alloc_host_root(root)
-            .unwrap()
-            .is_storable(runtime.gc())
-    );
-    assert!(
-        !runtime
-            .gc()
-            .alloc_host_path(view)
-            .unwrap()
-            .is_storable(runtime.gc())
-    );
+    {
+        let mut call = HostCallContext::new(&mut runtime, &[]).unwrap();
+        let value = call.import(&view).unwrap();
+        let context = call.inspect_path(&value).unwrap();
+        assert_eq!(context.root, root);
+        assert_eq!(context.descriptor.id, descriptor_id);
+        assert_eq!(context.descriptor.result_type, i32_id);
+        assert_eq!(context.access, PathAccess::ReadWrite);
+        assert!(context.dynamic_args.is_empty());
+    }
+    runtime
+        .memory
+        .scope(&runtime.resources, |cx, _| {
+            for value in [&root_value, &view] {
+                assert!(!ValueProperties::of(cx, value.get(cx)?)?.storable);
+            }
+            Ok(())
+        })
+        .unwrap();
 }
 
 #[test]
@@ -500,51 +533,77 @@ fn validates_dynamic_index_argument_shape_for_path_views() {
         })
         .unwrap();
 
+    let root_value = runtime.host_root_value(root).unwrap();
     let view = runtime
-        .make_host_path_view(
-            root,
-            descriptor_id,
-            DynamicPathArguments::new(vec![DynamicPathArgument::new(i32_id, Value::I32(3))]),
-        )
+        .make_host_path_view(&root_value, descriptor_id, &[RootedValue::from(3i32)])
         .unwrap();
-    assert_eq!(view.dynamic_args().len(), 1);
-
+    {
+        let mut call = HostCallContext::new(&mut runtime, &[]).unwrap();
+        let value = call.import(&view).unwrap();
+        let context = call.inspect_path(&value).unwrap();
+        let [argument] = context.dynamic_args.as_slice() else {
+            panic!("one index");
+        };
+        assert_eq!(argument.ty, i32_id);
+        assert_eq!(argument.value.as_i32(), Some(3));
+    }
     assert_eq!(
         runtime
-            .make_host_path_view(root, descriptor_id, DynamicPathArguments::empty())
-            .unwrap_err()
-            .kind(),
-        RuntimeErrorKind::TypedPathValidation
-    );
-    assert_eq!(
-        runtime
-            .make_host_path_view(
-                root,
-                descriptor_id,
-                DynamicPathArguments::new(vec![DynamicPathArgument::new(item_id, Value::I32(3))]),
-            )
+            .make_host_path_view(&root_value, descriptor_id, &[])
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::TypedPathValidation
     );
 
-    let borrow_table = HostBorrowTable::default();
-    let frame = borrow_table.enter_frame().unwrap();
-    let borrow = runtime
-        .gc()
-        .alloc_host_ref(
-            frame
-                .borrow_shared(HostObjectId(99), i32_id)
-                .expect("borrow should be created"),
-        )
+    // Public construction derives labels from the descriptor. Test the retained
+    // provider's label check at its actual Host-source admission boundary.
+    let malformed = runtime
+        .memory
+        .scope(&runtime.resources, |cx, _| {
+            let path = HostPathObject::alloc(
+                cx,
+                PathFacts {
+                    root,
+                    descriptor: descriptor_id,
+                    result: i32_id,
+                    access: PathAccess::ReadWrite,
+                    epoch: HostSchemaEpoch::new(0),
+                },
+                None,
+                &[(item_id, ScopedValue::from(3i32))],
+            )?;
+            ScopedValue::managed(path).retain(cx)
+        })
         .unwrap();
+    {
+        let mut call = HostCallContext::new(&mut runtime, &[]).unwrap();
+        assert_eq!(
+            call.import(&malformed).unwrap_err().kind(),
+            RuntimeErrorKind::TypedPathValidation
+        );
+    }
+
+    let mut call = HostCallContext::new(&mut runtime, &[]).unwrap();
+    let value = call.import(&root_value).unwrap();
+    let token = call
+        .borrows()
+        .borrow_shared(HostObjectId(99), i32_id)
+        .unwrap();
+    let execution = call.scope.execution_id();
+    let borrowed = {
+        let Runtime {
+            memory, resources, ..
+        } = call.runtime_mut();
+        memory.scope(resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                let value = EphemeralObject::alloc(slots.scope(), EphemeralValue::HostRef(token))?;
+                slots.protect_local(execution, value)
+            })
+        })
+    }
+    .unwrap();
     assert_eq!(
-        runtime
-            .make_host_path_view(
-                root,
-                descriptor_id,
-                DynamicPathArguments::new(vec![DynamicPathArgument::new(i32_id, borrow)]),
-            )
+        call.make_path_view(&value, descriptor_id, &[borrowed])
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::TypedPathValidation
@@ -595,7 +654,7 @@ fn installed_host_paths_are_available() {
             &path,
             HostPathAdapter::new().with_read(move |_, _| {
                 *calls_for_read.lock().expect("read counter should lock") += 1;
-                Ok(Value::I32(7))
+                Ok(ValueView::from(7i32))
             }),
         )
         .unwrap();
@@ -606,15 +665,13 @@ fn installed_host_paths_are_available() {
         .unwrap();
     let descriptor_id = runtime.resolve_host_path(&path).unwrap();
 
+    let root_value = runtime.host_root_value(root).unwrap();
     assert_eq!(
         runtime
-            .read_host_path(
-                &runtime.gc().alloc_host_root(root).unwrap(),
-                descriptor_id,
-                Vec::new()
-            )
-            .unwrap(),
-        Value::I32(7)
+            .read_host_path(&root_value, descriptor_id, &[])
+            .unwrap()
+            .as_i32(),
+        Some(7)
     );
     assert_eq!(*calls.lock().expect("read counter should lock"), 1);
 }
@@ -650,31 +707,25 @@ fn path_execution_validates_stale_roots_and_dynamic_indexes() {
         .register_host_path_adapter(
             descriptor_id,
             HostPathAdapter::new().with_read(|_, context| {
-                let Value::I32(index) = &context.dynamic_args.as_slice()[0].value else {
+                let Some(index) = context.dynamic_args.as_slice()[0].value.as_i32() else {
                     return Err(HostError::new("inventory index must be i32"));
                 };
-                Ok(Value::I32(*index * 10))
+                Ok(ValueView::from(index * 10))
             }),
         )
         .unwrap();
 
+    let root_value = runtime.host_root_value(root).unwrap();
     assert_eq!(
         runtime
-            .read_host_path(
-                &runtime.gc().alloc_host_root(root).unwrap(),
-                descriptor_id,
-                vec![Value::I32(4)]
-            )
-            .unwrap(),
-        Value::I32(40)
+            .read_host_path(&root_value, descriptor_id, &[RootedValue::from(4i32)])
+            .unwrap()
+            .as_i32(),
+        Some(40)
     );
     assert_eq!(
         runtime
-            .read_host_path(
-                &runtime.gc().alloc_host_root(root).unwrap(),
-                descriptor_id,
-                Vec::new()
-            )
+            .read_host_path(&root_value, descriptor_id, &[])
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::TypedPathValidation
@@ -683,13 +734,10 @@ fn path_execution_validates_stale_roots_and_dynamic_indexes() {
     let stale = runtime
         .register_host_root(HostObjectId(2), root.type_id(), HostSchemaEpoch::new(1))
         .unwrap();
+    let stale_value = runtime.host_root_value(stale).unwrap();
     assert_eq!(
         runtime
-            .read_host_path(
-                &runtime.gc().alloc_host_root(stale).unwrap(),
-                descriptor_id,
-                vec![Value::I32(1)]
-            )
+            .read_host_path(&stale_value, descriptor_id, &[RootedValue::from(1i32)])
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::TypedPathValidation
@@ -756,9 +804,10 @@ fn rejects_root_schema_mismatch_when_creating_views() {
         .register_host_root(HostObjectId(2), root.type_id(), HostSchemaEpoch::new(1))
         .unwrap();
 
+    let stale_value = runtime.host_root_value(stale).unwrap();
     assert_eq!(
         runtime
-            .make_host_path_view(stale, descriptor_id, DynamicPathArguments::empty())
+            .make_host_path_view(&stale_value, descriptor_id, &[])
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::TypedPathValidation

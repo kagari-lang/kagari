@@ -2,10 +2,13 @@ use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Compilation,
 };
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::{
+    module::entry::ProgramEntry, value::carriers::RootedValue, value_semantics::script_equal,
+};
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 const SOURCE: &str = include_str!("../../../../../../examples/numeric-sampling.kgr");
 const EXPECTED_CHECKSUM: u64 = 0x396d_503b_b05c_761a;
@@ -13,7 +16,7 @@ const EXPECTED_CHECKSUM: u64 = 0x396d_503b_b05c_761a;
 fn engine() -> KagariEngine {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    KagariEngine::new(config)
+    KagariEngine::with_native_modules(config, stdlib::modules().unwrap()).unwrap()
 }
 
 fn reference_checksum() -> u64 {
@@ -57,8 +60,7 @@ fn numeric_example_source_and_encoded_are_deterministic_and_release_roots() {
         let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
         let decoded = BytecodeArtifact::from_bytes(&bytes).unwrap();
         let encoded =
-            PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default())
-                .unwrap();
+            Compilation::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
         [("source", direct), ("encoded", encoded)]
     };
     for (route, program) in programs {
@@ -68,38 +70,44 @@ fn numeric_example_source_and_encoded_are_deterministic_and_release_roots() {
             ..Default::default()
         };
         let mut runtime = consumer.runtime(context.clone());
-        let loaded = runtime.load_program(&program, Default::default()).unwrap();
+        let loaded = runtime
+            .load_program(program.program(), Default::default())
+            .unwrap();
+        runtime.collect_garbage().unwrap();
+        let roots = runtime.gc_stats().root_registrations;
         // Reuse the same loaded program and heap: RNG state must be local to each call.
         for run in 1..=2 {
             for (entry, expected) in [
-                (ProgramEntry::Main, Value::I32(42)),
+                (ProgramEntry::Main, RootedValue::from(42_i32)),
                 (
                     ProgramEntry::Export("sampling_checksum"),
-                    Value::U64(EXPECTED_CHECKSUM),
+                    RootedValue::from(EXPECTED_CHECKSUM),
                 ),
             ] {
                 let result = runtime
                     .execute(&loaded, entry, &[], &context)
                     .unwrap_or_else(|error| panic!("{route} run {run}: {error:?}"));
-                assert_eq!(
-                    result.return_value.value(runtime.runtime().gc()).unwrap(),
-                    expected,
+                assert!(
+                    script_equal(&mut runtime, &result.return_value, &expected).unwrap(),
                     "{route} run {run}: {entry:?}"
                 );
                 drop(result);
+                runtime.collect_garbage().unwrap();
                 assert_eq!(
-                    runtime.runtime().gc().active_roots(),
-                    0,
+                    runtime.gc_stats().root_registrations,
+                    roots,
                     "{route} run {run}"
                 );
                 assert_eq!(
-                    runtime.runtime().resources().counters().current_call_depth,
+                    runtime.resources().counters().current_call_depth,
                     0,
                     "{route} run {run}"
                 );
-                assert!(!runtime.runtime().is_quarantined(), "{route} run {run}");
+                assert!(!runtime.is_quarantined(), "{route} run {run}");
             }
-            println!("{route} run {run}: main=42 checksum=0x{EXPECTED_CHECKSUM:016x} roots=0");
+            println!(
+                "{route} run {run}: main=42 checksum=0x{EXPECTED_CHECKSUM:016x} roots={roots}"
+            );
         }
     }
 }

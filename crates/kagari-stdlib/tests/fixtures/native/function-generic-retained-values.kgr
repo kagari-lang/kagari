@@ -1,0 +1,17 @@
+use example::generic_helper::{ identity, singleton };
+
+pub struct Item {
+    pub val value: i32
+}
+
+pub fn make() -> Item {
+    identity(Item { value: 42 })
+}
+
+pub fn evidence() ->(i32,) {
+    singleton(1)
+}
+
+pub fn closure() -> fn() -> i32 {
+    identity(|| 42)
+}

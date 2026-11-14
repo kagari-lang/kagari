@@ -1,6 +1,7 @@
 //! Scoped object loans, protected construction and provider mutation services.
 
 mod fields;
+pub mod inspection;
 mod mutation;
 mod scope;
 
@@ -8,11 +9,11 @@ use crate::{
     allocation::{PhysicalHeap, Reservation},
     descriptor::{Descriptor, ScanWorkspace, TypedDescriptor},
     error::GcError,
-    heap::{Heap, MemoryLedger, Phase},
+    heap::{Heap, Phase, accounting::MemoryLedger},
     marking::{ActiveScan, Marking},
     object::{Edge, Gc, GcObject, ObjectCharge, ObjectRef},
     root::{Root, RootSet, Roots},
-    scan::{EdgeVisitor, ScanBudget, ScanKind, ScanStatus},
+    scan::{EdgeVisitor, ScanBudget, ScanKind, ScanStatus, VisitTarget},
 };
 use std::{
     any::TypeId,
@@ -168,7 +169,14 @@ pub struct ObjectMut<'op, T: GcObject> {
     object: &'op mut T,
     mutation: Mutation<'op, T>,
     finished: bool,
+    charge_state: ChargeState,
     panicking_on_entry: bool,
+}
+
+enum ChargeState {
+    Dirty,
+    Committed,
+    Failed,
 }
 
 /// A generative, noncollecting object-access interval created by Heap::scope.
@@ -254,6 +262,8 @@ impl<T: GcObject> Mutation<'_, T> {
     pub fn prepare_charge(&mut self, charge: ObjectCharge) -> Result<(), GcError> {
         self.ledger
             .check(self.old_charge.bytes, charge.bytes, self.max_indirect)?;
+        self.ledger
+            .check_units(self.old_charge.units, charge.units)?;
         self.admitted_bytes = charge.bytes;
         Ok(())
     }
@@ -456,10 +466,11 @@ impl Access<'_> {
             // SAFETY: initialize established the descriptor's complete payload.
             let charge = unsafe { descriptor.charge(guard.pointer()) };
             let total = ledger.check(0, charge.bytes, config.max_indirect_bytes)?;
+            let units = ledger.check_units(0, charge.units)?;
             validate(guard.pointer(), guard.physical, marking)?;
-            Ok::<usize, GcError>(total)
+            Ok::<_, GcError>((total, units))
         }));
-        let total = match publication {
+        let (total, units) = match publication {
             Ok(result) => result?,
             Err(_) => {
                 marking.phase = Phase::Faulted;
@@ -476,6 +487,7 @@ impl Access<'_> {
                 .saturating_add(total - ledger.indirect),
         );
         ledger.indirect = total;
+        ledger.units = units;
         ledger.observe(guard.physical);
         Ok(reservation.reference)
     }
@@ -650,7 +662,10 @@ fn inspect_initial<T: GcObject>(
     let mut state = value.begin_scan();
     loop {
         let mut budget = ScanBudget::new(1024);
-        let mut visitor = EdgeVisitor { physical, marking };
+        let mut visitor = EdgeVisitor {
+            physical,
+            target: VisitTarget::Mark(marking),
+        };
         let status = value.scan(&mut state, &mut budget, &mut visitor)?;
         if T::SCAN_KIND != ScanKind::Indivisible && budget.spent() > 1024 {
             return Err(GcError::Provider("initial scan exceeded allowance"));

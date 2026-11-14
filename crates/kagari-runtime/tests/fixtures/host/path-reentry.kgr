@@ -1,0 +1,8 @@
+fn main() -> i32 {
+    fixture::effects::entered();
+    42
+}
+
+fn compute() -> [i32] {
+    [7]
+}

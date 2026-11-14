@@ -83,7 +83,6 @@ impl TraitBuilder<'_> {
             binding.check(
                 &default.binding_signature(),
                 &self.module.providers.definitions(),
-                &self.module.providers,
             )?;
             lowered.push((index, default, binding.clone()));
         }

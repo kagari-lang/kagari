@@ -1,0 +1,229 @@
+struct Player {
+    val id: u64,
+}
+
+enum Lookup<T> {
+    Missing,
+    Found(T),
+}
+
+fn identity<T>(value: T) -> T {
+    value
+}
+
+fn forward(value: Result<u64, u64>) -> Result<u64, u64> {
+    Ok(value?)
+}
+
+pub fn scalar(n: u64) -> u64 {
+    var i = 0u64;
+    var total = 0u64;
+    while i < n {
+        total += identity(i);
+        i += 1;
+    }
+    total
+}
+
+pub fn object_alias(n: u64) -> u64 {
+    val player = Player { id: 0 };
+    var i = 0u64;
+    var total = 0u64;
+    while i < n {
+        total += identity(player).id + i;
+        i += 1;
+    }
+    total
+}
+
+pub fn option_some(n: u64) -> u64 {
+    var i = 0u64;
+    var total = 0u64;
+    while i < n {
+        total += match identity(Some(i)) {
+            Some(value) => value,
+            None => 0,
+        };
+        i += 1;
+    }
+    total
+}
+
+pub fn option_none(n: u64) -> u64 {
+    var i = 0u64;
+    var total = 0u64;
+    while i < n {
+        total += match identity::<Option<u64>>(None) {
+            Some(value) => value,
+            None => i,
+        };
+        i += 1;
+    }
+    total
+}
+
+pub fn result_ok(n: u64) -> u64 {
+    var i = 0u64;
+    var total = 0u64;
+    while i < n {
+        total += match identity::<Result<u64, u64>>(Ok(i)) {
+            Ok(value) => value,
+            Err(value) => value,
+        };
+        i += 1;
+    }
+    total
+}
+
+pub fn result_err_capture(n: u64) -> u64 {
+    var i = 0u64;
+    var total = 0u64;
+    while i < n {
+        total += match identity::<Result<u64, u64>>(Err(i)) {
+            Ok(value) => value,
+            Err(value) => value,
+        };
+        i += 1;
+    }
+    total
+}
+
+pub fn result_err_forward(n: u64) -> u64 {
+    val error: Result<u64, u64> = Err(0);
+    var i = 0u64;
+    var total = 0u64;
+    while i < n {
+        total += match forward(error) {
+            Ok(value) => value + i,
+            Err(value) => value + i,
+        };
+        i += 1;
+    }
+    total
+}
+
+pub fn result_err_alias(n: u64) -> u64 {
+    val error: Result<u64, u64> = Err(0);
+    var i = 0u64;
+    var total = 0u64;
+    while i < n {
+        total += match identity(error) {
+            Ok(value) => value + i,
+            Err(value) => value + i,
+        };
+        i += 1;
+    }
+    total
+}
+
+pub fn object_option(n: u64) -> u64 {
+    val player = Player { id: 0 };
+    var i = 0u64;
+    var total = 0u64;
+    while i < n {
+        total += match identity(Some(player)) {
+            Some(value) => value.id + i,
+            None => 0,
+        };
+        i += 1;
+    }
+    total
+}
+
+pub fn user_enum(n: u64) -> u64 {
+    var i = 0u64;
+    var total = 0u64;
+    while i < n {
+        total += match identity(Lookup::Found(i)) {
+            Lookup::Found(value) => value,
+            Lookup::Missing => 0,
+        };
+        i += 1;
+    }
+    total
+}
+
+pub fn nested_option(n: u64) -> u64 {
+    var i = 0u64;
+    var total = 0u64;
+    while i < n {
+        total += match identity(Some(Some(i))) {
+            Some(Some(value)) => value,
+            Some(None) => 0,
+            None => 0,
+        };
+        i += 1;
+    }
+    total
+}
+
+pub fn scalar_storage(n: u64) -> Vec<u64> {
+    val values = Vec::new();
+    var i = 0u64;
+    while i < n {
+        values.push(i);
+        i += 1;
+    }
+    values
+}
+
+pub fn object_storage(n: u64) -> Vec<Player> {
+    val player = Player { id: 42 };
+    val values = Vec::new();
+    var i = 0u64;
+    while i < n {
+        values.push(player);
+        i += 1;
+    }
+    values
+}
+
+pub fn option_storage(n: u64) -> Vec<Option<u64>> {
+    val values = Vec::new();
+    var i = 0u64;
+    while i < n {
+        values.push(Some(i));
+        i += 1;
+    }
+    values
+}
+
+pub fn result_storage(n: u64) -> Vec<Result<u64, u64>> {
+    val values = Vec::new();
+    var i = 0u64;
+    while i < n {
+        values.push(Ok(i));
+        i += 1;
+    }
+    values
+}
+
+pub fn error_storage(n: u64) -> Vec<Result<u64, u64>> {
+    val values = Vec::new();
+    var i = 0u64;
+    while i < n {
+        values.push(Err(i));
+        i += 1;
+    }
+    values
+}
+
+pub fn scalar_storage_len(values: Vec<u64>) -> u64 {
+    values.len()
+}
+
+pub fn object_storage_len(values: Vec<Player>) -> u64 {
+    values.len()
+}
+
+pub fn option_storage_len(values: Vec<Option<u64>>) -> u64 {
+    values.len()
+}
+
+pub fn result_storage_len(values: Vec<Result<u64, u64>>) -> u64 {
+    values.len()
+}
+
+pub fn error_storage_len(values: Vec<Result<u64, u64>>) -> u64 {
+    values.len()
+}

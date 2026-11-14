@@ -1,171 +1,281 @@
-//! Runtime implementations of language primitives; standard algorithms belong to providers.
+//! Runtime-owned primitives consume source arguments and publish through their caller.
 use crate::{
     Runtime,
-    builtin::BuiltinError,
-    error::RuntimeError,
-    gc::GcHeap,
-    module::{ExecutableModule, linked_execution::builtin_results::BuiltinResult},
-    native::sequence::SequenceStorage,
-    value::{MapKey, Value},
-    value_semantics,
+    error::{RuntimeError, trap::TrapReason},
+    execution::roots::{ExecutionRoots, Slots},
+    module::linked_execution::builtin_results::BuiltinResult,
+    native::{
+        binding::NativeResult,
+        conversion::{arguments::ArgumentValues, context::ConversionContext},
+    },
+    resource::ResourceState,
+    value::{
+        arrays::ArrayObject, carriers::ScopedValue, kind::ObjectKind, strings::StringObject,
+        view::ValueView,
+    },
+    value_semantics::{comparison, formatting, hashing, storage_error},
 };
+use kagari_abi::representation::ValueType;
 use kagari_contract::standard::RuntimePrimitive;
+use kagari_gc::{error::GcError, object::Gc};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::cmp::Ordering;
+
 #[cfg(test)]
 mod tests;
 
-pub fn invoke(
-    runtime: &Runtime,
-    owner: &ExecutableModule,
+pub(super) fn invoke<'call>(
+    cx: &mut ConversionContext<'call>,
     primitive: RuntimePrimitive,
-    args: &[Value],
-) -> Result<Value, BuiltinError> {
-    let gc = runtime.gc();
-    let intrinsic = primitive;
+    arguments: ArgumentValues<'call>,
+) -> NativeResult<ValueView<'call>> {
     match primitive {
         RuntimePrimitive::ValuePartialCmp | RuntimePrimitive::ValueCmp => {
-            let [a, b] = args else {
-                return Err(BuiltinError::new("comparison requires two operands"));
-            };
-            let ordering = value_semantics::builtin_order(gc, a, b)?;
-            if intrinsic == RuntimePrimitive::ValueCmp && ordering.is_none() {
-                return Err(BuiltinError::new("total comparison cannot be unordered"));
+            arity(arguments, 2, TrapReason::ComparisonRequiresTwoOperands)?;
+            let order = inspect(cx, arguments, |slots, resources| {
+                let a = arguments.scoped(slots, 0).map_err(input_error)?;
+                let b = arguments.scoped(slots, 1).map_err(input_error)?;
+                comparison::builtin_order(slots.scope(), resources, a, b)
+            })?;
+            if primitive == RuntimePrimitive::ValueCmp && order.is_none() {
+                return Err(TrapReason::TotalComparisonCannotBeUnordered.into());
             }
-            let applied = runtime.builtin_result_type(owner, BuiltinResult::Ordering)?;
-            let value = ordering
-                .map(|ordering| {
-                    runtime.make_enum_member(
-                        owner,
+            let applied = cx
+                .runtime()
+                .builtin_result_type(cx.owner(), BuiltinResult::Ordering)?;
+            let value = order
+                .map(|order| {
+                    cx.allocate_enum_member(
                         &applied,
-                        match ordering {
+                        match order {
                             Ordering::Less => "Less",
                             Ordering::Equal => "Equal",
                             Ordering::Greater => "Greater",
                         },
-                        vec![],
+                        &[],
                     )
                 })
                 .transpose()?;
-            if intrinsic == RuntimePrimitive::ValuePartialCmp {
-                let _root = value.as_ref().and_then(|value| gc.root_value(*value));
-                let option = runtime.builtin_result_type(owner, BuiltinResult::OptionalOrdering)?;
-                runtime
-                    .make_enum_member(
-                        owner,
-                        &option,
-                        if value.is_some() { "Some" } else { "None" },
-                        value.into_iter().collect(),
-                    )
-                    .map_err(Into::into)
+            if primitive == RuntimePrimitive::ValuePartialCmp {
+                let option = cx
+                    .runtime()
+                    .builtin_result_type(cx.owner(), BuiltinResult::OptionalOrdering)?;
+                match value {
+                    Some(value) => cx.allocate_enum_member(&option, "Some", &[value]),
+                    None => cx.allocate_enum_member(&option, "None", &[]),
+                }
             } else {
-                value.ok_or_else(|| BuiltinError::new("total comparison cannot be unordered"))
+                value.ok_or_else(|| TrapReason::TotalComparisonCannotBeUnordered.into())
             }
         }
-
         RuntimePrimitive::ValueEq => {
-            let [a, b] = args else {
-                return Err(BuiltinError::new("eq expects two operands"));
-            };
-            value_semantics::script_equal(gc, a, b)
-                .map(Value::Bool)
-                .map_err(BuiltinError::from)
+            arity(arguments, 2, TrapReason::EqExpectsTwoOperands)?;
+            inspect(cx, arguments, |slots, resources| {
+                let a = arguments.scoped(slots, 0).map_err(input_error)?;
+                let b = arguments.scoped(slots, 1).map_err(input_error)?;
+                comparison::script_equal(slots.scope(), resources, a, b)
+            })
+            .map(ValueView::from)
         }
         RuntimePrimitive::ValueHash => {
-            let [value] = args else {
-                return Err(BuiltinError::new("hash expects one operand"));
-            };
-            MapKey::from_value(gc, value)
-                .map(|key| Value::I64(key.script_hash()))
-                .ok_or_else(|| {
-                    BuiltinError::new("value has no hash semantics or exceeds key size limit")
-                })
+            arity(arguments, 1, TrapReason::HashExpectsOneOperand)?;
+            let hash = inspect(cx, arguments, |slots, resources| {
+                let value = arguments.scoped(slots, 0).map_err(input_error)?;
+                hashing::builtin_hash(slots.scope(), resources, value)
+            })?
+            .ok_or_else(|| {
+                RuntimeError::from(TrapReason::ValueHasNoHashSemanticsOrExceedsKeySizeLimit)
+            })?;
+            Ok(ValueView::from(hash))
         }
         RuntimePrimitive::ValueDebug | RuntimePrimitive::ValueDisplay => {
-            let [value] = args else {
-                return Err(BuiltinError::new("format expects one operand"));
-            };
-            value_semantics::format_value(gc, value, intrinsic == RuntimePrimitive::ValueDebug)
-                .and_then(|text| gc.alloc_string(text))
-                .map_err(BuiltinError::from)
+            arity(arguments, 1, TrapReason::FormatExpectsOneOperand)?;
+            let text = inspect(cx, arguments, |slots, resources| {
+                let value = arguments.scoped(slots, 0).map_err(input_error)?;
+                formatting::format_value(
+                    slots.scope(),
+                    &mut || resources.poll_execution(),
+                    value,
+                    primitive == RuntimePrimitive::ValueDebug,
+                )
+            })?;
+            cx.allocate_string(text)
         }
-        RuntimePrimitive::StringPartsJoin => array_join(gc, args),
-        RuntimePrimitive::Assert => debug_assert(gc, args),
+        RuntimePrimitive::StringPartsJoin => {
+            arity(
+                arguments,
+                2,
+                TrapReason::ArrayJoinExpectsAStringArrayAndSeparator,
+            )?;
+            let text = inspect(cx, arguments, |slots, resources| {
+                array_join(slots, resources, arguments)
+            })?;
+            cx.allocate_string(text)
+        }
+        RuntimePrimitive::Assert => {
+            arity(
+                arguments,
+                2,
+                TrapReason::DebugAssertExpectsBoolAndStringMessage,
+            )?;
+            inspect(cx, arguments, |slots, resources| {
+                debug_assert(slots, resources, arguments)
+            })?;
+            Ok(ValueView::unit())
+        }
     }
 }
 
-fn array_join(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
-    let [Value::Array(handle), Value::Str(separator)] = args else {
-        return Err(BuiltinError::new(
-            "array.join expects a string array and separator",
-        ));
-    };
-    if !gc
-        .array_contract(*handle)
-        .is_some_and(|contract| contract.ty == Ty::Builtin(BuiltinType::String))
-    {
-        return Err(BuiltinError::new(
-            "string interpolation requires [String] storage",
-        ));
-    }
-    let output = gc
-        .with_buffer(*handle, |values| {
-            let SequenceStorage::Traced(values) = values else {
-                return Err(BuiltinError::new("array.join expects string elements"));
-            };
-            let overflow =
-                || BuiltinError::from(RuntimeError::resource_limit("joined string size"));
-            let separator = gc
-                .string(*separator)
-                .ok_or_else(|| BuiltinError::new("invalid string separator"))?;
-            let mut length = separator
-                .len()
-                .checked_mul(values.len().saturating_sub(1))
-                .ok_or_else(overflow)?;
-            for value in values {
-                let Value::Str(value) = value else {
-                    return Err(BuiltinError::new("array.join expects string elements"));
-                };
-                let value = gc
-                    .string(*value)
-                    .ok_or_else(|| BuiltinError::new("invalid string element"))?;
-                length = length.checked_add(value.len()).ok_or_else(overflow)?;
-            }
-            let mut output = String::new();
-            output.try_reserve_exact(length).map_err(|_| overflow())?;
-            for (index, value) in values.iter().enumerate() {
-                if index != 0 {
-                    output.push_str(&separator);
-                }
-                let Value::Str(value) = value else {
-                    unreachable!("validated string element");
-                };
-                let value = gc
-                    .string(*value)
-                    .ok_or_else(|| BuiltinError::new("invalid string element"))?;
-                output.push_str(&value);
-            }
-            Ok(output)
-        })
-        .ok_or_else(|| BuiltinError::new("array.join expects a valid array handle"))??;
-    gc.alloc_string(output).map_err(Into::into)
-}
-
-fn debug_assert(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
-    let [Value::Bool(condition), Value::Str(message)] = args else {
-        return Err(BuiltinError::new(
-            "debug.assert expects bool and string message",
-        ));
-    };
-    if *condition {
-        Ok(Value::Unit)
+fn arity(arguments: ArgumentValues<'_>, expected: usize, reason: TrapReason) -> NativeResult<()> {
+    if arguments.len() == expected {
+        Ok(())
     } else {
-        let message = gc
-            .string(*message)
-            .ok_or_else(|| BuiltinError::new("invalid assertion message"))?;
-        Err(BuiltinError::new(format!(
-            "debug.assert failed: {}",
-            &*message
-        )))
+        Err(reason.into())
     }
+}
+
+fn inspect<R>(
+    cx: &mut ConversionContext<'_>,
+    arguments: ArgumentValues<'_>,
+    inspect: impl for<'source, 'gc> FnOnce(&mut Slots<'source, 'gc>, &ResourceState) -> NativeResult<R>,
+) -> NativeResult<R> {
+    let Runtime {
+        memory, resources, ..
+    } = cx.runtime_mut();
+    let result = memory.scope(resources, |scope, roots| {
+        ExecutionRoots::with(roots, scope, |slots| {
+            arguments.check_bounds(slots)?;
+            Ok(inspect(slots, resources))
+        })
+    });
+    result.map_err(input_error)?
+}
+
+fn input_error(error: GcError) -> RuntimeError {
+    match error {
+        GcError::ForeignHeap | GcError::InvalidRoot | GcError::Index | GcError::Representation => {
+            RuntimeError::module_validation("invalid primitive argument")
+        }
+        error => storage_error(error),
+    }
+}
+
+fn string<'gc>(
+    slots: &mut Slots<'_, 'gc>,
+    value: ScopedValue<'gc>,
+    reason: TrapReason,
+) -> NativeResult<Gc<'gc, StringObject>> {
+    if value.kind() != Some(ObjectKind::String) {
+        return Err(reason.into());
+    }
+    slots
+        .scope()
+        .downcast(
+            value
+                .object()
+                .ok_or_else(|| input_error(GcError::Representation))?,
+        )
+        .map_err(input_error)
+}
+
+/// Both passes stay in one collection-free scope. Resource polling cannot execute
+/// scripts or mutate the array, so validated fields cannot change before copying.
+fn array_join(
+    slots: &mut Slots<'_, '_>,
+    resources: &ResourceState,
+    arguments: ArgumentValues<'_>,
+) -> NativeResult<String> {
+    let array = arguments.scoped(slots, 0).map_err(input_error)?;
+    let separator = arguments.scoped(slots, 1).map_err(input_error)?;
+    if array.kind() != Some(ObjectKind::Array) || separator.kind() != Some(ObjectKind::String) {
+        return Err(TrapReason::ArrayJoinExpectsAStringArrayAndSeparator.into());
+    }
+    let array = slots
+        .scope()
+        .downcast::<ArrayObject>(
+            array
+                .object()
+                .ok_or_else(|| input_error(GcError::Representation))?,
+        )
+        .map_err(input_error)?;
+    if !slots.scope().read(array, |array| {
+        array.contract().ty == Ty::Builtin(BuiltinType::String)
+    }) {
+        return Err(TrapReason::StringInterpolationRequiresStringStorage.into());
+    }
+    let separator = string(slots, separator, TrapReason::InvalidStringSeparator)?;
+    let count = slots.scope().read(array, ArrayObject::len);
+    let overflow = || RuntimeError::resource_limit("joined string size");
+    let mut length = slots
+        .scope()
+        .read(separator, |text| text.as_str().len())
+        .checked_mul(count.saturating_sub(1))
+        .ok_or_else(overflow)?;
+    for index in 0..count {
+        if index != 0 && index.is_multiple_of(1024) {
+            resources.poll_execution()?;
+        }
+        let value = ArrayObject::get(slots.scope(), array, index).map_err(input_error)?;
+        let text = string(slots, value, TrapReason::ArrayJoinExpectsStringElements)?;
+        length = length
+            .checked_add(slots.scope().read(text, |text| text.as_str().len()))
+            .ok_or_else(overflow)?;
+    }
+    let mut output = String::new();
+    output.try_reserve_exact(length).map_err(|_| overflow())?;
+    for index in 0..count {
+        if index != 0 {
+            slots.scope().read(separator, |text| {
+                append_text(&mut output, text.as_str(), resources)
+            })?;
+        }
+        let value = ArrayObject::get(slots.scope(), array, index).map_err(input_error)?;
+        let text = string(slots, value, TrapReason::InvalidStringElement)?;
+        slots.scope().read(text, |text| {
+            append_text(&mut output, text.as_str(), resources)
+        })?;
+    }
+    Ok(output)
+}
+
+fn append_text(output: &mut String, text: &str, resources: &ResourceState) -> NativeResult<()> {
+    let mut start = 0;
+    while start < text.len() {
+        resources.poll_execution()?;
+        let mut end = start.saturating_add(4096).min(text.len());
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        output.push_str(&text[start..end]);
+        start = end;
+    }
+    Ok(())
+}
+
+fn debug_assert(
+    slots: &mut Slots<'_, '_>,
+    resources: &ResourceState,
+    arguments: ArgumentValues<'_>,
+) -> NativeResult<()> {
+    let condition = arguments.scoped(slots, 0).map_err(input_error)?;
+    let message = arguments.scoped(slots, 1).map_err(input_error)?;
+    let Some((ValueType::Bool, condition)) = condition.scalar_payload() else {
+        return Err(TrapReason::DebugAssertExpectsBoolAndStringMessage.into());
+    };
+    if message.kind() != Some(ObjectKind::String) {
+        return Err(TrapReason::DebugAssertExpectsBoolAndStringMessage.into());
+    }
+    if condition != 0 {
+        return Ok(());
+    }
+    let message = string(slots, message, TrapReason::InvalidAssertionMessage)?;
+    let text = slots.scope().read(message, |message| {
+        let mut output = String::new();
+        output
+            .try_reserve_exact(message.as_str().len())
+            .map_err(|_| RuntimeError::resource_limit("assertion message"))?;
+        append_text(&mut output, message.as_str(), resources)?;
+        Ok::<_, RuntimeError>(output)
+    })?;
+    Err(TrapReason::DebugAssertion { message: text }.into())
 }

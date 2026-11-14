@@ -1,8 +1,8 @@
 //! Matched finite arithmetic/bit/conversion workloads across every numeric type.
 use crate::Options;
-use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
-use kagari_runtime::value::Value;
+use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use mlua::{Function, Lua};
 use std::{hint::black_box, time::Instant};
 
@@ -57,7 +57,8 @@ pub(super) fn run(options: &Options) {
         .map(|ty| source(ty))
         .collect::<Vec<_>>()
         .join("\n");
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let start = Instant::now();
     let artifact = engine
         .compile_to_artifact(
@@ -70,9 +71,8 @@ pub(super) fn run(options: &Options) {
         start.elapsed().as_nanos()
     );
     let start = Instant::now();
-    let prepared =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-            .expect("numeric verification");
+    let prepared = Program::from_artifact(artifact, &Default::default(), &Default::default())
+        .expect("numeric verification");
     eprintln!("numeric artifact_prepare_ns={}", start.elapsed().as_nanos());
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
@@ -106,21 +106,14 @@ pub(super) fn run(options: &Options) {
         let name = format!("numeric_{ty}");
         let entry_name = format!("main_{ty}");
         let reference = expected(float);
-        let run = |engine: &str| {
+        let mut run = |engine: &str| {
             if engine == "lua54" {
                 return entry.call::<i32>(()).expect("numeric Lua execution");
             }
             let report = runtime
                 .execute(&loaded, entry_name.as_str(), &[], &context)
                 .expect("numeric execution");
-            let Value::I32(value) = report
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("numeric result")
-            else {
-                panic!("numeric result type")
-            };
-            value
+            report.return_value.as_i32().expect("i32 benchmark result")
         };
         for _ in 0..options.warmups {
             for engine in ["kagari_vm", "lua54"] {

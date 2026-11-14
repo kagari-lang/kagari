@@ -1,0 +1,5 @@
+use example::results::singleton;
+
+fn main() -> i32 {
+    singleton([42]).value()[0u64]
+}

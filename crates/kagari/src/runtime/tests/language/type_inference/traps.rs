@@ -1,6 +1,7 @@
-use crate::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use crate::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn narrow_and_unsigned_arithmetic_trap_on_overflow() {
@@ -10,7 +11,9 @@ fn narrow_and_unsigned_arithmetic_trap_on_overflow() {
         "18446744073709551615u64 + 1u64",
         "0u64 - 1u64",
     ] {
-        let engine = KagariEngine::default();
+        let engine =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap();
         let artifact = engine
             .compile_to_artifact(
                 SourceFile::new(
@@ -23,8 +26,7 @@ fn narrow_and_unsigned_arithmetic_trap_on_overflow() {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
             .load_program(&loaded_program, Default::default())
             .unwrap();

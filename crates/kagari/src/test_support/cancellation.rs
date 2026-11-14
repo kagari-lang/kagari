@@ -35,7 +35,7 @@ impl ExecutionObserver for CancelAt {
 }
 
 pub fn cancel_after<'runtime>(
-    runtime: &'runtime Runtime,
+    runtime: &'runtime mut Runtime,
     loaded: &ExecutableModule,
     at: usize,
 ) -> ExecutionSession<'runtime> {
@@ -48,6 +48,6 @@ pub fn cancel_after<'runtime>(
         })
         .unwrap();
     let session = runtime.begin_execution(loaded, options).unwrap();
-    runtime.attach_execution_observer().unwrap();
+    session.runtime().attach_execution_observer().unwrap();
     session
 }

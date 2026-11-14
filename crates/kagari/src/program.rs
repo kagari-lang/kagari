@@ -1,34 +1,25 @@
-//! Preparation-side executable input and local compilation cache, independent of runtimes.
+//! Executable facade and explicit compiler preparation ownership.
 #[cfg(all(feature = "aot-build", not(target_family = "wasm")))]
 pub mod aot;
-#[cfg(any(feature = "source", feature = "native"))]
-pub(crate) mod inputs;
 #[cfg(feature = "native")]
 pub mod native;
+#[cfg(feature = "source")]
+pub mod update;
 
-#[cfg(any(feature = "source", feature = "native"))]
-use crate::program::inputs::RetainedPreparation;
-#[cfg(feature = "native")]
-use std::cell::RefCell;
-#[cfg(feature = "native")]
-use std::collections::HashMap;
-use std::rc::Rc;
-#[cfg(any(feature = "source", feature = "native"))]
-use std::sync::Arc;
+pub use kagari_runtime::program::{Program, ProgramPreparationError};
 
 #[cfg(feature = "source")]
-use crate::engine::source::{
-    PreparationOptions, compilation::Compilation, inputs::CompilationInputs,
-};
+use crate::error::EmbeddingError;
 #[cfg(feature = "source")]
 use crate::{
     CompileResult,
-    error::{CompilationPhase, EmbeddingError},
+    engine::source::{
+        PreparationOptions, compilation::Compilation as LoweredCompilation,
+        inputs::CompilationInputs,
+    },
+    error::CompilationPhase,
 };
-use kagari_bytecode::{
-    artifact::{ArtifactCompatibility, ArtifactValidationError, KbcArtifact},
-    verifier::BytecodeVerificationError,
-};
+use kagari_bytecode::artifact::{ArtifactCompatibility, ArtifactValidationError, KbcArtifact};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -39,91 +30,73 @@ use kagari_common::{
 use kagari_compiler::native_input::{NativeInputError, verify_native_input};
 #[cfg(feature = "native")]
 use kagari_mir::program::VerifiedMirProgram;
-use kagari_runtime::{
-    error::{RuntimeError, RuntimeErrorKind},
-    module::VerifiedProgram,
-};
+use kagari_runtime::{error::RuntimeErrorKind, module::VerifiedProgram};
+#[cfg(any(feature = "source", feature = "native"))]
+use std::sync::Arc;
 
-#[cfg(feature = "native")]
-use crate::program::native::{CachedFunction, NativeCacheKey};
-
-/// Clones share bytecode, verified native input and compiled products. Loading a
-/// clone creates fresh runtime instances and host bindings, never a new code cache.
-/// Each program admits at most 4096 distinct cached function/configuration decisions.
-/// This preparation-side Rc/RefCell owner is neither Send nor Sync. A loaded runtime
-/// does not retain it and can move independently, including its installed native code.
+/// Explicit source/MIR preparation for one canonical executable Program.
+/// Runtime accepts `program()` and never retains this preparation owner.
+/// Keep this value to prepare source edits or native code; installed code cannot recover it.
 #[derive(Debug, Clone)]
-pub struct PreparedProgram {
-    state: Rc<ProgramState>,
-}
-
-#[derive(Debug)]
-struct ProgramState {
-    bytecode: VerifiedProgram,
+pub struct Compilation {
+    program: Program,
     #[cfg(feature = "source")]
     compilation: Option<Arc<CompilationInputs>>,
     #[cfg(feature = "native")]
     mir: Option<Arc<VerifiedMirProgram>>,
-    #[cfg(feature = "native")]
-    native: RefCell<HashMap<NativeCacheKey, CachedFunction>>,
 }
 
-/// Preparation failures include feature-dependent native validation. Consumers
-/// must handle unknown variants because Cargo can unify features through another
-/// dependency even when the consumer itself does not request native compilation.
+/// Executable validation and optional backend-input validation have distinct owners.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum ProgramPreparationError {
-    #[error("program preparation cancelled")]
-    Cancelled,
-    #[error("invalid definition scope: {0}")]
-    Identity(DefinitionMappingError),
-    #[error("invalid artifact: {0}")]
-    Artifact(ArtifactValidationError),
-    #[error("invalid source package attachment: {0}")]
-    SourcePackage(RuntimeError),
+pub enum CompilationPreparationError {
+    #[error("{0}")]
+    Program(#[from] ProgramPreparationError),
     #[cfg(feature = "native")]
     #[error("invalid native input: {0}")]
     NativeInput(NativeInputError),
 }
 
-impl From<ArtifactValidationError> for ProgramPreparationError {
+impl From<ArtifactValidationError> for CompilationPreparationError {
     fn from(error: ArtifactValidationError) -> Self {
-        match error {
-            ArtifactValidationError::Identity(DefinitionMappingError::Cancelled)
-            | ArtifactValidationError::Bytecode(BytecodeVerificationError::Cancelled) => {
-                Self::Cancelled
-            }
-            error => Self::Artifact(error),
-        }
+        Self::Program(error.into())
     }
 }
 
-impl From<DefinitionMappingError> for ProgramPreparationError {
+impl From<DefinitionMappingError> for CompilationPreparationError {
     fn from(error: DefinitionMappingError) -> Self {
-        match error {
-            DefinitionMappingError::Cancelled => Self::Cancelled,
-            error => Self::Identity(error),
-        }
+        Self::Program(error.into())
     }
 }
 
 #[cfg(feature = "native")]
-impl From<NativeInputError> for ProgramPreparationError {
+impl From<NativeInputError> for CompilationPreparationError {
     fn from(error: NativeInputError) -> Self {
-        match error {
-            NativeInputError::Cancelled => Self::Cancelled,
-            error => Self::NativeInput(error),
+        if matches!(error, NativeInputError::Cancelled) {
+            Self::Program(ProgramPreparationError::Cancelled)
+        } else {
+            Self::NativeInput(error)
         }
     }
 }
 
-impl PreparedProgram {
-    /// Adopt products paired by the SDK's private source lowering owner.
+impl Compilation {
+    /// The exact canonical executable, independently shareable and installable.
+    pub fn program(&self) -> &Program {
+        &self.program
+    }
+
+    /// Discard preparation inputs and transfer the executable product.
+    pub fn into_program(self) -> Program {
+        self.program
+    }
+
+    /// Pair checked source/MIR with its executable revision in the preparation owner.
     #[cfg(feature = "source")]
     pub(crate) fn from_compilation(
-        compilation: Compilation,
+        compilation: LoweredCompilation,
         options: &PreparationOptions,
+        base: Option<&Self>,
     ) -> CompileResult<Self> {
         let inputs = Arc::new(compilation.inputs().with_preparation(options));
         let (bytecode, mir, source) = compilation.into_parts();
@@ -141,33 +114,33 @@ impl PreparedProgram {
             })?;
         #[cfg(not(feature = "native"))]
         let _ = (mir, options);
+        let program = Program::from_verified(bytecode, &options.lowering.cancel)
+            .map_err(EmbeddingError::from)?;
+        let program = match base {
+            Some(base) => base
+                .program
+                .prepare_replacement(&program, &options.lowering.cancel)
+                .map_err(EmbeddingError::from)?,
+            None => program,
+        };
         Ok(Self {
-            state: Rc::new(ProgramState {
-                bytecode,
-                compilation: Some(inputs),
-                #[cfg(feature = "native")]
-                mir: options.retain_native_input.then(|| Arc::new(mir)),
-                #[cfg(feature = "native")]
-                native: RefCell::default(),
-            }),
+            program,
+            compilation: Some(inputs),
+            #[cfg(feature = "native")]
+            mir: options.retain_native_input.then(|| Arc::new(mir)),
         })
     }
 
-    /// Validate the artifact before runtime linking or script effects. Native-enabled
-    /// builds additionally validate all supplied compiler input; bytecode-only builds
-    /// check the opaque payload bounds and integrity without interpreting MIR.
-    /// Scoped input is resource-checked before adoption into the preparation context;
-    /// importing identities does not replace artifact or executable verification.
-    /// A missing payload is valid bytecode-only input. Native-enabled builds reject
-    /// malformed or mismatched compiler input.
+    /// Validate an artifact and its supplied backend input without source analysis.
+    /// Missing source inputs do not gain update authority from diagnostic attachments.
     pub fn from_artifact(
         artifact: DefinitionMetadata<KbcArtifact>,
         compatibility: &ArtifactCompatibility,
         cancel: &CancellationToken,
-    ) -> Result<Self, ProgramPreparationError> {
-        cancel
-            .check()
-            .map_err(|_| ProgramPreparationError::Cancelled)?;
+    ) -> Result<Self, CompilationPreparationError> {
+        cancel.check().map_err(|_| {
+            CompilationPreparationError::Program(ProgramPreparationError::Cancelled)
+        })?;
         artifact
             .records()
             .validate_resource_limits(artifact.definitions(), cancel)?;
@@ -186,60 +159,31 @@ impl PreparedProgram {
                 .with_source_package(source, cancel)
                 .map_err(|error| {
                     if error.kind() == RuntimeErrorKind::Cancelled {
-                        ProgramPreparationError::Cancelled
+                        CompilationPreparationError::Program(ProgramPreparationError::Cancelled)
                     } else {
-                        ProgramPreparationError::SourcePackage(error)
+                        CompilationPreparationError::Program(
+                            ProgramPreparationError::SourcePackage(error),
+                        )
                     }
                 })?;
         }
-        cancel
-            .check()
-            .map_err(|_| ProgramPreparationError::Cancelled)?;
+        cancel.check().map_err(|_| {
+            CompilationPreparationError::Program(ProgramPreparationError::Cancelled)
+        })?;
+        let program = Program::from_verified(bytecode, cancel)?;
         Ok(Self {
-            state: Rc::new(ProgramState {
-                bytecode,
-                #[cfg(feature = "source")]
-                compilation: None,
-                #[cfg(feature = "native")]
-                mir: mir.map(Arc::new),
-                #[cfg(feature = "native")]
-                native: RefCell::default(),
-            }),
-        })
-    }
-
-    /// Share immutable compiler inputs without retaining this preparation cache.
-    #[cfg(any(feature = "source", feature = "native"))]
-    pub(crate) fn retained_inputs(&self) -> RetainedPreparation {
-        RetainedPreparation {
+            program,
             #[cfg(feature = "source")]
-            compilation: self.state.compilation.clone(),
+            compilation: None,
             #[cfg(feature = "native")]
-            mir: self.state.mir.clone(),
-        }
-    }
-
-    #[cfg(feature = "native")]
-    pub(crate) fn from_current(bytecode: VerifiedProgram, inputs: RetainedPreparation) -> Self {
-        Self {
-            state: Rc::new(ProgramState {
-                bytecode,
-                #[cfg(feature = "source")]
-                compilation: inputs.compilation,
-                mir: inputs.mir,
-                native: RefCell::default(),
-            }),
-        }
-    }
-
-    pub fn bytecode(&self) -> &VerifiedProgram {
-        &self.state.bytecode
+            mir: mir.map(Arc::new),
+        })
     }
 
     /// Verified compiler input exists; backend support remains function-specific.
     #[cfg(feature = "native")]
     pub fn has_native_input(&self) -> bool {
-        self.state.mir.is_some()
+        self.mir.is_some()
     }
 }
 

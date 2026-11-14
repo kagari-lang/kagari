@@ -1,0 +1,5 @@
+fn main() -> i32 {
+    val kept = [7];
+    kept.len();
+    42
+}

@@ -1,0 +1,10 @@
+use example::reentry::notify;
+
+fn main() -> i32 {
+    notify("make");
+    42
+}
+
+fn make() -> [i32] {
+    [7, 8]
+}

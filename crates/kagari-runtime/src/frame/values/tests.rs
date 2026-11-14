@@ -1,753 +1,475 @@
-use crate::test_support::native::program::ProgramFixture;
+//! Source-owned frame contracts; obsolete independent window identities are gone.
 mod measurements;
-
-use super::*;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
-    frame::{execution_frames::loaded, types::EnvironmentRecord},
-    module::{Program, execution::layout::Location},
-    native::{
-        application::NativeApplication,
-        binding::{Codec, LinkedNativeFunction, NativeBinding},
-        context::{CallableOwner, LinkedCallable, LinkedOperation},
+    execution::roots::{ExecutionRoots, SessionId, ValueBank},
+    execution_metadata::managed::sources::MetadataSource,
+    frame::{
+        arguments::FrameArguments,
+        values::{FrameAllocationError, FrameMetadata, FrameSlots, FrameStorage},
+    },
+    module::{
+        ExecutableModule, InstalledProgram,
+        execution::{
+            layout::{FrameLayout, Location},
+            operands::OperandSlot,
+        },
+        managed::source::RevisionSource,
+    },
+    native::conversion::arguments::ArgumentValues,
+    test_support::update_programs as programs,
+    value::{
+        carriers::{RootedValue, ScopedValue},
+        strings::StringObject,
+        view::ValueView,
     },
 };
-use kagari_bytecode::{
-    instruction::{NativeImportId, Slot},
-    module::{BytecodeModule, CallableTarget},
-    program::ModuleRef,
-};
-use kagari_common::identity::{
-    DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
-};
-use kagari_contract::ids::FunctionRef;
-use kagari_types::{callable::Signature, scalar::BuiltinType, ty::Ty};
-use std::mem::size_of;
+use kagari_abi::representation::ValueType;
+use kagari_gc::error::GcError;
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
-fn module() -> (Runtime, Program, ExecutableModule) {
+fn module() -> (Runtime, InstalledProgram, ExecutableModule) {
     let mut runtime = Runtime::default();
-    let module_program = runtime
-        .load_program(
-            "windows",
-            ProgramFixture {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            }
-            .metadata(runtime.host().definitions(), &Default::default())
-            .unwrap(),
-        )
-        .unwrap();
-    let module = runtime.select_program(&module_program).unwrap();
-    (runtime, module_program, module)
+    let program = programs::load_empty(&mut runtime, "frame-storage");
+    let owner = runtime.select_program(&program).unwrap();
+    (runtime, program, owner)
 }
 
-#[test]
-fn frame_generation_failure_terminates_session_before_unwind() {
-    let mut runtime = Runtime::default();
-    let (_owner_program, owner) = loaded(&mut runtime);
-    let stack = runtime.enter_execution_stack(&owner).unwrap();
-    stack
-        .push(&runtime, owner.slot(), FunctionRef::new(0), &[], None)
-        .unwrap();
-    let generation = {
-        let mut values = runtime.resources().frame_values.borrow_mut();
-        let generation = values.next_generation;
-        values.next_generation = u64::MAX;
-        generation
-    };
-    let error = stack
-        .push(&runtime, owner.slot(), FunctionRef::new(0), &[], None)
-        .unwrap_err();
-    assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
-    assert_eq!(
-        error.to_string(),
-        "resource limit exceeded: frame window generations"
-    );
-    assert_eq!(runtime.resources().termination(), Some(error.clone()));
-    let trace = error.trace().unwrap();
-    assert!(!trace.incomplete);
-    assert_eq!(trace.frames.len(), 1);
-    assert_eq!(trace.frames[0].function_name, "main");
-    assert_eq!(runtime.resources().counters().current_call_depth, 1);
-    assert_eq!(
-        runtime.resources().frame_values.borrow().active_windows(),
-        1
-    );
-    assert_eq!(
-        stack
-            .push(&runtime, owner.slot(), FunctionRef::new(0), &[], None)
-            .unwrap_err(),
-        error
-    );
-    drop(stack);
-    assert_eq!(runtime.resources().counters().current_call_depth, 0);
-    assert_eq!(
-        runtime.resources().frame_values.borrow().active_windows(),
-        0
-    );
-    assert_eq!(runtime.gc().active_roots(), 0);
-    assert!(runtime.resources().termination().is_none());
-    // Remove the injected exhaustion, not a real runtime generation rollback.
-    runtime
-        .resources()
-        .frame_values
-        .borrow_mut()
-        .next_generation = generation;
-    let fresh = runtime.enter_execution_stack(&owner).unwrap();
-    fresh
-        .push(&runtime, owner.slot(), FunctionRef::new(0), &[], None)
-        .unwrap();
-}
-
-#[test]
-fn frame_windows_reject_foreign_and_reused_identities() {
-    let (_runtime, _program, module) = module();
-    let mut values = ExecutionValues::default();
-    let mut foreign = ExecutionValues::default();
-    let arguments = FrameArguments::plain(&[Value::I32(42)]);
-    let first = values
-        .allocate(
-            2,
-            &(1..(1) + arguments.len()).collect::<Vec<_>>(),
-            &arguments,
-            FrameMetadata {
-                program: module.clone(),
-                environment: None,
-                invocation: None,
-            },
-            None,
-        )
-        .unwrap();
-    let other = foreign
-        .allocate(
-            2,
-            &(1..(1) + arguments.len()).collect::<Vec<_>>(),
-            &arguments,
-            FrameMetadata {
-                program: module.clone(),
-                environment: None,
-                invocation: None,
-            },
-            None,
-        )
-        .unwrap();
-    assert!(values.get(other).is_none());
-    assert!(values.release(other).is_none());
-    values.release(first).unwrap();
-    let second = values
-        .allocate(
-            2,
-            &(1..(1) + arguments.len()).collect::<Vec<_>>(),
-            &arguments,
-            FrameMetadata {
-                program: module,
-                environment: None,
-                invocation: None,
-            },
-            None,
-        )
-        .unwrap();
-    assert_eq!(first.index, second.index);
-    assert!(values.get(first).is_none());
-    assert!(values.ranges(first).is_none());
-    assert!(values.release(first).is_none());
-    assert_eq!(values.get(second).unwrap(), &[Value::Unit, Value::I32(42)]);
-}
-
-#[test]
-fn trimming_out_of_order_holes_preserves_live_and_reused_identities() {
-    let (_runtime, _program, module) = module();
-    for width in [0, 2] {
-        let mut values = ExecutionValues::default();
-        let allocate = |values: &mut ExecutionValues, value: i32| {
-            let arguments = [Value::I32(value)];
-            values
-                .allocate(
-                    width,
-                    &(0..FrameArguments::plain(&arguments[..width.min(1)]).len())
-                        .collect::<Vec<_>>(),
-                    &FrameArguments::plain(&arguments[..width.min(1)]),
+/// Exercise production frame admission with the Runtime's actual current revision.
+fn allocate(
+    runtime: &mut Runtime,
+    owner: &ExecutableModule,
+    execution: SessionId,
+    layout: &FrameLayout,
+    parameters: &[usize],
+    arguments: FrameArguments<'_, '_>,
+) -> Result<FrameStorage, FrameAllocationError> {
+    let Runtime {
+        memory,
+        resources,
+        modules,
+        ..
+    } = runtime;
+    memory
+        .scope(resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                let body = RevisionSource::Current.resolve(modules, slots, owner)?;
+                Ok(FrameSlots::allocate(
+                    slots,
+                    execution,
+                    layout,
+                    parameters,
+                    arguments,
                     FrameMetadata {
-                        program: module.clone(),
-                        environment: None,
-                        invocation: None,
+                        body,
+                        inherited_body: None,
+                        dependencies: &[],
                     },
-                    None,
-                )
-                .unwrap()
-        };
-        let original: Vec<_> = (0..5).map(|value| allocate(&mut values, value)).collect();
-        values.release(original[3]).unwrap();
-        values.release(original[1]).unwrap();
-        // Trimming slot 3 must unlink a hole behind slot 1 in release order.
-        values.release(original[4]).unwrap();
-        assert!(
-            values
-                .allocate(
-                    0,
-                    &(0..FrameArguments::plain(&[Value::I32(99)]).len()).collect::<Vec<_>>(),
-                    &FrameArguments::plain(&[Value::I32(99)]),
-                    FrameMetadata {
-                        program: module.clone(),
-                        environment: None,
-                        invocation: None
-                    },
-                    None
-                )
-                .is_err()
-        );
-        let reused = allocate(&mut values, 7);
-        let appended = allocate(&mut values, 8);
-        for old in [original[1], original[3], original[4]] {
-            assert!(values.get(old).is_none());
-            assert!(values.release(old).is_none());
-        }
-        for (slots, expected) in [
-            (original[0], 0),
-            (original[2], 2),
-            (reused, 7),
-            (appended, 8),
-        ] {
-            if width == 0 {
-                assert_eq!(values.get(slots), Some(vec![]));
-            } else {
-                assert_eq!(
-                    values.get(slots),
-                    Some(vec![Value::I32(expected), Value::Unit])
-                );
-            }
-        }
-        for slots in [reused, appended, original[0], original[2]] {
-            values.release(slots).unwrap();
-        }
-        assert_eq!(values.active_windows(), 0);
-        let next = allocate(&mut values, 9);
-        assert!(values.ranges(next).is_some());
-        assert!(values.ranges(reused).is_none());
-        values.release(next).unwrap();
-    }
-}
-
-#[test]
-fn retiring_an_outer_window_does_not_unroot_a_suspended_inner_window() {
-    let (_runtime, _program, module) = module();
-    let mut values = ExecutionValues::default();
-    let first = values
-        .allocate(
-            1,
-            &(0..FrameArguments::plain(&[Value::I32(1)]).len()).collect::<Vec<_>>(),
-            &FrameArguments::plain(&[Value::I32(1)]),
-            FrameMetadata {
-                program: module.clone(),
-                environment: None,
-                invocation: None,
-            },
-            None,
-        )
-        .unwrap();
-    let second = values
-        .allocate(
-            1,
-            &(0..FrameArguments::plain(&[Value::I32(2)]).len()).collect::<Vec<_>>(),
-            &FrameArguments::plain(&[Value::I32(2)]),
-            FrameMetadata {
-                program: module.clone(),
-                environment: None,
-                invocation: None,
-            },
-            None,
-        )
-        .unwrap();
-    values.release(first).unwrap();
-    assert_eq!(values.get(second).unwrap(), &[Value::I32(2)]);
-    let mut roots = Vec::new();
-    values.append_values(&mut roots);
-    assert_eq!(roots, [Value::I32(2)]);
-    let mut metadata = Vec::new();
-    values.append_metadata(&mut metadata);
-    assert_eq!(metadata.len(), 1);
-    values.release(second).unwrap();
-    roots.clear();
-    metadata.clear();
-    values.append_values(&mut roots);
-    values.append_metadata(&mut metadata);
-    assert!(roots.is_empty());
-    assert!(metadata.is_empty());
-
-    // Keep one root parked while successively retiring older roots. Both banks
-    // must stay proportional to live frames, even when slot order is reused.
-    let args = [
-        Value::U64(17),
-        Value::F64(-0.0),
-        Value::I32(-7),
-        _runtime.gc().alloc_string("kept".into()).unwrap(),
-    ];
-    let mut previous = values
-        .allocate(
-            4,
-            &(0..FrameArguments::plain(&args).len()).collect::<Vec<_>>(),
-            &FrameArguments::plain(&args),
-            FrameMetadata {
-                program: module.clone(),
-                environment: None,
-                invocation: None,
-            },
-            Some(scalar_layout()),
-        )
-        .unwrap();
-    for _ in 0..16 {
-        let next = values
-            .allocate(
-                4,
-                &(0..FrameArguments::plain(&args).len()).collect::<Vec<_>>(),
-                &FrameArguments::plain(&args),
-                FrameMetadata {
-                    program: module.clone(),
-                    environment: None,
-                    invocation: None,
-                },
-                Some(scalar_layout()),
-            )
-            .unwrap();
-        values.release(previous).unwrap();
-        assert!(values.get(previous).is_none());
-        assert_eq!(values.get(next).unwrap(), args);
-        assert_eq!(values.payloads.len(), 3);
-        assert_eq!(values.values.len(), 1);
-        assert!(values.windows.len() <= 2);
-        previous = next;
-    }
-    values.release(previous).unwrap();
-    assert!(values.values.is_empty());
-    assert!(values.payloads.is_empty());
-}
-
-#[test]
-fn register_arguments_survive_growth_reordering_and_repeated_sources() {
-    let (_runtime, _program, module) = module();
-    let mut values = ExecutionValues::default();
-    let caller = values
-        .allocate(
-            2,
-            &(0..FrameArguments::plain(&[Value::I64(11), Value::I64(23)]).len())
-                .collect::<Vec<_>>(),
-            &FrameArguments::plain(&[Value::I64(11), Value::I64(23)]),
-            FrameMetadata {
-                program: module.clone(),
-                environment: None,
-                invocation: None,
-            },
-            None,
-        )
-        .unwrap();
-    let registers = [Slot::new(1), Slot::new(0), Slot::new(1)];
-    let transfers = registers
-        .iter()
-        .map(|register| {
-            values
-                .window(caller)
-                .unwrap()
-                .location(register.index())
-                .unwrap()
+                    resources,
+                ))
+            })
         })
-        .collect::<Vec<_>>();
-    let arguments = FrameArguments::frame(caller, &transfers);
-    let callee = values
-        .allocate(
-            8192,
-            &(4096..(4096) + arguments.len()).collect::<Vec<_>>(),
-            &arguments,
-            FrameMetadata {
-                program: module.clone(),
-                environment: None,
-                invocation: None,
-            },
-            None,
-        )
-        .unwrap();
-    assert_eq!(
-        &values.get(callee).unwrap()[4096..4099],
-        &[Value::I64(23), Value::I64(11), Value::I64(23)]
-    );
-    assert_eq!(
-        values.get(caller).unwrap(),
-        &[Value::I64(11), Value::I64(23)]
-    );
-    values.release(callee).unwrap();
-    values.release(caller).unwrap();
-    assert!(
-        values
-            .allocate(
-                3,
-                &(0..arguments.len()).collect::<Vec<_>>(),
-                &arguments,
-                FrameMetadata {
-                    program: module,
-                    environment: None,
-                    invocation: None
-                },
-                None
-            )
-            .is_err()
-    );
+        .map_err(FrameAllocationError::Storage)?
 }
 
-fn scalar_layout() -> Arc<FrameLayout> {
-    Arc::new(FrameLayout {
-        locations: vec![
-            Location {
-                operand: OperandSlot::new(0, false),
-                representation: ValueType::U64,
-                semantic: Some(BuiltinType::U64),
-                borrowed_receiver: false,
-            },
-            Location {
-                operand: OperandSlot::new(1, false),
-                representation: ValueType::F64,
-                semantic: Some(BuiltinType::F64),
-                borrowed_receiver: false,
-            },
-            Location {
-                operand: OperandSlot::new(2, false),
-                representation: ValueType::I32,
-                semantic: Some(BuiltinType::I8),
-                borrowed_receiver: false,
-            },
-            Location {
-                operand: OperandSlot::new(0, true),
-                representation: ValueType::Str,
-                semantic: Some(BuiltinType::String),
-                borrowed_receiver: false,
-            },
-        ]
-        .into(),
-
-        reused_slots: Box::default(),
-        count: 4,
-        scalar_count: 3,
-        managed_count: 1,
-    })
-}
-
-#[test]
-fn scalar_windows_preserve_bits_initialization_and_managed_roots() {
-    println!(
-        "STORAGE_LAYOUT,payload_bytes={},initialization_bytes={},location_bytes={},window_bytes={}",
-        size_of::<u64>(),
-        size_of::<bool>(),
-        size_of::<Location>(),
-        size_of::<Window>()
-    );
-    let (_runtime, _program, module) = module();
-    let mut values = ExecutionValues::default();
-    let slots = values
-        .allocate(
-            4,
-            &(0..FrameArguments::plain(&[]).len()).collect::<Vec<_>>(),
-            &FrameArguments::plain(&[]),
-            FrameMetadata {
-                program: module,
-                environment: None,
-                invocation: None,
-            },
-            Some(scalar_layout()),
-        )
-        .unwrap();
-    let ranges = values.ranges(slots).unwrap();
-    assert!(
-        values
-            .payload(&ranges, OperandSlot::new(0, false).scalar().unwrap())
-            .is_none()
-    );
-    assert_eq!(values.with_value(slots, 0, Value::clone), Some(Value::Unit));
-    values.set(slots, 0, Value::U64(u64::MAX)).unwrap();
-    for bits in [0x8000_0000_0000_0000, 0x7ff0_0000_0000_0001, u64::MAX] {
-        values
-            .set(slots, 1, Value::F64(f64::from_bits(bits)))
-            .unwrap();
-        let Some(Value::F64(v)) = values.with_value(slots, 1, Value::clone) else {
-            panic!()
-        };
-        assert_eq!(v.to_bits(), bits);
-    }
-    assert!(values.set(slots, 2, Value::I32(128)).is_none());
-    assert!(values.set(slots, 2, Value::I64(1)).is_none());
-    values.set(slots, 2, Value::I32(-128)).unwrap();
-    let string = _runtime.gc().alloc_string("root".into()).unwrap();
-    values.set(slots, 3, string).unwrap();
-    let mut roots = Vec::new();
-    values.append_values(&mut roots);
-    assert_eq!(roots, [string]);
-    values.release(slots).unwrap();
-    assert!(values.payloads.is_empty());
-    assert!(values.initialized.is_empty());
-    assert!(values.values.is_empty());
-    assert!(values.with_value(slots, 0, Value::clone).is_none());
-}
-
-#[test]
-fn char_windows_preserve_the_tag_in_scalar_transfers() {
-    let (_runtime, _program, module) = module();
-    let mut layout = scalar_layout();
-    Arc::get_mut(&mut layout).unwrap().locations[0] = Location {
-        operand: OperandSlot::new(0, false),
-        representation: ValueType::Char,
-        semantic: Some(BuiltinType::Char),
+fn location(index: usize, representation: ValueType, semantic: BuiltinType) -> Location {
+    Location {
+        operand: OperandSlot::new(index, representation == ValueType::Str),
+        representation,
+        semantic: Some(semantic),
         borrowed_receiver: false,
-    };
-    let mut values = ExecutionValues::default();
-    let metadata = || FrameMetadata {
-        program: module.clone(),
-        environment: None,
-        invocation: None,
-    };
-    let source = values
-        .allocate(
-            4,
-            &[0],
-            &FrameArguments::plain(&[Value::Char('🙂')]),
-            metadata(),
-            Some(layout.clone()),
-        )
-        .unwrap();
-    assert_eq!(values.payloads.len(), 3);
-    assert_eq!(
-        values.with_value(source, 0, Value::clone),
-        Some(Value::Char('🙂'))
-    );
-    assert!(values.set(source, 0, Value::I64(0x1f642)).is_none());
-    let transfers = [layout.location(0).unwrap()];
-    assert!(
-        values
-            .allocate(
-                4,
-                &[0],
-                &FrameArguments::frame(source, &transfers),
-                metadata(),
-                Some(scalar_layout())
-            )
-            .is_err()
-    );
-    let target = values
-        .allocate(
-            4,
-            &[0],
-            &FrameArguments::frame(source, &transfers),
-            metadata(),
-            Some(layout),
-        )
-        .unwrap();
-    assert_eq!(
-        values.with_value(target, 0, Value::clone),
-        Some(Value::Char('🙂'))
-    );
-    values.release(target).unwrap();
-    values.release(source).unwrap();
-    assert!(values.payloads.is_empty());
+    }
+}
+
+fn layout(locations: Vec<Location>, scalar_count: usize, managed_count: usize) -> FrameLayout {
+    FrameLayout {
+        count: locations.len(),
+        locations: locations.into(),
+        reused_slots: Box::default(),
+        scalar_count,
+        managed_count,
+    }
 }
 
 #[test]
-fn invalid_scalar_admission_never_publishes_a_partial_frame() {
-    let (_runtime, _program, module) = module();
-    let mut values = ExecutionValues::default();
+fn scalar_frames_preserve_initialization_bits_and_actual_managed_edges() {
+    let (mut runtime, _program, owner) = module();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
+    let execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let layout = layout(
+        vec![
+            location(0, ValueType::U64, BuiltinType::U64),
+            location(1, ValueType::F64, BuiltinType::F64),
+            location(2, ValueType::I32, BuiltinType::I8),
+            location(0, ValueType::Str, BuiltinType::String),
+        ],
+        3,
+        1,
+    );
+    let storage = allocate(
+        &mut runtime,
+        &owner,
+        execution,
+        &layout,
+        &[],
+        FrameArguments::plain(&[]),
+    )
+    .unwrap();
+    let frame = storage.slots();
     assert!(
-        values
-            .allocate(
-                4,
-                &(2..(2) + FrameArguments::plain(&[Value::I32(128)]).len()).collect::<Vec<_>>(),
-                &FrameArguments::plain(&[Value::I32(128)]),
-                FrameMetadata {
-                    program: module.clone(),
-                    environment: None,
-                    invocation: None
-                },
-                Some(scalar_layout())
-            )
-            .is_err()
+        frame
+            .inspect(&runtime.memory, layout.locations[0])
+            .unwrap()
+            .is_unit()
     );
-    assert_eq!(values.active_windows(), 0);
-    assert!(values.payloads.is_empty());
-    let slots = values
-        .allocate(
-            4,
-            &(0..FrameArguments::plain(&[Value::U64(u64::MAX)]).len()).collect::<Vec<_>>(),
-            &FrameArguments::plain(&[Value::U64(u64::MAX)]),
-            FrameMetadata {
-                program: module.clone(),
-                environment: None,
-                invocation: None,
-            },
-            Some(scalar_layout()),
-        )
-        .unwrap();
-    assert_eq!(
-        values.with_value(slots, 0, Value::clone),
-        Some(Value::U64(u64::MAX))
-    );
-    let mut narrow = scalar_layout();
-    Arc::get_mut(&mut narrow).unwrap().locations[0].semantic = Some(BuiltinType::U8);
-    let transfers = [scalar_layout().location(0).unwrap()];
-    assert!(
-        values
-            .allocate(
-                4,
-                &(0..FrameArguments::frame(slots, &transfers).len()).collect::<Vec<_>>(),
-                &FrameArguments::frame(slots, &transfers),
-                FrameMetadata {
-                    program: module.clone(),
-                    environment: None,
-                    invocation: None
-                },
-                Some(narrow.clone())
-            )
-            .is_err()
-    );
-    assert_eq!(values.active_windows(), 1);
-    assert_eq!(values.payloads.len(), 3);
-    assert_eq!(
-        values.with_value(slots, 0, Value::clone),
-        Some(Value::U64(u64::MAX))
-    );
-    values.set(slots, 0, Value::U64(255)).unwrap();
-    let accepted = values
-        .allocate(
-            4,
-            &(0..FrameArguments::frame(slots, &transfers).len()).collect::<Vec<_>>(),
-            &FrameArguments::frame(slots, &transfers),
-            FrameMetadata {
-                program: module,
-                environment: None,
-                invocation: None,
-            },
-            Some(narrow),
-        )
-        .unwrap();
-    assert_eq!(
-        values.with_value(accepted, 0, Value::clone),
-        Some(Value::U64(255))
-    );
-    values.release(accepted).unwrap();
-    assert_eq!(
-        values.with_value(slots, 0, Value::clone),
-        Some(Value::U64(255))
-    );
-}
-
-#[test]
-fn native_application_eviction_keeps_active_window_edges_without_host_roots() {
-    let (runtime, loaded_program, loaded) = module();
-    let declaration = runtime
-        .definition_context()
-        .intern(&DefinitionPath {
-            module: ModuleIdentity::single_file("native_window"),
-            path: vec![DefinitionPathSegment {
-                kind: DefinitionKind::Function,
-                name: "unused".into(),
-                occurrence: 0,
-            }],
+    runtime
+        .memory
+        .scope(&runtime.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                assert!(frame.read(slots, layout.locations[0])?.is_unit());
+                frame.write(slots, layout.locations[0], ScopedValue::from(u64::MAX))?;
+                for bits in [0x8000_0000_0000_0000, 0x7ff0_0000_0000_0001, u64::MAX] {
+                    frame.write(
+                        slots,
+                        layout.locations[1],
+                        ScopedValue::from(f64::from_bits(bits)),
+                    )?;
+                    assert_eq!(
+                        frame.read(slots, layout.locations[1])?.scalar_payload(),
+                        Some((ValueType::F64, bits))
+                    );
+                }
+                for value in [ScopedValue::from(128i32), ScopedValue::from(1i64)] {
+                    assert!(matches!(
+                        frame.write(slots, layout.locations[2], value),
+                        Err(GcError::Representation)
+                    ));
+                }
+                assert!(frame.read(slots, layout.locations[2])?.is_unit());
+                frame.write(slots, layout.locations[2], ScopedValue::from(-128i32))?;
+                let text = StringObject::alloc(slots.scope(), "frame root 🙂".into())?;
+                frame.write(slots, layout.locations[3], ScopedValue::managed(text))
+            })
         })
         .unwrap();
-    let empty = || {
-        runtime
-            .alloc_environment(
-                EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap(),
-            )
+    assert_eq!(
+        frame
+            .inspect(&runtime.memory, layout.locations[0])
             .unwrap()
-    };
-    let source = empty();
-    let selected = empty();
-    let selected_id = selected.id;
-    // Isolate the native descriptor's selected-call edge from its source scope.
-    // The selected environment has no other executable parent or owning handle.
-    let application = Arc::new(NativeApplication {
-        owner: loaded.clone(),
-        environment: source.clone(),
-        function: LinkedNativeFunction {
-            declaration,
-            binding: NativeBinding::new(vec![], Codec::Value, |_| Ok(Value::Unit)),
-            signature: Signature {
-                params: vec![],
-                result: Ty::Builtin(BuiltinType::Unit),
-            },
-            prepared_signature: Default::default(),
-            result_adapter: None,
-            selected: vec![LinkedOperation::Ready(LinkedCallable {
-                owner: CallableOwner::Resolved(loaded.clone()),
-                target: CallableTarget::Script(FunctionRef::new(0)),
-                params: Box::new([]),
-                result: Ty::Builtin(BuiltinType::Unit),
-                primitive: None,
-                environment: Some(selected),
-                scoped_signature: None,
-            })]
-            .into_boxed_slice(),
-        },
-    });
-    let import = NativeImportId::new(0);
+            .as_u64(),
+        Some(u64::MAX)
+    );
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects + 1);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
     runtime
-        .publish_native_application(&loaded, import, application.clone())
+        .memory
+        .scope(&runtime.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                let text = frame.read(slots, layout.locations[3])?;
+                StringObject::read(slots.scope(), text, |text| {
+                    assert_eq!(text, "frame root 🙂")
+                })?;
+                storage.retire(slots)
+            })
+        })
         .unwrap();
-    let slots = runtime
-        .resources()
-        .frame_values
-        .borrow_mut()
-        .allocate(
-            0,
-            &(0..FrameArguments::plain(&[]).len()).collect::<Vec<_>>(),
-            &FrameArguments::plain(&[]),
-            FrameMetadata {
-                program: loaded.clone(),
-                environment: Some(source),
-                invocation: None,
-            },
-            None,
+    assert!(matches!(
+        frame.inspect(&runtime.memory, layout.locations[0]),
+        Err(GcError::Index)
+    ));
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, execution)
+        .unwrap();
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().objects, baseline.objects);
+    assert_eq!(
+        runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+}
+
+#[test]
+fn frame_arguments_survive_bank_growth_reordering_and_repeated_sources() {
+    let (mut runtime, _program, owner) = module();
+    let execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let caller_layout = layout(
+        vec![
+            location(0, ValueType::I64, BuiltinType::I64),
+            location(1, ValueType::I64, BuiltinType::I64),
+        ],
+        2,
+        0,
+    );
+    let arguments = [ValueView::from(11i64), ValueView::from(23i64)];
+    let caller = allocate(
+        &mut runtime,
+        &owner,
+        execution,
+        &caller_layout,
+        &[0, 1],
+        FrameArguments::plain(&arguments),
+    )
+    .unwrap();
+    let frame = caller.slots();
+    let transfers = [
+        caller_layout.locations[1],
+        caller_layout.locations[0],
+        caller_layout.locations[1],
+    ];
+    let callee_layout = layout(
+        (0..8192)
+            .map(|i| location(i, ValueType::I64, BuiltinType::I64))
+            .collect(),
+        8192,
+        0,
+    );
+    let callee = allocate(
+        &mut runtime,
+        &owner,
+        execution,
+        &callee_layout,
+        &[4096, 4097, 4098],
+        FrameArguments::frame(frame, &transfers),
+    )
+    .unwrap();
+    for (slot, expected) in [(4096, 23), (4097, 11), (4098, 23)] {
+        assert_eq!(
+            callee
+                .slots()
+                .inspect(&runtime.memory, callee_layout.locations[slot])
+                .unwrap()
+                .as_i64(),
+            Some(expected)
+        );
+    }
+    for (slot, expected) in [(0, 11), (1, 23)] {
+        assert_eq!(
+            frame
+                .inspect(&runtime.memory, caller_layout.locations[slot])
+                .unwrap()
+                .as_i64(),
+            Some(expected)
+        );
+    }
+    runtime
+        .memory
+        .scope(&runtime.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                callee.retire(slots)?;
+                caller.retire(slots)
+            })
+        })
+        .unwrap();
+    // A retired source cannot become valid because the destination grows back
+    // over its previous coordinates. Admission must precede all bank growth.
+    assert!(matches!(
+        allocate(
+            &mut runtime,
+            &owner,
+            execution,
+            &callee_layout,
+            &[4096, 4097, 4098],
+            FrameArguments::frame(frame, &transfers)
+        ),
+        Err(FrameAllocationError::Storage(GcError::Index))
+    ));
+    runtime
+        .memory
+        .scope(&runtime.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                assert_eq!(slots.len(execution, ValueBank::Managed)?, 0);
+                assert!(slots.storage(execution)?.scalars.is_empty());
+                Ok(())
+            })
+        })
+        .unwrap();
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, execution)
+        .unwrap();
+}
+
+#[test]
+fn scalar_parameter_admission_preserves_domains_and_never_publishes_partial_frames() {
+    let (mut runtime, _program, owner) = module();
+    let execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let narrow = layout(
+        vec![
+            location(0, ValueType::U64, BuiltinType::U64),
+            location(1, ValueType::I32, BuiltinType::I8),
+        ],
+        2,
+        0,
+    );
+    let invalid = [ValueView::from(u64::MAX), ValueView::from(128i32)];
+    assert!(matches!(
+        allocate(
+            &mut runtime,
+            &owner,
+            execution,
+            &narrow,
+            &[0, 1],
+            FrameArguments::plain(&invalid)
+        ),
+        Err(FrameAllocationError::Execution(error))
+            if error.kind() == RuntimeErrorKind::ModuleValidation
+    ));
+    runtime
+        .memory
+        .scope(&runtime.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                assert!(slots.storage(execution)?.scalars.is_empty());
+                assert!(slots.storage(execution)?.initialized.is_empty());
+                Ok(())
+            })
+        })
+        .unwrap();
+    let character = layout(vec![location(0, ValueType::Char, BuiltinType::Char)], 1, 0);
+    let input = [ValueView::from('🙂')];
+    let source = allocate(
+        &mut runtime,
+        &owner,
+        execution,
+        &character,
+        &[0],
+        FrameArguments::plain(&input),
+    )
+    .unwrap();
+    let from = source.slots();
+    runtime
+        .memory
+        .scope(&runtime.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                assert!(matches!(
+                    from.write(slots, character.locations[0], ScopedValue::from(0x1f642i64)),
+                    Err(GcError::Representation)
+                ));
+                Ok(())
+            })
+        })
+        .unwrap();
+    assert!(matches!(
+        allocate(
+            &mut runtime,
+            &owner,
+            execution,
+            &narrow,
+            &[0],
+            FrameArguments::frame(from, &character.locations)
+        ),
+        Err(FrameAllocationError::Storage(GcError::Representation))
+    ));
+    let target = allocate(
+        &mut runtime,
+        &owner,
+        execution,
+        &character,
+        &[0],
+        FrameArguments::frame(from, &character.locations),
+    )
+    .unwrap();
+    assert_eq!(
+        target
+            .slots()
+            .inspect(&runtime.memory, character.locations[0])
+            .unwrap()
+            .as_char(),
+        Some('🙂')
+    );
+    runtime
+        .memory
+        .scope(&runtime.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                target.retire(slots)?;
+                source.retire(slots)
+            })
+        })
+        .unwrap();
+    runtime
+        .memory
+        .retire_execution(&runtime.resources, execution)
+        .unwrap();
+}
+
+#[test]
+fn method_frame_keeps_its_complete_computation_after_host_sources_retire() {
+    let mut runtime = Runtime::default();
+    let _program = runtime
+        .load_verified_program(
+            "method-frame",
+            programs::source_code(include_str!(
+                "../../../tests/fixtures/metadata/interface-parents.kgr"
+            )),
         )
         .unwrap();
-    slots
-        .publish_native_application(&runtime.gc, application.clone())
+    let owner = runtime.select_program(&_program).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline_roots = runtime.gc_stats().root_registrations;
+    let value = runtime
+        .make_interface(&owner, 0, &RootedValue::from(7_i32))
         .unwrap();
-    assert!(
-        slots
-            .publish_native_application(&runtime.gc, application.clone())
-            .is_err()
+    let description = runtime.interface_description(&value).unwrap();
+    let method = runtime
+        .resolve_interface_method_slot(&value, description.interface_type(), 0, &[])
+        .unwrap();
+    let admitted = method.admit(&mut runtime).unwrap();
+    drop((value, method));
+    let mut activation = runtime.enter_interface_execution_stack(&admitted).unwrap();
+    let copied = activation
+        .with(|runtime, stack| {
+            stack.push_interface_method(runtime, &admitted, ArgumentValues::scalars(&[]), None)?;
+            assert_eq!(runtime.resources.uncommon_frames.live(), 1);
+            // Both the original interface lease and computation lease are gone. The
+            // frame source now owns the actual interface/application/body graph.
+            drop(admitted);
+            runtime.collect_garbage()?;
+            assert_eq!(runtime.gc_stats().root_registrations, baseline_roots);
+            let (method, slots, parameter) = {
+                let frame = stack.current(runtime)?;
+                let callee = frame.loaded().execution().callee(frame.target()).unwrap();
+                (
+                    frame.invocation(&runtime.resources).unwrap(),
+                    frame.slots(),
+                    callee
+                        .slot_layout
+                        .location(callee.parameter_slots[0])
+                        .unwrap(),
+                )
+            };
+            runtime
+                .memory
+                .scope(&runtime.resources, |cx, roots| {
+                    ExecutionRoots::with(roots, cx, |source| {
+                        let value = slots.read(source, parameter)?;
+                        assert_eq!(value.scalar_payload(), Some((ValueType::I32, 7)));
+                        Ok(())
+                    })
+                })
+                .unwrap();
+            let computation = method.computation().unwrap().clone();
+            let view = method.view(
+                runtime,
+                &[MetadataSource::AdmittedApplication(&computation)],
+            )?;
+            assert_eq!(view.return_type(), &Ty::Builtin(BuiltinType::I32));
+            stack.pop(runtime)?;
+            assert_eq!(runtime.resources.uncommon_frames.live(), 0);
+            Ok(computation)
+        })
+        .unwrap();
+    drop(activation);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(
+        runtime.application_record(&copied).unwrap_err().kind(),
+        RuntimeErrorKind::ModuleValidation
     );
-    let probe = Arc::downgrade(&application);
-    for _ in 0..160 {
-        let mut function = application.function.clone();
-        function.selected = Box::new([]);
-        let next = Arc::new(NativeApplication {
-            owner: loaded.clone(),
-            environment: empty(),
-            function,
-        });
-        runtime
-            .publish_native_application(&loaded, import, next)
-            .unwrap();
-    }
-    drop(application);
-    runtime.collect_garbage().unwrap();
-    // Root accounting includes this one execution window; no host root was added.
-    assert_eq!(runtime.gc.active_roots(), 1);
-    assert!(probe.upgrade().is_some());
-    assert!(runtime.gc.environment(selected_id).is_some());
-    assert_eq!(runtime.gc.stats().environments, 130);
-    runtime
-        .resources()
-        .frame_values
-        .borrow_mut()
-        .release(slots)
-        .unwrap();
-    runtime.collect_garbage().unwrap();
-    assert!(probe.upgrade().is_none());
-    assert!(runtime.gc.environment(selected_id).is_none());
-    assert_eq!(runtime.gc.stats().environments, 128);
-    let candidate = runtime
-        .stage_reload_verified_program(&loaded_program, None, loaded.verified_program().clone())
-        .unwrap();
-    runtime.publish_staged_reload(candidate).unwrap();
-    runtime.collect_garbage().unwrap();
-    assert_eq!(runtime.gc.stats().environments, 0);
-    assert_eq!(runtime.gc.active_roots(), 0);
+    assert_eq!(runtime.gc_stats().root_registrations, baseline_roots);
+    assert!(!runtime.is_quarantined());
 }

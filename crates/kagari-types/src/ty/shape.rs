@@ -20,8 +20,8 @@ impl ShapeBudget {
         }
         let children = match ty {
             Ty::Host(_) | Ty::SelfType(_) | Ty::Parameter { .. } | Ty::Builtin(_) => 0,
-            Ty::Reference { .. } | Ty::Range(..) | Ty::Iter(_) | Ty::Array(_) | Ty::Set(..) => 1,
-            Ty::Map { .. } => 2,
+            Ty::Reference { .. } | Ty::Range(..) | Ty::Array(_) => 1,
+
             Ty::Tuple(elements) => elements.len(),
             Ty::Function { params, .. } => params.len().saturating_add(1),
             Ty::Struct(nominal) | Ty::NativeObject(nominal) | Ty::Enum(nominal) => {
@@ -65,15 +65,10 @@ impl ShapeBudget {
         // records are constructed, and the Rust call stack is bounded by depth.
         match ty {
             Ty::Host(_) | Ty::SelfType(_) | Ty::Parameter { .. } | Ty::Builtin(_) => {}
-            Ty::Reference { target, .. }
-            | Ty::Range(target, _)
-            | Ty::Iter(target)
-            | Ty::Array(target)
-            | Ty::Set(target, _) => self.visit(target, depth + 1, cancel)?,
-            Ty::Map { key, value, .. } => {
-                self.visit(key, depth + 1, cancel)?;
-                self.visit(value, depth + 1, cancel)?;
+            Ty::Reference { target, .. } | Ty::Range(target, _) | Ty::Array(target) => {
+                self.visit(target, depth + 1, cancel)?
             }
+
             Ty::Tuple(elements) => {
                 for element in elements {
                     self.visit(element, depth + 1, cancel)?;

@@ -1,9 +1,10 @@
+#[cfg(test)]
+use crate::error::RuntimeErrorKind;
+use crate::error::{RuntimeError, fault::EngineFault, reason::CancellationReason};
 use std::{
     cell::Cell,
     panic::{AssertUnwindSafe, catch_unwind},
 };
-
-use crate::error::{RuntimeError, RuntimeErrorKind};
 
 #[derive(Debug, Clone, Copy, Default)]
 enum Phase {
@@ -12,7 +13,7 @@ enum Phase {
     Closed,
     Committing,
     Collecting,
-    Quarantined(&'static str),
+    Quarantined(EngineFault),
 }
 
 /// Shared by execution and heap entry points in a single runtime.
@@ -20,33 +21,28 @@ enum Phase {
 pub(crate) struct ExecutionState(Cell<Phase>);
 
 impl ExecutionState {
-    pub(crate) fn quarantine(&self, reason: &'static str) -> RuntimeError {
+    pub(crate) fn quarantine(&self, reason: EngineFault) -> RuntimeError {
         self.0.set(Phase::Quarantined(reason));
-        RuntimeError::new(RuntimeErrorKind::EngineFault, reason)
+        RuntimeError::from(reason)
     }
 
     pub(crate) fn ensure_allowed(&self) -> Result<(), RuntimeError> {
         match self.0.get() {
             Phase::Ready => Ok(()),
-            Phase::Closed => Err(RuntimeError::new(
-                RuntimeErrorKind::Cancelled,
-                "runtime is closed",
-            )),
+            Phase::Closed => Err(RuntimeError::from(CancellationReason::RuntimeIsClosed)),
             Phase::Committing => {
                 self.0.set(Phase::Quarantined(
-                    "execution attempted during host path commit",
+                    EngineFault::ExecutionAttemptedDuringHostPathCommit,
                 ));
                 self.ensure_allowed()
             }
             Phase::Collecting => {
                 self.0.set(Phase::Quarantined(
-                    "execution attempted during garbage collection",
+                    EngineFault::ExecutionAttemptedDuringGarbageCollection,
                 ));
                 self.ensure_allowed()
             }
-            Phase::Quarantined(reason) => {
-                Err(RuntimeError::new(RuntimeErrorKind::EngineFault, reason))
-            }
+            Phase::Quarantined(reason) => Err(RuntimeError::from(reason)),
         }
     }
 
@@ -64,7 +60,8 @@ impl ExecutionState {
         self.ensure_allowed()?;
         self.0.set(Phase::Committing);
         if catch_unwind(AssertUnwindSafe(commit)).is_err() {
-            self.0.set(Phase::Quarantined("host path commit panicked"));
+            self.0
+                .set(Phase::Quarantined(EngineFault::HostPathCommitPanicked));
         }
         if matches!(self.0.get(), Phase::Committing) {
             self.0.set(Phase::Ready);
@@ -76,7 +73,7 @@ impl ExecutionState {
         self.ensure_allowed()?;
         self.0.set(Phase::Collecting);
         let result = catch_unwind(AssertUnwindSafe(collect))
-            .map_err(|_| self.quarantine("garbage collection callback panicked"))?;
+            .map_err(|_| self.quarantine(EngineFault::GarbageCollectionCallbackPanicked))?;
         if matches!(self.0.get(), Phase::Collecting) {
             self.0.set(Phase::Ready);
         }

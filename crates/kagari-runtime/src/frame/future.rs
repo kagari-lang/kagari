@@ -1,162 +1,202 @@
-//! Cold script frames reuse closure metadata edges without exposing a callable resume body.
+//! Cold script construction and resume transfer the existing graph into frame storage.
 use crate::{
     Runtime,
-    closure::{ClosureTarget, ClosureValueSnapshot},
+    closure::{ClosureMode, ClosureRecord, ClosureTarget},
     error::RuntimeError,
+    execution_metadata::managed::sources::MetadataSource,
     frame::{
-        ExecutionStack, FrameDispatch, FrameEntry, arguments::FrameArguments,
-        types::arguments::TypeArgument,
+        FrameDispatch, FrameEntry, FrameEnvironment, FrameStack, arguments::FrameArguments,
+        closures::closure_inputs, types::arguments::TypeArgument,
     },
-    module::ExecutableModule,
+    module::{ExecutableModule, managed::source::RevisionSource},
     native::{
         binding::NativeResult,
-        future::{ColdFuture, FuturePayload},
+        conversion::context::ConversionContext,
+        future::{ColdFuture, claims::ClaimedFuture, storage::ColdObject},
     },
     session::ExecutionPhase,
-    value::Value,
+    value::{closures::ClosureObject, place::ResultPlace},
 };
-use kagari_bytecode::{instruction::Slot, module::CallableTarget};
+use kagari_bytecode::instruction::Slot;
 use kagari_contract::ids::FunctionRef;
+use kagari_gc::error::GcError;
 use kagari_types::ty::Ty;
-use std::{cell::Ref, slice};
+use std::{slice, sync::Arc};
 
-impl ExecutionStack<'_> {
-    pub fn make_future(
+impl FrameStack {
+    pub(crate) fn make_future(
         &self,
-        runtime: &Runtime,
+        runtime: &mut Runtime,
         function: FunctionRef,
-        values: Vec<Value>,
+        captures: &[Slot],
+        destination: Slot,
         future: &Ty,
-    ) -> NativeResult<Value> {
-        self.validate_runtime(runtime)?;
+    ) -> NativeResult<()> {
+        self.validate_top(runtime)?;
         runtime.reject_static_initialization("cold Future construction")?;
         if runtime.execution_options().phase != ExecutionPhase::Ordinary {
             return Err(RuntimeError::execution_phase_violation(
                 "cold Future construction",
             ));
         }
-        runtime.gc().validate_async_values(&values)?;
-        let frame = self.current()?;
-        let owner = frame.loaded();
-        let invalid = || RuntimeError::module_validation("cold script Future contract");
+        let (owner, environment, slots, destination, locations) = {
+            let frame = self.current(runtime)?;
+            let destination = frame.slot_location(runtime.resources(), destination, false)?;
+            let mut locations = Vec::new();
+            locations
+                .try_reserve_exact(captures.len())
+                .map_err(|_| RuntimeError::resource_limit("Future capture locations"))?;
+            for register in captures {
+                locations.push(frame.slot_location(runtime.resources(), *register, true)?);
+            }
+            (
+                frame.loaded.clone(),
+                frame.admitted_environment().cloned(),
+                frame.slots(),
+                destination,
+                locations,
+            )
+        };
         let target = owner
             .bytecode
             .functions
             .get(function.index())
             .ok_or_else(invalid)?;
-        if !target.metadata.effects.may_suspend || target.metadata.params.len() != values.len() {
+        if !target.metadata.effects.may_suspend || target.metadata.params.len() != captures.len() {
             return Err(invalid());
         }
-        let environment = frame.environment();
-        let future = frame
-            .type_arguments(runtime, slice::from_ref(future))?
-            .pop()
-            .ok_or_else(invalid)?;
-        let output = future.parameter(runtime, owner, 0)?;
-        let result = target
-            .metadata
-            .semantic
-            .result
-            .as_ref()
-            .ok_or_else(invalid)?;
-        let result = frame
-            .type_arguments(runtime, slice::from_ref(result))?
-            .pop()
-            .ok_or_else(invalid)?;
-        if !output.view(owner).compatible(result.view(owner)) {
-            return Err(invalid());
-        }
-        for (index, value) in values.iter().enumerate() {
-            let ty = target
-                .metadata
-                .semantic
-                .params
-                .get(&index)
-                .ok_or_else(invalid)?;
-            let ty = frame
-                .type_arguments(runtime, slice::from_ref(ty))?
-                .pop()
-                .ok_or_else(invalid)?;
-            let underlying = if let Value::Cell(id) = value {
-                runtime.gc().captured_cell_value(*id).ok_or_else(invalid)?
-            } else {
-                *value
-            };
-            if !ty.matches(runtime, &underlying, owner) {
-                return Err(invalid());
+        let mut values = Vec::new();
+        values
+            .try_reserve_exact(locations.len())
+            .map_err(|_| RuntimeError::resource_limit("Future capture views"))?;
+        for (index, location) in locations.into_iter().enumerate() {
+            if index.is_multiple_of(1024) {
+                runtime.resources.poll_execution()?;
             }
+            values.push(
+                slots
+                    .inspect(&runtime.memory, location)
+                    .map_err(|error| runtime.managed_memory_error(error))?,
+            );
         }
-        let closure = runtime.make_retained_closure(owner, function, values, environment)?;
-        let _root = runtime.root_value(closure).ok_or_else(invalid)?;
-        let Ty::NativeObject(nominal) = future.ty() else {
-            return Err(invalid());
-        };
-        let storage = runtime
-            .native_entries
-            .storage
-            .get_id(nominal.declaration)
+        let future = runtime
+            .type_arguments(
+                &owner,
+                environment.as_ref().map(|env| env.facts().types.clone()),
+                slice::from_ref(future),
+            )?
+            .pop()
             .ok_or_else(invalid)?;
-        let mut object = storage.prepare_payload(
-            runtime.gc(),
-            future.ty(),
-            FuturePayload {
-                cold: Some(ColdFuture::Script(closure)),
-            },
-            owner,
-        )?;
-        object.scope = Some(future);
-        runtime.gc().alloc_native(object).map(Value::GcHandle)
+        let record = Arc::new(ClosureRecord::script(
+            runtime,
+            &owner,
+            function,
+            values.len(),
+            environment.as_ref().map(|env| env.facts().clone()),
+            ClosureMode::Retained,
+        )?);
+        let output = future.parameter(runtime, &owner, 0)?;
+        if !output
+            .view(&owner)
+            .compatible(record.signature().result.view(&owner))
+        {
+            return Err(invalid());
+        }
+        {
+            let mut conversion = ConversionContext::for_selected(
+                runtime,
+                &owner,
+                self.session,
+                RevisionSource::Execution(slots.body),
+                environment
+                    .as_ref()
+                    .map(MetadataSource::AdmittedEnvironment),
+            )?;
+            let closure = conversion.publish_closure(record, &values)?;
+            let value = conversion.allocate_future(
+                &future,
+                ColdFuture::Script {
+                    owner: owner.clone(),
+                },
+                &[closure],
+            )?;
+            ResultPlace::frame(&slots, Some(&destination))
+                .publish(conversion.runtime_mut(), &value)?
+                .admit_frame(&slots, Some(&destination))?;
+        }
+        self.complete_source_write(runtime);
+        Ok(())
     }
 
     pub(super) fn push_future(
         &self,
-        runtime: &Runtime,
-        value: Value,
+        runtime: &mut Runtime,
+        claim: ClaimedFuture,
         destination: Option<Slot>,
         output: &TypeArgument,
     ) -> NativeResult<()> {
-        let invalid = || RuntimeError::module_validation("script Future resume contract");
+        self.validate_top(runtime)?;
         if !self.can_park(runtime)? {
             return Err(invalid());
         }
-        let owner = if destination.is_some() {
-            self.current()?.loaded().clone()
-        } else {
-            self.session.root()
+        let ColdFuture::Script { owner } = claim.recipe() else {
+            return Err(invalid());
         };
-        let closure = runtime.checked_future_resume(value, &owner, output)?;
-        let ClosureTarget::Script(function) = closure.target else {
-            unreachable!()
-        };
-        self.push_arguments(
+        let owner = owner.clone();
+        let closure = runtime
+            .memory
+            .scope(&runtime.resources, |cx, _| {
+                let cold = cx.get(claim.source())?;
+                let value = ColdObject::capture(cx, cold, 0)?;
+                let closure =
+                    cx.downcast::<ClosureObject>(value.object().ok_or(GcError::Representation)?)?;
+                Ok(cx.read(closure, |closure| closure.record().clone()))
+            })
+            .map_err(|error| runtime.managed_memory_error(error))?;
+        runtime.validate_future_resume(&closure, &owner, output)?;
+        let arguments = FrameArguments::plain(&[])
+            .with_cold_captures(claim.source(), closure.capture_types.len())
+            .map_err(|error| runtime.managed_memory_error(error))?;
+        closure_inputs(runtime, &closure, arguments, 0)?;
+        let environment = closure.environment.as_ref().map(|facts| FrameEnvironment {
+            facts: facts.clone(),
+            source: MetadataSource::ColdClosureEnvironment(claim.source()),
+        });
+        self.push_admitted_arguments(
             runtime,
-            closure.implementation.clone(),
-            CallableTarget::Script(function),
-            FrameArguments::plain(&closure.captures),
+            owner,
+            closure.callable_target(),
+            arguments,
             destination,
             FrameDispatch {
+                origin: RevisionSource::Cold(claim.source()),
+                metadata: Some(MetadataSource::Cold(claim.source())),
                 prepared: None,
                 entry: FrameEntry::Await,
                 invocation: None,
-                environment: closure.environment.clone(),
+                environment,
             },
-        )
+        )?;
+        // The new frame owns all captures and executable dependencies now. There
+        // is no floating conversion suffix to retire across this live frame.
+        Ok(())
     }
 }
 
 impl Runtime {
-    pub(crate) fn checked_future_resume(
+    pub(crate) fn validate_future_resume(
         &self,
-        value: Value,
+        closure: &Arc<ClosureRecord>,
         owner: &ExecutableModule,
         output: &TypeArgument,
-    ) -> NativeResult<Ref<'_, ClosureValueSnapshot>> {
-        let invalid = || RuntimeError::module_validation("script Future resume contract");
-        let closure = self.resolve_closure(&value)?;
+    ) -> NativeResult<()> {
         let ClosureTarget::Script(function) = closure.target else {
             return Err(invalid());
         };
         self.validate_executable_module(&closure.implementation)?;
+        if closure.implementation.program_identity() != owner.program_identity() {
+            return Err(invalid());
+        }
         let target = closure
             .implementation
             .bytecode
@@ -164,18 +204,18 @@ impl Runtime {
             .get(function.index())
             .ok_or_else(invalid)?;
         if !target.metadata.effects.may_suspend
-            || target.metadata.params.len() != closure.captures.len()
-        {
-            return Err(invalid());
-        }
-        let signature = closure.signature(self)?;
-        if !signature.params.is_empty()
+            || target.metadata.params.len() != closure.capture_types.len()
+            || !closure.signature().params.is_empty()
             || !output
                 .view(owner)
-                .compatible(signature.result.view(&closure.implementation))
+                .compatible(closure.signature().result.view(&closure.implementation))
         {
             return Err(invalid());
         }
-        Ok(closure)
+        Ok(())
     }
+}
+
+fn invalid() -> RuntimeError {
+    RuntimeError::module_validation("cold script Future contract")
 }

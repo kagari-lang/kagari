@@ -1,0 +1,30 @@
+mod dependency {
+    pub fn value() -> i32 {
+        1
+    }
+}
+
+fn local() -> i32 {
+    1
+}
+
+fn shared<T>(value: T, delta: i32) -> i32 {
+    delta + 1
+}
+
+fn recursive(n: i32) -> i32 {
+    example::steps::step();
+    if n == 0 {
+        2
+    } else {
+        10 + recursive(n - 1)
+    }
+}
+
+pub fn run(seed: [i32]) -> i32 {
+    val kept = seed[0] + 100;
+    val result = recursive(2);
+    kept + result + local() + dependency::value() + shared(0, 4)
+}
+
+fn main() {}

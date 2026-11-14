@@ -1,0 +1,19 @@
+trait Other {}
+
+trait Pair {
+    fn first(self) -> i32;
+    fn second(self) -> i32;
+}
+
+impl Pair for i32 {
+    fn second(self) -> i32 {
+        2
+    }
+    fn first(self) -> i32 {
+        1
+    }
+}
+
+fn main() -> i32 {
+    0
+}

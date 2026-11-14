@@ -20,7 +20,7 @@ use kagari_hir::{
     typeck::table::{CallTarget, ResolvedCall},
     types::TypeId,
 };
-use kagari_types::{collection::CollectionAccess, language::Protocol, scalar::BuiltinType};
+use kagari_types::{language::Protocol, scalar::BuiltinType};
 
 impl Builder<'_, '_> {
     pub(super) fn expression(&mut self, id: ExprId) -> Result<OperationId, ElaborationError> {
@@ -74,7 +74,7 @@ impl Builder<'_, '_> {
                     },
                 );
             }
-            let result = self.valid_type(
+            let _result = self.valid_type(
                 self.require(
                     facts.result_type,
                     Some(span),
@@ -82,17 +82,6 @@ impl Builder<'_, '_> {
                 )?,
                 Some(span),
             )?;
-            if result.collection_access() == Some(CollectionAccess::ReadOnly) {
-                operation = self.append(
-                    id,
-                    span,
-                    result,
-                    CheckedExprKind::Convert {
-                        value: operation,
-                        conversion: Conversion::ReadOnly,
-                    },
-                );
-            }
         }
         self.body.results.insert(id, operation);
         Ok(operation)

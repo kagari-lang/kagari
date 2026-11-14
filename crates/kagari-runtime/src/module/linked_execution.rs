@@ -1,70 +1,42 @@
 //! Runtime-local execution links are admitted with their supplying program.
 pub(crate) mod builtin_results;
 pub(crate) mod calls;
+pub(crate) mod interfaces;
 pub(crate) mod layouts;
-mod native_calls;
+mod metadata;
 use crate::{
     Runtime,
     error::RuntimeError,
+    execution::roots::SessionId,
     execution_metadata::{
-        MetadataEdge, call_contracts::ScopedInterfaceCall, environments::EnvironmentId,
+        call_contracts::ScopedInterfaceCall, environments::EnvironmentId,
+        managed::sources::MetadataSource,
     },
     module::{
         ExecutableModule, ModuleStore,
-        constants::ConstantPool,
         descriptor_index::DescriptorIndex,
-        execution::layout::Location,
+        dispatch::bindings::PublishedRoutes,
         linked_execution::{
             builtin_results::BuiltinResults,
             calls::LinkedCall,
+            interfaces::{AppliedUpcasts, FunctionUpcasts},
             layouts::{AppliedLayouts, FunctionLayouts},
         },
     },
-    native::{binding::LinkedNativeFunction, primitive::NativePrimitive},
 };
 use kagari_contract::ids::FunctionRef;
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub(crate) struct LinkedFunction {
-    pub(crate) constants: Arc<ConstantPool>,
     calls: Arc<[LinkedCall]>,
     pub(crate) layouts: Option<Arc<FunctionLayouts>>,
-    native_calls: Arc<[LinkedNativeCall]>,
     pub(crate) applied_layouts: Option<Arc<AppliedLayouts>>,
-}
-
-#[derive(Debug)]
-pub(crate) struct LinkedNativeCall {
-    pub(crate) body: LinkedNativeBody,
-    pub(crate) destination: Option<Location>,
-}
-
-#[derive(Debug)]
-pub(crate) enum LinkedNativeBody {
-    StringByteLength(Location),
-    Vector(LinkedVectorPrimitive),
-    Callback(LinkedNativeCallback),
-}
-
-#[derive(Debug)]
-pub(crate) struct LinkedNativeCallback {
-    pub(crate) arguments: Box<[Location]>,
-    pub(crate) function: Arc<LinkedNativeFunction>,
-}
-
-#[derive(Debug)]
-pub(crate) struct LinkedVectorPrimitive {
-    pub(crate) operation: NativePrimitive,
-    pub(crate) arguments: Box<[Location]>,
-    pub(crate) function: Arc<LinkedNativeFunction>,
+    pub(crate) upcasts: Option<Arc<FunctionUpcasts>>,
+    pub(crate) applied_upcasts: Option<Arc<AppliedUpcasts>>,
 }
 
 impl LinkedFunction {
-    pub(crate) fn native_call(&self, index: usize) -> Option<&LinkedNativeCall> {
-        self.native_calls.get(index)
-    }
-
     pub(crate) fn call(&self, index: usize) -> Option<&Arc<ScopedInterfaceCall>> {
         self.calls.get(index)?.interface()
     }
@@ -84,30 +56,46 @@ pub(super) struct LinkedExecution {
 }
 
 impl LinkedExecution {
-    pub(super) fn trace<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
-        pending.extend(self.functions.iter().flatten().flat_map(|function| {
-            function
-                .calls
-                .iter()
-                .filter_map(LinkedCall::interface)
-                .map(|call| MetadataEdge::InterfaceCall(call))
-        }));
+    pub(in crate::module) fn rebound(
+        &self,
+        routes: &PublishedRoutes,
+    ) -> Result<Self, RuntimeError> {
+        let functions = self
+            .functions
+            .iter()
+            .map(|function| {
+                function
+                    .as_ref()
+                    .map(|function| {
+                        let mut next = function.as_ref().clone();
+                        next.calls = function
+                            .calls
+                            .iter()
+                            .map(|call| call.rebound(routes))
+                            .collect::<Result<Vec<_>, _>>()?
+                            .into();
+                        Ok(Arc::new(next))
+                    })
+                    .transpose()
+            })
+            .collect::<Result<Vec<_>, RuntimeError>>()?
+            .into_boxed_slice();
+        Ok(Self {
+            functions,
+            applications: None,
+            builtin_results: None,
+        })
     }
 }
 
 impl Runtime {
-    pub(crate) fn link_execution(&self, owner: &ExecutableModule) -> Result<(), RuntimeError> {
-        let constants = self
-            .modules
-            .inner
-            .try_borrow()
-            .map_err(|_| {
-                RuntimeError::module_validation("module store borrowed during execution linking")
-            })?
-            .resolve(owner)
-            .ok_or_else(|| RuntimeError::module_validation("invalid execution link owner"))?
-            .constants
-            .clone();
+    pub(crate) fn link_execution(
+        &mut self,
+        execution: SessionId,
+        owner: &ExecutableModule,
+        protected: &mut Vec<MetadataSource<'_>>,
+    ) -> Result<Vec<Arc<ScopedInterfaceCall>>, RuntimeError> {
+        let mut closed_calls = Vec::new();
         let mut functions = Vec::with_capacity(owner.bytecode.functions.len());
         for function in &owner.bytecode.functions {
             let prepared = &owner.execution().functions[function.id.index()];
@@ -115,12 +103,16 @@ impl Runtime {
                 functions.push(None);
                 continue;
             }
-            let calls = self.link_calls(owner, function, prepared)?;
+            let calls = self.link_calls(execution, owner, function, prepared, protected)?;
+            closed_calls
+                .try_reserve(calls.len())
+                .map_err(|_| RuntimeError::resource_limit("closed call metadata"))?;
+            closed_calls.extend(calls.iter().filter_map(LinkedCall::interface).cloned());
             functions.push(Some(Arc::new(LinkedFunction {
-                native_calls: self.link_native_calls(owner, function, prepared)?.into(),
                 layouts: FunctionLayouts::link(self, owner, function, prepared)?,
                 applied_layouts: None,
-                constants: constants.clone(),
+                upcasts: FunctionUpcasts::link(self, owner, &prepared.upcasts)?,
+                applied_upcasts: None,
                 calls,
             })));
         }
@@ -138,7 +130,7 @@ impl Runtime {
             applications: None,
             builtin_results: None,
         });
-        Ok(())
+        Ok(closed_calls)
     }
 }
 
@@ -152,13 +144,17 @@ impl ModuleStore {
         let mut records = self.inner.try_borrow_mut().ok()?;
         let execution = records.resolve_mut(owner)?.execution.as_mut()?;
         let linked = execution.functions.get(function.index())?.as_ref()?;
-        let Some(layouts) = linked
+        let layouts = linked
             .layouts
             .as_ref()
-            .filter(|layouts| layouts.is_scoped())
-        else {
+            .filter(|layouts| layouts.is_scoped());
+        let upcasts = linked
+            .upcasts
+            .as_ref()
+            .filter(|upcasts| upcasts.is_scoped());
+        if layouts.is_none() && upcasts.is_none() {
             return Some(linked.clone());
-        };
+        }
         let environment = environment?;
         let applications = execution
             .applications
@@ -169,7 +165,8 @@ impl ModuleStore {
         // One exact function/environment descriptor is the frame's sole execution
         // reference. Its layout cells contain pure facts, not executable edges.
         let mut applied = linked.as_ref().clone();
-        applied.applied_layouts = Some(layouts.application(environment));
+        applied.applied_layouts = layouts.map(|layouts| layouts.application(environment));
+        applied.applied_upcasts = upcasts.map(|upcasts| upcasts.application(environment));
         let applied = Arc::new(applied);
         // Optional retention failure cannot revoke the new frame's reference.
         let _ = applications.insert(environment, function, applied.clone());

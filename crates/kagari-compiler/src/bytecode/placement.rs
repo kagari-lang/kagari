@@ -2,7 +2,7 @@
 mod selection;
 mod transfers;
 
-use crate::bytecode::collect_control_flow_targets;
+use crate::bytecode::{collect_control_flow_targets, tail};
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::{BytecodeInstruction as I, ConstantOperand, JumpTarget, Slot},
@@ -255,6 +255,16 @@ pub(super) fn select(
         selected.push(instruction);
     }
     function.instructions = selected;
+    function.metadata.self_tail_calls = function
+        .metadata
+        .self_tail_calls
+        .iter()
+        .filter_map(|&pc| {
+            let selected = pcs[pc];
+            (retained[pc] && tail::terminal_pair(&function.instructions, selected))
+                .then_some(selected)
+        })
+        .collect();
     let debug = &mut function.metadata.debug;
     for span in &mut debug.source_spans {
         span.instruction_offset = pcs[targets[span.instruction_offset]];

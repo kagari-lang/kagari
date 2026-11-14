@@ -1,0 +1,13 @@
+use example::payload::{ Counter, Edge, new, read, wrap_payload };
+
+pub fn make(value: i32) -> Counter {
+    new(value)
+}
+
+pub fn value(counter: Counter) -> i32 {
+    read(counter)
+}
+
+pub fn wrap(value: Counter) -> Edge<Counter> {
+    wrap_payload(value)
+}

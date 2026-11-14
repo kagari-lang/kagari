@@ -12,7 +12,7 @@ pub(crate) enum FieldAccess {
     Write { value: Location },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct PreparedFieldOperation {
     pub(crate) base: Location,
     pub(crate) access: FieldAccess,
@@ -53,7 +53,10 @@ impl PreparedFieldOperation {
             FieldAccess::Read { dst } => dst,
             FieldAccess::Write { value } => value,
         };
-        let scalar = (!scalar_location.operand.managed())
+        let scalar = scalar_location
+            .operand
+            .scalar()
+            .is_some()
             .then_some(scalar_location.semantic)
             .flatten();
         Self {

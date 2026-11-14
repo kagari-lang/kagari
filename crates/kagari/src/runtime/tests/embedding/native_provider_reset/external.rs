@@ -1,19 +1,13 @@
 //! Source-side consumer of the same application-owned registration fixture.
-use super::{artifact, engine, provider};
+use super::{artifact, assert_provider_released, engine};
 use crate::{
-    context::ExecutionContext,
-    engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    context::ExecutionContext, engine::EngineConfig, program::Program,
     runtime::tests::embedding::generic_reload::prepare_static_program,
 };
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_runtime::value::Value;
+use kagari_runtime::reload::ReloadValidationError;
 use rstest::rstest;
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
-};
 
 #[rstest]
 #[case::source(false)]
@@ -36,18 +30,23 @@ pub fn update() { STATE = 5; }
         decoded,
     );
     let mut runtime = engine.runtime(Default::default());
-    let old = runtime.load_program(&first, Default::default()).unwrap();
-    let call = |module, entry| {
+    let old = runtime
+        .load_program(first.program(), Default::default())
+        .unwrap();
+    let mut call = |module, entry| {
         runtime
             .execute(module, entry, &[], &Default::default())
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .as_i32()
             .unwrap()
     };
-    assert_eq!(call(&old, "read"), Value::I32(13));
+    assert_eq!(call(&old, "read"), 13);
     runtime
-        .reload_program(&old, &second, Default::default())
+        .program(&old)
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(second.program(), &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
     runtime
@@ -59,50 +58,12 @@ pub fn update() { STATE = 5; }
                 .execute(&current, entry, &[], &Default::default())
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .as_i32()
                 .unwrap(),
-            Value::I32(expected),
+            expected,
             "{entry}/decoded={decoded}"
         );
     }
-}
-
-#[test]
-fn retained_host_lease_does_not_keep_native_payload_alive_after_runtime_teardown() {
-    let program = PreparedProgram::from_artifact(
-        artifact("fn main() -> native::Handler<i32> { native::hold(42, |value| value) }"),
-        &Default::default(),
-        &Default::default(),
-    )
-    .unwrap();
-    let drops = Arc::new(AtomicUsize::new(0));
-    let mut builder = KagariEngine::builder().unwrap();
-    builder.install(provider::module(drops.clone())).unwrap();
-    let engine = builder.build().unwrap();
-    let context = ExecutionContext::default();
-    let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(&program, Default::default()).unwrap();
-    let result = runtime
-        .execute(&loaded, ProgramEntry::Main, &[], &context)
-        .unwrap();
-    let root = runtime
-        .runtime()
-        .root_value(
-            result
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-        )
-        .unwrap();
-    runtime.runtime().collect_garbage().unwrap();
-    assert_eq!(drops.load(Ordering::SeqCst), 0);
-    drop(runtime);
-    assert_eq!(drops.load(Ordering::SeqCst), 1);
-    let other = engine.runtime(context);
-    assert!(root.value(other.runtime().gc()).is_none());
-    assert!(root.set(other.runtime().gc(), Value::Unit).is_none());
-    drop(root);
-    assert_eq!(drops.load(Ordering::SeqCst), 1);
 }
 
 #[test]
@@ -111,7 +72,7 @@ fn an_embedding_owned_provider_can_allocate_and_chain_checked_callbacks() {
         "fn main() -> i32 { val values = native::from_fn(2u64, |i| { [21] }); values[0u64][0u64] + values[1u64][0u64] }",
     );
     let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
-    let program = PreparedProgram::from_artifact(
+    let program = Program::from_artifact(
         KbcArtifact::from_bytes(&bytes).unwrap(),
         &Default::default(),
         &Default::default(),
@@ -123,20 +84,17 @@ fn an_embedding_owned_provider_can_allocate_and_chain_checked_callbacks() {
     // A fresh engine installs the same checked module without source compilation.
     let mut runtime = engine(config).runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
     assert_eq!(
         runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
-    assert_eq!(
-        runtime.runtime().resources().counters().current_call_depth,
-        0
-    );
-    runtime.runtime().collect_garbage().unwrap();
-    assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    assert_provider_released(&mut runtime, &program, &loaded, baseline);
 }

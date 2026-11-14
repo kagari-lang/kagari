@@ -66,10 +66,13 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                     } else {
                         Arc::new(Join)
                     };
-                    Ok(NativeBinding::new(
+                    Ok(NativeBinding::scoped(
                         vec![Codec::Value; 2],
                         Codec::Value,
-                        move |cx| cx.compose_pair(policy.clone()),
+                        move |cx| {
+                            let value = cx.compose_pair(policy.clone())?;
+                            cx.set_result(value)
+                        },
                     ))
                 }),
         )?;
@@ -105,11 +108,12 @@ impl PairPolicy for Join {
         check_pair(cx, cx.output_type(), [cx.input_type(0)?, cx.input_type(1)?])
     }
 
-    fn on_output(&self, cx: &PairContext<'_>, _: usize) -> NativeResult<PairDecision> {
+    fn on_output(&self, cx: &mut PairContext<'_>, _: usize) -> NativeResult<PairDecision> {
         let (Some(left), Some(right)) = (cx.output(0)?, cx.output(1)?) else {
             return Ok(PairDecision::Continue);
         };
-        cx.tuple(cx.output_type(), vec![left, right])
+        let output = cx.output_type().clone();
+        cx.tuple(&output, vec![left, right])
             .map(PairDecision::Finish)
     }
 }
@@ -144,10 +148,11 @@ impl PairPolicy for TryJoin {
         )
     }
 
-    fn on_output(&self, cx: &PairContext<'_>, index: usize) -> NativeResult<PairDecision> {
+    fn on_output(&self, cx: &mut PairContext<'_>, index: usize) -> NativeResult<PairDecision> {
         if cx.is_variant(index, &self.error)? {
+            let output = cx.output_type().clone();
             return cx
-                .forward_variant(index, cx.output_type(), &self.error)
+                .forward_variant(index, &output, &self.error)
                 .map(PairDecision::Finish);
         }
         if !cx.is_variant(index, &self.ok)? {
@@ -156,11 +161,12 @@ impl PairPolicy for TryJoin {
         if cx.output(0)?.is_none() || cx.output(1)?.is_none() {
             return Ok(PairDecision::Continue);
         }
-        let pair = cx.tuple(
-            &cx.parameter(cx.output_type(), 0)?,
-            vec![cx.field(0, &self.ok, 0)?, cx.field(1, &self.ok, 0)?],
-        )?;
-        cx.allocate_enum(cx.output_type(), &self.ok, vec![cx.value(&pair)?])
+        let output = cx.output_type().clone();
+        let pair_type = cx.parameter(&output, 0)?;
+        let left = cx.field(0, &self.ok, 0)?;
+        let right = cx.field(1, &self.ok, 0)?;
+        let pair = cx.tuple(&pair_type, vec![left, right])?;
+        cx.allocate_enum(&output, &self.ok, vec![pair])
             .map(PairDecision::Finish)
     }
 }

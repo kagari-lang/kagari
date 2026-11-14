@@ -1,0 +1,1278 @@
+//! Prepared scalar instruction definitions.
+use crate::module::execution::{managed::PreparedManagedOperation, operands::ScalarSlot};
+use kagari_abi::representation::ValueType;
+use kagari_bytecode::instruction::JumpTarget;
+use kagari_types::{
+    integer::IntegerOp,
+    payload::{
+        comparison::{Comparison, ComparisonDomain},
+        operation::{FloatOperation, FloatType, ShiftKind},
+    },
+    scalar::IntegerType,
+};
+
+/// Closed prepared operations with admitted physical operands.
+#[derive(Debug, Clone, Copy)]
+pub enum ExecutionInstruction {
+    /// A verified Unit definition/copy still consumes one logical instruction.
+    Unit,
+
+    Constant {
+        dst: ScalarSlot,
+        value: u64,
+    },
+    Move {
+        dst: ScalarSlot,
+        src: ScalarSlot,
+    },
+    // BEGIN GENERATED scalar-variants
+    // Source: codegen/scalar-instructions.toml. Regenerate with:
+    // uv run python scripts/generate_scalar_execution.py
+    I8AddRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I8AddRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i8,
+    },
+    I8SubRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I8SubRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i8,
+    },
+    I8MulRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I8MulRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i8,
+    },
+    I8DivRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I8DivRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i8,
+    },
+    I8RemRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I8RemRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i8,
+    },
+    I8BitAndRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I8BitAndRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i8,
+    },
+    I8BitOrRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I8BitOrRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i8,
+    },
+    I8BitXorRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I8BitXorRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i8,
+    },
+    I16AddRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I16AddRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i16,
+    },
+    I16SubRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I16SubRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i16,
+    },
+    I16MulRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I16MulRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i16,
+    },
+    I16DivRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I16DivRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i16,
+    },
+    I16RemRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I16RemRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i16,
+    },
+    I16BitAndRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I16BitAndRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i16,
+    },
+    I16BitOrRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I16BitOrRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i16,
+    },
+    I16BitXorRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I16BitXorRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i16,
+    },
+    I32AddRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I32AddRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i32,
+    },
+    I32SubRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I32SubRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i32,
+    },
+    I32MulRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I32MulRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i32,
+    },
+    I32DivRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I32DivRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i32,
+    },
+    I32RemRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I32RemRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i32,
+    },
+    I32BitAndRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I32BitAndRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i32,
+    },
+    I32BitOrRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I32BitOrRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i32,
+    },
+    I32BitXorRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I32BitXorRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i32,
+    },
+    I64AddRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I64AddRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i64,
+    },
+    I64SubRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I64SubRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i64,
+    },
+    I64MulRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I64MulRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i64,
+    },
+    I64DivRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I64DivRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i64,
+    },
+    I64RemRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I64RemRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i64,
+    },
+    I64BitAndRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I64BitAndRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i64,
+    },
+    I64BitOrRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I64BitOrRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i64,
+    },
+    I64BitXorRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    I64BitXorRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i64,
+    },
+    U8AddRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U8AddRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u8,
+    },
+    U8SubRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U8SubRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u8,
+    },
+    U8MulRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U8MulRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u8,
+    },
+    U8DivRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U8DivRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u8,
+    },
+    U8RemRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U8RemRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u8,
+    },
+    U8BitAndRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U8BitAndRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u8,
+    },
+    U8BitOrRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U8BitOrRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u8,
+    },
+    U8BitXorRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U8BitXorRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u8,
+    },
+    U16AddRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U16AddRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u16,
+    },
+    U16SubRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U16SubRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u16,
+    },
+    U16MulRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U16MulRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u16,
+    },
+    U16DivRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U16DivRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u16,
+    },
+    U16RemRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U16RemRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u16,
+    },
+    U16BitAndRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U16BitAndRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u16,
+    },
+    U16BitOrRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U16BitOrRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u16,
+    },
+    U16BitXorRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U16BitXorRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u16,
+    },
+    U32AddRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U32AddRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u32,
+    },
+    U32SubRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U32SubRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u32,
+    },
+    U32MulRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U32MulRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u32,
+    },
+    U32DivRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U32DivRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u32,
+    },
+    U32RemRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U32RemRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u32,
+    },
+    U32BitAndRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U32BitAndRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u32,
+    },
+    U32BitOrRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U32BitOrRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u32,
+    },
+    U32BitXorRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U32BitXorRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u32,
+    },
+    U64AddRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U64AddRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+    },
+    U64SubRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U64SubRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+    },
+    U64MulRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U64MulRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+    },
+    U64DivRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U64DivRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+    },
+    U64RemRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U64RemRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+    },
+    U64BitAndRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U64BitAndRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+    },
+    U64BitOrRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U64BitOrRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+    },
+    U64BitXorRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    U64BitXorRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+    },
+    F32AddRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    F32AddRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u32,
+    },
+    F32SubRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    F32SubRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u32,
+    },
+    F32MulRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    F32MulRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u32,
+    },
+    F32DivRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    F32DivRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u32,
+    },
+    F32RemRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    F32RemRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u32,
+    },
+    F64AddRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    F64AddRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+    },
+    F64SubRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    F64SubRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+    },
+    F64MulRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    F64MulRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+    },
+    F64DivRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    F64DivRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+    },
+    F64RemRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+    },
+    F64RemRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+    },
+    I8ShlRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        count_domain: IntegerType,
+    },
+    I8ShlRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+        count_domain: IntegerType,
+    },
+    I8ShrRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        count_domain: IntegerType,
+    },
+    I8ShrRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+        count_domain: IntegerType,
+    },
+    I16ShlRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        count_domain: IntegerType,
+    },
+    I16ShlRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+        count_domain: IntegerType,
+    },
+    I16ShrRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        count_domain: IntegerType,
+    },
+    I16ShrRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+        count_domain: IntegerType,
+    },
+    I32ShlRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        count_domain: IntegerType,
+    },
+    I32ShlRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+        count_domain: IntegerType,
+    },
+    I32ShrRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        count_domain: IntegerType,
+    },
+    I32ShrRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+        count_domain: IntegerType,
+    },
+    I64ShlRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        count_domain: IntegerType,
+    },
+    I64ShlRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+        count_domain: IntegerType,
+    },
+    I64ShrRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        count_domain: IntegerType,
+    },
+    I64ShrRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+        count_domain: IntegerType,
+    },
+    U8ShlRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        count_domain: IntegerType,
+    },
+    U8ShlRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+        count_domain: IntegerType,
+    },
+    U8ShrRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        count_domain: IntegerType,
+    },
+    U8ShrRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+        count_domain: IntegerType,
+    },
+    U16ShlRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        count_domain: IntegerType,
+    },
+    U16ShlRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+        count_domain: IntegerType,
+    },
+    U16ShrRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        count_domain: IntegerType,
+    },
+    U16ShrRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+        count_domain: IntegerType,
+    },
+    U32ShlRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        count_domain: IntegerType,
+    },
+    U32ShlRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+        count_domain: IntegerType,
+    },
+    U32ShrRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        count_domain: IntegerType,
+    },
+    U32ShrRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+        count_domain: IntegerType,
+    },
+    U64ShlRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        count_domain: IntegerType,
+    },
+    U64ShlRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+        count_domain: IntegerType,
+    },
+    U64ShrRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        count_domain: IntegerType,
+    },
+    U64ShrRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+        count_domain: IntegerType,
+    },
+    I32CompareRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        condition: Comparison,
+    },
+    I32CompareRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i32,
+        condition: Comparison,
+    },
+    I32CompareBranchRR {
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        then_target: JumpTarget,
+        else_target: JumpTarget,
+        condition: Comparison,
+    },
+    I32CompareBranchRK {
+        lhs: ScalarSlot,
+        rhs: i32,
+        then_target: JumpTarget,
+        else_target: JumpTarget,
+        condition: Comparison,
+    },
+    I64CompareRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        condition: Comparison,
+    },
+    I64CompareRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: i64,
+        condition: Comparison,
+    },
+    I64CompareBranchRR {
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        then_target: JumpTarget,
+        else_target: JumpTarget,
+        condition: Comparison,
+    },
+    I64CompareBranchRK {
+        lhs: ScalarSlot,
+        rhs: i64,
+        then_target: JumpTarget,
+        else_target: JumpTarget,
+        condition: Comparison,
+    },
+    U64CompareRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        condition: Comparison,
+    },
+    U64CompareRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+        condition: Comparison,
+    },
+    U64CompareBranchRR {
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        then_target: JumpTarget,
+        else_target: JumpTarget,
+        condition: Comparison,
+    },
+    U64CompareBranchRK {
+        lhs: ScalarSlot,
+        rhs: u64,
+        then_target: JumpTarget,
+        else_target: JumpTarget,
+        condition: Comparison,
+    },
+    F32CompareRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        condition: Comparison,
+    },
+    F32CompareRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u32,
+        condition: Comparison,
+    },
+    F32CompareBranchRR {
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        then_target: JumpTarget,
+        else_target: JumpTarget,
+        condition: Comparison,
+    },
+    F32CompareBranchRK {
+        lhs: ScalarSlot,
+        rhs: u32,
+        then_target: JumpTarget,
+        else_target: JumpTarget,
+        condition: Comparison,
+    },
+    F64CompareRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        condition: Comparison,
+    },
+    F64CompareRK {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: u64,
+        condition: Comparison,
+    },
+    F64CompareBranchRR {
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        then_target: JumpTarget,
+        else_target: JumpTarget,
+        condition: Comparison,
+    },
+    F64CompareBranchRK {
+        lhs: ScalarSlot,
+        rhs: u64,
+        then_target: JumpTarget,
+        else_target: JumpTarget,
+        condition: Comparison,
+    },
+    CharCompareRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        condition: Comparison,
+    },
+    CharCompareBranchRR {
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        then_target: JumpTarget,
+        else_target: JumpTarget,
+        condition: Comparison,
+    },
+    ScalarCompareRR {
+        dst: ScalarSlot,
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        condition: Comparison,
+    },
+    ScalarCompareBranchRR {
+        lhs: ScalarSlot,
+        rhs: ScalarSlot,
+        then_target: JumpTarget,
+        else_target: JumpTarget,
+        condition: Comparison,
+    },
+    I8BitNotR {
+        dst: ScalarSlot,
+        src: ScalarSlot,
+    },
+    I16BitNotR {
+        dst: ScalarSlot,
+        src: ScalarSlot,
+    },
+    I32BitNotR {
+        dst: ScalarSlot,
+        src: ScalarSlot,
+    },
+    I64BitNotR {
+        dst: ScalarSlot,
+        src: ScalarSlot,
+    },
+    U8BitNotR {
+        dst: ScalarSlot,
+        src: ScalarSlot,
+    },
+    U16BitNotR {
+        dst: ScalarSlot,
+        src: ScalarSlot,
+    },
+    U32BitNotR {
+        dst: ScalarSlot,
+        src: ScalarSlot,
+    },
+    U64BitNotR {
+        dst: ScalarSlot,
+        src: ScalarSlot,
+    },
+    I32NegR {
+        dst: ScalarSlot,
+        src: ScalarSlot,
+    },
+    I64NegR {
+        dst: ScalarSlot,
+        src: ScalarSlot,
+    },
+    F32NegR {
+        dst: ScalarSlot,
+        src: ScalarSlot,
+    },
+    F64NegR {
+        dst: ScalarSlot,
+        src: ScalarSlot,
+    },
+    BoolNotR {
+        dst: ScalarSlot,
+        src: ScalarSlot,
+    },
+    IntegerConvert {
+        dst: ScalarSlot,
+        src: ScalarSlot,
+        source: IntegerType,
+        target: IntegerType,
+    },
+    IntegerToFloat {
+        dst: ScalarSlot,
+        src: ScalarSlot,
+        source: IntegerType,
+        target: FloatType,
+    },
+    FloatToInteger {
+        dst: ScalarSlot,
+        src: ScalarSlot,
+        source: FloatType,
+        target: IntegerType,
+    },
+    FloatConvert {
+        dst: ScalarSlot,
+        src: ScalarSlot,
+        source: FloatType,
+        target: FloatType,
+    },
+    // END GENERATED scalar-variants
+    BoolToInteger {
+        dst: ScalarSlot,
+        src: ScalarSlot,
+        target: IntegerType,
+    },
+    IntegerBinaryKR {
+        dst: ScalarSlot,
+        lhs: u64,
+        rhs: ScalarSlot,
+        op: IntegerOp,
+        domain: IntegerType,
+    },
+    IntegerBinaryKK {
+        dst: ScalarSlot,
+        lhs: u64,
+        rhs: u64,
+        op: IntegerOp,
+        domain: IntegerType,
+    },
+    FloatBinaryKR {
+        dst: ScalarSlot,
+        lhs: u64,
+        rhs: ScalarSlot,
+        op: FloatOperation,
+        domain: FloatType,
+    },
+    FloatBinaryKK {
+        dst: ScalarSlot,
+        lhs: u64,
+        rhs: u64,
+        op: FloatOperation,
+        domain: FloatType,
+    },
+    ShiftKR {
+        dst: ScalarSlot,
+        lhs: u64,
+        rhs: ScalarSlot,
+        kind: ShiftKind,
+        count_domain: IntegerType,
+    },
+    ShiftKK {
+        dst: ScalarSlot,
+        lhs: u64,
+        rhs: u64,
+        kind: ShiftKind,
+        count_domain: IntegerType,
+    },
+    CompareStoreKR {
+        dst: ScalarSlot,
+        lhs: u64,
+        rhs: ScalarSlot,
+        domain: ComparisonDomain,
+        condition: Comparison,
+    },
+    CompareStoreKK {
+        dst: ScalarSlot,
+        lhs: u64,
+        rhs: u64,
+        domain: ComparisonDomain,
+        condition: Comparison,
+    },
+    CompareBranchKR {
+        lhs: u64,
+        rhs: ScalarSlot,
+        domain: ComparisonDomain,
+        condition: Comparison,
+        then_target: JumpTarget,
+        else_target: JumpTarget,
+    },
+    Jump(JumpTarget),
+    Branch {
+        cond: ScalarSlot,
+        then_target: JumpTarget,
+        else_target: JumpTarget,
+    },
+    Managed(PreparedManagedOperation),
+    Return {
+        value: Option<ScalarSlot>,
+        representation: ValueType,
+    },
+    /// Release the cursor before canonical operations requiring a boundary.
+    Boundary,
+}

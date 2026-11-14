@@ -1,4 +1,4 @@
-//! Platform clock for session and GC measurements, not deterministic script inputs.
+//! Platform clock for GC measurements, not deterministic script inputs.
 //!
 //! The `web` capability supports wasm32-unknown-unknown browsers and Workers with
 //! Performance.now(). Keep timestamps in their originating Worker; browser sleep

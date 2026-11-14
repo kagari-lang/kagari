@@ -8,7 +8,6 @@ use kagari_common::identity::{
 };
 use kagari_contract::effects::EffectSet;
 use kagari_types::{
-    collection::CollectionAccess,
     range::RangeKind,
     reference::ReferenceAccess,
     scalar::BuiltinType,
@@ -149,29 +148,12 @@ fn containers_functions_and_access_modes_keep_all_type_facts() {
     let ty = Ty::Function {
         params: vec![
             Ty::Array(Box::new(i32_ty())),
-            Ty::Iter(Box::new(Ty::Tuple(vec![]))),
+            Ty::Array(Box::new(Ty::Tuple(vec![]))),
             Ty::Tuple(vec![i32_ty(), Ty::Builtin(BuiltinType::Bool)]),
         ],
         result: Box::new(Ty::Builtin(BuiltinType::Never)),
     };
-    assert_eq!(display.ty(&ty), "fn([i32], Iter<()>, (i32, bool)) -> !");
-    for (access, expected) in [
-        (CollectionAccess::ReadOnly, "readonly"),
-        (CollectionAccess::Mutable, "mutable"),
-    ] {
-        assert_eq!(
-            display.ty(&Ty::Map {
-                key: Box::new(i32_ty()),
-                value: Box::new(Ty::Builtin(BuiltinType::String)),
-                access,
-            }),
-            format!("Map<i32, String, access={expected}>")
-        );
-        assert_eq!(
-            display.ty(&Ty::Set(Box::new(i32_ty()), access)),
-            format!("Set<i32, access={expected}>")
-        );
-    }
+    assert_eq!(display.ty(&ty), "fn([i32], [()], (i32, bool)) -> !");
     for (access, expected) in [
         (ReferenceAccess::Shared, "Ref<i32>"),
         (ReferenceAccess::Mutable, "RefMut<i32>"),

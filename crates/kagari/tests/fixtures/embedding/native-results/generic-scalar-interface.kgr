@@ -1,0 +1,14 @@
+use example::results::Factory;
+
+struct F {}
+
+impl Factory for F {}
+
+fn main() -> i32 {
+    val f: Factory = F {};
+    if f.one(1).value() == f.one(1).value() {
+        42
+    } else {
+        0
+    }
+}

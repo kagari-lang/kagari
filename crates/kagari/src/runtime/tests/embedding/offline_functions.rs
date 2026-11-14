@@ -1,20 +1,23 @@
+#[cfg(feature = "native")]
+use crate::program::native::NativeCompiler;
 use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::{KagariEngine, source::ArtifactOptions},
-    program::PreparedProgram,
+    program::Compilation,
     runtime::LoadOptions,
 };
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_common::identity::{ModuleIdentity, PackageId, map::DefinitionContext};
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{
-    host::HostCallContext,
+    host::HostError,
     native::{
-        builder::ModuleBuilder, declarations::FunctionDecl, module::NativeModule, types::Type,
+        builder::ModuleBuilder, declarations::FunctionDecl, host, module::NativeModule, types::Type,
     },
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
+use kagari_stdlib as stdlib;
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::declaration::host::{HostCallPolicy, HostPassingStyle};
 use std::sync::{Arc, Mutex};
@@ -35,17 +38,20 @@ fn echo_module(result: Type, calls: Arc<Mutex<Vec<i32>>>) -> NativeModule {
         )
         .unwrap();
     builder
-        .bind(echo, move |_: &HostCallContext<'_>, args: &[Value]| {
-            let [Value::I32(value)] = args else {
-                unreachable!()
-            };
-            calls.lock().unwrap().push(*value);
-            Ok(if returns_bool {
-                Value::Bool(true)
-            } else {
-                Value::I32(value + 1)
-            })
-        })
+        .bind(
+            echo,
+            host::callback(move |_, args| {
+                let value = args[0]
+                    .as_i32()
+                    .ok_or_else(|| HostError::new("expected i32"))?;
+                calls.lock().unwrap().push(value);
+                Ok(if returns_bool {
+                    ValueView::from(true)
+                } else {
+                    ValueView::from(value + 1)
+                })
+            }),
+        )
         .unwrap();
     builder.finish().unwrap()
 }
@@ -54,8 +60,15 @@ fn echo_module(result: Type, calls: Arc<Mutex<Vec<i32>>>) -> NativeModule {
 fn offline_host_facades_preserve_linking_and_backend_call_traces() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let module = echo_module(Type::i32(), calls.clone());
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), vec![module.clone()]).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![module.clone()])
+            .collect(),
+    )
+    .unwrap();
     let mut root = None;
     for (name, source) in [
         ("facade", "pub use demo::echo as call; pub use demo as api;"),
@@ -146,71 +159,74 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
         let wrong_calls = Arc::new(Mutex::new(Vec::new()));
         let incompatible_engine = KagariEngine::with_native_modules(
             Default::default(),
-            vec![echo_module(Type::bool(), wrong_calls.clone())],
+            stdlib::modules()
+                .unwrap()
+                .into_iter()
+                .chain(vec![echo_module(Type::bool(), wrong_calls.clone())])
+                .collect(),
         )
         .unwrap();
         let mut incompatible = incompatible_engine.runtime(context.clone());
         assert!(
             incompatible
                 .load_program(
-                    &PreparedProgram::from_artifact(
+                    (Compilation::from_artifact(
                         artifact.clone(),
                         &Default::default(),
                         &Default::default()
                     )
-                    .unwrap(),
+                    .unwrap())
+                    .program(),
                     LoadOptions::default()
                 )
                 .is_err()
         );
         assert!(wrong_calls.lock().unwrap().is_empty());
-        let mut missing = KagariEngine::default().runtime(context.clone());
+        let mut missing =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap()
+                .runtime(context.clone());
         assert!(
             missing
                 .load_program(
-                    &PreparedProgram::from_artifact(
+                    (Compilation::from_artifact(
                         artifact.clone(),
                         &Default::default(),
                         &Default::default()
                     )
-                    .unwrap(),
+                    .unwrap())
+                    .program(),
                     LoadOptions::default(),
                 )
                 .is_err()
         );
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, LoadOptions::default())
+            .load_program(loaded_program.program(), LoadOptions::default())
             .unwrap();
         assert!(calls.lock().unwrap().is_empty());
         let mut backend =
             jit.then(|| kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap());
         for _ in 0..2 {
             let report = if let Some(backend) = &mut backend {
-                let prepared = runtime
-                    .prepare_native(
+                let prepared = {
+                    let native_code = NativeCompiler::default().prepare(
                         &loaded_program,
-                        &loaded,
                         ProgramEntry::Main,
                         backend,
                         &context.cancellation,
-                    )
-                    .unwrap();
+                    );
+                    native_code.and_then(|native_code| (native_code).install(&mut runtime, &loaded))
+                }
+                .unwrap();
                 runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
             } else {
                 runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
             }
             .unwrap();
-            assert_eq!(
-                report
-                    .return_value
-                    .value(runtime.runtime().gc())
-                    .expect("retained execution result"),
-                Value::I32(5)
-            );
+            assert_eq!(report.return_value.as_i32().unwrap(), 5);
         }
         assert_eq!(*calls.lock().unwrap(), [1, 2, 3, 4, 1, 2, 3, 4]);
     }
@@ -220,8 +236,15 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
 fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let module = echo_module(Type::i32(), calls.clone());
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), vec![module.clone()]).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![module.clone()])
+            .collect(),
+    )
+    .unwrap();
     let artifact = engine.compile_to_artifact(SourceFile::new("host.kgr", "use demo::echo as call; use demo as api; fn main() -> i32 { call(api::echo(api::echo(39))) }"),  ArtifactOptions::default()).unwrap();
     let comparison = DefinitionContext::new().unwrap();
     let artifact = artifact
@@ -246,25 +269,29 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
     let context = ExecutionContext {
         ..Default::default()
     };
-    let mut missing = KagariEngine::default().runtime(context.clone());
+    let mut missing =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+            .unwrap()
+            .runtime(context.clone());
     assert!(
         missing
             .load_program(
-                &PreparedProgram::from_artifact(
+                (Compilation::from_artifact(
                     artifact.clone(),
                     &Default::default(),
                     &Default::default()
                 )
-                .unwrap(),
+                .unwrap())
+                .program(),
                 LoadOptions::default(),
             )
             .is_err()
     );
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(&loaded_program, LoadOptions::default())
+        .load_program(loaded_program.program(), LoadOptions::default())
         .unwrap();
     assert!(calls.lock().unwrap().is_empty());
     assert_eq!(
@@ -272,9 +299,9 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32()
+            .unwrap(),
+        42
     );
     assert_eq!(*calls.lock().unwrap(), [39, 40, 41]);
 }
@@ -284,7 +311,11 @@ fn declared_host_calls_compile_but_cannot_run_in_scalar_constants() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        vec![echo_module(Type::i32(), calls.clone())],
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![echo_module(Type::i32(), calls.clone())])
+            .collect(),
     )
     .unwrap();
     assert!(

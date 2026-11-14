@@ -38,7 +38,7 @@ impl Instruction {
             Instruction::Numeric { lhs, rhs, .. } => {
                 iter::once(*lhs).chain(rhs.iter().copied()).collect()
             }
-            Instruction::Iter { value, .. } => value.iter().copied().collect(),
+
             Instruction::LoadConst { .. }
             | Instruction::LoadLocal { .. }
             | Instruction::LoadModule { .. } => smallvec::smallvec![],
@@ -147,7 +147,6 @@ impl Instruction {
             | Instruction::MakeStruct { dst, .. }
             | Instruction::Convert { dst, .. }
             | Instruction::Numeric { dst, .. }
-            | Instruction::Iter { dst, .. }
             | Instruction::MakeEnum { dst, .. }
             | Instruction::MakeInterface { dst, .. }
             | Instruction::UpcastInterface { dst, .. }

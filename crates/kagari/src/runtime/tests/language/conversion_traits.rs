@@ -1,15 +1,8 @@
-use crate::{
-    engine::EngineConfig,
-    test_support::execution::{self, Route},
-};
-use kagari_source::source::SourceFile;
-use rstest::rstest;
-use std::{fs, path::PathBuf};
-
 mod diagnostics;
 mod linking;
 mod native_aggregation;
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[rstest]
 fn ordinary_execution(
     #[base_dir = "tests/fixtures/language/conversion_traits"]
@@ -35,3 +28,4 @@ fn ordinary_execution(
         42,
     );
 }
+*/

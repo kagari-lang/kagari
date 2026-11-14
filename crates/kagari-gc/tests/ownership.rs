@@ -1,12 +1,16 @@
 mod support;
 
 use kagari_gc::{
+    access::inspection::EdgeInspector,
     dynamic::DynamicLayoutBuilder,
     error::GcError,
     heap::{Heap, HeapConfig, Phase},
     scan::WorkBudget,
 };
 use std::{
+    cell::Cell,
+    collections::HashSet,
+    ops::ControlFlow,
     panic::{AssertUnwindSafe, catch_unwind},
     ptr,
     sync::{
@@ -31,9 +35,10 @@ fn shared_scope_reads_compose_across_aliases_roots_and_dynamic_edges() -> Result
     let layout = heap.access()?.register_dynamic(builder)?;
     let scalar = layout.scalar(scalar)?;
     let edge = layout.reference(edge)?;
-    heap.scope(|cx| {
+    let identity = heap.scope(|cx| {
         let a = cx.get(&root)?;
         let b = Node::alloc_scoped(cx, 22, &drops)?;
+        assert_ne!(format!("{a:p}"), format!("{b:p}"));
         Node::NEXT.set(cx, a, Some(b));
         let record = cx.alloc_dynamic(&layout)?;
         scalar.set(cx, record, 100)?;
@@ -44,6 +49,7 @@ fn shared_scope_reads_compose_across_aliases_roots_and_dynamic_edges() -> Result
         let shared = &*cx;
         let sum = shared.read(a, |first| -> Result<i64, GcError> {
             let alias = shared.get(&root)?;
+            assert_eq!(format!("{a:p}"), format!("{alias:p}"));
             assert!(shared.read(alias, |again| ptr::eq(first, again)));
             let next = shared
                 .follow(alias, |node| {
@@ -67,14 +73,138 @@ fn shared_scope_reads_compose_across_aliases_roots_and_dynamic_edges() -> Result
         // Ending the shared reads permits an ordinary write without a guard.
         Node::VALUE.set(cx, b, 23);
         assert_eq!(Node::VALUE.get(cx, b), 23);
-        Ok(())
+        Ok(format!("{a:p}"))
     })?;
     assert_eq!(heap.stats().root_registrations, 2);
     heap.collect()?;
+    heap.scope(|cx| {
+        assert_eq!(format!("{:p}", cx.get(&root)?), identity);
+        Ok(())
+    })?;
     drop((root, pack));
     heap.collect()?;
     assert_eq!(drops.load(Ordering::Relaxed), 2);
     assert_eq!(heap.stats().objects, 0);
+    Ok(())
+}
+
+#[test]
+fn scoped_edge_inspection_preserves_marking_and_supports_closed_cancellation() -> Result<(), GcError>
+{
+    let drops = Arc::new(AtomicUsize::new(0));
+    let mut heap = Heap::default();
+    let node = Node::alloc(&mut heap.access()?, 42, &drops)?;
+    let objects = ObjectVec::alloc(&mut heap.access()?, &vec![node.clone(); 2049])?;
+    let mut cursor = None;
+    for _ in 0..20 {
+        heap.step(WorkBudget::new(32))?;
+        cursor = ObjectVec::cursor(&mut heap.access()?, &objects)?;
+        if cursor.is_some() {
+            break;
+        }
+    }
+    let cursor = cursor.expect("large object has a suspended collector scan");
+    let before = heap.stats();
+    assert_eq!(before.phase, Phase::Mark);
+    heap.scope(|cx| {
+        let object = cx.get(&objects)?;
+        let target = cx.get(&node)?;
+        let mut scratch = EdgeInspector::default();
+        let mut distinct = HashSet::new();
+        let mut visits = 0;
+        let mut checkpoints = 0;
+        let status = cx.inspect_edges(
+            object.erase(),
+            &mut scratch,
+            |child| {
+                assert!(child.ptr_eq(target));
+                distinct.insert(child);
+                visits += 1;
+                ControlFlow::<()>::Continue(())
+            },
+            || {
+                checkpoints += 1;
+                ControlFlow::Continue(())
+            },
+        )?;
+        assert_eq!(status, ControlFlow::Continue(()));
+        assert_eq!(visits, 2049);
+        assert_eq!(distinct.len(), 1);
+        assert!(checkpoints > 1);
+        let capacity = scratch.capacity_bytes();
+        let mut visited = 0;
+        let status = cx.inspect_edges(
+            object,
+            &mut scratch,
+            |_| {
+                visited += 1;
+                if visited == 3 {
+                    ControlFlow::Break("stop")
+                } else {
+                    ControlFlow::Continue(())
+                }
+            },
+            || ControlFlow::Continue(()),
+        )?;
+        assert_eq!(status, ControlFlow::Break("stop"));
+        assert_eq!(visited, 3);
+        // An early stop does not leave a cursor/proof on the reusable workspace.
+        visited = 0;
+        let status = cx.inspect_edges(
+            object,
+            &mut scratch,
+            |_| {
+                visited += 1;
+                ControlFlow::<()>::Continue(())
+            },
+            || ControlFlow::Continue(()),
+        )?;
+        assert_eq!(status, ControlFlow::Continue(()));
+        assert_eq!(visited, 2049);
+        assert_eq!(scratch.capacity_bytes(), capacity);
+        Ok(())
+    })?;
+    let after = heap.stats();
+    assert_eq!(after.phase, before.phase);
+    assert_eq!(after.completed_cycles, before.completed_cycles);
+    assert_eq!(after.root_registrations, before.root_registrations);
+    assert_eq!(after.scan_workspace_bytes, before.scan_workspace_bytes);
+    let unchanged = ObjectVec::cursor(&mut heap.access()?, &objects)?.unwrap();
+    assert_eq!((unchanged.next, unchanged.end), (cursor.next, cursor.end));
+    heap.collect()?;
+    assert_eq!(drops.load(Ordering::Relaxed), 0);
+
+    let mut layout = DynamicLayoutBuilder::new();
+    for _ in 0..2049 {
+        layout.reference();
+    }
+    let layout = heap.access()?.register_dynamic(layout)?;
+    heap.scope(|cx| {
+        let holes = cx.alloc_dynamic(&layout)?;
+        let checkpoints = Cell::new(0);
+        let status = cx.inspect_edges(
+            holes,
+            &mut EdgeInspector::default(),
+            |_| panic!("all dynamic fields are empty"),
+            || {
+                checkpoints.set(checkpoints.get() + 1);
+                if checkpoints.get() == 2 {
+                    ControlFlow::Break("cancelled")
+                } else {
+                    ControlFlow::Continue(())
+                }
+            },
+        )?;
+        assert_eq!(status, ControlFlow::Break("cancelled"));
+        assert_eq!(checkpoints.get(), 2);
+        Ok(())
+    })?;
+    drop(objects);
+    drop(node);
+    heap.collect()?;
+    assert_eq!(heap.stats().objects, 0);
+    assert_eq!(heap.stats().root_registrations, 0);
+    assert_eq!(drops.load(Ordering::Relaxed), 1);
     Ok(())
 }
 

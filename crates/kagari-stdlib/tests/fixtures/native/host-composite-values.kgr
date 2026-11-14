@@ -1,0 +1,27 @@
+pub fn tuple_values() ->(([i32], String), ([bool], String)) {
+    (([7], "ok"), ([true], "ok"))
+}
+
+pub fn array_values() ->([i32], [bool]) {
+    ([7], [true])
+}
+
+pub fn option_values() ->(Option<i32>, Option<bool>) {
+    (Some(7), Some(true))
+}
+
+pub fn option_result() ->(Option<i32>, Result<i32, String>) {
+    (None, Ok(7))
+}
+
+pub fn option_empty() ->(Option<i32>, Option<bool>) {
+    (None, None)
+}
+
+pub fn result_error_type() ->(Result<i32, String>, Result<i32, i32>) {
+    (Ok(7), Err(7))
+}
+
+pub fn result_option() ->(Result<i32, String>, Option<i32>) {
+    (Err("error"), Some(7))
+}

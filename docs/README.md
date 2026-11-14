@@ -33,6 +33,10 @@ below; the public Pages site has not been activated by this work.
 - [Runtime ownership and host object API](runtime-ownership-and-host-api-design.md),
   [async execution contracts](async-execution-design.md) and
   [host task scopes](host-task-scope-design.md).
+- [Runtime execution map](architecture/runtime.md): current physical ownership,
+  data structures, value roots, suspension and cleanup; complete
+  [bytecode Call](architecture/runtime/calls.md) and
+  [hot reload](architecture/runtime/reload.md) diagrams expose locks and repeated work.
 - [Runnable examples](../examples/README.md), [structure checks](structure-checks.md)
   and [engineering rules](../AGENTS.md).
 - [Native module authoring](native-registration.md): complete fluent definitions,
@@ -60,11 +64,24 @@ below; the public Pages site has not been activated by this work.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
-- [Standalone GC redesign](gc-redesign-plan.md): independent `kagari-gc` allocation,
-  rooting, field access and incremental collection, with standalone tests and
-  benchmarks. The [implementation design](gc-implementation-design.md) owns its
-  structures and safety contracts. Runtime integration remains deferred; main
-  retains its existing collector.
+- [Runtime architecture](architecture/runtime.md), [call walkthrough](architecture/runtime/calls.md)
+  and [reload walkthrough](architecture/runtime/reload.md): implemented exclusive
+  services, prepared Native calls, source-backed compact storage, kagari-gc,
+  VM-byte/Native-stack limits and verified scalar self-tail replacement. Selected
+  local tests/Miri and frozen call/root/memory gates pass; exhaustive CI and
+  NC-dependent collection fixtures remain at their roadmap owners.
+
+- [Enum layouts](enum-layout-design.md): deferred pending Runtime execution and
+  ownership review. EL00 baseline/models are retained; EL01-EL04 remain unstarted.
+  The proposed Option/Result/small-enum layouts, niche encoding and Native APIs
+  require review before reactivation. Production storage remains unchanged and
+  value structs remain separately deferred.
+
+- [GC implementation](gc-implementation-design.md) and [crate guide](../crates/kagari-gc/README.md):
+  actual standalone and Runtime provider/root/access/collection contracts.
+  [Comparative acceptance](../crates/kagari-gc/BENCHMARKS.md#acceptance-requirements)
+  retains original numerical gates and measurement rules;
+  [remaining work](implementation-roadmap.md#gc-library-redesign) has named owners.
 
 - [Async Runtime CI acceptance](implementation-roadmap.md#async-blocks-structured-concurrency-and-runtime-api):
   async blocks, structured pair composition and the typed Runtime facade are
@@ -73,11 +90,11 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   [async execution](async-execution-design.md) and [task scopes](host-task-scope-design.md).
   Complete workspace/feature/backend/platform acceptance remains pending CI.
 
-- [Multi-Runtime program sharing](multi-runtime-sharing-plan.md): MS00-MS05 are
-  planned, not started. Measure per-player installation cost, share immutable code
-  and link preparation, and establish safe worker-thread reuse while keeping player
-  state and publication independent. Numerical gates and HM/UP sequencing must be
-  frozen before implementation; no large-project capacity result is claimed.
+- [Runtime CI acceptance](implementation-roadmap.md#runtime-execution-model-review):
+  immutable products, detached preparation, final call bindings and exclusive
+  publication are implemented; actual-native/player lifetime and frozen sharing/
+  performance gates pass locally. Complete workspace/feature/platform matrices
+  remain CI-only. Current behavior is in the [Runtime map](architecture/runtime.md).
 - [Compilation latency follow-up](implementation-roadmap.md#fast-compilation-and-eager-startup):
   the source-preparation implementation is closed with the 500 ms compile/load
   goal explicitly unmet. Further frontend preparation work is deferred; the
@@ -125,10 +142,6 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   contracts are indexed above. Full workspace and feature/backend/platform acceptance
   remains pending CI. Associated constants, native-call const evaluation, a public
   RNG and full ray tracing are outside this delivery.
-- [Paged storage and incremental GC](paged-incremental-gc-design.md#execution-plan):
-  PG00-PG06 are planned and unstarted, covering general Native capabilities, paged
-  storage, collection migration, incremental marking/sweeping and joint acceptance.
-  Shares the native payload boundary and explicit handoffs with NC.
 - [Library-owned native collections](native-collections-plan.md): NC01-NC06 are
   not started; reuse the implemented Iterable APIs while migrating storage.
 - [Interface type tests and downcast](interface-downcast-plan.md): DC01-DC04 are

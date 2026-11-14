@@ -2,10 +2,11 @@
 use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
-    program::PreparedProgram,
+    program::Program,
     runtime::Runtime,
 };
 use kagari_derive::KagariValue;
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     Runtime as CoreRuntime,
     error::RuntimeError,
@@ -17,9 +18,9 @@ use kagari_runtime::{
         types::Type,
     },
     session::{ExecutionEvent, ExecutionObserver},
-    value::Value,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_types::reference::ReferenceAccess;
 use std::sync::{
     Arc,
@@ -45,6 +46,7 @@ struct Player {
 #[test]
 fn scoped_native_calls_accept_compatible_reloaded_descriptors() {
     let mut engine = KagariEngine::builder().unwrap();
+    engine.install_all(stdlib::modules().unwrap()).unwrap();
     let mut module = ModuleBuilder::new("game::reload", engine.declarations()).unwrap();
     module.register_type::<Stats>().unwrap();
     let stats = module.declarations().rust_type::<Stats>().unwrap();
@@ -94,19 +96,19 @@ fn scoped_native_calls_accept_compatible_reloaded_descriptors() {
                 Default::default(),
             )
             .unwrap();
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
     };
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let old = runtime
         .load_program(&prepare(0), Default::default())
         .unwrap();
-    let descriptor = runtime
-        .runtime()
-        .bind_rust_type::<Stats>(&old.root())
-        .unwrap();
+    let descriptor = runtime.bind_rust_type::<Stats>(&old.root()).unwrap();
     runtime
-        .reload_program(&old, &prepare(100), Default::default())
+        .program(&old)
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(&prepare(100), &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
     let mut stats = Stats { hp: 40 };
@@ -116,8 +118,9 @@ fn scoped_native_calls_accept_compatible_reloaded_descriptors() {
             for (loaded, hp) in [(&old, 40), (&current, 41), (&old, 42)] {
                 for (entry, expected) in [("direct", hp), ("native", hp + 100), ("heal", hp + 1)] {
                     assert_eq!(
-                        Runtime::execute_scoped(scope, loaded, entry, &[view.value()], &context)?,
-                        Value::I32(expected)
+                        Runtime::execute_scoped(scope, loaded, entry, &[view.value()], &context)?
+                            .as_i32(),
+                        Some(expected)
                     );
                 }
             }
@@ -129,8 +132,9 @@ fn scoped_native_calls_accept_compatible_reloaded_descriptors() {
         .with_host_scope(|scope| {
             let view = scope.borrow(&descriptor, &stats)?;
             assert_eq!(
-                Runtime::execute_scoped(scope, &current, "native", &[view.value()], &context)?,
-                Value::I32(143)
+                Runtime::execute_scoped(scope, &current, "native", &[view.value()], &context)?
+                    .as_i32(),
+                Some(143)
             );
             assert!(
                 Runtime::execute_scoped(scope, &current, "heal", &[view.value()], &context)
@@ -161,6 +165,7 @@ impl ExecutionObserver for ContextObserver {
 #[test]
 fn scoped_entries_use_explicit_sdk_context_and_the_common_pack_adapter() {
     let mut engine = KagariEngine::builder().unwrap();
+    engine.install_all(stdlib::modules().unwrap()).unwrap();
     let mut module = ModuleBuilder::new("game::scoped", engine.declarations()).unwrap();
     module.register_type::<Player>().unwrap();
     let stats = module.declarations().rust_type::<Stats>().unwrap();
@@ -200,16 +205,12 @@ fn scoped_entries_use_explicit_sdk_context_and_the_common_pack_adapter() {
         )
         .unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let mut runtime = engine.runtime(ExecutionContext::default());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
-    let player_type = runtime
-        .runtime()
-        .bind_rust_type::<Player>(&loaded.root())
-        .unwrap();
+    let player_type = runtime.bind_rust_type::<Player>(&loaded.root()).unwrap();
     let observations = Arc::new(AtomicUsize::new(0));
     runtime
-        .runtime()
         .set_execution_observer(ContextObserver(observations.clone()))
         .unwrap();
     let mut context = ExecutionContext {
@@ -245,16 +246,19 @@ fn scoped_entries_use_explicit_sdk_context_and_the_common_pack_adapter() {
                 ..context.clone()
             };
             assert_eq!(
-                Runtime::execute_scoped(scope, &loaded, "inspect", &[player.value()], &context)?,
-                Value::I32(40)
+                Runtime::execute_scoped(scope, &loaded, "inspect", &[player.value()], &context)?
+                    .as_i32(),
+                Some(40)
             );
             assert_eq!(
-                Runtime::execute_scoped(scope, &loaded, "tick", &[player.value()], &context)?,
-                Value::I32(70)
+                Runtime::execute_scoped(scope, &loaded, "tick", &[player.value()], &context)?
+                    .as_i32(),
+                Some(70)
             );
             assert_eq!(
-                Runtime::execute_scoped(scope, &loaded, "inspect", &[player.value()], &context)?,
-                Value::I32(70)
+                Runtime::execute_scoped(scope, &loaded, "inspect", &[player.value()], &context)?
+                    .as_i32(),
+                Some(70)
             );
             Ok(())
         })

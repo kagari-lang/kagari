@@ -282,7 +282,7 @@ pub(crate) fn text_items_module(
             return_type: Ty::Builtin(BuiltinType::U64),
         }],
     });
-    for family in 0..4 {
+    for family in 0..3 {
         if !interface_implementations && matches!(family, 1 | 2) {
             continue;
         }
@@ -308,7 +308,7 @@ pub(crate) fn text_items_module(
                 arguments: vec![item],
                 associated_types: Default::default(),
             }),
-            _ => Ty::Iter(Box::new(item)),
+            _ => unreachable!("bounded receiver family"),
         };
         let method = FnDecl {
             host_policy: None,

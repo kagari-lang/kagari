@@ -1,0 +1,5 @@
+use example::functions::add;
+
+pub fn main() -> i32 {
+    add(20, 22)
+}

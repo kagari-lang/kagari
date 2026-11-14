@@ -4,7 +4,7 @@ use crate::{
     BytecodeArtifact,
     engine::{KagariEngine, packages::PackageBuildSet, source::CheckedModule},
     error::EmbeddingError,
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_package::{
@@ -16,12 +16,14 @@ use kagari_package::{
     snapshot::ProgramInputs,
     workspace::MemberSelection,
 };
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     module::entry::ProgramEntry,
     native::{
-        builder::ModuleBuilder, context::CallContext, declarations::FunctionDecl, types::Type,
+        builder::ModuleBuilder, context::NativeCall, declarations::FunctionDecl, types::Type,
     },
 };
+use kagari_stdlib as stdlib;
 use kagari_stdlib::declarations::StandardDeclarations;
 use std::{
     fs,
@@ -80,10 +82,10 @@ fn virtual_inputs(base: i32) -> VirtualSources {
     .unwrap()
 }
 
-fn prepare(engine: &KagariEngine, checked: &CheckedModule) -> PreparedProgram {
+fn prepare(engine: &KagariEngine, checked: &CheckedModule) -> Program {
     let artifact = engine.emit_artifact(checked, Default::default()).unwrap();
     let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
-    PreparedProgram::from_artifact(
+    Program::from_artifact(
         BytecodeArtifact::from_bytes(&bytes).unwrap(),
         &Default::default(),
         &Default::default(),
@@ -133,7 +135,8 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
     let memory = capture(&virtual_inputs(42), "app");
     assert_eq!(inputs.root(), memory.root());
     assert_eq!(inputs.fingerprint(), memory.fingerprint());
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let cancel = CancellationToken::default();
     let initial = PackageBuildSet::capture(&engine, &project, &cancel).unwrap();
     let original = engine.compile_package(inputs, &cancel).unwrap();
@@ -234,7 +237,6 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
         .load_program(&old_program, Default::default())
         .unwrap();
     let retained = runtime
-        .runtime()
         .bind_function::<(), i32>(&loaded.root(), "answer")
         .unwrap();
     assert_eq!(
@@ -254,18 +256,18 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
             .execute_typed::<(), i32>(&loaded, "rules::plain", (), &Default::default())
             .is_err()
     );
-    let before = runtime.runtime().select_program(&loaded).unwrap().key();
+    let before = runtime.select_program(&loaded).unwrap().key();
     assert_eq!(
         runtime
-            .reload_program(&loaded, &constant_program, Default::default())
+            .program(&loaded)
+            .map_err(ReloadValidationError::Runtime)
+            .and_then(|base| base.prepare_replacement(&constant_program, &Default::default()))
+            .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
             .unwrap_err()
             .code(),
         "KG_RELOAD_DECLARATION_CONTRACT_MISMATCH"
     );
-    assert_eq!(
-        runtime.runtime().select_program(&loaded).unwrap().key(),
-        before
-    );
+    assert_eq!(runtime.select_program(&loaded).unwrap().key(), before);
     assert_eq!(
         runtime
             .call_with_context(&retained, (), &Default::default())
@@ -273,10 +275,13 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
         42
     );
     runtime
-        .reload_program(&loaded, &new_program, Default::default())
+        .program(&loaded)
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(&new_program, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
         .unwrap();
     let reloaded = loaded.clone();
-    runtime.runtime().collect_garbage().unwrap();
+    runtime.collect_garbage().unwrap();
     assert_eq!(
         runtime
             .execute_typed::<(), i32>(&reloaded, ProgramEntry::Main, (), &Default::default())
@@ -322,7 +327,10 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
         .unwrap();
     let generic_program = prepare(&engine, &generic);
     runtime
-        .reload_program(&reloaded, &generic_program, Default::default())
+        .program(&reloaded)
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(&generic_program, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&reloaded, &candidate, Default::default()))
         .unwrap();
     let generic_loaded = reloaded.clone();
     assert_eq!(
@@ -346,11 +354,17 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
         .define_function(FunctionDecl::new("number").returns(Type::i32()))
         .unwrap();
     builder
-        .bind(number, |_: &mut CallContext<'_>| Ok(1i32))
+        .bind(number, |_: &mut NativeCall<'_>| Ok(1i32))
         .unwrap();
-    let configured =
-        KagariEngine::with_native_modules(Default::default(), vec![builder.finish().unwrap()])
-            .unwrap();
+    let configured = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![builder.finish().unwrap()])
+            .collect(),
+    )
+    .unwrap();
     let configured_fingerprint = configured.package_fingerprint(inputs, &cancel).unwrap();
     assert_ne!(
         fingerprint, configured_fingerprint,
@@ -371,7 +385,8 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
 
 #[test]
 fn selected_root_changes_follow_transitive_inputs_and_provider_contracts() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let capture = |files: Vec<(&str, String)>| {
         let input = VirtualSources::new(
             files

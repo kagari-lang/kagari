@@ -2,8 +2,12 @@
 use crate::{
     Runtime,
     error::RuntimeError,
+    execution::roots::SessionId,
     execution_metadata::{
-        applications::MethodApplication, groups::OperationId, operation::BoundOperation,
+        applications::{ApplicationRecord, MethodApplication},
+        groups::AdmittedOperationGroup,
+        managed::sources::MetadataSource,
+        operation::BoundOperation,
     },
     frame::types::{
         EnvironmentRecord, TypeEnvironment,
@@ -26,11 +30,13 @@ pub(super) struct AdapterApplication {
 
 impl Runtime {
     pub(super) fn bind_shared_adapter(
-        &self,
+        &mut self,
+        execution: SessionId,
         caller: &ExecutableModule,
         environment: Option<TypeEnvironment>,
         adapter: &SharedAdapterWitness,
-    ) -> Result<OperationId, RuntimeError> {
+        protected: &mut Vec<MetadataSource<'_>>,
+    ) -> Result<AdmittedOperationGroup, RuntimeError> {
         let invalid = || RuntimeError::module_validation("shared structural operation application");
         let module = caller
             .definition(adapter.call.instance.declaration)?
@@ -51,22 +57,26 @@ impl Runtime {
             .generic
             .as_ref()
             .ok_or_else(invalid)?;
-        let operations =
-            self.bind_operations_in(caller, environment.clone(), &adapter.call.operations)?;
+        let operations = self.bind_operations_in(
+            execution,
+            caller,
+            environment.clone(),
+            &adapter.call.operations,
+            protected,
+        )?;
         let arguments = self.type_arguments(
             caller,
             environment.as_ref().map(|env| env.types.clone()),
             &adapter.call.arguments,
         )?;
-        let mut applied = EnvironmentRecord::new(
-            self.definition_context(),
-            body.parameters.clone(),
-            arguments,
-        )?;
+        let mut applied =
+            EnvironmentRecord::new(owner.definitions(), body.parameters.clone(), arguments)?;
         applied.set_constructions(self.bind_constructions_in(
+            execution,
             caller,
             environment.clone(),
             &adapter.call.constructions,
+            protected,
         )?);
         applied.extend_operations(operations);
         let requirement = resolve_requirement(environment.as_ref(), &adapter.requirement)?;
@@ -80,6 +90,7 @@ impl Runtime {
             .ok_or_else(invalid)?,
         );
         self.bind_adapter_application(
+            execution,
             &owner,
             target,
             AdapterApplication {
@@ -87,33 +98,49 @@ impl Runtime {
                 requirement,
                 receiver_identity,
             },
+            protected,
         )
     }
 
     /// Instantiate a verified structural body with separately bound component
-    /// operations. The caller has authenticated every supplied component.
+    /// operations. Resolve their providers from actual protected inputs; the
+    /// result belongs to the enclosing preparation's execution suffix.
     pub(super) fn bind_adapter_application(
-        &self,
+        &mut self,
+        execution: SessionId,
         owner: &ExecutableModule,
         target: &BytecodeFunction,
         application: AdapterApplication,
-    ) -> Result<OperationId, RuntimeError> {
+        protected: &[MetadataSource<'_>],
+    ) -> Result<AdmittedOperationGroup, RuntimeError> {
         let invalid = || RuntimeError::module_validation("structural operation application");
         let AdapterApplication {
             environment,
             requirement,
             receiver_identity,
         } = application;
-        let applied = self.alloc_environment(environment)?;
+        let mut sources = Vec::new();
+        sources
+            .try_reserve_exact(
+                protected
+                    .len()
+                    .checked_add(2)
+                    .ok_or_else(|| RuntimeError::resource_limit("adapter metadata sources"))?,
+            )
+            .map_err(|_| RuntimeError::resource_limit("adapter metadata sources"))?;
+        sources.extend_from_slice(protected);
+        let applied = self.alloc_environment(execution, environment, &sources)?;
+        sources.push(MetadataSource::Environment(applied.source()));
         let parameters = (0..target.metadata.params.len())
             .map(|index| target.metadata.semantic.params.get(&index).cloned())
             .collect::<Option<Vec<_>>>()
             .ok_or_else(invalid)?;
-        let params = self.type_arguments(owner, Some(applied.types.clone()), &parameters)?;
+        let params =
+            self.type_arguments(owner, Some(applied.facts().types.clone()), &parameters)?;
         let result = self
             .type_arguments(
                 owner,
-                Some(applied.types.clone()),
+                Some(applied.facts().types.clone()),
                 slice::from_ref(
                     target
                         .metadata
@@ -132,24 +159,43 @@ impl Runtime {
                 .collect(),
             result: result.ty().clone(),
         };
-        let application = self.gc.alloc_method_application(MethodApplication {
-            signature: signature.clone(),
-            scoped_signature: Some(ScopedSignature { params, result }),
-            environment: Some(applied),
-            result_adapter: None,
-        })?;
+        let application = self.alloc_application(
+            execution,
+            ApplicationRecord::Semantic(MethodApplication {
+                signature: signature.clone(),
+                scoped_signature: Some(ScopedSignature { params, result }),
+                environment: Some(applied.facts().clone()),
+                result_adapter: None,
+            }),
+            &sources,
+        )?;
+        sources.push(MetadataSource::Application(application.source()));
         let target = CallableTarget::Script(target.id);
-        self.gc.alloc_bound_operation(BoundOperation {
-            receiver_identity,
-            application: Some(application),
-            generic: None,
-            associated_interface: requirement.interface.clone(),
-            requirement,
-            slot: 0,
-            primitive: None,
-            owner: owner.clone(),
-            target,
-            signature,
-        })
+        self.alloc_operation_group(
+            execution,
+            vec![BoundOperation {
+                requirement_key: owner.identity_admission().runtime_in(
+                    &requirement,
+                    &self.definition_context().snapshot(),
+                    &Default::default(),
+                )?,
+                receiver_identity,
+                application: Some(application.id()),
+                generic: None,
+                associated_interface: requirement.interface.clone(),
+                interface_key: owner.identity_admission().runtime_in(
+                    &requirement.interface,
+                    &self.definition_context().snapshot(),
+                    &Default::default(),
+                )?,
+                requirement,
+                slot: 0,
+                primitive: None,
+                owner: owner.clone(),
+                target,
+                signature,
+            }],
+            &sources,
+        )
     }
 }

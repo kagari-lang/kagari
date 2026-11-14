@@ -410,7 +410,7 @@ struct LoweringSettings {
     max_instructions: usize,
 }
 
-/// Send + Sync source preparation capsule, independent of PreparedProgram's caches.
+/// Immutable Send + Sync source inputs retained by the shared Program product.
 #[derive(Debug, Clone)]
 pub(crate) struct CompilationInputs {
     checked: Arc<CheckedInputs>,
@@ -516,12 +516,13 @@ mod tests {
     use kagari_hir::typeck::const_budget::ConstLimits;
     use kagari_package::{modules::VirtualSources, project::ProjectInputs};
     use kagari_runtime::native::{
-        builder::ModuleBuilder, context::CallContext, declarations::FunctionDecl, types::Type,
+        builder::ModuleBuilder, context::NativeCall, declarations::FunctionDecl, types::Type,
     };
     use kagari_source::{
         package::{PackageEnvironment, PackageScope},
         source::SourceFile,
     };
+    use kagari_stdlib as stdlib;
     use kagari_syntax::parser::ParseLimits;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -590,7 +591,9 @@ mod tests {
             .prepare(checked, PreparationOptions::default())
             .unwrap();
         let mut runtime = engine.runtime(Default::default());
-        let program = runtime.load_program(&prepared, Default::default()).unwrap();
+        let program = runtime
+            .load_program(prepared.program(), Default::default())
+            .unwrap();
         runtime
             .execute_typed::<(), i32>(&program, "answer", (), &Default::default())
             .unwrap()
@@ -604,13 +607,14 @@ mod tests {
         let calls = Arc::new(AtomicUsize::new(0));
         let weak = Arc::downgrade(&calls);
         let mut builder = KagariEngine::builder().unwrap();
+        builder.install_all(stdlib::modules().unwrap()).unwrap();
         builder.source_root("/capsule").unwrap();
         let mut native = ModuleBuilder::new("host", builder.declarations()).unwrap();
         let function = native
             .define_function(FunctionDecl::new("number").returns(Type::i32()))
             .unwrap();
         native
-            .bind(function, move |_: &mut CallContext<'_>| {
+            .bind(function, move |_: &mut NativeCall<'_>| {
                 calls.fetch_add(1, Ordering::Relaxed);
                 Ok(42i32)
             })
@@ -695,7 +699,9 @@ mod tests {
 
     #[test]
     fn direct_candidates_recheck_whole_inputs_without_changing_the_engine() {
-        let engine = KagariEngine::default();
+        let engine =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap();
         let checked = engine
             .compile_source(SourceFile::new(
                 "main.kgr",
@@ -830,7 +836,9 @@ mod tests {
         ], &cancel).unwrap();
         let project = ProjectInputs::load(&sources, "", &Default::default(), &cancel).unwrap();
         let package = project.programs().values().next().unwrap();
-        let engine = KagariEngine::default();
+        let engine =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap();
         let checked = engine.compile_package(package, &cancel).unwrap();
         let capture = checked.inputs();
         assert_eq!(capture.sources().files().count(), 2);
@@ -875,7 +883,9 @@ mod tests {
 
     #[test]
     fn explicit_snapshot_replay_does_not_collapse_equal_display_origins() {
-        let engine = KagariEngine::default();
+        let engine =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap();
         let cancel = CancellationToken::default();
         let root = ModuleIdentity {
             package: PackageId("app".into()),

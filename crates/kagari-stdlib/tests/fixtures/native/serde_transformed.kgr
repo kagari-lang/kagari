@@ -1,0 +1,5 @@
+use game::serde::Transformed;
+
+pub fn inspect(input: Transformed) -> i32 {
+    input.value
+}

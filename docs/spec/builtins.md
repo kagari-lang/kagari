@@ -3,12 +3,19 @@
 The installed `core`/`alloc`/`std` foundation defines complete language types and
 protocols. Its 26 language traits and 15 other foundation traits are explicit
 standard-library registrations. Their generated source is parsed and checked
-against the installed declarations and validated language roles. Runtime supplies their basic checked native implementations. Optional
+against the installed declarations and validated language roles. The installed providers supply their checked native implementations; Runtime owns
+only builtin values and execution/safety mechanisms. Optional
 library modules and application modules use the same explicit registration API;
 see [native declarations](standard-declarations.md). Generated `.kgr` serves tooling
 and is not an executable standard library.
 
-The foundation is always installed. List/MutableList own common algorithm methods,
+Foundation installation is explicit: Runtime and SDK builders start empty.
+The current bundle retains language declarations, scalar/String methods, arrays and
+generic protocol algorithms. Vec/HashMap/HashSet and CollectionCursor providers,
+List algorithms needing detached edits, String split/traversal and builtin
+array/range iteration are withdrawn pending [NC reconstruction](../native-collections-plan.md).
+The collection/traversal inventories below record their retained semantic design,
+not currently callable implementations. No compatibility aliases are installed. List/MutableList own common algorithm methods,
 String owns its inherent methods, `core::num` owns the finite scalar numeric
 methods below, and `core::iter::Iterable` owns the finite lazy transformation and
 terminal API. The [collection contract](collection-access.md) defines the collection
@@ -710,7 +717,9 @@ values.push(3);      // Commits and invalidates the existing cursor.
 cursor.next();       // Traps: invalid or structurally modified iterator.
 ```
 
-Native payloads trace retained source cursors and callbacks through NativePayload::trace.
+Native payload providers trace retained source cursors and callbacks through their
+GcObject scanner; NativePayload selects schema registration rather than scanning.
+The Runtime execution plan owns the open RR03 consumer migration.
 Roots, checked call routes and exact retained computation bodies preserve GC and
 reload safety independently of
 iteration validity. Native storage borrows, sorting/mutation commits and hash

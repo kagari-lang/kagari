@@ -526,31 +526,31 @@ reload and reentry contracts; it does not sweep the VM package:
 ```text
 cargo test -p kagari-runtime --lib frame::values::tests::
 cargo test -p kagari-runtime --lib frame::execution_frames::
-cargo test -p kagari-vm --lib deterministic_frames_
-cargo test -p kagari-vm --lib traps_release_frame_roots_and_call_depth
-cargo test -p kagari-vm --lib generic_interface_and_retained_closure_keep_their_environment_after_reload
-cargo test -p kagari-vm --lib host_reentry_cannot_swallow_root_termination_and_releases_borrows
-cargo test -p kagari-vm --lib async_owned_drive_contract
+cargo test -p kagari-runtime --lib deterministic_frames_
+cargo test -p kagari-runtime --lib traps_release_frame_roots_and_call_depth
+cargo test -p kagari-runtime --lib generic_interface_and_retained_closure_keep_their_environment_after_reload
+cargo test -p kagari-runtime --lib host_reentry_cannot_swallow_root_termination_and_releases_borrows
+cargo test -p kagari-runtime --lib async_owned_drive_contract
 ```
 
 IP10 reuses passing unaffected call evidence and selects cancellation boundaries:
 
 ```text
 cargo test -p kagari-common --lib cancellation
-cargo test -p kagari-vm --lib cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect
-cargo test -p kagari-vm --lib cancellation_at_observed_boundaries_cleans_callback_scopes
+cargo test -p kagari-runtime --lib cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect
+cargo test -p kagari-runtime --lib cancellation_at_observed_boundaries_cleans_callback_scopes
 ```
 
 IP11 selects map accounting/revision, custom-key reentry, Vec alias/bounds and SDK
 callback mutation contracts:
 
 ```text
-cargo test -p kagari-vm --lib hash_map_replaces_duplicates_and_accounts_units
-cargo test -p kagari-vm --lib collection_revisions_distinguish_replacements_from_structural_writes
-cargo test -p kagari-vm --lib custom_hash_handles_use_selected_calls_with_gc_reentry_and_trap_cleanup
-cargo test -p kagari-vm --lib custom_key_factories_pin_selected_operations_through_reentry_and_reload
-cargo test -p kagari-vm --lib vector_primitives_preserve_element_access_aliases_and_bounds
-cargo test -p kagari-vm --lib callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots
+cargo test -p kagari-runtime --lib hash_map_replaces_duplicates_and_accounts_units
+cargo test -p kagari-runtime --lib collection_revisions_distinguish_replacements_from_structural_writes
+cargo test -p kagari-runtime --lib custom_hash_handles_use_selected_calls_with_gc_reentry_and_trap_cleanup
+cargo test -p kagari-runtime --lib custom_key_factories_pin_selected_operations_through_reentry_and_reload
+cargo test -p kagari-runtime --lib vector_primitives_preserve_element_access_aliases_and_bounds
+cargo test -p kagari-runtime --lib callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots
 ```
 
 Run the required structure/format/workspace Clippy/diff checks at implementation
@@ -745,7 +745,7 @@ do not remove it as a completed ledger.
 ### Current-revision attribution refresh, 2026-10-27
 
 The user requested another per-workload Kagari/Lua analysis. The
-[current measurement record](performance-baseline.md#current-kagarilua-cost-attribution-windows-2026-10-27)
+[current measurement record](performance-baseline.md#bo08-kagarilua-cost-attribution-windows-2026-10-27)
 retains the fresh original/forms/numeric observations and independent instruction,
 object/collection counts at `03246d94`, on Windows 10 / i7-10700F. This is analysis,
 not an IP12 candidate/baseline rerun or authorization of another phase. IP12 and

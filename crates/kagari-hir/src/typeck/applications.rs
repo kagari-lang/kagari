@@ -202,14 +202,6 @@ fn validate_inner(
                 .with_span(span),
             );
         }
-        let key = match ty {
-            TypeId::Map { key, .. } => Some(key.as_ref()),
-            TypeId::Set(key, _) => Some(key.as_ref()),
-            _ => None,
-        };
-        if let Some(key) = key {
-            check::validate_hash_key_type(definitions, key, bounds, span, diagnostics, catalog);
-        }
         match ty {
             TypeId::Reference { target, .. } => {
                 if let TypeId::NativeObject(nominal) = target.as_ref()
@@ -415,13 +407,8 @@ fn validate_inner(
                 pending.extend(params.iter().map(|ty| (ty, None)));
                 pending.push((result, None));
             }
-            TypeId::Array(ty) | TypeId::Set(ty, _) | TypeId::Iter(ty) | TypeId::Range(ty, _) => {
-                pending.push((ty, None))
-            }
-            TypeId::Map { key, value, .. } => {
-                pending.push((key, None));
-                pending.push((value, None));
-            }
+            TypeId::Array(ty) | TypeId::Range(ty, _) => pending.push((ty, None)),
+
             _ => {}
         }
     }
@@ -712,16 +699,15 @@ pub(crate) fn validate_signatures(
 mod tests {
     use super::*;
     use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
-    use kagari_types::{collection::CollectionAccess, scalar::BuiltinType};
+    use kagari_types::scalar::BuiltinType;
 
     #[test]
     fn deep_container_validation_uses_explicit_stack_and_honors_cancellation() {
         let definitions = DefinitionContext::new().unwrap().snapshot();
-        let mut ty = TypeId::Map {
-            key: Box::new(TypeId::Builtin(BuiltinType::F32)),
-            value: Box::new(TypeId::Error),
-            access: CollectionAccess::Mutable,
-        };
+        let mut ty = TypeId::Range(
+            Box::new(TypeId::Builtin(BuiltinType::F32)),
+            kagari_types::range::RangeKind::Exclusive,
+        );
         for _ in 0..10_000 {
             ty = TypeId::Array(Box::new(ty));
         }

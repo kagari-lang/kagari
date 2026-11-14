@@ -2,11 +2,12 @@ use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Program,
     runtime::tests::language::numeric_checks::NumericChecks,
 };
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::{module::entry::ProgramEntry, value::carriers::RootedValue};
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 mod boundaries;
 mod inventory;
@@ -25,7 +26,7 @@ const WIDTHS: [(&str, u32); 8] = [
 fn engine() -> KagariEngine {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    KagariEngine::new(config)
+    KagariEngine::with_native_modules(config, stdlib::modules().unwrap()).unwrap()
 }
 
 fn context() -> ExecutionContext {
@@ -35,7 +36,7 @@ fn context() -> ExecutionContext {
     }
 }
 
-fn compile(source: &str) -> PreparedProgram {
+fn compile(source: &str) -> Program {
     // Only serialized executable records cross into the consumer's fresh engine.
     let compiler = engine();
     let artifact = compiler
@@ -46,41 +47,41 @@ fn compile(source: &str) -> PreparedProgram {
         .unwrap_or_else(|error| panic!("{error:?}\n{source}"));
     let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
     let decoded = BytecodeArtifact::from_bytes(&bytes).unwrap();
-    PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap()
+    Program::from_artifact(decoded, &Default::default(), &Default::default()).unwrap()
 }
 
 fn execute_checks(checks: Vec<String>) {
     let checks = NumericChecks::new(checks);
     let source = checks.source();
     execute_with(&source, |value| {
-        let Value::I32(marker) = value else {
-            panic!("encoded: expected numeric check marker, got {value:?}\n{source}");
-        };
+        let marker = value.as_i32().unwrap_or_else(|| {
+            panic!("encoded: expected numeric check marker, got {value:?}\n{source}")
+        });
         checks.assert_result(marker, "encoded", &source);
     });
 }
 
 fn execute(source: &str) {
     execute_with(source, |value| {
-        assert_eq!(value, Value::Bool(true), "{source}")
+        assert_eq!(value.as_bool(), Some(true), "{source}")
     });
 }
 
-fn execute_with(source: &str, assert_value: impl FnOnce(Value)) {
+fn execute_with(source: &str, assert_value: impl FnOnce(&RootedValue)) {
     let program = compile(source);
     let context = context();
     let consumer = engine();
     let mut runtime = consumer.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    runtime.collect_garbage().unwrap();
+    let roots = runtime.gc_stats().root_registrations;
     let result = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap_or_else(|error| panic!("{error:?}\n{source}"));
-    assert_value(result.return_value.value(runtime.runtime().gc()).unwrap());
+    assert_value(&result.return_value);
     drop(result);
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
-    assert_eq!(
-        runtime.runtime().resources().counters().current_call_depth,
-        0
-    );
-    assert!(!runtime.runtime().is_quarantined());
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, roots);
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    assert!(!runtime.is_quarantined());
 }

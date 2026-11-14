@@ -1,10 +1,22 @@
 //! Immutable native application facts are program edges, retained by active windows.
+#[cfg(test)]
+mod tests;
+
 #[cfg(feature = "execution-diagnostics")]
 use crate::diagnostics::{self, Event};
 
 use crate::{
-    Runtime, error::RuntimeError, execution_metadata::MetadataEdge, frame::types::TypeEnvironment,
-    module::ExecutableModule, native::binding::LinkedNativeFunction,
+    Runtime,
+    error::RuntimeError,
+    execution::roots::SessionId,
+    execution_metadata::{
+        MetadataEdge,
+        applications::{AdmittedApplication, ApplicationRecord},
+        managed::sources::MetadataSource,
+    },
+    frame::types::TypeEnvironment,
+    module::ExecutableModule,
+    native::binding::LinkedNativeFunction,
 };
 use kagari_bytecode::instruction::NativeImportId;
 use std::sync::Arc;
@@ -17,35 +29,42 @@ pub(crate) struct NativeApplication {
 }
 
 impl NativeApplication {
-    pub(crate) fn trace<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
-        pending.push(MetadataEdge::Program(&self.owner));
-        pending.push(MetadataEdge::Environment(self.environment.id));
+    pub(crate) fn trace<'a, E, F>(&'a self, visit: &mut F) -> Result<(), E>
+    where
+        F: FnMut(MetadataEdge<'a>) -> Result<(), E> + ?Sized,
+    {
+        visit(MetadataEdge::Program(&self.owner))?;
+        visit(MetadataEdge::EnvironmentFacts(&self.environment))?;
         for operation in &self.function.selected {
             if let Some(callable) = operation.ready() {
-                callable.trace(&self.owner, pending);
+                callable.trace(&self.owner, visit)?;
             }
         }
+        Ok(())
     }
 }
 
 impl Runtime {
     pub(crate) fn prepare_native_application(
-        &self,
+        &mut self,
+        execution: SessionId,
         owner: &ExecutableModule,
         import: NativeImportId,
         environment: TypeEnvironment,
-    ) -> Result<Arc<NativeApplication>, RuntimeError> {
+        protected: &mut Vec<MetadataSource<'_>>,
+    ) -> Result<AdmittedApplication, RuntimeError> {
         self.validate_executable_module(owner)?;
-        if self.gc.environment(environment.id).is_none() {
-            return Err(RuntimeError::module_validation(
-                "invalid native application environment",
-            ));
-        }
+        self.validate_environment_in(protected, &environment)?;
         if let Some(application) = self
             .modules
             .native_application(owner, import, environment.id)
+            && self.native_application_is_protected(protected, &application)?
         {
-            return Ok(application);
+            return self.alloc_application(
+                execution,
+                ApplicationRecord::Native(application),
+                protected,
+            );
         }
         let body = owner
             .bytecode
@@ -68,16 +87,25 @@ impl Runtime {
         // Forward leaves; shared receiver/structural selections bind here using
         // the native entry's actual type scope.
         let operations = self.bind_operations_in(
+            execution,
             owner,
             Some(environment.clone()),
             &owner.bytecode.native_imports[import.index()].callables,
+            protected,
         )?;
         let prepared = Arc::new(NativeApplication {
             owner: owner.clone(),
-            function: function.apply(self, owner, environment.clone(), &operations)?,
+            function: function.apply(
+                self,
+                execution,
+                owner,
+                environment.clone(),
+                &operations,
+                protected,
+            )?,
             environment,
         });
-        self.publish_native_application(owner, import, prepared.clone())?;
-        Ok(prepared)
+        self.publish_native_application(owner, import, prepared.clone(), protected)?;
+        self.alloc_application(execution, ApplicationRecord::Native(prepared), protected)
     }
 }

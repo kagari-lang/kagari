@@ -1,3 +1,6 @@
+#[cfg(feature = "jit")]
+use kagari::program::native::NativeCompiler;
+use kagari_stdlib as stdlib;
 mod aot;
 mod args;
 mod checking;
@@ -20,19 +23,20 @@ use kagari::{
         source::{ArtifactOptions, PreparationOptions},
     },
     error::EmbeddingError,
-    program::{PreparedProgram, ProgramPreparationError},
+    program::{Compilation, CompilationPreparationError, ProgramPreparationError},
     runtime::{LoadOptions, Runtime},
 };
 use kagari_bytecode::artifact::ArtifactCompatibility;
 #[cfg(feature = "jit")]
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::identity::metadata::DefinitionMetadata;
+use kagari_runtime::execution::ExecutionReport;
 use kagari_runtime::{
     error::RuntimeError,
     host::{HostCallContext, HostError},
-    module::{Program, entry::ProgramEntry},
-    native::builder::ModuleBuilder,
-    value::Value,
+    module::{InstalledProgram, entry::ProgramEntry},
+    native::{builder::ModuleBuilder, host},
+    value::view::ValueView,
 };
 use kagari_source::{
     diagnostic::Diagnostic, presentation::DiagnosticRecord, source::SourceFile,
@@ -40,7 +44,6 @@ use kagari_source::{
 };
 use kagari_syntax::parser::{ParseOptions, parse};
 use kagari_types::declaration::logging;
-use kagari_vm::vm::ExecutionReport;
 use std::{
     env, fs,
     io::{self, Write},
@@ -143,7 +146,7 @@ fn run_source(path: &Path, jit: bool) -> Result<(), CliError> {
     let source = read_source(path)?;
     let engine = source_engine("target/kagari-declarations")?;
     let program = engine
-        .compile_to_program(source, source_preparation(jit))
+        .compile(source, source_preparation(jit))
         .map_err(|error| print_source_error(&engine, error))?;
     run_prepared_program(
         &engine,
@@ -174,7 +177,7 @@ fn run_loaded_artifact(
 
     jit: bool,
 ) -> Result<(), CliError> {
-    let program = PreparedProgram::from_artifact(
+    let program = Compilation::from_artifact(
         artifact,
         &ArtifactCompatibility::default(),
         &Default::default(),
@@ -185,7 +188,7 @@ fn run_loaded_artifact(
 
 fn run_prepared_program(
     engine: &KagariEngine,
-    program: &PreparedProgram,
+    program: &Compilation,
     load_options: LoadOptions,
     jit: bool,
 ) -> Result<(), CliError> {
@@ -199,7 +202,7 @@ fn run_prepared_program(
     };
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
-        .load_program(program, load_options)
+        .load_program(program.program(), load_options)
         .map_err(print_embedding_error)?;
 
     let report = execute_entry(&mut runtime, program, &loaded, &context, jit)?;
@@ -211,8 +214,8 @@ fn run_prepared_program(
 
 fn execute_entry(
     runtime: &mut Runtime,
-    program: &PreparedProgram,
-    loaded: &Program,
+    program: &Compilation,
+    loaded: &InstalledProgram,
     context: &ExecutionContext,
     jit: bool,
 ) -> Result<ExecutionReport, CliError> {
@@ -227,20 +230,20 @@ fn execute_entry(
 #[cfg(feature = "jit")]
 fn execute_entry_with_jit(
     runtime: &mut Runtime,
-    program: &PreparedProgram,
-    loaded: &Program,
+    program: &Compilation,
+    loaded: &InstalledProgram,
     context: &ExecutionContext,
 ) -> Result<ExecutionReport, CliError> {
     let mut backend = CraneliftBackend::for_host()
         .map_err(|error| CliError::message(1, format!("failed to initialize JIT: {error}")))?;
-    let prepared = runtime
-        .prepare_native(
+    let prepared = NativeCompiler::default()
+        .prepare(
             program,
-            loaded,
             ProgramEntry::Main,
             &mut backend,
             &context.cancellation,
         )
+        .and_then(|native_code| native_code.install(runtime, loaded))
         .map_err(|error| CliError::message(1, format!("native preparation failed: {error}")))?;
     runtime
         .execute_prepared(loaded, ProgramEntry::Main, &[], context, &prepared)
@@ -250,8 +253,8 @@ fn execute_entry_with_jit(
 #[cfg(not(feature = "jit"))]
 fn execute_entry_with_jit(
     _runtime: &mut Runtime,
-    _program: &PreparedProgram,
-    _loaded: &Program,
+    _program: &Compilation,
+    _loaded: &InstalledProgram,
     _context: &ExecutionContext,
 ) -> Result<ExecutionReport, CliError> {
     Err(CliError::message(
@@ -270,6 +273,9 @@ fn read_source(path: &Path) -> Result<SourceFile, CliError> {
 fn engine_builder() -> Result<KagariEngineBuilder, CliError> {
     let registration = |error: RuntimeError| CliError::message(1, error.to_string());
     let mut engine = KagariEngine::builder().map_err(registration)?;
+    engine
+        .install_all(stdlib::modules().map_err(registration)?)
+        .map_err(registration)?;
     let mut module = ModuleBuilder::from_declaration(
         logging::declaration().map_err(|error| CliError::message(1, error.to_string()))?,
         engine.declarations(),
@@ -278,18 +284,17 @@ fn engine_builder() -> Result<KagariEngineBuilder, CliError> {
     .map_err(registration)?;
     let log = module.declared_function("log").map_err(registration)?;
     module
-        .bind(log, |cx: &HostCallContext<'_>, args: &[Value]| {
-            let [Value::Str(message)] = args else {
-                return Err(HostError::new("host.log expects one string argument"));
-            };
-            let message = cx
-                .runtime()
-                .gc()
-                .string(*message)
-                .ok_or_else(|| HostError::new("invalid host.log string"))?;
-            println!("{}", &*message);
-            Ok(Value::Unit)
-        })
+        .bind(
+            log,
+            host::callback(|cx: &mut HostCallContext<'_>, args: &[ValueView<'_>]| {
+                let [message] = args else {
+                    return Err(HostError::new("host.log expects one string argument"));
+                };
+                cx.read_string(message, |message| println!("{message}"))
+                    .map_err(|error| HostError::new(error.to_string()))?;
+                Ok(ValueView::unit())
+            }),
+        )
         .map_err(registration)?;
     engine
         .install(module.finish().map_err(registration)?)
@@ -346,39 +351,37 @@ fn print_source_error(engine: &KagariEngine, error: EmbeddingError) -> CliError 
     }
 }
 
-fn print_program_error(error: ProgramPreparationError) -> CliError {
+fn print_program_error(error: CompilationPreparationError) -> CliError {
     match error {
-        ProgramPreparationError::Artifact(error) => {
+        CompilationPreparationError::Program(ProgramPreparationError::Artifact(error)) => {
             print_embedding_error(EmbeddingError::ArtifactValidation { error })
         }
-        ProgramPreparationError::Cancelled => print_embedding_error(EmbeddingError::Cancelled),
+        CompilationPreparationError::Program(ProgramPreparationError::Cancelled) => {
+            print_embedding_error(EmbeddingError::Cancelled)
+        }
         other => CliError::message(1, format!("program preparation failed: {other}")),
     }
 }
 
-fn print_embedding_error(error: EmbeddingError) -> CliError {
-    match error {
+fn print_embedding_error(error: impl Into<EmbeddingError>) -> CliError {
+    match error.into() {
         EmbeddingError::Diagnostics { diagnostics } => {
             print_embedding_diagnostics(&diagnostics, None);
             CliError::message(1, "diagnostics emitted")
         }
-        EmbeddingError::Runtime {
-            kind,
-            message,
-            trace,
-            task_origin,
-        } => CliError::message(
+        EmbeddingError::Runtime { error } => CliError::message(
             1,
             format!(
-                "{}: {message}{}{}",
-                kind.code(),
-                task_origin
+                "{}: {error}{}{}",
+                error.code(),
+                error
+                    .task_origin()
                     .map(|origin| format!(
                         "\n  originating task: {:?}, cancellation: {:?}",
                         origin.task, origin.cancellation
                     ))
                     .unwrap_or_default(),
-                trace.as_ref().map(ToString::to_string).unwrap_or_default()
+                error.trace().map(ToString::to_string).unwrap_or_default()
             ),
         ),
         other => CliError::message(1, format!("{}: {other:?}", other.code())),

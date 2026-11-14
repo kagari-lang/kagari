@@ -1,0 +1,32 @@
+use std::collections::{ List, MutableList };
+
+use example::collection_gc::collect;
+
+struct Node {
+    val value: i32
+}
+
+fn sum(values: MutableList<Node>) -> i32 {
+    val view: List<Node> = values;
+    var sum = 0;
+    for node in view {
+        collect();
+        sum += node.value;
+    }
+    sum
+}
+
+fn main() -> i32 {
+    sum(Vec::from([Node { value: 20 }, Node { value: 22 }]))
+}
+
+fn mutate(values: MutableList<i32>) {
+    val view: List<i32> = values;
+    for item in view {
+        values.push(item);
+    }
+}
+
+pub fn trap() {
+    mutate(Vec::from([1, 2]));
+}

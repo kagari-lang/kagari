@@ -1,0 +1,21 @@
+use example::services;
+
+pub fn run() -> String {
+    services::echo("hello")
+}
+
+pub fn configuration() -> i32 {
+    services::configuration()
+}
+
+pub fn fail() -> i32 {
+    services::fail()
+}
+
+pub fn cancel() -> i32 {
+    services::cancel()
+}
+
+pub fn unwind() -> i32 {
+    services::panic()
+}

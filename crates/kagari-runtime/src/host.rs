@@ -1,5 +1,7 @@
 mod borrows;
 pub(crate) mod installation;
+mod path_calls;
+mod paths;
 mod registry;
 pub mod scoped;
 mod views;
@@ -7,13 +9,14 @@ use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
-    gc::GcHeap,
     host::borrows::BorrowObjectKey,
     host_scope::HostResourceScope,
     metadata::{AbiFingerprint, FieldMetadataId, TypeId},
+    module::ExecutableModule,
+    native::conversion::{arguments::ArgumentValues, context::ConversionContext},
     numeric,
     resource::ResourceState,
-    value::Value,
+    value::{carriers::RootedValue, view::ValueView},
 };
 use kagari_bytecode::instruction::BinaryOp;
 use kagari_common::identity::{
@@ -28,7 +31,7 @@ use kagari_types::declaration::{
 use std::{
     cell::RefCell,
     collections::HashMap,
-    fmt, iter,
+    fmt,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -122,25 +125,25 @@ impl DynamicPathArgSlot {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct DynamicPathArgument {
+#[derive(Debug, Clone)]
+pub struct DynamicPathArgument<V> {
     pub ty: TypeId,
-    pub value: Value,
+    pub value: V,
 }
 
-impl DynamicPathArgument {
-    pub fn new(ty: TypeId, value: Value) -> Self {
+impl<V> DynamicPathArgument<V> {
+    pub fn new(ty: TypeId, value: V) -> Self {
         Self { ty, value }
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct DynamicPathArguments {
-    args: Vec<DynamicPathArgument>,
+#[derive(Debug, Clone)]
+pub struct DynamicPathArguments<V> {
+    args: Vec<DynamicPathArgument<V>>,
 }
 
-impl DynamicPathArguments {
-    pub fn new(args: Vec<DynamicPathArgument>) -> Self {
+impl<V> DynamicPathArguments<V> {
+    pub fn new(args: Vec<DynamicPathArgument<V>>) -> Self {
         Self { args }
     }
 
@@ -148,7 +151,7 @@ impl DynamicPathArguments {
         Self { args: Vec::new() }
     }
 
-    pub fn as_slice(&self) -> &[DynamicPathArgument] {
+    pub fn as_slice(&self) -> &[DynamicPathArgument<V>] {
         &self.args
     }
 
@@ -158,6 +161,12 @@ impl DynamicPathArguments {
 
     pub fn is_empty(&self) -> bool {
         self.args.is_empty()
+    }
+}
+
+impl<V> Default for DynamicPathArguments<V> {
+    fn default() -> Self {
+        Self::empty()
     }
 }
 
@@ -329,103 +338,42 @@ impl HostPathDescriptor {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct HostPathViewHandle {
-    root: HostRootHandle,
-    base: Option<Arc<HostPathViewHandle>>,
-    descriptor_id: HostPathDescriptorId,
-    result_type: TypeId,
-    access: PathAccess,
-    schema_epoch: HostSchemaEpoch,
-    dynamic_args: DynamicPathArguments,
-}
-
-impl HostPathViewHandle {
-    fn new(
-        root: HostRootHandle,
-        base: Option<Arc<HostPathViewHandle>>,
-        descriptor: &HostPathDescriptor,
-        dynamic_args: DynamicPathArguments,
-    ) -> Self {
-        let access = match base.as_ref().map(|view| view.access()) {
-            Some(PathAccess::ReadOnly) => PathAccess::ReadOnly,
-            _ => descriptor.access,
-        };
-        Self {
-            root,
-            base,
-            descriptor_id: descriptor.id,
-            result_type: descriptor.result_type,
-            access,
-            schema_epoch: descriptor.schema_epoch,
-            dynamic_args,
-        }
-    }
-
-    pub fn root(&self) -> HostRootHandle {
-        self.root
-    }
-
-    pub fn base(&self) -> Option<&HostPathViewHandle> {
-        self.base.as_deref()
-    }
-
-    pub fn descriptor_id(&self) -> HostPathDescriptorId {
-        self.descriptor_id
-    }
-
-    pub fn result_type(&self) -> TypeId {
-        self.result_type
-    }
-
-    pub fn access(&self) -> PathAccess {
-        self.access
-    }
-
-    pub fn schema_epoch(&self) -> HostSchemaEpoch {
-        self.schema_epoch
-    }
-
-    pub fn dynamic_args(&self) -> &DynamicPathArguments {
-        &self.dynamic_args
-    }
-
-    pub(crate) fn retained_values(&self) -> impl Iterator<Item = &Value> {
-        iter::successors(Some(self), |view| view.base())
-            .flat_map(|view| view.dynamic_args().as_slice())
-            .map(|arg| &arg.value)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct HostPathContext {
+/// A callback snapshot borrows protected values; a durable mutation record uses
+/// the same labeled fields with genuine RootedValue ownership. Base values are
+/// actual path objects, never recursively copied detached descriptor chains.
+#[derive(Debug, Clone)]
+pub struct HostPathContext<V> {
     pub root: HostRootHandle,
-    pub base_view: Option<Arc<HostPathViewHandle>>,
+    pub base_view: Option<V>,
     pub descriptor: HostPathDescriptor,
-    pub dynamic_args: DynamicPathArguments,
+    pub access: PathAccess,
+    pub dynamic_args: DynamicPathArguments<V>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct HostPathMutationRecord {
+#[derive(Debug, Clone)]
+pub struct HostPathMutationRecord<V> {
     pub root: HostRootHandle,
-    pub base_view: Option<Arc<HostPathViewHandle>>,
+    pub base_view: Option<V>,
     pub descriptor_id: HostPathDescriptorId,
     pub operation: HostPathOperation,
-    pub dynamic_args: DynamicPathArguments,
-    pub old_value: Option<Value>,
-    pub new_value: Value,
+    pub dynamic_args: DynamicPathArguments<V>,
+    pub old_value: Option<V>,
+    pub new_value: V,
 }
 
-pub type HostPathReadCallback = dyn Fn(&HostCallContext<'_>, &HostPathContext) -> Result<Value, HostError>
+pub type HostPathReadCallback = dyn for<'call> Fn(
+        &mut HostCallContext<'call>,
+        &HostPathContext<ValueView<'call>>,
+    ) -> Result<ValueView<'call>, HostError>
     + Send
     + Sync
     + 'static;
 
 /// Preparation validates and reserves host resources without changing the target.
-pub type HostPathPrepareWriteCallback = dyn Fn(
-        &HostCallContext<'_>,
-        &HostPathContext,
-        &HostPathMutationRecord,
+pub type HostPathPrepareWriteCallback = dyn for<'call> Fn(
+        &mut HostCallContext<'call>,
+        &HostPathContext<ValueView<'call>>,
+        &HostPathMutationRecord<ValueView<'call>>,
     ) -> Result<PreparedHostPathWrite, HostError>
     + Send
     + Sync
@@ -447,11 +395,11 @@ impl PreparedHostPathWrite {
     }
 }
 
-pub type HostPathValidateCallback = dyn Fn(
-        &HostCallContext<'_>,
-        &HostPathContext,
+pub type HostPathValidateCallback = dyn for<'call> Fn(
+        &mut HostCallContext<'call>,
+        &HostPathContext<ValueView<'call>>,
         HostPathOperation,
-        Option<&Value>,
+        Option<&ValueView<'call>>,
     ) -> Result<(), HostError>
     + Send
     + Sync
@@ -481,7 +429,10 @@ impl HostPathAdapter {
 
     pub fn with_read(
         mut self,
-        read: impl Fn(&HostCallContext<'_>, &HostPathContext) -> Result<Value, HostError>
+        read: impl for<'call> Fn(
+            &mut HostCallContext<'call>,
+            &HostPathContext<ValueView<'call>>,
+        ) -> Result<ValueView<'call>, HostError>
         + Send
         + Sync
         + 'static,
@@ -492,10 +443,10 @@ impl HostPathAdapter {
 
     pub fn with_prepare_write(
         mut self,
-        prepare: impl Fn(
-            &HostCallContext<'_>,
-            &HostPathContext,
-            &HostPathMutationRecord,
+        prepare: impl for<'call> Fn(
+            &mut HostCallContext<'call>,
+            &HostPathContext<ValueView<'call>>,
+            &HostPathMutationRecord<ValueView<'call>>,
         ) -> Result<PreparedHostPathWrite, HostError>
         + Send
         + Sync
@@ -507,11 +458,11 @@ impl HostPathAdapter {
 
     pub fn with_validate(
         mut self,
-        validate: impl Fn(
-            &HostCallContext<'_>,
-            &HostPathContext,
+        validate: impl for<'call> Fn(
+            &mut HostCallContext<'call>,
+            &HostPathContext<ValueView<'call>>,
             HostPathOperation,
-            Option<&Value>,
+            Option<&ValueView<'call>>,
         ) -> Result<(), HostError>
         + Send
         + Sync
@@ -554,55 +505,6 @@ fn collect_dynamic_parameters(
     Ok(parameters)
 }
 
-fn validate_dynamic_arguments(
-    heap: &GcHeap,
-    descriptor: &HostPathDescriptor,
-    args: &DynamicPathArguments,
-) -> Result<(), RuntimeError> {
-    if descriptor.dynamic_parameters.len() != args.len() {
-        return Err(RuntimeError::typed_path_validation(format!(
-            "path descriptor expects {} dynamic arguments, found {}",
-            descriptor.dynamic_parameters.len(),
-            args.len()
-        )));
-    }
-    for (parameter, arg) in descriptor.dynamic_parameters.iter().zip(args.as_slice()) {
-        if parameter.ty != arg.ty {
-            return Err(RuntimeError::typed_path_validation(format!(
-                "dynamic argument {} has the wrong type",
-                parameter.slot.index()
-            )));
-        }
-        if !arg.value.is_storable(heap) {
-            return Err(RuntimeError::typed_path_validation(
-                "dynamic path arguments must be storable script values",
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn dynamic_args_for_descriptor(
-    descriptor: &HostPathDescriptor,
-    values: Vec<Value>,
-) -> Result<DynamicPathArguments, RuntimeError> {
-    if descriptor.dynamic_parameters.len() != values.len() {
-        return Err(RuntimeError::typed_path_validation(format!(
-            "path descriptor expects {} dynamic arguments, found {}",
-            descriptor.dynamic_parameters.len(),
-            values.len()
-        )));
-    }
-    Ok(DynamicPathArguments::new(
-        descriptor
-            .dynamic_parameters
-            .iter()
-            .zip(values)
-            .map(|(parameter, value)| DynamicPathArgument::new(parameter.ty, value))
-            .collect(),
-    ))
-}
-
 fn validate_path_access(access: PathAccess, context: &str) -> Result<(), RuntimeError> {
     if access == PathAccess::None {
         Err(RuntimeError::typed_path_validation(format!(
@@ -622,7 +524,11 @@ fn path_access_allows(available: PathAccess, required: PathAccess) -> bool {
     )
 }
 
-fn apply_path_modify(op: BinaryOp, old_value: Value, rhs: Value) -> Result<Value, RuntimeError> {
+fn apply_path_modify<'call>(
+    op: BinaryOp,
+    old_value: ValueView<'call>,
+    rhs: ValueView<'call>,
+) -> Result<ValueView<'call>, RuntimeError> {
     numeric::binary(op, old_value, rhs)
 }
 
@@ -749,20 +655,29 @@ pub struct HostBorrowTable {
 /// drop(guard);
 /// ```
 #[derive(Debug)]
-pub struct HostCallGuard<'runtime> {
-    table: &'runtime HostBorrowTable,
-    resources: Option<&'runtime ResourceState>,
+pub(crate) struct HostFrameMark {
     frame_id: HostFrameId,
     epoch: BorrowEpoch,
 }
 
+enum HostFrameAccess<'scope> {
+    Owned(HostFrameMark),
+    Borrowed(&'scope HostFrameMark),
+}
+
+pub struct HostCallGuard<'runtime> {
+    table: &'runtime HostBorrowTable,
+    resources: Option<&'runtime ResourceState>,
+    frame: Option<HostFrameAccess<'runtime>>,
+}
+
 impl HostCallGuard<'_> {
     pub fn frame_id(&self) -> HostFrameId {
-        self.frame_id
+        self.mark().frame_id
     }
 
     pub fn epoch(&self) -> BorrowEpoch {
-        self.epoch
+        self.mark().epoch
     }
 
     pub fn borrow_shared(
@@ -791,25 +706,63 @@ impl HostCallGuard<'_> {
         if let Some(resources) = self.resources {
             resources.ensure_execution_allowed()?;
         }
-        if token.frame_id != self.frame_id {
+        if token.frame_id != self.frame_id() {
             return Err(RuntimeError::expired_host_borrow(format!(
                 "token frame {} does not match current frame {}",
                 token.frame_id.index(),
-                self.frame_id.index()
+                self.frame_id().index()
             )));
         }
         self.table.validate(token, required_kind)
     }
+}
 
-    pub fn validate_no_escape(heap: &GcHeap, value: &Value) -> Result<(), RuntimeError> {
-        HostBorrowTable::validate_no_escape(heap, value)
+impl<'runtime> HostCallGuard<'runtime> {
+    fn mark(&self) -> &HostFrameMark {
+        match self.frame.as_ref().expect("live Host frame access") {
+            HostFrameAccess::Owned(mark) => mark,
+            HostFrameAccess::Borrowed(mark) => mark,
+        }
+    }
+
+    pub(crate) fn into_mark(mut self) -> HostFrameMark {
+        match self.frame.take().expect("live owned Host frame") {
+            HostFrameAccess::Owned(mark) => mark,
+            HostFrameAccess::Borrowed(_) => unreachable!("only owned admission can transfer"),
+        }
+    }
+
+    pub(crate) fn borrow_mark(
+        table: &'runtime HostBorrowTable,
+        resources: &'runtime ResourceState,
+        mark: &'runtime HostFrameMark,
+    ) -> Self {
+        Self {
+            table,
+            resources: Some(resources),
+            frame: Some(HostFrameAccess::Borrowed(mark)),
+        }
+    }
+
+    pub(crate) fn from_mark(
+        table: &'runtime HostBorrowTable,
+        resources: &'runtime ResourceState,
+        mark: HostFrameMark,
+    ) -> Self {
+        Self {
+            table,
+            resources: Some(resources),
+            frame: Some(HostFrameAccess::Owned(mark)),
+        }
     }
 }
 
 impl Drop for HostCallGuard<'_> {
     fn drop(&mut self) {
-        self.table
-            .leave_frame(self.frame_id, self.epoch, self.resources);
+        if let Some(HostFrameAccess::Owned(mark)) = self.frame.take() {
+            self.table
+                .leave_frame(mark.frame_id, mark.epoch, self.resources);
+        }
     }
 }
 
@@ -826,7 +779,8 @@ impl Default for HostRegistryId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{message}")]
 pub struct HostError {
     message: String,
     trace: Option<Arc<ErrorTrace>>,
@@ -838,6 +792,10 @@ impl HostError {
             message: message.into(),
             trace: None,
         }
+    }
+
+    pub(crate) fn retained_bytes(&self) -> usize {
+        self.message.capacity()
     }
 
     pub fn trace(&self) -> Option<&Arc<ErrorTrace>> {
@@ -866,22 +824,89 @@ pub struct HostCallContext<'a> {
 }
 
 impl<'a> HostCallContext<'a> {
-    pub(crate) fn new(runtime: &'a Runtime, args: &[Value]) -> Result<Self, RuntimeError> {
+    pub(crate) fn new(
+        runtime: &'a mut Runtime,
+        args: &[RootedValue],
+    ) -> Result<Self, RuntimeError> {
         Ok(Self {
             scope: runtime.host_scope(args)?,
         })
     }
 
-    pub fn runtime(&self) -> &'a Runtime {
+    pub fn runtime(&self) -> &Runtime {
         self.scope.runtime()
     }
 
-    pub fn borrows(&self) -> &HostCallGuard<'_> {
+    pub fn runtime_mut(&mut self) -> &mut Runtime {
+        self.scope.runtime_mut()
+    }
+
+    pub fn borrows(&self) -> HostCallGuard<'_> {
         self.scope.borrows()
     }
 
-    pub fn retain_temporaries(&self, values: &[Value]) -> Result<(), RuntimeError> {
+    /// Protect a complete callback input pack in this invocation's suffix.
+    pub fn retain_temporaries(
+        &mut self,
+        values: &[ValueView<'_>],
+    ) -> Result<ArgumentValues<'a>, RuntimeError> {
         self.scope.retain_values(values)
+    }
+
+    pub fn import(&mut self, value: &RootedValue) -> Result<ValueView<'a>, RuntimeError> {
+        self.scope.import(value)
+    }
+
+    pub fn protect(&mut self, value: &ValueView<'_>) -> Result<ValueView<'a>, RuntimeError> {
+        self.scope.protect(value)
+    }
+
+    pub fn retain(&mut self, value: &ValueView<'_>) -> Result<RootedValue, RuntimeError> {
+        self.scope.retain(value)
+    }
+
+    /// Borrow a protected String without copying it or registering a Host root.
+    /// Runtime execution is unavailable until the text callback returns. The
+    /// borrowed text cannot escape:
+    /// ```compile_fail
+    /// use kagari_runtime::{host::HostCallContext, value::view::ValueView};
+    /// fn escape<'a>(cx: &mut HostCallContext<'a>, value: &ValueView<'a>) -> &'a str {
+    ///     cx.read_string(value, |text| text).unwrap()
+    /// }
+    /// ```
+    pub fn read_string<R>(
+        &mut self,
+        value: &ValueView<'_>,
+        read: impl for<'text> FnOnce(&'text str) -> R,
+    ) -> Result<R, RuntimeError> {
+        self.scope.read_string(value, read)
+    }
+
+    pub(crate) fn validate_arguments(
+        &mut self,
+        values: &[ValueView<'_>],
+    ) -> Result<(), RuntimeError> {
+        self.scope.validate_values(values)
+    }
+
+    pub(crate) fn validate_result(&mut self, value: &ValueView<'_>) -> Result<(), RuntimeError> {
+        self.scope.validate_result(value)
+    }
+
+    /// Build a managed callback result through the canonical converter. Publish
+    /// into this Host scope before the child conversion and its arguments retire.
+    pub fn convert_value(
+        &mut self,
+        owner: &ExecutableModule,
+        convert: impl for<'conversion> FnOnce(
+            &mut ConversionContext<'conversion>,
+        ) -> Result<ValueView<'conversion>, RuntimeError>,
+    ) -> Result<ValueView<'a>, RuntimeError> {
+        self.scope.execute(&[], |runtime, _, result| {
+            let mut conversion = ConversionContext::new(runtime, owner)?;
+            let value = convert(&mut conversion)?;
+            result.publish(conversion.runtime_mut(), &value)
+        })
     }
 
     pub fn execution_time_millis(&self) -> Result<i64, RuntimeError> {
@@ -903,7 +928,7 @@ pub struct HostRegistry {
     roots: HashMap<HostObjectId, HostRootHandle>,
     path_descriptors: HashMap<HostPathDescriptorId, HostPathDescriptor>,
     path_adapters: HashMap<HostPathDescriptorId, HostPathAdapter>,
-    dirty_paths: RefCell<Vec<HostPathMutationRecord>>,
+    dirty_paths: Vec<HostPathMutationRecord<RootedValue>>,
 }
 
 /// Runtime slots derived from checked declaration owners, without another schema
@@ -949,8 +974,11 @@ impl<'host, T: ?Sized> MutHostRef<'host, T> {
 }
 
 fn path_scope_error(error: RuntimeError) -> RuntimeError {
-    if error.kind() == RuntimeErrorKind::HostCallFailure {
-        RuntimeError::typed_path_validation(error.message())
+    if matches!(
+        error.kind(),
+        RuntimeErrorKind::HostCallFailure | RuntimeErrorKind::ModuleValidation
+    ) {
+        RuntimeError::typed_path_validation(error.to_string())
     } else {
         error
     }

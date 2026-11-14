@@ -3,9 +3,10 @@ use crate::protocol::prefix;
 use kagari::{engine::KagariEngine, error::EmbeddingError};
 use kagari_runtime::{
     host::{HostCallContext, HostError},
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
-    value::Value,
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, host, types::Type},
+    value::view::ValueView,
 };
+use kagari_stdlib as stdlib;
 use kagari_types::{
     declaration::host::{HostCallPolicy, HostFunctionEffects, HostPassingStyle},
     scalar::BuiltinType,
@@ -47,6 +48,9 @@ impl Output {
 pub(crate) fn engine(output: Arc<Mutex<Output>>) -> Result<KagariEngine, EmbeddingError> {
     let registration = |error| EmbeddingError::Registration { error };
     let mut builder = KagariEngine::builder().map_err(registration)?;
+    builder
+        .install_all(stdlib::modules().map_err(registration)?)
+        .map_err(registration)?;
     // The adapter owns this lexical root; memory:// inputs never access a filesystem.
     #[cfg(feature = "source")]
     builder.source_root("/kagari-browser")?;
@@ -68,21 +72,22 @@ pub(crate) fn engine(output: Arc<Mutex<Output>>) -> Result<KagariEngine, Embeddi
     module
         .bind(
             print,
-            move |context: &HostCallContext<'_>, args: &[Value]| {
-                let [Value::Str(id)] = args else {
-                    return Err(HostError::new("web::print requires String"));
-                };
-                let text = context
-                    .runtime()
-                    .gc()
-                    .string(*id)
-                    .ok_or_else(|| HostError::new("invalid rooted output String"))?;
-                output
-                    .lock()
-                    .map_err(|_| HostError::new("output queue poisoned"))?
-                    .push(&text);
-                Ok(Value::Unit)
-            },
+            host::callback(
+                move |context: &mut HostCallContext<'_>, args: &[ValueView<'_>]| {
+                    let [text] = args else {
+                        return Err(HostError::new("web::print requires String"));
+                    };
+                    // Lock outside the payload loan. Copy only the admitted output
+                    // prefix; the whole script String stays in its original source.
+                    let mut output = output
+                        .lock()
+                        .map_err(|_| HostError::new("output queue poisoned"))?;
+                    context
+                        .read_string(text, |text| output.push(text))
+                        .map_err(|error| HostError::new(error.to_string()))?;
+                    Ok(ValueView::unit())
+                },
+            ),
         )
         .map_err(registration)?;
     builder
@@ -98,7 +103,7 @@ mod tests {
     #[test]
     fn output_is_utf8_bounded_and_drain_resets_the_budget() {
         let mut queue = Output::default();
-        queue.push(&"😀".repeat(MESSAGE_BYTES));
+        queue.push(&"\u{1f600}".repeat(MESSAGE_BYTES));
         assert_eq!(queue.messages[0].len(), MESSAGE_BYTES);
         for _ in 0..OUTPUT_MESSAGES * 2 {
             queue.push(&"x".repeat(MESSAGE_BYTES));

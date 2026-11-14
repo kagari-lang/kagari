@@ -1,17 +1,19 @@
-use crate::{BytecodeArtifact, engine::KagariEngine, program::PreparedProgram};
+use crate::{BytecodeArtifact, engine::KagariEngine, program::Program};
 use kagari_bytecode::instruction::EnumId;
 use kagari_common::identity::{
     ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
 };
 use kagari_contract::types::PublicItem;
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     error::RuntimeErrorKind,
     module::{EnumVariantRef, ExecutableModule, entry::ProgramEntry},
-    reflection,
-    value::{EnumTag, Value},
+    native::conversion::context::ConversionContext,
+    value::{EnumTag, carriers::RootedValue},
     value_semantics::script_equal,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
+use kagari_stdlib as stdlib;
 use kagari_types::{language::binding, scalar::BuiltinType, ty::Ty};
 
 fn compile(engine: &KagariEngine, source: &str) -> DefinitionMetadata<BytecodeArtifact> {
@@ -52,70 +54,68 @@ fn variant(module: &ExecutableModule, name: &str) -> EnumVariantRef {
 
 #[test]
 fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let mut runtime = engine.runtime(Default::default());
     let source = "enum Option { Some(i32) } enum Other { Some(i32) } enum Holder { Data(Option, [i32]) } fn main() -> Option { Option::Some(42) }";
     let original = compile(&engine, source);
     let loaded = runtime
         .load_program(
-            &PreparedProgram::from_artifact(
-                original.clone(),
-                &Default::default(),
-                &Default::default(),
-            )
-            .unwrap(),
+            &Program::from_artifact(original.clone(), &Default::default(), &Default::default())
+                .unwrap(),
             Default::default(),
         )
         .unwrap();
-    let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
+    let _selected_loaded = runtime.select_program(&loaded).unwrap();
     let option = variant(&_selected_loaded, "Option");
     let holder = variant(&_selected_loaded, "Holder");
     let report = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
         .unwrap();
     let root = report.return_value;
-    let Value::Enum(handle) = root
-        .value(runtime.runtime().gc())
-        .expect("retained execution result")
-    else {
-        panic!("constructed enum")
-    };
-    assert_eq!(
-        runtime.runtime().gc().enum_snapshot(handle).unwrap().fields,
-        [Value::I32(42)]
-    );
-    let Value::Str(name) =
-        reflection::type_of(runtime.runtime().gc(), &Value::Enum(handle)).unwrap()
-    else {
-        panic!("enum type name")
-    };
-    assert_eq!(&*runtime.runtime().gc().string(name).unwrap(), "Option");
-    let standard = runtime
-        .runtime()
-        .make_enum_member(
-            &_selected_loaded,
-            &runtime
-                .runtime()
-                .resolve_type_arguments(
-                    &_selected_loaded,
-                    &[binding::option(
-                        _selected_loaded.definitions(),
-                        Ty::Builtin(BuiltinType::I32),
-                    )
-                    .unwrap()],
-                )
-                .unwrap()[0],
-            "Some",
-            vec![Value::I32(42)],
+    let expected = runtime
+        .alloc_enum(
+            EnumTag::Declared(option.clone()),
+            &[RootedValue::from(42_i32)],
         )
         .unwrap();
-    assert!(!script_equal(runtime.runtime().gc(), &Value::Enum(handle), &standard).unwrap());
-
-    for fields in [vec![], vec![Value::Bool(true)]] {
+    assert!(script_equal(&mut runtime, &root, &expected).unwrap());
+    drop(expected);
+    let name = runtime.reflect_type_of(&root).unwrap();
+    assert_eq!(
+        ConversionContext::new(&mut runtime, &_selected_loaded)
+            .unwrap()
+            .decode::<String>(&name)
+            .unwrap(),
+        "Option"
+    );
+    drop(name);
+    let applied = runtime
+        .resolve_type_arguments(
+            &_selected_loaded,
+            &[binding::option(
+                _selected_loaded.definitions(),
+                Ty::Builtin(BuiltinType::I32),
+            )
+            .unwrap()],
+        )
+        .unwrap()
+        .pop()
+        .unwrap();
+    let standard = runtime
+        .make_enum_member(
+            &_selected_loaded,
+            &applied,
+            "Some",
+            &[RootedValue::from(42_i32)],
+        )
+        .unwrap();
+    assert!(!script_equal(&mut runtime, &root, &standard).unwrap());
+    drop(standard);
+    for fields in [vec![], vec![RootedValue::from(true)]] {
         assert_eq!(
             runtime
-                .runtime()
-                .alloc_enum(EnumTag::Declared(option.clone()), fields)
+                .alloc_enum(EnumTag::Declared(option.clone()), &fields)
                 .unwrap_err()
                 .kind(),
             RuntimeErrorKind::ScriptTrap
@@ -124,58 +124,53 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     let mut foreign_runtime = engine.runtime(Default::default());
     let foreign = foreign_runtime
         .load_program(
-            &PreparedProgram::from_artifact(original, &Default::default(), &Default::default())
-                .unwrap(),
+            &Program::from_artifact(original, &Default::default(), &Default::default()).unwrap(),
             Default::default(),
         )
         .unwrap();
     assert_eq!(
         runtime
-            .runtime()
             .alloc_enum(
                 EnumTag::Declared(variant(
-                    &foreign_runtime.runtime().select_program(&foreign).unwrap(),
+                    &foreign_runtime.select_program(&foreign).unwrap(),
                     "Option"
                 )),
-                vec![Value::I32(42)]
+                &[RootedValue::from(42_i32)]
             )
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::ModuleValidation
     );
-
     let array = runtime
-        .runtime()
         .alloc_array(
             &_selected_loaded,
             Ty::Builtin(BuiltinType::I32),
-            vec![Value::I32(1)],
+            &[RootedValue::from(1_i32)],
         )
         .unwrap();
     let wrong = runtime
-        .runtime()
         .alloc_enum(
             EnumTag::Declared(variant(&_selected_loaded, "Other")),
-            vec![Value::I32(42)],
+            &[RootedValue::from(42_i32)],
         )
         .unwrap();
-    assert!(
+    assert_eq!(
         runtime
-            .runtime()
             .alloc_enum(
                 EnumTag::Declared(holder.clone()),
-                vec![Value::Enum(wrong), Value::Array(array)]
+                &[wrong.clone(), array.clone()]
             )
-            .is_err()
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::ScriptTrap
     );
-    assert!(
+    drop(
         runtime
-            .runtime()
             .alloc_enum(
                 EnumTag::Declared(holder.clone()),
-                vec![Value::Enum(handle), Value::Array(array)]
+                &[root.clone(), array.clone()],
             )
-            .is_ok()
+            .unwrap(),
     );
     let old_key = _selected_loaded.key();
     let changed = compile(
@@ -185,62 +180,64 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
             .replace("Some(42)", "Some(\"new\")"),
     );
     let changed =
-        PreparedProgram::from_artifact(changed, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(changed, &Default::default(), &Default::default()).unwrap();
     assert!(
         runtime
-            .reload_program(&loaded, &changed, Default::default())
+            .program(&loaded)
+            .map_err(ReloadValidationError::Runtime)
+            .and_then(|base| base.prepare_replacement(&changed, &Default::default()))
+            .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
             .is_err()
+    );
+    assert_eq!(runtime.select_program(&loaded).unwrap().key(), old_key);
+    // Frozen layouts reject publication; another installation has independent payload types.
+    let new = runtime.load_program(&changed, Default::default()).unwrap();
+    assert_eq!(
+        runtime
+            .alloc_enum(
+                EnumTag::Declared(variant(&runtime.select_program(&new).unwrap(), "Holder")),
+                &[root.clone(), array.clone()]
+            )
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::ScriptTrap
+    );
+    drop((holder, loaded, wrong, array));
+    runtime.collect_garbage().unwrap();
+    let expected = runtime
+        .alloc_enum(
+            EnumTag::Declared(option.clone()),
+            &[RootedValue::from(42_i32)],
+        )
+        .unwrap();
+    assert!(script_equal(&mut runtime, &root, &expected).unwrap());
+    drop(expected);
+    runtime.collect_garbage().unwrap();
+    let before_release = runtime.gc_stats();
+    drop(root);
+    runtime.collect_garbage().unwrap();
+    let after_release = runtime.gc_stats();
+    assert_eq!(
+        after_release.objects + 1,
+        before_release.objects,
+        "the scalar enum has no remaining data owner"
     );
     assert_eq!(
-        runtime.runtime().select_program(&loaded).unwrap().key(),
-        old_key
+        after_release.root_registrations + 1,
+        before_release.root_registrations
     );
-    // Frozen payload layouts reject publication. An independent installation with
-    // the changed schema still cannot consume the retained old values.
-    let new = runtime.load_program(&changed, Default::default()).unwrap();
-    assert!(
+    // Immutable layout facts remain usable independently of the previous data instance.
+    drop(
         runtime
-            .runtime()
-            .alloc_enum(
-                EnumTag::Declared(variant(
-                    &runtime.runtime().select_program(&new).unwrap(),
-                    "Holder"
-                )),
-                vec![Value::Enum(handle), Value::Array(array)]
-            )
-            .is_err()
-    );
-    drop(holder);
-    drop(option);
-    drop(loaded);
-    runtime.runtime().collect_garbage().unwrap();
-    let snapshot = runtime.runtime().gc().enum_snapshot(handle).unwrap();
-    let EnumTag::Declared(retained) = snapshot.tag;
-    assert_eq!(retained.module().key(), old_key);
-    assert_eq!(snapshot.fields, [Value::I32(42)]);
-    assert!(
-        runtime
-            .runtime()
-            .alloc_enum(EnumTag::Declared(retained.clone()), vec![Value::I32(7)])
-            .is_ok()
-    );
-    drop(root);
-    runtime.runtime().collect_garbage().unwrap();
-    assert!(runtime.runtime().gc().enum_snapshot(handle).is_none());
-    assert!(
-        runtime
-            .runtime()
-            .alloc_enum(
-                EnumTag::Declared(retained.clone()),
-                vec![Value::Enum(handle)]
-            )
-            .is_err()
+            .alloc_enum(EnumTag::Declared(option), &[RootedValue::from(7_i32)])
+            .unwrap(),
     );
 }
 
 #[test]
 fn imported_enum_constructors_use_the_pinned_dependency_layouts() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     for (name, value) in [("left", 7), ("right", 9)] {
         let path = format!("memory://{name}.kgr");
         engine
@@ -264,25 +261,24 @@ fn imported_enum_constructors_use_the_pinned_dependency_layouts() {
     let mut runtime = engine.runtime(Default::default());
     let loaded = runtime
         .load_program(
-            &PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default())
-                .unwrap(),
+            &Program::from_artifact(decoded, &Default::default(), &Default::default()).unwrap(),
             Default::default(),
         )
         .unwrap();
-    assert_eq!(
+    assert!(
         runtime
             .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::Bool(true)
+            .as_bool()
+            .unwrap()
     );
 }
 
 #[test]
 fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let mut runtime = engine.runtime(Default::default());
     let source = "struct Point { val x: i32 } pub enum Event { Empty, Data(Point, (i32, [String])) } fn main() -> i32 { 42 }";
     let original = compile(&engine, source);
@@ -329,8 +325,7 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
     );
     let loaded = runtime
         .load_program(
-            &PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default())
-                .unwrap(),
+            &Program::from_artifact(decoded, &Default::default(), &Default::default()).unwrap(),
             Default::default(),
         )
         .unwrap();
@@ -342,22 +337,22 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
         original.records().verification.public_abi_fingerprints,
         changed.records().verification.public_abi_fingerprints
     );
-    let before = runtime.runtime().modules().loaded_count();
-    let before_epoch = runtime.runtime().select_program(&loaded).unwrap().epoch;
+    let before = runtime.modules().loaded_count();
+    let before_epoch = runtime.select_program(&loaded).unwrap().epoch;
     let error = runtime
-        .reload_program(
-            &loaded,
-            &PreparedProgram::from_artifact(changed, &Default::default(), &Default::default())
-                .unwrap(),
-            Default::default(),
-        )
+        .program(&loaded)
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| {
+            base.prepare_replacement(
+                &Program::from_artifact(changed, &Default::default(), &Default::default()).unwrap(),
+                &Default::default(),
+            )
+        })
+        .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
         .unwrap_err();
     assert_eq!(error.code(), "KG_RELOAD_PUBLIC_ABI_FINGERPRINT_MISMATCH");
-    assert_eq!(runtime.runtime().modules().loaded_count(), before);
-    assert_eq!(
-        runtime.runtime().select_program(&loaded).unwrap().epoch,
-        before_epoch
-    );
+    assert_eq!(runtime.modules().loaded_count(), before);
+    assert_eq!(runtime.select_program(&loaded).unwrap().epoch, before_epoch);
     // The original entry remains usable after rejection.
     assert!(
         runtime
@@ -371,16 +366,14 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
     );
     assert!(
         runtime
-            .reload_program(
-                &loaded,
-                &PreparedProgram::from_artifact(
-                    body_edit,
-                    &Default::default(),
-                    &Default::default()
-                )
-                .unwrap(),
-                Default::default()
-            )
+            .program(&loaded)
+            .map_err(ReloadValidationError::Runtime)
+            .and_then(|base| base.prepare_replacement(
+                &Program::from_artifact(body_edit, &Default::default(), &Default::default())
+                    .unwrap(),
+                &Default::default()
+            ))
+            .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
             .is_ok()
     );
     let (definitions, mut old_format) = original.into_parts();
@@ -390,7 +383,8 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
 
 #[test]
 fn same_spelled_payload_types_from_different_modules_have_different_abi() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     for name in ["left", "right"] {
         let path = format!("memory://{name}.kgr");
         engine

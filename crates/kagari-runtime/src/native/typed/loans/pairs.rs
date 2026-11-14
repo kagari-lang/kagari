@@ -38,7 +38,7 @@ pub struct MutableShared<T, U, A>(PhantomData<(T, U, A)>);
 pub struct MutableMutable<T, U, A>(PhantomData<(T, U, A)>);
 
 macro_rules! pair_adapter {
-    ($mode:ident, $m1:expr, $m2:expr, $a1:ident, $a2:ident, $opaque:ident, $external:ident;
+    ($mode:ident, $m1:expr, $m2:expr, $a1:ident, $a2:ident, $native:ident, $external:ident;
         [$($mut1:ident)?], [$($mut2:ident)?]; $count:expr; $($argument:ident:$value:ident),*) => {
         impl<F, T, U, R, $($argument,)*> NativeAdapter<$mode<T, U, ($($argument,)*)>, R> for F
         where
@@ -60,18 +60,24 @@ macro_rules! pair_adapter {
                         let LoanReceiver::External(second) = second else {
                             return Err(RuntimeError::module_validation("reference argument requires an external location"));
                         };
-                        let mut loan = LoanContext { runtime: cx.runtime() };
                         match first {
-                            LoanReceiver::External(first) => cx.runtime().host_borrows.$external(cx.runtime(), first, second,
-                                |first: &$($mut1)? T, second: &$($mut2)? U| self(&mut loan, (first, second, $($value,)*))),
-                            LoanReceiver::Opaque(first) => cx.runtime().host_borrows.with_scoped_loans(cx.runtime(), [
-                                (second, TypeId::of::<U>(), ReferenceAccess::$a2),
-                            ], |[second]| first.$opaque(cx, |first| {
-                                // SAFETY: The external pack is already acquired;
-                                // Opaque's original checked payload loan is active.
-                                // No GC access or result conversion spans these refs.
-                                unsafe { self(&mut loan, (first, &$($mut2)? *second.cast::<U>(), $($value,)*)) }
-                            })),
+                            LoanReceiver::External(first) => {
+                                let runtime = cx.runtime();
+                                let mut loan = LoanContext { resources: runtime.resources() };
+                                runtime.host_borrows.$external(runtime, first, second,
+                                    |first: &$($mut1)? T, second: &$($mut2)? U| self(&mut loan, (first, second, $($value,)*)))
+                            }
+                            LoanReceiver::Native(first) => cx.conversion.borrow_native_argument(
+                                first.request(ReferenceAccess::$a1),
+                                [(second, TypeId::of::<U>(), ReferenceAccess::$a2)],
+                                |resources, first, [second]| {
+                                    let first = first.$native()?;
+                                    // SAFETY: the external reservation checked the
+                                    // exact Rust target/access before projection.
+                                    // The separately owned GC payload loan is live;
+                                    // both refs end before result conversion or GC.
+                                    unsafe { self(&mut LoanContext { resources }, (first, &$($mut2)? *second.cast::<U>(), $($value,)*)) }
+                                }),
                         }
                     });
                 binding.receiver_access = receiver_access;
@@ -83,10 +89,10 @@ macro_rules! pair_adapter {
 
 macro_rules! pairs_for_arity {
     ($count:expr; $($argument:ident:$value:ident),*) => {
-        pair_adapter!(SharedShared, false, false, Shared, Shared, read, read_pair; [], []; $count; $($argument:$value),*);
-        pair_adapter!(SharedMutable, false, true, Shared, Mutable, read, read_edit_pair; [], [mut]; $count; $($argument:$value),*);
-        pair_adapter!(MutableShared, true, false, Mutable, Shared, edit_checked, edit_read_pair; [mut], []; $count; $($argument:$value),*);
-        pair_adapter!(MutableMutable, true, true, Mutable, Mutable, edit_checked, edit_pair; [mut], [mut]; $count; $($argument:$value),*);
+        pair_adapter!(SharedShared, false, false, Shared, Shared, shared, read_pair; [], []; $count; $($argument:$value),*);
+        pair_adapter!(SharedMutable, false, true, Shared, Mutable, shared, read_edit_pair; [], [mut]; $count; $($argument:$value),*);
+        pair_adapter!(MutableShared, true, false, Mutable, Shared, mutable, edit_read_pair; [mut], []; $count; $($argument:$value),*);
+        pair_adapter!(MutableMutable, true, true, Mutable, Mutable, mutable, edit_pair; [mut], [mut]; $count; $($argument:$value),*);
     };
 }
 

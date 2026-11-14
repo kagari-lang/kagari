@@ -4,16 +4,17 @@ use kagari::{
     BytecodeArtifact,
     context::ExecutionContext,
     engine::{KagariEngine, source::ArtifactOptions},
-    program::PreparedProgram,
+    program::Program,
     runtime::LoadOptions,
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 fn main() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let program = engine
         .compile_to_program(
             SourceFile::new("scoped.kgr", "fn main() -> i32 { 42 }"),
@@ -37,13 +38,7 @@ fn main() {
         let report = runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap();
-        assert_eq!(
-            report
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(42)
-        );
+        assert_eq!(report.return_value.as_i32(), Some(42));
     }
 
     // A host can keep a clone of this token to request cancellation.
@@ -61,28 +56,27 @@ fn main() {
             .execute(&loaded, ProgramEntry::Main, &[], &fresh)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
+            .as_i32(),
+        Some(42)
     );
     println!(
         "two independent execution sessions completed; cancellation left the runtime reusable"
     );
     // A crafted product with two equally named entry functions must not pick one.
-    let ambiguous = engine
+    let relabeled = engine
         .compile_to_artifact(
             SourceFile::new(
-                "ambiguous.kgr",
+                "relabeled.kgr",
                 "fn main() -> i32 { 42 } fn alternative() -> i32 { 43 }",
             ),
             ArtifactOptions::default(),
         )
         .unwrap();
     let definitions = DefinitionContext::new().unwrap();
-    let ambiguous = ambiguous
+    let relabeled = relabeled
         .import_into(&definitions, &Default::default())
         .unwrap();
-    let mut program = ambiguous.into_records().program;
+    let mut program = relabeled.into_records().program;
     let root = program.root.index();
     let alternative = program.modules[root]
         .functions
@@ -91,30 +85,30 @@ fn main() {
         .unwrap();
     program.modules[root].functions[alternative].name = "main".into();
     program.modules[root].function_table[alternative].name = "main".into();
-    let ambiguous = BytecodeArtifact::from_program(
+    let relabeled = BytecodeArtifact::from_program(
         program,
         Default::default(),
         &definitions,
         &Default::default(),
     )
     .unwrap();
-    let ambiguous =
-        DefinitionMetadata::checked(definitions.snapshot(), ambiguous, &Default::default())
+    let relabeled =
+        DefinitionMetadata::checked(definitions.snapshot(), relabeled, &Default::default())
             .unwrap();
     let program =
-        PreparedProgram::from_artifact(ambiguous, &Default::default(), &Default::default())
-            .unwrap();
+        Program::from_artifact(relabeled, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(&program, LoadOptions::default())
         .unwrap();
 
+    // Execution uses the verified entry capability, not these display labels.
     assert_eq!(
         runtime
             .execute(&loaded, ProgramEntry::Main, &[], &fresh)
-            .unwrap_err()
-            .code(),
-        "KG_BYTECODE_VERIFICATION_FAILED"
+            .unwrap()
+            .return_value
+            .as_i32(),
+        Some(42)
     );
-
-    println!("ambiguous entry was rejected before script execution");
+    println!("display labels leave the verified entry selection unchanged");
 }

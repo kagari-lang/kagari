@@ -1,0 +1,8 @@
+pub async fn run(fail: bool) -> i32 {
+    if fail {
+        val zero = 0;
+        1 / zero
+    } else {
+        42
+    }
+}

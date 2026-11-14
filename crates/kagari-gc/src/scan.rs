@@ -82,7 +82,15 @@ impl ScanBudget {
 /// Visits edges while their admitted object remains borrowed and live.
 pub struct EdgeVisitor<'a> {
     pub(crate) physical: &'a PhysicalHeap,
-    pub(crate) marking: &'a mut Marking,
+    pub(crate) target: VisitTarget<'a>,
+}
+
+pub(crate) enum VisitTarget<'a> {
+    Mark(&'a mut Marking),
+    Inspect {
+        visit: &'a mut dyn FnMut(ObjectRef) -> bool,
+        indivisible: bool,
+    },
 }
 
 impl EdgeVisitor<'_> {
@@ -107,6 +115,21 @@ impl EdgeVisitor<'_> {
         reference: ObjectRef,
         budget: &mut ScanBudget,
     ) -> Result<ScanStatus, GcError> {
-        self.marking.publish(self.physical, reference, Some(budget))
+        match &mut self.target {
+            VisitTarget::Mark(marking) => marking.publish(self.physical, reference, Some(budget)),
+            VisitTarget::Inspect { visit, indivisible } => {
+                if *indivisible {
+                    budget.charge(1)?;
+                } else if !budget.take(1) {
+                    return Ok(ScanStatus::Pending);
+                }
+                self.physical.resolve(reference)?;
+                Ok(if visit(reference) {
+                    ScanStatus::Complete
+                } else {
+                    ScanStatus::Pending
+                })
+            }
+        }
     }
 }

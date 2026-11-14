@@ -5,11 +5,10 @@ use crate::{
     error::RuntimeError,
     host::{HostPathDescriptorRegistration, HostPathSegment, HostRegistry},
     metadata::{AbiFingerprint, TypeRegistry},
-    module::LinkedHostBindings,
+    module::{LinkedHostBindings, admission::DefinitionAdmission},
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{instruction::BytecodeInstruction, module::BytecodeModule};
-use kagari_common::identity::table::DefinitionTable;
 use kagari_types::{
     declaration::host::PathAccess,
     declaration::path::{HostPathContract, HostPathDeclaration, HostPathInput},
@@ -22,13 +21,9 @@ impl HostRegistry {
         &self,
         module: &BytecodeModule,
         types: &TypeRegistry,
-        definitions: &DefinitionTable,
+        admission: &DefinitionAdmission,
     ) -> Result<LinkedHostBindings, RuntimeError> {
-        if definitions.id() != self.definitions().id() {
-            return Err(RuntimeError::module_validation(
-                "host linking requires the runtime definition context",
-            ));
-        }
+        let definitions = admission.source();
         for (required, contract) in module
             .path_contracts(definitions)
             .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?
@@ -36,11 +31,12 @@ impl HostRegistry {
             let fingerprint = contract
                 .fingerprint(definitions)
                 .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?;
+            let required = admission.runtime(required, &Default::default())?;
             if self
                 .path_descriptors()
                 .filter(|path| {
                     path.abi_fingerprint.0 == fingerprint
-                        && path.declaration == *required
+                        && path.declaration == required
                         && self.path_adapters.contains_key(&path.id)
                 })
                 .count()
@@ -53,9 +49,10 @@ impl HostRegistry {
         }
         let mut host_types = HashMap::new();
         for required in &module.external_types {
+            let registered = admission.runtime(required, &Default::default())?;
             let id = types
-                .external_type(required)
-                .filter(|id| self.matches_type(*id, &required.declaration))
+                .external_type(&registered)
+                .filter(|id| self.matches_type(*id, &registered.declaration))
                 .ok_or_else(|| {
                     RuntimeError::module_validation(
                         "external type lacks its exact installed metadata slot",

@@ -1,7 +1,6 @@
 //! Shared language semantics and declarations, independent of execution and source analysis.
 pub mod arithmetic;
 pub mod callable;
-pub mod collection;
 pub mod conversion;
 pub mod declaration;
 pub mod decode_limits;

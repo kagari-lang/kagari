@@ -1,0 +1,13 @@
+use std::collections::{ List };
+
+fn sum(values: List<i32>) -> i32 {
+    var n = 0;
+    for x in values {
+        n += x;
+    }
+    n
+}
+
+fn main() -> i32 {
+    sum(Vec::from([20, 22]))
+}

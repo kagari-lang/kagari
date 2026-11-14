@@ -1,0 +1,31 @@
+fn main() -> bool {
+    val calls = Vec::from([0]);
+    val offset = Vec::from([1]);
+    val mapped = Vec::from([10, 20, 30]).map(
+        |item| {
+            calls[0] += 1;
+            Vec::from([item + offset[0]])
+        }
+    );
+    if calls[0] != 0 {
+        return false;
+    }
+    val alias = mapped;
+    val first = match mapped.next() {
+        Some(value) => value[0],
+        None => -1
+    };
+    val second = match alias.next() {
+        Some(value) => value[0],
+        None => -1
+    };
+    var rest = 0;
+    for item in mapped {
+        rest += item[0];
+    }
+    val ended = match alias.next() {
+        Some(_) => false,
+        None => true
+    };
+    first == 11 && second == 21 && rest == 31 && calls[0] == 3 && ended
+}

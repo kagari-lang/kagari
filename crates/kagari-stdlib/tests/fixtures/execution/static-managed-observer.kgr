@@ -1,0 +1,17 @@
+static val value: [i32] = {
+    val first = [7, 8];
+    first
+};
+
+static val business: Result<i32, i32> = Err(4);
+
+pub fn business_error() -> i32 {
+    match business {
+        Ok(value) => value,
+        Err(error) => error
+    }
+}
+
+pub fn read() -> i32 {
+    value[0]
+}

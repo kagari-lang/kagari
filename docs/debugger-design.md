@@ -44,11 +44,11 @@ Inventory reviewed at `2202c344`:
 
 | Owner | Reusable foundation and current limit |
 | --- | --- |
-| [VM debug session](../crates/kagari-vm/src/debug.rs) | Source breakpoint resolution, safe-point/step decisions, execution identity, rooted frame/binding snapshots and binding-name watches. `record_pause` appends a snapshot and returns; it does not stop execution. |
-| [Internal adapter](../crates/kagari-vm/src/debug_protocol.rs) | Rust requests/events and snapshot inspection. Requests currently require access to `Vm`; events can be flushed after execution. This is not a live transport or a DAP server. |
+| [VM debug session](../crates/kagari-runtime/src/debug.rs) | Source breakpoint resolution, safe-point/step decisions, execution identity, rooted frame/binding snapshots and binding-name watches. `record_pause` appends a snapshot and returns; it does not stop execution. |
+| [Internal adapter](../crates/kagari-runtime/src/debug_protocol.rs) | Rust requests/events and snapshot inspection. Requests currently require access to `Runtime`; events can be flushed after execution. This is not a live transport or a DAP server. |
 | [Runtime observer](../crates/kagari-runtime/src/observer.rs) | Runtime owns the observer; dispatch temporarily borrows the observer and session frames. These borrows constrain where interactive requests can run. |
-| [Interpreter driver](../crates/kagari-vm/src/executor/driver.rs) | Existing instruction/trap observation and safe execution boundaries. Stop decisions must be consumed before the observed instruction proceeds. |
-| [Owned execution](../crates/kagari-vm/src/vm/owned.rs) and [reentry](../crates/kagari-vm/src/reentry.rs) | Explicit script frames and bounded driving already exist. Synchronous reentry preserves a Rust call chain; no conversion to a resumable host callback is planned. |
+| [Interpreter driver](../crates/kagari-runtime/src/executor/driver.rs) | Existing instruction/trap observation and safe execution boundaries. Stop decisions must be consumed before the observed instruction proceeds. |
+| [Owned execution](../crates/kagari-runtime/src/execution/owned.rs) and [reentry](../crates/kagari-runtime/src/execution/reentry.rs) | Explicit script frames and bounded driving already exist. Synchronous reentry preserves a Rust call chain; no conversion to a resumable host callback is planned. |
 
 The [debugger specification](spec/debugger.md) contains a broader target feature
 set than the implementation. Conditional breakpoints, general expression watches,
@@ -226,10 +226,10 @@ All stages are unstarted. They define a finite proposal, not active phase gates.
 3. **Tool integration:** connect SDK endpoints to a DAP transport and the agreed
    CLI/host entrypoints; verify a real IDE session and disconnect handling.
 
-Reuse [VM debug tests](../crates/kagari-vm/src/tests/execution/debugger.rs),
-[protocol tests](../crates/kagari-vm/src/tests/debug_protocol.rs),
-[reentry tests](../crates/kagari-vm/src/tests/reentry_debug.rs) and
-[async SDK tests](../crates/kagari/tests/async_execution/debugger.rs).
+Reuse [VM debug tests](../crates/kagari-runtime/src/interpreter_tests/execution/debugger.rs),
+[protocol tests](../crates/kagari-stdlib/src/tests/execution/debug_protocol.rs),
+[reentry tests](../crates/kagari-stdlib/src/tests/execution/reentry_debug.rs) and
+[async SDK tests](../crates/kagari/src/runtime/tests/embedding/async_execution/debugger.rs).
 Current snapshot tests alone cannot prove interactive stopping. Add distinct
 coverage using command handshakes and bounded waits, not timing-dependent sleeps:
 

@@ -1,4 +1,6 @@
 //! Native enum operations consume installed nominal layouts and scoped type arguments.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -6,13 +8,14 @@ use crate::{
     module::{EnumVariantRef, ExecutableModule},
     native::{
         binding::NativeResult,
-        context::CallContext,
+        context::NativeCall,
+        conversion::context::{ConversionContext, inputs::ValueInput},
         types::{Type, VariantRef},
     },
-    value::{EnumTag, EnumValueSnapshot, Value},
+    value::{carriers::RootedValue, view::ValueView},
 };
 use kagari_types::ty::Ty;
-use std::{cell::Ref, slice};
+use std::slice;
 
 impl Runtime {
     fn declared_enum_member<'a>(
@@ -45,25 +48,31 @@ impl Runtime {
         owner: &ExecutableModule,
         ty: &Type,
     ) -> NativeResult<TypeArgument> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::NativeTypeMapping);
         let ty = ty.adopt(self.definition_context())?;
+        let ty = owner
+            .identity_admission()
+            .product(&ty, &Default::default())?;
         self.resolve_type_arguments(owner, slice::from_ref(&ty))?
             .pop()
             .ok_or_else(|| RuntimeError::module_validation("nominal type scope"))
     }
 
     /// Construct a declared member in a validated, generation-pinned type scope.
-    /// Member lookup and payload checks precede allocation; retain a root before
-    /// another allocation or reentry. Native bindings normally use VariantRef.
+    /// Member lookup and payload checks precede allocation. Inputs and result
+    /// carry explicit Host ownership; Native bindings use their call's source.
     pub fn make_enum_member(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
         applied: &TypeArgument,
         member: &str,
-        fields: Vec<Value>,
-    ) -> NativeResult<Value> {
+        fields: &[RootedValue],
+    ) -> NativeResult<RootedValue> {
         let layout = self.declared_enum_variant(owner, applied, member)?;
-        self.alloc_enum(EnumTag::Declared(layout), fields)
-            .map(Value::Enum)
+        let mut conversion = ConversionContext::new(self, owner)?;
+        let value = conversion.allocate_enum_inputs(layout, fields.iter().map(ValueInput::Root))?;
+        conversion.retain(&value)
     }
 }
 
@@ -91,7 +100,7 @@ impl Runtime {
     }
 }
 
-impl CallContext<'_> {
+impl<'call> NativeCall<'call> {
     fn declared_enum_variant(
         &self,
         applied: &TypeArgument,
@@ -102,61 +111,72 @@ impl CallContext<'_> {
     }
 
     /// Allocate an ordinary registered enum in its checked, pinned type scope.
-    /// Root the returned Value before further allocation or synchronous reentry.
+    /// The completed value transfers into this call's protected source suffix.
     pub fn allocate_enum(
-        &self,
+        &mut self,
         applied: &TypeArgument,
         variant: &VariantRef,
-        fields: Vec<Value>,
-    ) -> NativeResult<Value> {
+        fields: &[ValueView<'_>],
+    ) -> NativeResult<ValueView<'call>> {
         let layout = self.declared_enum_variant(applied, variant)?;
-        self.runtime
-            .alloc_enum(EnumTag::Declared(layout), fields)
-            .map(Value::Enum)
-    }
-
-    fn enum_argument_view(&self, index: usize) -> NativeResult<Ref<'_, EnumValueSnapshot>> {
-        let value = self.argument(index)?;
-        let applied = self.argument_type_argument(index)?;
-        if !matches!(applied.ty(), Ty::Enum(_))
-            || !applied.matches(self.runtime, &value, self.owner)
-        {
-            return Err(RuntimeError::module_validation("native enum argument type"));
-        }
-        let Value::Enum(handle) = value else {
-            return Err(RuntimeError::module_validation(
-                "native enum argument value",
-            ));
-        };
-        self.heap()
-            .enum_view(handle)
-            .ok_or_else(|| RuntimeError::module_validation("native enum argument handle"))
+        self.convert_value(|conversion| {
+            conversion.allocate_enum_inputs(layout, fields.iter().copied().map(ValueInput::View))
+        })
     }
 
     /// Test a checked member of the argument's enum; foreign member handles fail.
-    pub fn enum_argument_is(&self, index: usize, variant: &VariantRef) -> NativeResult<bool> {
-        let expected = self.declared_enum_variant(&self.argument_type_argument(index)?, variant)?;
-        let view = self.enum_argument_view(index)?;
-        Ok(matches!(&view.tag, EnumTag::Declared(actual) if actual.matches_layout(&expected)))
+    pub fn enum_argument_is(&mut self, index: usize, variant: &VariantRef) -> NativeResult<bool> {
+        let function = self.function;
+        let applied = function
+            .type_signature()?
+            .params
+            .get(index)
+            .ok_or_else(invalid_argument)?;
+        let expected = self.declared_enum_variant(applied, variant)?;
+        let value = self.argument(index)?;
+        if !matches!(applied.ty(), Ty::Enum(_)) {
+            return Err(invalid_argument());
+        }
+        let mut conversion = ConversionContext::in_native_call(self)?;
+        conversion.check_value(applied, &value)?;
+        let (actual, _) = conversion.enum_shape(&value)?;
+        Ok(actual.matches_layout(&expected))
     }
 
-    /// Read a checked payload field; the argument root retains its referent for this call.
+    /// Read a checked payload field, protected through this Native call's suffix.
     pub fn enum_argument_field(
-        &self,
+        &mut self,
         index: usize,
         variant: &VariantRef,
         field: usize,
-    ) -> NativeResult<Value> {
-        let expected = self.declared_enum_variant(&self.argument_type_argument(index)?, variant)?;
-        let view = self.enum_argument_view(index)?;
-        if !matches!(&view.tag, EnumTag::Declared(actual) if actual.matches_layout(&expected)) {
-            return Err(RuntimeError::module_validation(
-                "native enum argument variant",
-            ));
+    ) -> NativeResult<ValueView<'call>> {
+        let function = self.function;
+        let applied = function
+            .type_signature()?
+            .params
+            .get(index)
+            .ok_or_else(invalid_argument)?;
+        let expected = self.declared_enum_variant(applied, variant)?;
+        let value = self.argument(index)?;
+        if !matches!(applied.ty(), Ty::Enum(_)) {
+            return Err(invalid_argument());
         }
-        view.fields
-            .get(field)
-            .copied()
-            .ok_or_else(|| RuntimeError::module_validation("native enum payload index"))
+        self.convert_value(|conversion| {
+            conversion.check_value(applied, &value)?;
+            let (actual, count) = conversion.enum_shape(&value)?;
+            if !actual.matches_layout(&expected) {
+                return Err(RuntimeError::module_validation(
+                    "native enum argument variant",
+                ));
+            }
+            if field >= count {
+                return Err(RuntimeError::module_validation("native enum payload index"));
+            }
+            conversion.enum_element(&value, field)
+        })
     }
+}
+
+fn invalid_argument() -> RuntimeError {
+    RuntimeError::module_validation("native enum argument type")
 }

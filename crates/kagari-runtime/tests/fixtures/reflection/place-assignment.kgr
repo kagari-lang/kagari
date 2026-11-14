@@ -1,0 +1,15 @@
+struct Point {
+    var x: i32
+}
+
+struct Holder {
+    var inner: Point
+}
+
+fn main() -> i32 {
+    var holder = Holder { inner: Point { x: 1 } };
+    holder.inner.x = 7;
+    var values = [1, 2];
+    values[0] = 5;
+    holder.inner.x + values[0]
+}

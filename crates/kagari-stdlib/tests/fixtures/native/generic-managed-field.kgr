@@ -1,0 +1,17 @@
+use example::managed::{ Boxed, wrap, read };
+
+pub struct Item {
+    pub var value: i32
+}
+
+pub fn item() -> Item {
+    Item { value: 42 }
+}
+
+pub fn make() -> Boxed<Item> {
+    wrap(item())
+}
+
+pub fn run(value: Boxed<Item>) -> i32 {
+    read(value).value
+}

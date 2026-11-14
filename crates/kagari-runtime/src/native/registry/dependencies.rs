@@ -1,5 +1,9 @@
 //! Match required registration authority against the verified executable closure.
-use crate::{error::RuntimeError, module::VerifiedProgram, native::catalog::DeclarationCatalog};
+use crate::{
+    error::RuntimeError,
+    module::{VerifiedProgram, admission::DefinitionAdmission},
+    native::catalog::DeclarationCatalog,
+};
 use kagari_bytecode::module::BytecodeModule;
 use kagari_common::identity::{DefinitionKind, table::DefinitionId};
 use kagari_contract::types::{InterfaceTable, PublicItem, inherent::InherentTable, trait_contract};
@@ -14,8 +18,10 @@ use kagari_types::{
 pub(super) fn validate_installed_values(
     installed: &DeclarationCatalog,
     module: &BytecodeModule,
+    admission: &DefinitionAdmission,
 ) -> Result<(), RuntimeError> {
     let definitions = installed.definitions();
+    let public_items = admission.runtime(&module.public_items, &Default::default())?;
     for (id, expected) in installed.types.entries().filter(|(_, ty)| {
         matches!(
             ty.kind,
@@ -26,8 +32,7 @@ pub(super) fn validate_installed_values(
             .resolve(id)
             .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
         if owner.module() == &module.identity
-            && !module
-                .public_items
+            && !public_items
                 .iter()
                 .any(|item| matches!(item, PublicItem::Type(actual) if actual == expected))
         {
@@ -37,6 +42,7 @@ pub(super) fn validate_installed_values(
         }
     }
     for required in &module.external_types {
+        let required = admission.runtime(required, &Default::default())?;
         if installed.types.get_id(required.declaration) != Some(&required.definition) {
             return Err(RuntimeError::module_validation(
                 "external type dependency lacks its exact installed contract",
@@ -52,9 +58,11 @@ pub(super) fn validate_installed_values(
 pub(super) fn validate_installed_traits(
     installed: &DeclarationCatalog,
     module: &BytecodeModule,
+    admission: &DefinitionAdmission,
 ) -> Result<(), RuntimeError> {
     let definitions = installed.definitions();
-    for item in &module.public_items {
+    let public_items = admission.runtime(&module.public_items, &Default::default())?;
+    for item in &public_items {
         let PublicItem::Trait(contract) = item else {
             continue;
         };
@@ -74,6 +82,7 @@ pub(super) fn validate_installed_traits(
         }
     }
     for contract in &module.trait_contracts {
+        let contract = admission.runtime(contract, &Default::default())?;
         definitions
             .resolve(contract.declaration)
             .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
@@ -99,8 +108,7 @@ pub(super) fn validate_installed_traits(
                 .ok_or_else(|| {
                     RuntimeError::module_validation("language foundation is not installed")
                 })?;
-            if !module
-                .public_items
+            if !public_items
                 .iter()
                 .any(|item| matches!(item, PublicItem::Trait(actual) if actual == expected))
             {
@@ -116,21 +124,20 @@ pub(super) fn validate_installed_traits(
 pub(super) fn validate(
     required: &DeclarationCatalog,
     program: &VerifiedProgram,
+    admission: &DefinitionAdmission,
 ) -> Result<(), RuntimeError> {
-    if required.definitions().id() != program.definitions().id() {
-        return Err(RuntimeError::module_validation(
-            "native requirements belong to a different identity context",
-        ));
-    }
+    // Select the exact identity (or identity-bearing type shape) before adopting
+    // a candidate contract. Equality remains authoritative; scanning must not
+    // repeatedly remap unrelated declarations for every installed binding.
+    let definitions = required.definitions();
     for (id, expected) in required.types.entries() {
-        let owner = program
-            .definitions()
+        let owner = definitions
             .resolve(id)
             .map_err(|cause| RuntimeError::module_validation(cause.to_string()))?;
         if !program.modules().iter().any(|module| {
             &module.identity == owner.module()
                 && module.public_items.iter().any(
-                    |item| matches!(item, PublicItem::Type(declaration) if declaration == expected),
+                    |item| matches!(item, PublicItem::Type(declaration) if declaration.name == expected.name && declaration.kind == expected.kind && admission.runtime(declaration, &Default::default()).as_ref().is_ok_and(|actual| actual == expected)),
                 )
         }) {
             return Err(RuntimeError::module_validation(format!(
@@ -140,8 +147,7 @@ pub(super) fn validate(
         }
     }
     for (id, expected) in required.traits.entries() {
-        let owner = program
-            .definitions()
+        let owner = definitions
             .resolve(id)
             .map_err(|cause| RuntimeError::module_validation(cause.to_string()))?;
         if !program.modules().iter().any(|module| {
@@ -150,9 +156,18 @@ pub(super) fn validate(
                     &module.identity,
                     &module.public_items,
                     &module.trait_contracts,
-                    &id,
+                    &match admission.product_id(id) {
+                        Some(id) => id,
+                        None => return false,
+                    },
                     program.definitions(),
-                ) == Some(expected)
+                )
+                .is_some_and(|actual| {
+                    admission
+                        .runtime(actual, &Default::default())
+                        .as_ref()
+                        .is_ok_and(|actual| actual == expected)
+                })
         }) {
             return Err(RuntimeError::module_validation(format!(
                 "native dependency {} differs from its registered trait contract",
@@ -161,16 +176,20 @@ pub(super) fn validate(
         }
     }
     for (id, expected) in required.declarations.entries() {
-        let owner = program
-            .definitions()
+        let owner = definitions
             .resolve(id)
             .map_err(|cause| RuntimeError::module_validation(cause.to_string()))?;
         if !program.modules().iter().any(|module| {
             &module.identity == owner.module()
-                && module
-                    .native_declarations
-                    .iter()
-                    .any(|declaration| declaration == expected)
+                && module.native_declarations.iter().any(|declaration| {
+                    if admission.runtime_id(declaration.declaration).ok() != Some(id) {
+                        return false;
+                    }
+                    admission
+                        .runtime(declaration, &Default::default())
+                        .as_ref()
+                        .is_ok_and(|actual| actual == expected)
+                })
         }) {
             return Err(RuntimeError::module_validation(
                 "native dependency differs from its registered template contract",
@@ -178,8 +197,7 @@ pub(super) fn validate(
         }
     }
     for (id, expected) in required.implementations.entries() {
-        let owner = program
-            .definitions()
+        let owner = definitions
             .resolve(id)
             .map_err(|cause| RuntimeError::module_validation(cause.to_string()))?;
         if !program
@@ -188,8 +206,22 @@ pub(super) fn validate(
             .filter(|module| &module.identity == owner.module())
             .flat_map(|module| &module.public_items)
             .any(|item| match item {
-                PublicItem::InterfaceTable(actual) => implementation_matches(&id, expected, actual),
-                PublicItem::InherentTable(actual) => inherent_matches(id, expected, actual),
+                PublicItem::InterfaceTable(actual)
+                    if admission.runtime_id(actual.declaration).ok() == Some(id) =>
+                {
+                    admission
+                        .runtime(actual.as_ref(), &Default::default())
+                        .as_ref()
+                        .is_ok_and(|actual| implementation_matches(&id, expected, actual))
+                }
+                PublicItem::InherentTable(actual)
+                    if admission.runtime_id(actual.declaration).ok() == Some(id) =>
+                {
+                    admission
+                        .runtime(actual.as_ref(), &Default::default())
+                        .as_ref()
+                        .is_ok_and(|actual| inherent_matches(id, expected, actual))
+                }
                 _ => false,
             })
         {
@@ -239,6 +271,7 @@ fn inherent_matches(id: DefinitionId, expected: &ImplDecl, actual: &InherentTabl
 
 #[cfg(test)]
 mod tests {
+    use crate::test_support::bytecode::load_bytecode;
     use crate::test_support::native::program::ProgramFixture;
     use crate::{Runtime, RuntimeConfig};
     use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
@@ -294,10 +327,10 @@ mod tests {
         let input =
             DefinitionMetadata::checked(context.snapshot(), program, &Default::default()).unwrap();
         let mut runtime = Runtime::new(RuntimeConfig::default());
-        let error = runtime.load_program("external", input).unwrap_err();
+        let error = load_bytecode(&mut runtime, "external", input).unwrap_err();
         assert!(
             error
-                .message()
+                .to_string()
                 .contains("external type dependency lacks its exact installed contract"),
             "{error}"
         );

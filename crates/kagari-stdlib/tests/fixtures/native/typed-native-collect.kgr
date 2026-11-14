@@ -1,0 +1,9 @@
+use example::typed::gather;
+
+fn main() -> i32 {
+    gather()
+}
+
+pub fn healthy() -> i32 {
+    42
+}

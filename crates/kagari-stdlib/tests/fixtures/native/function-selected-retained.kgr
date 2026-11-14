@@ -1,0 +1,37 @@
+use example::selected::{ Read, capture, tick };
+
+pub struct Counter<T> {
+    pub val amount: i32,
+    pub val marker: T
+}
+
+impl<T> Read for Counter<T> {
+    fn read(self, divisor: i32) -> i32 {
+        tick();
+        self.amount / divisor
+    }
+    fn base() -> i32 {
+        20
+    }
+}
+
+trait Relay {
+    fn relay<T: Read>(self, item: T) -> i32 {
+        capture(item)
+    }
+}
+
+impl Relay for i32 {}
+
+pub fn make() -> Counter<i32> {
+    Counter { amount: 21, marker: 7 }
+}
+
+pub fn wrong_receiver() -> Counter<bool> {
+    Counter { amount: 21, marker: true }
+}
+
+pub fn run() -> i32 {
+    val relay: Relay = 0;
+    relay.relay(make())
+}

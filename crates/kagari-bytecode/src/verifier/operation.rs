@@ -558,21 +558,6 @@ pub(super) fn verify_instruction(
                 _ => return Err(invalid()),
             }
         }
-        BytecodeInstruction::Iter { dst, value, ty, op } => {
-            let invalid = || BytecodeVerificationError::InvalidOperation {
-                function: function.id,
-                reason: "invalid iterator contract",
-            };
-            let (input, output) = op.contract(ty, definitions).ok_or_else(invalid)?;
-            match (input, value) {
-                (Some(ty), Some(value)) => {
-                    expect_register_ty(function, *value, ty, "iterator input")?
-                }
-                (None, None) => {}
-                _ => return Err(invalid()),
-            }
-            expect_register_ty(function, *dst, output, "iterator result")?;
-        }
 
         BytecodeInstruction::MakeEnum {
             dst,

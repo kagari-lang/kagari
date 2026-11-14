@@ -9,12 +9,12 @@ use kagari_runtime::{
     native::{
         assembly::draft::ModuleDraft,
         binding::{Codec, NativeBinding, NativeResult},
-        context::CallContext,
+        context::NativeCall,
         declarations::MethodDecl,
         types::Type,
     },
     numeric,
-    value::Value,
+    value::view::ValueView,
 };
 use kagari_types::{integer::IntegerMethod, scalar::BuiltinType, surface::builtin_type_spec};
 
@@ -165,9 +165,13 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                     methods.define(declaration.implementation_with_send(move |view| {
                         let symbols = EnumSymbols::new(view.catalog(), &[enums::OPTION])?;
                         Ok(NativeBinding::new(parameters, result, move |cx| {
-                            // Checked outcomes are bare scalars, so no temporary heap root is needed.
                             let value = invoke(cx, operation, receiver)?;
-                            enums::option(&symbols, cx, value)
+                            let applied = cx.result_type_argument()?;
+                            let (some, none) = symbols.option_members()?;
+                            match value {
+                                Some(value) => cx.allocate_enum(&applied, some, &[value]),
+                                None => cx.allocate_enum(&applied, none, &[]),
+                            }
                         }))
                     }))?;
                 } else {
@@ -175,7 +179,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                         parameters,
                         result,
                         move |cx| {
-                            // Return an overflowing tuple without allocation or reentry after the helper.
+                            // The scalar kernel is heap-independent; tuple publication belongs to this call.
                             invoke(cx, operation, receiver)?.ok_or_else(|| {
                                 RuntimeError::module_validation("integer policy result missing")
                             })
@@ -189,11 +193,18 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     Ok(())
 }
 
-fn invoke(
-    cx: &mut CallContext<'_>,
+fn invoke<'call>(
+    cx: &mut NativeCall<'call>,
     operation: IntegerMethod,
     receiver: BuiltinType,
-) -> NativeResult<Option<Value>> {
+) -> NativeResult<Option<ValueView<'call>>> {
     let arguments = [cx.argument(0)?, cx.argument(1)?];
-    numeric::integer_method(cx.heap(), operation, receiver, &arguments)
+    let Some((value, overflow)) = numeric::integer_method(operation, receiver, &arguments)? else {
+        return Ok(None);
+    };
+    Ok(Some(if operation.overflowing() {
+        cx.allocate_tuple(&[value, ValueView::from(overflow)])?
+    } else {
+        value
+    }))
 }

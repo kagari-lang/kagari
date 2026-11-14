@@ -2,7 +2,6 @@
 use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    gc::roots::RootedValue,
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
@@ -10,7 +9,7 @@ use crate::{
         types::Type,
     },
     task::control::TaskScopeOwner,
-    value::Value,
+    value::{carriers::RootedValue, view::ValueView},
 };
 use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
 
@@ -44,16 +43,13 @@ impl KagariType for TaskScope {
 }
 
 impl IntoKagari for TaskScope {
-    fn into_kagari(
+    fn into_kagari<'call>(
         self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ValueView<'call>> {
         Self::check_type(cx, expected)?;
-        let value = self
-            .0
-            .value(cx.runtime().gc())
-            .ok_or_else(|| RuntimeError::module_validation("foreign TaskScope"))?;
+        let value = cx.import(&self.0)?;
         cx.check_value(expected, &value)?;
         Ok(value)
     }
@@ -65,13 +61,10 @@ impl FromKagari for TaskScope {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ValueView<'_>,
     ) -> NativeResult<Self> {
         Self::check_type(cx, expected)?;
         cx.check_value(expected, value)?;
-        cx.runtime()
-            .root_value(*value)
-            .map(Self)
-            .ok_or_else(|| RuntimeError::module_validation("TaskScope retention"))
+        cx.retain(value).map(Self)
     }
 }

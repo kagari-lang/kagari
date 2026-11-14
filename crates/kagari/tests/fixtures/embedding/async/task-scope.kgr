@@ -37,3 +37,7 @@ pub fn trapped() -> fn() -> Future<i32> {
         request(0)
     }
 }
+
+pub async fn cached(task: Task<Vec<i32>>) -> Vec<i32> {
+    task.await
+}

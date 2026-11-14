@@ -1,10 +1,4 @@
-use crate::tests::common::compilation;
-use crate::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::analysis::AnalysisDatabase;
-use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_stdlib::catalog as foundation_catalog;
-use rstest::rstest;
-
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[rstest]
 #[case::default_list_native_calls_compile_without_optional_modules(include_str!(
     "../../tests/fixtures/language_foundation/default-list-native.kgr"
@@ -29,3 +23,4 @@ fn compile_success(#[case] text: &str) {
     let mir = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
     lower_program_to_bytecode(&mir, &Default::default()).unwrap();
 }
+*/

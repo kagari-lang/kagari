@@ -1,0 +1,27 @@
+pub fn unary32(value: f32) -> f32 {
+    value.abs()
+}
+
+pub fn binary32(value: f32, other: f32) -> f32 {
+    value.min(other)
+}
+
+pub fn clamp32(value: f32, min: f32, max: f32) -> f32 {
+    value.clamp(min, max)
+}
+
+pub fn bits32(bits: u32) -> f32 {
+    f32::from_bits(bits)
+}
+
+pub fn unary64(value: f64) -> f64 {
+    value.abs()
+}
+
+pub fn binary64(value: f64, other: f64) -> f64 {
+    value.min(other)
+}
+
+pub fn clamp64(value: f64, min: f64, max: f64) -> f64 {
+    value.clamp(min, max)
+}

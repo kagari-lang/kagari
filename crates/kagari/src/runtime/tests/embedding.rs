@@ -16,9 +16,6 @@ mod error_traces;
 #[cfg(feature = "source")]
 mod generic_reload;
 
-#[cfg(all(feature = "source", feature = "native"))]
-mod host_interfaces;
-
 #[cfg(feature = "source")]
 mod native_provider_reset;
 
@@ -32,13 +29,7 @@ mod offline_functions;
 mod offline_nominal;
 
 #[cfg(feature = "source")]
-mod runtime_transfer;
-
-#[cfg(feature = "source")]
 mod scoped_calls;
-
-#[cfg(feature = "source")]
-mod typed_calls;
 
 #[cfg(feature = "source")]
 mod async_execution;

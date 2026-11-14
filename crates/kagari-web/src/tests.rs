@@ -45,13 +45,14 @@ fn compile(session: &mut BrowserSession, source: &str) {
 
 #[cfg(feature = "source")]
 fn finish(session: &mut BrowserSession) -> Value {
-    let roots = session.runtime.runtime().gc().active_roots();
+    session.runtime.collect_garbage().unwrap();
+    let roots = session.runtime.gc_stats().root_registrations;
     assert_eq!(response(session.start())["status"], "runnable");
     for _ in 0..100 {
         let result = response(session.drive(1000));
         if result["status"] != "runnable" {
-            assert_eq!(session.runtime.runtime().gc().active_roots(), roots);
-            session.runtime.runtime().collect_garbage().unwrap();
+            session.runtime.collect_garbage().unwrap();
+            assert_eq!(session.runtime.gc_stats().root_registrations, roots);
             return result;
         }
     }
@@ -74,7 +75,10 @@ fn main_output_and_rooted_results_cross_the_owned_boundary() {
         json!({"tag":"u64", "value":"18446744073709551615"})
     );
     assert_eq!(response(session.drain_output())["output"], json!([]));
-    compile(&mut session, "fn main() -> String { \"rooted 😀\" }");
+    compile(
+        &mut session,
+        "fn main() -> String { \"  rooted 😀  \".trim() }",
+    );
     assert_eq!(
         finish(&mut session)["result"],
         json!({"tag":"string", "value":"rooted 😀", "truncated":false})
@@ -83,6 +87,11 @@ fn main_output_and_rooted_results_cross_the_owned_boundary() {
     assert_eq!(
         finish(&mut session)["result"],
         json!({"tag":"opaque", "kind":"tuple"})
+    );
+    compile(&mut session, "fn main() -> char { '😀' }");
+    assert_eq!(
+        finish(&mut session)["result"],
+        json!({"tag":"opaque", "kind":"char"})
     );
 }
 
@@ -113,7 +122,7 @@ fn source_diagnostics_retain_origin_and_utf16_ranges() {
 fn exclusive_run_cancellation_reset_and_failed_candidates_preserve_state() {
     let mut session = BrowserSession::new().unwrap();
     compile(&mut session, "fn main() { loop {} }");
-    let roots = session.runtime.runtime().gc().active_roots();
+    let roots = session.runtime.gc_stats().root_registrations;
     assert_eq!(response(session.start())["status"], "runnable");
     assert_eq!(response(session.drive(10))["status"], "runnable");
     assert_eq!(response(session.start())["error"]["code"], "WEB_BUSY");
@@ -129,7 +138,7 @@ fn exclusive_run_cancellation_reset_and_failed_candidates_preserve_state() {
     let result = response(session.drive(100));
     assert_eq!(result["error"]["code"], "KG_RUNTIME_CANCELLED", "{result}");
     assert!(session.active.is_none());
-    assert_eq!(session.runtime.runtime().gc().active_roots(), roots);
+    assert_eq!(session.runtime.gc_stats().root_registrations, roots);
     assert_eq!(response(session.start())["status"], "runnable");
     assert_eq!(response(session.reset())["status"], "idle");
     assert_eq!(response(session.start())["error"]["code"], "WEB_NO_PROGRAM");

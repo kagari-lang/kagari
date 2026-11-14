@@ -1,0 +1,13 @@
+use example::data::{ Player, ReadOnlyPayload, new, damage };
+
+pub fn make() -> Player {
+    new()
+}
+
+pub fn hit(player: Player, amount: i32) -> i32 {
+    damage(player, amount)
+}
+
+pub fn blocked(player: ReadOnlyPayload) -> i32 {
+    player.edit()
+}

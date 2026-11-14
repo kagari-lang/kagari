@@ -1,24 +1,50 @@
+//! Reflection consumes only declared layout facts and actual protected data.
+#[cfg(test)]
+mod tests;
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
-    gc::{GcHeap, HeapObjectId},
+    Runtime,
+    error::{RuntimeError, RuntimeErrorKind, reason::IndexError, trap::TrapReason},
+    execution::roots::ExecutionRoots,
+    frame::{arguments::FrameArguments, types::compatibility::TypeView},
+    host::{HostBorrowTable, HostRegistry},
     module::StructLayoutRef,
-    value::Value,
+    native::conversion::arguments::ArgumentValues,
+    range::RangeValue,
+    resource::ResourceState,
+    value::{
+        aggregates::{enumerations::EnumObject, structures::StructObject, tuples::TupleObject},
+        arrays::ArrayObject,
+        carriers::{RootedValue, ScopedValue},
+        kind::ObjectKind,
+        place::{PublishedResult, ResultPlace},
+        properties::ValueProperties,
+        strings::StringObject,
+    },
+    value_check::{
+        self,
+        data::candidate_access,
+        scoped::{self, CheckError},
+    },
+};
+use kagari_abi::representation::ValueType;
+use kagari_gc::{
+    access::Scope,
+    error::GcError,
+    object::{Gc, GcObject},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{error}")]
 pub struct ReflectionError {
+    #[source]
     error: RuntimeError,
 }
 
 impl ReflectionError {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn new(reason: TrapReason) -> Self {
         Self {
-            error: RuntimeError::new(RuntimeErrorKind::ScriptTrap, message),
+            error: RuntimeError::from(reason),
         }
-    }
-
-    pub fn message(&self) -> &str {
-        self.error.message()
     }
 
     pub fn kind(&self) -> RuntimeErrorKind {
@@ -34,7 +60,7 @@ impl ReflectionError {
             self.error.kind(),
             RuntimeErrorKind::ScriptTrap | RuntimeErrorKind::IndexOutOfBounds
         ) {
-            RuntimeError::invalid_reflective_write(self.error.message())
+            self.error.into_reflective_write()
         } else {
             self.error
         }
@@ -47,242 +73,415 @@ impl From<RuntimeError> for ReflectionError {
     }
 }
 
-pub fn type_of(gc: &GcHeap, value: &Value) -> Result<Value, ReflectionError> {
-    let type_name = match value {
-        Value::Range(value) => gc
-            .range(*value)
-            .ok_or_else(|| ReflectionError::new("invalid range"))?
-            .kind
-            .name(),
-        Value::Unit => "()",
-        Value::Bool(_) => "bool",
-        Value::Char(_) => "char",
-        Value::I32(_) => "i32",
-        Value::I64(_) => "i64",
-        Value::U64(_) => "u64",
-        Value::F32(_) => "f32",
-        Value::F64(_) => "f64",
-        Value::Str(_) => "String",
-        Value::Tuple(_) => "tuple",
-        Value::Array(_) => "array",
-        Value::Map(_) => "map",
-        Value::Set(_) => "set",
-        Value::Enum(handle) => {
-            // Copy only the name and release the heap view before allocating.
-            let name = gc
-                .enum_view(*handle)
-                .map(|view| view.tag.type_name().to_owned())
-                .unwrap_or_else(|| "enum".to_owned());
-            return gc.alloc_string(name).map_err(Into::into);
+/// Runtime helpers and Host wrappers share one physical reflection policy.
+#[derive(Clone, Copy)]
+pub(crate) enum Operation<'name> {
+    TypeOf,
+    GetField(&'name str),
+    SetField(&'name str),
+    SetIndex,
+}
+
+impl Operation<'_> {
+    fn arity(self) -> usize {
+        match self {
+            Self::TypeOf | Self::GetField(_) => 1,
+            Self::SetField(_) => 2,
+            Self::SetIndex => 3,
         }
-        Value::Struct(handle) => {
-            return gc
-                .alloc_string(
-                    gc.struct_name(*handle)
-                        .unwrap_or_else(|| "struct".to_owned()),
+    }
+
+    fn error(self, error: RuntimeError) -> RuntimeError {
+        match self {
+            Self::TypeOf => error,
+            Self::GetField(_)
+                if matches!(
+                    error.kind(),
+                    RuntimeErrorKind::ScriptTrap | RuntimeErrorKind::IndexOutOfBounds
+                ) =>
+            {
+                error.into_reflective_read()
+            }
+            Self::GetField(_) => error,
+            Self::SetField(_) | Self::SetIndex => ReflectionError::from(error).into_write_error(),
+        }
+    }
+}
+
+/// Execute with the caller's original inputs and publish before the closed scope
+/// ends. A callback cannot invalidate these values or repeat a completed write.
+pub(crate) fn invoke<'result>(
+    runtime: &mut Runtime,
+    operation: Operation<'_>,
+    arguments: ArgumentValues<'_>,
+    destination: ResultPlace<'result>,
+) -> Result<PublishedResult<'result>, RuntimeError> {
+    runtime.resources.poll_execution()?;
+    if arguments.len() != operation.arity() {
+        return Err(RuntimeError::module_validation(
+            "reflection helper argument count",
+        ));
+    }
+    value_check::candidate_arguments(runtime, FrameArguments::pack(arguments))?;
+    let Runtime {
+        memory,
+        host,
+        host_borrows,
+        resources,
+        ..
+    } = runtime;
+    let result = memory.scope(resources, |cx, roots| {
+        ExecutionRoots::with(roots, cx, |slots| {
+            arguments.check_bounds(slots)?;
+            let mut inputs = [ScopedValue::unit(); 3];
+            for (index, input) in inputs.iter_mut().take(arguments.len()).enumerate() {
+                *input = arguments.scoped(slots, index)?;
+            }
+            match apply(
+                slots.scope(),
+                operation,
+                &inputs,
+                host,
+                host_borrows,
+                resources,
+            ) {
+                Ok(value) => destination.publish_scoped(slots, value).map(Ok),
+                Err(error) => Ok(Err(error)),
+            }
+        })
+    });
+    result
+        .map_err(|error| runtime.managed_input_error(error))?
+        .map_err(|error| {
+            operation.error(
+                runtime
+                    .resources
+                    .admit_execution_error(error.into_runtime(runtime)),
+            )
+        })
+}
+
+fn apply<'gc>(
+    cx: &mut Scope<'gc>,
+    operation: Operation<'_>,
+    inputs: &[ScopedValue<'gc>; 3],
+    host: &HostRegistry,
+    borrows: &HostBorrowTable,
+    resources: &ResourceState,
+) -> Result<ScopedValue<'gc>, CheckError> {
+    resources.poll_closed()?;
+    match operation {
+        Operation::TypeOf => {
+            candidate_access(cx, inputs[0], resources)?;
+            let name = type_name(cx, inputs[0])?;
+            Ok(ScopedValue::managed(StringObject::alloc(cx, name)?))
+        }
+        Operation::GetField(name) => {
+            let object = structure(
+                cx,
+                inputs[0],
+                TrapReason::ReflectGetFieldExpectsStructValue,
+                resources,
+            )?;
+            let (_, slot) = field(cx, object, name, resources)?;
+            StructObject::get(cx, object, slot).map_err(Into::into)
+        }
+        Operation::SetField(name) => {
+            let value = inputs[1];
+            storable(
+                cx,
+                value,
+                TrapReason::ReflectSetFieldExpectsDefaultStorableValue,
+            )?;
+            let object = structure(
+                cx,
+                inputs[0],
+                TrapReason::ReflectSetFieldExpectsStructValue,
+                resources,
+            )?;
+            let (layout, slot) = field(cx, object, name, resources)?;
+            let contract = &layout.layout().fields[slot];
+            let (ty, environment) = layout.field_type(slot).ok_or(GcError::Representation)?;
+            if !contract.mutable
+                || !scoped::matches(
+                    cx,
+                    value,
+                    TypeView::new(ty, layout.module(), environment),
+                    host,
+                    borrows,
+                    resources,
+                )?
+            {
+                return Err(RuntimeError::from(
+                    TrapReason::FieldIsReadOnlyOrValueHasTheWrongConcreteType,
                 )
-                .map_err(Into::into);
+                .into());
+            }
+            candidate_access(cx, value, resources)?;
+            resources.poll_closed()?;
+            StructObject::set(cx, object, &layout, slot, value)?;
+            Ok(inputs[0])
         }
-        Value::GcHandle(_) => "gc_handle",
-        Value::Interface(_) => "interface",
-        Value::Closure(_) => "closure",
-        Value::Cell(_) => "cell",
-        Value::HostRoot(_) => "host_root",
-        Value::HostPathView(_) => "host_path_view",
-        Value::Ephemeral(_) | Value::RuntimeEphemeral(_) => "ephemeral",
-    };
-
-    gc.alloc_string(type_name.to_owned()).map_err(Into::into)
-}
-
-pub fn get_field(gc: &GcHeap, value: &Value, field_name: &str) -> Result<Value, ReflectionError> {
-    match value {
-        Value::Struct(handle) => {
-            let (layout, slot) = resolve_field(gc, *handle, field_name)?;
-            gc.struct_get_slot(*handle, &layout, slot)
-                .ok_or_else(|| ReflectionError::new("invalid struct field"))
+        Operation::SetIndex => {
+            let value = inputs[2];
+            storable(
+                cx,
+                value,
+                TrapReason::ReflectSetIndexExpectsDefaultStorableValue,
+            )?;
+            let index = index(inputs[1])?;
+            candidate_access(cx, inputs[0], resources)?;
+            candidate_access(cx, value, resources)?;
+            match inputs[0].kind() {
+                Some(ObjectKind::Array) => {
+                    let array = object::<ArrayObject>(cx, inputs[0])?;
+                    let valid = cx.read(array, |array| {
+                        scoped::matches(
+                            cx,
+                            value,
+                            array.contract().view(),
+                            host,
+                            borrows,
+                            resources,
+                        )
+                    })?;
+                    if !valid {
+                        return Err(
+                            RuntimeError::from(TrapReason::InvalidSequenceBufferOrPayload).into(),
+                        );
+                    }
+                    let index = usize::try_from(index)
+                        .ok()
+                        .filter(|index| *index < cx.read(array, ArrayObject::len))
+                        .ok_or_else(|| {
+                            RuntimeError::from(IndexError::SequenceIndexIsOutOfBounds)
+                        })?;
+                    resources.poll_closed()?;
+                    ArrayObject::set(cx, array, index, value)?;
+                    Ok(inputs[0])
+                }
+                Some(ObjectKind::Tuple) => {
+                    let tuple = object::<TupleObject>(cx, inputs[0])?;
+                    let len = cx.read(tuple, TupleObject::len);
+                    let slot = usize::try_from(index)
+                        .ok()
+                        .filter(|index| *index < len)
+                        .ok_or_else(|| {
+                            RuntimeError::from(TrapReason::InvalidReflectiveIndex { index })
+                        })?;
+                    let mut values = Vec::new();
+                    values.try_reserve_exact(len)?;
+                    for index in 0..len {
+                        if index.is_multiple_of(1024) {
+                            resources.poll_closed()?;
+                        }
+                        values.push(if index == slot {
+                            value
+                        } else {
+                            TupleObject::get(cx, tuple, index)?
+                        });
+                    }
+                    resources.poll_closed()?;
+                    Ok(ScopedValue::managed(TupleObject::alloc(cx, &values)?))
+                }
+                _ => Err(
+                    RuntimeError::from(TrapReason::ReflectSetIndexExpectsArrayOrTupleValue).into(),
+                ),
+            }
         }
-        _ => Err(ReflectionError::new(
-            "reflect_get_field expects struct value",
-        )),
     }
 }
 
-pub fn set_field(
-    gc: &GcHeap,
-    value: &Value,
-    field_name: &str,
-    next_value: Value,
-) -> Result<Value, ReflectionError> {
-    if !next_value.is_default_heap_payload(gc) {
-        return Err(ReflectionError::new(
-            "reflect_set_field expects default-storable value",
-        ));
-    }
-
-    match value {
-        Value::Struct(handle) => {
-            let (layout, slot) = resolve_field(gc, *handle, field_name)?;
-            gc.struct_set_slot(*handle, &layout, slot, next_value)
-                .map_err(ReflectionError::from)?;
-            Ok(Value::Struct(*handle))
-        }
-        _ => Err(ReflectionError::new(
-            "reflect_set_field expects struct value",
-        )),
-    }
+fn object<'gc, T: GcObject>(
+    cx: &Scope<'gc>,
+    value: ScopedValue<'gc>,
+) -> Result<Gc<'gc, T>, GcError> {
+    cx.downcast(value.object().ok_or(GcError::Representation)?)
 }
 
-pub fn set_index(
-    gc: &GcHeap,
-    value: &Value,
-    index: &Value,
-    next_value: Value,
-) -> Result<Value, ReflectionError> {
-    if !next_value.is_default_heap_payload(gc) {
-        return Err(ReflectionError::new(
-            "reflect_set_index expects default-storable value",
-        ));
+fn structure<'gc>(
+    cx: &Scope<'gc>,
+    value: ScopedValue<'gc>,
+    reason: TrapReason,
+    resources: &ResourceState,
+) -> Result<Gc<'gc, StructObject>, CheckError> {
+    if value.kind() != Some(ObjectKind::Struct) {
+        return Err(RuntimeError::from(reason).into());
     }
-
-    let index = match index {
-        Value::I32(index) if *index >= 0 => *index as u64,
-        Value::I64(index) if *index >= 0 => *index as u64,
-        Value::U64(index) => *index,
-        _ => {
-            return Err(ReflectionError::new(
-                "reflect_set_index expects non-negative integer index",
-            ));
-        }
-    };
-
-    match value {
-        Value::Array(handle) => {
-            gc.array_set(*handle, index, next_value)
-                .map_err(ReflectionError::from)?;
-            Ok(Value::Array(*handle))
-        }
-        Value::Tuple(elements) => {
-            let mut updated = gc
-                .tuple(*elements)
-                .ok_or_else(|| ReflectionError::new("invalid tuple"))?
-                .to_vec();
-            let Some(slot) = usize::try_from(index)
-                .ok()
-                .and_then(|index| updated.get_mut(index))
-            else {
-                return Err(ReflectionError::new(format!("invalid index `{index}`")));
-            };
-            *slot = next_value;
-            gc.alloc_tuple(updated).map_err(Into::into)
-        }
-        _ => Err(ReflectionError::new(
-            "reflect_set_index expects array or tuple value",
-        )),
-    }
+    candidate_access(cx, value, resources)?;
+    object(cx, value).map_err(Into::into)
 }
 
-fn resolve_field(
-    gc: &GcHeap,
-    handle: HeapObjectId,
+fn field<'gc>(
+    cx: &Scope<'gc>,
+    object: Gc<'gc, StructObject>,
     name: &str,
-) -> Result<(StructLayoutRef, usize), ReflectionError> {
-    let layout = gc
-        .struct_layout(handle)
-        .ok_or_else(|| ReflectionError::new("invalid struct"))?;
-    let slot = layout
-        .layout()
-        .fields
-        .iter()
-        .position(|field| field.name == name)
-        .ok_or_else(|| ReflectionError::new(format!("missing field {name}")))?;
+    resources: &ResourceState,
+) -> Result<(StructLayoutRef, usize), CheckError> {
+    let layout = cx.read(object, |object| object.layout().clone());
+    let mut slot = None;
+    for (index, field) in layout.layout().fields.iter().enumerate() {
+        if index.is_multiple_of(1024) {
+            resources.poll_closed()?;
+        }
+        if field.name == name {
+            slot = Some(index);
+            break;
+        }
+    }
+    let slot = slot.ok_or_else(|| {
+        RuntimeError::from(TrapReason::MissingField {
+            name: name.to_owned(),
+        })
+    })?;
     Ok((layout, slot))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        host::{HostBorrowTable, HostObjectId, HostRootHandle, HostSchemaEpoch},
-        metadata::{AbiFingerprint, TypeId},
-        test_support::layouts::{allocation_owner, path_view_value},
+fn storable<'gc>(
+    cx: &Scope<'gc>,
+    value: ScopedValue<'gc>,
+    reason: TrapReason,
+) -> Result<(), CheckError> {
+    if !ValueProperties::of(cx, value)?.storable {
+        return Err(RuntimeError::from(reason).into());
+    }
+    Ok(())
+}
+
+fn index(value: ScopedValue<'_>) -> Result<u64, RuntimeError> {
+    match value.scalar_payload() {
+        Some((ValueType::I32 | ValueType::I64, bits)) if bits as i64 >= 0 => Ok(bits),
+        Some((ValueType::U64, bits)) => Ok(bits),
+        _ => Err(TrapReason::ReflectSetIndexExpectsNonNegativeIntegerIndex.into()),
+    }
+}
+
+fn type_name<'gc>(cx: &Scope<'gc>, value: ScopedValue<'gc>) -> Result<String, GcError> {
+    let name = match value.kind() {
+        Some(ObjectKind::Range) => {
+            cx.read(object::<RangeValue>(cx, value)?, |range| range.kind.name())
+        }
+        Some(ObjectKind::String) => "String",
+        Some(ObjectKind::Tuple) => "tuple",
+        Some(ObjectKind::Array) => "array",
+        Some(ObjectKind::Native) => "gc_handle",
+        Some(ObjectKind::Interface) => "interface",
+        Some(ObjectKind::Closure) => "closure",
+        Some(ObjectKind::Cell) => "cell",
+        Some(ObjectKind::HostRoot) => "host_root",
+        Some(ObjectKind::HostPath) => "host_path_view",
+        Some(ObjectKind::Ephemeral) => "ephemeral",
+        Some(ObjectKind::Enum) => {
+            return cx.read(object::<EnumObject>(cx, value)?, |value| {
+                let layout = value.layout();
+                layout
+                    .module()
+                    .definition_name(layout.layout().declaration)
+                    .map(str::to_owned)
+                    .ok_or(GcError::Representation)
+            });
+        }
+        Some(ObjectKind::Struct) => {
+            return cx.read(object::<StructObject>(cx, value)?, |value| {
+                let layout = value.layout();
+                layout
+                    .module()
+                    .definition_name(layout.layout().declaration)
+                    .map(str::to_owned)
+                    .ok_or(GcError::Representation)
+            });
+        }
+        None => match value.scalar_payload().map(|(kind, _)| kind) {
+            Some(ValueType::Unit) => "()",
+            Some(ValueType::Bool) => "bool",
+            Some(ValueType::Char) => "char",
+            Some(ValueType::I32) => "i32",
+            Some(ValueType::I64) => "i64",
+            Some(ValueType::U64) => "u64",
+            Some(ValueType::F32) => "f32",
+            Some(ValueType::F64) => "f64",
+            _ => return Err(GcError::Representation),
+        },
     };
+    Ok(name.to_owned())
+}
 
-    use kagari_types::{scalar::BuiltinType, ty::Ty};
-
-    fn host_root_value(gc: &GcHeap, object_id: u64) -> Value {
-        gc.alloc_host_root(HostRootHandle::new(
-            Default::default(),
-            HostObjectId(object_id),
-            TypeId::new(0),
-            HostSchemaEpoch::new(0),
-            AbiFingerprint(1),
-        ))
-        .unwrap()
-    }
-
-    fn shared_borrow_value(gc: &GcHeap, object_id: u64) -> Value {
-        let table = HostBorrowTable::default();
-        let guard = table.enter_frame().unwrap();
-        gc.alloc_host_ref(
-            guard
-                .borrow_shared(HostObjectId(object_id), TypeId::new(0))
-                .unwrap(),
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn wide_indices_do_not_mutate_arrays_or_tuples() {
-        let mut runtime = crate::Runtime::default();
-        let owner = allocation_owner(&mut runtime);
-        let gc = runtime.gc();
-        let array = Value::Array(
-            runtime
-                .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
-                .unwrap(),
-        );
-        let tuple = gc.alloc_tuple(vec![Value::I32(7)]).unwrap();
-        let before = gc.stats();
-        for index in [
-            Value::U64(1_u64 << 32),
-            Value::U64(u64::MAX),
-            Value::I64(1_i64 << 32),
-        ] {
-            for value in [array, tuple] {
-                let error = set_index(gc, &value, &index, Value::I32(9)).unwrap_err();
-                assert_eq!(
-                    error.into_write_error().kind(),
-                    RuntimeErrorKind::InvalidReflectiveWrite
-                );
+impl Runtime {
+    fn reflect_rooted(
+        &mut self,
+        operation: Operation<'_>,
+        values: &[&RootedValue],
+    ) -> Result<RootedValue, RuntimeError> {
+        self.resources.ensure_synchronous_thread()?;
+        self.resources.poll_execution()?;
+        for value in values {
+            value_check::candidate_root(self, value)?;
+        }
+        let Runtime {
+            memory,
+            host,
+            host_borrows,
+            resources,
+            ..
+        } = self;
+        let result = memory.scope(resources, |cx, _| {
+            let mut inputs = [ScopedValue::unit(); 3];
+            for (input, value) in inputs.iter_mut().zip(values) {
+                *input = value.get(cx)?;
             }
-        }
-        let Value::Array(id) = array else {
-            unreachable!()
-        };
-        assert_eq!(gc.array_get(id, 0), Some(Value::I32(7)));
-        let Value::Tuple(id) = tuple else {
-            unreachable!()
-        };
-        assert_eq!(&*gc.tuple(id).unwrap(), &[Value::I32(7)]);
-        assert_eq!(gc.stats(), before);
+            match apply(cx, operation, &inputs, host, host_borrows, resources) {
+                Ok(value) => {
+                    // A successful mutable setter returns its exact receiver.
+                    // Reuse the original genuine lease, without another registration.
+                    if matches!(operation, Operation::SetField(_))
+                        || matches!(operation, Operation::SetIndex)
+                            && inputs[0].kind() == Some(ObjectKind::Array)
+                    {
+                        Ok(Ok(values[0].clone()))
+                    } else {
+                        value.retain(cx).map(Ok)
+                    }
+                }
+                Err(error) => Ok(Err(error)),
+            }
+        });
+        result
+            .map_err(|error| self.managed_input_error(error))?
+            .map_err(|error| {
+                operation.error(
+                    self.resources
+                        .admit_execution_error(error.into_runtime(self)),
+                )
+            })
     }
 
-    #[test]
-    fn reports_production_value_category_names() {
-        let mut runtime = crate::Runtime::default();
-        let interface = crate::test_support::layouts::interface_value(&mut runtime);
-        let gc = runtime.gc();
-        for (value, expected) in [
-            (interface, "interface"),
-            (host_root_value(gc, 2), "host_root"),
-            (path_view_value(gc, 3), "host_path_view"),
-            (shared_borrow_value(gc, 4), "ephemeral"),
-        ] {
-            let Value::Str(id) = type_of(gc, &value).unwrap() else {
-                panic!("type name");
-            };
-            assert_eq!(&*gc.string(id).unwrap(), expected);
-        }
+    pub fn reflect_type_of(&mut self, value: &RootedValue) -> Result<RootedValue, RuntimeError> {
+        self.reflect_rooted(Operation::TypeOf, &[value])
+    }
+
+    pub fn reflect_get_field(
+        &mut self,
+        value: &RootedValue,
+        name: &str,
+    ) -> Result<RootedValue, RuntimeError> {
+        self.reflect_rooted(Operation::GetField(name), &[value])
+    }
+
+    pub fn reflect_set_field(
+        &mut self,
+        value: &RootedValue,
+        name: &str,
+        next: &RootedValue,
+    ) -> Result<RootedValue, RuntimeError> {
+        self.reflect_rooted(Operation::SetField(name), &[value, next])
+    }
+
+    pub fn reflect_set_index(
+        &mut self,
+        value: &RootedValue,
+        index: &RootedValue,
+        next: &RootedValue,
+    ) -> Result<RootedValue, RuntimeError> {
+        self.reflect_rooted(Operation::SetIndex, &[value, index, next])
     }
 }

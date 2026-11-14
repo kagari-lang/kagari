@@ -1,5 +1,6 @@
 //! Shared native-wait fixture for unit and standalone consumer contracts.
-use super::{EngineConfig, KagariEngine, KagariEngineBuilder, PreparedProgram, Runtime};
+use super::Compilation;
+use super::{EngineConfig, KagariEngine, KagariEngineBuilder, Runtime};
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     artifact::KbcArtifact,
@@ -23,7 +24,7 @@ use kagari_contract::{
     },
 };
 use kagari_runtime::{
-    module::Program,
+    module::InstalledProgram,
     native::{
         adapter::Async,
         builder::ModuleBuilder,
@@ -34,6 +35,7 @@ use kagari_runtime::{
         types::Type,
     },
 };
+use kagari_stdlib as stdlib;
 use kagari_stdlib::catalog;
 use kagari_types::{
     callable::{CallableImplementation, Signature},
@@ -111,7 +113,7 @@ fn synthetic_program(
     _: &KagariEngine,
     catalog: &DeclarationCatalog,
     declaration: DefinitionMetadata<ModuleDecl>,
-) -> PreparedProgram {
+) -> Compilation {
     let definitions = DefinitionContext::new().unwrap();
     let future = catalog.future_type().unwrap();
     let owner = future
@@ -334,7 +336,7 @@ fn synthetic_program(
     .unwrap();
     let decoded =
         KbcArtifact::from_bytes(&artifact.to_bytes(&definitions.snapshot()).unwrap()).unwrap();
-    PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap()
+    Compilation::from_artifact(decoded, &Default::default(), &Default::default()).unwrap()
 }
 
 pub(super) struct Fixture {
@@ -343,8 +345,8 @@ pub(super) struct Fixture {
     #[cfg(feature = "source")]
     pub(super) engine: KagariEngine,
     pub(super) runtime: Runtime,
-    pub(super) module: Program,
-    pub(super) program: PreparedProgram,
+    pub(super) module: InstalledProgram,
+    pub(super) program: Compilation,
     pub(super) starts: Arc<AtomicUsize>,
     pub(super) cancels: Arc<AtomicUsize>,
     pub(super) sent: Arc<Mutex<Vec<Completion<i32>>>>,
@@ -365,9 +367,10 @@ impl Fixture {
             &KagariEngine,
             &DeclarationCatalog,
             DefinitionMetadata<ModuleDecl>,
-        ) -> PreparedProgram,
+        ) -> Compilation,
     ) -> Self {
         let mut engine = KagariEngine::builder().unwrap();
+        engine.install_all(stdlib::modules().unwrap()).unwrap();
         engine.config(config);
         let catalog = engine.declarations().clone();
         let starts = Arc::new(AtomicUsize::new(0));
@@ -422,7 +425,9 @@ impl Fixture {
         let engine = engine.build().unwrap();
         let program = prepare(&engine, &catalog, declaration);
         let mut runtime = engine.runtime(Default::default());
-        let module = runtime.load_program(&program, Default::default()).unwrap();
+        let module = runtime
+            .load_program(program.program(), Default::default())
+            .unwrap();
         Self {
             #[cfg(feature = "source")]
             engine,

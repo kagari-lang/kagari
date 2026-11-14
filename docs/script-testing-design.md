@@ -65,9 +65,9 @@ Current gaps are concrete:
 - [`ProgramEntry`](../crates/kagari-runtime/src/module/entry.rs) selects verified
   public exports or the separately verified root `main`. It cannot call arbitrary
   private functions; tests need a verified entry mechanism, not a lookup bypass.
-- [`PreparedProgram`](../crates/kagari/src/program.rs) uses `Rc`/`RefCell` and is
-  neither Send nor Sync. Shared code preparation does not authorize sharing that
-  object between worker threads.
+- Immutable [`Program`](../crates/kagari/src/program.rs) is Send + Sync and can be
+  shared across workers. Each case still needs an independently owned Runtime and
+  host environment; product sharing grants no shared mutable heap authority.
 
 | Owner | Responsibility |
 | --- | --- |

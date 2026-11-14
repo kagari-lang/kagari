@@ -1,9 +1,12 @@
 //! Owned retirement must release every parked execution despite host destructor faults.
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
+    execution::roots::{ExecutionRoots, ValueLocation},
     frame::{ExecutionStack, types::arguments::TypeArgument},
-    module::{ExecutableModule, Program},
+    module::{ExecutableModule, InstalledProgram},
     native::{
         adapter::Async,
         binding::{Codec, NativeBinding, NativeResult},
@@ -14,8 +17,6 @@ use crate::{
         declarations::FunctionDecl,
         future::NativeStart,
         installation::NativeInstallation,
-        module::NativeModule,
-        storage::NativeStorage,
         types::Type,
     },
     session::owned::OwnedExecution,
@@ -23,7 +24,11 @@ use crate::{
         invoke::invoke,
         program::{ProgramFixture, free_function_program},
     },
-    value::Value,
+    value::{
+        carriers::{RootedValue, ScopedValue},
+        strings::StringObject,
+        view::ValueView,
+    },
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
@@ -36,7 +41,7 @@ use kagari_bytecode::{
 };
 use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
 use kagari_contract::{ids::FunctionRef, types::PublicItem};
-use kagari_stdlib::catalog;
+use kagari_gc::{error::GcError, heap::Phase};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
@@ -69,11 +74,11 @@ impl KagariType for Reply {
 }
 
 impl IntoKagari for Reply {
-    fn into_kagari(
+    fn into_kagari<'call>(
         self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'call>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ValueView<'call>> {
         self.probe.converted.fetch_add(1, Ordering::SeqCst);
         cx.encode_value(expected, 7_i32)
     }
@@ -116,22 +121,37 @@ impl Drop for ControlWake {
 
 #[test]
 fn owned_initializer_unwind_releases_session_and_cancellation_owner_immediately() {
-    let f = Fixture::new(false);
+    let mut f = Fixture::new(false);
+    let baseline = f.runtime.gc_stats();
     let session = f
         .runtime
         .begin_execution(&f.module, Default::default())
         .unwrap();
-    let id = session.id;
+    let id = session.scope.id;
     let external = CancellationToken::default();
     let mut owner = None;
+    let mut queued = None;
     let panic = catch_unwind(AssertUnwindSafe(|| {
-        let _ = f
-            .runtime
-            .initialize_owned_factory(session, external.clone(), || {
-                let state = f.runtime.resources().active_session().unwrap();
-                owner = Some(Arc::downgrade(state.owner.borrow().as_ref().unwrap()));
-                panic!("admission conversion unwound");
-            });
+        let _ = Runtime::initialize_owned_factory(session, external.clone(), |runtime| {
+            let state = runtime.resources().active_session().unwrap();
+            owner = Some(Arc::downgrade(state.owner.borrow().as_ref().unwrap()));
+            drop(state);
+            queued = Some(
+                runtime
+                    .memory
+                    .scope(&runtime.resources, |cx, roots| {
+                        ExecutionRoots::with(roots, cx, |slots| {
+                            let queued = slots.begin_queue(id, 1)?;
+                            let value =
+                                StringObject::alloc(slots.scope(), "queued before unwind".into())?;
+                            slots.set_queued(&queued, 0, ScopedValue::managed(value))?;
+                            Ok(queued)
+                        })
+                    })
+                    .unwrap(),
+            );
+            panic!("admission conversion unwound");
+        });
     }))
     .expect_err("preserve the original panic");
     assert_eq!(
@@ -147,29 +167,46 @@ fn owned_initializer_unwind_releases_session_and_cancellation_owner_immediately(
         owner.unwrap().upgrade().is_none(),
         "owner and its two cancellation subscriptions must be released"
     );
-    assert_eq!(
-        f.runtime.resources().frame_values.borrow().active_windows(),
-        0
-    );
+    assert!(matches!(
+        f.runtime.memory.inspect_scalar(id, 0),
+        Err(GcError::Index)
+    ));
     assert_eq!(f.runtime.resources().counters().current_call_depth, 0);
-    assert_eq!(f.runtime.gc().active_roots(), 0);
+    assert!(matches!(
+        f.runtime.memory.execution_space(id),
+        Err(GcError::Index)
+    ));
+    let queued = queued.unwrap();
+    assert!(matches!(
+        f.runtime.memory.scope(&f.runtime.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| queued.check_bounds(slots))
+        }),
+        Err(GcError::Index)
+    ));
+    f.runtime.collect_garbage().unwrap();
+    assert_eq!(f.runtime.gc_stats().objects, baseline.objects);
+    assert_eq!(f.runtime.gc_stats().root_registrations, f.roots);
     external.cancel();
     assert!(f.runtime.check_scheduler_health().is_ok());
 }
 
 struct Fixture {
     runtime: Runtime,
-    program: Program,
+    program: InstalledProgram,
     module: ExecutableModule,
     request: usize,
     probe: Arc<Probe>,
+    roots: usize,
+    objects: usize,
+    saved: Vec<ValueLocation>,
 }
 
 impl Fixture {
     fn new(panic_hook_capture: bool) -> Self {
         let probe = Arc::new(Probe::default());
-        let declarations = catalog::declarations().unwrap();
-        let catalog = DeclarationCatalog::from_declarations(&declarations).unwrap();
+        let role_provider = crate::test_support::future::provider();
+        let role_declaration = role_provider.to_declaration();
+        let catalog = role_provider.catalog();
         let future = catalog.future_type().unwrap().apply([Type::i32()]).unwrap();
         let mut native = ModuleBuilder::new("test::owned_cleanup", &catalog).unwrap();
         let request = native
@@ -210,14 +247,14 @@ impl Fixture {
                     Codec::Exact(Type::unit()),
                     move |_| {
                         continuation.continued.fetch_add(1, Ordering::SeqCst);
-                        Ok(Value::Unit)
+                        Ok(ValueView::unit())
                     },
                 ),
             )
             .unwrap();
         let native = native.finish().unwrap();
         let definitions = DefinitionContext::new().unwrap();
-        let (snapshot, mut program) = free_function_program(&native.to_declaration())
+        let (_snapshot, mut program) = free_function_program(&native.to_declaration())
             .import_into(&definitions, &Default::default())
             .unwrap()
             .into_parts();
@@ -233,31 +270,7 @@ impl Fixture {
             .position(|decl| decl.function.name == "continued")
             .unwrap();
         let future = application.native_imports[request].signature.result.clone();
-        let Ty::NativeObject(nominal) = &future else {
-            panic!("nominal Future")
-        };
-        let owner = snapshot
-            .resolve(nominal.declaration)
-            .unwrap()
-            .module()
-            .clone();
-        let foundation_declaration = catalog::shared()
-            .unwrap()
-            .into_iter()
-            .find(|decl| decl.records().identity == owner)
-            .unwrap();
-        let foundation_native = NativeModule::checked(
-            foundation_declaration
-                .import_into(catalog.types.context(), &Default::default())
-                .unwrap()
-                .into_records(),
-            vec![],
-            [(catalog.future_type().unwrap().id(), NativeStorage::future())].into(),
-            vec![],
-            &catalog,
-        )
-        .unwrap();
-        let foundation = foundation_declaration
+        let role_module = role_declaration
             .import_into(&definitions, &Default::default())
             .unwrap()
             .into_records();
@@ -327,54 +340,62 @@ impl Fixture {
         });
         application.functions.push(function);
         program.modules.push(BytecodeModule {
-            identity: owner,
-            public_items: foundation.types.into_iter().map(PublicItem::Type).collect(),
+            identity: role_declaration.records().identity.clone(),
+            public_items: role_module
+                .types
+                .into_iter()
+                .map(PublicItem::Type)
+                .collect(),
             types: vec![ValueType::Unit],
             ..Default::default()
         });
-        let modules = [foundation_native, native];
+        let modules = [role_provider, native];
         let mut runtime = NativeInstallation::prepare(&modules)
             .unwrap()
             .runtime(Default::default());
-        let module_program = runtime
-            .load_program(
-                "owned-cleanup",
-                ProgramFixture::from(program)
-                    .metadata(definitions.snapshot(), &Default::default())
-                    .unwrap(),
-            )
-            .unwrap();
+        let module_program = load_bytecode(
+            &mut runtime,
+            "owned-cleanup",
+            ProgramFixture::from(program)
+                .metadata(definitions.snapshot(), &Default::default())
+                .unwrap(),
+        )
+        .unwrap();
         let module = runtime.select_program(&module_program).unwrap();
+        runtime.collect_garbage().unwrap();
+        let roots = runtime.gc_stats().root_registrations;
+        let objects = runtime.gc_stats().objects;
         Self {
             runtime,
             program: module_program,
             module,
             request,
             probe,
+            roots,
+            objects,
+            saved: Vec::new(),
         }
     }
 
-    fn park(&self, index: i32) -> (OwnedExecution, Value) {
+    fn park(&mut self, index: i32) -> (OwnedExecution, ValueLocation) {
         self.park_after_poll(index, |_| {})
     }
 
     fn park_after_poll(
-        &self,
+        &mut self,
         index: i32,
         after_poll: impl FnOnce(&OwnedExecution),
-    ) -> (OwnedExecution, Value) {
+    ) -> (OwnedExecution, ValueLocation) {
         let future = invoke(
-            &self.runtime,
+            &mut self.runtime,
             &self.module,
             self.request,
-            &[Value::I32(index)],
+            &[RootedValue::from(index)],
         )
         .unwrap();
-        let future_root = self.runtime.root_value(future).unwrap();
-        let saved = self
-            .runtime
-            .gc()
-            .alloc_string(format!("live parked frame {index}"))
+        let saved = ConversionContext::new(&mut self.runtime, &self.module)
+            .unwrap()
+            .encode(format!("live parked frame {index}"))
             .unwrap();
         let owner = self
             .runtime
@@ -385,32 +406,40 @@ impl Fixture {
                 Default::default(),
             )
             .unwrap();
-        drop(future_root);
-        let stack = self.runtime.resume_owned_execution(&owner).unwrap();
-        let I::Await { dst, value, future } =
-            stack.current_mut().unwrap().next_instruction().unwrap()
-        else {
-            panic!("fixture starts with await");
-        };
-        let value = stack
-            .current()
-            .unwrap()
-            .read_slot(&self.runtime, value)
+        // The argument array temporary has dropped both Host roots. The frame
+        // is now the only owner of its saved String and Future.
+        let mut stack_activation = self.runtime.resume_owned_execution(&owner).unwrap();
+        let saved = stack_activation
+            .with(|runtime, stack| {
+                let saved = stack
+                    .current(runtime)
+                    .unwrap()
+                    .read_slot(runtime, Slot::new(1))
+                    .unwrap()
+                    .location()
+                    .unwrap();
+                let I::Await { dst, value, future } = stack
+                    .current_mut(runtime)
+                    .unwrap()
+                    .next_instruction()
+                    .unwrap()
+                else {
+                    panic!("fixture starts with await");
+                };
+                stack.begin_await(runtime, value, dst, &future).unwrap();
+                assert!(matches!(stack.poll_await(runtime).unwrap(), Poll::Pending));
+                assert_eq!(runtime.resources().counters().current_call_depth, 1);
+                after_poll(&owner);
+                Ok(saved)
+            })
             .unwrap();
-        stack
-            .begin_await(&self.runtime, value, dst, &future)
-            .unwrap();
-        assert!(matches!(
-            stack.poll_await(&self.runtime).unwrap(),
-            Poll::Pending
-        ));
-        assert_eq!(self.runtime.resources().counters().current_call_depth, 1);
-        after_poll(&owner);
-        ExecutionStack::park_waiting(&mut Some(stack), &self.runtime).unwrap();
+        ExecutionStack::park_waiting(&mut Some(stack_activation)).unwrap();
         self.runtime.collect_garbage().unwrap();
-        assert!(
-            self.runtime.gc().validate_value(&saved),
-            "only the parked frame retains this string"
+        self.assert_saved(saved, index);
+        self.saved.push(saved);
+        assert_eq!(
+            self.runtime.gc_stats().root_registrations,
+            self.roots + self.registry().active_count()
         );
         assert_eq!(
             self.runtime
@@ -423,6 +452,19 @@ impl Fixture {
             1
         );
         (owner, saved)
+    }
+
+    fn assert_saved(&mut self, saved: ValueLocation, index: i32) {
+        let expected = format!("live parked frame {index}");
+        self.runtime
+            .memory
+            .scope(&self.runtime.resources, |cx, roots| {
+                ExecutionRoots::with(roots, cx, |slots| {
+                    let value = slots.get(saved)?;
+                    StringObject::read(slots.scope(), value, |text| assert_eq!(text, expected))
+                })
+            })
+            .unwrap();
     }
 
     fn registry(&self) -> CompletionRegistry {
@@ -439,16 +481,37 @@ impl Fixture {
         std::mem::take(&mut *self.probe.sent.lock().unwrap())
     }
 
-    fn assert_released(&self, registry: &CompletionRegistry) {
-        assert_eq!(self.runtime.gc().active_roots(), 0);
+    fn assert_released(&mut self, registry: &CompletionRegistry) {
+        // Quarantine forbids collector service. Each dropped TypedPending queues
+        // its cold source's root-release notification; registered slots are drained
+        // only by later GC service or shutdown. Execution sources expire now.
         assert_eq!(
-            self.runtime
-                .resources()
-                .frame_values
-                .borrow()
-                .active_windows(),
-            0
+            self.runtime.gc_stats().root_registrations,
+            self.roots + self.saved.len()
         );
+        for &saved in &self.saved {
+            assert!(
+                matches!(
+                    self.runtime.memory.inspect_value(saved),
+                    Err(GcError::Index)
+                ),
+                "the original parked source must expire after retirement"
+            );
+            assert!(matches!(
+                self.runtime.memory.execution_space(saved.execution),
+                Err(GcError::Index)
+            ));
+        }
+        assert_eq!(self.runtime.gc_stats().phase, Phase::Idle);
+        assert_eq!(
+            self.runtime.collect_garbage().unwrap_err().kind(),
+            RuntimeErrorKind::EngineFault
+        );
+        // Only execution control is quarantined. The test's collector-only service
+        // proves retired sources and deferred Host releases retain no managed data.
+        let settled = self.runtime.collected_gc_stats();
+        assert_eq!(settled.root_registrations, self.roots);
+        assert_eq!(settled.objects, self.objects);
         assert_eq!(self.runtime.resources().counters().current_call_depth, 0);
         assert!(self.runtime.resources().active_session().is_none());
         assert_eq!(registry.active_count(), 0);
@@ -460,17 +523,18 @@ impl Fixture {
 #[test]
 fn pending_commit_preserves_completion_and_cancellation_notifications() {
     for mode in 0..3 {
-        let f = Fixture::new(false);
+        let mut f = Fixture::new(false);
+        let probe = f.probe.clone();
         let (owner, _) = f.park_after_poll(0, |owner| {
             assert!(
                 !owner.is_ready(),
                 "the pending poll has no notification yet"
             );
             if mode == 1 {
-                let completion = f.take_completions().pop().unwrap();
+                let completion = probe.sent.lock().unwrap().pop().unwrap();
                 assert_eq!(
                     completion.complete(Ok(Reply {
-                        probe: f.probe.clone(),
+                        probe: probe.clone(),
                         panic_on_drop: false,
                     })),
                     CompletionStatus::Accepted
@@ -485,17 +549,23 @@ fn pending_commit_preserves_completion_and_cancellation_notifications() {
             mode != 0,
             "commit neither loses nor invents readiness"
         );
-        let stack = f.runtime.resume_owned_execution(&owner).unwrap();
-        let result = stack.poll_await(&f.runtime);
-        match mode {
-            0 => assert!(matches!(result.unwrap(), Poll::Pending)),
-            1 => {
-                assert!(matches!(result.unwrap(), Poll::Ready(None)));
-                assert_eq!(f.probe.converted.load(Ordering::SeqCst), 1);
-            }
-            _ => assert_eq!(result.unwrap_err().kind(), RuntimeErrorKind::Cancelled),
-        }
-        drop(stack);
+        let mut stack_activation = f.runtime.resume_owned_execution(&owner).unwrap();
+        stack_activation
+            .with(|runtime, stack| {
+                let result = stack.poll_await(runtime);
+                match mode {
+                    0 => assert!(matches!(result.unwrap(), Poll::Pending)),
+                    1 => {
+                        assert!(matches!(result.unwrap(), Poll::Ready(None)));
+                        assert_eq!(f.probe.converted.load(Ordering::SeqCst), 1);
+                    }
+                    _ => assert_eq!(result.unwrap_err().kind(), RuntimeErrorKind::Cancelled),
+                }
+
+                Ok(())
+            })
+            .unwrap();
+        drop(stack_activation);
         f.runtime.finish_owned_execution(&owner).unwrap();
         assert!(!owner.is_ready());
         assert_eq!(f.registry().active_count(), 0);
@@ -505,10 +575,10 @@ fn pending_commit_preserves_completion_and_cancellation_notifications() {
 
 #[test]
 fn publication_queues_completions_without_polling_a_parked_future() {
-    let f = Fixture::new(false);
+    let mut f = Fixture::new(false);
     let (owner, saved) = f.park(0);
     let completion = f.take_completions().pop().unwrap();
-    let guard = f.runtime.begin_publication(&f.program).unwrap();
+    let mut guard = f.runtime.begin_publication(&f.program).unwrap();
     assert_eq!(
         completion.complete(Ok(Reply {
             probe: f.probe.clone(),
@@ -517,30 +587,28 @@ fn publication_queues_completions_without_polling_a_parked_future() {
         CompletionStatus::Accepted
     );
     assert!(owner.is_ready());
-    assert_eq!(
-        f.runtime
-            .resume_owned_execution(&owner)
-            .err()
-            .unwrap()
-            .kind(),
-        RuntimeErrorKind::ExecutionPhaseViolation
-    );
     assert_eq!(f.probe.converted.load(Ordering::SeqCst), 0);
     assert_eq!(f.probe.continued.load(Ordering::SeqCst), 0);
     assert_eq!(f.probe.cancelled[0].load(Ordering::SeqCst), 0);
-    assert!(f.runtime.gc().validate_value(&saved));
+    assert!(guard.runtime().memory.inspect_value(saved).is_ok());
     let candidate = guard
         .stage_reload_verified_program(None, f.module.verified_program().clone())
         .unwrap();
     guard.publish(candidate).unwrap();
     assert_eq!(f.probe.converted.load(Ordering::SeqCst), 0);
-    let stack = f.runtime.resume_owned_execution(&owner).unwrap();
-    assert!(matches!(
-        stack.poll_await(&f.runtime).unwrap(),
-        Poll::Ready(None)
-    ));
-    assert_eq!(f.probe.converted.load(Ordering::SeqCst), 1);
-    drop(stack);
+    let mut stack_activation = f.runtime.resume_owned_execution(&owner).unwrap();
+    stack_activation
+        .with(|runtime, stack| {
+            assert!(matches!(
+                stack.poll_await(runtime).unwrap(),
+                Poll::Ready(None)
+            ));
+            assert_eq!(f.probe.converted.load(Ordering::SeqCst), 1);
+
+            Ok(())
+        })
+        .unwrap();
+    drop(stack_activation);
     f.runtime.finish_owned_execution(&owner).unwrap();
     assert_eq!(f.registry().active_count(), 0);
     assert_eq!(f.runtime.resources().counters().current_call_depth, 0);
@@ -558,19 +626,25 @@ fn assert_stale(completions: &[Completion<Reply>]) {
 
 #[test]
 fn owned_retirement_drains_all_parked_roots_after_payload_drop_fault() {
-    let f = Fixture::new(false);
+    let mut f = Fixture::new(false);
     let (first, first_saved) = f.park(0);
     let (second, second_saved) = f.park(1);
     let ids = [first.id, second.id];
     let registry = f.registry();
     let completions = f.take_completions();
     assert_eq!(registry.active_count(), 2);
-    assert_eq!(
-        f.runtime.resources().frame_values.borrow().active_windows(),
-        2
-    );
-    assert!(f.runtime.gc().validate_value(&first_saved));
-    assert!(f.runtime.gc().validate_value(&second_saved));
+    for (saved, index) in [(first_saved, 0), (second_saved, 1)] {
+        assert_eq!(
+            f.runtime
+                .resources()
+                .sessions
+                .frames(saved.execution)
+                .unwrap()
+                .len(),
+            1
+        );
+        f.assert_saved(saved, index);
+    }
     assert_eq!(
         completions[0].complete(Ok(Reply {
             probe: f.probe.clone(),
@@ -616,10 +690,40 @@ fn owned_retirement_drains_all_parked_roots_after_payload_drop_fault() {
 
 #[test]
 fn owned_retirement_drains_all_parked_roots_after_control_waker_drop_fault() {
-    let f = Fixture::new(false);
+    let mut f = Fixture::new(false);
     let (first, first_saved) = f.park(0);
     let (second, second_saved) = f.park(1);
-    let ids = [first.id, second.id];
+    let future = invoke(
+        &mut f.runtime,
+        &f.module,
+        f.request,
+        &[RootedValue::from(0)],
+    )
+    .unwrap();
+    let queued = f
+        .runtime
+        .start_owned_future(&future, Default::default())
+        .unwrap();
+    drop(future);
+    // Exercise a real nonempty queued source in a sibling that has not submitted
+    // its provider. The same whole-execution retirement must clear every bank.
+    let (arguments, queued_saved) = f
+        .runtime
+        .memory
+        .scope(&f.runtime.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                let arguments = slots.begin_queue(queued.id, 1)?;
+                let value = StringObject::alloc(slots.scope(), "live parked frame 2".into())?;
+                slots.set_queued(&arguments, 0, ScopedValue::managed(value))?;
+                let saved = arguments.location(0).unwrap();
+                Ok((arguments, saved))
+            })
+        })
+        .unwrap();
+    f.saved.push(queued_saved);
+    f.runtime.collect_garbage().unwrap();
+    f.assert_saved(queued_saved, 2);
+    let ids = [first.id, second.id, queued.id];
     let registry = f.registry();
     let completions = f.take_completions();
     let dropped = Arc::new(AtomicUsize::new(0));
@@ -627,12 +731,18 @@ fn owned_retirement_drains_all_parked_roots_after_control_waker_drop_fault() {
     first.set_waker(&waker);
     drop(waker);
     assert_eq!(registry.active_count(), 2);
-    assert_eq!(
-        f.runtime.resources().frame_values.borrow().active_windows(),
-        2
-    );
-    assert!(f.runtime.gc().validate_value(&first_saved));
-    assert!(f.runtime.gc().validate_value(&second_saved));
+    for (saved, index) in [(first_saved, 0), (second_saved, 1)] {
+        assert_eq!(
+            f.runtime
+                .resources()
+                .sessions
+                .frames(saved.execution)
+                .unwrap()
+                .len(),
+            1
+        );
+        f.assert_saved(saved, index);
+    }
     drop(first);
     // Notifications are harmless; only retirement owns the last control-waker reference.
     assert_eq!(dropped.load(Ordering::SeqCst), 0);
@@ -660,6 +770,13 @@ fn owned_retirement_drains_all_parked_roots_after_control_waker_drop_fault() {
         assert!(f.runtime.resources().sessions.get(id).is_none());
     }
     assert!(!second.is_ready());
+    assert!(!queued.is_ready());
+    assert!(matches!(
+        f.runtime.memory.scope(&f.runtime.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| arguments.check_bounds(slots))
+        }),
+        Err(GcError::Index)
+    ));
     f.assert_released(&registry);
     assert_stale(&completions);
     assert_eq!(f.runtime.drain_retired_executions().unwrap(), 0);
@@ -677,7 +794,7 @@ fn owned_retirement_drains_all_parked_roots_after_control_waker_drop_fault() {
 
 #[test]
 fn owned_successful_poll_hook_drop_fault_prevents_conversion_and_continuation() {
-    let f = Fixture::new(true);
+    let mut f = Fixture::new(true);
     let (owner, _) = f.park(0);
     let registry = f.registry();
     let completions = f.take_completions();
@@ -688,15 +805,21 @@ fn owned_successful_poll_hook_drop_fault_prevents_conversion_and_continuation() 
         })),
         CompletionStatus::Accepted
     );
-    let stack = f.runtime.resume_owned_execution(&owner).unwrap();
-    let error = stack.poll_await(&f.runtime).unwrap_err();
-    assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
-    assert!(f.runtime.is_quarantined());
-    assert_eq!(
-        stack.current_mut().unwrap_err().kind(),
-        RuntimeErrorKind::EngineFault
-    );
-    drop(stack);
+    let mut stack_activation = f.runtime.resume_owned_execution(&owner).unwrap();
+    stack_activation
+        .with(|runtime, stack| {
+            let error = stack.poll_await(runtime).unwrap_err();
+            assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
+            assert!(runtime.is_quarantined());
+            assert_eq!(
+                stack.current_mut(runtime).unwrap_err().kind(),
+                RuntimeErrorKind::EngineFault
+            );
+
+            Ok(())
+        })
+        .unwrap();
+    drop(stack_activation);
     f.runtime.finish_owned_execution(&owner).unwrap();
     drop(owner);
     assert_eq!(f.probe.hook_drops.load(Ordering::SeqCst), 1);
@@ -709,7 +832,7 @@ fn owned_successful_poll_hook_drop_fault_prevents_conversion_and_continuation() 
 
 #[test]
 fn owned_runtime_teardown_contains_queued_payload_drop_fault() {
-    let f = Fixture::new(false);
+    let mut f = Fixture::new(false);
     let (first, _) = f.park(0);
     let (second, _) = f.park(1);
     let registry = f.registry();

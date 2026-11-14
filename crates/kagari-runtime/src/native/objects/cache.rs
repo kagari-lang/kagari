@@ -1,14 +1,18 @@
 //! Weak preparation caches never keep an otherwise dead program version alive.
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, fault::EngineFault},
     frame::types::arguments::TypeArgument,
-    module::{ExecutableModule, Module, ModuleEpochRetention, StructLayoutRef},
+    module::{
+        ExecutableModule, Module, ModuleEpochRetention, StructLayoutRef,
+        managed::source::RevisionSource,
+    },
     native::{
         binding::NativeResult,
         objects::{ObjectType, TypeRecord, fields::FieldRecord},
     },
 };
+
 use kagari_bytecode::instruction::StructId;
 use kagari_common::identity::{DefinitionKind, DefinitionPath, table::DefinitionId};
 use kagari_contract::{
@@ -38,13 +42,13 @@ impl Runtime {
     /// Generic declarations require existing executable layout evidence; binding
     /// never compiles or specializes a missing application.
     pub fn bind_type(
-        &self,
+        &mut self,
         owner: &Module,
         path: &str,
         arguments: &[TypeArgument],
     ) -> NativeResult<ObjectType> {
-        self.gc().ensure_no_native_borrow()?;
         let snapshot = self.capture_module(owner)?;
+        self.resources().ensure_execution_allowed()?;
         let export = snapshot.resolve_public_path(path, PublicPathKind::Type)?;
         let PublicPathTarget::Type(export) = export else {
             return Err(invalid_export());
@@ -80,13 +84,13 @@ impl Runtime {
     /// Bind a public declaration/application within the Module's installation.
     /// This advanced route does not grant private namespace navigation.
     pub fn bind_type_declaration(
-        &self,
+        &mut self,
         owner: &Module,
         declaration: &DefinitionPath,
         arguments: &[TypeArgument],
     ) -> NativeResult<ObjectType> {
-        self.gc().ensure_no_native_borrow()?;
         let snapshot = self.capture_module(owner)?;
+        self.resources().ensure_execution_allowed()?;
         let declaration = snapshot
             .root
             .definitions()
@@ -98,7 +102,7 @@ impl Runtime {
     }
 
     fn prepare_object_application(
-        &self,
+        &mut self,
         owner: &ExecutableModule,
         declaration: DefinitionId,
         arguments: &[TypeArgument],
@@ -116,7 +120,11 @@ impl Runtime {
                     .iter()
                     .enumerate()
                     .filter(|(_, layout)| {
-                        layout.declaration == declaration && layout.accepts(&types)
+                        layout.declaration == declaration
+                            && (member
+                                .identity_admission()
+                                .equivalent(&layout.arguments, &types)
+                                || layout.accepts(&types))
                     })
                     .max_by_key(|(_, layout)| {
                         !layout.arguments.iter().all(|ty| ty.is_concrete())
@@ -130,8 +138,8 @@ impl Runtime {
         self.retain_public_object_type(layout)
     }
 
-    fn retain_public_object_type(&self, layout: StructLayoutRef) -> NativeResult<ObjectType> {
-        let result = self.retain_object_type(layout)?;
+    fn retain_public_object_type(&mut self, layout: StructLayoutRef) -> NativeResult<ObjectType> {
+        let result = self.retain_object_type(layout, RevisionSource::Current)?;
         if !result.0.public {
             return Err(RuntimeError::module_validation("object type is not public"));
         }
@@ -139,12 +147,13 @@ impl Runtime {
     }
 
     /// Share the same retained layout owner with nominal DTO conversion.
-    pub(crate) fn retain_object_type(&self, layout: StructLayoutRef) -> NativeResult<ObjectType> {
+    pub(crate) fn retain_object_type(
+        &mut self,
+        layout: StructLayoutRef,
+        origin: RevisionSource<'_>,
+    ) -> NativeResult<ObjectType> {
         self.validate_executable_module(layout.module())?;
-        let mut cache = self
-            .object_bindings
-            .try_borrow_mut()
-            .map_err(|_| RuntimeError::module_validation("object binding cache is borrowed"))?;
+        let cache = &mut self.object_bindings;
         cache.types.retain(|record| record.strong_count() != 0);
         if let Some(record) = cache.types.iter().filter_map(Weak::upgrade).find(|record| {
             record.layout.module().program_root().key() == layout.module().program_root().key()
@@ -170,14 +179,15 @@ impl Runtime {
                 })
         });
         let program = self
-            .retain_program(layout.module(), ModuleEpochRetention::RuntimeValue)
+            .retain_program(layout.module(), ModuleEpochRetention::RuntimeValue, origin)
             .ok_or_else(|| RuntimeError::module_validation("object type program retention"))?;
         let record = Arc::new(TypeRecord {
             layout,
             argument,
             public,
-            _program: program,
+            program,
         });
+        let cache = &mut self.object_bindings;
         cache
             .types
             .try_reserve(1)
@@ -232,15 +242,13 @@ fn object_path_error(path: &str, detail: &str) -> RuntimeError {
 }
 
 fn invalid_export() -> RuntimeError {
-    RuntimeError::new(
-        RuntimeErrorKind::EngineFault,
-        "invalid verified public object export",
-    )
+    RuntimeError::from(EngineFault::InvalidVerifiedPublicObjectExport)
 }
 
 #[cfg(test)]
 mod tests {
     use crate::Runtime;
+    use crate::test_support::bytecode::load_bytecode;
     use kagari_compiler::{
         bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir,
     };
@@ -279,8 +287,8 @@ mod tests {
             .unwrap()
             .into_unverified();
         let mut runtime = Runtime::default();
-        let program = runtime.load_program("objects", bytecode).unwrap();
-        let allocated = runtime.gc().allocated_objects();
+        let program = load_bytecode(&mut runtime, "objects", bytecode).unwrap();
+        let allocated = runtime.gc_stats().objects;
         let player = runtime.bind_type(&program.root(), "Player", &[]).unwrap();
         assert!(player.field("visible").is_ok());
         assert!(player.field("secret").is_err());
@@ -299,6 +307,6 @@ mod tests {
             .unwrap();
         assert_eq!(player.type_argument().ty(), advanced.type_argument().ty());
 
-        assert_eq!(runtime.gc().allocated_objects(), allocated);
+        assert_eq!(runtime.gc_stats().objects, allocated);
     }
 }

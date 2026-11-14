@@ -28,10 +28,7 @@ use kagari_runtime::native::{
     types::Type,
 };
 use kagari_types::{
-    declaration::{
-        TypeDefKind,
-        native::{NativeStorageLayout, NativeTypeConstructor},
-    },
+    declaration::{TypeDefKind, native::NativeStorageLayout},
     ty::GenericBound,
 };
 
@@ -102,26 +99,6 @@ struct Source {
 
 pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     let iteration = Iteration::new(module)?;
-    let cursor = module.define_constructor("CollectionCursor", NativeTypeConstructor::Iter)?;
-    module.document(cursor.id(), documentation::markdown(TYPE_DOCS))?;
-    let entry = override_entry(
-        module,
-        &iteration.iterator,
-        "next",
-        0,
-        enums::pending(1, &[enums::OPTION], iterable::next),
-    )?;
-    module.trait_implementation_with(1, |items| {
-        Ok(TraitImplementation {
-            receiver: cursor.apply(items.to_vec())?,
-            interface: iteration
-                .output
-                .bind(iteration.iterator.apply([])?, items[0].clone())?,
-            bounds: vec![],
-            bindings: vec![],
-        }
-        .with_overrides([entry]))
-    })?;
     for &(name, arity, operation) in ADAPTERS {
         let adapter = module.define_type(
             name,
@@ -428,11 +405,6 @@ fn adapter_docs(operation: Operation) -> (&'static str, &'static str) {
         ),
     }
 }
-
-const TYPE_DOCS: (&str, &str) = (
-    "A shared built-in cursor. Copies share progress. next returns None when exhausted; structural source edits invalidate subsequent reads.",
-    "fn first(values: Vec<i32>) -> Option<i32> { values.iter().next() }",
-);
 
 const ADAPTER_DOCS: (&str, &str) = (
     "A lazy shared cursor. Retains its sources, any callbacks and selected next targets; aliases share progress and original generations. Recursive next on the same cursor traps.",

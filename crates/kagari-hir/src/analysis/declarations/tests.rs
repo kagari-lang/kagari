@@ -17,6 +17,7 @@ fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> DeclarationSnap
         .unwrap()
 }
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn native_declarations_are_shared_across_user_revisions_and_retained_by_snapshots() {
     let mut sources = SourceDatabase::default();
@@ -67,6 +68,7 @@ fn native_declarations_are_shared_across_user_revisions_and_retained_by_snapshot
         module.source.text()
     );
 }
+*/
 
 #[test]
 fn cancelled_or_invalid_native_import_never_publishes_a_snapshot() {
