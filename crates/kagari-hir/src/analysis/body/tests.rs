@@ -107,7 +107,13 @@ fn selected_body_cache_refreshes_shared_signature_context() {
     let original_source = sources.snapshot();
     let mut db = test_analysis();
     let good = owner(&mut db, &sources, root, "good");
+    let original_query = db
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
     let original = query(&mut db, &sources, &good);
+    let body_facts = Arc::downgrade(&original.facts);
+    let root_lowering = Arc::downgrade(&original.file.prepared.lowered);
+    let root_source = Arc::downgrade(&original.file.prepared.lowered.source);
     assert_eq!(original.eligibility(), BodyEligibility::Complete);
     assert!(Arc::ptr_eq(&original, &query(&mut db, &sources, &good)));
 
@@ -187,6 +193,155 @@ fn selected_body_cache_refreshes_shared_signature_context() {
         "fn helper() -> Missing { 2 }"
     );
     assert_eq!(results[2].eligibility(), BodyEligibility::Complete);
+
+    let old_query = db
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    let old_other = Arc::downgrade(
+        &results[2]
+            .signature_snapshot()
+            .file(other)
+            .unwrap()
+            .prepared
+            .lowered,
+    );
+    let old_result = Arc::downgrade(&results[2]);
+    sources
+        .set(
+            "mem://other",
+            "fn helper() -> i32 { 3 }".into(),
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    let current_query = db
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    let current_signatures = db
+        .signatures(sources.snapshot(), &Default::default())
+        .unwrap();
+    assert_eq!(
+        current_signatures.file(other).unwrap().source().text(),
+        "fn helper() -> i32 { 3 }"
+    );
+    assert_eq!(old_query.file(other).unwrap().source().text(), valid_other);
+    assert_eq!(
+        results[2]
+            .signature_snapshot()
+            .file(other)
+            .unwrap()
+            .source()
+            .text(),
+        valid_other
+    );
+    assert!(old_other.upgrade().is_some());
+
+    // Advance the full/signature caches without querying B: its body entry must
+    // retain facts, but must not keep the previous whole-project query alive.
+    let good_id = *original.owner();
+    drop(original_query);
+    drop(old_query);
+    drop(original);
+    drop(results);
+    assert!(old_result.upgrade().is_none());
+    assert!(old_other.upgrade().is_none());
+    let cached = db.body_cache.get_id(good_id).unwrap();
+    assert!(cached.result.upgrade().is_none());
+    assert!(Arc::ptr_eq(&cached.facts, &body_facts.upgrade().unwrap()));
+    assert!(Arc::ptr_eq(
+        &root_lowering.upgrade().unwrap(),
+        &current_query.file(root).unwrap().result().facts().lowered
+    ));
+    assert!(Arc::ptr_eq(
+        &root_source.upgrade().unwrap(),
+        &current_signatures
+            .file(root)
+            .unwrap()
+            .prepared
+            .lowered
+            .source
+    ));
+
+    let rebuilt = query(&mut db, &sources, &good);
+    assert!(Arc::ptr_eq(&rebuilt.facts, &body_facts.upgrade().unwrap()));
+    assert_eq!(
+        rebuilt.signature_snapshot().revision(),
+        current_signatures.revision()
+    );
+    assert!(Arc::ptr_eq(
+        rebuilt.signature_snapshot().file(other).unwrap(),
+        current_signatures.file(other).unwrap()
+    ));
+    assert_eq!(
+        rebuilt.type_at(root_text.find("42").unwrap()),
+        Some(TypeId::Builtin(BuiltinType::I32))
+    );
+    assert!(Arc::ptr_eq(&rebuilt, &query(&mut db, &sources, &good)));
+    let returned = Arc::downgrade(&rebuilt);
+    drop(rebuilt);
+    assert!(returned.upgrade().is_none());
+    let rebuilt = query(&mut db, &sources, &good);
+    assert!(Arc::ptr_eq(&rebuilt.facts, &body_facts.upgrade().unwrap()));
+
+    let old_expr = rebuilt
+        .lowered()
+        .module
+        .body
+        .expressions()
+        .find(|(expr, _)| rebuilt.type_table().expr_type(*expr).is_some())
+        .unwrap()
+        .0;
+    drop(current_query);
+    drop(current_signatures);
+    db.declaration_cache.take();
+    db.signature_cache.take();
+    db.files.clear();
+    // A returned query alone still owns its exact graph and signature context.
+    assert!(Arc::ptr_eq(
+        &root_lowering.upgrade().unwrap(),
+        &rebuilt.file.prepared.lowered
+    ));
+    assert_eq!(rebuilt.source().text(), root_text);
+    assert_eq!(
+        rebuilt
+            .signature_snapshot()
+            .file(other)
+            .unwrap()
+            .source()
+            .text(),
+        "fn helper() -> i32 { 3 }"
+    );
+    assert_eq!(
+        rebuilt.type_at(root_text.find("42").unwrap()),
+        Some(TypeId::Builtin(BuiltinType::I32))
+    );
+    drop(rebuilt);
+    let cached = db.body_cache.get_id(good_id).unwrap().clone();
+    assert!(cached.result.upgrade().is_none());
+    assert!(cached.file.upgrade().is_none());
+    assert!(root_lowering.upgrade().is_none());
+    assert!(Arc::ptr_eq(&cached.facts, &body_facts.upgrade().unwrap()));
+
+    // The owned facts survive, but without their old graph they cannot supply IDs
+    // to a new lowering. Rebuild from source rather than reviving that context.
+    let rebuilt = query(&mut db, &sources, &good);
+    assert!(!Arc::ptr_eq(&rebuilt.facts, &cached.facts));
+    assert_ne!(rebuilt.lowered().module.body.arena(), old_expr.arena());
+    assert!(rebuilt.type_table().expr_type(old_expr).is_none());
+    assert!(root_lowering.upgrade().is_none());
+    assert!(cached.file.upgrade().is_none());
+    assert_eq!(rebuilt.checked_bodies(), 1);
+    assert_eq!(rebuilt.reused_bodies(), 0);
+    assert_eq!(rebuilt.eligibility(), BodyEligibility::Complete);
+    assert!(rebuilt.diagnostics().is_empty());
+    assert_eq!(
+        rebuilt.type_at(root_text.find("42").unwrap()),
+        Some(TypeId::Builtin(BuiltinType::I32))
+    );
+    assert_eq!(
+        rebuilt.signature_snapshot().revision(),
+        sources.snapshot().revision()
+    );
+    assert!(Arc::ptr_eq(&rebuilt, &query(&mut db, &sources, &good)));
 }
 
 #[test]
@@ -425,6 +580,8 @@ fn same_named_impl_bodies_reuse_their_own_facts() {
         })
         .collect::<Vec<_>>();
     assert_eq!(methods.len(), 2);
+    // Reuse/remapping needs caller-owned old graphs, not a strong cache reference.
+    let mut previous = Vec::new();
     for method in &methods {
         let result = query(&mut db, &sources, method);
         assert_eq!(result.checked_bodies(), 1);
@@ -433,6 +590,7 @@ fn same_named_impl_bodies_reuse_their_own_facts() {
             "{:?}",
             result.diagnostics()
         );
+        previous.push(result);
     }
     sources
         .set(
@@ -441,8 +599,9 @@ fn same_named_impl_bodies_reuse_their_own_facts() {
             SourceLayer::Overlay,
         )
         .unwrap();
-    for method in methods {
+    for (method, old) in methods.into_iter().zip(previous) {
         let result = query(&mut db, &sources, &method);
+        assert_eq!(old.source().text(), text);
         assert_eq!(result.checked_bodies(), 0);
         assert_eq!(result.reused_bodies(), 1);
         let fresh = query(&mut test_analysis(), &sources, &method);

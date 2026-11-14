@@ -10,7 +10,7 @@ use crate::tests::cancellation::{Checkpoint, checkpoint};
 use crate::{
     AnalysisPolicy, AnalysisResult, AnalyzedModule,
     analysis::{
-        body::FunctionAnalysis,
+        body::BodyCacheEntry,
         declarations::DeclarationSnapshot,
         error::AnalysisError,
         inputs::AnalysisInputs,
@@ -693,8 +693,8 @@ pub struct AnalysisDatabase {
     const_limits: ConstLimits,
     parse_limits: ParseLimits,
     max_semantic_diagnostics: usize,
-    /// Selected-function results indexed by canonical definition identity.
-    body_cache: DefinitionMap<Arc<FunctionAnalysis>>,
+    /// Reusable selected-body facts, without strong ownership of whole query contexts.
+    body_cache: DefinitionMap<BodyCacheEntry>,
     /// Newest source revision admitted to the selected-body cache.
     body_revision: Revision,
     /// Physical parses survive independently of declaration and HIR result owners.

@@ -787,7 +787,11 @@ signature snapshot and reports unavailable eligibility, just like a fresh query.
 Previously returned results keep their original context. Reusing the entire result
 requires the same source revision and identical retained signature files, including
 the complete file set; rebuilding map containers alone does not invalidate it.
-Refreshing context does not rerun body checking or copy its tables.
+Refreshing context does not rerun body checking or copy its tables. The selected-body
+cache strongly owns semantic facts but keeps only weak handles to their file graph and
+last returned query. Returned queries own their exact file/signature context. Reuse upgrades
+the matching old graph temporarily; if it has expired, checking starts fresh rather than
+interpreting cached IDs against a new lowering. The cache alone pins no HIR graph.
 
 Physical parses have an owned cache independent of declaration/HIR results. Syntax
 preparation returns an owned logical-source manifest before lowering. Reuse requires

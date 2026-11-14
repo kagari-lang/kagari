@@ -697,8 +697,10 @@ prove old A can release while unchanged B remains usable; HA01 is blocked until 
 HA01 replaces the graph/consumers; HA02 validates and consolidates docs/tests.
 HA00 is in progress with phase commits authorized. Its first sub-checkpoint detaches physical
 parse ownership and returns an owned logical syntax manifest before lowering. Temporary owned
-prior syntax preserves published identities after cancelled semantic work. Ten focused
-preparation/revision/cancellation tests pass; full HA00 cache/session/arena proof is pending.
+prior syntax preserves published identities after cancelled semantic work. Selected-body
+caching now strongly retains only owned facts, not HIR or whole query contexts; expired graph
+handles force safe fresh checking. Twenty-one focused preparation/revision/cancellation/body
+tests pass; full HA00 stage-cache/session/arena proof is pending.
 The plan records unchanged baseline workspace fmt/Clippy blockers; acceptance is not all-green.
 Concrete cache/borrow APIs remain HA00 work. No performance benefit is proven.
 [Native review notes](hir-model-review.md) remain deferred: declaration/Provider separation,

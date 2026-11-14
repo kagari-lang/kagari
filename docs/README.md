@@ -66,7 +66,8 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
 - [HIR storage and attributes](hir-storage-design.md): selected module-lowering arenas,
   external ownership, direct references, owner-local IDs and attributes. HA00 is in progress:
-  owned syntax preparation is implemented; the cache/session/arena proof remains pending.
+  owned syntax preparation and selected-body facts are split from HIR ownership; the full
+  stage-cache/session/arena proof remains pending.
   [Native model review](hir-model-review.md) remains deferred.
 
 - [Runtime architecture](architecture/runtime.md), [call walkthrough](architecture/runtime/calls.md)

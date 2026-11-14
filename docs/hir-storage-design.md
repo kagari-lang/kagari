@@ -1,7 +1,8 @@
 # HIR Storage and Attribute Design
 
 **Status:** implementation authorized with phase commits; HA00 is in progress.
-Owned syntax preparation is implemented; semantic-cache/session/arena integration is pending.
+Owned syntax preparation and selected-body fact ownership are implemented; remaining
+semantic-cache/session/arena integration is pending.
 HA01 remains blocked on HA00's real multi-module ownership proof.
 **Baseline:** `main` at `43d55706a`; working branch `design/hir-native-model`.
 [Roadmap](implementation-roadmap.md#hir-storage-and-attribute-refactor) owns activation.
@@ -112,9 +113,9 @@ External module graphs
 
 Unchanged B1 is supplied from its original independent owner, not recovered from a shortened
 borrow in an old mixed session. Persistent cache entries must not contain whole declaration/
-signature/body bundles that retain HIR. In particular, today's selected-body cache can keep
-all old module graphs through its SignatureSnapshot; that chain must be split before HA00
-completion. Remapping still needs the old graph supplied temporarily, or must reject reuse.
+signature/body bundles that retain HIR. The selected-body sub-checkpoint now strongly caches
+only owned facts and weakly names the graph/query context. Other stage caches still need this
+split. Remapping needs the old graph supplied temporarily, or must reject reuse.
 
 ### SDK boundary
 
@@ -436,11 +437,13 @@ algorithm or Runtime changes.
   Source/limit checks, non-older publication, cache pruning and cancellation guard its lifetime.
   Temporary owned prior-syntax inputs preserve the last published parse identity when a newer
   syntax batch completes but semantic analysis is cancelled; they retain no HIR/history map.
-- Six source-preparation tests, three arena/revision regressions and the full deterministic
-  cancellation scenario pass, covering owner release, unchanged B sharing, stale requests,
-  provenance, inline UTF-8/CRLF, limits and publication identity.
-  Structure/diff, changed-file rustfmt and HIR all-target Clippy pass. No Bump graph or SDK
-  arena cutover is claimed yet.
+- Selected-body sub-checkpoint: FunctionFacts owns no HIR; BodyCacheEntry keeps strong facts
+  and weak file/query handles. Returned FunctionAnalysis owns its exact graph/context. The
+  existing lifecycle scenario proves both unrelated A and selected B graphs can release while
+  cached facts remain; missing graphs trigger fresh checking and reject stale expression IDs.
+- Six preparation tests, three arena/revision regressions, the deterministic cancellation
+  scenario and eleven selected-body tests pass. Structure/diff, changed-file rustfmt and HIR
+  all-target Clippy pass. No Bump graph or SDK arena cutover is claimed yet.
 - On rustc 1.100.0, required workspace fmt is blocked by unchanged `hir/ids.rs` macro arguments
   and `kagari-syntax/src/ast/tokens.rs` enum spacing. Workspace Clippy is blocked by unchanged
   `kagari-compiler/src/bytecode/placement.rs:110` (`needless_range_loop`). No generated allowance,

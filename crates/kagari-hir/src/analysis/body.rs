@@ -30,7 +30,7 @@ use crate::{
     types::TypeId,
 };
 
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use {
     kagari_common::{
         cancellation::{CancellationToken, Cancelled},
@@ -63,10 +63,22 @@ mod tests;
 #[derive(Debug)]
 pub struct FunctionAnalysis {
     signatures: SignatureSnapshot,
+    file: Arc<FileSignatures>,
     facts: Arc<FunctionFacts>,
 }
 
-/// Immutable body facts kept together with their matching source and identity owners.
+/// Owned semantic facts with non-owning handles to their graph and latest query context.
+/// Neither handle keeps HIR alive. Reuse requires upgrading the matching file; if it has
+/// expired, the next query checks fresh facts instead of interpreting stale HIR IDs.
+#[derive(Debug, Clone)]
+pub(super) struct BodyCacheEntry {
+    facts: Arc<FunctionFacts>,
+    file: Weak<FileSignatures>,
+    result: Weak<FunctionAnalysis>,
+}
+
+/// Immutable owned body facts and their definition identity owner, without HIR ownership.
+/// HIR IDs require the matching file retained by a result or upgraded from the cache.
 /// Refreshing unrelated signature inputs shares this record without copying its tables.
 #[derive(Debug)]
 struct FunctionFacts {
@@ -74,9 +86,8 @@ struct FunctionFacts {
     owner: DefinitionId,
     /// Immutable prefix owning the body's scoped definition references.
     definitions: DefinitionTable,
-    /// Local function slot in the lowering retained by `file`.
+    /// Local function slot interpreted only against the matching query file's lowering.
     function: FunctionId,
-    file: Arc<FileSignatures>,
     environment: BodyEnvironment,
     /// Resolved lexical names for the selected body analysis.
     names: ResolvedNames,
@@ -141,7 +152,7 @@ impl FunctionAnalysis {
 
     /// Borrows the source revision owning the selected function.
     pub fn source(&self) -> &SourceFile {
-        self.facts.file.source()
+        self.file.source()
     }
 
     /// Borrows the requested signature context against which these body facts remain valid.
@@ -151,7 +162,7 @@ impl FunctionAnalysis {
 
     /// Local IDs are interpreted only against this result's lowering and facts.
     pub fn lowered(&self) -> &LoweredModule {
-        &self.facts.file.prepared.lowered
+        &self.file.prepared.lowered
     }
 
     /// Returns the function index to look up in [`Self::lowered`].
@@ -229,9 +240,11 @@ impl AnalysisDatabase {
     ///
     /// An unchanged file signature result and equal body environment permit sharing
     /// body facts. Changes elsewhere refresh the retained signature context; an
-    /// unchanged complete context also permits retaining the result's `Arc`. Otherwise
-    /// compatible imports, types and aggregate contracts may permit body-fact remapping;
-    /// edits are not assumed reusable merely because the name matches.
+    /// unchanged complete context also permits reusing a still-live result's `Arc`.
+    /// The cache retains owned facts, but only weakly references their graph and query context.
+    /// Compatible imports, types and aggregate contracts may permit body-fact remapping while
+    /// the old file is still alive; if its weak handle expires, the body is checked fresh.
+    /// Edits are not assumed reusable merely because the name matches.
     ///
     /// # Errors
     ///
@@ -279,23 +292,27 @@ impl AnalysisDatabase {
             .body_environments(self.const_limits, cancel)?
             .remove(&file.source().id())
             .expect("function environment");
-        let previous = self.body_cache.get_id(owner_id);
-        let previous_environment = previous.map(|old| &old.facts.environment);
-        let previous_types = previous.map(|old| &old.facts.typed);
-        let result = if let Some(old) = previous.filter(|old| {
-            Arc::ptr_eq(&old.facts.file, &file)
+        let previous_entry = self.body_cache.get_id(owner_id);
+        let previous_file = previous_entry.and_then(|entry| entry.file.upgrade());
+        let previous = previous_entry
+            .zip(previous_file.as_ref())
+            .map(|(entry, file)| (&entry.facts, file));
+        let previous_environment = previous.map(|(old, _)| &old.environment);
+        let previous_types = previous.map(|(old, _)| &old.typed);
+        let result = if let Some((old, _)) = previous.filter(|(_, old_file)| {
+            Arc::ptr_eq(old_file, &file)
                 && *previous_environment
                     .as_ref()
                     .expect("previous body environment")
                     == &environment
         }) {
-            if old.same_signature_snapshot(&signatures, cancel)? {
-                old.clone()
-            } else {
-                Arc::new(FunctionAnalysis {
+            match previous_entry.and_then(|entry| entry.result.upgrade()) {
+                Some(result) if result.same_signature_snapshot(&signatures, cancel)? => result,
+                _ => Arc::new(FunctionAnalysis {
                     signatures: signatures.clone(),
-                    facts: old.facts.clone(),
-                })
+                    file,
+                    facts: old.clone(),
+                }),
             }
         } else {
             let prepared = &file.prepared;
@@ -307,42 +324,36 @@ impl AnalysisDatabase {
                     .clone()
                     .with_bindings(&prepared.lowered, &names, cancel);
             let reusable = previous
-                .map(|old| -> Result<bool, AnalysisError> {
-                    Ok(old
-                        .facts
-                        .file
+                .map(|(old, old_file)| -> Result<bool, AnalysisError> {
+                    Ok(old_file
                         .declaration
                         .parsed
                         .physical()
                         .diagnostics()
                         .is_empty()
                         && file.declaration.parsed.physical().diagnostics().is_empty()
-                        && old.diagnostics().is_empty()
-                        && old.facts.file.diagnostics().is_empty()
+                        && old.typed.diagnostics().is_empty()
+                        && old_file.diagnostics().is_empty()
                         && file.diagnostics().is_empty()
-                        && old
-                            .facts
-                            .file
+                        && old_file
                             .prepared
                             .names
                             .facts
                             .imports
                             .same_bindings(&prepared.names.facts.imports)
-                        && old.facts.names.catalog.same_reuse_namespaces(
+                        && old.names.catalog.same_reuse_namespaces(
                             &prepared.names.facts.catalog,
-                            &old.facts.names.items,
+                            &old.names.items,
                             &prepared.names.facts.items,
                             cancel,
                         )?
-                        && old
-                            .facts
-                            .file
+                        && old_file
                             .prepared
                             .declarations
                             .imported_types
                             .same_reuse_inputs(
                                 &prepared.declarations.imported_types,
-                                old.facts.file.prepared.names.facts.items.unit.as_ref(),
+                                old_file.prepared.names.facts.items.unit.as_ref(),
                                 prepared.names.facts.items.unit.as_ref(),
                             )
                         && previous_environment
@@ -350,9 +361,8 @@ impl AnalysisDatabase {
                             .expect("previous body environment")
                             .imported_functions
                             == environment.imported_functions
-                        && old.facts.environment.imported_statics == environment.imported_statics
-                        && old.facts.environment.imported_constants
-                            == environment.imported_constants
+                        && old.environment.imported_statics == environment.imported_statics
+                        && old.environment.imported_constants == environment.imported_constants
                         && previous_environment
                             .as_ref()
                             .expect("previous body environment")
@@ -361,18 +371,20 @@ impl AnalysisDatabase {
                 })
                 .transpose()?
                 .unwrap_or(false);
-            let reuse = previous.filter(|_| reusable).map(|old| BodyReuse {
-                previous_valid_bodies: &old.facts.typed.facts().valid_bodies,
-                previous_diagnostics: old.diagnostics(),
-                previous_lowered: old.lowered(),
-                previous_types: &previous_types
-                    .as_ref()
-                    .expect("previous body types")
-                    .facts()
-                    .type_table,
-                old_text: old.source().text(),
-                new_text: file.source().text(),
-            });
+            let reuse = previous
+                .filter(|_| reusable)
+                .map(|(old, old_file)| BodyReuse {
+                    previous_valid_bodies: &old.typed.facts().valid_bodies,
+                    previous_diagnostics: old.typed.diagnostics(),
+                    previous_lowered: &old_file.prepared.lowered,
+                    previous_types: &previous_types
+                        .as_ref()
+                        .expect("previous body types")
+                        .facts()
+                        .type_table,
+                    old_text: old_file.source().text(),
+                    new_text: file.source().text(),
+                });
             let typed = check_bodies_controlled(
                 &prepared.lowered,
                 &names,
@@ -400,11 +412,11 @@ impl AnalysisDatabase {
             declarations.publish_definitions(definitions.clone());
             Arc::new(FunctionAnalysis {
                 signatures: signatures.clone(),
+                file,
                 facts: Arc::new(FunctionFacts {
                     owner: owner_id,
                     definitions,
                     function,
-                    file,
                     environment,
                     names,
                     declarations,
@@ -435,7 +447,14 @@ impl AnalysisDatabase {
             });
             if let Some(result) = result {
                 self.body_cache
-                    .insert_id(result.facts.owner, result)
+                    .insert_id(
+                        result.facts.owner,
+                        BodyCacheEntry {
+                            facts: result.facts.clone(),
+                            file: Arc::downgrade(&result.file),
+                            result: Arc::downgrade(&result),
+                        },
+                    )
                     .expect("function cache uses the analysis definition scope");
             }
         }
