@@ -13,7 +13,7 @@ use crate::{
     session::{
         ExecutionId, ExecutionOptions, ExecutionPhase, ExecutionSession, SessionScope, SessionState,
     },
-    value::{carriers::RootedValue, properties::ValueProperties},
+    value::carriers::RootedValue,
     value_check,
 };
 
@@ -21,6 +21,7 @@ use kagari_bytecode::module::CallableTarget;
 use kagari_common::cancellation::{CancellationSubscription, CancellationToken};
 use kagari_contract::ids::FunctionRef;
 use std::{
+    cell::Ref,
     mem,
     panic::{AssertUnwindSafe, catch_unwind},
     sync::{
@@ -42,6 +43,7 @@ pub(crate) struct ExecutionOwner {
     abandoned: AtomicBool,
     ready: AtomicBool,
     finished: AtomicBool,
+    retirement_notice: Arc<AtomicBool>,
     cancellation: CancellationToken,
     cancellation_wake: OnceLock<CancellationSubscription>,
     external_cancellation: OnceLock<CancellationSubscription>,
@@ -153,7 +155,13 @@ impl OwnedExecution {
 
 impl Drop for OwnedExecution {
     fn drop(&mut self) {
+        // Retirement already detached all session resources before finish was
+        // published. Dropping the terminal handle requests no further scan.
+        if self.owner.finished.load(Ordering::Acquire) {
+            return;
+        }
         self.owner.abandoned.store(true, Ordering::Release);
+        self.owner.retirement_notice.store(true, Ordering::Release);
         self.owner.mark_ready();
     }
 }
@@ -237,26 +245,7 @@ impl Runtime {
             .functions
             .get(entry.index())
             .ok_or_else(|| RuntimeError::module_validation("invalid owned execution entry"))?;
-        let parameters = (0..args.len())
-            .map(|index| function.metadata.semantic.params.get(&index).cloned())
-            .collect::<Option<Vec<_>>>()
-            .filter(|_| args.len() == usize::from(function.parameter_count))
-            .ok_or_else(|| RuntimeError::module_validation("invalid owned execution arguments"))?;
-        let parameters = self.resolve_type_arguments(module, &parameters)?;
-        for (value, expected) in args.iter().zip(&parameters) {
-            let storable = self
-                .memory
-                .scope(&self.resources, |cx, _| {
-                    let value = value.get(cx)?;
-                    ValueProperties::of(cx, value).map(|facts| facts.storable)
-                })
-                .map_err(|error| self.managed_input_error(error))?;
-            if !storable || !value_check::matches_rooted(self, module, expected, value)? {
-                return Err(RuntimeError::module_validation(
-                    "invalid owned execution arguments",
-                ));
-            }
-        }
+        value_check::entry_arguments(self, module, function, args)?;
         self.create_owned_execution(module, options, OwnedStart::Function(entry, args))
     }
 
@@ -404,6 +393,7 @@ impl Runtime {
             abandoned: AtomicBool::new(false),
             ready: AtomicBool::new(true),
             finished: AtomicBool::new(false),
+            retirement_notice: session.runtime().resources().sessions.retirement_notice(),
             cancellation: session.state().options.cancellation.clone(),
             cancellation_wake: OnceLock::new(),
             external_cancellation: OnceLock::new(),
@@ -495,24 +485,8 @@ impl Runtime {
     ) -> Result<ExecutionStack<'_>, RuntimeError> {
         self.require_idle_driver()?;
         self.ensure_scheduler_open()?;
-        self.validate_owned_execution(owner)?;
+        let state = self.validate_owned_execution(owner)?;
         let activation = self.resources().begin_synchronous_activation()?;
-        let state = self
-            .resources()
-            .sessions
-            .get(owner.id)
-            .expect("validated owner");
-        if state
-            .owner
-            .borrow()
-            .as_ref()
-            .is_none_or(|held| !Arc::ptr_eq(held, &owner.owner))
-            || state.scopes.get() != 0
-        {
-            return Err(RuntimeError::module_validation(
-                "execution is already active",
-            ));
-        }
         state.scopes.set(1);
         owner.owner.ready.store(false, Ordering::Release);
         self.resources().start_execution(owner.id);
@@ -528,10 +502,12 @@ impl Runtime {
         ExecutionStack::resume(session)
     }
 
+    /// Keep the complete checked record borrowed through the closed activation
+    /// handoff; starting that guard invokes no Host code or session mutation.
     pub(crate) fn validate_owned_execution(
         &self,
         owner: &OwnedExecution,
-    ) -> Result<(), RuntimeError> {
+    ) -> Result<Ref<'_, SessionState>, RuntimeError> {
         let state = self
             .resources()
             .sessions
@@ -548,13 +524,13 @@ impl Runtime {
                 "foreign or active execution owner",
             ));
         }
-        Ok(())
+        Ok(state)
     }
 
     /// Release a terminal execution after its activation and output rooting end.
     pub fn finish_owned_execution(&mut self, owner: &OwnedExecution) -> Result<(), RuntimeError> {
         self.require_idle_driver()?;
-        self.validate_owned_execution(owner)?;
+        drop(self.validate_owned_execution(owner)?);
         self.retire_execution(owner.id)
     }
 

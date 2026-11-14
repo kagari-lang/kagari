@@ -1,7 +1,8 @@
 use crate::{
     Runtime,
-    error::{RuntimeError, trap::TrapReason},
+    error::{RuntimeError, RuntimeErrorKind, trap::TrapReason},
     execution::roots::ExecutionRoots,
+    frame::ExecutionStack,
     host::{HostObjectId, HostSchemaEpoch},
     module::VerifiedProgram,
     native::builder::ModuleBuilder,
@@ -209,7 +210,17 @@ fn async_execution_checks_receiver_data_owned_only_by_an_admitted_computation() 
         .resolve_interface_method_slot(&interface, description.interface_type(), 0, &[])
         .unwrap();
     let method = method.admit(&mut runtime).unwrap();
-    let execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let entry = owner
+        .bytecode
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .unwrap()
+        .id;
+    let execution_owner = runtime
+        .start_owned_execution(&owner, entry, &[], Default::default())
+        .unwrap();
+    let execution = execution_owner.id;
     runtime
         .application_in(
             execution,
@@ -236,10 +247,15 @@ fn async_execution_checks_receiver_data_owned_only_by_an_admitted_computation() 
         error,
         RuntimeError::from(TrapReason::AsyncStateRetainsAnInvalidOrScopedValue)
     );
-    runtime
-        .memory
-        .retire_execution(&runtime.resources, execution)
-        .unwrap();
+    // A scalar frame alone cannot authorize data-free parking: its additional
+    // application dependency is the only remaining owner of the Host receiver.
+    let mut activation = Some(runtime.resume_owned_execution(&execution_owner).unwrap());
+    let error = ExecutionStack::try_park_ready(&mut activation).unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
+    assert!(error.to_string().contains("async state retains"));
+    assert!(activation.is_some());
+    drop(activation);
+    runtime.finish_owned_execution(&execution_owner).unwrap();
     runtime.collect_garbage().unwrap();
     assert_eq!(runtime.gc_stats().root_registrations, roots);
     assert!(!runtime.is_quarantined());

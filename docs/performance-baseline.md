@@ -30,6 +30,464 @@ It includes all 19 original/forms timings and arithmetic machine-code attributio
 [BO13-BO16](#bo13-bo16-scalar-loops-windows-2026-10-27) records the preceding bytecode
 improvement. Earlier i7 measurements below remain revision-specific evidence.
 
+## RR05 parked-root admission and collector characterization, macOS 2026-11-14
+
+These are RR05 local acceptance measurements with the explicit NC/CI limits below.
+Use the actual whole RR00
+revision `343c29a21` for the owned execution controls. The candidate is RR04
+`4c18a99a7` plus the recorded RR05 changes. Build each in its own worktree with
+`cargo build --release --locked -p kagari-lua-benchmark --bin kagari-lua-benchmark
+--message-format=json`, copy the reported executable, and run each image with
+`--interpreter-only --execution-controls` in seven fresh-process pairs, alternating
+order. Each process uses three warmups and eleven measured samples for all eight
+original population/order/cancellation cases. Validate both matrices with
+`scripts/benchmark_results.py`'s `validate_report` and compare every pair's
+size/batch/checksum before taking the median of process-median quotients.
+All 3,696 samples in each comparison pass their value/cancellation/drain oracles.
+
+Environment: Apple M1 Max arm64, 10 logical CPUs, 32 GiB; macOS 26.6.2 (25G83);
+Rust 1.99.1 (58cf8f9c35b355199727627d07ae34a4e2846d67, LLVM 23.1.1), Cargo
+1.99.1, ordinary workspace release, default target/parallelism, no diagnostics,
+warm dependencies. No build, profiler, Miri or competing measurement overlaps
+these timings. Initial builds take 118/117 seconds (baseline/candidate), excluded.
+The borrowed-entry and direct-first-node candidate builds take 29.14/43.06 seconds,
+also excluded and not compiler speedup comparisons.
+
+The original controls source differs only by the reviewed mutable Runtime and
+RootedValue API port; a preflight normalizes exactly those edits and requires
+full source equality. The program, cases (1/32 tail, 256 forward/random), release
+seed, timer boundaries and checks are unchanged. Both main early-control branches
+match. Original registry packages/checksums are unchanged; stacker 0.1.25 and its
+three build dependencies are added. Locks and whole harnesses have distinct
+recorded hashes: the standard Lua runner's strict equality check is not claimed.
+This compares the original semantic workload, without substituting a new recipe.
+
+The table contains admission paired ratios, with cancel/complete variants kept
+separate. Every listed value still exceeds the inherited 1.05 throughput limit.
+
+| Case | RR05 entry | Borrow selected lexical parameter facts | Admit first data node directly |
+| --- | ---: | ---: | ---: |
+| roots_1_tail_cancel | 1.5764 | 1.2744 | 1.2119 |
+| roots_1_tail_complete | 1.5556 | 1.2829 | 1.1849 |
+| roots_256_forward_cancel | 1.3795 | 1.2380 | 1.1779 |
+| roots_256_forward_complete | 1.3612 | 1.2416 | 1.1772 |
+| roots_256_random_cancel | 1.3702 | 1.2188 | 1.1627 |
+| roots_256_random_complete | 1.3689 | 1.2166 | 1.1595 |
+| roots_32_tail_cancel | 1.4911 | 1.2927 | 1.2223 |
+| roots_32_tail_complete | 1.5035 | 1.2983 | 1.2278 |
+
+The first repair removes parameter Ty cloning/reification and separate per-input
+storability/matching scopes; the second avoids traversal-container allocation for
+metadata-only dependencies already excluded by async data policy. Original roots,
+full matching, candidate/cancellation checks and actual private data-edge traversal
+remain authoritative. These separate comparisons do not establish direct paired
+attribution between candidates. The latest admission process medians are
+2.584/2.666 us (one cancel/complete), 66.167/66.250 us (32 tail),
+767.708/768.583 us (256 forward), and 765.292/763.917 us (256 random).
+Retirement ratios at that step are 1.0585 for 32-tail cancellation (failed),
+1.0095 for 32-tail completion, 0.671-0.786 for 256 roots, and at most 1.0 for
+one root. Full collection ratios are about 0.16-0.31. Faster collection/retirement
+does not cancel the admission gate. This workload observes no automatic steps;
+it cannot prove incremental service latency.
+
+Executable SHA-256 identifiers:
+
+- RR00: `f301ce04a816696dab8bde2ce025cee86a9101062d0f084110d6d380ee22df8c`.
+- RR05 entry: `637ecdc49bcce58375be7cb16524ab7f5da740ee2ba780695d266a9d788172f6`.
+- Borrowed parameters: `caec4e24b47f7ea3ae292776dfd49c2f38c08955c439a352eadcdee658546721`.
+- Direct first node: `058a9f46052b37f16557db6d3c01534d8572ee4b056f88ca6a3518ea0113fbc6`.
+
+The independent standalone collector comparison uses `scripts/benchmark_gc.py`
+and all ten unchanged suites from `crates/kagari-gc/BENCHMARKS.md`. For the baseline,
+create a detached worktree at RR04 and restore only `crates/kagari-gc/src` from
+RR00; the source directory must match that revision exactly. Keep current lock,
+workspace/GC manifests, fixtures, runner and analyzer identical to the candidate.
+Run `uv run python scripts/benchmark_gc.py --output target/gc-benchmark/rr00-source`
+there, then run the main worktree's runner with `--baseline` pointing to that
+archive and a fresh `--output`. The actual dirty revision/diff/source hashes are
+recorded. This is the old standalone kernel under matched current build inputs,
+not an original whole RR00 Runtime checkout or an assertion that new Runtime
+supports the old kernel. The strict metadata/archive/raw validator passes.
+
+There are seven alternating process pairs per suite (140 fresh processes), three
+warmups and eleven measured samples where the suite uses fixed samples. Baseline
+and candidate builds take 4.95/2.80 seconds, excluded; the environment/profile/cache
+policy above applies. The following paired ratios are characterization, not
+retroactively frozen gates or replacements for original integrated denominators:
+
+| Standalone metric | Candidate | Candidate/old kernel |
+| --- | ---: | ---: |
+| Sustained leaf total | 72.482 ns/object | 1.0432 |
+| Sustained cycle total | 89.338 ns/object | 1.0829 |
+| Sustained leaf allocation | 36.566 ns/object | 1.0579 |
+| Sustained cycle allocation | 40.837 ns/object | 1.1240 |
+| Leaf median process maximum normal step | 7.375 us | 1.1746 |
+| Cycle median process maximum normal step | 10.459 us | 1.1684 |
+| Typed reference write, Mark | 8.334 ns/op | 1.3923 |
+| Typed reference write, Sweep | 8.275 ns/op | 1.4197 |
+| Dynamic reference write, Mark | 9.151 ns/op | 1.3168 |
+| Dynamic reference write, Sweep | 9.075 ns/op | 1.3363 |
+| Duplicate-root full collection | 67.000 us | 1.3465 |
+| Duplicate-root stage | 66.623 us | 1.3264 |
+
+Sustained counts/occupancy/backing peaks match the old-kernel overlay: leaf/cycle
+cycles 25/23, assists 25/23, normal steps 100/103, end objects 1,536/2,304,
+end backing 29,744/62,920 bytes, observed peak objects 2,711/3,296, managed peak
+49,192/90,376 bytes. These observations do not establish all Runtime memory gates.
+Step observations total 7,700/7,931; no >=10,000-event/process p99 claim follows.
+All original post-release zero-object/zero-backing assertions pass.
+
+The publication regression needs code-generation/layout diagnosis. Fixed
+EdgeField::set and Marking source are unchanged since RR00. The archived arm64
+EdgeField::set instruction sequences differ in offsets/addresses only; the
+candidate's Marking::publish_admitted outlines PhysicalHeap::locate while the
+baseline inlines it. No accounting operation appears in that hot set sequence,
+so attributing its slowdown to accounting hooks is unsupported. This is evidence
+for the next investigation, not a measured remedy.
+
+Collector source SHA-256 is
+`00d7b387c21c1eb5dd56b9202bd81321e5f8e962a029d5d43411c81bc0c2068c`;
+fixture hash `eeedeb6ddbcd1da639b6ea3d5695344b17852fbbd2cdabf1fd0f84fe3ea2ff13`,
+analysis hash `49d0e10c571bbd1e8e8a71d7dc88a2eb974459913709951fd607be7632359c6a`,
+lock hash `bd97dc84d0c2a3cb41738dc3734b635cba4c048f78dfcac2b74753373354a368`.
+For reference_access, baseline/candidate image hashes are
+`f297f979c3d6e44a4192d63aedb01c46d18e22439deb5c7908c2cb6f3441e69d` /
+`9c36067b795641ceb341176ca7c13b787d3202dd68180f6508abf60a97da3f79`;
+for sustained_allocation,
+`c1c09c3b48b444a416114e6cbf60fe3b3fe42796180c230a355f2095cae75ed6` /
+`d60693220a10c0e421ea59b3721d90304799a9fcc8b8f2d06e23cd1eb437eb8c`.
+
+Original runtime_storage Vec-backed recipes still fail source analysis with the
+ordinary installed standard declarations (unknown Vec/Vec::new). Their acceptance
+remains with the authorized NC deferral; no array replacement or historical-time
+denominator is used. RR05 remains open for failing root gates, integrated whole
+cost/memory/service reconciliation and separately pending CI.
+
+### RR05 coalesced retirement requests and scalar entry
+
+The next image adds one SessionStore-owned retirement notice shared with its
+ExecutionOwners. Owner drop publishes abandonment then the notice; the idle
+driver clears the notice before the original checked scan, preserving concurrent
+requests. Quarantine forces scanning even without a notice. Finished handles
+request no scan. Public native_scope now exercises cross-thread drop, exactly-one
+then zero drain, and the retained sibling's original managed result. The existing
+Runtime payload/control-waker fault and async retirement owners pass too.
+Pure scalar entry also uses the existing builtin-payload predicate directly,
+with terminal-state and per-argument cancellation checks; other types retain
+full matching in one physical scope. This uses no managed-reference accessor.
+
+The same ordinary release procedure (seven alternating pairs, 3/11 samples,
+all 3,696 oracles validated) gives the following paired ratios. These are one
+image's results; no earlier candidate's passing row is substituted. Build time
+40.96 seconds is excluded. No build/test/Miri/profiler overlaps its timing.
+
+| Case | Admission | Retirement | Full collection |
+| --- | ---: | ---: | ---: |
+| roots_1_tail_cancel | 1.2307 | 1.0373 | 0.1567 |
+| roots_1_tail_complete | 1.2455 | 1.0000 | 0.1685 |
+| roots_256_forward_cancel | 0.7930 | 0.4651 | 0.3112 |
+| roots_256_forward_complete | 0.7913 | 0.4054 | 0.3078 |
+| roots_256_random_cancel | 0.7921 | 0.5116 | 0.3078 |
+| roots_256_random_complete | 0.7917 | 0.4534 | 0.3012 |
+| roots_32_tail_cancel | 1.1406 | 0.9815 | 0.1649 |
+| roots_32_tail_complete | 1.1448 | 0.9239 | 0.1724 |
+
+All retirement and collection gates pass, as do all 256-root admission rows.
+The four one/32-root admission rows still fail 1.05; RR05 remains open. This is
+not an attribution of scalar matching versus the notification changes in
+isolation. Larger populations benefit from avoiding repeated scans; small-root
+fixed entry/park preparation still requires diagnosis. Exact selected body and
+ordinary current inner-call behavior remain covered by the selected owned reload
+and observer owners. Diagnostic allocation/capacity gates are separate and pending.
+
+Candidate executable SHA-256: `3d0387c3f91e5c1d80832f7d35027484f488f0ce7d0335ca43dd38976239955a`.
+Baseline image/environment/source-comparison method remain those recorded above.
+
+### RR05 original-control allocation and reuse snapshots
+
+Build separate images using the same build command plus `--features diagnostics`
+and run the existing `--interpreter-only --execution-controls --diagnostics`
+mode. The unchanged counting allocator and fixture own measurement: prepare the
+Program and warm an independent Runtime outside counting, then include one entire
+new Runtime lifetime, its load/setup and three live/empty churn cycles inside
+counting. The outer host handle Vec is preallocated before counting; state this
+shared fixed exclusion explicitly. Compilation/source artifact preparation stay
+outside counting. The two diagnostic build costs are 33.48/37.41 seconds, excluded;
+no latency claim uses these instrumented images.
+
+Seven alternating fresh-process pairs use the same machine/toolchain/profile and
+API-only control-source comparison above. For each case/process take the maximum
+of three live snapshots and three empty snapshots before paired normalization;
+retain setup and cumulative request counts separately. All 112 complete Runtime
+lifetimes (336 churn cycles) reach zero net allocator bytes after teardown; the
+second and third empty net-byte snapshots are equal in every case. These are
+requested allocation bytes without allocator overhead, not RSS or a continuous
+peak measurement. One setup snapshot is taken per independent Runtime, not three
+separate setup lifetimes inside a process. No build, test, profiler or Miri overlaps
+the diagnostic execution. A separate candidate preflight passes the same oracles
+but is excluded from the seven-pair statistics.
+
+Setup net requested-byte process medians are 1,453,768 / 1,459,751 bytes (old/new);
+the paired ratio is 1.003984, below 1.10. Post-setup live/empty capacity deltas are:
+
+| Case | Old live growth | New live growth | Old empty growth | New empty growth |
+| --- | ---: | ---: | ---: | ---: |
+| roots_1_tail_complete | 8,504 | 5,628 | 8,032 | 5,108 |
+| roots_1_tail_cancel | 7,216 | 5,628 | 6,744 | 5,108 |
+| roots_32_tail_complete | 109,784 | 99,344 | 94,680 | 79,604 |
+| roots_32_tail_cancel | 108,496 | 99,344 | 93,392 | 79,604 |
+| roots_256_forward_complete | 868,696 | 802,704 | 747,864 | 644,084 |
+| roots_256_forward_cancel | 867,408 | 802,704 | 746,576 | 644,084 |
+| roots_256_random_complete | 868,696 | 802,704 | 747,864 | 644,084 |
+| roots_256_random_cancel | 867,408 | 802,704 | 746,576 | 644,084 |
+
+All live/empty snapshot bounds pass B + max(0.10 B, 4096 bytes); the new post-setup
+capacity deltas are smaller in every case. Setup remains separately bounded, so
+its roughly 1.46 MB does not hide growth. Full live-net ratios range approximately
+0.974-1.003 and full empty-net ratios 0.955-1.003. These results prove bounded
+observed reuse and complete requested-byte teardown for this original workload.
+They do not establish actual transient peak bytes, standalone or Vec/Map memory,
+all managed workloads, GC step latency, or passing root admission throughput.
+Those obligations remain at the GC register and RR05 owner.
+
+Diagnostic executable SHA-256 identifiers:
+
+- baseline: `bb1d87e3a5a629dd75b29a007ab42769ae129faaf85df26439be3fbf826e0087`.
+- candidate: `a97cbb3903feab3b1d1ebb17d585ccd6828e1ab6d29632007749043d283b80a7`.
+
+### RR05 checked parking and final ordinary root controls
+
+A separate sampling probe extends the original one-root complete recipe for ten
+seconds after warming, retaining the same Fixture::park/retire/collect and value/
+readiness/drain assertions. It validates 3,153,287 cycles. After ROOT_PROFILE_READY,
+macOS `sample PID 5 1 -file ...` records 3,636 main-thread samples in five seconds
+at 1-ms intervals. The 1.90-second build is excluded. Ordinary workspace release,
+M1 Max/macOS 26.6.2/Rust 1.99.1/default target and parallelism apply. No build,
+other benchmark, diagnostics or Miri overlaps sampling. The temporary readiness/
+repetition code is restored byte-for-byte before gate builds. Profile image SHA
+is `4a0c352a3af1ddafaac868b46fcd645d92d544aae5bab7bb6a9c8d0cb31a480b`.
+The trace shows costs across session creation, frame admission, execution and
+parking; it does not isolate the RR00 regression or assign exact ns/function.
+No sampling throughput is substituted for the frozen estimator.
+
+Three ownership repairs reuse checked session/control loans and avoid allocating
+an all-None resumed-link staging list. A bounded source query then recognizes
+actual inline-only banks with the session's admitted revision as their sole
+dependency, no Native source record, and valid frame banks. It reads no managed
+pointer; data objects, ephemeral cells, additional computation dependencies or
+larger states use the full existing physical graph walk. The strengthened existing
+receiver-data owner requires actual parking to trap when a scalar frame's extra
+application dependency privately retains a Host receiver. No static slot layout
+or cached transitive admission replaces mutable-graph inspection. Real GC root
+tracing, publication, current selection and retained-body semantics are unchanged.
+
+The next control/storage reuse step removes repeated ID lookups within that
+closed read. Finally, the idle retirement query acquire-loads its notification
+before an exchange, avoiding writes when there is no work. A reported request
+still exchanges before the original complete scan; quarantine forces a scan.
+Cross-thread drain, fault cleanup, reload, observer, bank and parking owners pass.
+
+The control-borrow image's four small admission ratios are 1.1598/1.1322 (one
+cancel/complete), 1.1169/1.1198 (32 tail); all fail 1.05. The first inline-query
+image passes one-complete at 1.0367, but fails one-cancel 1.0577 and 32-tail
+1.0666/1.0648. Reusing checked control/storage passes 32-tail 1.0295/1.0346 and
+one-complete 1.0376, but fails one-cancel 1.0588. These are distinct complete
+comparisons after relevant code changes, not favorable reruns of unchanged code.
+
+The final read-only-notice image builds in 38.49 seconds, excluded. Its seven
+alternating fresh-process pairs validate every original value/cancellation/drain
+oracle and all 3,696 samples, using the immutable archived ordinary RR00 image.
+A rejected preliminary attempt had copied the old worktree's later diagnostic
+build from its shared target path; its startup guard rejected throughput before
+any candidate sample. It yields no comparison. Verify the archived baseline SHA
+explicitly instead of trusting that shared target path. All images below use the
+original three warmups/eleven samples and source/API preflight described above.
+
+| Case | Admission ratio | Retirement ratio | Collection ratio |
+| --- | ---: | ---: | ---: |
+| roots_1_tail_cancel | 1.0198 | 1.0000 | 0.1567 |
+| roots_1_tail_complete | 1.0383 | 0.9542 | 0.1586 |
+| roots_256_forward_cancel | 0.7254 | 0.4476 | 0.3033 |
+| roots_256_forward_complete | 0.7286 | 0.3915 | 0.2891 |
+| roots_256_random_cancel | 0.7234 | 0.4955 | 0.2956 |
+| roots_256_random_complete | 0.7220 | 0.4372 | 0.2888 |
+| roots_32_tail_cancel | 1.0269 | 0.9432 | 0.1627 |
+| roots_32_tail_complete | 1.0302 | 0.8884 | 0.1608 |
+
+All 24 root control rows in this one image meet the unchanged 1.05 paired-median
+threshold. Some individual pair ranges exceed it: one-cancel admission is
+1.0000..1.0797 and one-complete 1.0000..1.0588. The estimator remains the frozen
+median of paired process-median quotients; this is not a worst-pair or significance
+claim. Ordinary call gates, diagnostic memory peaks, integrated active/sustained
+GC, NC admission gaps and CI remain separate RR05 obligations.
+
+Candidate ordinary root image SHA-256: `4a35d1fba351873307cf681ddc7adf7c16f1b01c0299a1f3d99c3446d2f3fd1b`.
+RR00 remains `f301ce04a816696dab8bde2ce025cee86a9101062d0f084110d6d380ee22df8c`.
+
+### RR05 ordinary call regression check
+
+After the final root repair, build the unmodified ordinary core_calls integration
+binary with `cargo test -p kagari-runtime --release --test core_calls --no-run
+--locked --message-format=json`. The build takes 26.49 seconds, excluded. Copy the
+reported image, verify the original frozen RR00 SHA, and run the same two ignored
+owners through `--ignored --nocapture --test-threads=1` in seven alternating fresh-
+process pairs. The original three warmups and eleven 10,000-call samples per route
+and all result/callback oracles remain unchanged (1,540 validated samples).
+No compilation, diagnostics, Miri, profiler or other measurement overlaps timing.
+Machine/toolchain/profile/cache policy match the root record above.
+
+| Route | RR00 ns/call | RR05 ns/call | Paired ratio | Pair range |
+| --- | ---: | ---: | ---: | --- |
+| core/empty | 3042.9 | 3368.9 | 1.0801 | 1.0637..1.1355 |
+| core/script | 3543.0 | 3746.6 | 1.0601 | 1.0416..1.1536 |
+| core/native | 6563.3 | 5232.5 | 0.7951 | 0.5529..0.8508 |
+| internal/script | 415.6 | 303.4 | 0.7159 | 0.6992..0.7981 |
+| internal/raw_empty | 504.6 | 487.6 | 0.9551 | 0.9150..1.0066 |
+| internal/raw_scalar | 522.2 | 558.2 | 1.0589 | 0.9540..1.0998 |
+| internal/typed_empty | 1601.2 | 695.7 | 0.4244 | 0.3688..0.4400 |
+| internal/typed_scalar | 3056.4 | 864.7 | 0.2781 | 0.2759..0.2912 |
+| internal/borrowed | 2445.3 | 1258.7 | 0.5073 | 0.4940..0.5223 |
+| internal/owned | 3243.5 | 1091.7 | 0.3347 | 0.3315..0.3369 |
+
+All ten routes in this one image pass the unchanged 1.10 paired-median gate.
+This rechecks the shared frame/control changes, independently of the 24 original
+root controls; it does not replace diagnostic/GC gates or CI. The image SHA is
+`56a1e16d42f6c6a3d7d10cc0048f567fbfd7b41790d774235581ee968b1837e6`;
+RR00 remains `dcad529e99a95332bce33e2883ee909136c3b9f144428bd80afcba985f669b7e`.
+The root image is `4a35d1fba351873307cf681ddc7adf7c16f1b01c0299a1f3d99c3446d2f3fd1b`.
+Both are built from the same current Runtime implementation. A sorted recursive
+path/NUL/SHA-256 stream over all Runtime src/**/*.rs files (including the new
+parking source) hashes to
+`ae6d68e7653404d422c2310ef4535e49d14722bb54005036c404489caa589031`;
+parking.rs itself hashes to
+`bcf392af0000dc7258b9f1c761eac27af2264b4bdc869c02765fe9dc308f496c`.
+These describe the uncommitted build inputs, not a fictional committed revision.
+
+### RR05 allocator-event peaks and complete diagnostic lifetimes
+
+The existing opt-in allocator now tracks peak net requested bytes at each
+successful alloc/alloc_zeroed/realloc and deallocation event. `reset_peak` starts
+a post-setup interval at current net bytes without resetting request/net totals;
+the copied setup snapshot retains its preceding peak. The focused feature-enabled
+counter test allocates then releases 8 KiB before any final snapshot, resets the
+peak, then allocates/releases 4 KiB: it independently checks both transient peaks,
+zero final net bytes and unchanged total requests/bytes. An initial default-feature
+filter matched zero tests; only the later `--features execution-diagnostics`
+exact one-test pass supplies this evidence. Workspace all-target Clippy and
+additional Runtime all-target diagnostic-feature Clippy pass.
+
+For matched diagnostics, start from a clean whole RR00 worktree and apply exactly
+the same allocator source and peak/reset/replicate instrumentation there and in
+the current harness. This is an explicit measurement-only overlay on RR00, not an
+unmodified original binary or an old Runtime on a new collector. After normalizing
+only the reviewed Runtime/RootedValue API port, require exact controls source
+equality; allocator source is byte-identical. Keep the original hold program,
+population/order/seed, park/retire/collect, result/cancellation and cleanup oracles.
+Build both with the previous diagnostic command; builds take 34.81/42.25 seconds,
+excluded. Archive images, actual dirty revisions/patch and source/lock hashes.
+Restore the old source bytes after the comparison; its Git diff is then empty.
+
+Each case/process measures three independent complete Runtime lifetimes, each with
+three live/empty churn cycles. Take the maximum of those three lifetimes before
+paired normalization, retaining request/net/peak fields from every sample. Seven
+alternating fresh-process pairs validate all 336 Runtime lifetimes and 1,008 churn
+cycles. Every teardown has zero net bytes, and repeated empty storage plateaus.
+No build, test, Miri, profiler or competing measurement overlaps diagnostics.
+The same preallocated outer Host handle Vec and source/artifact preparation are
+excluded on both sides; Runtime construction/loading and its complete owned
+allocation lifetime remain inside. The environment/cache/profile policy is the
+M1 Max/Rust 1.99.1 record above. Diagnostics are not execution latency results.
+
+Peak means successful allocator-event requested-byte ownership, not RSS, allocator
+metadata/internal temporaries or total process/OS-stack memory. A realloc records
+the new owned request after success; it cannot expose the allocator's internal
+old/new copy coexistence. Runtime-owned separate replacement buffers are observed
+while both are live. Setup peak is retained independently; full lifecycle peak is
+the maximum of setup and post-setup peaks, including cleanup. This closes the
+previous snapshot-only gap for the original root workload, within that definition.
+
+Per-process-maxima medians are:
+
+| Case | Old post-setup peak | New post-setup peak | Old whole-lifetime peak | New whole-lifetime peak | Old/new post-setup growth peaks |
+| --- | ---: | ---: | ---: | ---: | --- |
+| roots_1_tail_complete | 1,462,632 | 1,465,187 | 2,022,546 | 2,027,953 | 8,576 / 5,628 |
+| roots_1_tail_cancel | 1,462,856 | 1,466,771 | 2,022,546 | 2,027,953 | 8,800 / 7,212 |
+| roots_32_tail_complete | 1,563,912 | 1,558,903 | 2,022,546 | 2,027,953 | 109,856 / 99,344 |
+| roots_32_tail_cancel | 1,564,136 | 1,560,487 | 2,022,546 | 2,027,953 | 110,080 / 100,928 |
+| roots_256_forward_complete | 2,322,824 | 2,262,263 | 2,322,824 | 2,262,263 | 868,768 / 802,704 |
+| roots_256_forward_cancel | 2,323,048 | 2,263,847 | 2,323,048 | 2,263,847 | 868,992 / 804,288 |
+| roots_256_random_complete | 2,322,824 | 2,262,263 | 2,322,824 | 2,262,263 | 868,768 / 802,704 |
+| roots_256_random_cancel | 2,323,048 | 2,263,847 | 2,323,048 | 2,263,847 | 868,992 / 804,288 |
+
+Setup retained medians are 1,454,056 / 1,459,559 bytes; setup peak medians are
+2,022,546 / 2,027,953 bytes. The setup peak paired ratio is 1.002768, below 1.10.
+All setup/live/empty/post-setup/whole-lifetime peak bounds pass independently,
+including B + max(0.10 B, 4096) for the applicable backing/peak rows; all seven
+individual pairs also satisfy those bounds. For 256 roots, whole-lifetime peak
+ratios are 0.9740-0.9746. These are original-control results, not Vec/Map or all
+managed-program memory acceptance. Inherited collection-backed fixtures remain
+with their separately named NC admission gap.
+
+Diagnostic image SHA-256 identifiers:
+
+- baseline: `ae1ceea29017f4f2bf80131d0f7b754e89eb6a6c80fa3d5bdb541ee248399583`.
+- candidate: `cd41fb88f05b2b688f2d483ac632dd785dcd5c4c6939160e534eb1d9e10fe7f0`.
+
+The peak counter, triple diagnostic replication and reset call are entirely
+feature-gated measurement changes. They alter neither ordinary Runtime paths nor
+the uninstrumented hold workload; the passing ordinary root/core images above
+remain the measured latency evidence. No new latency is claimed for these images.
+
+### RR05 final call allocation and preparation diagnostics
+
+After ordinary timing, build the same core_calls owners separately with
+`--features execution-diagnostics` and run both ignored measurement owners through
+`--ignored --nocapture --test-threads=1`. The 30.06-s release build is excluded;
+both owners pass all result/callback assertions. Machine, toolchain, default
+target/parallelism and warm dependencies match the ordinary-call record. Ignore
+all instrumented timing. The diagnostic image SHA-256 is
+`2cf6d2119fb0c429ee31a258ef254366b0ec638cb6e0254a2f472c0ff31facfc`.
+
+Whole warmed Host entry still allocates: empty/script/Native respectively request
+25/27/29 allocations, zero reallocations and 1,256/1,292/1,644 bytes. These include
+execution/control entry, result retention and teardown; zero Native call-local
+cost does not mean zero complete Host-call cost.
+
+| Internal route | One callback: allocations/reallocations/bytes | 10,000 callbacks: allocations/reallocations/bytes |
+| --- | ---: | ---: |
+| raw empty | 42 / 0 / 2,420 | 42 / 0 / 2,420 |
+| raw scalar | 42 / 0 / 2,429 | 42 / 0 / 2,429 |
+| typed empty | 42 / 0 / 2,420 | 42 / 0 / 2,420 |
+| typed scalar | 42 / 0 / 2,429 | 42 / 0 / 2,429 |
+| borrowed payload | 51 / 0 / 2,924 | 51 / 0 / 2,924 |
+| script helper | 42 / 0 / 2,167 | 42 / 3 / 5,111 |
+| owned String converter | 44 / 0 / 2,491 | 10,043 / 0 / 72,484 |
+
+The borrowed route also requests 51/0/2,924 at zero loop callbacks: its actual
+constructor and fixed outer entry own that cost. The owned converter intentionally
+creates one Rust String per call. Script source growth makes three reallocations;
+there is no zero whole-script allocation claim. The scalar/empty Native routes
+have no allocation growth with callback count; RR04's closed warmed interval
+independently observes zero allocator requests and zero Host registrations inside
+the callback loop, avoiding attribution from these totals alone.
+
+At 10,000 loop calls every route records zero call descriptors, fixed Native type
+mappings, layout comparisons, environment allocations, metadata graph admissions
+and method/interface/shared/operation preparation. Call selections are 10,000 and
+admissions/returns 10,001, including the outer script frame. The borrowed route has
+one additional constructor call. Whole-activation Host root registrations are one,
+or three for the borrowed constructor route; they do not scale with callbacks.
+Pending inline Native results still reserve real Unit source cells. Initialized
+and reserved source/control/collector capacity remains in execution_usage; no
+claim removes those bytes or treats the inline path as an untraced second store.
+
+Reproduction, separate from ordinary latency measurements:
+
+```text
+cargo test -p kagari-runtime --release --test core_calls --no-run --locked --features execution-diagnostics --message-format=json
+<reported diagnostic executable> --ignored --nocapture --test-threads=1
+```
+
 ## RR04 internal leaf transitions and Native completion, macOS 2026-11-14
 
 Uncommitted RR04 now keeps eligible scalar leaf calls/returns inside one paired

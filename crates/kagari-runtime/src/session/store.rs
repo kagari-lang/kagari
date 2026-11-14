@@ -19,7 +19,10 @@ use crate::{
 use std::{
     cell::{Ref, RefCell, RefMut},
     mem,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 #[derive(Debug, Default)]
@@ -39,6 +42,7 @@ pub(crate) struct SessionStorage {
 pub(crate) struct SessionStore {
     records: RefCell<Records>,
     frames: RefCell<Vec<Vec<ExecutionFrame>>>,
+    retirement_notice: Arc<AtomicBool>,
 }
 
 impl SessionStore {
@@ -87,7 +91,22 @@ impl SessionStore {
         }
     }
 
+    /// Owners may be dropped off-thread. This coalesces scan requests without
+    /// lending records or granting retirement authority to the dropping thread.
+    pub(crate) fn retirement_notice(&self) -> Arc<AtomicBool> {
+        self.retirement_notice.clone()
+    }
+
     pub(crate) fn retired_owners(&self, quarantined: bool) -> Vec<SessionId> {
+        // An idle query need not write the notification cache line. A drop after
+        // this load remains pending for the next boundary, as after a scan.
+        if !quarantined && !self.retirement_notice.load(Ordering::Acquire) {
+            return Vec::new();
+        }
+        // Clear before scanning: a concurrent drop after its record was visited
+        // remains pending for the next idle driver boundary. Quarantine must
+        // inspect retained owners too, independently of drop notifications.
+        self.retirement_notice.swap(false, Ordering::AcqRel);
         self.records
             .borrow()
             .slots

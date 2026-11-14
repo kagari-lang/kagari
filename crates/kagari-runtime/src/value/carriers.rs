@@ -210,6 +210,11 @@ impl<'gc> ScopedValue<'gc> {
 }
 
 impl StoredValue {
+    /// Inspect inline data without borrowing or exposing a stored edge.
+    pub(crate) fn is_inline_scalar(&self) -> bool {
+        self.0.scalar_payload().is_some()
+    }
+
     pub(crate) const fn unit() -> Self {
         Self(Representation::Unit)
     }
@@ -343,6 +348,11 @@ impl StoredValue {
 }
 
 impl RootedValue {
+    /// Copy inline bits only; managed roots still require physical admission.
+    pub(crate) fn scalar_payload(&self) -> Option<(ValueType, u64)> {
+        self.0.scalar_payload()
+    }
+
     /// An inline Unit value. Constructing or cloning it registers no GC root.
     pub const fn unit() -> Self {
         Self(Representation::Unit)

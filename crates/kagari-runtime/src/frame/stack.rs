@@ -76,24 +76,22 @@ impl FrameStack {
             .expect("live execution scope")
     }
 
-    pub(super) fn validate_top(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
-        self.validate_owner(runtime)?;
-        runtime.resources().ensure_execution_allowed()?;
-        if !runtime
-            .resources()
-            .active_session()
-            .is_some_and(|active| active.id == self.session)
-        {
-            return Err(runtime
-                .resources()
-                .quarantine(EngineFault::ExecutionUsedASuspendedSession));
+    pub(super) fn validate_top<'r>(
+        &self,
+        runtime: &'r Runtime,
+    ) -> Result<Ref<'r, SessionState>, RuntimeError> {
+        let resources = runtime.resources();
+        let session = resources.sessions.get(self.session).ok_or_else(|| {
+            RuntimeError::module_validation("execution stack belongs to another runtime")
+        })?;
+        resources.ensure_execution_allowed()?;
+        if resources.active_session_id() != Some(self.session) {
+            return Err(resources.quarantine(EngineFault::ExecutionUsedASuspendedSession));
         }
-        if self.session_state(runtime).frame_scopes.borrow().last() != Some(&self.id) {
-            return Err(runtime
-                .resources()
-                .quarantine(EngineFault::ExecutionUsedASuspendedFrameScope));
+        if session.frame_scopes.borrow().last() != Some(&self.id) {
+            return Err(resources.quarantine(EngineFault::ExecutionUsedASuspendedFrameScope));
         }
-        Ok(())
+        Ok(session)
     }
 
     pub fn frames<'r>(

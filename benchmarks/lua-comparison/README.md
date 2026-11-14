@@ -122,8 +122,8 @@ uv run python scripts/benchmark_lua.py --baseline-executable target/perf/before
 uv run python scripts/check_benchmark.py <paired-results.json>
 ```
 
-Use `--source-forms`, `--execution-controls` or `--window-controls` on both steps
-for those suites. Window controls use a separate test-harness executable. A focused
+Use `--source-forms` or `--execution-controls` on both steps
+for those suites. A focused
 `--workload calls` run can use the full original baseline report. Optional
 `--baseline-report` selects a report stored elsewhere. Use `--target calls=0.90`
 with the checker when a 10% improvement is required; otherwise the execution
@@ -171,16 +171,17 @@ memory, semantic correctness or CI acceptance.
 parity. It parks 1/32/256 owned executions after one instruction, then completes
 or cancels them in tail, forward or seeded random order (seed `0x4b4147415249`).
 Admission, retirement and explicit post-retirement collection have separate rows;
-compilation/setup is outside these control timers. Three equal diagnostic cycles
-record setup/live/empty/reused requested bytes and zero-net runtime teardown.
+compilation/setup is outside these control timers. Diagnostic mode repeats each
+case with three independent complete Runtime lifetimes, each with three equal
+churn cycles, recording setup/live/empty/reused requested bytes and zero-net
+teardown. Allocator-event peaks cover setup, post-setup and the whole lifetime;
+the peak reset preserves request/net totals. Source/artifact preparation and the
+preallocated outer Host-handle Vec are outside those counts. These are owned
+requested bytes, not allocator internals or RSS.
 Run the diagnostic build with `--execution-controls --diagnostics`; never use
-instrumented timings. Private window controls additionally cover zero-width and
-mixed scalar/managed windows, deep allocation, holes and reuse; they are storage
-measurements, not substitutes for these full session controls.
-Their `--window-controls` mode builds/freezes the ordinary release library test
-harness and uses the same report/checker protocol, with 32 cycles per sample and
-separate admission/retirement/fragmentation rows. Its binary is distinct from the
-Lua benchmark executable. Never substitute the diagnostic test executable.
+instrumented timings. Runtime owner tests cover scalar/managed banks, stack-space
+limits, suffix retirement/reuse and independent execution ownership. Those tests
+are correctness evidence, separate from the full owned-execution control timings.
 
 | Workload | Input | Measured script work |
 | --- | ---: | --- |

@@ -5,7 +5,7 @@ use super::reserve_bank;
 #[cfg(test)]
 mod tests;
 use crate::{
-    execution::roots::{ExecutionRoots, LocalMark, SessionId, Slots, ValueBank},
+    execution::roots::{ExecutionRoots, ExecutionStorage, LocalMark, SessionId, Slots, ValueBank},
     value::carriers::StoredValue,
 };
 use kagari_gc::error::GcError;
@@ -43,15 +43,22 @@ impl ExecutionRoots {
         let Ok(storage) = self.inspect_storage(banks.execution) else {
             return false;
         };
+        storage.contains_frame_banks(banks)
+    }
+}
+
+impl ExecutionStorage {
+    /// Geometry only, after the source owner admitted this execution's identity.
+    pub(super) fn contains_frame_banks(&self, banks: FrameBanks) -> bool {
         let Some(managed_end) = banks.managed.checked_add(banks.managed_count) else {
             return false;
         };
         let Some(scalar_end) = banks.scalars.checked_add(banks.scalar_count) else {
             return false;
         };
-        managed_end <= storage.banks[ValueBank::Managed.index()].len()
-            && scalar_end <= storage.scalars.len()
-            && scalar_end <= storage.initialized.len()
+        managed_end <= self.banks[ValueBank::Managed.index()].len()
+            && scalar_end <= self.scalars.len()
+            && scalar_end <= self.initialized.len()
     }
 }
 

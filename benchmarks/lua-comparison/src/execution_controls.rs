@@ -139,7 +139,9 @@ pub(super) fn run(options: &Options) {
             let name = format!("roots_{population}_{order}_{mode}");
             #[cfg(feature = "diagnostics")]
             if options.diagnostics {
-                count(&engine, &program, population, &indices, cancel, &name);
+                for _ in 0..3 {
+                    count(&engine, &program, population, &indices, cancel, &name);
+                }
                 continue;
             }
             let mut roots = Vec::with_capacity(population);
@@ -187,6 +189,9 @@ fn count(
         diagnostics::measure(|| {
             let mut fixture = Fixture::new(engine, program);
             let setup = allocations::current().unwrap();
+            // Keep the setup peak in its snapshot; subsequent peaks cover the
+            // complete post-setup churn, including transient work between reads.
+            allocations::reset_peak();
             let mut phases = [(setup, setup); 3];
             for phase in &mut phases {
                 fixture.park(&mut roots, population);

@@ -1,13 +1,14 @@
 # Runtime, Host and GC Execution Plan
 
-Status: RR00-RR04 completed locally. RR04 exits on 2026-11-14 with compact actual
-frame/source reuse, one Native protocol, VM-byte/Native-stack limits and verified
-scalar self-tail replacement. One final ordinary image meets all ten frozen
-paired-median latency gates, with selected lifecycle and local checkpoint checks
-passing. RR05 is next; RR06 remains pending. Phase completion is not a passing CI
-or final whole-cost/GC acceptance claim. The
+Status: RR00-RR05 completed locally. RR05's final ordinary images meet all 34
+frozen call/root latency gates, and matched allocator-event lifetime peaks meet
+the original root-control memory bounds. Selected public provider, source-free,
+parking/reentry, fault/retirement and strict-provenance Miri witnesses pass.
+RR06 is next. Full CI and the explicitly deferred NC-dependent workloads remain
+unclaimed. Local phase completion is not full-workspace/CI acceptance. The
 [RR03 exit audit](#rr03-production-proofs-and-local-phase-exit) and
-[RR04 exit audit](#rr04-local-phase-exit-and-rr05-entry) supersede historical
+[RR04 exit audit](#rr04-local-phase-exit-and-rr05-entry) and
+[RR05 exit audit](#rr05-local-exit-and-rr06-handoff) supersede historical
 intermediate errors and open-gate statements in the ledger below.
 
 Runtime owns one ManagedMemory/RootDriver<ExecutionRoots> and separate
@@ -18,8 +19,9 @@ Native extraction APIs are removed. Exclusive mutable services and prepared
 Native/Host bindings remain the RR02 protocol. Resource/session attribution and
 opt-in diagnostics observe actual commits and storage operations. Default workspace
 all-target Clippy and selected diagnostic/AOT/serde/JIT consumer checks pass.
-Inherited NC provider gaps, R13, full CI/Miri and RR05 whole-cost performance work remain
-explicit; no standard-library reconstruction is part of this cutover.
+Inherited NC provider gaps, R13 and exhaustive CI/Miri remain explicit; no
+standard-library reconstruction is part of this cutover. Measured whole costs and
+remaining comparison limits are recorded at the performance and GC owners.
 
 This is the single execution plan for the coordinated Runtime/Host/GC refactor.
 The [Runtime design](runtime-refactor-design.md) owns the selected records and
@@ -10191,3 +10193,690 @@ Expected behavior: original semantic, borrowing, cancellation, current/retained 
 Scope: public application-owned provider/callback/managed-edge proof; remaining representative boundaries and RR00/GCR workloads; no NC library rebuild or R13 migration.
 Validation: reuse unchanged passing evidence; run only missing/affected local contracts, required workspace Clippy and matched whole-cost measurements; record CI separately.
 Known intermediate errors: none carried from RR04; inherited provider gaps and missing whole-entry/GC measurements remain explicitly owned by RR05 or their deferred plan.
+
+### RR05 entry: actual public scope consumer and acceptance inventory
+
+RR04 is committed as `4c18a99a7`; the worktree was clean at RR05 entry. The
+remaining work is the RR05 contract above, not another storage/Native migration.
+Read the actual public core_calls consumers and the GC acceptance register's
+workload/method/gate mapping before adding another fixture or measurement runner.
+The standalone runner already belongs to scripts/benchmark_gc.py; integrated
+storage examples and their original sources remain their own owners. Inherited
+Vec/Map/root denominators and retained/peak/collection bounds cannot be replaced
+by the passing ordinary-call table or a new standalone characterization.
+
+The first actual public-consumer run exposed a stale driver assumption in
+native_scratch_replaces_managed_state_and_retires_on_all_exits. Its owned-resume
+sequence expected a full NativeEntry/NativeReturn frame even though RR04 now
+completes this closed synchronous callback directly through NativeCall. It failed
+the exact RegionExit::Call assertion after the callback had already executed;
+the deliberate caught scope-unwind diagnostic earlier in the output was not the
+failure. The consumer now requires Safepoint at successful Native completion,
+then executes the original script Return. It retains every foreign-view rejection,
+two-owned-root/parking/retirement, managed string/array, nested scratch, actual GC,
+error/unwind/cancellation, exact result and final object/root/depth assertion.
+No observer forces the removed physical-frame route and no semantic oracle is
+weakened. The focused rerun passes:
+
+```text
+cargo test -p kagari-runtime --test core_calls -- native_scratch_replaces_managed_state_and_retires_on_all_exits --nocapture
+```
+
+This public proof already covers genuine managed temporary state and complete
+cleanup. It does not yet supply RR05's combined application-owned native payload
+with a private managed edge and a script callback through the public Host API.
+Inspect ManagedStorage/Field and current public payload/call authoring consumers
+to strengthen an existing suitable owner rather than duplicate these scratch
+scenarios. The runtime_storage source still includes Vec-backed graph recipes;
+retain the original workload and inherited NC limitations when establishing its
+actual comparability. No new source-analysis failure or GC comparison result is
+inferred from this inventory alone. Next implement that finite missing public
+integration witness and audit which existing GC/whole-cost rows have valid
+matched baselines and which still need actual measurement. RR05 stays active
+and uncommitted; no phase/goal completion or external blocker is claimed.
+
+This entry repair passes workspace all-target Clippy, structure (1,969 Rust
+files, zero violations/six unchanged exceptions), fmt and diff checks. It changes
+only the existing integration consumer and this progress record; full CI and
+the missing combined provider/measurement obligations remain unclaimed.
+
+### RR05 public managed provider and strict-provenance scope evidence
+
+The combined external-provider proof already exists at kagari-stdlib's
+native_boundary_payload/managed.rs semantic owner. Its application-authored
+example::managed registration imports public Runtime APIs only: ManagedStorage
+declares private String and Function fields, NativeType binds them, and typed
+Native callbacks build/read/update/invoke the actual payload. The fixed State data
+stays separate from traced fields; a script closure captures the Holder to form a
+real cycle. Standard declarations supply ordinary public String support, not a
+privileged provider or Runtime implementation import. Reuse this owner instead
+of constructing another equivalent core_calls fixture.
+
+Both selected source-free integration owners pass:
+
+```text
+cargo test -p kagari-stdlib --lib -- registered_payload_fields_support_aliases_reentry_and_rootless_callback_cycles stored_callback_keeps_old_code_and_releases_the_old_program_with_its_cycle --nocapture
+```
+
+The first verifies alias mutation, actual GC, Native -> script -> Native reentry,
+completed fixed-data effects after error/unwind, retained callback behavior and
+final object/root cleanup of the callback cycle. The second publishes a replacement:
+the old stored callback returns 42, a new callback returns 43, and dropping the old
+cycle removes old entry authority while the new cycle stays callable. The shared
+fixture round-trips bytecode before the verified loader and runs with collection
+threshold one. This satisfies RR05's combined public provider proof; it does not
+claim a performance result or replace separate borrow/cancellation owners.
+
+The actual public Native-scratch integration also passes strict-provenance Miri
+on nightly-2026-10-22, default aarch64-apple-darwin target/profile, in 342.17 s:
+
+```text
+MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly-2026-10-22 miri test --locked -p kagari-runtime --test core_calls -- native_scope::native_scratch_replaces_managed_state_and_retires_on_all_exits --exact --nocapture
+```
+
+The first two attempts stopped in setup at getcwd, first through SourceDatabase's
+Default and then AnalysisDatabase's Default. They reached no Runtime memory proof.
+The existing test now supplies /native-scope explicitly to both databases through
+their normal public constructors. No filesystem identity is part of this contract;
+no cfg(miri) path, disabled isolation, smaller workload or weakened assertion is
+used. The passing run executes real source analysis, verified loading, Native
+managed temporaries/results, GC, independent owned parking, foreign input rejection,
+error/unwind/cancellation and complete cleanup under Miri.
+
+The pinned nightly also emitted recursion_depth_exceeding_limit while proving
+Send for the recursive Arc-backed application/type witness graph. Runtime's
+compiler recursion limit is now 256, with the concrete reason beside the attribute;
+this is compiler evaluation depth, not VM/Native execution quota or an unsafe Send
+override. A focused nightly Runtime library check passes with the warning absent:
+
+```text
+cargo +nightly-2026-10-22 check --locked -p kagari-runtime --lib
+```
+
+The Miri execution result is reused: this attribute changes no runtime operations
+or layout. Other Runtime/Miri/platform and exhaustive CI combinations remain
+separate; one passing actual integration owner does not claim the whole matrix.
+
+### RR05 GC comparison provenance and inherited fixture admission
+
+The original runtime_storage/workload.kgr still fails source analysis with the
+current ordinary installed standard declarations. The actual CLI check returns
+one failed file, including KG_TYPE_UNKNOWN_TYPE for Vec<Node>/Vec<i32> and
+KG_RESOLVE_UNKNOWN_NAME for Vec::new, before Runtime execution:
+
+```text
+cargo run -p kagari-cli -- check benchmarks/lua-comparison/examples/runtime_storage/workload.kgr
+```
+
+The CLI's engine_builder installs stdlib::modules; the missing declaration is not
+caused by omitting that registration. Original Vec-backed lifecycle/traversal
+denominators therefore remain unavailable under the already authorized NC
+deferral. Do not rebuild Vec, replace those fixtures with arrays, divide by old
+historical times or mark them passing. This does not block independent parked-root
+controls, standalone collector recipes or actual public provider proofs. The
+historical PG00 gate recipe at Git revision 0490f8a4 was read directly for its
+scenario mapping, throughput/memory/collection bounds and original measurement
+limitations; current GCR acceptance remains the owner of those obligations.
+
+For a comparable standalone before/after, create an isolated detached worktree
+at RR04's commit, then restore only crates/kagari-gc/src from frozen RR00
+343c29a21. Its GC sources exactly match that revision. Keep current Cargo.lock,
+workspace/GC manifests, fixtures and analysis scripts byte-identical between
+baseline and candidate. This intentionally measures the old standalone kernel
+under the same build inputs; it is not a claim that a new Runtime runs on the old
+kernel or that the worktree is an original RR00 checkout. The runner records the
+actual HEAD, dirty source diff/hash and complete provenance instead of forging an
+old revision or relaxing its strict metadata comparisons. Other workspace targets
+are not built in this benchmark-only overlay.
+
+The existing benchmark_gc.py runner completed all ten baseline suites with seven
+fresh processes each (70 processes, 4.95 s build excluded). Original fixtures,
+checksums, sample counts, allocator/GC policies and post-release cleanup assertions
+remain unchanged. No Miri/build/profiler/benchmark overlapped those timings; Miri
+was terminal before starting the runner. Candidate pairs will reuse this archive
+after all builds/checks finish, without changing inputs during measurement. These
+new Mac standalone comparisons are characterization, not retroactively frozen
+regression gates or evidence that inherited Runtime/NC rows passed. Full integrated
+throughput, allocation/retained capacity, active/sustained service and required CI
+reconciliation still gate RR05. No external blocker or phase completion is claimed.
+
+### RR05 paired root admission diagnosis and standalone characterization
+
+The standalone collector comparison completed all ten suites and seven
+alternating process pairs (140 fresh processes). Strict archive, metadata and
+raw-result validation passed. No build, Miri or profiler overlapped the timings.
+On the same M1 Max/macOS 26.6.2/Rust 1.99.1 ordinary workspace release inputs,
+sustained leaf/cycle total ns/object ratios are 1.0432/1.0829, allocation ratios
+1.0579/1.1240; median normal-step process maxima are 7.375/10.459 us, with
+7,700/7,931 observations respectively. These event counts do not support the
+10,000-event p99 acceptance claim. Counts and reported occupancy/backing peaks
+match the old-kernel overlay. Reference writes during Mark/Sweep regress:
+typed 1.3923/1.4197 and dynamic 1.3168/1.3363. Duplicate-root full collection
+is 67.000 us, ratio 1.3465; its root stage is 66.623 us, ratio 1.3264.
+These are real characterization results, not newly invented frozen gates or
+substitutes for missing original Runtime fixtures. In particular, neither
+fixed EdgeField::set source nor its archived arm64 instruction sequence gained
+accounting operations: disassembly differs in addresses/field offsets only.
+Publication/scanning code generation and layout need further diagnosis before
+attributing these regressions or tuning the collector.
+
+Original owned-execution controls are runnable independently of NC. Build the
+actual whole RR00 revision 343c29a21 and the candidate with:
+
+```text
+cargo build --release --locked -p kagari-lua-benchmark --bin kagari-lua-benchmark --message-format=json
+```
+
+Run each archived image with --interpreter-only --execution-controls, seven
+alternating fresh-process pairs, three warmups and eleven samples. The existing
+benchmark_results validator checks both complete matrices and each pair's
+size/batch/checksum; all 3,696 samples validate. Exact source preflight permits
+only the actual API port (&mut Runtime and RootedValue) in execution_controls.rs;
+its program, population/order/seed, timer boundaries and cleanup assertions are
+otherwise identical. Both main early-control branches match. Original registry
+packages/checksums are unchanged; the candidate additionally has stacker and its
+three build dependencies. Record actual lock/harness/image hashes separately:
+the normal Lua runner's strict whole-harness hash equality is not claimed.
+Build costs (RR00 118 s; initial candidate 117 s) stay outside timing.
+
+The initial candidate's paired median admission ratios are 1.491-1.576 for
+1/32 tail roots and 1.361-1.379 for 256 forward/random roots, all above the
+inherited 1.05 throughput gate. Collection ratios are 0.16-0.31 and larger
+population retirement improves, but cannot offset admission failures. The
+32-tail cancellation retirement ratio is 1.0572, also above 1.05. Every actual
+result, cancellation kind and final drain assertion passes. Zero automatic
+steps in this workload are not incremental-step acceptance.
+
+Diagnosis: start_owned_execution copied verified parameter types into a Vec,
+reified another owned TypeArgument pack, then opened two physical scopes per
+argument (storability and matching). These selected lexical facts need only a
+closed read. entry_arguments now borrows the exact verified body's TypeView,
+preflights arity/closed binders before roots, and checks original roots, actual
+storability and the full existing matcher together in one scope. No cached
+admission, foreign-root bypass, unchecked nominal identity, escaping reference
+or source analysis is introduced. Empty arguments need no read scope. The
+retained-TypeArgument matcher remains a test-only provenance oracle; real typed
+conversion continues to use protected views.
+
+After that change, a fresh complete paired run measures admission 1.2744/1.2829
+(1 tail cancel/complete), 1.2927/1.2983 (32 tail), 1.2380/1.2416 (256 forward)
+and 1.2188/1.2166 (256 random). This is a measured reduction, still a failed
+1.05 gate. 32-tail cancellation retirement is 1.05035; other retirement and full
+collection rows pass their bounds. Continue diagnosis rather than loosening
+thresholds. The next identified cost is AsyncDataWalk allocating pending/seen
+storage for each metadata-only dependency before immediately excluding it.
+Admit the first node directly and classify metadata after the same candidate/
+execution checks, before allocating data traversal storage. Actual data and
+receiver-owning applications still use full fresh provider traversal and cycle
+tracking; no admission survives across mutation or a park interval.
+
+Focused entry changes pass the public Native scope integration, three selected
+owned lifecycle/reload/observer/tail-cancellation owners, and two stdlib callable
+integration owners including applied nominal scopes. Workspace all-target Clippy,
+structure (1,969 files, zero violations/six unchanged exceptions) and the pinned
+nightly library check pass. The earlier passing integrated Miri run predates
+entry_arguments and must not be represented as exercising that change. Validate
+the data-walk repair at its existing private-edge and parking owners, remeasure
+root gates, then rerun the affected integrated Miri witness. RR05 is active;
+no phase commit or completion is authorized by these still-failing gates.
+
+The direct-first-node data repair passes all seven selected data/parking tests.
+A new complete paired run gives admission ratios 1.2119/1.1849 (one tail
+cancel/complete), 1.2223/1.2278 (32 tail), 1.1779/1.1772 (256 forward) and
+1.1627/1.1595 (256 random). 32-tail cancellation retirement is 1.0585.
+These remain failures; see performance-baseline.md for the full method, immutable
+image hashes, counts and independent standalone results.
+
+A further ownership diagnosis identifies unconditional SessionStore scans on
+start and before/after each drive. With no owner abandoned, each scan still
+borrows every session's owner and checks it. A Runtime-local Arc<AtomicBool>
+notice now coalesces scan requests: OwnedExecution::drop first publishes its
+abandoned flag, then the shared notice, before waking. The idle driver swaps
+that notice before scanning the original complete checked records. A racing drop
+whose record has already been visited therefore remains pending for the next
+boundary. There is no queued raw ID, new reclamation authority or managed root;
+owner/generation/scopes remain the original retirement oracle. Quarantine still
+forces a full scan of retained owners. The one shared allocation belongs to
+SessionStore; ExecutionOwners retain only an Arc, and actual cleanup remains on
+the Runtime thread. This avoids repeated O(population) preparation when no drop
+occurred. It introduces no persistent data-admission cache or second scheduler.
+
+The existing public native_scope integration now drains with both owners retained
+(expect zero), drops one owner on another thread, drains exactly one then zero,
+and runs the survivor through Native/GC to its original exact result. The final
+owner still exercises explicit finish. This strengthens the existing independent
+retirement scenario instead of adding a duplicate fixture. It passes locally,
+as do workspace all-target Clippy, structure/fmt/diff. Two selected SDK owners
+cannot execute: scoped_task_dependency_failure_contract fails source analysis on
+Vec<Task<i32>> and sdk_script_future_and_for_await_contract on Vec<i32>/Vec::from,
+both at their common fixture setup before Runtime. Keep these existing NC gaps;
+no fixture substitution or provider reconstruction is made.
+
+A complete paired notice run (3,696 validated samples; 47.94 s build excluded)
+measures 256 forward/random admission at 0.8177-0.8183/0.8109-0.8118 and retirement
+at 0.5485-0.6631, now passing those unchanged gates. 32-tail cancellation
+retirement is 1.0157, completion 0.9648. One-root cancellation retirement is
+1.0711 (failed), completion 0.9989. Small admission still fails: 1.2639/1.2409
+(one cancel/complete) and 1.1882/1.1991 (32 tail). These results cannot be combined
+with faster medians from another image to claim one passing candidate.
+
+The next finite repair shares the established scalar matching mechanism with
+owned entry: when every supplied value is inline bits and every verified lexical
+parameter is builtin, use the existing scalar::matches_builtin_payload predicate,
+with terminal-heap rejection and the original per-argument cancellation poll.
+Scalars are unconditionally storable and carry no heap/source capability; managed
+or lexical inputs still take the full single physical matching scope. Expose only
+a crate-private inline-bit query on RootedValue, not a managed reference accessor.
+This removes physical preparation for pure scalar admission rather than weakening
+foreign-root/type/borrow validation. Selected owned reload/observer/tail-cancellation
+owners, ordinary paired gates and final integrated Miri are pending this repair.
+
+The scalar-entry change passes the three selected owned reload/observer/
+tail-cancellation owners and workspace all-target Clippy. The new notice model's
+quarantine and async retirement checks pass at their real Runtime owners:
+
+```text
+cargo test -p kagari-runtime --lib -- owned_retirement_drains_all_parked_roots async_native_completion_contract_retirement_and_admission --nocapture
+```
+
+All three pass, including payload/control-waker destructor faults that must drain
+retained siblings without a drop notice. Those focused Runtime owners are usable
+independently of the two NC-blocked SDK fixtures and retain their actual failure
+and cleanup assertions. A finished OwnedExecution handle now requests no further
+scan when dropped: the Runtime has already taken responsibility for retirement.
+This removes false notifications after every completed root, which otherwise
+reintroduced scans during the next drive. Recheck this final image with all
+original paired controls before integrated Miri; no passing root gate is yet
+claimed for the combined repairs.
+
+The latest combined image is ordinary release SHA-256
+3d0387c3f91e5c1d80832f7d35027484f488f0ce7d0335ca43dd38976239955a.
+Its build takes 40.96 s, excluded from timing. A complete fresh paired run uses
+the unchanged original controls and RR00 image f301ce04a816696dab8bde2ce025cee86a9101062d0f084110d6d380ee22df8c:
+all 3,696 samples validate. All retirement/full-collection rows now pass, as do
+256 forward/random admission (0.7913-0.7930). One-root admission is
+1.2307/1.2455 and 32-tail admission 1.1406/1.1448 (cancel/complete), all still
+failed. Retirement is 1.0373/1.0000 for one, 0.9815/0.9239 for 32, and
+0.4054-0.5116 for 256. Complete paired ratios, interpretation and hashes are
+retained in performance-baseline.md. No earlier candidate's passing row replaces
+these failures. The unmeasured scalar-only intermediate build is not reported as
+a timing result or separate speedup.
+
+Latest handwritten imports/visibility/ownership review finds no new re-export,
+glob, deep parent traversal, include or module exception. Structure checks 1,969
+files with zero violations/six unchanged exceptions; fmt, workspace all-target
+Clippy and diff checks pass. Existing selected data/parking, owned reload/observer/
+tail cancellation and Runtime quarantine/async cleanup tests supply their named
+contracts, with the public cross-thread retirement proof passing separately.
+Strict-provenance Miri now runs the updated actual public Native integration
+against the entry/data/notice changes, after all ordinary timing has ended.
+Keep its result pending until the process terminates. In parallel, build separate
+old/current diagnostic images for the unchanged original control allocator/
+reuse/zero-net method; do not mix their instrumentation into ordinary latency.
+Remaining work: diagnose small-root fixed entry/park cost, measure paired complete
+root allocation/capacity gates, reconcile actual integrated active/sustained GC
+and inherited NC limitations, then finish RR05 and documentation RR06. No phase
+commit or completion is claimed while these required obligations remain open.
+
+The updated actual public integration passes strict-provenance Miri in 342.01 s,
+with the same nightly-2026-10-22 command above. It executes the new entry/data/
+retirement path and cross-thread drop/drain assertions, not just the earlier
+scratch route. The only warning is Miri's expected ignored opt-level diagnostic;
+no compiler recursion-depth warning remains. The process exits successfully.
+This replaces the pending status for that selected witness, not the full CI/Miri
+matrix or Native platform-stack checks that Miri does not implement.
+
+Separate diagnostic builds complete in 33.48/37.41 s (old/current), excluded from
+execution. The original controls' diagnostic mode runs seven alternating fresh-
+process pairs, with three live/empty churn cycles per independent Runtime. Both
+images retain the same allocator, warm fixture, input/value/cancellation and
+reuse-plateau oracles. All 112 Runtime lifetimes have zero net requested bytes at
+teardown; all 336 churn cycles are validated. Every case's second/third empty
+snapshot plateaus. Setup net-byte paired ratio is 1.003984; live/empty full-net
+ratios are 0.9741-1.0029 / 0.9555-1.0028. All setup/live/empty snapshot bounds pass.
+The original preallocated host handle Vec and source/artifact preparation remain
+outside counting on both sides; actual Runtime construction/loading and retained
+capacities remain inside. Counts are requested bytes without allocator overhead,
+not RSS. One setup snapshot and one complete Runtime lifetime are measured per
+case/process; the three churn cycles are not three independent setup lifetimes.
+No continuous transient-peak measurement follows from snapshots. Full method,
+byte deltas, limitations and diagnostic image hashes are retained at
+performance-baseline.md. No build, Miri, test or profiler overlaps diagnostic
+execution. The candidate's preliminary diagnostic pass is excluded from the
+seven-pair statistics.
+
+Task: Diagnose and remove the remaining fixed small-root admission overhead.
+Context: RR05; current ordinary root image still fails only its four 1/32-root
+admission rows. All retirement/full-collection and 256-root admission rows pass;
+selected current native/owned/cleanup tests, integrated strict-provenance Miri,
+structure/fmt/workspace Clippy/diff checks pass. Snapshot memory/reuse/teardown
+have measured evidence; continuous peaks and other integrated GC scope remain.
+Expected behavior: Preserve fresh current entry selection, exact admitted/queued
+body retention, foreign/type/storability/cancellation checks, observer initialization
+and independently parked cleanup while satisfying the unchanged root estimator.
+Scope: Inspect actual fixed entry/frame/park preparation and allocation owners;
+reuse the original controls and diagnose before another optimization. Collector
+publication code generation (outlined locate versus baseline inline), integrated
+active/sustained GC and whole-cost reconciliation remain within RR05. Vec-backed
+source-admission gaps stay with the authorized NC deferral. Do not implement a new
+provider, move a failing denominator, rerun unchanged NC failures or open RR06 yet.
+Validation: Pair original ordinary control images after a concrete relevant change;
+run only affected lifecycle/observer/reload/private-edge regressions. Reuse passing
+unchanged evidence, keep diagnostic/Miri work out of ordinary timing, and report
+CI separately. No RR05 phase commit is made while required gates remain open.
+Known intermediate errors: No compilation failure; two sampled SDK fixture setups
+fail on missing Vec declarations before Runtime. Small-root throughput remains
+measurably above 1.05; neither a passing snapshot nor the actual Miri run closes it.
+
+### RR05 sampled fixed admission and closed control borrowing
+
+A temporary ignored probe extends the unchanged execution_controls single-root
+complete recipe to a ten-second repeated execution window after the same warmup.
+It uses the original Fixture::park/retire and explicit collect operations and
+all their value/readiness/drain oracles. The probe adds only a readiness marker,
+flush and repetition around those existing operations; no Runtime implementation
+or semantic workload is duplicated. Build ordinary workspace release, copy its
+actual executable, restore execution_controls.rs byte-for-byte (verified with
+Git), then use macOS `/usr/bin/sample PID 5 1 -file ...` after the readiness
+marker. The original gate images and control source remain unchanged. No build,
+other benchmark, diagnostics or Miri overlaps sampling. Temporary source,
+images and raw stacks remain ignored; this method and conclusions are durable.
+
+The M1 Max/macOS 26.6.2/Rust 1.99.1 image
+4a0c352a3af1ddafaac868b46fcd645d92d544aae5bab7bb6a9c8d0cb31a480b
+builds in 1.90 s (excluded). The complete ten-second probe validates 3,153,287
+cycles; the five-second 1-ms sampler records 3,636 main-thread samples. Resolve
+Rust v0 names against the same image's numeric llvm-nm/demangled llvm-nm tables;
+no external symbol image is substituted. Sampling shows real costs in session
+creation, frame admission, scalar driving and parking, including session-record
+lookups, root/source operations and copies. It does not isolate the regression
+against RR00 or justify assigning exact nanoseconds to individual functions.
+Sampling/probe duration is not a fresh performance gate or speedup claim.
+
+Source review identifies three concrete duplicate preparations in those paths:
+
+- FrameStack::validate_top separately checks owner, resolves the active session,
+  then resolves its own session again for the scope. Keep one complete checked
+  SessionState loan and compare the existing active ID while it lives. Lifecycle/
+  sticky termination precedes active/scope mismatch exactly as before. Public
+  operations still independently admit their own boundary.
+- resume_owned_execution checks generation/owner/scopes, starts an internal
+  activation guard (no Host callback or record mutation), then repeats the same
+  owner/scopes lookup. The existing validate_owned_execution helper now returns that
+  exact checked record loan through the closed guard handoff. End it before
+  observer callbacks and constructing mutable Runtime execution services.
+- refresh_resumed_calls constructs an allocated Vec<Option<Arc<LinkedFunction>>>
+  even when every body has no runtime links. Parking already detaches all frame
+  views; assert that invariant and stage only actual (frame index, linked body)
+  entries. Keep the complete fallible staging before committing any new links.
+  Scalar/no-link restoration allocates no staging list; linked parents/children
+  still refresh current ordinary targets without replacing their retained bodies,
+  PCs, environments or values. No cached proof or alternate call protocol appears.
+
+Run selected owned reload/observer, private parking and quarantine cleanup owners,
+workspace Clippy and structure checks; then pair the unmodified original controls
+against RR00 after builds/checks terminate. The earlier integrated Miri result
+predates these closed-control changes, so it is not claimed for this exact image.
+Do not repeat timing without a relevant change or combine earlier passing rows.
+
+The first control-borrow build fails before running selected tests: E0599 at
+scheduler.rs:375/386 because the renamed ownership validator had two scheduler
+consumers. Keep the original crate-private validate_owned_execution name and
+consumer boundary, with its checked Ref result; the scheduler's existing statement/
+is_ok consumption drops that loan before scheduler mutation. No forwarding wrapper
+or parallel validator is retained. Rerun the previously skipped selections and
+workspace Clippy after this correction; this is an RR05-local integration error,
+not a carried failure assigned to another phase.
+
+After the control-borrow correction, all eight selected tests and workspace
+all-target Clippy pass; structure/fmt/diff pass. Build takes 42.70 s, excluded.
+A first timing attempt correctly rejects an instrumented baseline at startup:
+the earlier diagnostic build had replaced the shared baseline target path.
+It executes no candidate samples and yields no comparison. Use the immutable
+archived ordinary RR00 image, independently verify its original f301ce04... SHA,
+and preserve the rejected attempt rather than rebuilding or changing a baseline.
+A fresh complete comparison then validates all 3,696 samples. Candidate image
+72382b1888a6135f932bc81b072254be169de375f44a9c447f60e9f8cbe0e917
+still fails four admissions: one tail cancel/complete 1.1598/1.1322, 32 tail
+1.1169/1.1198. 256 admissions are 0.7819-0.7910; other retirement/collection
+rows retain measured bounds. This closes the temporary E0599 integration error,
+not RR05 or the small-root gate.
+
+The remaining parking work opens a physical GC interval even when the actual
+execution retains only inline data plus its one admitted revision. Introduce a
+bounded read of the authoritative source, following its existing cold scalar/
+coordinate inspection pattern. The caller supplies SessionState.body, the exact
+revision dependency published at execution creation; this is not a claim that
+an arbitrary typed DependencyId proves an erased node's semantic category.
+Require that prefix to be slot zero of the same complete execution identity and
+its sole dependency, no active Native source record, inline scalar/Unit tags in
+all managed/local/queued/pending banks, and valid frame-bank bounds. Any additional
+computation dependency or managed/ephemeral value takes the full physical data
+walk. In particular, an application may own a Host receiver even with no managed
+frame operands. The GC's actual root tracing/publication remains unchanged; this
+only proves that async data admission has no data object to inspect.
+
+Reference mechanism: OpenJDK jdk-25+36
+[OopMap and ImmutableOopMap](https://github.com/openjdk/jdk/blob/jdk-25%2B36/src/hotspot/share/compiler/oopMap.hpp)
+record reference-location kinds/counts separately from non-reference frame slots.
+Its maps describe compiled PCs, including derived pointers. Kagari instead reads
+current stored tags and its already admitted session prefix; it cannot trust a
+static slot type to exclude mutable data. This custom bounded query is necessary
+for Runtime's extra metadata/data distinction and changing execution banks. It
+returns only a boolean, lends no GC pointer or mutation capability, and caches
+nothing across an operation, callback, mutation, collection or park interval.
+The analogy does not prove the custom source-prefix contract or performance.
+
+Limit the query to 1,024 total cells/frame checks; larger state retains the
+existing polled walk. Check terminal collector phases before source inspection,
+and keep existing control/static/Host-scope/Native restrictions. Parking remains
+a commit after the executed poll, so this query introduces no cancellation check
+that could discard a completed Pending handoff. No accounting interval is skipped
+for a mutation: this read allocates, publishes and changes no managed state.
+
+Strengthen the existing data-owner witness for receiver data retained solely by
+an admitted computation: create its real owned scalar main frame, retain the
+application dependency, drop all Host value/method roots and collect. Preserve
+the independent direct AsyncDataWalk trap assertion, then require actual parking
+to produce ScriptTrap while preserving the activation. This proves the optimized
+entry cannot infer safety from scalar frame operands alone. The existing fixture,
+nominal admission, private payload/alias and cleanup assertions remain intact.
+All nine selected data/parking/reload/observer owners pass; Clippy and structure
+(1,970 files, zero violations/six unchanged exceptions) pass for that version.
+
+The first bounded-query ordinary image builds in 45.06 s. Its complete paired
+run validates all samples; single complete admission passes at 1.0367, while
+single cancel 1.0577 and 32 cancel/complete 1.0666/1.0648 still fail 1.05.
+256 admissions are 0.7381-0.7482. Do not replace any row with an earlier result.
+Two remaining repeated source/control lookups are now consolidated: validate_top
+returns its actual checked record to can_park, ending that loan before mutable
+Runtime access; the already admitted execution storage supplies bank geometry
+without relooking up its same ID for each frame. The original public/full-source
+bank query still performs full owner/generation admission before using the shared
+geometry checks, including overflow/initialization bounds. Run the affected bank
+and parking owners and all checkpoint checks, then measure this final version.
+
+The reused-control/storage version passes all eleven selected tests and workspace
+all-target Clippy, structure/fmt/diff. Its 39.69-s ordinary build is excluded from
+timing. A complete paired run validates all 3,696 samples: one complete admission
+1.0376, 32 cancel/complete 1.0295/1.0346 and all 256 admissions 0.7227-0.7328
+pass; one cancel admission 1.0588 still fails 1.05. Retirement/collection pass.
+The smaller excess is still a failure, not rounded into a passing gate or discarded
+as noise. All comparisons use the immutable original RR00 image and original
+API-only control-source preflight; no builds, tests or diagnostics overlap them.
+
+Source review finds that the retirement notification's no-work query still
+executes swap(false) on every start/drive boundary, writing an already clear
+shared cache line. First acquire-load the notice and return immediately when
+clear and not quarantined. If work is reported, retain the existing acquire/
+release exchange before the full checked scan. A drop after the no-work load
+stays pending for the next boundary; a drop before the exchange is inspected by
+the ensuing scan, and a later drop remains pending. Quarantine bypasses the
+no-work condition. This does not change owner eligibility, synchronous cleanup,
+root retention, wake behavior or any managed field; it merely makes a read-only
+no-work observation actually read-only. Recheck the public cross-thread drain
+and original fault/async cleanup owners, then rerun the original paired estimator
+after all builds/checks finish. This relevant code change is the reason for the
+next measurement; no unchanged favorable rerun is substituted.
+
+### RR05 original latency and requested-byte peak gates now pass
+
+After the read-only no-work notice change, the ordinary root image
+4a35d1fba351873307cf681ddc7adf7c16f1b01c0299a1f3d99c3446d2f3fd1b
+passes all 24 original root rows in one complete paired run. Its 38.49-s build is
+excluded. Admission paired ratios range 0.7220-1.0383, retirement 0.3915-1.0000,
+collection 0.1567-0.3033; every original oracle and all 3,696 samples validate.
+The frozen 1.05 median-of-paired-process-medians estimator is unchanged; individual
+single-root pair ranges can exceed 1.05 and are retained. No worst-pair or
+significance claim replaces that rule.
+
+The latest ordinary core_calls image
+56a1e16d42f6c6a3d7d10cc0048f567fbfd7b41790d774235581ee968b1837e6
+also passes all ten original whole-Host/internal-script/Native latency gates at
+1.10. The 26.49-s build is excluded; seven alternating pairs retain all 1,540
+samples and exact value/callback oracles. Ratios in core empty/script/native,
+internal script/raw-empty/raw-scalar/typed-empty/typed-scalar/borrowed/owned order
+are 1.0801/1.0601/0.7951/0.7159/0.9551/1.0589/0.4244/0.2781/0.5073/0.3347.
+Ordinary root and core images use the same implementation; full hashes, raw methods
+and interpretation are in performance-baseline.md. Both timings complete before
+Miri, diagnostic execution or further builds. Source hashes include the new
+parking.rs, which was not yet tracked during these builds; no fictional committed
+revision is used to identify it.
+
+The current actual parking_transition_probe passes strict-provenance Miri in
+570.28 seconds:
+
+```text
+MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly-2026-10-22 miri test --locked -p kagari-runtime --lib -- frame::owned::tests::parking_transition_probe --exact --nocapture
+```
+
+All 12 shared/disjoint/cyclic/scalar depth/alias shapes execute their actual
+provider scans, GC, retained roots, independent frame scopes, transition/cleanup
+and exact destruction oracles. This covers the new inline parking and full-walk
+routes with the latest control/storage borrowing. The earlier 342.01-s public
+Native scope Miri proof remains evidence for its Native/reentry/foreign/root/
+retirement mechanisms, not an assertion that it ran this later source revision.
+No Miri tail/native-OS-stack/full-CI claim follows. The only Miri warning is the
+expected ignored opt-level notice. The subsequent changes below are diagnostic-
+feature-only; normal Runtime paths and these ordinary timings are unchanged.
+
+The previous allocator snapshots cannot prove transient peaks. Extend the
+existing opt-in Counts with peak_net_bytes, updated at every successful global
+allocation/reallocation and deallocation event. reset_peak preserves request/net
+totals and starts a new peak interval at current net bytes; retain the setup
+snapshot first. The new single owner test observes 8-KiB allocate/release with
+zero final net bytes, then a reset and 4-KiB allocate/release while preserving
+request totals. The initial default-feature command selects zero tests and is
+not passing counter evidence. The actual feature-enabled test passes exactly one:
+
+```text
+cargo test -p kagari-runtime --lib --features execution-diagnostics -- diagnostics::allocations::tests::transient_peak_survives_release_and_reset_preserves_request_totals --exact --nocapture
+cargo clippy -p kagari-runtime --all-targets --features execution-diagnostics -- -D warnings
+```
+
+Workspace all-target Clippy also passes; scoped diagnostic Clippy supplements it.
+Structure remains 1,970 files, zero violations/six unchanged exceptions. No new
+unsafe block, re-export, import exception or ordinary Runtime instrumentation is
+introduced by this counting change. The counter test is necessary because an end
+snapshot of zero alone cannot detect the missing transient high-water observation.
+
+For matched memory, first verify the actual whole RR00 worktree is clean. Apply
+only the same allocator file and the same diagnostic reset/three-replica harness
+instrumentation on both sides. Normalize only the known Runtime/RootedValue API
+port and require exact controls source equality, plus byte-identical allocator
+source. Both original hold program and park/retire/collect/value/cancellation/
+reuse oracles are intact. Seven alternating process pairs take each case's
+maximum of three independent complete Runtime lifetimes, each with three churn
+cycles, before paired normalization. All 336 Runtime lifetimes and 1,008 churn
+cycles validate, all teardowns are zero net requested bytes, and each repeated
+empty phase plateaus. No build, Miri, test, profiler or other measurement overlaps
+diagnostic execution. The 34.81/42.25-s builds are excluded.
+
+The measured setup retained-byte medians are 1,454,056/1,459,559 (old/current),
+setup peaks 2,022,546/2,027,953 (paired ratio 1.002768). For 256 roots, whole-
+lifetime peaks are 2,322,824/2,262,263 complete and 2,323,048/2,263,847 cancel;
+paired ratios 0.9740-0.9746. All setup/live/empty/post-setup and whole-lifetime
+peak bounds pass independently, and all individual pairs satisfy their applicable
+bounds. Report the original preallocated outer Host Vec and source/artifact
+preparation exclusions explicitly. These are allocator-event owned requested
+bytes, not allocator metadata, internal realloc copy coexistence, RSS or OS stack;
+explicit Runtime-owned replacement buffers are observed while both are live.
+The full method, per-case peaks and diagnostic hashes are in the performance owner.
+Restore the original old worktree source bytes after archiving the comparison;
+its Git diff is empty again. The instrumented baseline is never described as an
+unmodified original image. Ordinary latency images stay separately archived.
+
+The final diagnostic core_calls image passes both existing ignored owners.
+Whole Host empty/script/Native requests are 25/27/29 allocations and
+1,256/1,292/1,644 bytes. Raw/typed empty/scalar totals are identical at one and
+10,000 callbacks (42 allocations, zero reallocations, 2,420/2,429 bytes);
+borrowed payload totals stay 51/0/2,924, including its constructor. Script growth
+and the owned String converter retain their actual allocations. Every route has
+zero fixed mapping/layout/environment/descriptor rebuilds; whole-activation roots
+remain one, or three with the borrowed constructor. The performance owner records
+the full table, image hash and the independent zero call-local interval oracle.
+Instrumented timings are discarded.
+The original GC comparison graph and ordinary arrays/form fixtures also retain
+Vec declarations; the old gc_comparison graph was read at 0490f8a4 and is not a
+current registered target. No new successful execution is inferred from that
+inspection, and no array substitution or partial-source extraction is made.
+The verified runtime_storage source-admission failure and inherited NC deferral
+remain their existing owner. Finish the RR05 acceptance matrix against the actual
+independent measurements/proofs and explicitly named NC/CI limits before its
+phase commit; RR06 has not opened yet.
+
+
+### RR05 local exit and RR06 handoff
+
+This audit evaluates the finite RR05 task against the actual current production
+routes. It reuses unchanged RR03/RR04 evidence at its named owner, rather than
+replaying the exhaustive workspace matrix locally. Inherited standard-library
+source-admission failures retain the user's explicit NC deferral; they are not
+passing GC measurements, new Runtime failures or permission to reconstruct Vec.
+
+| Requirement | Evidence and status |
+| --- | --- |
+| Real external provider through public Host APIs | Two existing stdlib managed-payload tests pass with private String/callback edges, alias mutation, Native/script/GC reentry, source-free round-trip, cycle destruction and old/new callback results 42/43. No proof adapter or privileged Runtime provider is added. |
+| Changed owned admission and parking | Eleven selected Runtime owners pass actual scalar/managed banks, alias/private-cycle/candidate walks, application-only receiver retention, argument growth/reordering, parked error order, observer initialization and retained/current reload selection. |
+| Retirement, faults and cancellation | Public native_scope passes actual managed scratch, foreign roots, error/unwind/cancellation and cross-thread owner drop. Three native-wait/retirement-fault owners pass complete retained-root draining, including quarantined owners. |
+| Scoped lifetime/provenance | Actual public Native-scope strict-provenance Miri passes in 342.01 s before the later closed-control changes. The latest actual parking_transition_probe passes in 570.28 s for all 12 original graph/depth/alias shapes. Diagnostic-only changes follow; no exhaustive Miri claim. |
+| Original call latency | Seven alternating pairs, unchanged three-warmup/eleven-sample routes: all ten frozen 1.10 gates pass in one ordinary core_calls image. |
+| Original owned-root lifecycle latency | Seven alternating pairs and all 3,696 samples validate. All 24 unchanged 1.05 paired-median admit/retire/collect gates pass in one ordinary image. The updated tool validator also accepts both archived 1,848-row matrices. |
+| Actual allocation, root and preparation costs | Separate final diagnostic owners pass. Whole-entry allocations remain explicit; empty/scalar Native callback loops allocate no call-local heap storage/Host leases or fixed mapping rebuilds. Borrowed and owned conversion costs remain distinct. |
+| Stack and tail costs | RR04 source-free one/two-frame, VM-byte/Native OS-stack exhaustion, overlap-safe scalar self-tail, current-target fallback, cancellation/trace and independent loop/ordinary comparisons remain applicable. No broader tail/backend optimization is inferred. |
+| Retained/transient memory and reuse | Identical old/current diagnostic overlays measure 336 complete Runtime lifetimes and 1,008 churn cycles. Setup/live/empty/post-setup/whole-lifetime peaks pass their original bounds; all teardown net bytes are zero and repeated empty storage plateaus. Peak means owned allocator-event requests, not RSS. |
+| Active and sustained GC | Existing standalone Rust-only recipes run paired old-kernel/current with active reference writes, dense/sparse/cyclic graphs, sustained service and disposal. Oracles/counts/backing validate; scalar/leaf/cycle and publication regressions are reported with diagnosis. These new characterization rows have no retroactively invented frozen limit. |
+| Inherited Vec/Map integrated denominators | Not comparable: runtime_storage's actual source check fails UnknownType/UnknownName for Vec before Runtime. The original graph/forms/array sources also require deferred providers. Preserve recipes, gates and assertions for NC01-NC06; do not replace them with fixed arrays or a partial-source program. |
+| Source-free/compiled/borrow/observer/reload boundaries | Reuse RR03/RR04's selected actual verified-artifact, Cranelift/C-ABI, borrowing, native-wait, publication and destruction owners. RR05 changes no executable ABI or lowering/compiled contract. Applied-nominal/native-boxing regressions also pass after owned-entry admission changes. |
+| Local checkpoint | Workspace all-target Clippy, diagnostic-feature Runtime Clippy, structure (1,970 Rust files, zero violations/six unchanged exceptions), Cargo fmt and diff checks pass. Peak counter's feature-enabled exact test passes; benchmark tooling's 14 remaining tests and CLI help pass. |
+| CI scope | Pending, not passed: full workspace no-fail-fast tests, exhaustive features/backends/platforms, supported Windows/wasm behavior, broader Miri/fuzz/sanitizer coverage. NC-dependent setup failures stay explicitly identified rather than weakened. |
+
+The old --window-controls consumer still referred to the deleted
+frame/values/tests/measurements.rs and selected an absent libtest filter. The
+current test inventory confirms no such owner. Remove that option, private WINDOW
+parser/schema and its obsolete-model-only test; retain the current 24-row root
+schema, metadata/image/path checks and Windows OS-path handling. Documentation now
+points to actual bank/quota/retirement correctness owners and the public owned
+execution timings. This is migration cleanup, not another benchmark denominator.
+
+Structural review covers production imports and their cfg scopes, the new
+execution/roots/parking.rs responsibility, bounded fresh inline-data proof,
+ordinary module layout and visibility. No unsafe block, re-export, blanket
+exception, cached alias admission, duplicate root store or standard-library
+implementation is introduced. The retirement notice owns only a coalesced scan
+request; the driver still validates identities and performs all retirement.
+
+All required locally runnable RR05 work is complete. There is no carried Runtime
+build/test failure and no remaining measured agreed gate failure. NC reconstruction,
+R13, broader tails, enum layouts, backend deoptimization and unfrozen collector
+optimization keep their existing owners; CI is explicitly pending. This satisfies
+RR05's local exit with those already authorized boundaries, without declaring full
+integrated collection/performance/CI acceptance. Commit the cohesive RR05 code,
+tests, tooling and evidence with Plan-Phase: RR05, then begin RR06.
+
+Task: document the implemented Runtime/Host/GC model and retire migration material.
+Context: RR06; architecture/runtime, execution/memory/embedding contracts, GC authoring and roadmap/review owners.
+Expected behavior: a reader can follow actual call, reentry/GC, return/failure, park/resume and reload/publication ownership without obsolete APIs or this ledger.
+Scope: transfer lasting contracts and measured results; name existing NC/R13/tail/backend/CI follow-ups; remove completed plans/design ledgers and fix links.
+Validation: compare documentation/API examples with current code and selected passing evidence; content/link/diff checks. No new production behavior or exhaustive local tests.
+Known intermediate errors: no carried Runtime error; inherited NC fixture setup failures and pending CI remain explicit at their owners.

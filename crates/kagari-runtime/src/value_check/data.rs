@@ -332,9 +332,10 @@ impl<'gc> DataWalk<'gc> {
         resources: &ResourceState,
     ) -> Result<bool, CheckError> {
         let checkpoint = self.checkpoint;
-        self.pending.try_reserve(1)?;
-        self.pending.push(object);
-        while let Some(object) = self.pending.pop() {
+        // The first node is already available. Metadata-only dependencies do
+        // not descend, so admitting them must not allocate traversal storage.
+        let mut first = Some(object);
+        while let Some(object) = first.take().or_else(|| self.pending.pop()) {
             // Candidate ownership admission precedes the call's cancellation
             // checkpoint. Descendant scanning remains cooperatively polled.
             if let Some(owner) = self.candidate
@@ -343,14 +344,14 @@ impl<'gc> DataWalk<'gc> {
                 return Ok(false);
             }
             checkpoint.check(resources)?;
-            self.seen.try_reserve(1)?;
-            if !self.seen.insert(object) {
-                continue;
-            }
             // A retained closure/Future's executable graph can reach statics. Those
             // are not captured data. Physical custom payload edges still use the same
             // scanner; no registration-specific list can omit private managed fields.
             if metadata(cx, object)? {
+                continue;
+            }
+            self.seen.try_reserve(1)?;
+            if !self.seen.insert(object) {
                 continue;
             }
             if is::<HostRootObject>(cx, object)?

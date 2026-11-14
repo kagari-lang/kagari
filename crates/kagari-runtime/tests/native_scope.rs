@@ -6,11 +6,7 @@ use kagari_runtime::{
     Runtime,
     context::ExecutionContext,
     error::{RuntimeError, RuntimeErrorKind},
-    frame::{
-        ExecutionStack,
-        cursor::kernel::RegionExit,
-        driver::{ExecutionAction, ReturnAction},
-    },
+    frame::{ExecutionStack, cursor::kernel::RegionExit, driver::ReturnAction},
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
@@ -28,6 +24,7 @@ use std::{
     ops::ControlFlow,
     panic::{AssertUnwindSafe, catch_unwind},
     sync::Arc,
+    thread,
 };
 
 #[test]
@@ -117,7 +114,7 @@ fn native_scratch_replaces_managed_state_and_retires_on_all_exits() {
         )
         .unwrap();
     let provider = builder.finish().unwrap();
-    let mut sources = SourceDatabase::default();
+    let mut sources = SourceDatabase::new("/native-scope").unwrap();
     let root = sources
         .set(
             "native_scope.kgr",
@@ -125,7 +122,7 @@ fn native_scratch_replaces_managed_state_and_retires_on_all_exits() {
             SourceLayer::Base,
         )
         .unwrap();
-    let mut analysis = AnalysisDatabase::default();
+    let mut analysis = AnalysisDatabase::new(sources.root()).unwrap();
     analysis.set_native_modules(vec![
         Arc::new(strings.to_declaration()),
         Arc::new(provider.to_declaration()),
@@ -210,7 +207,10 @@ fn native_scratch_replaces_managed_state_and_retires_on_all_exits() {
         runtime.gc_stats().root_registrations,
         baseline.root_registrations
     );
-    runtime.finish_owned_execution(&first).unwrap();
+    assert_eq!(runtime.drain_retired_executions().unwrap(), 0);
+    thread::spawn(move || drop(first)).join().unwrap();
+    assert_eq!(runtime.drain_retired_executions().unwrap(), 1);
+    assert_eq!(runtime.drain_retired_executions().unwrap(), 0);
     runtime.collect_garbage().unwrap();
     assert!(second.is_ready());
     let mut active = runtime.resume_owned_execution(&second).unwrap();
@@ -220,15 +220,7 @@ fn native_scratch_replaces_managed_state_and_retires_on_all_exits() {
                 stack
                     .execute_region(runtime, &mut None, |_, _, _, _, _| unreachable!())
                     .unwrap(),
-                RegionExit::Call(ExecutionAction::NativeEntry)
-            ));
-            assert_eq!(
-                stack.start_native_entry(runtime, |_, _, _, _, _| unreachable!())?,
-                ExecutionAction::NativeReturn
-            );
-            assert!(matches!(
-                stack.finish_native_return(runtime)?,
-                ReturnAction::Continue(ExecutionAction::Script)
+                RegionExit::Safepoint
             ));
             let RegionExit::Return(value) = stack
                 .execute_region(runtime, &mut None, |_, _, _, _, _| unreachable!())

@@ -1,3 +1,7 @@
+// Recursive application/type witnesses need deeper Send/Sync evaluation on the
+// pinned Miri compiler. This changes compiler evaluation, not execution depth.
+#![recursion_limit = "256"]
+
 use crate::{
     builtin::BuiltinError,
     cache::{

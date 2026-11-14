@@ -8,6 +8,7 @@ use crate::{
         roots::{DependencyId, ExecutionRoots, SessionId, ValueLocation, frames::FrameBanks},
         space::{DEFAULT_STACK_BYTES, ExecutionSpace},
     },
+    module::managed::revision::RevisionState,
     resource::ResourceState,
     value::view::ValueView,
 };
@@ -145,6 +146,19 @@ impl ManagedMemory {
     pub(crate) fn contains_frame_banks(&self, banks: FrameBanks) -> bool {
         self.driver
             .inspect_source(|source| source.contains_frame_banks(banks))
+    }
+
+    /// Prove bounded inline-only data from the actual execution source. The
+    /// session retains its admitted revision; no GC/source access loan is lent.
+    pub(crate) fn inline_parking(
+        &self,
+        execution: SessionId,
+        body: DependencyId<RevisionState>,
+        frames: impl Iterator<Item = FrameBanks>,
+    ) -> Result<bool, GcError> {
+        self.check_scalar_access()?;
+        self.driver
+            .inspect_source(|source| source.inline_parking(execution, body, frames))
     }
 
     /// The caller's frame/source owner must retain any managed location for the

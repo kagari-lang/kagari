@@ -6,13 +6,106 @@ use crate::{
     Runtime,
     error::RuntimeError,
     execution::roots::ExecutionRoots,
-    frame::{arguments::FrameArguments, types::arguments::TypeArgument},
+    frame::{
+        arguments::FrameArguments,
+        types::{arguments::TypeArgument, compatibility::TypeView},
+    },
     module::ExecutableModule,
-    value::{carriers::RootedValue, scalar, view::ValueView},
+    value::{carriers::RootedValue, properties::ValueProperties, scalar, view::ValueView},
     value_check::data::DataWalk,
 };
+use kagari_bytecode::module::BytecodeFunction;
 use kagari_gc::error::GcError;
 use kagari_types::ty::Ty;
+
+/// Admit an owned entry's original roots against the selected verified body's
+/// lexical parameter facts. These views never escape this closed read, so no
+/// reified TypeArguments, conversion scratch or extra result roots are needed.
+pub(crate) fn entry_arguments(
+    runtime: &mut Runtime,
+    owner: &ExecutableModule,
+    function: &BytecodeFunction,
+    arguments: &[RootedValue],
+) -> Result<(), RuntimeError> {
+    let invalid = || RuntimeError::module_validation("invalid owned execution arguments");
+    if arguments.len() != usize::from(function.parameter_count)
+        || (0..arguments.len()).any(|index| !function.metadata.semantic.params.contains_key(&index))
+    {
+        return Err(invalid());
+    }
+    // Reject unresolved entry binders before inspecting any supplied root, as
+    // reification did. Definition-prefix validity already belongs to this
+    // selected verified body; no owned type copy or escaping witness is needed.
+    for index in 0..arguments.len() {
+        if TypeView::new(&function.metadata.semantic.params[&index], owner, None)
+            .closed()
+            .is_none_or(|ty| !ty.is_concrete())
+        {
+            return Err(RuntimeError::module_validation("type argument scope"));
+        }
+    }
+    if arguments.is_empty() {
+        return Ok(());
+    }
+    if arguments.iter().enumerate().all(|(index, argument)| {
+        matches!(function.metadata.semantic.params[&index], Ty::Builtin(_))
+            && argument.scalar_payload().is_some()
+    }) {
+        // Pure bits need neither a heap brand nor a source loan. Keep terminal
+        // state admission and the matcher's per-argument cancellation checkpoint.
+        runtime
+            .memory
+            .check_scalar_access()
+            .map_err(|error| runtime.managed_input_error(error))?;
+        for (index, argument) in arguments.iter().enumerate() {
+            runtime
+                .resources
+                .poll_closed()
+                .map_err(|error| runtime.resources.admit_execution_error(error))?;
+            let Ty::Builtin(ty) = function.metadata.semantic.params[&index] else {
+                unreachable!("checked scalar parameter pack")
+            };
+            if !scalar::matches_builtin_payload(ty, argument.scalar_payload().unwrap()) {
+                return Err(invalid());
+            }
+        }
+        return Ok(());
+    }
+    let Runtime {
+        memory,
+        resources,
+        host,
+        host_borrows,
+        ..
+    } = runtime;
+    let result = memory.scope(resources, |cx, _| {
+        Ok((|| -> Result<bool, scoped::CheckError> {
+            for (index, argument) in arguments.iter().enumerate() {
+                if index != 0 && index.is_multiple_of(1024) {
+                    resources.poll_closed()?;
+                }
+                let value = argument.get(cx)?;
+                if !ValueProperties::of(cx, value)?.storable {
+                    return Ok(false);
+                }
+                let expected =
+                    TypeView::new(&function.metadata.semantic.params[&index], owner, None);
+                if !scoped::matches(cx, value, expected, host, host_borrows, resources)? {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        })())
+    });
+    let matched = result
+        .map_err(|error| runtime.managed_input_error(error))?
+        .map_err(|error| {
+            runtime
+                .resources
+                .admit_execution_error(error.into_runtime(runtime))
+        })?;
+    if matched { Ok(()) } else { Err(invalid()) }
+}
 
 /// Check an already protected result without creating conversion scratch. The
 /// matcher admits actual source/type authority; candidate output policy follows
@@ -147,8 +240,9 @@ pub(crate) fn candidate_arguments(
         })
 }
 
-/// Check a Host submission while its original root supplies protection.
-/// No conversion-local pack, managed allocation or root registration is needed.
+/// Match retained inputs in type/provenance fixtures. Typed conversion uses
+/// protected views; owned entry borrows its selected body's facts above.
+#[cfg(test)]
 pub(crate) fn matches_rooted(
     runtime: &mut Runtime,
     owner: &ExecutableModule,

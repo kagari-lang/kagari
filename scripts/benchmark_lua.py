@@ -72,8 +72,6 @@ def main() -> None:
                         help="Measure recurrence forms, byte state, strings and host callbacks")
     parser.add_argument("--execution-controls", action="store_true",
                         help="Measure parked owned roots and ordered retirement separately")
-    parser.add_argument("--window-controls", action="store_true",
-                        help="Measure private runtime window banks using the release test harness")
     parser.add_argument("--baseline-executable", type=Path,
                         help="Interleave the selected unchanged workloads with a saved release binary")
     parser.add_argument("--baseline-report", type=Path,
@@ -81,14 +79,12 @@ def main() -> None:
     parser.add_argument("--freeze-baseline", type=Path,
                         help="Save this ordinary binary and matrix report after successful measurements")
     args = parser.parse_args()
-    if args.numeric_matrix or args.source_forms or args.execution_controls or args.window_controls or args.baseline_executable:
+    if args.numeric_matrix or args.source_forms or args.execution_controls or args.baseline_executable:
         args.interpreter_only = True
-    if args.workload and (args.numeric_matrix or args.source_forms or args.execution_controls or args.window_controls):
+    if args.workload and (args.numeric_matrix or args.source_forms or args.execution_controls):
         parser.error("--workload cannot be combined with an expanded matrix")
-    if sum((args.numeric_matrix, args.source_forms, args.execution_controls, args.window_controls)) > 1:
+    if sum((args.numeric_matrix, args.source_forms, args.execution_controls)) > 1:
         parser.error("select one expanded matrix")
-    if args.window_controls and args.check:
-        parser.error("window controls have a fixed ordinary sample contract")
     if args.runs is None:
         args.runs = 7 if args.baseline_executable else 1 if args.freeze_baseline else 2
     if args.runs < 1:
@@ -103,8 +99,6 @@ def main() -> None:
         parser.error("numeric diagnostics are outside paired interpreter acceptance")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     suffix = "-controls" if args.execution_controls else "-forms" if args.source_forms else "-numeric" if args.numeric_matrix else ""
-    if args.window_controls:
-        suffix = "-windows"
     if args.baseline_executable:
         suffix += "-paired"
     output = ROOT / "target/lua-comparison" / (stamp + suffix + ("-check" if args.check else ""))
@@ -129,27 +123,16 @@ def main() -> None:
                 "environment": {key: os.environ[key] for key in (
                     "CARGO_BUILD_JOBS", "CARGO_TARGET_DIR", "RUSTFLAGS", "CFLAGS", "CC", "DEVELOPER_DIR"
                 ) if key in os.environ}}
-    if args.window_controls:
-        metadata.update(suite="windows", workloads="private window controls",
-                        features="kagari-runtime default features; library test harness",
-                        setup_samples_per_workload=1, setup_scope="excluded; storage only")
     metadata["workload_sha256"] = workload_digest(metadata["suite"])
     metadata["lock_sha256"] = hashlib.sha256((ROOT / "Cargo.lock").read_bytes()).hexdigest()
     print(f"Output: {output}", flush=True)
     start = time.perf_counter()
     with (output / "build.log").open("w", encoding="utf-8") as log:
-        build = (["cargo", "test", "--release", "--locked", "-p", "kagari-runtime", "--lib",
-                  "--no-run", "--message-format=json"] if args.window_controls else
-                 ["cargo", "build", "--release", "--locked", "-p", "kagari-lua-benchmark",
-                  "--bin", "kagari-lua-benchmark"])
+        build = ["cargo", "build", "--release", "--locked", "-p", "kagari-lua-benchmark",
+                 "--bin", "kagari-lua-benchmark"]
         subprocess.run(build, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, check=True)
     metadata["build_wall_seconds"] = time.perf_counter() - start
     executable = ROOT / "target/release" / ("kagari-lua-benchmark.exe" if os.name == "nt" else "kagari-lua-benchmark")
-    if args.window_controls:
-        artifacts = [json.loads(line) for line in (output / "build.log").read_text(encoding="utf-8").splitlines()
-                     if line.startswith('{"reason":')]
-        executable = Path(next(item["executable"] for item in artifacts
-                               if item.get("executable") and item["target"]["name"] == "kagari_runtime"))
     executable = executable.resolve()
     metadata["candidate_executable"] = str(executable)
     metadata["binary_sha256"] = hashlib.sha256(executable.read_bytes()).hexdigest()
@@ -183,16 +166,13 @@ def main() -> None:
         reverse = (pair // 2) % 2 if args.baseline_executable else pair % 2
         if reverse:
             argv.append("--reverse")
-        if args.window_controls:
-            argv = [argv[0], "frame::values::tests::measurements::window_storage_timing",
-                    "--exact", "--ignored", "--nocapture", "--test-threads=1"]
         start = time.perf_counter()
         with (output / f"run-{run}.csv").open("w", encoding="utf-8", newline="") as stdout, \
                 (output / f"run-{run}.stderr.log").open("w", encoding="utf-8") as stderr:
             subprocess.run(argv, cwd=ROOT, stdout=stdout, stderr=stderr, check=True)
         metadata[f"run_{run}_wall_seconds"] = time.perf_counter() - start
         with (output / f"run-{run}.csv").open(encoding="utf-8", newline="") as raw:
-            measured = csv.DictReader(raw) if not args.window_controls else window_rows(raw)
+            measured = csv.DictReader(raw)
             for row in measured:
                 row.update({key: int(row[key]) for key in ("size", "batch", "sample", "ns", "checksum")})
                 row["run"] = run
@@ -229,7 +209,7 @@ def main() -> None:
             shutil.copy2(executable, frozen)
         snapshot.write_text(json.dumps(report, indent=2), encoding="utf-8")
         print(f"Frozen baseline: {frozen}; report: {snapshot}")
-    if args.execution_controls or args.window_controls:
+    if args.execution_controls:
         for row in summary:
             print(f"{row['variant']} {row['workload']} {row['phase']}: {row['median_ns'] / 1000:.3f} us")
         print(f"Build wall time (excluded from execution): {metadata['build_wall_seconds']:.3f}s")
@@ -254,31 +234,17 @@ def main() -> None:
 def workload_digest(suite: str) -> str:
     """One checksum covers the selected harness and fixtures, not runtime sources."""
     source = Path("benchmarks/lua-comparison/src")
-    if suite == "windows":
-        paths = [Path("crates/kagari-runtime/src/frame/values/tests/measurements.rs")]
+    paths = [source / "main.rs", source / "workloads.rs"]
+    if suite == "original":
+        paths += sorted(path.relative_to(ROOT) for path in (ROOT / "benchmarks/lua-comparison/workloads").glob("*"))
     else:
-        paths = [source / "main.rs", source / "workloads.rs"]
-        if suite == "original":
-            paths += sorted(path.relative_to(ROOT) for path in (ROOT / "benchmarks/lua-comparison/workloads").glob("*"))
-        else:
-            paths.append(source / {"forms": "forms.rs", "controls": "execution_controls.rs",
-                                   "numeric": "numeric.rs"}[suite])
+        paths.append(source / {"forms": "forms.rs", "controls": "execution_controls.rs",
+                               "numeric": "numeric.rs"}[suite])
     digest = hashlib.sha256()
     for path in paths:
         data = (ROOT / path).read_bytes()
         digest.update(path.as_posix().encode() + b"\0" + str(len(data)).encode() + b"\0" + data)
     return digest.hexdigest()
-
-
-def window_rows(lines):
-    """Discard libtest framing, retaining each fixed timing region as a normal row."""
-    for line in lines:
-        if "WINDOW," not in line:
-            continue
-        depth, width, order, batch, sample, admission, retirement, fragmentation = line.partition("WINDOW,")[2].strip().split(",")
-        for phase, ns in (("admit", admission), ("retire", retirement), ("fragment", fragmentation)):
-            yield dict(phase=phase, workload=f"windows_{depth}_{width}_{order}", engine="kagari_vm",
-                       size=depth, batch=batch, sample=sample, ns=ns, checksum=0)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,38 @@ tracing and mutation contracts, and the [crate guide](../crates/kagari-gc/README
 owns usage and fixture commands. The
 [roadmap](implementation-roadmap.md#gc-library-redesign) locates this work.
 
+RR05's public application-owned managed payload/callback and retained-callback
+reload witnesses pass at their existing stdlib integration owners. The updated
+real Native-scope integration passes strict-provenance Miri in 342.01 seconds,
+including entry admission and cross-thread owner-drop retirement. Matched standalone old-kernel/current
+characterization and original owned-root controls now have actual paired results
+in the [performance record](performance-baseline.md#rr05-parked-root-admission-and-collector-characterization-macos-2026-11-14).
+The latest ordinary root image passes all 24 original root admission/retirement/
+collection gates, and the latest core image passes all ten original call gates.
+Earlier small-root failures remain recorded as intermediate evidence. Paired original-control
+setup/live/empty allocator snapshots pass their bounds, all measured Runtime
+teardowns have zero net requested bytes, and repeated empty storage plateaus.
+The later identical old/current allocator instrumentation observes transient
+requested-byte peaks as well: 336 complete Runtime lifetimes/1,008 churn cycles
+pass setup, post-setup and whole-lifetime memory bounds, with zero net teardown.
+These are allocator-event owned requests, not allocator internals or RSS.
+Standalone publication/collection regressions require diagnosis;
+those new characterization rows are not retroactively frozen acceptance gates.
+Original Vec-backed integrated recipes still fail source admission under the
+authorized NC deferral; no replacement fixture or historical-time denominator
+closes them. Historical intermediate ledgers below do not supersede these limits.
+
+RR05's [local exit audit](runtime-refactor-plan.md#rr05-local-exit-and-rr06-handoff)
+reconciles the current proofs, original latency/memory gates and these remaining
+NC/CI limits. Local GCR04 Runtime work is complete within that authorized scope;
+it does not establish the missing integrated collection denominators or CI.
+The latest parking transition Miri proof passes in 570.28 seconds. Final call
+diagnostics retain actual whole-entry allocations and show no callback-count
+growth for raw/typed empty/scalar Native calls or fixed preparation rebuilds.
+RR06 must transfer the lasting library/Runtime contracts and each unresolved
+acceptance item before retiring this register; the historical proposed-state
+paragraphs below are not current implementation descriptions.
+
 ## Scope and status
 
 The library is a precise, nonmoving, nongenerational incremental mark-sweep

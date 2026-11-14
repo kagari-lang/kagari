@@ -17,32 +17,33 @@ impl FrameStack {
     pub(super) fn refresh_resumed_calls(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
         // Refresh every frame, including parents blocked below an awaited child.
         // Bodies, PCs, environments, values and return destinations stay exact.
-        let links = self
-            .frames(runtime)?
-            .iter()
-            .map(|frame| match frame.target {
-                CallableTarget::Script(function)
-                    if frame.loaded.execution().functions[function.index()]
-                        .needs_runtime_links() =>
-                {
-                    runtime
-                        .modules
-                        .linked_function(
-                            &frame.loaded,
-                            function,
-                            frame
-                                .environment()
-                                .as_ref()
-                                .map(|environment| environment.id),
-                        )
-                        .map(Some)
-                        .ok_or_else(|| {
-                            RuntimeError::module_validation("missing resumed call table")
-                        })
-                }
-                _ => Ok(None),
-            })
-            .collect::<Result<Vec<Option<Arc<LinkedFunction>>>, RuntimeError>>()?;
+        let mut links: Vec<(usize, Arc<LinkedFunction>)> = Vec::new();
+        for (index, frame) in self.frames(runtime)?.iter().enumerate() {
+            // Parking has already detached every execution view. Only bodies
+            // with runtime links need preparation or staging on restoration.
+            debug_assert!(frame.links.is_none());
+            let CallableTarget::Script(function) = frame.target else {
+                continue;
+            };
+            if !frame.loaded.execution().functions[function.index()].needs_runtime_links() {
+                continue;
+            }
+            let prepared = runtime
+                .modules
+                .linked_function(
+                    &frame.loaded,
+                    function,
+                    frame
+                        .environment()
+                        .as_ref()
+                        .map(|environment| environment.id),
+                )
+                .ok_or_else(|| RuntimeError::module_validation("missing resumed call table"))?;
+            links.push((index, prepared));
+        }
+        if links.is_empty() {
+            return Ok(());
+        }
         let mut frames = runtime
             .resources()
             .sessions
@@ -50,8 +51,8 @@ impl FrameStack {
             .ok_or_else(|| {
                 runtime.quarantine_execution_invariant(EngineFault::ResumedFrameStackBorrowed)
             })?;
-        for (frame, links) in frames.iter_mut().zip(links) {
-            frame.links = links;
+        for (index, links) in links {
+            frames[index].links = Some(links);
         }
         drop(frames);
         Ok(())
@@ -77,12 +78,11 @@ impl FrameStack {
     }
 
     pub(crate) fn can_park(&self, runtime: &mut Runtime) -> Result<bool, RuntimeError> {
-        self.validate_top(runtime)?;
+        let state = self.validate_top(runtime)?;
         if runtime.static_initialization_active() {
             return Ok(false);
         }
-        {
-            let state = self.session_state(runtime);
+        let body = {
             if state.owner.borrow().is_none()
                 || state.scopes.get() != 1
                 || state.frame_scopes.borrow().len() != 1
@@ -90,7 +90,9 @@ impl FrameStack {
             {
                 return Ok(false);
             }
-        }
+            state.body
+        };
+        drop(state);
         // Shared frame control and physical sources overlap only in this closed
         // provider walk. No executing Runtime service runs; both loans end before
         // error admission or trace capture. Payload loans require exclusive access.
@@ -101,6 +103,27 @@ impl FrameStack {
             .sessions
             .frames(self.session)
             .ok_or_else(|| resources.quarantine(EngineFault::ParkedFrameStackBorrowed))?;
+        // A revision-only prefix and actual inline cells need no payload access.
+        // Any additional computation or managed data retains the full walk below.
+        if frames.len() <= 1024
+            && !frames
+                .iter()
+                .any(|frame| matches!(frame.native_entry, NativeEntryState::Running))
+        {
+            let inline = memory.inline_parking(
+                self.session,
+                body,
+                frames.iter().map(|frame| frame.slots().banks),
+            );
+            match inline {
+                Ok(true) => return Ok(true),
+                Ok(false) => {}
+                Err(error) => {
+                    drop(frames);
+                    return Err(runtime.managed_memory_error(error));
+                }
+            }
+        }
         let result = memory.scope(resources, |cx, roots| {
             ExecutionRoots::with(roots, cx, |slots| {
                 if slots.native_depth(self.session)? != 0 {
