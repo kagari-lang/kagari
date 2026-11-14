@@ -1,0 +1,17 @@
+#[meta = ]
+#[meta(key = )]
+#[meta = sample::]
+#[meta(1 2)]
+#[meta([,])]
+fn main() {}
+
+struct Recovery {
+    #[meta(1]
+    val args: i32,
+    #[meta = [1]
+    val list: i32,
+    #[meta
+    val bare: i32,
+    #[meta = [1 2]]
+    val malformed: i32,
+}

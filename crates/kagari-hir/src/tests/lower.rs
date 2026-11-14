@@ -9,6 +9,7 @@ use crate::{
         ty::TypeKind,
         writeability::Writeability,
     },
+    lower::{AttributeArgument, AttributeForm, AttributePayload, AttributeValue},
     tests::common,
 };
 use kagari_source::source::SourceFile;
@@ -49,31 +50,163 @@ fn declaration_only_functions_do_not_acquire_script_bodies() {
 
 #[test]
 fn attributes_preserve_structured_metadata_and_target_ranges() {
-    let source =
-        "#[meta(name = \"answer\", tags = [1, true, sample::tag])] fn main() -> i32 { 42 }";
+    let source = include_str!("../../tests/fixtures/lower/attributes.kgr");
     let lowered = common::lower_ok(source);
-    let [attribute] = lowered.attributes.as_slice() else {
-        panic!("one attribute fact expected");
+    let [bare, empty_args, attribute, empty_list] = lowered.attributes.as_slice() else {
+        panic!("four attribute facts expected");
     };
-    assert_eq!(attribute.name, "meta");
+    assert_eq!(bare.form, AttributeForm::Bare);
+    assert_eq!(empty_args.form, AttributeForm::Arguments(Vec::new()));
+    assert_eq!(
+        empty_list.form,
+        AttributeForm::Value(AttributeValue::List(Vec::new()))
+    );
+    for fact in &lowered.attributes {
+        assert_eq!(fact.name, "meta");
+    }
+    assert_eq!(bare.target_span, attribute.target_span);
+    assert_eq!(empty_args.target_span, attribute.target_span);
+    assert_eq!(
+        &source[empty_list.target_span.start..empty_list.target_span.end],
+        "#[meta =[]]\n    val value: i32"
+    );
     assert_eq!(
         &source[attribute.span.start..attribute.span.end],
-        "#[meta(name = \"answer\", tags = [1, true, sample::tag])]"
+        "#[meta(name = \"answer\", tags = [1, true, sample:: /* qualifier */ tag])]"
     );
     assert_eq!(
         &source[attribute.target_span.start..attribute.target_span.end],
-        source
+        source.split_once("\n\n").unwrap().0
     );
-    let args = attribute.arguments.as_ref().unwrap();
-    assert_eq!(args[0].name.as_deref(), Some("name"));
     assert_eq!(
-        args[0].value,
-        crate::lower::AttributeValue::Literal("\"answer\"".into())
+        attribute.form,
+        AttributeForm::Arguments(vec![
+            AttributeArgument {
+                name: Some("name".into()),
+                value: AttributeValue::Literal("\"answer\"".into()),
+            },
+            AttributeArgument {
+                name: Some("tags".into()),
+                value: AttributeValue::List(vec![
+                    AttributeArgument {
+                        name: None,
+                        value: AttributeValue::Literal("1".into()),
+                    },
+                    AttributeArgument {
+                        name: None,
+                        value: AttributeValue::Literal("true".into()),
+                    },
+                    AttributeArgument {
+                        name: None,
+                        value: AttributeValue::Path("sample:: /* qualifier */ tag".into()),
+                    },
+                ]),
+            },
+        ])
     );
-    assert_eq!(args[1].name.as_deref(), Some("tags"));
-    assert!(
-        matches!(&args[1].value, crate::lower::AttributeValue::List(values) if values.len() == 3)
+
+    let source = Arc::new(SourceFile::new(
+        "attributes-recovery.kgr",
+        include_str!("../../tests/fixtures/lower/attributes_recovery.kgr"),
+    ));
+    let cancel = Default::default();
+    let parsed = parser::parse(&source, ParseOptions::default(), &cancel).unwrap();
+    assert!(!parsed.diagnostics().is_empty());
+    let lowered = crate::lower::lower_module_controlled(source.clone(), &parsed.module(), &cancel);
+    let [
+        missing,
+        missing_arg,
+        recovered_path,
+        malformed_args,
+        missing_list_element,
+        unclosed_args,
+        unclosed_value,
+        unclosed_bare,
+        malformed_value,
+    ] = lowered.attributes.as_slice()
+    else {
+        panic!(
+            "nine retained attribute facts expected: {:?}",
+            lowered.attributes
+        );
+    };
+    assert_eq!(missing.form, AttributeForm::Value(AttributeValue::Missing));
+    assert_eq!(
+        missing_arg.form,
+        AttributeForm::Arguments(vec![AttributeArgument {
+            name: Some("key".into()),
+            value: AttributeValue::Missing,
+        }])
     );
+    // The parser retains `sample` and leaves `::` outside that path node.
+    assert_eq!(
+        recovered_path.form,
+        AttributeForm::Malformed {
+            recovered: Some(AttributePayload::Value(AttributeValue::Path(
+                "sample".into()
+            ))),
+        }
+    );
+    assert_eq!(
+        malformed_value.form,
+        AttributeForm::Value(AttributeValue::Malformed)
+    );
+    assert_eq!(
+        malformed_args.form,
+        AttributeForm::Malformed {
+            recovered: Some(AttributePayload::Arguments(vec![
+                AttributeArgument {
+                    name: None,
+                    value: AttributeValue::Literal("1".into()),
+                },
+                AttributeArgument {
+                    name: None,
+                    value: AttributeValue::Literal("2".into()),
+                },
+            ])),
+        }
+    );
+    assert_eq!(
+        missing_list_element.form,
+        AttributeForm::Arguments(vec![AttributeArgument {
+            name: None,
+            value: AttributeValue::List(vec![AttributeArgument {
+                name: None,
+                value: AttributeValue::Missing,
+            }]),
+        }])
+    );
+    let one = AttributeArgument {
+        name: None,
+        value: AttributeValue::Literal("1".into()),
+    };
+    assert_eq!(
+        unclosed_args.form,
+        AttributeForm::Malformed {
+            recovered: Some(AttributePayload::Arguments(vec![one.clone()])),
+        }
+    );
+    assert_eq!(
+        unclosed_value.form,
+        AttributeForm::Malformed {
+            recovered: Some(AttributePayload::Value(AttributeValue::List(vec![one]))),
+        }
+    );
+    assert_eq!(
+        unclosed_bare.form,
+        AttributeForm::Malformed {
+            recovered: Some(AttributePayload::Bare),
+        }
+    );
+    assert_eq!(
+        &source.text()[missing.span.start..missing.span.end],
+        "#[meta = ]"
+    );
+    assert_eq!(
+        &source.text()[unclosed_args.span.start..unclosed_args.span.end],
+        "#[meta(1]"
+    );
+    assert_eq!(lowered.module.structs[0].fields.len(), 4);
 }
 
 #[test]

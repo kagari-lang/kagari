@@ -8,7 +8,7 @@ use kagari_common::{
 };
 use kagari_hir::{
     analysis::FileAnalysis,
-    lower::{AttributeFact, AttributeValue},
+    lower::{AttributeFact, AttributeForm, AttributeValue},
     queries::attributes::AttributeTarget,
 };
 use kagari_source::{
@@ -126,14 +126,12 @@ fn arguments(attribute: &AttributeFact) -> Result<Vec<LintId>, String> {
             attribute.name
         )
     };
-    if attribute.value.is_some() {
+    let AttributeForm::Arguments(args) = &attribute.form else {
+        return Err(invalid());
+    };
+    if args.is_empty() {
         return Err(invalid());
     }
-    let args = attribute
-        .arguments
-        .as_ref()
-        .filter(|args| !args.is_empty())
-        .ok_or_else(invalid)?;
     args.iter()
         .map(|arg| {
             if arg.name.is_some() {

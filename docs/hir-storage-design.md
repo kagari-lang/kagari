@@ -1,9 +1,9 @@
 # HIR Storage and Attribute Design
 
-**Status:** HA00 has implemented cache/preparation checkpoints, but its final arena acceptance
-is blocked by the HA00/HA01 cutover dependency below. No phase completion is claimed.
-Owned syntax preparation and selected-body fact ownership are implemented; remaining
-semantic-cache/session/arena integration is pending.
+**Status:** HA00's remaining ownership work and HA01's production graph/consumer cutover
+are approved as one combined migration. Neither phase is complete. Owned syntax preparation
+and selected-body fact ownership are implemented; stage-cache/session/arena integration
+remains pending. HA02 retains final acceptance.
 **Baseline:** `main` at `43d55706a`; working branch `design/hir-native-model`.
 [Roadmap](implementation-roadmap.md#hir-storage-and-attribute-refactor) owns activation.
 
@@ -64,7 +64,8 @@ is proposed; no self-reference library, lifetime erasure or manual Sync override
 **Allocation policy is decided.** HA00 must implement and validate the external ownership/API
 boundary for cached modules, old requests and independent release. This is the remaining
 implementation-design obligation, not a request for another arena-granularity decision.
-Do not claim Arc owns borrowed memory or bypass lifetime safety; validate before HA01.
+Do not claim Arc owns borrowed memory or bypass lifetime safety; validate at the combined
+HA00/HA01 cutover.
 If the chosen constraints require a model change, present the concrete conflict for review.
 
 ### Lifetime, threads and reclamation
@@ -421,8 +422,7 @@ external arena and borrowed analysis scope remain alive.
 
 | Checkpoint | Required result |
 | --- | --- |
-| HA00: ownership boundary | In progress: owned syntax preparation first; then owned semantic records, scoped old/new graph sessions and final arena storage kernel. Prove A1 release with new A2/B1 results still usable before HA01. No project arena or hidden self-reference. |
-| HA01: coherent replacement | Replace nodes, IDs, owners, origins and attributes; migrate resolver/typeck/reuse/import/query/compiler/lint consumers together. No forwarding accessors or dual authoritative graph. |
+| HA00 + HA01: combined cutover | Owned syntax/semantic records → scoped old/new graph sessions → real arena nodes, IDs, owners, origins and attributes. Migrate resolver/typeck/reuse/import/query/compiler/lint consumers together. Prove A1 release with A2/B1 results still usable. No project arena, hidden self-reference, forwarding accessors or dual authoritative graph. |
 | HA02: acceptance | Strengthen existing semantic tests, remove superseded structural assertions, update HIR guide and retire this design after completion; Native work stays deferred. |
 
 All checkpoints must build their affected targets. Existing Native facts stay normally owned;
@@ -430,23 +430,15 @@ their HIR IDs and borrowed API lifetimes adapt without changing registration sem
 not activate Native redesign, optional source text, per-body arenas, a new incremental query
 algorithm or Runtime changes.
 
-### Checkpoint dependency requiring correction
+### Approved checkpoint sequencing
 
-The required proof is parser → real borrowed HIR → semantic analysis → independent A1 arena
-release while A2/B1 results remain usable. Production LoweredModule still owns Module/Body
-vectors with ID children. Replacing those with borrowed arena nodes changes signatures through
-lowering, analysis, compiler handoff and SDK; that coherent replacement is currently HA01.
+HA00's production-arena proof requires HA01's actual graph and consumer replacement; the
+remaining work therefore proceeds together, with buildable sub-checkpoint commits. This
+changes sequencing, not scope or acceptance: parser → real borrowed HIR → semantic analysis
+must permit independent A1 arena release while A2/B1 results remain usable. HA02 stays separate.
 
-Thus HA00 cannot finish its production-arena proof while HA01 is prohibited from starting.
 A toy AST, allocated references to the old owned graph, PhantomData lifetimes or a second
-unconsumed HIR model would not satisfy it. The owned-record/cache split can proceed on the
-current representation but cannot establish the missing proof.
-
-**Proposed phase correction, pending confirmation:** combine HA00's remaining ownership work
-and HA01's production graph/consumer cutover into one buildable checkpoint. Keep HA02 final
-acceptance separate. This changes checkpoint sequencing, not the selected external per-module
-Bump model, semantic scope or safety requirements. Do not mark HA00 complete by moving its
-original proof out of the acceptance criteria without explicit agreement.
+unconsumed HIR model cannot satisfy that proof. Cache detachment alone is not phase completion.
 
 ### Current checkpoint and carried checks
 
@@ -461,6 +453,12 @@ original proof out of the acceptance criteria without explicit agreement.
   and weak file/query handles. Returned FunctionAnalysis owns its exact graph/context. The
   existing lifecycle scenario proves both unrelated A and selected B graphs can release while
   cached facts remain; missing graphs trigger fresh checking and reject stale expression IDs.
+- Attribute payload checkpoint: one exclusive form (bare, assigned value, arguments or malformed
+  recovery) replaces independent value/argument options. Missing values/list slots and authored
+  path spelling survive lowering. Language roles and lint policies reject recovered malformed
+  forms. Target attachment still uses spans until the identity cutover; no parser syntax expands.
+  Nine lowering, six language-item and nineteen lint tests pass; existing scenarios are strengthened
+  and a lint recovery witness checks that damaged policy syntax cannot suppress findings.
 - Six preparation tests, three arena/revision regressions, the deterministic cancellation
   scenario and eleven selected-body tests pass. Structure/diff, changed-file rustfmt and HIR
   all-target Clippy pass. No Bump graph or SDK arena cutover is claimed yet.

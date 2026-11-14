@@ -140,6 +140,32 @@ fn policy_inherits_external_and_inline_modules_and_validates_even_when_allowed()
 }
 
 #[test]
+fn recovered_policy_payload_is_rejected_without_suppressing_findings() {
+    let source = include_str!("../tests/fixtures/recovered-policy.kgr");
+    let (_, _, snapshot, root) = analyze(&[("root", source)], 100);
+    assert!(snapshot.check_program(root, &Default::default()).is_err());
+    let records = lint(&snapshot, root, &Policy::default(), &Default::default()).unwrap();
+    assert_eq!(codes(&records, "non_upper_camel_case"), 1, "{records:?}");
+    let errors = records
+        .iter()
+        .filter(|record| record.code == "KG_LINT_POLICY")
+        .collect::<Vec<_>>();
+    let [error] = errors.as_slice() else {
+        panic!("one invalid policy diagnostic expected: {records:?}");
+    };
+    assert_eq!(error.severity, Severity::Error);
+    assert_eq!(
+        error.message,
+        "tool::allow expects one or more positional string rule IDs"
+    );
+    let span = error.span.as_ref().unwrap();
+    assert_eq!(
+        &source[span.range.start..span.range.end],
+        "#[tool::allow(\"non_upper_camel_case\" \"unused_binding\")]"
+    );
+}
+
+#[test]
 fn levels_reuse_the_same_analysis_and_do_not_suppress_language_errors() {
     let (mut database, sources, snapshot, root) = analyze(
         &[("root", "fn broken()->i32{true} fn healthy(){val unused=1;}")],

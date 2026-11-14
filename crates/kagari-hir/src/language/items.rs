@@ -7,7 +7,7 @@ use crate::{
     aggregates::traits::MethodDefault,
     declarations::{DeclarationId, Declarations},
     hir::item::Item,
-    lower::{AttributeValue, LoweredModule},
+    lower::{AttributeForm, AttributeValue, LoweredModule},
     native::NativeBinding,
     resolver::resolved::ResolvedName,
     types::semantic::{lower_nominal_type, lower_type},
@@ -44,7 +44,7 @@ pub(crate) fn collect(
         .iter()
         .filter(|attribute| attribute.name == "lang")
     {
-        let Some(AttributeValue::Literal(value)) = &attribute.value else {
+        let AttributeForm::Value(AttributeValue::Literal(value)) = &attribute.form else {
             report("lang", "expected #[lang = \"role\"]", attribute.span);
             continue;
         };

@@ -26,8 +26,13 @@ use kagari_source::source::SourceFile;
 use kagari_syntax::{
     ast::{
         borrow::Ast,
-        item::{AttributeArg, AttributeValue as AstAttributeValue},
+        item::{
+            Attribute, AttributeArg, AttributePayload as AstAttributePayload,
+            AttributeValue as AstAttributeValue,
+        },
+        misc::Path,
         module::ModuleSyntax,
+        site::{Required, SeparatedList},
     },
     parser::{ParseOptions, parse},
 };
@@ -142,14 +147,32 @@ impl LoweredModule {
 pub struct AttributeFact {
     /// Attribute name as written; recovery may produce an empty name.
     pub name: String,
-    /// Assigned value, when the attribute uses a value form.
-    pub value: Option<AttributeValue>,
-    /// Parenthesized arguments; `None` means no argument-list syntax.
-    pub arguments: Option<Vec<AttributeArgument>>,
+    /// Exclusive authored form, including missing values and retained recovery.
+    pub form: AttributeForm,
     /// Byte range of the entire attribute.
     pub span: Span,
     /// Byte range of the syntax node to which the attribute is attached.
     pub target_span: Span,
+}
+
+/// Exclusive attribute syntax; empty arguments differ from a bare attribute.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttributeForm {
+    Bare,
+    Value(AttributeValue),
+    Arguments(Vec<AttributeArgument>),
+    /// Damaged outer syntax with at most one recognizable payload.
+    Malformed {
+        recovered: Option<AttributePayload>,
+    },
+}
+
+/// Recognizable syntax retained inside a malformed attribute, without another wrapper.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttributePayload {
+    Bare,
+    Value(AttributeValue),
+    Arguments(Vec<AttributeArgument>),
 }
 
 /// A positional or named value within an attribute argument/list.
@@ -157,7 +180,7 @@ pub struct AttributeFact {
 pub struct AttributeArgument {
     /// Argument key; absent for a positional argument.
     pub name: Option<String>,
-    /// Literal, path, nested list or missing recovered value.
+    /// Literal, path, nested list, missing value or malformed retained syntax.
     pub value: AttributeValue,
 }
 
@@ -170,8 +193,10 @@ pub enum AttributeValue {
     Path(String),
     /// Nested positional/named elements in source order.
     List(Vec<AttributeArgument>),
-    /// An argument whose value was absent in recovered syntax.
+    /// A required assigned/argument value absent in recovered syntax.
     Missing,
+    /// A retained AST error or a value whose required structure is damaged.
+    Malformed,
 }
 
 fn attribute_argument(arg: Ast<'_, AttributeArg>) -> AttributeArgument {
@@ -186,12 +211,90 @@ fn attribute_argument(arg: Ast<'_, AttributeArg>) -> AttributeArgument {
 }
 
 fn attribute_value(value: Ast<'_, AstAttributeValue>) -> AttributeValue {
-    if let Some(literal) = value.literal() {
-        AttributeValue::Literal(literal.text().unwrap_or_default())
-    } else if let Some(path) = value.path() {
-        AttributeValue::Path(path.text().unwrap_or_default())
+    match value.data() {
+        AstAttributeValue::Literal(_) => AttributeValue::Literal(value.source_text().to_owned()),
+        AstAttributeValue::Path(path) if attribute_path_is_complete(path) => {
+            AttributeValue::Path(value.source_text().to_owned())
+        }
+        AstAttributeValue::List(list)
+            if list.close.as_ref().is_some()
+                && value.unexpected().next().is_none()
+                && attribute_separators_are_present(&list.elements) =>
+        {
+            AttributeValue::List(attribute_arguments(&list.elements, value.elements()))
+        }
+        AstAttributeValue::Path(_) | AstAttributeValue::List(_) | AstAttributeValue::Error(_) => {
+            AttributeValue::Malformed
+        }
+    }
+}
+
+fn attribute_path_is_complete(path: &Path) -> bool {
+    match path {
+        Path::Single(_) => true,
+        Path::Segmented(path) => path
+            .rest
+            .iter()
+            .all(|segment| segment.name.as_ref().is_some()),
+    }
+}
+
+fn attribute_separators_are_present(list: &SeparatedList<AttributeArg>) -> bool {
+    list.entries
+        .iter()
+        .all(|entry| !matches!(entry.separator, Some(Required::Missing { .. })))
+}
+
+fn attribute_arguments<'a>(
+    list: &SeparatedList<AttributeArg>,
+    mut arguments: impl Iterator<Item = Ast<'a, AttributeArg>>,
+) -> Vec<AttributeArgument> {
+    // Typed iterators omit missing entries; retain their original list positions.
+    list.entries
+        .iter()
+        .map(|entry| match entry.element {
+            Required::Present(_) => attribute_argument(arguments.next().expect("present argument")),
+            Required::Missing { .. } => AttributeArgument {
+                name: None,
+                value: AttributeValue::Missing,
+            },
+        })
+        .collect()
+}
+
+fn attribute_form(attribute: Ast<'_, Attribute>) -> AttributeForm {
+    let data = attribute.data();
+    let mut malformed = data.open.as_ref().is_none()
+        || data.close.as_ref().is_none()
+        || !data.path.as_ref().is_some_and(attribute_path_is_complete)
+        || attribute.unexpected().next().is_some();
+    // Dispatch on the raw payload: a written `=` with no value is not bare syntax.
+    let payload = match &data.payload {
+        None => AttributePayload::Bare,
+        Some(AstAttributePayload::Value { value, .. }) => AttributePayload::Value(match value {
+            Required::Missing { .. } => AttributeValue::Missing,
+            Required::Present(_) => {
+                attribute_value(attribute.value().expect("present assigned value"))
+            }
+        }),
+        Some(AstAttributePayload::Arguments(args)) => {
+            let view = attribute.args().expect("argument payload");
+            malformed |= args.close.as_ref().is_none()
+                || view.unexpected().next().is_some()
+                || !attribute_separators_are_present(&args.arguments);
+            AttributePayload::Arguments(attribute_arguments(&args.arguments, view.arguments()))
+        }
+    };
+    if malformed {
+        AttributeForm::Malformed {
+            recovered: Some(payload),
+        }
     } else {
-        AttributeValue::List(value.elements().map(attribute_argument).collect())
+        match payload {
+            AttributePayload::Bare => AttributeForm::Bare,
+            AttributePayload::Value(value) => AttributeForm::Value(value),
+            AttributePayload::Arguments(arguments) => AttributeForm::Arguments(arguments),
+        }
     }
 }
 
@@ -207,10 +310,7 @@ pub(crate) fn lower_attributes(
         for attribute in owner.attributes() {
             facts.push(AttributeFact {
                 name: attribute.name_text().unwrap_or_default(),
-                value: attribute.value().map(attribute_value),
-                arguments: attribute
-                    .args()
-                    .map(|args| args.arguments().map(attribute_argument).collect()),
+                form: attribute_form(attribute),
                 span: context::token_span(&attribute),
                 target_span: owner.body_span(),
             });

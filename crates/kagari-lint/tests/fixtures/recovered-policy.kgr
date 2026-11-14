@@ -1,0 +1,2 @@
+#[tool::allow("non_upper_camel_case" "unused_binding")]
+struct bad_type {}

@@ -1,0 +1,11 @@
+#[meta]
+#[meta()]
+#[meta(name = "answer", tags = [1, true, sample:: /* qualifier */ tag])]
+fn main() -> i32 {
+    42
+}
+
+struct Example {
+    #[meta =[]]
+    val value: i32
+}
