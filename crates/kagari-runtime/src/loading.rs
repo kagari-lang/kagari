@@ -73,6 +73,8 @@ impl Runtime {
             | RevisionSource::Application(_)
             | RevisionSource::HostApplication(_)
             | RevisionSource::RootedClosure(_)
+            | RevisionSource::RootedFuture(_)
+            | RevisionSource::Future(_)
             | RevisionSource::Cold(_)
             | RevisionSource::Closure(_)
             | RevisionSource::StaticRecipe { .. } => slots.scope().retain(revision),

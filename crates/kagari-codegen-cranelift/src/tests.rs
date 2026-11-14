@@ -201,7 +201,7 @@ fn cranelift_backend_compiles_scalar_mir_and_products_outlive_the_backend() {
 #[case::branch("fn main() -> i32 { if true { 1 } else { 2 } }")]
 #[case::local("fn main() -> i32 { val x = 1; x }")]
 #[case::division("fn main() -> i32 { 42 / 2 }")]
-#[case::char_literal("fn main() -> char { '馃檪' }")]
+#[case::char_literal("fn main() -> char { '\u{1f642}' }")]
 #[case::char_comparison("fn main() -> bool { 'a' == 'z' }")]
 #[case::reference_parameter("struct Player {} fn main(value: Ref<Player>) -> i32 { 42 }")]
 #[case::static_read("static val value: i32 = 7; fn main() -> i32 { value }")]

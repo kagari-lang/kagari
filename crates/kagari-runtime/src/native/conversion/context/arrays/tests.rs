@@ -138,18 +138,24 @@ fn repeat_allocation_rejects_length_and_byte_capacity_without_publication()
     let mut runtime = Runtime::default();
     let owner = allocation_owner(&mut runtime);
     let before = runtime.gc_stats();
-    for (element, value, count) in [
-        (BuiltinType::Unit, RootedValue::unit(), usize::MAX),
+    for (element, value, count, kind) in [
+        (
+            BuiltinType::Unit,
+            RootedValue::unit(),
+            usize::MAX,
+            RuntimeErrorKind::ResourceLimitExceeded,
+        ),
         (
             BuiltinType::U64,
             RootedValue::from(7u64),
             isize::MAX as usize / 8 + 1,
+            RuntimeErrorKind::AllocationFailure,
         ),
     ] {
         let error = runtime
             .alloc_array_repeat(&owner, Ty::Builtin(element), &value, count)
             .unwrap_err();
-        assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
+        assert_eq!(error.kind(), kind);
         let after = runtime.gc_stats();
         assert_eq!(after.objects, before.objects);
         assert_eq!(after.provider_units, before.provider_units);

@@ -12,8 +12,9 @@ use crate::{
     closure::ClosureMode,
     error::RuntimeErrorKind,
     module::{
-        ModuleStore, VerifiedProgram,
+        ModuleEpochRetention, ModuleStore, VerifiedProgram,
         managed::{cell::StaticCellObject, source::RevisionSource},
+        retention::RetentionOrigin,
         state::{cells::CellId, initialization::InitializationAttempt},
     },
     native::conversion::context::ConversionContext,
@@ -518,6 +519,13 @@ fn additions_reordering_and_stale_publication_are_transactional_and_deletion_is_
     let baseline_program = load_bytecode(&mut runtime, "state", original.clone()).unwrap();
     let baseline = runtime.select_program(&baseline_program).unwrap();
     ready(&mut runtime, &baseline, 0, &RootedValue::from(7));
+    let _baseline_lease = runtime
+        .retain_module(
+            &baseline,
+            ModuleEpochRetention::RuntimeValue,
+            RetentionOrigin::Current,
+        )
+        .unwrap();
     let context = DefinitionContext::new().unwrap();
     let mut updated = original
         .import_into(&context, &Default::default())
@@ -717,7 +725,7 @@ fn corrupt_semantic_cell_quarantines_and_cleans_frame_resources() {
     // Deliberately bypass this test owner's semantic helper, while preserving the
     // actual provider's tracing/publication protocol. Reads must detect the fault.
     seed(&mut runtime, &module, 0, &RootedValue::from(true));
-    let baseline = runtime.gc_stats().root_registrations;
+    let baseline = runtime.collected_gc_stats().root_registrations;
     let mut activation = runtime.enter_execution_stack(&module).unwrap();
     activation
         .with(|runtime, stack| {
@@ -746,5 +754,5 @@ fn corrupt_semantic_cell_quarantines_and_cleans_frame_resources() {
     assert!(runtime.is_quarantined());
     assert!(runtime.execution_root().is_none());
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
-    assert_eq!(runtime.gc_stats().root_registrations, baseline);
+    assert_eq!(runtime.collected_gc_stats().root_registrations, baseline);
 }

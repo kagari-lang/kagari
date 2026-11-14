@@ -9,7 +9,8 @@ use crate::{
         applications::{ApplicationRecord, MethodApplication},
     },
     frame::types::{
-        EnvironmentRecord, construction::ConstructionScope, operations::OperationSegment,
+        EnvironmentRecord, compatibility::TypeView, construction::ConstructionScope,
+        operations::OperationSegment,
     },
     module::{ExecutableModule, InstalledProgram},
     objects::interfaces::description::InterfaceResultBinding,
@@ -579,6 +580,7 @@ fn associated_type_snapshots_survive_selection_collection_without_owning_environ
             &[MetadataSource::AdmittedOperations(&dictionary)],
         )
         .unwrap();
+    let snapshot = runtime.environment_snapshot(&environment).unwrap();
     let mut child =
         EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap();
     child.include(Some(environment.facts().clone())).unwrap();
@@ -614,6 +616,13 @@ fn associated_type_snapshots_survive_selection_collection_without_owning_environ
         arguments: vec![],
     };
     assert_eq!(retained.resolve(&projection).unwrap(), expected);
+    assert_eq!(
+        TypeView::new(&projection, &loaded, Some(&retained))
+            .closed()
+            .unwrap()
+            .as_ref(),
+        &expected,
+    );
     // Facts remain usable after collection, but cannot authenticate publication.
     let mut invalid =
         EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap();
@@ -636,6 +645,35 @@ fn associated_type_snapshots_survive_selection_collection_without_owning_environ
         .retire_execution(&runtime.resources, destination)
         .unwrap();
     assert!(!runtime.is_quarantined());
+
+    let (_, _, candidate) = load_source(include_str!(
+        "../../../tests/fixtures/metadata/associated-dictionary.kgr"
+    ));
+    let staged = runtime
+        .stage_reload_verified_program(&_installed, None, candidate.verified_program().clone())
+        .unwrap();
+    runtime.publish_staged_reload(staged).unwrap();
+    let selected = runtime
+        .select_call_route(
+            &loaded
+                .bind_call_route(CallableTarget::Script(loaded.bytecode.functions[0].id))
+                .unwrap(),
+        )
+        .unwrap();
+    let mapping = selected
+        .mapping_from(loaded.publication_definitions())
+        .unwrap();
+    let transported = snapshot
+        .record
+        .transported(&runtime, &selected, &mapping, &snapshot.groups)
+        .unwrap();
+    let projection = mapping
+        .remap_applied(&projection, &Default::default())
+        .unwrap();
+    assert_eq!(transported.types.resolve(&projection).unwrap(), expected);
+    let view = TypeView::new(&projection, selected.owner(), Some(&transported.types));
+    assert_eq!(view.closed().unwrap().as_ref(), &expected);
+    assert_eq!(view.normalized().unwrap().owner.key(), loaded.key());
 }
 
 #[test]

@@ -91,7 +91,7 @@ fn atomic_generated_path_packs_release_conflicts_errors_and_unwinds() {
                     let stats = runtime.scoped_view(&values[1])?;
                     let inventory = runtime.scoped_view(&values[2])?;
                     let entered = Cell::new(false);
-                    let roots = runtime.gc_stats().root_registrations;
+                    let roots = runtime.collected_gc_stats().root_registrations;
                     let narrowed = {
                         let Runtime {
                             resources,
@@ -120,7 +120,7 @@ fn atomic_generated_path_packs_release_conflicts_errors_and_unwinds() {
                             .unwrap()
                     };
                     runtime.collect_garbage()?;
-                    assert_eq!(runtime.gc_stats().root_registrations, roots);
+                    assert_eq!(runtime.collected_gc_stats().root_registrations, roots);
                     let shared = runtime.scoped_view(&narrowed)?;
                     assert!(
                         runtime

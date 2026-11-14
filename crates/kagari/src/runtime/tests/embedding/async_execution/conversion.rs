@@ -142,6 +142,14 @@ fn async_output_publication_contract() {
             engine.install(module.finish().unwrap()).unwrap();
         });
 
+        f.runtime.collect_garbage().unwrap();
+        let baseline = f.runtime.gc_stats();
+        let members = f
+            .runtime
+            .select_program(&f.module)
+            .unwrap()
+            .members()
+            .collect::<Vec<_>>();
         let context = ExecutionContext::default();
         let scope = f
             .runtime
@@ -230,9 +238,24 @@ fn async_output_publication_contract() {
             );
         } else {
             f.runtime.collect_garbage().unwrap();
-            assert_eq!(f.runtime.gc_stats().objects, 0);
+            assert_eq!(f.runtime.gc_stats().objects, baseline.objects);
+            assert_eq!(
+                f.runtime.gc_stats().root_registrations,
+                baseline.root_registrations
+            );
         }
-        assert_eq!(f.runtime.gc_stats().root_registrations, 0);
+        // Quarantine forbids collector service, including deferred root releases.
+        // Execution registrations and provider counters remain observable cleanup oracles.
+        for member in members {
+            assert_eq!(
+                f.runtime
+                    .modules()
+                    .retention_counts(member.key())
+                    .active_calls,
+                0
+            );
+        }
+        assert!(f.runtime.execution_id().is_none());
         assert_eq!(f.runtime.resources().counters().current_call_depth, 0);
     }
 }

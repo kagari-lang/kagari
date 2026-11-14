@@ -4,9 +4,10 @@ use crate::{
     program::Program,
     test_support::cancellation as support,
 };
-use kagari_runtime::module::entry::ProgramEntry;
+use kagari_runtime::{error::reason::ErrorReason, module::entry::ProgramEntry};
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
+use kagari_types::{arithmetic::ArithmeticError, scalar::error::ScalarError};
 
 #[test]
 fn traps_inside_error_conversion_release_resources() {
@@ -48,9 +49,9 @@ pub fn after() -> i32 { 42 }
     let error = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap_err();
-    assert!(
-        format!("{error:?}").contains("division by zero"),
-        "{error:?}"
+    assert_eq!(
+        error.reason(),
+        &ErrorReason::Scalar(ScalarError::Arithmetic(ArithmeticError::DivisionByZero))
     );
     assert!(
         error

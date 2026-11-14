@@ -5,8 +5,11 @@ use crate::{
     program::Program,
 };
 use kagari_bytecode::artifact::KbcArtifact;
-use kagari_runtime::module::entry::ProgramEntry;
-use kagari_runtime::reload::ReloadValidationError;
+use kagari_runtime::{
+    error::reason::{ErrorReason, IndexError},
+    module::entry::ProgramEntry,
+    reload::ReloadValidationError,
+};
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
 use rstest::rstest;
@@ -48,8 +51,11 @@ fn run(source: &str, expected_error: Option<&str>) {
         None => assert!(result.unwrap().return_value.as_bool().unwrap()),
         Some(message) => {
             let error = result.unwrap_err();
-            assert_eq!(error.code(), "KG_RUNTIME_SCRIPT_TRAP");
-            assert!(format!("{error:?}").contains(message), "{error:?}");
+            assert_eq!(error.code(), "KG_RUNTIME_INDEX_OUT_OF_BOUNDS");
+            assert_eq!(
+                error.reason(),
+                &ErrorReason::Index(IndexError::Provider(message.to_owned()))
+            );
         }
     }
     runtime.collect_garbage().unwrap();

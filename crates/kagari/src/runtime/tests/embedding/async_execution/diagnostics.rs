@@ -86,6 +86,8 @@ fn drive(f: &mut Fixture, scope: &TaskScopeOwner, id: TaskId) -> TaskDriveResult
 fn async_failure_provenance_contract() {
     for stripped in [false, true] {
         let mut f = fixture(stripped);
+        f.runtime.collect_garbage().unwrap();
+        let baseline = f.runtime.gc_stats();
 
         let scope = f
             .runtime
@@ -288,19 +290,21 @@ fn async_failure_provenance_contract() {
                 .program_fingerprint()
         );
         assert_eq!(host_report.outcome.unwrap().as_i32().unwrap(), 7);
-        drop((factory, hosted, tail, left, right, queued, dependent));
+        drop((
+            factory, hosted, tail, left, right, queued, dependent, capability,
+        ));
         scope.close();
         f.runtime.drain_cancelled_tasks().unwrap();
         drop(scope);
         f.runtime.collect_garbage().unwrap();
         assert_eq!(
             f.runtime.gc_stats().root_registrations,
-            0,
+            baseline.root_registrations,
             "retained diagnostics own no GC roots"
         );
         assert_eq!(
             f.runtime.gc_stats().objects,
-            0,
+            baseline.objects,
             "diagnostic sites own no script objects"
         );
         assert_eq!(

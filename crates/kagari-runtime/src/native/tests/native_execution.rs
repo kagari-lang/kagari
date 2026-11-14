@@ -181,14 +181,14 @@ fn install(runtime: &mut Runtime, entry: JitCompiledFunction) -> InstalledNative
     .unwrap()
 }
 
-fn assert_clean(runtime: &Runtime, roots: usize) {
+fn assert_clean(runtime: &mut Runtime, roots: usize) {
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
-    assert_eq!(runtime.gc_stats().root_registrations, roots);
+    assert_eq!(runtime.collected_gc_stats().root_registrations, roots);
     assert!(runtime.execution_root().is_none());
 }
 
 fn assert_unit(runtime: &mut Runtime, installed: &InstalledNativeFunction) {
-    let roots = runtime.gc_stats().root_registrations;
+    let roots = runtime.collected_gc_stats().root_registrations;
     let value = runtime.invoke_native_function(installed).unwrap();
     assert!(
         runtime
@@ -196,23 +196,23 @@ fn assert_unit(runtime: &mut Runtime, installed: &InstalledNativeFunction) {
             .scope(&runtime.resources, |cx, _| Ok(value.get(cx)?.is_unit()))
             .unwrap()
     );
-    assert_eq!(runtime.gc_stats().root_registrations, roots);
+    assert_eq!(runtime.collected_gc_stats().root_registrations, roots);
 }
 
 #[test]
 fn native_calls_use_checked_frames_and_release_them_on_return() {
     let mut runtime = runtime();
     let installed = install(&mut runtime, execute);
-    let roots = runtime.gc_stats().root_registrations;
+    let roots = runtime.collected_gc_stats().root_registrations;
     assert_unit(&mut runtime, &installed);
-    assert_clean(&runtime, roots);
+    assert_clean(&mut runtime, roots);
 }
 
 #[test]
 fn native_traps_capture_the_frame_before_cleanup_and_never_request_fallback() {
     let mut runtime = runtime();
     let installed = install(&mut runtime, trap);
-    let roots = runtime.gc_stats().root_registrations;
+    let roots = runtime.collected_gc_stats().root_registrations;
     let failure = runtime.invoke_native_function(&installed).unwrap_err();
     assert!(
         matches!(failure.error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::ScriptTrap)
@@ -220,7 +220,7 @@ fn native_traps_capture_the_frame_before_cleanup_and_never_request_fallback() {
     assert_eq!(failure.trace.frames[0].function_name, "main");
     assert_eq!(failure.trace.frames[0].instruction_offset, 0);
 
-    assert_clean(&runtime, roots);
+    assert_clean(&mut runtime, roots);
 }
 
 #[test]
@@ -276,27 +276,27 @@ fn invocation_checks_runtime_ownership_without_permission_flags() {
     let mut first = runtime();
     let installed = install(&mut first, execute);
     let mut second = runtime();
-    let first_roots = first.gc_stats().root_registrations;
-    let second_roots = second.gc_stats().root_registrations;
+    let first_roots = first.collected_gc_stats().root_registrations;
+    let second_roots = second.collected_gc_stats().root_registrations;
     assert!(
         matches!(second.invoke_native_function(&installed).unwrap_err().error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::StaleHandle)
     );
     assert_unit(&mut first, &installed);
-    assert_clean(&first, first_roots);
-    assert_clean(&second, second_roots);
+    assert_clean(&mut first, first_roots);
+    assert_clean(&mut second, second_roots);
 }
 
 #[test]
 fn malformed_native_results_quarantine_and_clean_up() {
     let mut runtime = runtime();
     let installed = install(&mut runtime, bad_result);
-    let roots = runtime.gc_stats().root_registrations;
+    let roots = runtime.collected_gc_stats().root_registrations;
     let failure = runtime.invoke_native_function(&installed).unwrap_err();
     assert!(
         matches!(failure.error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::EngineFault)
     );
     assert!(runtime.is_quarantined());
-    assert_clean(&runtime, roots);
+    assert_clean(&mut runtime, roots);
 }
 
 #[test]
@@ -352,7 +352,7 @@ fn installation_retains_descriptors_and_rejects_unknown_functions_without_leakin
         1
     );
 
-    let roots = runtime.gc_stats().root_registrations;
+    let roots = runtime.collected_gc_stats().root_registrations;
     let mut invalid = product(execute, dropped.clone());
     Arc::get_mut(&mut invalid).unwrap().artifact.function = FunctionRef::new(99);
     // Invalid metadata is rejected before the otherwise valid static entry can run.
@@ -379,7 +379,7 @@ fn installation_retains_descriptors_and_rejects_unknown_functions_without_leakin
             .compiled_artifacts,
         0
     );
-    assert_clean(&runtime, roots - 1);
+    assert_clean(&mut runtime, roots - 1);
 }
 
 #[test]
@@ -396,7 +396,7 @@ fn failed_reload_keeps_installed_code_callable_and_its_version_retained() {
         )
     }
     .unwrap();
-    let roots = runtime.gc_stats().root_registrations;
+    let roots = runtime.collected_gc_stats().root_registrations;
     let definitions = DefinitionContext::new().unwrap();
     let mut candidate = KbcArtifact::from_program(
         program()
@@ -438,14 +438,14 @@ fn failed_reload_keeps_installed_code_callable_and_its_version_retained() {
             .compiled_artifacts,
         0
     );
-    assert_clean(&runtime, roots - 1);
+    assert_clean(&mut runtime, roots - 1);
 }
 
 #[test]
 fn native_reentry_preserves_the_callers_frame_and_shared_execution() {
     let mut runtime = runtime();
     let installed = install(&mut runtime, execute);
-    let roots = runtime.gc_stats().root_registrations;
+    let roots = runtime.collected_gc_stats().root_registrations;
     let mut outer_activation = runtime.enter_execution_stack(installed.module()).unwrap();
     outer_activation
         .with(|runtime, outer| {
@@ -466,14 +466,14 @@ fn native_reentry_preserves_the_callers_frame_and_shared_execution() {
         })
         .unwrap();
     drop(outer_activation);
-    assert_clean(&runtime, roots);
+    assert_clean(&mut runtime, roots);
 }
 
 #[test]
 fn cancellation_of_an_active_session_prevents_native_progress() {
     let mut runtime = runtime();
     let installed = install(&mut runtime, execute);
-    let roots = runtime.gc_stats().root_registrations;
+    let roots = runtime.collected_gc_stats().root_registrations;
     let options = runtime.execution_options();
     let cancel = options.cancellation.clone();
     let mut session = runtime
@@ -489,7 +489,7 @@ fn cancellation_of_an_active_session_prevents_native_progress() {
     );
 
     drop(session);
-    assert_clean(&runtime, roots);
+    assert_clean(&mut runtime, roots);
 }
 
 #[test]
@@ -624,7 +624,7 @@ fn execution_observers_prevent_native_entry_without_debug_callbacks() {
     let mut runtime = runtime();
     let installed = install(&mut runtime, execute);
     runtime.set_execution_observer(Observer).unwrap();
-    let roots = runtime.gc_stats().root_registrations;
+    let roots = runtime.collected_gc_stats().root_registrations;
     let mut session = runtime
         .begin_execution(installed.module(), runtime.execution_options())
         .unwrap();
@@ -643,7 +643,7 @@ fn execution_observers_prevent_native_entry_without_debug_callbacks() {
         0
     );
     drop(session);
-    assert_clean(&runtime, roots);
+    assert_clean(&mut runtime, roots);
 }
 
 #[test]

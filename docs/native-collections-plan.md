@@ -86,6 +86,16 @@ same setup boundary. Preserve their assertions and complete original source.
 Do not substitute fixed arrays, extract one form from a module containing Vec,
 install a privileged provider or disable validation.
 
+The 2026-11-14 workspace failure audit also identifies a partially migrated
+witness: SDK `runtime::language_contract::evaluation::heap_removed_target_not_recreated`
+calls `clear()` on `observe::vector()`, while its test provider currently declares
+and constructs a fixed array. Restoring Vec registration alone cannot repair that
+mismatch. NC must restore the resizable provider and its mutation/identity oracle
+together; do not add array shrinking or weaken the expected removed-target trap.
+The other dependent SDK failures include withdrawn List algorithms/navigation and
+body-reuse checks whose unchanged Vec-using body is currently diagnostic-bearing.
+Keep their original assertions for provider restoration.
+
 After provider restoration, execute the original inherited PG00 construction/
 access/Vec/Map/root/collection/normal-step/retained/peak gates with their scenario
 associations and fresh matched baselines. [The benchmark owner](../crates/kagari-gc/BENCHMARKS.md#acceptance-requirements)

@@ -5,7 +5,7 @@ use crate::{
     error::{RuntimeError, trap::TrapReason},
     execution::roots::ExecutionRoots,
     frame::types::arguments::TypeArgument,
-    module::ExecutableModule,
+    module::{ExecutableModule, managed::revision::RevisionState},
     native::{
         binding::NativeResult,
         completion::CompletionRegistry,
@@ -251,6 +251,15 @@ pub(crate) struct FutureContract {
 }
 
 impl FutureContract {
+    /// Borrow the still-cold computation without consuming its one-shot claim.
+    pub(crate) fn body<'gc>(
+        cx: &Scope<'gc>,
+        value: ScopedValue<'gc>,
+    ) -> Result<Option<Gc<'gc, RevisionState>>, GcError> {
+        let future = payload(cx, value)?;
+        Ok(FuturePayload::cold(cx, future).map(|cold| ColdObject::body(cx, cold)))
+    }
+
     pub(crate) fn read<'gc>(cx: &Scope<'gc>, value: ScopedValue<'gc>) -> Result<Self, GcError> {
         let future = payload(cx, value)?;
         let object = cx.downcast::<NativeObject>(value.object().ok_or(GcError::Representation)?)?;

@@ -40,8 +40,8 @@ impl Runtime {
         definitions: &DefinitionTable,
         arguments: &[TypeArgument],
     ) -> NativeResult<NativeType<T>> {
-        self.resources().ensure_execution_allowed()?;
         let snapshot = self.capture_module(owner)?;
+        self.resources().ensure_execution_allowed()?;
         let owner = &snapshot.root;
         let id = self
             .definition_context()

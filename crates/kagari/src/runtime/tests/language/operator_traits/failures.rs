@@ -5,9 +5,13 @@ use crate::{
     program::Program,
     test_support::cancellation as support,
 };
-use kagari_runtime::module::entry::ProgramEntry;
+use kagari_runtime::{
+    error::reason::{CancellationReason, ErrorReason, IndexError},
+    module::entry::ProgramEntry,
+};
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
+use kagari_types::{arithmetic::ArithmeticError, scalar::error::ScalarError};
 
 #[test]
 fn operator_traps_and_cancellation_release_execution_roots() {
@@ -44,7 +48,23 @@ fn main()->i32 {Number{value:42}+1}
         .unwrap();
     runtime.collect_garbage().unwrap();
     let roots = runtime.gc_stats().root_registrations;
-    for entry in ["fail_add", "fail_index", "exhaust"] {
+    for (entry, expected_reason, expected_code) in [
+        (
+            "fail_add",
+            ErrorReason::Scalar(ScalarError::Arithmetic(ArithmeticError::DivisionByZero)),
+            "KG_RUNTIME_SCRIPT_TRAP",
+        ),
+        (
+            "fail_index",
+            ErrorReason::Index(IndexError::InvalidIndex { index: 2 }),
+            "KG_RUNTIME_INDEX_OUT_OF_BOUNDS",
+        ),
+        (
+            "exhaust",
+            ErrorReason::Cancelled(CancellationReason::ExecutionCancelled),
+            "KG_RUNTIME_CANCELLED",
+        ),
+    ] {
         let options = context.clone();
         let error = if entry == "exhaust" {
             let selected = runtime.select_program(&loaded).unwrap();
@@ -56,16 +76,8 @@ fn main()->i32 {Number{value:42}+1}
         } else {
             runtime.execute(&loaded, entry, &[], &options).unwrap_err()
         };
-        assert!(
-            !format!("{error:?}").contains("MissingFunction"),
-            "{entry}: {error:?}"
-        );
-        let expected = if entry == "exhaust" {
-            "KG_RUNTIME_CANCELLED"
-        } else {
-            "KG_RUNTIME_SCRIPT_TRAP"
-        };
-        assert_eq!(error.code(), expected, "{entry}: {error:?}");
+        assert_eq!(error.reason(), &expected_reason, "{entry}: {error:?}");
+        assert_eq!(error.code(), expected_code, "{entry}: {error:?}");
         runtime.collect_garbage().unwrap();
         assert_eq!(runtime.gc_stats().root_registrations, roots);
         assert!(!runtime.is_quarantined());

@@ -153,7 +153,7 @@ fn executable_inline_field_codecs_keep_paths_current_and_results_rooted() {
         label: "original".into(),
     };
     let results = runtime.memory.enter_execution(&runtime.resources).unwrap();
-    let roots_before = runtime.gc_stats().root_registrations;
+    let roots_before = runtime.collected_gc_stats().root_registrations;
     runtime
         .with_host_scope(|scope| {
             let whole = scope.borrow_mut(&player_type, &mut player)?;
@@ -231,8 +231,11 @@ fn executable_inline_field_codecs_keep_paths_current_and_results_rooted() {
                         Ok(())
                     },
                 )?;
-                assert_eq!(runtime.gc_stats().root_registrations, roots_before);
-                let mut cx = ConversionContext::new(runtime, &owner)?;
+                assert_eq!(
+                    runtime.collected_gc_stats().root_registrations,
+                    roots_before
+                );
+                let mut cx = ConversionContext::new(runtime, &newer)?;
                 let stats_type = cx.type_for::<Stats>()?;
                 let replacement = cx.encode_value(&stats_type, Stats { hp: 5 })?;
                 cx.runtime_mut()
@@ -273,7 +276,10 @@ fn executable_inline_field_codecs_keep_paths_current_and_results_rooted() {
                         Ok(())
                     },
                 )?;
-                assert_eq!(cx.runtime().gc_stats().root_registrations, roots_before);
+                assert_eq!(
+                    cx.runtime_mut().collected_gc_stats().root_registrations,
+                    roots_before
+                );
                 drop(cx);
                 destination.publish(runtime, &ValueView::unit())
             })?;
@@ -285,7 +291,10 @@ fn executable_inline_field_codecs_keep_paths_current_and_results_rooted() {
         .retire_execution(&runtime.resources, results)
         .unwrap();
     runtime.collect_garbage().unwrap();
-    assert_eq!(runtime.gc_stats().root_registrations, roots_before);
+    assert_eq!(
+        runtime.collected_gc_stats().root_registrations,
+        roots_before
+    );
     assert_eq!(player.stats.hp, 5);
     assert_eq!(player.label, "changed");
 }

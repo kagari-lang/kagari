@@ -1,6 +1,7 @@
 use crate::{BytecodeArtifact, context::ExecutionContext, error::EmbeddingError, program::Program};
-use kagari_runtime::module::entry::ProgramEntry;
+use kagari_runtime::{error::reason::ErrorReason, module::entry::ProgramEntry};
 use kagari_source::source::SourceFile;
+use kagari_types::{arithmetic::ArithmeticError, scalar::error::ScalarError};
 use rstest::rstest;
 use std::{fs, path::PathBuf};
 
@@ -281,11 +282,15 @@ pub fn overflow() -> i32 { val minimum = -2147483648; minimum % -1 }
             .unwrap(),
         1.5
     );
-    for (name, message) in [
-        ("zero", "integer remainder by zero"),
-        ("overflow", "integer overflow"),
+    for (name, reason) in [
+        ("zero", ArithmeticError::RemainderByZero),
+        ("overflow", ArithmeticError::Overflow),
     ] {
         let error = runtime.execute(&loaded, name, &[], &context).unwrap_err();
-        assert!(format!("{error:?}").contains(message), "{name}: {error:?}");
+        assert_eq!(
+            error.reason(),
+            &ErrorReason::Scalar(ScalarError::Arithmetic(reason)),
+            "{name}: {error:?}"
+        );
     }
 }

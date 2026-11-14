@@ -24,7 +24,11 @@ use crate::{
         invoke::invoke,
         program::{ProgramFixture, free_function_program},
     },
-    value::{carriers::RootedValue, strings::StringObject, view::ValueView},
+    value::{
+        carriers::{RootedValue, ScopedValue},
+        strings::StringObject,
+        view::ValueView,
+    },
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
@@ -37,7 +41,7 @@ use kagari_bytecode::{
 };
 use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
 use kagari_contract::{ids::FunctionRef, types::PublicItem};
-use kagari_gc::error::GcError;
+use kagari_gc::{error::GcError, heap::Phase};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
@@ -118,6 +122,7 @@ impl Drop for ControlWake {
 #[test]
 fn owned_initializer_unwind_releases_session_and_cancellation_owner_immediately() {
     let mut f = Fixture::new(false);
+    let baseline = f.runtime.gc_stats();
     let session = f
         .runtime
         .begin_execution(&f.module, Default::default())
@@ -125,10 +130,26 @@ fn owned_initializer_unwind_releases_session_and_cancellation_owner_immediately(
     let id = session.scope.id;
     let external = CancellationToken::default();
     let mut owner = None;
+    let mut queued = None;
     let panic = catch_unwind(AssertUnwindSafe(|| {
         let _ = Runtime::initialize_owned_factory(session, external.clone(), |runtime| {
             let state = runtime.resources().active_session().unwrap();
             owner = Some(Arc::downgrade(state.owner.borrow().as_ref().unwrap()));
+            drop(state);
+            queued = Some(
+                runtime
+                    .memory
+                    .scope(&runtime.resources, |cx, roots| {
+                        ExecutionRoots::with(roots, cx, |slots| {
+                            let queued = slots.begin_queue(id, 1)?;
+                            let value =
+                                StringObject::alloc(slots.scope(), "queued before unwind".into())?;
+                            slots.set_queued(&queued, 0, ScopedValue::managed(value))?;
+                            Ok(queued)
+                        })
+                    })
+                    .unwrap(),
+            );
             panic!("admission conversion unwound");
         });
     }))
@@ -151,6 +172,19 @@ fn owned_initializer_unwind_releases_session_and_cancellation_owner_immediately(
         Err(GcError::Index)
     ));
     assert_eq!(f.runtime.resources().counters().current_call_depth, 0);
+    assert!(matches!(
+        f.runtime.memory.execution_space(id),
+        Err(GcError::Index)
+    ));
+    let queued = queued.unwrap();
+    assert!(matches!(
+        f.runtime.memory.scope(&f.runtime.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| queued.check_bounds(slots))
+        }),
+        Err(GcError::Index)
+    ));
+    f.runtime.collect_garbage().unwrap();
+    assert_eq!(f.runtime.gc_stats().objects, baseline.objects);
     assert_eq!(f.runtime.gc_stats().root_registrations, f.roots);
     external.cancel();
     assert!(f.runtime.check_scheduler_health().is_ok());
@@ -163,6 +197,7 @@ struct Fixture {
     request: usize,
     probe: Arc<Probe>,
     roots: usize,
+    objects: usize,
     saved: Vec<ValueLocation>,
 }
 
@@ -329,6 +364,7 @@ impl Fixture {
         let module = runtime.select_program(&module_program).unwrap();
         runtime.collect_garbage().unwrap();
         let roots = runtime.gc_stats().root_registrations;
+        let objects = runtime.gc_stats().objects;
         Self {
             runtime,
             program: module_program,
@@ -336,6 +372,7 @@ impl Fixture {
             request,
             probe,
             roots,
+            objects,
             saved: Vec::new(),
         }
     }
@@ -444,7 +481,7 @@ impl Fixture {
         std::mem::take(&mut *self.probe.sent.lock().unwrap())
     }
 
-    fn assert_released(&self, registry: &CompletionRegistry) {
+    fn assert_released(&mut self, registry: &CompletionRegistry) {
         // Quarantine forbids collector service. Each dropped TypedPending queues
         // its cold source's root-release notification; registered slots are drained
         // only by later GC service or shutdown. Execution sources expire now.
@@ -460,7 +497,21 @@ impl Fixture {
                 ),
                 "the original parked source must expire after retirement"
             );
+            assert!(matches!(
+                self.runtime.memory.execution_space(saved.execution),
+                Err(GcError::Index)
+            ));
         }
+        assert_eq!(self.runtime.gc_stats().phase, Phase::Idle);
+        assert_eq!(
+            self.runtime.collect_garbage().unwrap_err().kind(),
+            RuntimeErrorKind::EngineFault
+        );
+        // Only execution control is quarantined. The test's collector-only service
+        // proves retired sources and deferred Host releases retain no managed data.
+        let settled = self.runtime.collected_gc_stats();
+        assert_eq!(settled.root_registrations, self.roots);
+        assert_eq!(settled.objects, self.objects);
         assert_eq!(self.runtime.resources().counters().current_call_depth, 0);
         assert!(self.runtime.resources().active_session().is_none());
         assert_eq!(registry.active_count(), 0);
@@ -642,7 +693,37 @@ fn owned_retirement_drains_all_parked_roots_after_control_waker_drop_fault() {
     let mut f = Fixture::new(false);
     let (first, first_saved) = f.park(0);
     let (second, second_saved) = f.park(1);
-    let ids = [first.id, second.id];
+    let future = invoke(
+        &mut f.runtime,
+        &f.module,
+        f.request,
+        &[RootedValue::from(0)],
+    )
+    .unwrap();
+    let queued = f
+        .runtime
+        .start_owned_future(&future, Default::default())
+        .unwrap();
+    drop(future);
+    // Exercise a real nonempty queued source in a sibling that has not submitted
+    // its provider. The same whole-execution retirement must clear every bank.
+    let (arguments, queued_saved) = f
+        .runtime
+        .memory
+        .scope(&f.runtime.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                let arguments = slots.begin_queue(queued.id, 1)?;
+                let value = StringObject::alloc(slots.scope(), "live parked frame 2".into())?;
+                slots.set_queued(&arguments, 0, ScopedValue::managed(value))?;
+                let saved = arguments.location(0).unwrap();
+                Ok((arguments, saved))
+            })
+        })
+        .unwrap();
+    f.saved.push(queued_saved);
+    f.runtime.collect_garbage().unwrap();
+    f.assert_saved(queued_saved, 2);
+    let ids = [first.id, second.id, queued.id];
     let registry = f.registry();
     let completions = f.take_completions();
     let dropped = Arc::new(AtomicUsize::new(0));
@@ -689,6 +770,13 @@ fn owned_retirement_drains_all_parked_roots_after_control_waker_drop_fault() {
         assert!(f.runtime.resources().sessions.get(id).is_none());
     }
     assert!(!second.is_ready());
+    assert!(!queued.is_ready());
+    assert!(matches!(
+        f.runtime.memory.scope(&f.runtime.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| arguments.check_bounds(slots))
+        }),
+        Err(GcError::Index)
+    ));
     f.assert_released(&registry);
     assert_stale(&completions);
     assert_eq!(f.runtime.drain_retired_executions().unwrap(), 0);

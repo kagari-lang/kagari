@@ -20,7 +20,7 @@ use crate::{
     execution::roots::{ExecutionRoots, LocalMark, SessionId, Slots, ValueBank},
     execution_metadata::managed::sources::MetadataSource,
     frame::types::arguments::TypeArgument,
-    module::{ExecutableModule, managed::source::RevisionSource},
+    module::{ExecutableModule, managed::source::RevisionSource, retention::ProgramLease},
     native::{
         binding::NativeResult,
         context::NativeCall,
@@ -174,6 +174,17 @@ impl<'runtime> ConversionContext<'runtime> {
         owner: &'runtime ExecutableModule,
     ) -> NativeResult<Self> {
         Self::with_limits(runtime, owner, ConversionLimits::default())
+    }
+
+    /// Borrow the Host descriptor's exact revision, including after publication changes.
+    pub(crate) fn retained(
+        runtime: &'runtime mut Runtime,
+        owner: &'runtime ExecutableModule,
+        lease: &'runtime ProgramLease,
+    ) -> NativeResult<Self> {
+        let mut context = Self::new(runtime, owner)?;
+        context.origin = RevisionSource::Host(lease.revision());
+        Ok(context)
     }
 
     pub fn with_limits(

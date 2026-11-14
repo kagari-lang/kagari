@@ -318,8 +318,19 @@ fn named_generic_selection_transports_live_environment_after_old_body_reclamatio
         .bytecode
         .functions
         .iter()
-        .find(|function| function.name == "relay")
-        .unwrap();
+        .find(|function| {
+            function
+                .metadata
+                .semantic
+                .generic
+                .as_ref()
+                .is_some_and(|generic| {
+                    generic.parameters.first().is_some_and(|parameter| {
+                        old.definition_name(parameter.owner) == Some("relay")
+                    })
+                })
+        })
+        .expect("checked shared relay body");
     let generic = function.metadata.semantic.generic.as_ref().unwrap();
     let execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
     let arguments = runtime

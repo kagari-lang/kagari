@@ -132,7 +132,7 @@ fn composition_preserves_original_optional_origin_and_checks_payload_identity() 
         output: types[1].clone(),
         policy: Arc::new(Unused),
     };
-    let baseline = runtime.gc_stats().root_registrations;
+    let baseline = runtime.collected_gc_stats().root_registrations;
     for origin in [None, Some(ErrorTrace::capture(runtime.resources()))] {
         let layout = runtime
             .checked_enum_variant(&owner, &types[0], &error)
@@ -153,7 +153,10 @@ fn composition_preserves_original_optional_origin_and_checks_payload_identity() 
                 outputs: &outputs,
             };
             let same_output = cx.output(0).unwrap().unwrap();
-            assert_eq!(cx.runtime.gc_stats().root_registrations, baseline + 1);
+            assert_eq!(
+                cx.runtime.collected_gc_stats().root_registrations,
+                baseline + 1
+            );
             drop(same_output);
             let forwarded = cx.forward_variant(0, &types[1], &error).unwrap();
             for (target, variant, reason) in [
@@ -199,6 +202,6 @@ fn composition_preserves_original_optional_origin_and_checks_payload_identity() 
         drop(outputs);
         drop(forwarded);
         runtime.collect_garbage().unwrap();
-        assert_eq!(runtime.gc_stats().root_registrations, baseline);
+        assert_eq!(runtime.collected_gc_stats().root_registrations, baseline);
     }
 }

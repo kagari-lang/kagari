@@ -464,7 +464,7 @@ fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
     );
     assert_eq!(invoked.load(Ordering::SeqCst), 1);
     let _ = invoke(&mut runtime, &loaded, 1, std::slice::from_ref(&object)).unwrap();
-    let baseline = runtime.gc_stats().root_registrations;
+    let baseline = runtime.collected_gc_stats().root_registrations;
     let mut scope = runtime.host_scope(&[]).unwrap();
     let token = scope.borrows().borrow_shared(HostObjectId(1), ty).unwrap();
     let borrowed_value = {
@@ -509,7 +509,7 @@ fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
     );
     assert_eq!(invoked.load(Ordering::SeqCst), 1);
     drop(borrowed_value);
-    assert_eq!(runtime.gc_stats().root_registrations, baseline);
+    assert_eq!(runtime.collected_gc_stats().root_registrations, baseline);
 }
 
 #[test]
@@ -530,7 +530,7 @@ fn quarantine_does_not_block_host_scope_cleanup() {
     .unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     runtime.collect_garbage().unwrap();
-    let baseline = runtime.gc_stats().root_registrations;
+    let baseline = runtime.collected_gc_stats().root_registrations;
     let mut session = runtime
         .begin_execution(&loaded, runtime.execution_options())
         .unwrap();
@@ -576,7 +576,13 @@ fn quarantine_does_not_block_host_scope_cleanup() {
 
     drop(scope);
     assert_eq!(session.host_scope_count(), 0);
-    assert_eq!(session.runtime().gc_stats().root_registrations, baseline);
+    assert_eq!(
+        session
+            .runtime_mut()
+            .collected_gc_stats()
+            .root_registrations,
+        baseline
+    );
     assert_eq!(
         session.runtime().resources().counters().current_call_depth,
         0

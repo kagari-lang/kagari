@@ -94,6 +94,21 @@ current implementations. Publication does not overwrite old instruction bytes or
 change a suspended Future's remaining body. Saved named host bindings follow their
 canonical declaration through current prepared routes rather than pinning old code.
 
+Admission must authenticate the selected body's actual managed origin. For example,
+queueing a Future created under A after publishing B reads A's revision through
+that Future's cold computation, not B's current installation root. Queued closure
+factories, prepared callable applications and group branches likewise supply their
+own protected origin. The session publishes its dependency before releasing that
+source. A consumed Future has no cold computation to retain: re-admission uses the
+current installation only to reach the existing one-shot rejection, even after
+A has been collected; it never runs the body again.
+
+Associated-output lookup compares admitted Runtime identities, then looks up the
+member in the supplying fact's lexical identity scope. Transport changes those
+lookup keys to the recipient publication without changing the output value's
+original type provenance. This keeps an old generic body's projection usable
+when an ordinary call selects a new implementation.
+
 Both candidate and retained records receive final generational target entries.
 The candidate's ordinary Direct path starts with normal links. Retained A call
 sites point directly to B; another publication points A and B directly to C, without

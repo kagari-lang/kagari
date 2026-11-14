@@ -67,7 +67,9 @@ impl<'runtime> ConversionContext<'runtime> {
         self.poll()?;
         expected.validate(self.runtime())?;
         self.check_value(expected, value)?;
-        let layout = self.struct_layout(value)?;
+        let layout = self
+            .runtime()
+            .prepare_struct_layout(self.owner(), expected)?;
         self.check_elements(layout.layout().fields.len())?;
         let origin = self.owner_origin();
         let object_type = self

@@ -91,7 +91,7 @@ fn boxed_scalar_does_not_acquire_object_identity() {
 #[test]
 fn rejected_parent_publication_keeps_the_cache_empty_until_valid_upcast() {
     let (mut runtime, _loaded_program, loaded, table, value) = fixture();
-    let roots = runtime.gc_stats().root_registrations;
+    let roots = runtime.collected_gc_stats().root_registrations;
     let (source, target, parent_table) = runtime
         .memory
         .scope(&runtime.resources, |cx, _| {
@@ -183,10 +183,10 @@ fn rejected_parent_publication_keeps_the_cache_empty_until_valid_upcast() {
             Ok(())
         })
         .unwrap();
-    assert_eq!(runtime.gc_stats().root_registrations, roots);
+    assert_eq!(runtime.collected_gc_stats().root_registrations, roots);
     drop(value);
     runtime.collect_garbage().unwrap();
-    assert_eq!(runtime.gc_stats().root_registrations, roots - 1);
+    assert_eq!(runtime.collected_gc_stats().root_registrations, roots - 1);
     drop(foreign_value);
     drop(foreign);
 }
@@ -257,7 +257,7 @@ fn application_publication_checks_actual_sources_without_retaining_receivers() {
             )
             .unwrap_err()
             .kind(),
-        RuntimeErrorKind::ModuleValidation
+        RuntimeErrorKind::StaleHandle
     );
     foreign
         .memory
@@ -353,7 +353,7 @@ fn application_publication_checks_actual_sources_without_retaining_receivers() {
             )
             .unwrap_err()
             .kind(),
-        RuntimeErrorKind::ModuleValidation
+        RuntimeErrorKind::StaleHandle
     );
     runtime
         .memory
@@ -375,7 +375,7 @@ fn receiver_dictionary_publication_keeps_actual_edges_until_last_interface_root(
         )
         .unwrap();
     let other_description = runtime.interface_description(&parent).unwrap();
-    let roots = runtime.gc_stats().root_registrations;
+    let roots = runtime.collected_gc_stats().root_registrations;
     let execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
     let dictionary = runtime
         .alloc_operation_group(execution, vec![], &[])
@@ -429,7 +429,7 @@ fn receiver_dictionary_publication_keeps_actual_edges_until_last_interface_root(
             .kind(),
         RuntimeErrorKind::ModuleValidation
     );
-    assert_eq!(runtime.gc_stats().root_registrations, roots);
+    assert_eq!(runtime.collected_gc_stats().root_registrations, roots);
     // The interface's fixed metadata graph admits the same actual dictionary;
     // keeping its pure Arc record does not keep a managed source alive.
     let next = runtime.memory.enter_execution(&runtime.resources).unwrap();
@@ -596,7 +596,7 @@ fn object<'gc>(cx: &Scope<'gc>, root: &RootedValue) -> Result<Gc<'gc, InterfaceO
 #[test]
 fn shared_descriptions_keep_receiver_views_separate_and_retire_after_last_root() {
     let (mut runtime, _loaded_program, loaded, table, first) = fixture();
-    let roots = runtime.gc_stats().root_registrations;
+    let roots = runtime.collected_gc_stats().root_registrations;
     let second = runtime
         .make_interface(&loaded, table, &RootedValue::from(23_i32))
         .unwrap();
@@ -672,7 +672,7 @@ fn shared_descriptions_keep_receiver_views_separate_and_retire_after_last_root()
     runtime.collect_garbage().unwrap();
     assert!(description.upgrade().is_none());
     assert!(parent_description.upgrade().is_none());
-    assert_eq!(runtime.gc_stats().root_registrations, roots - 1);
+    assert_eq!(runtime.collected_gc_stats().root_registrations, roots - 1);
 }
 
 #[test]
@@ -732,12 +732,14 @@ fn cached_generic_description_requires_actual_environment_backing() {
         .position(|linked| {
             owner.bytecode.public_items.iter().any(|item| match item {
                 PublicItem::InterfaceTable(table) => {
-                    table.declaration == linked.declaration && !table.generic_params.is_empty()
+                    table.declaration == linked.declaration
+                        && !table.generic_params.is_empty()
+                        && !linked.arguments.is_empty()
                 }
                 _ => false,
             })
         })
-        .expect("fixture has a checked shared generic interface table");
+        .expect("fixture has an executable shared generic interface table");
     let arguments = runtime
         .resolve_type_arguments(&owner, &[Ty::Builtin(BuiltinType::I32)])
         .unwrap();
@@ -748,7 +750,7 @@ fn cached_generic_description_requires_actual_environment_backing() {
         owner: &owner,
         source: RevisionSource::Current,
     };
-    let roots = runtime.gc_stats().root_registrations;
+    let roots = runtime.collected_gc_stats().root_registrations;
     let first = runtime
         .prepare_interface_description(
             first_source,
@@ -829,7 +831,7 @@ fn cached_generic_description_requires_actual_environment_backing() {
         objects,
         "a genuinely protected environment reuses its node"
     );
-    assert_eq!(runtime.gc_stats().root_registrations, roots);
+    assert_eq!(runtime.collected_gc_stats().root_registrations, roots);
     runtime
         .memory
         .retire_execution(&runtime.resources, next_source)
@@ -843,7 +845,7 @@ fn cached_generic_description_requires_actual_environment_backing() {
             .kind(),
         RuntimeErrorKind::ModuleValidation
     );
-    assert_eq!(runtime.gc_stats().root_registrations, roots);
+    assert_eq!(runtime.collected_gc_stats().root_registrations, roots);
 }
 
 #[test]

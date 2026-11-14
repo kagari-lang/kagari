@@ -468,7 +468,7 @@ fn requested_binding_capture_releases_temporary_roots_on_observer_unwind() {
     let outcome = catch_unwind(AssertUnwindSafe(|| {
         runtime.execute_module(&owner, ProgramEntry::Main, runtime.execution_options())
     }));
-    assert!(outcome.is_err());
+    assert!(outcome.is_err(), "{outcome:?}");
     assert!(
         captured.load(Ordering::SeqCst),
         "the intended requested-value callback must run"

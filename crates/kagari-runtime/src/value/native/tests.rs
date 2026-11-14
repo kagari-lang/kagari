@@ -212,7 +212,8 @@ fn native_payload_charge_and_initialization_failure_release_each_owner_once() {
     assert_eq!(runtime.gc_stats().objects, baseline.objects);
     assert_eq!(runtime.gc_stats().indirect_bytes, baseline.indirect_bytes);
     assert_eq!(runtime.gc_stats().provider_units, baseline.provider_units);
-    assert_eq!(queries.load(Ordering::Relaxed), 1);
+    // Retirement rechecks the committed provider charge before disposal.
+    assert_eq!(queries.load(Ordering::Relaxed), 2);
     assert_eq!(drops.load(Ordering::Relaxed), 1);
     let mut context = NativeContext::new(&mut runtime, &owner).unwrap();
     let failure = native_type
@@ -233,14 +234,14 @@ fn native_payload_charge_and_initialization_failure_release_each_owner_once() {
         .unwrap_err();
     assert_eq!(failure.kind(), RuntimeErrorKind::ResourceLimitExceeded);
     drop(context);
-    assert_eq!(queries.load(Ordering::Relaxed), 2);
+    assert_eq!(queries.load(Ordering::Relaxed), 3);
     assert_eq!(drops.load(Ordering::Relaxed), 2);
     let after = runtime.gc_stats();
     assert_eq!(after.objects, baseline.objects);
     assert_eq!(after.indirect_bytes, baseline.indirect_bytes);
     assert_eq!(after.provider_units, baseline.provider_units);
     runtime.collect_garbage().unwrap();
-    assert_eq!(queries.load(Ordering::Relaxed), 2);
+    assert_eq!(queries.load(Ordering::Relaxed), 3);
     assert_eq!(drops.load(Ordering::Relaxed), 2);
     assert!(!runtime.is_quarantined());
 }

@@ -47,8 +47,8 @@ impl Runtime {
         path: &str,
         arguments: &[TypeArgument],
     ) -> NativeResult<ObjectType> {
-        self.resources().ensure_execution_allowed()?;
         let snapshot = self.capture_module(owner)?;
+        self.resources().ensure_execution_allowed()?;
         let export = snapshot.resolve_public_path(path, PublicPathKind::Type)?;
         let PublicPathTarget::Type(export) = export else {
             return Err(invalid_export());
@@ -89,8 +89,8 @@ impl Runtime {
         declaration: &DefinitionPath,
         arguments: &[TypeArgument],
     ) -> NativeResult<ObjectType> {
-        self.resources().ensure_execution_allowed()?;
         let snapshot = self.capture_module(owner)?;
+        self.resources().ensure_execution_allowed()?;
         let declaration = snapshot
             .root
             .definitions()

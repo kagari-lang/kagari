@@ -205,7 +205,6 @@ mod tests {
     };
     use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
     use kagari_source::source_database::{SourceDatabase, SourceLayer};
-    use kagari_types::ty::Ty;
     use std::{
         slice,
         sync::{Arc, Weak},
@@ -265,15 +264,16 @@ mod tests {
         let value = runtime
             .make_interface(owner, 0, &RootedValue::from(7_i32))
             .unwrap();
-        let ty = Ty::Trait(
-            runtime
-                .interface_description(&value)
-                .unwrap()
-                .interface_type()
-                .clone(),
-        );
+        let description = runtime.interface_description(&value).unwrap();
         let argument = runtime
-            .resolve_type_arguments(owner, slice::from_ref(&ty))
+            .type_arguments(
+                owner,
+                description
+                    .environment
+                    .as_ref()
+                    .map(|environment| environment.types.clone()),
+                slice::from_ref(&description.interface_expression),
+            )
             .unwrap()
             .remove(0);
         let mut conversion = ConversionContext::new(runtime, owner).unwrap();

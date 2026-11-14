@@ -8,7 +8,7 @@ use crate::{
     frame::{
         FrameStack, transfer::ReturnValue, types::arguments::TypeArgument, waiting::QueuedFuture,
     },
-    module::ExecutableModule,
+    module::{ExecutableModule, managed::source::RevisionSource},
     native::{
         binding::NativeResult,
         composition::future_output,
@@ -46,6 +46,14 @@ pub(crate) enum FactoryEntry {
 }
 
 impl QueuedFactory {
+    pub(crate) fn body_origin(&self) -> NativeResult<RevisionSource<'_>> {
+        match &self.entry {
+            FactoryEntry::Closure { value, .. } => Ok(RevisionSource::RootedClosure(value)),
+            FactoryEntry::Pinned { function, .. } => Ok(function.body_origin()),
+            FactoryEntry::Interface { method, .. } => method.body_origin(),
+        }
+    }
+
     pub(crate) fn origin(&self) -> CallableOrigin {
         match &self.entry {
             FactoryEntry::Closure { origin, .. } => *origin,

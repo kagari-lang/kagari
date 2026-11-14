@@ -33,6 +33,8 @@ fn drive(f: &mut Fixture, execution: &OwnedExecution) -> DriveResult {
 #[test]
 fn async_debugger_drive_contract() {
     let mut f = Fixture::source(SOURCE);
+    f.runtime.collect_garbage().unwrap();
+    let baseline = f.runtime.gc_stats();
     let left_future = f.invoke("left", &[]);
     let right_future = f.invoke("right", &[]);
     let mut debug = DebugSession::new(&f.runtime).unwrap();
@@ -180,5 +182,9 @@ fn async_debugger_drive_contract() {
     f.runtime.clear_execution_observer().unwrap();
     drop(cancelled);
     f.runtime.collect_garbage().unwrap();
-    assert_eq!(f.runtime.gc_stats().root_registrations, 0);
+    assert_eq!(
+        f.runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert_eq!(f.runtime.gc_stats().objects, baseline.objects);
 }

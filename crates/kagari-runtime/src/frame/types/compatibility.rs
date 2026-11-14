@@ -282,7 +282,26 @@ impl<'a> TypeView<'a> {
                     else {
                         return None;
                     };
-                    self = environment.associated_output(&receiver, &interface, *member)?;
+                    // Projection syntax is lexical, while supplied associated
+                    // facts may originate from another admitted publication.
+                    let Ty::Trait(interface) = self
+                        .canonical(Cow::Owned(Ty::Trait(interface)))?
+                        .into_owned()
+                    else {
+                        return None;
+                    };
+                    let member = self
+                        .owner
+                        .identity_admission()
+                        .runtime_id(*member)
+                        .ok()
+                        .or_else(|| {
+                            self.closed_definitions()
+                                .resolve(*member)
+                                .ok()
+                                .map(|_| *member)
+                        })?;
+                    self = environment.associated_output(&receiver, &interface, member)?;
                 }
                 _ => break,
             }

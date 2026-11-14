@@ -7,11 +7,12 @@ use crate::{
         ExecutionStack, FrameStack, factory::QueuedFactory, types::arguments::TypeArgument,
         waiting::QueuedFuture,
     },
-    module::ExecutableModule,
+    module::{ExecutableModule, managed::source::RevisionSource},
     native::future::claims::{ClaimedFuture, FutureContract},
     publication::ActivationMark,
     session::{
-        ExecutionId, ExecutionOptions, ExecutionPhase, ExecutionSession, SessionScope, SessionState,
+        ExecutionEntry, ExecutionId, ExecutionOptions, ExecutionPhase, ExecutionSession,
+        SessionScope, SessionState,
     },
     value::carriers::RootedValue,
     value_check,
@@ -33,9 +34,9 @@ use std::{
 
 enum OwnedStart<'a> {
     Function(FunctionRef, &'a [RootedValue]),
-    Future(QueuedFuture),
+    Future(QueuedFuture, RevisionSource<'a>),
     Factory(QueuedFactory),
-    Branch(QueuedFuture),
+    Branch(QueuedFuture, RevisionSource<'a>),
 }
 
 #[derive(Debug)]
@@ -263,18 +264,32 @@ impl Runtime {
                 "owned candidate Future",
             ));
         }
-        let contract = self
+        let (contract, cold) = self
             .memory
             .scope(&self.resources, |cx, _| {
-                FutureContract::read(cx, value.get(cx)?)
+                let value = value.get(cx)?;
+                Ok((
+                    FutureContract::read(cx, value)?,
+                    FutureContract::body(cx, value)?.is_some(),
+                ))
             })
             .map_err(|error| self.managed_memory_error(error))?;
-        self.validate_executable_module(&contract.owner)?;
+        let (owner, origin) = if cold {
+            (contract.owner.clone(), RevisionSource::RootedFuture(value))
+        } else {
+            // A consumed value has no computation to retain. Keep its existing
+            // drive-time one-shot rejection, without reviving retired state.
+            (
+                self.modules.current_for(&contract.owner)?,
+                RevisionSource::Current,
+            )
+        };
+        self.validate_executable_module(&owner)?;
         let queued = QueuedFuture::Unclaimed {
             output: contract.applied.parameter(self, &contract.owner, 0)?,
             value: value.clone(),
         };
-        self.create_owned_execution(&contract.owner, options, OwnedStart::Future(queued))
+        self.create_owned_execution(&owner, options, OwnedStart::Future(queued, origin))
     }
 
     /// Queue a zero-argument Future factory. Its ordinary body and exactly one
@@ -325,6 +340,7 @@ impl Runtime {
         parent: SessionId,
         module: &ExecutableModule,
         output: TypeArgument,
+        origin: RevisionSource<'_>,
     ) -> Result<OwnedExecution, RuntimeError> {
         self.require_idle_driver()?;
         let state = self
@@ -338,7 +354,8 @@ impl Runtime {
         let logical_root = state.logical_root.get();
         drop(state);
         let queued = QueuedFuture::Reserved { output };
-        let execution = self.create_owned_execution(module, options, OwnedStart::Branch(queued))?;
+        let execution =
+            self.create_owned_execution(module, options, OwnedStart::Branch(queued, origin))?;
         let state = self
             .resources()
             .sessions
@@ -375,8 +392,14 @@ impl Runtime {
             cancellation: CancellationToken::default(),
             ..options
         };
-        let mut session = self.begin_execution(module, options)?;
-        if !matches!(&entry, OwnedStart::Branch(_)) {
+        let origin = match &entry {
+            OwnedStart::Function(..) => self.selection_origin(module)?,
+            OwnedStart::Future(_, origin) | OwnedStart::Branch(_, origin) => *origin,
+            OwnedStart::Factory(factory) => factory.body_origin()?,
+        };
+        let mut session =
+            self.begin_execution_inner(module, options, ExecutionEntry::Program, origin)?;
+        if !matches!(&entry, OwnedStart::Branch(..)) {
             session.runtime_mut().attach_execution_observer()?;
         }
         Self::initialize_owned_execution(module, session, external_cancellation, |_| Ok(entry))
@@ -433,7 +456,7 @@ impl Runtime {
                     CallableTarget::Script(function),
                     args,
                 ),
-                OwnedStart::Future(queued) | OwnedStart::Branch(queued) => {
+                OwnedStart::Future(queued, _) | OwnedStart::Branch(queued, _) => {
                     *runtime
                         .resources()
                         .sessions

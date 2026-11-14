@@ -173,7 +173,7 @@ fn allocation_rejects_foreign_layout_and_invalid_initializers_before_accounting(
         "Point",
         &[("x", Ty::Builtin(BuiltinType::I32), true)],
     );
-    let before = runtime.gc_stats();
+    let before = runtime.collected_gc_stats();
     assert_eq!(
         runtime
             .alloc_struct(foreign.clone(), &[RootedValue::from(7)])
@@ -195,7 +195,7 @@ fn allocation_rejects_foreign_layout_and_invalid_initializers_before_accounting(
         assert_eq!(runtime.gc_stats().objects, before.objects);
         assert_eq!(runtime.gc_stats().provider_units, before.provider_units);
         assert_eq!(
-            runtime.gc_stats().root_registrations,
+            runtime.collected_gc_stats().root_registrations,
             before.root_registrations
         );
     }
@@ -216,7 +216,7 @@ fn allocation_rejects_foreign_layout_and_invalid_initializers_before_accounting(
     runtime.collect_garbage().unwrap();
     assert_eq!(runtime.gc_stats().objects, before.objects);
     assert_eq!(
-        runtime.gc_stats().root_registrations,
+        runtime.collected_gc_stats().root_registrations,
         before.root_registrations
     );
     assert!(!runtime.is_quarantined());
@@ -332,10 +332,10 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
             Some(3)
         );
     }
-    let roots = runtime.gc_stats().root_registrations;
+    let roots = runtime.collected_gc_stats().root_registrations;
     drop((object, fresh));
     runtime.collect_garbage().unwrap();
-    assert_eq!(runtime.gc_stats().root_registrations, roots - 2);
+    assert_eq!(runtime.collected_gc_stats().root_registrations, roots - 2);
     assert!(!runtime.is_quarantined());
 }
 

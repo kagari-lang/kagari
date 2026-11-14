@@ -3,6 +3,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     execution::roots::{ExecutionRoots, LocalMark, SessionId},
+    module::managed::source::RevisionSource,
     native::{binding::NativeResult, composition::future_output, future::storage::ColdObject},
     session::group::{GroupRecord, GroupState, RunningGroup, invalid},
     value::view::ValueView,
@@ -65,7 +66,9 @@ impl Runtime {
                 if let Some(closure) = &contract.script {
                     self.validate_future_resume(closure, &contract.owner, &output)?;
                 }
-                let execution = self.prepare_owned_branch(parent, &contract.owner, output)?;
+                let origin = RevisionSource::Future(values[index].location().ok_or_else(invalid)?);
+                let execution =
+                    self.prepare_owned_branch(parent, &contract.owner, output, origin)?;
                 group.branches[index] = Some(execution);
                 self.scheduler.hub.contain(|| {
                     group.branches[index]

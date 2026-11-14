@@ -2,11 +2,12 @@ use super::{PendingOperation, PendingWait};
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
-    execution::roots::{ExecutionRoots, pending::PendingSlots},
+    execution::roots::{ExecutionRoots, ValueLocation, pending::PendingSlots},
     frame::{ExecutionStack, owned::tests::module},
     host::{HostObjectId, HostSchemaEpoch},
     native::{binding::NativeResult, builder::ModuleBuilder, future::PendingNative},
     value::{
+        aggregates::tuples::TupleObject,
         carriers::ScopedValue,
         cells::CellObject,
         host_values::HostRootObject,
@@ -34,6 +35,7 @@ use std::{
 #[derive(Debug)]
 struct MutatingPoll {
     cell: Root<CellObject>,
+    awaitable: ValueLocation,
     external: Root<HostRootObject>,
     cancelled: Arc<AtomicUsize>,
 }
@@ -46,10 +48,16 @@ impl PendingNative for MutatingPoll {
     ) -> NativeResult<Poll<PublishedResult<'result>>> {
         runtime
             .memory
-            .scope(&runtime.resources, |cx, _| {
-                let cell = cx.get(&self.cell)?;
-                let external = cx.get(&self.external)?;
-                CellObject::set(cx, cell, ValueType::Generic, ScopedValue::managed(external))
+            .scope(&runtime.resources, |cx, roots| {
+                ExecutionRoots::with(roots, cx, |slots| {
+                    let cell = slots.scope().get(&self.cell)?;
+                    let external = slots.scope().get(&self.external)?;
+                    let tuple = TupleObject::alloc(
+                        slots.scope(),
+                        &[ScopedValue::managed(cell), ScopedValue::managed(external)],
+                    )?;
+                    slots.set(self.awaitable, ScopedValue::managed(tuple))
+                })
             })
             .map_err(|error| runtime.managed_memory_error(error))?;
         Ok(Poll::Pending)
@@ -80,7 +88,7 @@ fn waiting_commit_rechecks_graph_after_poll_mutation() {
         .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
         .unwrap();
     let module = module(&mut runtime, 1, false);
-    let baseline = runtime.gc_stats().root_registrations;
+    let baseline = runtime.collected_gc_stats().root_registrations;
     let owner = runtime
         .start_owned_execution(&module, FunctionRef::new(0), &[], Default::default())
         .unwrap();
@@ -125,6 +133,7 @@ fn waiting_commit_rechecks_graph_after_poll_mutation() {
                 destination: None,
                 pending: PendingOperation::Native(Box::new(MutatingPoll {
                     cell,
+                    awaitable: pending.awaitable(),
                     external,
                     cancelled: cancelled.clone(),
                 })),
@@ -132,17 +141,20 @@ fn waiting_commit_rechecks_graph_after_poll_mutation() {
                 slots: pending,
             });
             assert!(matches!(stack.poll_await(runtime)?, Poll::Pending));
+            assert!(!stack.can_park(runtime)?);
             Ok(())
         })
         .unwrap();
     let error = ExecutionStack::park_waiting(&mut activation).unwrap_err();
-    assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
+    assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+    assert!(error.to_string().contains("no suspendable pending wait"));
     assert!(activation.is_some());
     assert!(!owner.is_ready());
     activation
         .as_mut()
         .unwrap()
         .with(|runtime, _| {
+            assert!(!runtime.is_quarantined());
             assert_eq!(runtime.capture_error_trace().frames.len(), 1);
             Ok(())
         })
@@ -151,5 +163,5 @@ fn waiting_commit_rechecks_graph_after_poll_mutation() {
     runtime.finish_owned_execution(&owner).unwrap();
     assert_eq!(cancelled.load(Ordering::SeqCst), 1);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
-    assert_eq!(runtime.gc_stats().root_registrations, baseline);
+    assert_eq!(runtime.collected_gc_stats().root_registrations, baseline);
 }

@@ -235,6 +235,7 @@ fn scalar_facts_do_not_flow_through_heap_reads_or_calls() {
         "fn touch() {} fn main() -> i32 { val x = [1]; touch(); if x[0] == 1 { 2 } else { 3 } }",
     ));
     assert_eq!(result.statistics.branches_simplified, 0);
+    let expected_index = common::standard_array_index_binding();
     assert!(
         result
             .module
@@ -242,7 +243,8 @@ fn scalar_facts_do_not_flow_through_heap_reads_or_calls() {
             .iter()
             .flat_map(|function| &function.blocks)
             .flat_map(|block| &block.instructions)
-            .any(|instruction| matches!(instruction, Instruction::Call { callee: CallTarget::SourceFunction(contract), .. } if result.module.definitions().resolve(contract.declaration).unwrap().segments().last().is_some_and(|part| part.name == "index")))
+            .any(|instruction| matches!(instruction, Instruction::Call { callee: CallTarget::Native(import), .. }
+                if result.module.definitions().resolve(import.binding).unwrap().to_path() == expected_index))
     );
 }
 

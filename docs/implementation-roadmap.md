@@ -2162,6 +2162,44 @@ improvement is claimed.
 
 ## Verification and open CI acceptance
 
+The user-authorized 2026-11-14 Windows audit ran
+`cargo test --workspace --exclude kagari-stdlib --no-fail-fast` with default
+workspace features, preserving ordinary ignored tests. Excluding the package's
+own targets does not remove its use as a dependency. All targets built; seven
+targets reported 330 test failures. The repair resolves 58 original failures:
+39 Runtime, 16 SDK and one each in compiler, Cranelift and web. The
+[reload walkthrough](architecture/runtime/reload.md#exact-old-bodies-current-ordinary-calls)
+owns the corrected retained-origin and associated-output identity rules. Host
+field codecs retain their descriptor's revision lease; DTO decoding uses the
+checked target layout. Root-entry observer attachment includes custom observers
+without interfering with synchronous reentry. Lifecycle assertions now distinguish
+actual source retirement, deferred root-release service and collector faults.
+
+Post-repair `cargo test -p kagari -p kagari-runtime --lib --no-fail-fast` reports
+Runtime **656 passed, 0 failed, 2 ignored** and SDK **648 passed, 192 failed**,
+with no newly failing SDK names. Compiler's 13 pass-owner tests, all 20 Cranelift
+and all 10 web tests pass. Exact-name reruns of the original compiler/HIR/benchmark
+failures leave 14/65/1 failures respectively. These and 191 SDK failures are blocked
+by the existing NC01-NC06 provider scope; the remaining SDK fixed-array/resizable
+provider witness mismatch is recorded in the
+[native collections handoff](native-collections-plan.md#runtime-and-gc-handoff).
+Thus 272 failures remain outside the Runtime repair, not a green workspace claim.
+Tests remain enabled; no missing provider is replaced with a reduced workload.
+The directly affected SDK integration targets `artifact_features`, `async_execution`
+and `async_facade` pass all 45 tests, including decoded artifacts, actual Cranelift,
+Host interfaces and async driver/retirement boundaries.
+
+Structure, changed-package formatting and diff checks pass. With Rust 1.100.0,
+Clippy 0.1.100 and rustfmt 1.11.0, workspace
+`cargo fmt --all -- --check` still reports pre-existing
+format drift in `kagari-hir/src/hir/ids.rs` and `kagari-syntax/src/ast/tokens.rs`.
+Required `cargo clippy --workspace --all-targets -- -D warnings` stops on the
+unchanged `kagari-compiler/src/bytecode/placement.rs:110` `needless_range_loop`
+lint. These unrelated tooling findings are not repaired by this Runtime task;
+local implementation acceptance remains blocked on them. Full feature/backend/
+platform matrices, Miri and complete CI acceptance remain unrun. Passing initial
+unaffected targets is reused rather than rerunning the entire workspace.
+
 The 2026-11-08 SDK failure batch reproduces all 45 supplied failures with exact
 name filters; all 45 pass after the compiler correction. Elaboration distinguishes
 flat callable syntax from the Fn method's packed tuple. MIR planning admits
@@ -2177,9 +2215,10 @@ feature/backend/platform tests still require CI; the 817 other SDK cases were no
 rerun locally for this repair. See the [HIR/compiler handoff](architecture/hir.md)
 for the lasting call/value-view contract.
 
-Completed implementations have recorded local acceptance with no carried local
-integration failures. Complete GitHub CI feature/backend acceptance remains
-unverified; local validation does not establish that matrix passed.
+Earlier implementation checkpoints recorded scoped local acceptance; the current
+workspace audit and its remaining provider/tooling failures are recorded above.
+Complete GitHub CI feature/backend acceptance remains unverified; local validation
+does not establish that matrix passed.
 
 The main-branch [CI run](https://github.com/kagari-lang/kagari/actions/runs/40112001784)
 at `a9fcb9a0` failed before starting any jobs: the unquoted formatter inventory

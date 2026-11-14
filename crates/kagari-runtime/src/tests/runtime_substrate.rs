@@ -6,6 +6,7 @@ use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
+    execution::roots::ExecutionRoots,
     host::HostObjectId,
     metadata::{AbiFingerprint, TypeKind, TypeRegistration},
     test_support::layouts,
@@ -22,11 +23,18 @@ use kagari_common::identity::map::DefinitionContext;
 
 use kagari_gc::{
     error::GcError,
+    heap::Phase,
     object::GcObject,
     scan::{EdgeVisitor, ScanBudget, ScanKind, ScanStatus},
 };
 use kagari_types::{scalar::BuiltinType, ty::Ty};
-use std::slice;
+use std::{
+    slice,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 #[test]
 fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
@@ -250,10 +258,10 @@ fn host_objects_are_not_gc_payloads_or_trace_targets() {
     );
 }
 
-struct ScanFailure;
+struct ScanFailure(Arc<AtomicBool>);
 
-// SAFETY: no fields or edges. The explicit scanner error exercises failure
-// containment; no partial pointer or invalid managed representation is exposed.
+// SAFETY: no managed edges. The flag injects a scanner error after valid
+// construction; no partial pointer or invalid managed representation is exposed.
 unsafe impl GcObject for ScanFailure {
     type ScanState = ();
     const SCAN_KIND: ScanKind = ScanKind::Bounded { max_work: 1 };
@@ -266,27 +274,55 @@ unsafe impl GcObject for ScanFailure {
         _: &mut ScanBudget,
         _: &mut EdgeVisitor<'_>,
     ) -> Result<ScanStatus, GcError> {
-        Err(GcError::Storage("injected Runtime scan failure"))
+        if self.0.load(Ordering::Relaxed) {
+            Err(GcError::Storage("injected Runtime scan failure"))
+        } else {
+            Ok(ScanStatus::Complete)
+        }
     }
 }
 
 #[test]
 fn collection_failure_quarantines_before_any_owner_is_swept() {
     let mut runtime = Runtime::default();
-    let root = runtime
+    let fail = Arc::new(AtomicBool::new(false));
+    let execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
+    let (root, queued) = runtime
         .memory
-        .scope(&runtime.resources, |cx, _| {
-            let _dead = cx.alloc_leaf(41u64)?;
-            // SAFETY: an edge-free initialized failure-injection provider.
-            let failing = unsafe { cx.alloc_with(|_| Ok(ScanFailure)) }?;
-            cx.retain(failing)
+        .scope(&runtime.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| {
+                let _dead = slots.scope().alloc_leaf(41u64)?;
+                // SAFETY: an edge-free initialized failure-injection provider.
+                let failing =
+                    unsafe { slots.scope().alloc_with(|_| Ok(ScanFailure(fail.clone()))) }?;
+                let root = slots.scope().retain(failing)?;
+                let queued = slots.begin_queue(execution, 1)?;
+                let value = TupleObject::alloc(slots.scope(), &[])?;
+                slots.set_queued(&queued, 0, ScopedValue::managed(value))?;
+                Ok((root, queued))
+            })
         })
         .unwrap();
     let before = runtime.gc_stats();
     let counters = runtime.resources().counters();
+    fail.store(true, Ordering::Relaxed);
     let error = runtime.collect_garbage().unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
     assert!(runtime.is_quarantined());
+    assert_eq!(runtime.gc_stats().phase, Phase::Faulted);
+    assert!(matches!(
+        runtime
+            .memory
+            .retire_execution(&runtime.resources, execution),
+        Err(GcError::Faulted)
+    ));
+    assert!(runtime.memory.execution_space(execution).is_ok());
+    assert!(matches!(
+        runtime.memory.scope(&runtime.resources, |cx, roots| {
+            ExecutionRoots::with(roots, cx, |slots| queued.check_bounds(slots))
+        }),
+        Err(GcError::Faulted)
+    ));
     assert_eq!(runtime.gc_stats().objects, before.objects);
     assert_eq!(
         runtime.gc_stats().root_registrations,

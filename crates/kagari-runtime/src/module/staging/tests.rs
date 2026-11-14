@@ -289,7 +289,7 @@ fn candidate_handles_do_not_keep_runtime_state_alive() {
 }
 
 #[test]
-fn abandoned_programs_are_retired_at_safepoints_and_before_further_staging() {
+fn abandoned_programs_are_retired_by_bounded_safepoints() {
     let mut runtime = Runtime::default();
     let baseline = load_bytecode(&mut runtime, "candidate", program()).unwrap();
     for _ in 0..32 {
@@ -305,10 +305,15 @@ fn abandoned_programs_are_retired_at_safepoints_and_before_further_staging() {
         thread::spawn(move || drop(last)).join().unwrap();
         assert!(runtime.modules.abandonment_pending());
         assert_eq!(runtime.modules.loaded_count(), 1);
+        for _ in 0..128 {
+            runtime.gc_safepoint().unwrap();
+            if runtime.gc_stats().phase == Phase::Idle && !runtime.modules.abandonment_pending() {
+                break;
+            }
+        }
+        assert_eq!(runtime.modules.inner.borrow().records.len(), 1);
     }
-    runtime.gc_safepoint().unwrap();
-    assert_eq!(runtime.modules.inner.borrow().records.len(), 1);
-    assert_eq!(runtime.gc_stats().completed_cycles, 32);
+    assert!(runtime.gc_stats().completed_cycles >= 32);
     assert!(!runtime.modules.abandonment_pending());
 
     // Keep enough real source-owned allocations to observe a suspended sweep.
@@ -481,7 +486,7 @@ fn stale_candidates_cannot_overwrite_a_new_publication() {
     let original = runtime.select_program(&target).unwrap();
     let caller = load_bytecode(&mut runtime, "caller", program()).unwrap();
     let caller = runtime.select_program(&caller).unwrap();
-    let roots_before = runtime.gc_stats().root_registrations;
+    let roots_before = runtime.collected_gc_stats().root_registrations;
     // A parked/admitted execution keeps actual state, rather than an old code
     // descriptor or a second Host root. Publication can replace current state.
     let execution = runtime.memory.enter_execution(&runtime.resources).unwrap();
@@ -501,7 +506,10 @@ fn stale_candidates_cannot_overwrite_a_new_publication() {
             })
             .unwrap()
     };
-    assert_eq!(runtime.gc_stats().root_registrations, roots_before);
+    assert_eq!(
+        runtime.collected_gc_stats().root_registrations,
+        roots_before
+    );
     let first = stage(&mut runtime, &target);
     let stale = stage(&mut runtime, &target);
     let stale_direct = stage(&mut runtime, &target);
@@ -565,7 +573,11 @@ fn stale_candidates_cannot_overwrite_a_new_publication() {
                 Ok(())
             })
             .unwrap();
-        assert_eq!(runtime.gc_stats().root_registrations, roots_before);
+        assert_eq!(
+            runtime.collected_gc_stats().root_registrations,
+            roots_before + 2,
+            "each unpublished candidate owns its actual revision root"
+        );
         assert!(!runtime.is_quarantined());
         runtime
             .memory
@@ -624,7 +636,10 @@ fn stale_candidates_cannot_overwrite_a_new_publication() {
     runtime.publish_staged_reload(fresh).unwrap();
     runtime.collect_garbage().unwrap();
     assert!(runtime.modules.loaded(original.key()).is_some());
-    assert_eq!(runtime.gc_stats().root_registrations, roots_before);
+    assert_eq!(
+        runtime.collected_gc_stats().root_registrations,
+        roots_before
+    );
     runtime
         .memory
         .retire_execution(&runtime.resources, execution)

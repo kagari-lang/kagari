@@ -123,12 +123,9 @@ impl Runtime {
         module: &ExecutableModule,
         options: ExecutionOptions,
     ) -> Result<ExecutionSession<'_>, RuntimeError> {
+        let root_entry = self.resources().active_session().is_none();
         let mut session = self.begin_execution(module, options)?;
-        if session
-            .runtime()
-            .execution_observer::<DebugSession>()
-            .is_some()
-        {
+        if root_entry {
             session.runtime_mut().attach_execution_observer()?;
         }
         Ok(session)

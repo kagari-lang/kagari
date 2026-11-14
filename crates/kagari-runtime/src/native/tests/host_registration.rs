@@ -203,14 +203,17 @@ fn registers_host_function_metadata_and_invokes_handler() {
         .unwrap();
     assert_eq!(identity.module().package.0, "game");
     assert_eq!(identity.last().unwrap().name, "heal");
-    let baseline = runtime.gc_stats().root_registrations;
+    let baseline = runtime.collected_gc_stats().root_registrations;
     assert_eq!(
         invoke(&mut runtime, &loaded, 0, &[root, RootedValue::from(7)])
             .unwrap()
             .as_i32(),
         Some(7)
     );
-    assert_eq!(runtime.gc_stats().root_registrations, baseline - 1);
+    assert_eq!(
+        runtime.collected_gc_stats().root_registrations,
+        baseline - 1
+    );
 }
 
 #[test]

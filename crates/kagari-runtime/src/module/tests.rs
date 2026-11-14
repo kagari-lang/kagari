@@ -230,7 +230,7 @@ fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
     let escaped = first_runtime
         .read_constant(&first, shared, RetentionOrigin::Current)
         .unwrap();
-    let before = first_runtime.memory.stats();
+    let before = first_runtime.collected_gc_stats();
     for _ in 0..100 {
         let repeated = first_runtime
             .read_constant(&first, shared, RetentionOrigin::Current)
@@ -259,7 +259,7 @@ fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
             .read_constant(&first, ConstantId::new(2), RetentionOrigin::Current)
             .is_err()
     );
-    let after = first_runtime.memory.stats();
+    let after = first_runtime.collected_gc_stats();
     assert_eq!(before.objects, after.objects);
     assert_eq!(before.root_registrations, after.root_registrations);
     let second_value = second_runtime

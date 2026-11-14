@@ -292,6 +292,9 @@ impl TypeBindings {
                 let actual = admission.runtime_in(applied, definitions, &cancel).ok()?;
                 let receiver = admission.runtime_in(receiver, definitions, &cancel).ok()?;
                 let actual_receiver = admission.runtime_in(ty, definitions, &cancel).ok()?;
+                // Keys follow the supplying lookup scope, including after transport;
+                // output values keep their independent original type provenance.
+                let member = admission.lexical_id(member)?;
                 (actual_receiver == receiver && actual.satisfies(&expected))
                     .then(|| {
                         outputs

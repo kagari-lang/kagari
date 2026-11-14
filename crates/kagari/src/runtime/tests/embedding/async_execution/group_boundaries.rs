@@ -2,6 +2,7 @@
 use super::{
     Fixture,
     scheduler::{HostLoop, decode, result, scheduled},
+    slice,
 };
 use crate::{
     BytecodeArtifact, context::ExecutionContext, engine::EngineConfig, program::Compilation,
@@ -9,8 +10,11 @@ use crate::{
 use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind, fault::EngineFault},
+    error::{
+        RuntimeError, RuntimeErrorKind, fault::EngineFault, reason::ErrorReason, trap::TrapReason,
+    },
     error_trace::ErrorTrace,
+    execution::owned::DriveResult,
     frame::ExecutionFrame,
     module::ExecutableModule,
     native::{
@@ -29,7 +33,7 @@ use kagari_runtime::{
 };
 
 use kagari_source::source::SourceFile;
-use kagari_types::declaration::host::HostCallPolicy;
+use kagari_types::declaration::host::{HostCallPolicy, HostFunctionEffects};
 use std::{
     sync::{
         Arc, Mutex,
@@ -75,6 +79,12 @@ pub async fn nested() -> i32 { val (a,b)=join(pair(),async { 1 }).await; a+b }
 pub fn factory() -> fn()->Future<i32> { || nested() }
 "#,
         );
+        let members = f
+            .runtime
+            .select_program(&f.module)
+            .unwrap()
+            .members()
+            .collect::<Vec<_>>();
         let host = HostLoop::new();
         assert!(f.runtime.poll(&mut host.context()).is_pending());
         let scope = task_root.then(|| {
@@ -144,7 +154,17 @@ pub fn factory() -> fn()->Future<i32> { || nested() }
         assert!(Arc::ptr_eq(terminal_trace.as_ref().unwrap(), &selected));
         drop(scope);
         f.runtime.drain_cancelled_tasks().unwrap();
-        assert_eq!(f.runtime.gc_stats().root_registrations, 0);
+        assert!(f.runtime.execution_id().is_none());
+        assert_eq!(f.runtime.resources().counters().current_call_depth, 0);
+        for member in members {
+            assert_eq!(
+                f.runtime
+                    .modules()
+                    .retention_counts(member.key())
+                    .active_calls,
+                0
+            );
+        }
     }
 }
 
@@ -202,6 +222,12 @@ pub async fn run() -> Result<(i32,i32),String> {
         },
     );
 
+    let members = f
+        .runtime
+        .select_program(&f.module)
+        .unwrap()
+        .members()
+        .collect::<Vec<_>>();
     let host = HostLoop::new();
     assert!(f.runtime.poll(&mut host.context()).is_pending());
     let future = f.invoke("run", &[]);
@@ -247,11 +273,19 @@ pub async fn run() -> Result<(i32,i32),String> {
     for late in completions.lock().unwrap().drain(..) {
         assert_eq!(late.complete(Ok(9)), CompletionStatus::Stale);
     }
-    assert_eq!(
-        f.runtime.gc_stats().root_registrations,
-        1,
-        "only retained outer Future remains"
-    );
+    // The collector is not serviceable after quarantine. Assert actual execution
+    // retirement, not the raw directory count that includes pending root drops.
+    assert!(f.runtime.execution_id().is_none());
+    assert_eq!(f.runtime.resources().counters().current_call_depth, 0);
+    for member in members {
+        assert_eq!(
+            f.runtime
+                .modules()
+                .retention_counts(member.key())
+                .active_calls,
+            0
+        );
+    }
 }
 
 #[test]
@@ -302,40 +336,50 @@ pub async fn waiting() -> i32 { val (a,b)=join(request(10),request(20)).await; a
 #[test]
 fn groups_share_parent_inputs_rng_and_host_recording() {
     let random = Arc::new(Mutex::new(Vec::new()));
-    let mut f = Fixture::with_source(
-        r#"
+    let source = r#"
 use test::context::probe;
+pub fn reentry() -> i32 { 1 }
 pub async fn grouped() -> i32 { probe(); val (a,b)=core::task::join(async { probe() },async { probe() }).await; probe()+a+b }
 pub async fn serial() -> i32 { probe(); val a=probe(); val b=probe(); probe()+a+b }
-"#,
-        Default::default(),
-        |engine| {
-            let mut module = ModuleBuilder::new("test::context", engine.declarations()).unwrap();
-            let function = module
-                .define_function(FunctionDecl::new("probe").returns(Type::i32()).host_policy(
-                    HostCallPolicy {
-                        passing: vec![],
-                        effects: Default::default(),
+"#;
+    let mut f = Fixture::with_source(source, Default::default(), |engine| {
+        let mut module = ModuleBuilder::new("test::context", engine.declarations()).unwrap();
+        let function = module
+            .define_function(FunctionDecl::new("probe").returns(Type::i32()).host_policy(
+                HostCallPolicy {
+                    passing: vec![],
+                    effects: HostFunctionEffects {
+                        may_call_host_services: true,
+                        ..Default::default()
                     },
-                ))
-                .unwrap();
-            let random = random.clone();
-            module
-                .bind(
-                    function,
-                    host::callback(move |cx, _| {
-                        assert_eq!(cx.execution_time_millis().unwrap(), 123);
-                        random
-                            .lock()
-                            .unwrap()
-                            .push(cx.next_execution_random_u64().unwrap());
-                        Ok(ValueView::from(1_i32))
-                    }),
-                )
-                .unwrap();
-            engine.install(module.finish().unwrap()).unwrap();
-        },
-    );
+                },
+            ))
+            .unwrap();
+        let random = random.clone();
+        module
+            .bind(
+                function,
+                host::callback(move |cx, _| {
+                    assert_eq!(cx.execution_time_millis().unwrap(), 123);
+                    random
+                        .lock()
+                        .unwrap()
+                        .push(cx.next_execution_random_u64().unwrap());
+                    let root = cx.runtime().execution_root().unwrap();
+                    let execution = cx.runtime().execution_id();
+                    let options = cx.runtime().execution_options();
+                    let value = cx
+                        .runtime_mut()
+                        .execute_module(&root, "reentry", options)
+                        .unwrap();
+                    assert_eq!(cx.runtime().execution_id(), execution);
+                    assert_eq!(value.return_value.as_i32(), Some(1));
+                    Ok(ValueView::from(1_i32))
+                }),
+            )
+            .unwrap();
+        engine.install(module.finish().unwrap()).unwrap();
+    });
 
     let mut context = ExecutionContext {
         tracing_enabled: true,
@@ -368,6 +412,28 @@ pub async fn serial() -> i32 { probe(); val a=probe(); val b=probe(); probe()+a+
             .unwrap();
         host.until(&mut f.runtime, || ticket.is_finished());
         assert_eq!(result(&mut ticket).unwrap(), 3);
+        let old = f.runtime.select_program(&f.module).unwrap().key();
+        let replacement = super::prepare_source(&f.engine, source);
+        let candidate = f
+            .runtime
+            .program(&f.module)
+            .unwrap()
+            .prepare_replacement(replacement.program(), &Default::default())
+            .unwrap();
+        f.runtime
+            .replace_program(&f.module, &candidate, Default::default())
+            .unwrap();
+        f.program = replacement;
+        f.runtime.collect_garbage().unwrap();
+        assert!(f.runtime.modules().loaded(old).is_none());
+        let repeated = f.start_future(&future);
+        let DriveResult::Complete(Err(error)) = f.runtime.drive(&repeated, slice()).unwrap() else {
+            panic!("a consumed Future must fail on drive without reentering script")
+        };
+        assert_eq!(
+            error.reason(),
+            &ErrorReason::Trap(TrapReason::FutureHasAlreadyBeenAwaited)
+        );
     }
     let values = random.lock().unwrap();
     assert_eq!(values.len(), 8);
@@ -390,6 +456,8 @@ pub async fn run() -> i32 { val (a,b)=core::task::join(branch(),branch()).await;
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let mut f = Fixture::configured_source(source, config);
+    f.runtime.collect_garbage().unwrap();
+    let baseline = f.runtime.gc_stats();
     let old = f.runtime.select_program(&f.module).unwrap().key();
     let cold = f.invoke("run", &[]);
     let mut waiting = scheduled("run", &[], &mut f);
@@ -437,7 +505,12 @@ pub async fn run() -> i32 { val (a,b)=core::task::join(branch(),branch()).await;
     assert_eq!(result(&mut retained).unwrap(), 320);
     f.runtime.collect_garbage().unwrap();
     assert_eq!(f.runtime.modules().retention_counts(old).runtime_values, 0);
-    assert_eq!(f.runtime.gc_stats().root_registrations, 0);
+    assert_eq!(
+        f.runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert_eq!(f.runtime.gc_stats().objects, baseline.objects);
+    assert!(f.runtime.modules().loaded(old).is_none());
     assert!(
         f.runtime
             .poll(&mut Context::from_waker(Waker::noop()))

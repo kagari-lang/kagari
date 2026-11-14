@@ -34,7 +34,7 @@ fn scalar_field_overflow_preserves_prior_effects_and_does_not_commit() {
         let kept = vm
             .execute_module(&loaded, "main", vm.execution_options())
             .unwrap();
-        let baseline_roots = vm.gc_stats().root_registrations;
+        let baseline_roots = vm.collected_gc_stats().root_registrations;
         let mut cx = ConversionContext::new(&mut vm, &loaded).unwrap();
         let value = cx.import(&kept.return_value).unwrap();
         let arguments = cx.argument_values(&[value]).unwrap();
@@ -43,7 +43,7 @@ fn scalar_field_overflow_preserves_prior_effects_and_does_not_commit() {
             .run(|runtime, stack, result| stack.retain_result(runtime, result));
         assert!(matches!(result, Err(error) if error.kind() == RuntimeErrorKind::ScriptTrap));
         drop(cx);
-        assert_eq!(vm.gc_stats().root_registrations, baseline_roots);
+        assert_eq!(vm.collected_gc_stats().root_registrations, baseline_roots);
         vm.collect_garbage().unwrap();
         let mut cx = ConversionContext::new(&mut vm, &loaded).unwrap();
         let value = cx.import(&kept.return_value).unwrap();
@@ -54,7 +54,7 @@ fn scalar_field_overflow_preserves_prior_effects_and_does_not_commit() {
             .unwrap();
         assert!(cx.decode::<bool>(&checked).unwrap());
         drop(cx);
-        assert_eq!(vm.gc_stats().root_registrations, baseline_roots);
+        assert_eq!(vm.collected_gc_stats().root_registrations, baseline_roots);
         assert_eq!(vm.resources().counters().current_call_depth, 0);
     }
 }

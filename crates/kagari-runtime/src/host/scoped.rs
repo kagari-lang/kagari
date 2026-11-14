@@ -373,6 +373,7 @@ impl HostBorrowTable {
             &fields::ScopedField {
                 parent: field.parent.type_argument().clone(),
                 owner: field.parent.owner().clone(),
+                program: field.parent.program(),
                 declaration: field.declaration,
                 projector: field.projector.clone(),
                 target: field.target.clone(),

@@ -182,6 +182,8 @@ fn lifecycle_reload_contract() {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let mut f = Fixture::configured_source(SOURCE, config);
+    f.runtime.collect_garbage().unwrap();
+    let baseline = f.runtime.gc_stats();
     let scope = f
         .runtime
         .create_dispatched_task_scope(
@@ -283,5 +285,10 @@ fn lifecycle_reload_contract() {
         f.runtime.modules().retention_counts(old_key).runtime_values,
         0
     );
-    assert_eq!(f.runtime.gc_stats().root_registrations, 0);
+    assert_eq!(
+        f.runtime.gc_stats().root_registrations,
+        baseline.root_registrations
+    );
+    assert_eq!(f.runtime.gc_stats().objects, baseline.objects);
+    assert!(f.runtime.modules().loaded(old_key).is_none());
 }

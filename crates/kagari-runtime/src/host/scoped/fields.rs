@@ -6,7 +6,7 @@ use crate::{
     error::RuntimeError,
     frame::types::{arguments::TypeArgument, compatibility::TypeView},
     host::{HostBorrowTable, scoped::ScopedHostView},
-    module::{ExecutableModule, StructLayoutRef},
+    module::{ExecutableModule, StructLayoutRef, retention::ProgramLease},
     native::{
         binding::NativeResult, conversion::context::ConversionContext, projection::GeneratedField,
     },
@@ -22,6 +22,7 @@ use kagari_types::{reference::ReferenceAccess, ty::Ty};
 pub(super) struct ScopedField {
     pub(super) parent: TypeArgument,
     pub(super) owner: ExecutableModule,
+    pub(super) program: ProgramLease,
     pub(super) declaration: DefinitionId,
     pub(super) projector: GeneratedField,
     pub(super) target: TypeArgument,
@@ -76,6 +77,7 @@ impl HostBorrowTable {
             Ok(ScopedField {
                 parent: parent.target.clone(),
                 owner: root.owner.clone(),
+                program: root._program.clone(),
                 declaration: field.declaration,
                 projector,
                 target,
@@ -97,7 +99,7 @@ impl Runtime {
         let mut child = self.host_borrows.project_field(self, view, &field)?;
         child.access = access.field_access(layout.layout().fields[slot].mutable);
         if matches!(field.target.ty(), Ty::Struct(_)) {
-            let mut cx = ConversionContext::new(self, &field.owner)?;
+            let mut cx = ConversionContext::retained(self, &field.owner, &field.program)?;
             let value = cx.allocate_ephemeral(EphemeralValue::HostView(child))?;
             return destination.publish(cx.runtime_mut(), &value);
         }
@@ -109,7 +111,7 @@ impl Runtime {
         self.with_host_loans(
             [(child, field.projector.target, ReferenceAccess::Shared)],
             |runtime, [pointer]| {
-                let mut cx = ConversionContext::new(runtime, &field.owner)?;
+                let mut cx = ConversionContext::retained(runtime, &field.owner, &field.program)?;
                 // SAFETY: The entire path's exact Rust identity and shared loan precede
                 // this generated reader. Its output owns no borrowed Rust reference.
                 let value = unsafe { (field.projector.snapshot)(pointer, &mut cx, &field.target) }?;
@@ -138,7 +140,7 @@ impl Runtime {
         // Conversion can allocate/reenter. It finishes before acquiring any
         // reference; the inert path resolves against the current root afterward.
         let decoded = {
-            let mut cx = ConversionContext::new(self, &field.owner)?;
+            let mut cx = ConversionContext::retained(self, &field.owner, &field.program)?;
             (field.projector.decode)(&mut cx, &field.target, value)?
         };
         let displaced = self.with_host_loans(

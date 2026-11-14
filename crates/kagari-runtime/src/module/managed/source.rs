@@ -8,7 +8,7 @@ use crate::{
         ExecutableModule, ModuleStore,
         managed::{InstallationState, cell::StaticCellObject, revision::RevisionState},
     },
-    native::future::storage::ColdObject,
+    native::future::{claims::FutureContract, storage::ColdObject},
     value::{carriers::RootedValue, closures::ClosureObject},
 };
 use kagari_bytecode::{instruction::ModuleSlot, program::ModuleRef};
@@ -26,6 +26,8 @@ pub(crate) enum RevisionSource<'root> {
     Application(DependencyId<ApplicationObject>),
     HostApplication(&'root Root<ApplicationObject>),
     RootedClosure(&'root RootedValue),
+    RootedFuture(&'root RootedValue),
+    Future(ValueLocation),
     Cold(&'root Root<ColdObject>),
     Closure(ValueLocation),
     StaticRecipe {
@@ -174,6 +176,14 @@ impl RevisionSource<'_> {
                     .scope()
                     .downcast::<ClosureObject>(value.object().ok_or(GcError::Representation)?)?;
                 ClosureObject::body(slots.scope(), object).ok_or(GcError::Index)?
+            }
+            Self::RootedFuture(root) => {
+                let value = root.get(slots.scope())?;
+                FutureContract::body(slots.scope(), value)?.ok_or(GcError::Index)?
+            }
+            Self::Future(location) => {
+                let value = slots.get(location)?;
+                FutureContract::body(slots.scope(), value)?.ok_or(GcError::Index)?
             }
             Self::Cold(root) => {
                 let cold = slots.scope().get(root)?;

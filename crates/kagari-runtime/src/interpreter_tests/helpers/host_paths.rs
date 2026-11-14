@@ -95,7 +95,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
             let loaded = load_bytecode(&mut runtime, "fault.kgr", program).unwrap();
             let _loaded_program = loaded;
             let loaded = runtime.select_program(&_loaded_program).unwrap();
-            let roots = runtime.gc_stats().root_registrations;
+            let roots = runtime.collected_gc_stats().root_registrations;
             let mut vm = runtime;
             let error = if jit {
                 vm.execute_fixture_prepared(&loaded, FunctionRef::new(0), &prepared)
@@ -108,7 +108,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
             assert!(vm.is_quarantined());
             assert_eq!(vm.modules().retention_counts(loaded.key()).active_calls, 0);
             assert_eq!(*hp.lock().unwrap(), 20); // Internal faults do not promise business rollback.
-            assert_eq!(vm.gc_stats().root_registrations, roots);
+            assert_eq!(vm.collected_gc_stats().root_registrations, roots);
             assert_eq!(vm.resources().counters().current_call_depth, 0);
             let before = vm.resources().counters();
             for error in [
@@ -145,7 +145,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
         let scope = call.runtime_mut().begin_execution(&root, options).unwrap();
         assert_eq!(scope.host_scope_count(), 2);
         drop(scope);
-        let roots = call.runtime().gc_stats().root_registrations;
+        let roots = call.runtime_mut().collected_gc_stats().root_registrations;
         let value = reenter(call, &root, function, ArgumentValues::scalars(&[])).unwrap();
         call.runtime_mut().collect_garbage().unwrap();
         {
@@ -158,7 +158,10 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
             );
         }
         drop(value);
-        assert_eq!(call.runtime().gc_stats().root_registrations, roots);
+        assert_eq!(
+            call.runtime_mut().collected_gc_stats().root_registrations,
+            roots
+        );
     }
     for encoded in [false, true] {
         for jit in [false, true] {
@@ -266,7 +269,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
             assert_eq!(scope.counters().current_call_depth, 0);
             drop(report);
             assert_eq!(
-                scope.runtime().gc_stats().root_registrations,
+                scope.runtime_mut().collected_gc_stats().root_registrations,
                 baseline.root_registrations
             );
             drop(scope);
@@ -281,7 +284,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
             vm.collect_garbage().unwrap();
             assert_eq!(vm.gc_stats().objects, baseline.objects);
             assert_eq!(
-                vm.gc_stats().root_registrations,
+                vm.collected_gc_stats().root_registrations,
                 baseline.root_registrations
             );
             assert_eq!(vm.host_dirty_paths().len(), 1);

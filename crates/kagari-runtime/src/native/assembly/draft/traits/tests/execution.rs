@@ -205,7 +205,7 @@ fn same_batch_override_executes_its_compiler_selected_requirement_in_both_orders
                     .map(|slot| (owner, slot))
             })
             .expect("compiler selected override import");
-        let roots = runtime.gc_stats().root_registrations;
+        let roots = runtime.collected_gc_stats().root_registrations;
         let mut stack_activation = runtime.enter_execution_stack(&owner).unwrap();
         stack_activation
             .with(|runtime, stack| {
@@ -225,7 +225,7 @@ fn same_batch_override_executes_its_compiler_selected_requirement_in_both_orders
                 };
                 assert_eq!(result.payload(), Some((ValueType::I32, 42)));
                 assert_eq!(calls.load(Ordering::SeqCst), 1);
-                assert_eq!(runtime.gc_stats().root_registrations, roots);
+                assert_eq!(runtime.collected_gc_stats().root_registrations, roots);
 
                 Ok(())
             })

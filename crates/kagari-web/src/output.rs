@@ -103,7 +103,7 @@ mod tests {
     #[test]
     fn output_is_utf8_bounded_and_drain_resets_the_budget() {
         let mut queue = Output::default();
-        queue.push(&"馃榾".repeat(MESSAGE_BYTES));
+        queue.push(&"\u{1f600}".repeat(MESSAGE_BYTES));
         assert_eq!(queue.messages[0].len(), MESSAGE_BYTES);
         for _ in 0..OUTPUT_MESSAGES * 2 {
             queue.push(&"x".repeat(MESSAGE_BYTES));

@@ -2,10 +2,13 @@ use crate::test_support::bytecode::load_bytecode;
 use crate::{BytecodeArtifact, engine::EngineConfig, test_support::execution};
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
-    Runtime, RuntimeConfig, native::module::NativeModule, value::carriers::RootedValue,
+    Runtime, RuntimeConfig, error::reason::ErrorReason, native::module::NativeModule,
+    value::carriers::RootedValue,
 };
 use kagari_source::source::SourceFile;
-use kagari_types::declaration::module::ModuleDecl;
+use kagari_types::{
+    arithmetic::ArithmeticError, declaration::module::ModuleDecl, scalar::error::ScalarError,
+};
 
 #[test]
 fn identity_operand_traps_preserve_effect_order_and_release_interface_roots() {
@@ -105,9 +108,9 @@ fn alias(state: State, kind: i32) -> bool {
             let error = vm
                 .invoke_interface_method(&root, &method(entry), &arguments)
                 .unwrap_err();
-            assert!(
-                format!("{error:?}").contains("division by zero"),
-                "{error:?}"
+            assert_eq!(
+                error.reason(),
+                &ErrorReason::Scalar(ScalarError::Arithmetic(ArithmeticError::DivisionByZero))
             );
             vm.collect_garbage().unwrap();
             assert_eq!(

@@ -359,11 +359,11 @@ fn authored_and_sealed_tokens_execute_the_actual_selected_default_call() {
                     .map(|slot| (owner, slot))
             })
             .expect("compiler-selected default import");
-        let roots = runtime.gc_stats().root_registrations;
+        let roots = runtime.collected_gc_stats().root_registrations;
         let result = execute_main(&mut runtime, &loaded);
         assert_eq!(result.as_i32(), Some(42), "{provenance:?}");
         counts.assert(1, 1, 1, 1);
-        assert_eq!(runtime.gc_stats().root_registrations, roots);
+        assert_eq!(runtime.collected_gc_stats().root_registrations, roots);
     }
 }
 
