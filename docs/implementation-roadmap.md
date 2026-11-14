@@ -694,7 +694,9 @@ performance improvement or exhaustive documentation coverage is claimed.
 identity, collection naming and attribute scope. External arenas reclaim one module lowering
 at a time, not an entire persistent project. HA00 must resolve cache/request ownership and
 prove old A can release while unchanged B remains usable; HA01 is blocked until then.
-HA01 replaces the graph/consumers; HA02 validates and consolidates docs/tests.
+HA01 replaces the graph/consumers; HA02 validates and consolidates docs/tests. The plan now
+records a checkpoint dependency: HA00's production-arena proof requires that HA01 cutover.
+Combining their remaining work is proposed, pending confirmation; no completion is claimed.
 HA00 is in progress with phase commits authorized. Its first sub-checkpoint detaches physical
 parse ownership and returns an owned logical syntax manifest before lowering. Temporary owned
 prior syntax preserves published identities after cancelled semantic work. Selected-body

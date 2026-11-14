@@ -1,9 +1,9 @@
 # HIR Storage and Attribute Design
 
-**Status:** implementation authorized with phase commits; HA00 is in progress.
+**Status:** HA00 has implemented cache/preparation checkpoints, but its final arena acceptance
+is blocked by the HA00/HA01 cutover dependency below. No phase completion is claimed.
 Owned syntax preparation and selected-body fact ownership are implemented; remaining
 semantic-cache/session/arena integration is pending.
-HA01 remains blocked on HA00's real multi-module ownership proof.
 **Baseline:** `main` at `43d55706a`; working branch `design/hir-native-model`.
 [Roadmap](implementation-roadmap.md#hir-storage-and-attribute-refactor) owns activation.
 
@@ -429,6 +429,24 @@ All checkpoints must build their affected targets. Existing Native facts stay no
 their HIR IDs and borrowed API lifetimes adapt without changing registration semantics. This does
 not activate Native redesign, optional source text, per-body arenas, a new incremental query
 algorithm or Runtime changes.
+
+### Checkpoint dependency requiring correction
+
+The required proof is parser → real borrowed HIR → semantic analysis → independent A1 arena
+release while A2/B1 results remain usable. Production LoweredModule still owns Module/Body
+vectors with ID children. Replacing those with borrowed arena nodes changes signatures through
+lowering, analysis, compiler handoff and SDK; that coherent replacement is currently HA01.
+
+Thus HA00 cannot finish its production-arena proof while HA01 is prohibited from starting.
+A toy AST, allocated references to the old owned graph, PhantomData lifetimes or a second
+unconsumed HIR model would not satisfy it. The owned-record/cache split can proceed on the
+current representation but cannot establish the missing proof.
+
+**Proposed phase correction, pending confirmation:** combine HA00's remaining ownership work
+and HA01's production graph/consumer cutover into one buildable checkpoint. Keep HA02 final
+acceptance separate. This changes checkpoint sequencing, not the selected external per-module
+Bump model, semantic scope or safety requirements. Do not mark HA00 complete by moving its
+original proof out of the acceptance criteria without explicit agreement.
 
 ### Current checkpoint and carried checks
 
