@@ -5,13 +5,11 @@ use kagari_runtime::execution::owned::DriveResult;
 use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     error::RuntimeErrorKind,
-    native::completion::CompletionStatus,
     session::owned::OwnedExecution,
     task::{TaskId, control::TaskScopeOwner, drive::TaskDriveResult},
     value::carriers::RootedValue,
 };
 use kagari_source::source::SourceFile;
-use std::slice;
 use std::{
     num::NonZeroUsize,
     sync::{Arc, atomic::Ordering},
@@ -137,6 +135,7 @@ fn reject_candidate_work(f: &mut Fixture, scope: &TaskScopeOwner, factory: &Root
     }
 }
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn string_cursor_retains_dynamic_source_across_native_waits() {
     let mut config = EngineConfig::default();
@@ -176,6 +175,7 @@ fn string_cursor_retains_dynamic_source_across_native_waits() {
     assert_eq!(f.runtime.resources().counters().current_call_depth, 0);
     assert!(!f.runtime.is_quarantined());
 }
+*/
 
 #[test]
 fn lifecycle_reload_contract() {

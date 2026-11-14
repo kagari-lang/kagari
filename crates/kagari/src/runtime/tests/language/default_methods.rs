@@ -1,6 +1,6 @@
-use crate::{BytecodeArtifact, context::ExecutionContext, engine::EngineConfig, program::Program};
+use crate::{BytecodeArtifact, context::ExecutionContext, program::Program};
 use kagari_bytecode::{
-    instruction::{BytecodeInstruction, CallTarget, ConstructionTarget},
+    instruction::{BytecodeInstruction, CallTarget},
     program::{ModuleRef, identity, verify_program},
 };
 use kagari_common::identity::{
@@ -15,8 +15,6 @@ use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_stdlib::identity as library;
 use kagari_types::{callable::CallableImplementation, scalar::BuiltinType, ty::Ty};
-use rstest::rstest;
-use std::{fs, path::PathBuf};
 
 use crate::test_support::execution;
 
@@ -25,36 +23,37 @@ mod constraint_members;
 mod default_method_contracts;
 mod shared_arithmetic;
 
-#[rstest]
-fn ordinary_default_methods(
-    #[files("**/*.kgr")]
-    #[base_dir = "tests/fixtures/language/default_methods"]
-    #[files("../../iterable-default-cursor.kgr")]
-    path: PathBuf,
-) {
-    let source = fs::read_to_string(&path).unwrap_or_else(|error| {
-        panic!(
-            "failed to read default-method fixture {}: {error}",
-            path.display()
-        )
-    });
-    let mut config = EngineConfig::default();
-    config.default_runtime.gc.collection_threshold = Some(1);
-    let engine = execution::engine(config);
-    let artifact = engine
-        .compile_source(SourceFile::new("defaults.kgr", source))
-        .unwrap();
-    execution::assert_returns_i32(
-        &engine,
-        artifact,
-        &[
-            execution::Route::Source,
-            execution::Route::Artifact,
-            execution::Route::ArtifactJit,
-        ],
-        42,
-    );
-}
+// Temporarily paused: stdlib restoration (NC01-NC06).
+// #[rstest]
+// fn ordinary_default_methods(
+//     #[files("**/*.kgr")]
+//     #[base_dir = "tests/fixtures/language/default_methods"]
+//     #[files("../../iterable-default-cursor.kgr")]
+//     path: PathBuf,
+// ) {
+//     let source = fs::read_to_string(&path).unwrap_or_else(|error| {
+//         panic!(
+//             "failed to read default-method fixture {}: {error}",
+//             path.display()
+//         )
+//     });
+//     let mut config = EngineConfig::default();
+//     config.default_runtime.gc.collection_threshold = Some(1);
+//     let engine = execution::engine(config);
+//     let artifact = engine
+//         .compile_source(SourceFile::new("defaults.kgr", source))
+//         .unwrap();
+//     execution::assert_returns_i32(
+//         &engine,
+//         artifact,
+//         &[
+//             execution::Route::Source,
+//             execution::Route::Artifact,
+//             execution::Route::ArtifactJit,
+//         ],
+//         42,
+//     );
+// }
 
 #[test]
 fn imported_defaults_preserve_private_helpers_and_definition_context() {
@@ -290,6 +289,7 @@ fn main() -> i32 { val source: Capture = Number {}; val get = source.capture(42)
     }
 }
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn shared_list_table_mappings_are_checked_without_source() {
     let artifact = execution::engine(Default::default())
@@ -370,6 +370,7 @@ fn main() -> i32 { val source: Wrap = Source {}; source.wrap(42)[0] }
         );
     }
 }
+*/
 
 const SHARED_RECEIVER_COMPARISON: &str = include_str!(
     "../../../../tests/fixtures/language/default_methods/shared_receiver_implementation_supplies_nongeneric_comparison.kgr"
@@ -518,6 +519,7 @@ fn main() -> i32 {
     );
 }
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn generic_interface_upcasts_reject_forged_scopes_and_parents() {
     let artifact = execution::engine(Default::default())
@@ -579,6 +581,7 @@ fn main() -> i32 { val source: Wrap = Source {}; source.wrap(42)[0] }
         );
     }
 }
+*/
 
 #[test]
 fn ordinary_interface_methods_require_receiver_bound_witnesses() {

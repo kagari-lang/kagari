@@ -63,6 +63,14 @@ collection migration or add new collection-family policy to generic storage.
 
 ## Runtime and GC handoff
 
+Temporary test policy, 2026-11-14: at the user's request, known blocked consumer
+tests are commented out while Runtime work takes priority. Mixed fixture groups
+are paused as whole groups rather than split into active/ignored entrypoints.
+Original test bodies and fixtures remain; NC restoration must uncomment those
+registrations/bodies and restore their imports. Workspace membership, dependencies
+and stdlib's own test targets are unchanged. This is reduced active coverage, not
+provider implementation or full-product acceptance.
+
 Runtime/Host/GC RR00-RR05 is implemented and locally accepted. NC01-NC06 remains
 unstarted; rebase the historical inventory/PG pairings below before activation.
 The [current ownership map](architecture/runtime.md) and [Host provider contract](spec/host-interop.md#native-payload-accounting)

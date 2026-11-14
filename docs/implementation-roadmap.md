@@ -2162,6 +2162,24 @@ improvement is claimed.
 
 ## Verification and open CI acceptance
 
+Subsequent user-directed stdlib pause, 2026-11-14: keep all workspace membership
+and dependencies unchanged and comment out the known blocked consumer tests.
+No feature gate, alternate runner or active/ignored fixture split is introduced.
+This pauses the 272 known failures plus 124 previously passing fixture cases
+that share those discovery groups (122 SDK and two HIR); the single Lua boundary
+test also pauses its passing scalar subworkloads. Runtime's test harness and
+production code are untouched. SDK/HIR/compiler retain 526/562/248 listed cases;
+all 16 independently repaired SDK regressions remain registered, allowing for
+rstest case renumbering. The [NC handoff](native-collections-plan.md#runtime-and-gc-handoff)
+owns restoration of the original tests/imports and full coverage. Stdlib's own
+targets remain active: workspace verification still needs `--exclude kagari-stdlib`
+during this pause. Commented tests are absent, not reported as passing or ignored.
+
+The four affected consumer test targets build. Selected retained SDK, HIR UI and
+compiler pass regressions report 11/74/13 passing tests, respectively; this is not
+a full sweep. Structure, changed-file formatting and diff checks pass. The earlier
+unrelated workspace fmt/Clippy blockers below remain outstanding.
+
 The user-authorized 2026-11-14 Windows audit ran
 `cargo test --workspace --exclude kagari-stdlib --no-fail-fast` with default
 workspace features, preserving ordinary ignored tests. Excluding the package's

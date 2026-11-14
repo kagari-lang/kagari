@@ -1,15 +1,8 @@
-use crate::{
-    BytecodeArtifact,
-    engine::{EngineConfig, KagariEngine},
-    program::Program,
-};
-use kagari_runtime::module::entry::ProgramEntry;
-use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
-
+/* stdlib test support paused (NC01-NC06).
 #[path = "../../../../../tests/support/try_carrier.rs"]
-mod native_provider;
+mod native_provider; */
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn native_carriers_link_into_a_fresh_artifact_only_runtime() {
     fn engine() -> KagariEngine {
@@ -60,3 +53,4 @@ fn native_carriers_link_into_a_fresh_artifact_only_runtime() {
         assert_eq!(runtime.gc_stats().objects, baseline.objects);
     }
 }
+*/

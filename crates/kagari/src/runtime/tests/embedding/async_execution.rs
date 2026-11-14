@@ -93,10 +93,11 @@ impl Fixture {
             .unwrap()
     }
 
+    /* stdlib test support paused (NC01-NC06).
     fn run_future(&mut self, future: &RootedValue) -> RootedValue {
-        let execution = self.start_future(future);
-        self.complete(&execution)
-    }
+            let execution = self.start_future(future);
+            self.complete(&execution)
+        } */
 
     fn complete(&mut self, owner: &OwnedExecution) -> RootedValue {
         for _ in 0..1000 {

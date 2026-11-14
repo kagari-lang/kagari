@@ -1,8 +1,7 @@
-use crate::{context::ExecutionContext, engine::KagariEngine, program::Program};
-use kagari_runtime::module::entry::ProgramEntry;
-use kagari_source::source::SourceFile;
-use {kagari_stdlib as foundation, kagari_stdlib::catalog as foundation_catalog};
+use crate::engine::KagariEngine;
+use kagari_stdlib as foundation;
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn foundation_algorithms_are_available_from_explicit_composition() {
     let engine =
@@ -36,7 +35,9 @@ fn foundation_algorithms_are_available_from_explicit_composition() {
         1
     );
 }
+*/
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn explicit_library_composition_keeps_collection_algorithms() {
     let engine =
@@ -80,6 +81,7 @@ fn explicit_library_composition_keeps_collection_algorithms() {
         42
     );
 }
+*/
 
 #[test]
 fn application_installation_rejects_duplicate_explicit_providers() {

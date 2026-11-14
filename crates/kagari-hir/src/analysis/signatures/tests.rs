@@ -300,6 +300,7 @@ fn imported_applied_bound_changes_invalidate_signature_diagnostics() {
     assert!(db.files.is_empty());
 }
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn signatures_own_constraints_for_shadowed_parameters_before_body_analysis() {
     for header in [
@@ -363,6 +364,7 @@ fn signatures_own_constraints_for_shadowed_parameters_before_body_analysis() {
         assert_eq!(method.bounds, checked.bounds);
     }
 }
+*/
 
 #[test]
 fn cached_signature_bounds_survive_body_edits_and_bound_changes_invalidate_calls() {

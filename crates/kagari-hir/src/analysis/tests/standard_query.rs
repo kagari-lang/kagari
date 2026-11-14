@@ -1,15 +1,12 @@
 //! Source query regressions, including native implementations and protocol views.
 use crate::{
-    declarations::DeclarationId,
-    language::semantics::ProtocolSemantics,
-    native::render::declaration_source,
-    tests::test_analysis,
-    types::{NominalType, TypeId},
+    declarations::DeclarationId, language::semantics::ProtocolSemantics,
+    native::render::declaration_source, tests::test_analysis, types::TypeId,
 };
-use kagari_common::identity::{DefinitionKind, table::DefinitionTable};
-use kagari_stdlib::{catalog as foundation_catalog, identity as library};
+use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::language::Protocol;
 
+/* stdlib test support paused (NC01-NC06).
 fn foundation_vec(definitions: &DefinitionTable, item: TypeId) -> TypeId {
     TypeId::NativeObject(NominalType {
         declaration: definitions
@@ -18,7 +15,7 @@ fn foundation_vec(definitions: &DefinitionTable, item: TypeId) -> TypeId {
         arguments: vec![item],
         associated_types: Default::default(),
     })
-}
+} */
 
 #[cfg(test)]
 mod tests {
@@ -26,6 +23,7 @@ mod tests {
     use super::*;
     use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
+    /* Temporarily paused: stdlib restoration (NC01-NC06).
     #[test]
     fn ranges_and_collections_expose_source_owned_api_queries() {
         for (source, receiver, expected) in [
@@ -86,7 +84,9 @@ mod tests {
             }
         }
     }
+    */
 
+    /* Temporarily paused: stdlib restoration (NC01-NC06).
     #[test]
     fn native_iterator_implementation_exposes_checked_protocol_members() {
         let text = "fn main() { val values = [20,22].iter(); values. }";
@@ -197,7 +197,9 @@ mod tests {
                 .contains("fn next")
         );
     }
+    */
 
+    /* Temporarily paused: stdlib restoration (NC01-NC06).
     #[test]
     fn native_calls_types_and_variants_navigate_to_source() {
         let text = "use alloc::vec::Vec::new as create; fn main() { val value: Result<i32,String> = Ok(7); val values: Vec<i32> = create(); values.len(); }";
@@ -257,6 +259,7 @@ mod tests {
             TypeId::Builtin(kagari_types::scalar::BuiltinType::U64)
         );
     }
+    */
 
     #[test]
     fn incomplete_members_keep_standard_candidates_across_snapshots() {
@@ -452,6 +455,7 @@ mod interpolation_queries {
         );
     }
 
+    /* Temporarily paused: stdlib restoration (NC01-NC06).
     #[test]
     fn trait_method_completion_requires_matching_associated_items() {
         for interface_implementations in [false, true] {
@@ -516,4 +520,5 @@ mod interpolation_queries {
             }
         }
     }
+    */
 }

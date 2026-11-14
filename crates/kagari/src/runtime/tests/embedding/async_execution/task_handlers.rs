@@ -1,23 +1,10 @@
 //! Ordinary registered task methods across the synchronous-handler boundary.
-use super::Fixture;
-use crate::engine::EngineConfig;
-use kagari_runtime::{
-    task::{
-        CancellationCause, TaskId,
-        control::{DispatchUnavailable, TaskScopeOwner},
-        drive::TaskDriveResult,
-    },
-    value::carriers::RootedValue,
-};
-use std::{
-    num::NonZeroUsize,
-    slice,
-    sync::{Arc, atomic::Ordering},
-};
 
+/* stdlib test support paused (NC01-NC06).
 const SOURCE: &str =
-    include_str!("../../../../../tests/fixtures/embedding/async/task-handlers.kgr");
+    include_str!("../../../../../tests/fixtures/embedding/async/task-handlers.kgr"); */
 
+/* stdlib test support paused (NC01-NC06).
 fn drive(f: &mut Fixture, scope: &TaskScopeOwner, id: TaskId) -> TaskDriveResult {
     for _ in 0..1000 {
         f.runtime.collect_garbage().unwrap();
@@ -30,13 +17,15 @@ fn drive(f: &mut Fixture, scope: &TaskScopeOwner, id: TaskId) -> TaskDriveResult
         }
     }
     panic!("bounded task driver");
-}
+} */
 
+/* stdlib test support paused (NC01-NC06).
 fn task(f: &mut Fixture, result: &RootedValue) -> (TaskId, RootedValue) {
     let handle = f.invoke("unwrap_i32", slice::from_ref(result));
     (f.runtime.task_id(&handle).unwrap(), handle)
-}
+} */
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn scoped_task_handler_contract() {
     let mut config = EngineConfig::default();
@@ -212,3 +201,4 @@ fn scoped_task_handler_contract() {
     );
     assert!(f.runtime.ready_tasks(&failed_scope).unwrap().is_empty());
 }
+*/

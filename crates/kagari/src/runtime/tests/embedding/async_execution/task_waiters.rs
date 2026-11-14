@@ -1,36 +1,25 @@
 //! Shared waits, directional cancellation, cached outputs and dependency cycles.
-use super::{Fixture, slice};
-use crate::engine::EngineConfig;
-use kagari_runtime::execution::owned::DriveResult;
-use kagari_runtime::{
-    error::RuntimeErrorKind,
-    task::{
-        CancellationCause, TaskId, TaskReport, control::TaskScopeOwner, drive::TaskDriveResult,
-    },
-    value::carriers::RootedValue,
-};
-use std::slice as slices;
-use std::{
-    num::NonZeroUsize,
-    sync::{Arc, atomic::Ordering},
-    task::{Wake, Waker},
-};
 
-struct FailingWake;
+/* stdlib test support paused (NC01-NC06).
+struct FailingWake; */
 
+/* stdlib test support paused (NC01-NC06).
 impl Wake for FailingWake {
     fn wake(self: Arc<Self>) {
         panic!("host waiter wake failure");
     }
-}
+} */
 
-const SOURCE: &str = include_str!("../../../../../tests/fixtures/embedding/async/task-waiters.kgr");
+/* stdlib test support paused (NC01-NC06).
+const SOURCE: &str = include_str!("../../../../../tests/fixtures/embedding/async/task-waiters.kgr"); */
 
+/* stdlib test support paused (NC01-NC06).
 struct Tasks {
     fixture: Fixture,
     scope: TaskScopeOwner,
-}
+} */
 
+/* stdlib test support paused (NC01-NC06).
 impl Tasks {
     fn new() -> Self {
         let mut config = EngineConfig::default();
@@ -77,8 +66,9 @@ impl Tasks {
             .unwrap()
             .unwrap()
     }
-}
+} */
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn scoped_task_shared_wait_contract() {
     let mut tasks = Tasks::new();
@@ -217,7 +207,9 @@ fn scoped_task_shared_wait_contract() {
         "shared Task output does not duplicate a Future's single-drive state"
     );
 }
+*/
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn scoped_task_dependency_failure_contract() {
     let mut tasks = Tasks::new();
@@ -372,3 +364,4 @@ fn scoped_task_dependency_failure_contract() {
     assert_eq!(tasks.fixture.runtime.drain_retired_executions().unwrap(), 1);
     tasks.fixture.runtime.drain_cancelled_tasks().unwrap();
 }
+*/

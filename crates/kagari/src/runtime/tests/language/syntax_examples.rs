@@ -3,29 +3,29 @@ use kagari_runtime::{error::reason::ErrorReason, module::entry::ProgramEntry};
 use kagari_source::source::SourceFile;
 use kagari_types::{arithmetic::ArithmeticError, scalar::error::ScalarError};
 use rstest::rstest;
-use std::{fs, path::PathBuf};
 
 use crate::test_support::execution;
 
-#[rstest]
-fn source_examples(
-    #[files("../../examples/syntax/*.kgr")]
-    #[exclude(r"[/\\](async|byte-literals|char-literals|grammar-witnesses|try-protocols)\.kgr$")]
-    path: PathBuf,
-) {
-    let source = fs::read_to_string(&path).unwrap_or_else(|error| {
-        panic!("failed to read syntax example {}: {error}", path.display())
-    });
-    let filename = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .expect("UTF-8 syntax example file name");
-    execute_source_example(
-        &format!("examples/syntax/{filename}"),
-        &source,
-        &[execution::Route::Source, execution::Route::Artifact],
-    );
-}
+// Temporarily paused: stdlib restoration (NC01-NC06).
+// #[rstest]
+// fn source_examples(
+//     #[files("../../examples/syntax/*.kgr")]
+//     #[exclude(r"[/\\](async|byte-literals|char-literals|grammar-witnesses|try-protocols)\.kgr$")]
+//     path: PathBuf,
+// ) {
+//     let source = fs::read_to_string(&path).unwrap_or_else(|error| {
+//         panic!("failed to read syntax example {}: {error}", path.display())
+//     });
+//     let filename = path
+//         .file_name()
+//         .and_then(|name| name.to_str())
+//         .expect("UTF-8 syntax example file name");
+//     execute_source_example(
+//         &format!("examples/syntax/{filename}"),
+//         &source,
+//         &[execution::Route::Source, execution::Route::Artifact],
+//     );
+// }
 
 #[rstest]
 #[case::numeric_6502_numeric(
@@ -40,19 +40,25 @@ fn source_examples(
     "examples/generic-trait-methods.kgr",
     include_str!("../../../../../../examples/generic-trait-methods.kgr")
 )]
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[case::standard_library(
     "examples/standard-library.kgr",
     include_str!("../../../../../../examples/standard-library.kgr")
 )]
+*/
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[case::struct_pattern_rest_executes_in_existing_contexts(
     "struct-pattern-rest.kgr",
     include_str!("../../../../tests/fixtures/test-fixtures/language/struct-pattern-rest.kgr")
 )]
+*/
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[case::grouped_standard_globs_execute(
     "standard-glob.kgr",
     include_str!("../../../../tests/fixtures/test-fixtures/language/standard-glob.kgr"),
     &[execution::Route::Artifact]
 )]
+*/
 fn additional_source_examples(
     #[case] path: &str,
     #[case] source: &str,
@@ -165,6 +171,7 @@ fn inline_module_errors_point_into_the_original_source() {
     );
 }
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn for_loop_detects_structural_change_and_cleans_up_after_trap() {
     let source = r#"
@@ -202,6 +209,7 @@ pub fn after_trap() -> i32 { 42 }
         .unwrap();
     assert_eq!(result.return_value.as_i32().unwrap(), 42);
 }
+*/
 
 #[test]
 fn closure_trap_releases_execution_resources() {

@@ -1,12 +1,8 @@
-use crate::{engine::EngineConfig, test_support::execution};
-use kagari_source::source::SourceFile;
-use rstest::rstest;
-use std::{fs, path::PathBuf};
-
 mod admission;
 mod diagnostics;
 mod lifecycle;
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[rstest]
 fn ordinary_execution(
     #[base_dir = "tests/fixtures/language/interface_identity"]
@@ -36,3 +32,4 @@ fn ordinary_execution(
         42,
     );
 }
+*/

@@ -1,13 +1,6 @@
 //! Async blocks share decoded Future execution, capture roots and one-shot state.
-use super::{Fixture, slice};
-use kagari_runtime::error::RuntimeErrorKind;
-use kagari_runtime::execution::owned::DriveResult;
-use kagari_runtime::native::{
-    completion::CompletionStatus, conversion::context::ConversionContext,
-};
-use std::slice as slices;
-use std::sync::atomic::Ordering;
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn sdk_async_block_capture_and_control_flow_contract() {
     let mut f = Fixture::source(include_str!(
@@ -53,7 +46,9 @@ fn sdk_async_block_capture_and_control_flow_contract() {
         1
     );
 }
+*/
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn sdk_async_block_native_wait_retains_captures() {
     let mut f = Fixture::source(
@@ -85,3 +80,4 @@ pub fn cold() -> Future<i32> {
     f.runtime.collect_garbage().unwrap();
     assert_eq!(f.runtime.gc_stats().root_registrations, 0);
 }
+*/

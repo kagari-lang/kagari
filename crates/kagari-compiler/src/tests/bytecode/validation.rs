@@ -5,11 +5,11 @@ use kagari_bytecode::instruction::Slot;
 use kagari_bytecode::module::InstructionOrigin;
 use kagari_bytecode::{
     artifact::KbcArtifact,
-    instruction::{ConstantId, ConstantOperand, NativeImportId},
+    instruction::{ConstantId, ConstantOperand},
     module::{FunctionRecord, LocalLiveRange, RootSlotLayout},
     program::verify_program,
 };
-use kagari_contract::{effects::EffectSet, standard::RuntimePrimitive};
+use kagari_contract::effects::EffectSet;
 use kagari_types::{declaration::host::PathAccess, range::RangeKind, scalar::BuiltinType, ty::Ty};
 
 fn replace_fixture_code(function: &mut BytecodeFunction, instructions: Vec<BytecodeInstruction>) {
@@ -328,6 +328,7 @@ fn rejects_function_fallthrough_before_loading() {
     }
 }
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn verifier_rejects_vec_get_scalar_result_and_wrong_arity() {
     let context = DefinitionContext::new().unwrap();
@@ -408,6 +409,7 @@ fn verifier_rejects_vec_get_scalar_result_and_wrong_arity() {
         })
     ));
 }
+*/
 
 #[test]
 fn encoded_root_layout_must_cover_exact_heap_slots() {
@@ -585,6 +587,7 @@ fn verifier_rejects_type_inconsistent_bytecode() {
     ));
 }
 
+/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn verifier_rejects_invalid_language_primitive_signatures() {
     let context = DefinitionContext::new().unwrap();
@@ -638,6 +641,7 @@ fn main(value: Vec<i32>) -> u64 {
         ))
     ));
 }
+*/
 
 #[test]
 fn verifier_rejects_invalid_aggregate_writes() {

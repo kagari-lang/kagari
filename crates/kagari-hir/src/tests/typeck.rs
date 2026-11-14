@@ -1,5 +1,4 @@
 use crate::{
-    builtin::surface,
     hir::{expr::ExprKind, pattern::PatternKind, stmt::StmtKind},
     resolver::collect::resolve_names,
     tests::{common, common::check_module},
