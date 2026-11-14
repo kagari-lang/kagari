@@ -789,6 +789,12 @@ requires the same source revision and identical retained signature files, includ
 the complete file set; rebuilding map containers alone does not invalidate it.
 Refreshing context does not rerun body checking or copy its tables.
 
+Physical parses have an owned cache independent of declaration/HIR results. Syntax
+preparation returns an owned logical-source manifest before lowering. Reuse requires
+exact source provenance and parser limits; a retained published syntax context can
+supply its original parse after a newer syntax batch succeeds but semantic analysis
+is cancelled. Completed syntax publication does not publish semantic success.
+
 Inline modules share physical text, line indexing and one retained parse. Each
 logical source keeps a stable synthetic FileId and its own ModuleHandle, revision
 and lowering arena. [Source preparation](../../crates/kagari-hir/src/analysis/source_preparation.rs)

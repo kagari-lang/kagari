@@ -85,6 +85,8 @@ pub(crate) struct ParsedModule {
     physical: Arc<Parse>,
     location: ModuleLocation,
     diagnostics: Arc<[usize]>,
+    // Native root parses are prepared separately and are not source-reuse inputs.
+    limits: Option<ParseLimits>,
 }
 
 impl ParsedModule {
@@ -93,6 +95,7 @@ impl ParsedModule {
             location: parsed.module().location(),
             diagnostics: (0..parsed.diagnostics().len()).collect(),
             physical: Arc::new(parsed),
+            limits: None,
         }
     }
 
@@ -136,7 +139,23 @@ pub(super) fn prepare(
     previous: Option<&DeclarationSnapshot>,
     cancel: &CancellationToken,
 ) -> Result<BTreeMap<FileId, PreparedSource>, AnalysisError> {
-    let syntax = prepare_syntax(db, sources, cancel)?;
+    // Syntax publication may advance ahead of semantic publication. Retain only
+    // the requested published syntax inputs so a cancelled newer analysis cannot
+    // force an unchanged published lowering to acquire a new parse identity.
+    let mut retained = BTreeMap::new();
+    for source in sources.files() {
+        cancel.check()?;
+        if let Some(old) = previous.and_then(|old| old.file(source.id())) {
+            retained.insert(
+                source.id(),
+                PreparedSyntax {
+                    source: old.declared.lowered.source.clone(),
+                    parsed: old.parsed.clone(),
+                },
+            );
+        }
+    }
+    let syntax = prepare_syntax(db, sources, Some(&retained), cancel)?;
     let mut files = BTreeMap::new();
     for (id, PreparedSyntax { source, parsed }) in syntax {
         cancel.check()?;
@@ -160,6 +179,10 @@ pub(super) fn prepare(
 /// their assigned parser diagnostics. No HIR is constructed or retained. Only a
 /// complete, cancellation-checked syntax batch publishes the source parse cache;
 /// subsequent lowering failures do not invalidate these completed syntax results.
+/// `previous` is an optional owned syntax manifest borrowed for this request, not
+/// a semantic snapshot. Its exact source/limit matches take precedence over the
+/// latest parse cache to preserve published syntax identity after semantic cancellation.
+/// No previous entries are added to the cache unless present in this input batch.
 /// Native declarations remain on the separate native import path.
 ///
 /// Returns an error for cancellation or an invalid supplied inline range, without
@@ -167,16 +190,24 @@ pub(super) fn prepare(
 pub(super) fn prepare_syntax(
     db: &AnalysisDatabase,
     sources: &SourceSnapshot,
+    previous: Option<&BTreeMap<FileId, PreparedSyntax>>,
     cancel: &CancellationToken,
 ) -> Result<BTreeMap<FileId, PreparedSyntax>, AnalysisError> {
     let mut files = BTreeMap::new();
     let mut parses = BTreeMap::new();
     for physical in sources.files() {
         cancel.check()?;
-        let cached = db
-            .source_parse_cache
-            .borrow()
-            .get(physical, db.parse_limits);
+        let cached = previous
+            .and_then(|files| files.get(&physical.id()))
+            .filter(|old| {
+                Arc::ptr_eq(&old.source, physical) && old.parsed.limits == Some(db.parse_limits)
+            })
+            .map(|old| old.parsed.physical.clone())
+            .or_else(|| {
+                db.source_parse_cache
+                    .borrow()
+                    .get(physical, db.parse_limits)
+            });
         let parsed = match cached {
             Some(parsed) => parsed,
             None => Arc::new(parse(
@@ -246,6 +277,7 @@ pub(super) fn prepare_syntax(
                         physical: parsed.clone(),
                         location: logical.syntax.location(),
                         diagnostics: logical.diagnostics.into(),
+                        limits: Some(db.parse_limits),
                     },
                     source: logical.source,
                 },

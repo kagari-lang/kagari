@@ -434,8 +434,11 @@ algorithm or Runtime changes.
 - HA00 first sub-checkpoint: SourceParseCache owns exact physical parses independently of HIR;
   prepare_syntax returns an owned logical module manifest before existing lowering runs.
   Source/limit checks, non-older publication, cache pruning and cancellation guard its lifetime.
-- Six source-preparation tests and three arena/revision regressions pass, covering owner
-  release, unchanged B sharing, stale requests, provenance, inline UTF-8/CRLF and limits.
+  Temporary owned prior-syntax inputs preserve the last published parse identity when a newer
+  syntax batch completes but semantic analysis is cancelled; they retain no HIR/history map.
+- Six source-preparation tests, three arena/revision regressions and the full deterministic
+  cancellation scenario pass, covering owner release, unchanged B sharing, stale requests,
+  provenance, inline UTF-8/CRLF, limits and publication identity.
   Structure/diff, changed-file rustfmt and HIR all-target Clippy pass. No Bump graph or SDK
   arena cutover is claimed yet.
 - On rustc 1.100.0, required workspace fmt is blocked by unchanged `hir/ids.rs` macro arguments
