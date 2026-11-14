@@ -349,10 +349,10 @@ fn type_alias_declaration_mode_rejects_native_only_attributes() {
         )
         .unwrap();
         let types = TypeCatalog::new([&declared])
-            .bindings(&declared.names.facts, &cancel)
+            .bindings(&declared.record.names.facts, &cancel)
             .unwrap();
         let prepared = declared.check_signatures(types, None, &cancel).unwrap();
-        assert!(prepared.signatures.diagnostics().iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidTypeAlias { reason, .. } if reason.contains("attribute"))), "{attribute}: {:?}", prepared.signatures.diagnostics());
+        assert!(prepared.record.signatures.diagnostics().iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidTypeAlias { reason, .. } if reason.contains("attribute"))), "{attribute}: {:?}", prepared.record.signatures.diagnostics());
     }
 }
 

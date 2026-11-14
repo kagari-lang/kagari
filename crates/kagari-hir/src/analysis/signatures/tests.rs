@@ -7,6 +7,7 @@ use crate::{
     typeck::signature_reuse::reuse_signatures,
     types::TypeId,
 };
+use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
@@ -63,7 +64,7 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
     assert!(
         reuse_signatures(
             original,
-            &prepared.signatures,
+            &prepared.record.signatures,
             original,
             &Default::default()
         )
@@ -75,7 +76,7 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
     assert!(
         reuse_signatures(
             original,
-            &prepared.signatures,
+            &prepared.record.signatures,
             &changed,
             &Default::default()
         )
@@ -86,7 +87,7 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
     assert!(
         reuse_signatures(
             original,
-            &prepared.signatures,
+            &prepared.record.signatures,
             &changed,
             &Default::default()
         )
@@ -587,6 +588,131 @@ fn signature_cache_reuses_and_rebases_without_any_complete_analysis() {
         .unwrap();
     assert_eq!(good.return_type, TypeId::Builtin(BuiltinType::Bool));
     assert!(db.files.is_empty());
+}
+
+#[test]
+fn signature_records_preserve_checked_context_without_retaining_graphs() {
+    let mut sources = SourceDatabase::default();
+    let mut ids = Vec::new();
+    let user = include_str!("../../../tests/fixtures/analysis/records/user.kgr");
+    for (name, text) in [
+        (
+            "types",
+            include_str!("../../../tests/fixtures/analysis/records/types.kgr"),
+        ),
+        ("user", user),
+    ] {
+        let path = format!("mem://{name}");
+        sources
+            .bind_module(
+                &path,
+                ModuleIdentity {
+                    package: PackageId("pkg".into()),
+                    path: vec![name.into()],
+                },
+            )
+            .unwrap();
+        ids.push(sources.set(&path, text.into(), SourceLayer::Base).unwrap());
+    }
+    let id = ids[1];
+    let annotation = user.find("value: Data").unwrap() + "value: ".len();
+    let mut db = AnalysisDatabase::default();
+    let first = query(&mut db, &sources);
+    let file = first.file(id).unwrap();
+    assert!(file.diagnostics().is_empty(), "{:?}", file.diagnostics());
+    let ty = file.type_at(annotation).unwrap();
+    let TypeId::Struct(nominal) = &ty else {
+        panic!("imported Data type: {ty:?}")
+    };
+    let target = file.definition_at(annotation).unwrap().clone();
+    assert_eq!(target.location.file, ids[0]);
+    let record = file.prepared.record.clone();
+    let declaration_record = file.declaration.declared.record.clone();
+    assert_ne!(
+        record.declarations.imported_types,
+        declaration_record.declarations.imported_types
+    );
+    assert!(
+        record
+            .declarations
+            .definitions()
+            .resolve(nominal.declaration)
+            .is_ok()
+    );
+    assert!(Arc::ptr_eq(&record.names, &declaration_record.names));
+    assert!(Arc::ptr_eq(
+        &record,
+        &db.signature_cache.as_ref().unwrap().files[&id].record
+    ));
+    let graphs = first
+        .files
+        .values()
+        .map(|file| Arc::downgrade(&file.prepared.lowered))
+        .collect::<Vec<_>>();
+    let arena = file.prepared.lowered.module.body.arena();
+    let old_query = Arc::downgrade(file);
+
+    // Full-file results can supply the old graph without retaining stage views.
+    let full = db
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    let full_files = full.files.values().cloned().collect::<Vec<_>>();
+    drop(full);
+    drop(first);
+    assert!(old_query.upgrade().is_none());
+    let second = query(&mut db, &sources);
+    let file = second.file(id).unwrap();
+    assert!(Arc::ptr_eq(&record, &file.prepared.record));
+    assert_eq!(file.type_at(annotation), Some(ty.clone()));
+    assert_eq!(file.definition_at(annotation), Some(&target));
+    let retained_full = db
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    for previous in &full_files {
+        assert!(Arc::ptr_eq(
+            previous,
+            retained_full.file(previous.source().id()).unwrap()
+        ));
+    }
+    drop(retained_full);
+    let fork = db.clone();
+    drop(second);
+    drop(full_files);
+
+    // Both databases keep their semantic/syntax records, but none owns a graph.
+    assert!(graphs.iter().all(|graph| graph.upgrade().is_none()));
+    assert!(db.files.values().all(|file| file.upgrade().is_none()));
+    for owner in [&db, &fork] {
+        let cached = &owner.signature_cache.as_ref().unwrap().files[&id];
+        assert!(Arc::ptr_eq(&record, &cached.record));
+        assert!(cached.query.upgrade().is_none());
+        assert!(cached.lowered.upgrade().is_none());
+        assert!(Arc::ptr_eq(
+            &declaration_record,
+            &owner.declaration_cache.as_ref().unwrap().files[&id].record
+        ));
+    }
+    assert!(
+        record
+            .declarations
+            .definitions()
+            .resolve(nominal.declaration)
+            .is_ok()
+    );
+    assert_ne!(
+        record.declarations.imported_types,
+        declaration_record.declarations.imported_types
+    );
+
+    let rebuilt = query(&mut db, &sources);
+    let file = rebuilt.file(id).unwrap();
+    assert!(!file.reused());
+    assert!(!Arc::ptr_eq(&record, &file.prepared.record));
+    assert_ne!(file.prepared.lowered.module.body.arena(), arena);
+    assert_eq!(file.type_at(annotation), Some(ty));
+    assert_eq!(file.definition_at(annotation), Some(&target));
+    assert!(file.diagnostics().is_empty(), "{:?}", file.diagnostics());
+    assert!(graphs.iter().all(|graph| graph.upgrade().is_none()));
 }
 
 #[test]

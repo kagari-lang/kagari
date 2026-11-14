@@ -1,6 +1,9 @@
 use super::*;
 use crate::{
-    analysis::AnalysisSnapshot, declarations::DeclarationId, resolver::resolved::ResolvedName,
+    analysis::AnalysisSnapshot,
+    declarations::DeclarationId,
+    native::{NativeBinding, NativeTypeKind, render::declaration_source},
+    resolver::resolved::ResolvedName,
     tests::test_analysis,
 };
 use kagari_common::identity::{ModuleIdentity, PackageId};
@@ -17,32 +20,36 @@ fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> DeclarationSnap
         .unwrap()
 }
 
-/* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
-fn native_declarations_are_shared_across_user_revisions_and_retained_by_snapshots() {
+fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
     let mut sources = SourceDatabase::default();
     sources
         .set("main.kgr", "fn main() {}".into(), SourceLayer::Base)
         .unwrap();
     let mut db = test_analysis();
     let first = query(&mut db, &sources);
-    let module = db
-        .native_files
-        .get()
-        .unwrap()
-        .iter()
-        .find(|(_, module)| {
-            module.source.module_identity() == &kagari_stdlib::namespaces::module("alloc", "vec")
+    let file = first
+        .files()
+        .find(|file| {
+            file.source().module_identity() == &kagari_stdlib::namespaces::module("core", "iter")
         })
-        .unwrap()
-        .1
-        .clone();
-    let file = first.file(module.source.id()).unwrap();
+        .unwrap();
     assert!(
         file.declarations()
             .iter()
-            .any(|declaration| declaration.name == "Vec")
+            .any(|item| item.name == "Iterator")
     );
+    let id = file.source().id();
+    let source = file.declared.lowered.source.clone();
+    let location = file.syntax().location();
+    let arena = file.declared.lowered.module.body.arena();
+    let method_count = file.declared.lowered.method_policies.len();
+    assert!(method_count > 0);
+    let old_type = file.declared.lowered.module.functions[0].params[0].ty;
+    let graph_handles = first
+        .files()
+        .map(|file| Arc::downgrade(&file.declared.lowered))
+        .collect::<Vec<_>>();
     sources
         .set(
             "main.kgr",
@@ -52,23 +59,88 @@ fn native_declarations_are_shared_across_user_revisions_and_retained_by_snapshot
         .unwrap();
     let second = query(&mut db, &sources);
     assert!(Arc::ptr_eq(
-        &module,
-        &db.native_files
-            .get()
-            .unwrap()
-            .iter()
-            .find(|(_, item)| item.source.id() == module.source.id())
-            .unwrap()
-            .1
+        first.file(id).unwrap(),
+        second.file(id).unwrap()
     ));
-    assert!(Arc::ptr_eq(file, second.file(module.source.id()).unwrap()));
+    let mut fork = db.clone();
+    drop(first);
+    drop(second);
+    assert!(
+        graph_handles
+            .iter()
+            .all(|handle| handle.upgrade().is_none())
+    );
+    assert!(db.native_files.get().is_some());
+
+    // A locator resolves only against the original physical parse, not a reparse.
+    let third = query(&mut db, &sources);
+    let file = third.file(id).unwrap();
+    assert!(location.resolve(file.parsed.physical()).is_some());
+    assert!(Arc::ptr_eq(&source, &file.declared.lowered.source));
+    let lowered = &file.declared.lowered;
+    assert_ne!(lowered.module.body.arena(), arena);
+    assert!(lowered.registered_native_api && lowered.language_foundation);
+    assert!(!lowered.registered_traits.is_empty());
+    assert_eq!(lowered.method_policies.len(), method_count);
+    for method in &lowered.module.traits[0].methods {
+        assert!(lowered.method_policies.contains_key(&method.function));
+    }
+    assert_ne!(lowered.module.functions[0].params[0].ty, old_type);
+    let adapter = lowered
+        .module
+        .opaque_types
+        .iter()
+        .find(|item| item.name == "MapIterator")
+        .unwrap();
+    assert!(matches!(
+        lowered.native_types.get(&adapter.id),
+        Some(NativeTypeKind::Storage { arity: 2, .. })
+    ));
+    let iterable = lowered
+        .module
+        .traits
+        .iter()
+        .find(|item| item.name == "Iterable")
+        .unwrap();
+    let map = iterable
+        .methods
+        .iter()
+        .find(|item| item.name == "map")
+        .unwrap();
+    assert!(map.has_default);
+    assert!(matches!(
+        lowered.native_functions.get(&map.function),
+        Some(NativeBinding::Default(_))
+    ));
+    assert!(!lowered.module.impls.is_empty());
+    for method in lowered.module.impls.iter().flat_map(|item| &item.methods) {
+        assert!(matches!(
+            lowered.native_functions.get(&method.function),
+            Some(NativeBinding::Entry(_))
+        ));
+    }
+
+    fork.set_parse_limits(parser::ParseLimits {
+        max_diagnostics: 0,
+        ..Default::default()
+    });
+    assert!(fork.native_files.get().is_none());
+    let limited = query(&mut fork, &sources);
+    let replacement = limited
+        .files()
+        .find(|file| file.source().module_identity() == source.module_identity())
+        .unwrap();
+    assert!(location.resolve(replacement.parsed.physical()).is_none());
+    assert!(location.resolve(file.parsed.physical()).is_some());
     drop(db);
-    assert_eq!(
-        first.file(module.source.id()).unwrap().source().text(),
-        module.source.text()
+    drop(fork);
+    assert_eq!(file.source().text(), source.text());
+    assert!(
+        file.declarations()
+            .iter()
+            .any(|item| item.name == "Iterator")
     );
 }
-*/
 
 #[test]
 fn cancelled_or_invalid_native_import_never_publishes_a_snapshot() {
@@ -93,6 +165,28 @@ fn cancelled_or_invalid_native_import_never_publishes_a_snapshot() {
     assert!(db.native_files.get().is_none());
     assert!(db.declaration_cache.is_none());
     db.set_parse_limits(Default::default());
+    let modules = db.native_modules.clone();
+    assert!(modules.len() > 1);
+    let mut views = modules
+        .iter()
+        .map(|module| declaration_source(module, &modules).unwrap())
+        .collect::<Vec<_>>();
+    // Fail the last source after earlier providers have prepared successfully.
+    views
+        .last_mut()
+        .unwrap()
+        .text
+        .push_str("\npub trait Broken {");
+    db.set_native_sources(modules.clone(), views).unwrap();
+    let error = db
+        .declarations(sources.snapshot(), &Default::default())
+        .unwrap_err();
+    assert!(
+        matches!(error, AnalysisError::NativeApi(error) if error.0.contains("invalid native declaration syntax"))
+    );
+    assert!(db.native_files.get().is_none());
+    assert!(db.declaration_cache.is_none());
+    db.set_native_modules(modules);
     let complete = query(&mut db, &sources);
     assert_eq!(complete.files.len(), db.native_files.get().unwrap().len());
 }
@@ -350,6 +444,69 @@ fn changing_parser_budget_invalidates_queries_without_changing_old_snapshots() {
             .iter()
             .all(|d| !matches!(d.kind, DiagnosticKind::CompileLimitExceeded { .. }))
     );
+}
+
+#[test]
+fn declaration_records_outlive_queries_without_owning_the_lowering() {
+    let mut sources = SourceDatabase::default();
+    let id = sources
+        .set(
+            "types.kgr",
+            include_str!("../../../tests/fixtures/analysis/records/types.kgr").into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+    let first = query(&mut db, &sources);
+    let file = first.file(id).unwrap();
+    assert!(file.diagnostics().is_empty(), "{:?}", file.diagnostics());
+    let declaration = file
+        .declarations()
+        .iter()
+        .find(|declaration| declaration.name == "Data")
+        .unwrap()
+        .clone();
+    let record = file.declared.record.clone();
+    let lowered = file.declared.lowered.clone();
+    let arena = lowered.module.body.arena();
+    let query_handle = Arc::downgrade(file);
+    let graph_handle = Arc::downgrade(&lowered);
+    let fork = db.clone();
+    drop(first);
+    assert!(query_handle.upgrade().is_none());
+    assert!(graph_handle.upgrade().is_some());
+    assert!(Arc::ptr_eq(
+        &record,
+        &db.declaration_cache.as_ref().unwrap().files[&id].record
+    ));
+
+    // Another live graph owner permits rebuilding a view without cloning facts.
+    let second = query(&mut db, &sources);
+    let file = second.file(id).unwrap();
+    assert!(Arc::ptr_eq(&record, &file.declared.record));
+    assert!(Arc::ptr_eq(&lowered, &file.declared.lowered));
+    assert_eq!(second.declaration(&declaration.id), Some(&declaration));
+    drop(second);
+    drop(lowered);
+    assert!(graph_handle.upgrade().is_none());
+    assert!(
+        db.declaration_cache.as_ref().unwrap().files[&id]
+            .query
+            .upgrade()
+            .is_none()
+    );
+    assert!(Arc::ptr_eq(
+        &record,
+        &fork.declaration_cache.as_ref().unwrap().files[&id].record
+    ));
+
+    // The owned IDs survive as evidence, not as permission to reuse a dead graph.
+    let third = query(&mut db, &sources);
+    let file = third.file(id).unwrap();
+    assert_ne!(file.declared.lowered.module.body.arena(), arena);
+    assert!(!Arc::ptr_eq(&record, &file.declared.record));
+    assert_eq!(third.declaration(&declaration.id), Some(&declaration));
+    assert!(graph_handle.upgrade().is_none());
 }
 
 #[test]

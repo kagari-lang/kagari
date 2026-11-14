@@ -1,7 +1,7 @@
 //! Physical parse retention and logical inline source preparation.
 
 use crate::{
-    analysis::{declarations::DeclarationSnapshot, error::AnalysisError},
+    analysis::{error::AnalysisError, records::DeclarationCache},
     lower::{LoweredModule, lower_module_controlled},
 };
 use kagari_common::cancellation::{CancellationToken, Cancelled};
@@ -143,7 +143,7 @@ struct LogicalSource {
 pub(super) fn prepare(
     mut preparer: SourcePreparer<'_>,
     sources: &SourceSnapshot,
-    previous: Option<&DeclarationSnapshot>,
+    previous: Option<&DeclarationCache>,
     cancel: &CancellationToken,
 ) -> Result<BTreeMap<FileId, PreparedSource>, AnalysisError> {
     // Syntax publication may advance ahead of semantic publication. Retain only
@@ -152,11 +152,11 @@ pub(super) fn prepare(
     let mut retained = BTreeMap::new();
     for source in sources.files() {
         cancel.check()?;
-        if let Some(old) = previous.and_then(|old| old.file(source.id())) {
+        if let Some(old) = previous.and_then(|old| old.files.get(&source.id())) {
             retained.insert(
                 source.id(),
                 PreparedSyntax {
-                    source: old.declared.lowered.source.clone(),
+                    source: old.source.clone(),
                     parsed: old.parsed.clone(),
                 },
             );
@@ -166,14 +166,15 @@ pub(super) fn prepare(
     let mut files = BTreeMap::new();
     for (id, PreparedSyntax { source, parsed }) in syntax {
         cancel.check()?;
-        let old = previous.and_then(|old| old.file(id)).filter(|old| {
-            old.source().revision() == source.revision()
+        let old = previous.and_then(|old| old.files.get(&id)).filter(|old| {
+            old.source.revision() == source.revision()
+                && old.source.module_identity() == source.module_identity()
+                && old.source.inline_range() == source.inline_range()
                 && Arc::ptr_eq(&old.parsed.physical, &parsed.physical)
         });
-        let lowered = old.map_or_else(
-            || Arc::new(lower_module_controlled(source, &parsed.syntax(), cancel)),
-            |old| old.declared.lowered.clone(),
-        );
+        let lowered = old
+            .and_then(|old| old.lowered.upgrade())
+            .unwrap_or_else(|| Arc::new(lower_module_controlled(source, &parsed.syntax(), cancel)));
         files.insert(id, PreparedSource { parsed, lowered });
     }
     cancel.check()?;

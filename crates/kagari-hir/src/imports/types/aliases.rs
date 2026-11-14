@@ -72,6 +72,7 @@ impl TypeCatalog<'_> {
             for alias in &module.lowered.module.type_aliases {
                 cancel.check()?;
                 if let Some(id) = module
+                    .record
                     .declarations
                     .definition(ResolvedName::TypeAlias(alias.id))
                 {
@@ -122,7 +123,7 @@ impl TypeCatalog<'_> {
         for (&id, &(module, alias)) in &owners {
             if !admitted.contains(&id) {
                 self.aliases.borrow_mut().insert(id, CanonicalAlias {
-                    parameters: module.declarations.parameters_of(&id),
+                    parameters: module.record.declarations.parameters_of(&id),
                     target: TypeId::Error,
                     bounds: Default::default(),
                     error: Some(format!("cyclic type alias dependency or expansion exceeds 64 declaration levels through `{}`", alias.name)),
@@ -152,7 +153,7 @@ impl TypeCatalog<'_> {
             return Ok(());
         };
         let mut result = CanonicalAlias {
-            parameters: module.declarations.parameters_of(&id),
+            parameters: module.record.declarations.parameters_of(&id),
             target: TypeId::Error,
             bounds: Default::default(),
             error: None,
@@ -200,8 +201,8 @@ impl TypeCatalog<'_> {
                 }
             }
             if result.error.is_none() {
-                let mut declarations = module.declarations.clone();
-                declarations.imported_types = self.bindings(module.names.facts(), cancel)?;
+                let mut declarations = module.record.declarations.clone();
+                declarations.imported_types = self.bindings(module.record.names.facts(), cancel)?;
                 declarations.publish_definitions(declarations.context().snapshot());
                 result = aliases::prepare(&module.lowered, alias, &declarations, cancel);
             }
@@ -218,14 +219,21 @@ impl TypeCatalog<'_> {
         cancel: &CancellationToken,
     ) -> Option<DefinitionId> {
         let resolved = module
+            .record
             .names
             .facts
             .catalog
-            .resolve_name(&module.names.facts.items, name, NameNamespace::Type, cancel)?
+            .resolve_name(
+                &module.record.names.facts.items,
+                name,
+                NameNamespace::Type,
+                cancel,
+            )?
             .target
-            .resolved(module.names.facts.items.unit.as_ref());
+            .resolved(module.record.names.facts.items.unit.as_ref());
         match resolved {
             ResolvedName::TypeAlias(local) => module
+                .record
                 .declarations
                 .definition(ResolvedName::TypeAlias(local))
                 .copied(),
@@ -233,11 +241,18 @@ impl TypeCatalog<'_> {
                 .modules
                 .get(&source.unit.file)
                 .filter(|owner| {
-                    source
-                        .unit
-                        .matches(&owner.lowered, &owner.names.facts.catalog.definitions)
+                    source.unit.matches(
+                        &owner.lowered,
+                        &owner.record.names.facts.catalog.definitions,
+                    )
                 })
-                .and_then(|owner| owner.declarations.definition(source.item.local()?).copied()),
+                .and_then(|owner| {
+                    owner
+                        .record
+                        .declarations
+                        .definition(source.item.local()?)
+                        .copied()
+                }),
             _ => None,
         }
     }
@@ -250,11 +265,20 @@ impl TypeCatalog<'_> {
         cancel: &CancellationToken,
     ) -> bool {
         let Some(resolved) = module
+            .record
             .names
             .facts
             .catalog
-            .resolve_name(&module.names.facts.items, name, NameNamespace::Type, cancel)
-            .map(|hit| hit.target.resolved(module.names.facts.items.unit.as_ref()))
+            .resolve_name(
+                &module.record.names.facts.items,
+                name,
+                NameNamespace::Type,
+                cancel,
+            )
+            .map(|hit| {
+                hit.target
+                    .resolved(module.record.names.facts.items.unit.as_ref())
+            })
         else {
             return true;
         };

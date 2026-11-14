@@ -1,0 +1,5 @@
+use pkg::types::Data;
+
+fn pass(value: Data) -> Data {
+    value
+}

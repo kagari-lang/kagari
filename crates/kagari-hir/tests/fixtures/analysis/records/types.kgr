@@ -1,0 +1,9 @@
+pub struct Data {
+    val value: i32
+}
+
+impl Data {
+    pub fn read(self) -> i32 {
+        self.value
+    }
+}

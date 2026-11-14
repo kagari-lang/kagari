@@ -5,16 +5,17 @@ use crate::{
         AnalysisDatabase,
         error::AnalysisError,
         ownership,
+        records::{DeclarationCache, DeclarationCacheEntry},
         source_preparation::{self, ParsedModule, SourcePreparer},
     },
     declarations::{Declaration, DeclarationId, Declarations},
     declare_analysis,
     imports::{ModuleGraph, SourceUnit},
-    native::{adoption, api as native_api},
+    native::{adoption, api::preparation::NativeFiles},
     resolver::resolved::DeclarationNames,
 };
 
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
 use kagari_source::{
     diagnostic::Diagnostic,
     identity::{FileId, Revision},
@@ -35,7 +36,7 @@ mod tests;
 pub struct FileDeclarations {
     pub(super) parsed: ParsedModule,
     pub(super) declared: DeclaredAnalysis,
-    diagnostics: DiagnosticBuffer,
+    diagnostics: Arc<DiagnosticBuffer>,
 }
 
 impl FileDeclarations {
@@ -56,12 +57,12 @@ impl FileDeclarations {
 
     /// Named declarations, members and generic parameters; no local bindings.
     pub fn declarations(&self) -> &Declarations {
-        &self.declared.declarations
+        &self.declared.record.declarations
     }
 
     /// Borrows module-level name/import resolution without lexical body bindings.
     pub fn names(&self) -> &DeclarationNames {
-        self.declared.names.facts()
+        self.declared.record.names.facts()
     }
 
     /// Parse and declaration diagnostics, excluding name/type errors in bodies.
@@ -157,7 +158,26 @@ impl AnalysisDatabase {
             .as_ref()
             .is_none_or(|old| snapshot.revision >= old.revision)
         {
-            self.declaration_cache = Some(snapshot);
+            self.declaration_cache = Some(DeclarationCache {
+                revision: snapshot.revision,
+                files: snapshot
+                    .files
+                    .iter()
+                    .map(|(id, file)| {
+                        (
+                            *id,
+                            DeclarationCacheEntry {
+                                record: file.declared.record.clone(),
+                                source: file.declared.lowered.source.clone(),
+                                parsed: file.parsed.clone(),
+                                diagnostics: file.diagnostics.clone(),
+                                query: Arc::downgrade(file),
+                                lowered: Arc::downgrade(&file.declared.lowered),
+                            },
+                        )
+                    })
+                    .collect(),
+            });
         }
     }
 
@@ -176,43 +196,34 @@ impl AnalysisDatabase {
         cancel.check()?;
         let previous = self.declaration_cache.as_ref();
         let mut lowered_files = BTreeMap::new();
-        let native_files = match self.native_files.get() {
-            Some(files) => files,
+        let native_files = match self.native_files.get_mut() {
+            Some(files) => {
+                let attached = files.attach(cancel);
+                cancel.check()?;
+                attached?
+            }
             None => {
                 let modules = adoption::adopt(&self.native_modules, &self.definitions, cancel)?;
-                let prepared = modules
-                    .iter()
-                    .enumerate()
-                    .map(|(index, module)| match &self.native_sources {
-                        Some(sources) => native_api::import_source(
-                            module,
-                            &modules,
-                            &sources[index],
-                            &self.source_root,
-                            self.parse_limits,
-                            cancel,
-                        ),
-                        None => native_api::import(
-                            module,
-                            &modules,
-                            &self.source_root,
-                            self.parse_limits,
-                            cancel,
-                        ),
-                    })
-                    .collect::<Result<Vec<_>, _>>();
+                let prepared = NativeFiles::new(
+                    modules,
+                    self.native_sources.as_deref(),
+                    &self.source_root,
+                    self.parse_limits,
+                    cancel,
+                );
                 cancel.check()?;
+                let mut prepared = prepared?;
+                let attached = prepared.attach(cancel);
+                cancel.check()?;
+                let attached = attached?;
                 self.native_files
-                    .set(prepared?)
+                    .set(prepared)
                     .expect("single native analysis owner");
-                self.native_files.get().expect("installed native API files")
+                attached
             }
         };
         for (parsed, lowered) in native_files {
-            lowered_files.insert(
-                lowered.source.id(),
-                (ParsedModule::root(parsed.clone()), lowered.clone()),
-            );
+            lowered_files.insert(lowered.source.id(), (ParsedModule::root(parsed), lowered));
         }
         let preparer = SourcePreparer {
             cache: &mut self.source_parse_cache,
@@ -241,18 +252,31 @@ impl AnalysisDatabase {
                 .expect("declared module is in graph")
                 .clone();
             let old = previous
-                .and_then(|snapshot| snapshot.file(id))
+                .and_then(|snapshot| snapshot.files.get(&id))
                 .filter(|old| {
-                    old.source().revision() == lowered.source.revision()
-                        && old.names().imports == imports
+                    old.lowered
+                        .upgrade()
+                        .is_some_and(|old| Arc::ptr_eq(&old, &lowered))
+                        && old.record.names.facts().imports == imports
                         && old
-                            .names()
+                            .record
+                            .names
+                            .facts()
                             .catalog
                             .same_namespaces(&graph.catalog, &imports.scope, cancel)
                             .unwrap_or(false)
                 });
             let file = if let Some(old) = old {
-                old.clone()
+                old.query.upgrade().unwrap_or_else(|| {
+                    Arc::new(FileDeclarations {
+                        parsed: old.parsed.clone(),
+                        declared: DeclaredAnalysis {
+                            lowered,
+                            record: old.record.clone(),
+                        },
+                        diagnostics: old.diagnostics.clone(),
+                    })
+                })
             } else {
                 let declared = declare_analysis(
                     lowered,
@@ -261,16 +285,19 @@ impl AnalysisDatabase {
                     &self.definitions,
                     cancel,
                 )?;
-                let mut diagnostics = declared.names.diagnostics.clone();
+                let mut diagnostics = declared.record.names.diagnostics.clone();
                 diagnostics.extend(parsed.diagnostics().cloned());
-                let metadata = ownership::scope(&declared, &self.definitions, cancel)?;
+                let metadata =
+                    DefinitionMetadata::checked(self.definitions.snapshot(), declared, cancel)?;
                 let definitions = metadata.definitions().clone();
                 let mut declared = metadata.into_records();
-                declared.declarations.publish_definitions(definitions);
+                Arc::make_mut(&mut declared.record)
+                    .declarations
+                    .publish_definitions(definitions);
                 Arc::new(FileDeclarations {
                     parsed,
                     declared,
-                    diagnostics,
+                    diagnostics: Arc::new(diagnostics),
                 })
             };
             files.insert(id, file);

@@ -97,13 +97,14 @@ impl<'a> FunctionCatalog<'a> {
         let SourceItem::Function(function) = target.item else {
             return Ok(None);
         };
-        if !target
-            .unit
-            .matches(&module.lowered, &module.names.facts.catalog.definitions)
-        {
+        if !target.unit.matches(
+            &module.lowered,
+            &module.record.names.facts.catalog.definitions,
+        ) {
             return Ok(None);
         }
         let Some(signature) = module
+            .record
             .signatures
             .facts
             .functions
@@ -113,6 +114,7 @@ impl<'a> FunctionCatalog<'a> {
             return Ok(None);
         };
         let Some(declaration) = module
+            .record
             .declarations
             .definition(ResolvedName::Function(function))
         else {
@@ -122,6 +124,7 @@ impl<'a> FunctionCatalog<'a> {
             id: target.clone(),
             declaration: *declaration,
             site: module
+                .record
                 .declarations
                 .target(ResolvedName::Function(function))
                 .expect("function declaration")

@@ -8,7 +8,9 @@ use crate::{
         AnalysisDatabase,
         declarations::{DeclarationSnapshot, FileDeclarations},
         error::AnalysisError,
-        ownership, type_at_in, type_reference_at,
+        ownership,
+        records::{SignatureCache, SignatureCacheEntry},
+        type_at_in, type_reference_at,
     },
     declarations::{Declaration, Declarations},
     hir::ids::BodySelection,
@@ -34,6 +36,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         mapping::{DefinitionMapper, DefinitionMappingError},
+        metadata::DefinitionMetadata,
         scoped::{DefinitionReferences, RemapDefinitions},
         table::{DefinitionId, DefinitionTable},
     },
@@ -58,22 +61,26 @@ pub struct FileSignatures {
     pub(super) declaration: Arc<FileDeclarations>,
     pub(super) prepared: PreparedAnalysis,
     /// Returns accumulated diagnostics through the signature stage, excluding function bodies.
-    diagnostics: DiagnosticBuffer,
+    diagnostics: Arc<DiagnosticBuffer>,
 }
 
 impl FileSignatures {
     /// Navigate checked signature type names and declaration sites without
     /// resolving any function body.
     pub fn definition_at(&self, offset: usize) -> Option<&Declaration> {
-        self.prepared.declarations.site_at(offset).or_else(|| {
-            type_reference_at(
-                &self.prepared.lowered,
-                self.prepared.signatures.facts().type_table(),
-                &self.prepared.declarations,
-                offset,
-            )
-            .flatten()
-        })
+        self.prepared
+            .record
+            .declarations
+            .site_at(offset)
+            .or_else(|| {
+                type_reference_at(
+                    &self.prepared.lowered,
+                    self.prepared.record.signatures.facts().type_table(),
+                    &self.prepared.record.declarations,
+                    offset,
+                )
+                .flatten()
+            })
     }
 
     /// Type annotations checked by this signature query; body annotations have
@@ -81,7 +88,7 @@ impl FileSignatures {
     pub fn type_at(&self, offset: usize) -> Option<TypeId> {
         let ty = type_at_in(
             &self.prepared.lowered,
-            self.prepared.signatures.facts().type_table(),
+            self.prepared.record.signatures.facts().type_table(),
             offset,
         )?;
         Some(ty)
@@ -94,12 +101,12 @@ impl FileSignatures {
 
     /// Borrows declaration identities and imported type bindings used by signature checking.
     pub fn declarations(&self) -> &Declarations {
-        &self.prepared.declarations
+        &self.prepared.record.declarations
     }
 
     /// Borrows checked signatures and their recoverable signature diagnostics.
     pub fn signatures(&self) -> &Arc<AnalysisResult<ModuleSignatures>> {
-        &self.prepared.signatures
+        &self.prepared.record.signatures
     }
 
     /// Returns accumulated diagnostics through the signature stage, excluding function bodies.
@@ -132,8 +139,8 @@ impl SignatureSnapshot {
     pub(super) fn shared_inputs_valid(&self) -> bool {
         self.files.values().all(|file| {
             file.declaration.parsed.physical().diagnostics().is_empty()
-                && file.prepared.names.diagnostics().is_empty()
-                && file.prepared.signatures.diagnostics().is_empty()
+                && file.prepared.record.names.diagnostics().is_empty()
+                && file.prepared.record.signatures.diagnostics().is_empty()
         })
     }
 
@@ -161,20 +168,21 @@ impl SignatureSnapshot {
                 &self.definitions,
                 cancel,
             )?;
-            let mut imported_functions = catalog.bindings(&file.prepared.names.facts, cancel)?;
+            let mut imported_functions =
+                catalog.bindings(&file.prepared.record.names.facts, cancel)?;
             imported_functions.include_inherent_methods(&aggregates);
             result.insert(
                 *id,
                 BodyEnvironment {
                     signatures: prepare_body_signatures(
-                        file.prepared.signatures.facts(),
-                        &file.prepared.declarations,
+                        file.prepared.record.signatures.facts(),
+                        &file.prepared.record.declarations,
                         &aggregates,
                         cancel,
                     )?,
                     imported_statics: ImportedStatics::bindings(
                         &modules,
-                        &file.prepared.names.facts,
+                        &file.prepared.record.names.facts,
                         cancel,
                     )?,
                     imported_functions,
@@ -191,15 +199,15 @@ impl SignatureSnapshot {
             let environment = &result[id];
             let names = resolve_bodies(
                 &prepared.lowered,
-                &prepared.names.facts,
+                &prepared.record.names.facts,
                 BodySelection::Constants,
                 cancel,
             );
-            let declarations =
-                prepared
-                    .declarations
-                    .clone()
-                    .with_bindings(&prepared.lowered, &names, cancel);
+            let declarations = prepared.record.declarations.clone().with_bindings(
+                &prepared.lowered,
+                &names,
+                cancel,
+            );
             let constants = check_bodies_controlled(
                 &prepared.lowered,
                 &names,
@@ -207,7 +215,7 @@ impl SignatureSnapshot {
                 BodyInputs {
                     const_limits,
                     selection: BodySelection::Constants,
-                    signatures: &prepared.signatures,
+                    signatures: &prepared.record.signatures,
                     body_signatures: &environment.signatures,
                     imported_functions: &environment.imported_functions,
                     imported_statics: &environment.imported_statics,
@@ -232,7 +240,7 @@ impl SignatureSnapshot {
             environment.imported_constants = ImportedConstants::bindings(
                 &modules,
                 &checked,
-                &self.files[id].prepared.names.facts,
+                &self.files[id].prepared.record.names.facts,
                 cancel,
             )?;
             environment.constants = Some(checked[id].clone());
@@ -305,9 +313,28 @@ impl AnalysisDatabase {
         if self
             .signature_cache
             .as_ref()
-            .is_none_or(|old| snapshot.revision() >= old.revision())
+            .is_none_or(|old| snapshot.revision() >= old.revision)
         {
-            self.signature_cache = Some(snapshot);
+            self.signature_cache = Some(SignatureCache {
+                revision: snapshot.revision(),
+                files: snapshot
+                    .files
+                    .iter()
+                    .map(|(id, file)| {
+                        (
+                            *id,
+                            SignatureCacheEntry {
+                                record: file.prepared.record.clone(),
+                                declaration: file.declaration.declared.record.clone(),
+                                diagnostics: file.diagnostics.clone(),
+                                query: Arc::downgrade(file),
+                                lowered: Arc::downgrade(&file.prepared.lowered),
+                                signatures_reused: file.prepared.signatures_reused,
+                            },
+                        )
+                    })
+                    .collect(),
+            });
         }
     }
 
@@ -328,45 +355,58 @@ impl AnalysisDatabase {
         for (id, declaration) in declarations.files.iter() {
             cancel.check()?;
             let imported = imported_types.remove(id).expect("declared type bindings");
-            let old = self.signature_cache.as_ref().and_then(|old| old.file(*id));
-            let previous = old.map(|old| &old.prepared);
+            let old = self
+                .signature_cache
+                .as_ref()
+                .and_then(|old| old.files.get(id));
+            let previous = old.and_then(|old| {
+                Some(PreparedAnalysis {
+                    lowered: old.lowered.upgrade()?,
+                    record: old.record.clone(),
+                    signatures_reused: old.signatures_reused,
+                })
+            });
             let result = if let Some(old) = old.filter(|old| {
-                Arc::ptr_eq(&old.declaration, declaration)
-                    && previous
-                        .as_ref()
-                        .expect("old scoped signatures")
-                        .declarations
-                        .imported_types
-                        == imported
+                Arc::ptr_eq(&old.declaration, &declaration.declared.record)
+                    && previous.as_ref().is_some_and(|previous| {
+                        Arc::ptr_eq(&previous.lowered, &declaration.declared.lowered)
+                    })
+                    && old.record.declarations.imported_types == imported
             }) {
-                old.clone()
+                old.query
+                    .upgrade()
+                    .filter(|query| Arc::ptr_eq(&query.declaration, declaration))
+                    .unwrap_or_else(|| {
+                        Arc::new(FileSignatures {
+                            declaration: declaration.clone(),
+                            prepared: previous.as_ref().expect("live signature graph").clone(),
+                            diagnostics: old.diagnostics.clone(),
+                        })
+                    })
             } else {
-                let prepared = declaration
-                    .declared
-                    .clone()
-                    .check_signatures(imported, previous, cancel)?;
+                let prepared = declaration.declared.clone().check_signatures(
+                    imported,
+                    previous.as_ref(),
+                    cancel,
+                )?;
                 let mut diagnostics = declaration
                     .diagnostics()
                     .iter()
                     .cloned()
                     .collect::<DiagnosticBuffer>();
-                diagnostics.extend(prepared.signatures.diagnostics().iter().cloned());
-                let shared_signatures = previous
-                    .as_ref()
-                    .zip(old)
-                    .filter(|(previous, _)| Arc::ptr_eq(&prepared.signatures, &previous.signatures))
-                    .map(|(_, old)| old.prepared.signatures.clone());
-                let metadata = ownership::scope(&prepared, &self.definitions, cancel)?;
+                diagnostics.extend(prepared.record.signatures.diagnostics().iter().cloned());
+
+                let metadata =
+                    DefinitionMetadata::checked(self.definitions.snapshot(), prepared, cancel)?;
                 let definitions = metadata.definitions().clone();
                 let mut prepared = metadata.into_records();
-                prepared.declarations.publish_definitions(definitions);
-                if let Some(signatures) = shared_signatures {
-                    prepared.signatures = signatures;
-                }
+                Arc::make_mut(&mut prepared.record)
+                    .declarations
+                    .publish_definitions(definitions);
                 Arc::new(FileSignatures {
                     declaration: declaration.clone(),
                     prepared,
-                    diagnostics,
+                    diagnostics: Arc::new(diagnostics),
                 })
             };
             files.insert(*id, result);
@@ -376,8 +416,8 @@ impl AnalysisDatabase {
             let prepared = &file.prepared;
             aggregates.add_module(
                 &prepared.lowered,
-                &prepared.declarations,
-                prepared.signatures.facts(),
+                &prepared.record.declarations,
+                prepared.record.signatures.facts(),
                 cancel,
             )?;
         }
@@ -393,13 +433,15 @@ impl AnalysisDatabase {
                 let signatures = ownership::scope(signatures.as_ref(), &self.definitions, cancel)?
                     .into_records();
                 let file = Arc::make_mut(file);
-                file.prepared.signatures = Arc::new(signatures);
-                file.prepared
+                let record = Arc::make_mut(&mut file.prepared.record);
+                record.signatures = Arc::new(signatures);
+                record
                     .declarations
                     .publish_definitions(self.definitions.snapshot());
-                file.diagnostics = file.declaration.diagnostics().iter().cloned().collect();
-                file.diagnostics
-                    .extend(file.prepared.signatures.diagnostics().iter().cloned());
+                let mut diagnostics: DiagnosticBuffer =
+                    file.declaration.diagnostics().iter().cloned().collect();
+                diagnostics.extend(record.signatures.diagnostics().iter().cloned());
+                file.diagnostics = Arc::new(diagnostics);
             }
         }
         cancel.check()?;
@@ -455,6 +497,6 @@ impl DefinitionReferences for BodyEnvironment {
 impl FileSignatures {
     /// Borrows the table owning scoped IDs in these signature facts.
     pub fn definitions(&self) -> &DefinitionTable {
-        self.prepared.declarations.definitions()
+        self.prepared.record.declarations.definitions()
     }
 }

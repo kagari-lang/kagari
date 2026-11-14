@@ -2,6 +2,7 @@
 
 mod input_fingerprint;
 pub mod inputs;
+pub(crate) mod records;
 pub(crate) mod source_preparation;
 
 #[cfg(test)]
@@ -14,6 +15,7 @@ use crate::{
         declarations::DeclarationSnapshot,
         error::AnalysisError,
         inputs::AnalysisInputs,
+        records::{DeclarationCache, SignatureCache},
         signatures::SignatureSnapshot,
         source_preparation::{ParsedModule, SourceParseCache},
     },
@@ -24,7 +26,7 @@ use crate::{
         ModuleGraph, ResolvedTarget, SourceItem, catalog::LookupHit, functions::ImportedFunction,
     },
     lower::LoweredModule,
-    native::render::DeclarationSource,
+    native::{api::preparation::NativeFiles, render::DeclarationSource},
     resolver::resolved::ResolvedName,
     typeck::{
         ModuleSignatures,
@@ -52,15 +54,12 @@ use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceSnapshot},
 };
-use kagari_syntax::{
-    ast::module::ModuleSyntax,
-    parser::{Parse, ParseLimits},
-};
+use kagari_syntax::{ast::module::ModuleSyntax, parser::ParseLimits};
 use kagari_types::declaration::module::{DeclarationError, ModuleDecl};
 use std::{
     cell::OnceCell,
     collections::{BTreeMap, HashMap},
-    sync::Arc,
+    sync::{Arc, Weak},
 };
 
 const DEFAULT_MAX_SEMANTIC_DIAGNOSTICS: usize = 1_000;
@@ -675,12 +674,14 @@ fn member_receiver_type_in(
 /// queries are reads of prepared facts. Analysis errors describe cancellation, import
 /// solver failure or invalid inputs/identity metadata; ordinary source errors are retained as diagnostics.
 ///
-/// Caches retain immutable `Arc` results. A matching revision alone is insufficient:
+/// Stage caches retain immutable owned records, with weak handles to live graph/query
+/// views. Full-file bundles are indexed weakly and rechecked after their owners drop.
+/// A matching revision alone is insufficient:
 /// imports, reachable namespaces, installed declarations and semantic dependencies also
 /// participate in reuse. Publication checks cancellation and does not replace newer
 /// published snapshots with older revisions. Earlier returned snapshots remain valid.
 ///
-/// Cloning forks query state while retaining immutable results and the append-only
+/// Cloning forks query state while sharing owned records, weak handles and the append-only
 /// definition identity context. Later input changes and cache publication belong
 /// to the individual database; reuse still checks source revisions and installed declarations.
 #[derive(Debug, Clone)]
@@ -699,19 +700,22 @@ pub struct AnalysisDatabase {
     body_revision: Revision,
     /// Physical parses survive independently of declaration and HIR result owners.
     source_parse_cache: SourceParseCache,
-    /// Latest published declaration snapshot, including shared parse/lowering results.
-    declaration_cache: Option<DeclarationSnapshot>,
-    /// Latest published signatures and their declaration snapshot.
-    signature_cache: Option<SignatureSnapshot>,
-    /// Latest fully analyzed files, retained independently of selected-body queries.
-    files: HashMap<FileId, Arc<FileAnalysis>>,
+    /// Owned declaration/syntax records with transitional weak graph/query handles.
+    declaration_cache: Option<DeclarationCache>,
+    /// Owned signature records, without retaining their declaration graph views.
+    signature_cache: Option<SignatureCache>,
+    /// Live full-file queries only. Expired graph-bearing bundles are rechecked,
+    /// never cloned into a second authoritative persistent facts representation.
+    /// These weak handles also move to sessions at the borrowed-HIR cutover.
+    files: HashMap<FileId, Weak<FileAnalysis>>,
     latest_revision: Revision,
     /// Stable synthetic file IDs keyed by parent file and inline-module name.
     inline_ids: HashMap<(FileId, String), FileId>,
     native_modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
     native_sources: Option<Vec<DeclarationSource>>,
-    /// Parsed/lowered installed declaration sources, initialized once per registration setup.
-    native_files: OnceCell<Vec<(Parse, Arc<LoweredModule>)>>,
+    /// Owned prepared registrations/syntax; only weak transitional graph handles.
+    /// Invalidated by registration/source/parser-limit changes, not user revisions.
+    native_files: OnceCell<NativeFiles>,
     /// Portable provider/settings identity, invalidated by every environment setter.
     environment_fingerprint: OnceCell<String>,
 }
@@ -857,13 +861,18 @@ impl AnalysisDatabase {
             })
             .collect::<BTreeMap<_, _>>();
         let mut environments = signature_snapshot.body_environments(self.const_limits, cancel)?;
+        let previous_files = self
+            .files
+            .iter()
+            .filter_map(|(id, file)| file.upgrade().map(|file| (*id, file)))
+            .collect::<HashMap<_, _>>();
         let mut files = HashMap::new();
         for (id, (file, parsed, scoped_prepared)) in signatures {
             cancel.check()?;
             let prepared = scoped_prepared;
-            let previous_facts = self.files.get(&id).map(|old| old.result());
+            let previous_facts = previous_files.get(&id).map(|old| old.result());
             let environment = environments.remove(&id).expect("prepared body environment");
-            let analysis = match self.files.get(&id) {
+            let analysis = match previous_files.get(&id) {
                 Some(previous)
                     if previous.shared_valid == shared_valid
                         && previous.can_retain(
@@ -880,8 +889,7 @@ impl AnalysisDatabase {
                 }
                 _ => {
                     let signatures_reused = prepared.signatures_reused;
-                    let reusable = self
-                        .files
+                    let reusable = previous_files
                         .get(&id)
                         .map(|old| {
                             old.can_reuse_body(
@@ -896,8 +904,7 @@ impl AnalysisDatabase {
                         })
                         .transpose()?
                         .unwrap_or(false);
-                    let reuse = self
-                        .files
+                    let reuse = previous_files
                         .get(&id)
                         .filter(|_| reusable)
                         .map(|old| BodyReuse {
@@ -952,7 +959,10 @@ impl AnalysisDatabase {
         self.publish_signatures(signature_snapshot.clone());
         if source.revision() >= self.latest_revision {
             self.latest_revision = source.revision();
-            self.files = files.clone();
+            self.files = files
+                .iter()
+                .map(|(id, file)| (*id, Arc::downgrade(file)))
+                .collect();
         }
         Ok(AnalysisSnapshot {
             inputs: self.inputs(),

@@ -793,6 +793,16 @@ last returned query. Returned queries own their exact file/signature context. Re
 the matching old graph temporarily; if it has expired, checking starts fresh rather than
 interpreting cached IDs against a new lowering. The cache alone pins no HIR graph.
 
+Declaration/signature caches share authoritative owned records with live query views, keeping
+only weak graph/query handles. Signature records retain their checked imported types and
+updated definition prefix, not the earlier declaration-stage environment. Full-file results
+are weakly indexed; their expired bundles are rechecked. Native preparation strongly caches
+validated adopted registration/source/parse and reconstructs fresh graph-local attachments
+without reparsing. Neither database caches nor database clones strongly retain HIR. Reuse
+requires a live exact old graph; retaining IDs/records alone cannot establish compatibility.
+With no retained result, the next standalone query rebuilds/checks graphs. These weak handles
+are transitional for the owned graph, not the pending external-arena session API.
+
 Physical parses have an owned cache independent of declaration/HIR results. Syntax
 preparation returns an owned logical-source manifest before lowering. Reuse requires
 exact source provenance and parser limits; a retained published syntax context can

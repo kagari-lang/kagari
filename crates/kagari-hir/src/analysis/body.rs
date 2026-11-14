@@ -317,12 +317,17 @@ impl AnalysisDatabase {
         } else {
             let prepared = &file.prepared;
             let selection = BodySelection::Function(function);
-            let names = resolve_bodies(&prepared.lowered, &prepared.names.facts, selection, cancel);
-            let declarations =
-                prepared
-                    .declarations
-                    .clone()
-                    .with_bindings(&prepared.lowered, &names, cancel);
+            let names = resolve_bodies(
+                &prepared.lowered,
+                &prepared.record.names.facts,
+                selection,
+                cancel,
+            );
+            let declarations = prepared.record.declarations.clone().with_bindings(
+                &prepared.lowered,
+                &names,
+                cancel,
+            );
             let reusable = previous
                 .map(|(old, old_file)| -> Result<bool, AnalysisError> {
                     Ok(old_file
@@ -337,24 +342,26 @@ impl AnalysisDatabase {
                         && file.diagnostics().is_empty()
                         && old_file
                             .prepared
+                            .record
                             .names
                             .facts
                             .imports
-                            .same_bindings(&prepared.names.facts.imports)
+                            .same_bindings(&prepared.record.names.facts.imports)
                         && old.names.catalog.same_reuse_namespaces(
-                            &prepared.names.facts.catalog,
+                            &prepared.record.names.facts.catalog,
                             &old.names.items,
-                            &prepared.names.facts.items,
+                            &prepared.record.names.facts.items,
                             cancel,
                         )?
                         && old_file
                             .prepared
+                            .record
                             .declarations
                             .imported_types
                             .same_reuse_inputs(
-                                &prepared.declarations.imported_types,
-                                old_file.prepared.names.facts.items.unit.as_ref(),
-                                prepared.names.facts.items.unit.as_ref(),
+                                &prepared.record.declarations.imported_types,
+                                old_file.prepared.record.names.facts.items.unit.as_ref(),
+                                prepared.record.names.facts.items.unit.as_ref(),
                             )
                         && previous_environment
                             .as_ref()
@@ -392,7 +399,7 @@ impl AnalysisDatabase {
                 BodyInputs {
                     const_limits: self.const_limits,
                     selection,
-                    signatures: &prepared.signatures,
+                    signatures: &prepared.record.signatures,
                     body_signatures: &environment.signatures,
                     imported_functions: &environment.imported_functions,
                     imported_statics: &environment.imported_statics,

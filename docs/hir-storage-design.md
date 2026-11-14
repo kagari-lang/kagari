@@ -1,9 +1,9 @@
 # HIR Storage and Attribute Design
 
 **Status:** HA00's remaining ownership work and HA01's production graph/consumer cutover
-are approved as one combined migration. Neither phase is complete. Owned syntax preparation
-and selected-body fact ownership are implemented; stage-cache/session/arena integration
-remains pending. HA02 retains final acceptance.
+are approved as one combined migration. Neither phase is complete. Persistent syntax,
+semantic records and Native preparation no longer strongly retain HIR. Scoped sessions
+and the real arena graph remain pending. HA02 retains final acceptance.
 **Baseline:** `main` at `43d55706a`; working branch `design/hir-native-model`.
 [Roadmap](implementation-roadmap.md#hir-storage-and-attribute-refactor) owns activation.
 
@@ -105,7 +105,7 @@ reproduce that container as the long-lived analysis database.
 ```text
 Persistent owned cache
 ├─ Parse + exact source/version/limits and logical module manifest
-└─ Semantic facts + scoped IDs, diagnostics and dependency/publication evidence (pending split)
+└─ Semantic records + scoped IDs, diagnostics and dependency/publication evidence
 
 External module graphs
 ├─ current A2/B1 → short borrowed analysis session → result bound only to current graphs
@@ -113,10 +113,13 @@ External module graphs
 ```
 
 Unchanged B1 is supplied from its original independent owner, not recovered from a shortened
-borrow in an old mixed session. Persistent cache entries must not contain whole declaration/
-signature/body bundles that retain HIR. The selected-body sub-checkpoint now strongly caches
-only owned facts and weakly names the graph/query context. Other stage caches still need this
-split. Remapping needs the old graph supplied temporarily, or must reject reuse.
+borrow in an old mixed session. Persistent caches now strongly retain declaration/signature/body
+records and Native syntax/registration inputs, not HIR bundles. Full-file results are weakly
+indexed. Live exact graphs permit reuse; expired graphs force fresh lowering/checking, never
+reinterpretation of old IDs. Weak graph/query handles are transitional: even Weak carries an
+arena lifetime, so they must move into short sessions at cutover. Remapping requires the old
+graph temporarily. Repeated standalone queries that retain no results currently rebuild graphs;
+this checkpoint is ownership preparation, not a performance improvement.
 
 ### SDK boundary
 
@@ -459,9 +462,25 @@ unconsumed HIR model cannot satisfy that proof. Cache detachment alone is not ph
   forms. Target attachment still uses spans until the identity cutover; no parser syntax expands.
   Nine lowering, six language-item and nineteen lint tests pass; existing scenarios are strengthened
   and a lint recovery witness checks that damaged policy syntax cannot suppress findings.
-- Six preparation tests, three arena/revision regressions, the deterministic cancellation
-  scenario and eleven selected-body tests pass. Structure/diff, changed-file rustfmt and HIR
-  all-target Clippy pass. No Bump graph or SDK arena cutover is claimed yet.
+- Stage-cache checkpoint: authoritative DeclarationRecord/SignatureRecord allocations are
+  shared by persistent entries and live queries. Signature-stage imported types and definition
+  prefixes remain distinct from declaration-stage facts. Queries retain exact graphs; full-file
+  entries are weak-only. Lifecycle tests retain records and database clones without clearing
+  caches, release graphs, then check fresh IDs/facts and imported-type navigation.
+- Native preparation caches validated adopted registration/source/parse, not graph-local maps.
+  Expired lowerings rebuild bindings from that parse; the full preparation/attachment batch must
+  succeed before publication. The active foundation lifecycle scenario covers parse reuse, fresh
+  IDs, storage/default/entry bindings, parser-limit invalidation and retained snapshot validity.
+- Focused lowering/lint, declaration/signature, preparation, selected-body, Native, cancellation,
+  revision, provenance, static and identity tests pass. Structure/diff, changed-file rustfmt and
+  HIR all-target Clippy pass. Eight compiler handoff tests and three active SDK regressions
+  (installed-environment reuse, overlay compilation and exact source replay) pass. The selected
+  artifact-equivalence SDK test is already paused for NC restoration, not a passing test.
+  No Bump graph, scoped-session or SDK arena cutover is claimed yet.
+- Payload remapping keeps exact whole-catalog/import comparisons with shared Native provenance;
+  an independent fresh definition context checks local type facts, enum contracts and implementation
+  signatures. Navigation metadata and other Native surfaces retain the exact-provenance oracle,
+  not an exhaustive cross-context comparison.
 - On rustc 1.100.0, required workspace fmt is blocked by unchanged `hir/ids.rs` macro arguments
   and `kagari-syntax/src/ast/tokens.rs` enum spacing. Workspace Clippy is blocked by unchanged
   `kagari-compiler/src/bytecode/placement.rs:110` (`needless_range_loop`). No generated allowance,

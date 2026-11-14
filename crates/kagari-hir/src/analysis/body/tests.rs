@@ -292,10 +292,11 @@ fn selected_body_cache_refreshes_shared_signature_context() {
         .0;
     drop(current_query);
     drop(current_signatures);
-    db.declaration_cache.take();
-    db.signature_cache.take();
-    db.files.clear();
-    // A returned query alone still owns its exact graph and signature context.
+    // All persistent caches stay populated. Only the returned query owns its
+    // exact graph/context; cached semantic records cannot keep either alive.
+    assert!(db.declaration_cache.is_some());
+    assert!(db.signature_cache.is_some());
+    assert!(!db.files.is_empty());
     assert!(Arc::ptr_eq(
         &root_lowering.upgrade().unwrap(),
         &rebuilt.file.prepared.lowered
@@ -319,6 +320,7 @@ fn selected_body_cache_refreshes_shared_signature_context() {
     assert!(cached.result.upgrade().is_none());
     assert!(cached.file.upgrade().is_none());
     assert!(root_lowering.upgrade().is_none());
+    assert!(db.files.values().all(|file| file.upgrade().is_none()));
     assert!(Arc::ptr_eq(&cached.facts, &body_facts.upgrade().unwrap()));
 
     // The owned facts survive, but without their old graph they cannot supply IDs

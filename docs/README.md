@@ -66,8 +66,8 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
 - [HIR storage and attributes](hir-storage-design.md): selected module-lowering arenas,
   external ownership, direct references, owner-local IDs and attributes. Remaining HA00 ownership
-  and HA01 graph migration proceed together; syntax preparation and selected-body facts are
-  split from HIR ownership, but full stage-cache/session/arena integration remains pending.
+  and HA01 graph migration proceed together. Persistent syntax, semantic records and Native
+  preparation no longer strongly retain HIR; scoped sessions and the real arena graph remain pending.
   [Native model review](hir-model-review.md) remains deferred.
 
 - [Runtime architecture](architecture/runtime.md), [call walkthrough](architecture/runtime/calls.md)

@@ -31,7 +31,11 @@
 use crate::analysis::error::AnalysisError;
 use crate::analysis::source_preparation::ParsedModule;
 use crate::{
-    analysis::{ownership::recover_invalid_identity, signatures::BodyEnvironment},
+    analysis::{
+        ownership::recover_invalid_identity,
+        records::{DeclarationRecord, SignatureRecord},
+        signatures::BodyEnvironment,
+    },
     hir::ids::BodySelection,
     imports::{
         ModuleGraph, ModuleImportFacts, SourceUnit, catalog::NamespaceCatalog,
@@ -41,7 +45,7 @@ use crate::{
     language::items as language_items,
     resolver::{
         collect::{collect_declarations, resolve_bodies},
-        resolved::{DeclarationNames, ResolvedNames},
+        resolved::ResolvedNames,
     },
     semantic::body::ModuleFacts,
     typeck::{
@@ -250,19 +254,14 @@ impl CheckedAnalysis {
 
 /// Internal signature-stage bundle passed to body checking.
 ///
-/// Retains declaration inputs and shared checked signatures. `local_signature_diagnostics`
-/// separates reusable local diagnostics from the suffix recomputed against the completed
-/// aggregate catalog; signature reuse must not preserve stale cross-module diagnostics.
+/// Pairs the exact lowering with shared owned signature records. The record's local
+/// diagnostic boundary separates reusable diagnostics from the suffix recomputed against
+/// completed aggregates; signature reuse must not preserve stale cross-module diagnostics.
 #[derive(Debug, Clone)]
 pub(crate) struct PreparedAnalysis {
     signatures_reused: bool,
-    // The suffix after this boundary depends on the complete aggregate catalog.
-    // Recompute it after all declaration signatures exist, including on reuse.
-    local_signature_diagnostics: usize,
     lowered: Arc<lower::LoweredModule>,
-    names: AnalysisResult<DeclarationNames>,
-    declarations: declarations::Declarations,
-    signatures: Arc<AnalysisResult<typeck::ModuleSignatures>>,
+    record: Arc<SignatureRecord>,
 }
 
 impl PreparedAnalysis {
@@ -277,9 +276,9 @@ impl PreparedAnalysis {
             return Ok(None);
         }
         let mut diagnostics = DiagnosticBuffer::new();
-        let definitions = self.declarations.definitions();
+        let definitions = self.record.declarations.definitions();
         language_items::validate_shapes(
-            &self.declarations,
+            &self.record.declarations,
             aggregates,
             &self.lowered.registered_traits,
             &mut diagnostics,
@@ -287,23 +286,23 @@ impl PreparedAnalysis {
         );
         associated_consts::validate(
             &self.lowered,
-            &self.declarations,
+            &self.record.declarations,
             aggregates,
-            self.signatures.facts().type_table(),
+            self.record.signatures.facts().type_table(),
             &mut diagnostics,
             cancel,
         );
         validate(
             &self.lowered,
-            &self.declarations,
+            &self.record.declarations,
             aggregates,
             &mut diagnostics,
             cancel,
         );
         validate_signatures(
             &self.lowered,
-            &self.declarations,
-            self.signatures.facts(),
+            &self.record.declarations,
+            self.record.signatures.facts(),
             aggregates,
             &mut diagnostics,
             cancel,
@@ -335,15 +334,15 @@ impl PreparedAnalysis {
             );
         }
         cancel.check()?;
-        if &self.signatures.diagnostics()[self.local_signature_diagnostics..]
+        if &self.record.signatures.diagnostics()[self.record.local_signature_diagnostics..]
             == diagnostics.as_slice()
         {
             return Ok(None);
         }
-        let mut result = self.signatures.as_ref().clone();
+        let mut result = self.record.signatures.as_ref().clone();
         result
             .diagnostics
-            .truncate(self.local_signature_diagnostics);
+            .truncate(self.record.local_signature_diagnostics);
         result.diagnostics.extend(diagnostics);
         Ok(Some(Arc::new(result)))
     }
@@ -353,43 +352,44 @@ impl PreparedAnalysis {
 #[derive(Debug, Clone)]
 pub(crate) struct DeclaredAnalysis {
     lowered: Arc<lower::LoweredModule>,
-    names: AnalysisResult<DeclarationNames>,
-    declarations: declarations::Declarations,
+    record: Arc<DeclarationRecord>,
 }
 
 impl DeclaredAnalysis {
     /// Checks signatures or remaps compatible previous facts after comparing imported types and namespace inputs.
     fn check_signatures(
-        mut self,
+        self,
         imported_types: ImportedTypes,
         previous_analysis: Option<&PreparedAnalysis>,
         cancel: &CancellationToken,
     ) -> Result<PreparedAnalysis, DefinitionMappingError> {
-        self.declarations.imported_types = imported_types;
-        self.declarations
-            .publish_definitions(self.declarations.context().snapshot());
+        let mut declarations = self.record.declarations.clone();
+        declarations.imported_types = imported_types;
+        declarations.publish_definitions(declarations.context().snapshot());
         let previous = previous_analysis
             .map(|old| -> Result<_, DefinitionMappingError> {
                 if !(old
+                    .record
                     .names
                     .facts
                     .imports
-                    .same_signature_bindings(&self.names.facts.imports)
+                    .same_signature_bindings(&self.record.names.facts.imports)
                     && old
+                        .record
                         .names
                         .facts
                         .catalog
                         .same_signature_namespaces(
-                            &self.names.facts.catalog,
-                            &old.names.facts.items,
-                            &self.names.facts.items,
+                            &self.record.names.facts.catalog,
+                            &old.record.names.facts.items,
+                            &self.record.names.facts.items,
                             cancel,
                         )
                         .map_err(|_| DefinitionMappingError::Cancelled)?
-                    && old.declarations.imported_types.same_reuse_inputs(
-                        &self.declarations.imported_types,
-                        old.names.facts.items.unit.as_ref(),
-                        self.names.facts.items.unit.as_ref(),
+                    && old.record.declarations.imported_types.same_reuse_inputs(
+                        &declarations.imported_types,
+                        old.record.names.facts.items.unit.as_ref(),
+                        self.record.names.facts.items.unit.as_ref(),
                     ))
                 {
                     return Ok(None);
@@ -398,11 +398,15 @@ impl DeclaredAnalysis {
                     && old.lowered.source.module_identity() == self.lowered.source.module_identity()
                     && old.lowered.module.body.arena() == self.lowered.module.body.arena()
                 {
-                    Ok(Some(old.signatures.clone()))
+                    Ok(Some(old.record.signatures.clone()))
                 } else {
-                    let reused =
-                        reuse_signatures(&old.lowered, &old.signatures, &self.lowered, cancel)
-                            .map(Arc::new);
+                    let reused = reuse_signatures(
+                        &old.lowered,
+                        &old.record.signatures,
+                        &self.lowered,
+                        cancel,
+                    )
+                    .map(Arc::new);
                     cancel
                         .check()
                         .map_err(|_| DefinitionMappingError::Cancelled)?;
@@ -415,30 +419,33 @@ impl DeclaredAnalysis {
         let reused_local_diagnostics = previous.as_ref().map(|_| {
             previous_analysis
                 .expect("signature reuse source")
+                .record
                 .local_signature_diagnostics
         });
         let signatures = match previous {
             Some(signatures) => signatures,
             None => Arc::new(
-                check_signatures(&self.lowered, &self.declarations, cancel)
+                check_signatures(&self.lowered, &declarations, cancel)
                     .map_err(|_| DefinitionMappingError::Cancelled)?,
             ),
         };
         let definitions = definition_registration::implementation_members(
             &self.lowered,
-            &self.declarations,
+            &declarations,
             signatures.facts(),
             cancel,
         )?;
-        self.declarations.publish_definitions(definitions);
+        declarations.publish_definitions(definitions);
         Ok(PreparedAnalysis {
             signatures_reused,
-            local_signature_diagnostics: reused_local_diagnostics
-                .unwrap_or(signatures.diagnostics().len()),
             lowered: self.lowered,
-            names: self.names,
-            declarations: self.declarations,
-            signatures,
+            record: Arc::new(SignatureRecord {
+                local_signature_diagnostics: reused_local_diagnostics
+                    .unwrap_or(signatures.diagnostics().len()),
+                names: self.record.names.clone(),
+                declarations,
+                signatures,
+            }),
         })
     }
 }
@@ -483,8 +490,10 @@ fn declare_analysis(
     }
     Ok(DeclaredAnalysis {
         lowered,
-        names,
-        declarations,
+        record: Arc::new(DeclarationRecord {
+            names: Arc::new(names),
+            declarations,
+        }),
     })
 }
 
@@ -505,17 +514,18 @@ fn analyze_prepared(
     } = environment;
     let PreparedAnalysis {
         signatures_reused: _,
-        local_signature_diagnostics: _,
         lowered,
-        names,
-        declarations,
-        signatures,
+        record,
     } = prepared;
     let names = AnalysisResult {
-        facts: resolve_bodies(&lowered, &names.facts, BodySelection::All, cancel),
-        diagnostics: names.diagnostics,
+        facts: resolve_bodies(&lowered, &record.names.facts, BodySelection::All, cancel),
+        diagnostics: record.names.diagnostics.clone(),
     };
-    let declarations = declarations.with_bindings(&lowered, &names.facts, cancel);
+    let declarations = record
+        .declarations
+        .clone()
+        .with_bindings(&lowered, &names.facts, cancel);
+    let signatures = record.signatures.clone();
     let typed = check_bodies_controlled(
         &lowered,
         &names.facts,

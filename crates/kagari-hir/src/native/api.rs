@@ -1,13 +1,13 @@
 //! Analyze native declaration views normally, then attach checked registration metadata.
 mod correspondence;
+pub(crate) mod preparation;
 
 use crate::{
     hir::{ids::FunctionId, item::function::FunctionKind, ty::TypeKind},
     lower::{LoweredModule, lower_module_controlled},
     native::{
-        NativeBinding, NativeTypeKind,
-        paths::module_path,
-        render::{DeclarationSource, declaration_source},
+        NativeBinding, NativeTypeKind, api::preparation::PreparedRegistration, paths::module_path,
+        render::DeclarationSource,
     },
 };
 use kagari_common::{
@@ -19,10 +19,7 @@ use kagari_common::{
         table::{DefinitionId, DefinitionTable},
     },
 };
-use kagari_source::{
-    source::SourceFile,
-    source_database::{SourceDatabase, SourceLayer},
-};
+use kagari_source::source::SourceFile;
 use kagari_syntax::{
     ast::visit::NodeRef,
     parser::{Parse, ParseLimits, ParseMode, ParseOptions, parse},
@@ -33,73 +30,22 @@ use kagari_types::{
         FnDecl, TypeDeclaration, TypeDefKind,
         module::{DeclarationError, ModuleDecl},
         native::NativeTypeConstructor,
-        ownership::ReceiverOwners,
     },
     language,
 };
 use std::{collections::HashSet, sync::Arc};
 
-/// Renders and imports a registered module through ordinary declaration parsing and lowering.
-/// The provider batch must already share the analysis scope produced by Native adoption.
-pub(crate) fn import(
-    metadata: &DefinitionMetadata<ModuleDecl>,
-    providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
-    source_root: &str,
-    limits: ParseLimits,
+/// Attaches trusted registration facts to a fresh lowering, never to a copied ID map.
+fn attach(
+    prepared: &PreparedRegistration,
     cancel: &CancellationToken,
-) -> Result<(Parse, Arc<LoweredModule>), DeclarationError> {
-    let generated = declaration_source(metadata, providers)?;
-    import_source(metadata, providers, &generated, source_root, limits, cancel)
-}
-
-/// Validates supplied declaration text against registration, then attaches storage/native/role metadata to ordinary lowering.
-/// Providers use one adopted scope; generated navigation metadata is not registration authority.
-pub(crate) fn import_source(
-    metadata: &DefinitionMetadata<ModuleDecl>,
-    providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
-    generated: &DeclarationSource,
-    source_root: &str,
-    limits: ParseLimits,
-    cancel: &CancellationToken,
-) -> Result<(Parse, Arc<LoweredModule>), DeclarationError> {
+) -> Result<LoweredModule, DeclarationError> {
+    let metadata = &prepared.metadata;
+    let providers = &prepared.providers;
     let definition = metadata.records();
     let definitions = metadata.definitions();
-    let owners = ReceiverOwners::from_types(
-        providers
-            .iter()
-            .map(|module| module.records())
-            .flat_map(|module| module.types.iter().map(|ty| (&module.identity, ty))),
-    )?;
-    definition.validate(&|receiver| owners.owner(receiver, definitions), definitions)?;
-    let mut sources = SourceDatabase::new(source_root).map_err(DeclarationError)?;
-    sources
-        .bind_module(&generated.uri, definition.identity.clone())
-        .map_err(DeclarationError)?;
-    let id = sources
-        .set(&generated.uri, generated.text.clone(), SourceLayer::Base)
-        .map_err(DeclarationError)?;
-    let source = sources
-        .snapshot()
-        .file(id)
-        .expect("native declaration source")
-        .clone();
-    let parsed = parse(
-        &source,
-        ParseOptions {
-            mode: ParseMode::Declarations,
-            limits,
-        },
-        cancel,
-    )
-    .map_err(|_| DeclarationError("native declaration analysis cancelled".into()))?;
-    if !parsed.diagnostics().is_empty() {
-        return Err(DeclarationError(format!(
-            "invalid native declaration syntax: {:?}",
-            parsed.diagnostics().first()
-        )));
-    }
-    validate_view(metadata, providers, &parsed, limits, cancel)?;
-    let mut lowered = lower_module_controlled(source, &parsed.module(), cancel);
+    let mut lowered =
+        lower_module_controlled(prepared.source.clone(), &prepared.parsed().module(), cancel);
     lowered.registered_native_api = true;
     lowered.native_definitions = Some(definitions.clone());
     lowered.language_foundation = language::is_language_module(&definition.identity);
@@ -129,20 +75,18 @@ pub(crate) fn import_source(
     attach_functions(definition, &mut lowered)?;
     correspondence::validate(definition, definitions, &mut lowered)?;
     attach_dependencies(metadata, providers, &mut lowered, cancel)?;
-    Ok((parsed, Arc::new(lowered)))
+    Ok(lowered)
 }
 
 /// Exact non-trivia syntax correspondence prevents attaching a Rust entry to a
 /// changed declaration. Role attributes belong to the parsed owning declarations;
 /// signatures still pass ordinary name and type analysis.
 fn validate_view(
-    metadata: &DefinitionMetadata<ModuleDecl>,
-    providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
+    expected: &DeclarationSource,
     parsed: &Parse,
     limits: ParseLimits,
     cancel: &CancellationToken,
 ) -> Result<(), DeclarationError> {
-    let expected = declaration_source(metadata, providers)?;
     let expected = parse(
         &SourceFile::new(&expected.uri, &expected.text),
         ParseOptions {

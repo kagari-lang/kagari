@@ -56,10 +56,10 @@ impl ImportedConstants {
             let Some(module) = modules.get(&source.unit.file) else {
                 continue;
             };
-            if !source
-                .unit
-                .matches(&module.lowered, &module.names.facts.catalog.definitions)
-            {
+            if !source.unit.matches(
+                &module.lowered,
+                &module.record.names.facts.catalog.definitions,
+            ) {
                 continue;
             }
             let Some(facts) = checked.get(&source.unit.file) else {
@@ -80,7 +80,7 @@ impl ImportedConstants {
             if facts.types.get(&id) != Some(&value.ty()) {
                 continue;
             }
-            let Some(site) = module.declarations.target(ResolvedName::Const(id)) else {
+            let Some(site) = module.record.declarations.target(ResolvedName::Const(id)) else {
                 continue;
             };
             result.constants.insert(

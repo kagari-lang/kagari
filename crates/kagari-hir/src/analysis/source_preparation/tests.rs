@@ -77,10 +77,11 @@ fn inline_views_share_the_parse_and_rebase_retained_queries() {
         ),
         Err(AnalysisError::InvalidSourceRange(_))
     ));
+    let previous = db.declaration_cache.clone();
     let repeated = prepare(
         source_preparer(&mut db),
         &sources.snapshot(),
-        Some(first_declarations),
+        previous.as_ref(),
         &Default::default(),
     )
     .unwrap();
@@ -247,7 +248,7 @@ fn inline_recovery_does_not_restart_a_physical_parser_budget() {
     let limited = prepare(
         source_preparer(&mut db),
         &sources.snapshot(),
-        Some(&unrestricted),
+        fork.declaration_cache.as_ref(),
         &Default::default(),
     )
     .unwrap();

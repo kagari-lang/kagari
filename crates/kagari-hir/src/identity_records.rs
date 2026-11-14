@@ -1,6 +1,9 @@
 //! Explicit traversal of the owning HIR records.
 
-use crate::{AnalysisResult, AnalyzedModule, DeclaredAnalysis, PreparedAnalysis};
+use crate::{
+    AnalysisResult, AnalyzedModule, DeclaredAnalysis, PreparedAnalysis,
+    analysis::records::{DeclarationRecord, SignatureRecord},
+};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -40,9 +43,7 @@ impl DefinitionReferences for PreparedAnalysis {
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         self.lowered.visit_definition_ids(visit, cancel)?;
-        self.names.visit_definition_ids(visit, cancel)?;
-        self.declarations.visit_definition_ids(visit, cancel)?;
-        (self.signatures.as_ref()).visit_definition_ids(visit, cancel)?;
+        self.record.visit_definition_ids(visit, cancel)?;
         Ok(())
     }
 }
@@ -55,9 +56,33 @@ impl DefinitionReferences for DeclaredAnalysis {
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         self.lowered.visit_definition_ids(visit, cancel)?;
+        self.record.visit_definition_ids(visit, cancel)?;
+        Ok(())
+    }
+}
+
+impl DefinitionReferences for DeclarationRecord {
+    fn visit_definition_ids(
+        &self,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
+        cancel: &CancellationToken,
+    ) -> Result<(), DefinitionMappingError> {
+        check_cancel(cancel)?;
+        self.names.visit_definition_ids(visit, cancel)?;
+        self.declarations.visit_definition_ids(visit, cancel)
+    }
+}
+
+impl DefinitionReferences for SignatureRecord {
+    fn visit_definition_ids(
+        &self,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
+        cancel: &CancellationToken,
+    ) -> Result<(), DefinitionMappingError> {
+        check_cancel(cancel)?;
         self.names.visit_definition_ids(visit, cancel)?;
         self.declarations.visit_definition_ids(visit, cancel)?;
-        Ok(())
+        self.signatures.visit_definition_ids(visit, cancel)
     }
 }
 

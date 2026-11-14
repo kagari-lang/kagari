@@ -59,17 +59,17 @@ impl ImportedStatics {
             let Some(module) = modules.get(&source.unit.file) else {
                 continue;
             };
-            if !source
-                .unit
-                .matches(&module.lowered, &module.names.facts.catalog.definitions)
-            {
+            if !source.unit.matches(
+                &module.lowered,
+                &module.record.names.facts.catalog.definitions,
+            ) {
                 continue;
             }
-            let Some(ty) = module.signatures.facts.statics.get(&id) else {
+            let Some(ty) = module.record.signatures.facts.statics.get(&id) else {
                 continue;
             };
             let target = ResolvedName::Static(id);
-            let Some(declaration) = module.declarations.definition(target.clone()) else {
+            let Some(declaration) = module.record.declarations.definition(target.clone()) else {
                 continue;
             };
             result.statics.insert(
@@ -77,6 +77,7 @@ impl ImportedStatics {
                 ImportedStatic {
                     declaration: *declaration,
                     site: module
+                        .record
                         .declarations
                         .target(target)
                         .expect("static declaration")

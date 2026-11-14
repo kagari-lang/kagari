@@ -1,5 +1,6 @@
 use crate::analysis::*;
 use crate::{
+    aggregates::{AggregateCatalog, EnumSignature, VariantSignature},
     declarations::DeclarationId,
     hir::ids::HirOwner,
     tests::{common::import_facts, test_analysis},
@@ -10,6 +11,7 @@ use kagari_common::{
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::scalar::BuiltinType;
+use std::collections::BTreeMap;
 
 fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
     db.snapshot(sources.snapshot(), &Default::default())
@@ -113,63 +115,14 @@ fn body_edits_rebase_payload_references_and_match_fresh_facts() {
     let authoring_new_facts = new_file.to_unverified(&Default::default()).unwrap();
     let new_facts = authoring_new_facts.records().facts();
     assert!(new_facts.typed.type_table.type_ref(old_ty).is_none());
-    // Recheck in an independent definition context with the same syntax arenas.
-    // Import every attached registration record together with its retained scope.
-    let mut fresh_db = test_analysis();
-    let native_files = db
-        .native_files
-        .get()
-        .unwrap()
-        .iter()
-        .map(|(parsed, previous)| {
-            let mut lowered = previous.as_ref().clone();
-            let definitions = previous.native_definitions.as_ref().unwrap();
-            lowered.registered_traits = previous
-                .registered_traits
-                .iter()
-                .map(|(id, value)| {
-                    (
-                        fresh_db
-                            .definitions
-                            .intern(&definitions.resolve(*id).unwrap().to_path())
-                            .unwrap(),
-                        import_facts(value, definitions, &fresh_db.definitions).into_records(),
-                    )
-                })
-                .collect();
-            lowered.native_trait_references = previous
-                .native_trait_references
-                .iter()
-                .map(|(id, value)| {
-                    (
-                        fresh_db
-                            .definitions
-                            .intern(&definitions.resolve(*id).unwrap().to_path())
-                            .unwrap(),
-                        import_facts(value, definitions, &fresh_db.definitions).into_records(),
-                    )
-                })
-                .collect();
-            lowered.registered_declarations = import_facts(
-                &previous.registered_declarations,
-                definitions,
-                &fresh_db.definitions,
-            )
-            .into_records();
-            for value in lowered.native_types.values_mut() {
-                *value = import_facts(value, definitions, &fresh_db.definitions).into_records();
-            }
-            for value in lowered.native_functions.values_mut() {
-                *value = import_facts(value, definitions, &fresh_db.definitions).into_records();
-            }
-            for value in lowered.native_trait_adapters.values_mut() {
-                *value = import_facts(value, definitions, &fresh_db.definitions).into_records();
-            }
-            lowered.native_definitions = Some(fresh_db.definitions.snapshot());
-            (parsed.clone(), Arc::new(lowered))
-        })
-        .collect();
-    fresh_db.native_files.set(native_files).unwrap();
+    // Recheck with empty semantic caches but the same adopted native inputs and live
+    // native graphs. Exact catalog equality includes their file/arena provenance;
+    // sharing the scope avoids copying and remapping lowering-local attachment maps.
+    let mut fresh_db = AnalysisDatabase {
+        definitions: db.definitions.clone(),
+        native_files: db.native_files.clone(),
+        ..test_analysis()
+    };
     let fresh = analyze(&mut fresh_db, &sources);
     let authoring_fresh = fresh
         .file(file)
@@ -177,13 +130,6 @@ fn body_edits_rebase_payload_references_and_match_fresh_facts() {
         .to_unverified(&Default::default())
         .unwrap();
     let fresh = authoring_fresh.records().facts();
-    new_facts.typed.type_table.assert_same_source_facts(
-        authoring_new_facts.definitions(),
-        &fresh.typed.type_table,
-        authoring_fresh.definitions(),
-        new_facts.lowered.module.body.arena(),
-        fresh.lowered.module.body.arena(),
-    );
     let fresh_aggregates = import_facts(
         &fresh.aggregates,
         authoring_fresh.definitions(),
@@ -206,6 +152,85 @@ fn body_edits_rebase_payload_references_and_match_fresh_facts() {
         fresh_types.records()
     );
     assert!(old_facts.aggregates.same_contracts(&new_facts.aggregates));
+
+    // Independent adoption/lowering must agree semantically without sharing native
+    // graph provenance. Remap definition IDs, not source addresses or HIR maps.
+    let mut independent_db = test_analysis();
+    let independent = analyze(&mut independent_db, &sources);
+    let independent_file = independent.file(file).unwrap();
+    assert!(!independent_file.signatures_reused());
+    let authoring_independent = independent_file.to_unverified(&Default::default()).unwrap();
+    assert_ne!(
+        authoring_new_facts.definitions().id(),
+        authoring_independent.definitions().id()
+    );
+    let independent_facts = authoring_independent.records().facts();
+    assert_ne!(
+        new_facts.lowered.module.body.arena(),
+        independent_facts.lowered.module.body.arena()
+    );
+    new_facts.typed.type_table.assert_same_source_facts(
+        authoring_new_facts.definitions(),
+        &independent_facts.typed.type_table,
+        authoring_independent.definitions(),
+        new_facts.lowered.module.body.arena(),
+        independent_facts.lowered.module.body.arena(),
+    );
+    let independent_aggregates = import_facts(
+        &independent_facts.aggregates,
+        authoring_independent.definitions(),
+        &db.definitions,
+    );
+    // same_contracts retains exact inherent-method provenance. Compare all enum
+    // contracts without navigation sites, and complete source-independent impls.
+    let enum_contracts = |catalog: &AggregateCatalog| {
+        catalog
+            .enumerations()
+            .map(|enumeration| {
+                let EnumSignature {
+                    id,
+                    generic_params,
+                    bounds,
+                    declaration: _,
+                    variants,
+                } = enumeration;
+                let variants = variants
+                    .iter()
+                    .map(|variant| {
+                        let VariantSignature {
+                            reports_failure,
+                            id,
+                            owner,
+                            slot,
+                            name,
+                            payload,
+                            declaration: _,
+                        } = variant;
+                        (
+                            *id,
+                            *owner,
+                            *slot,
+                            name.clone(),
+                            payload.clone(),
+                            *reports_failure,
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                (*id, (generic_params.clone(), bounds.clone(), variants))
+            })
+            .collect::<BTreeMap<_, _>>()
+    };
+    assert_eq!(
+        enum_contracts(&new_facts.aggregates),
+        enum_contracts(independent_aggregates.records())
+    );
+    assert_eq!(
+        new_facts.aggregates.implementations().collect::<Vec<_>>(),
+        independent_aggregates
+            .records()
+            .implementations()
+            .collect::<Vec<_>>()
+    );
 }
 
 #[test]

@@ -696,12 +696,14 @@ at a time, not an entire persistent project. The user approved combining HA00's 
 cache/request ownership work with HA01's production graph/consumer cutover; the real graph
 is required to prove old A can release while unchanged B remains usable. Buildable
 sub-checkpoint commits continue; neither phase is complete. HA02 retains final acceptance.
-HA00 is in progress with phase commits authorized. Its first sub-checkpoint detaches physical
-parse ownership and returns an owned logical syntax manifest before lowering. Temporary owned
-prior syntax preserves published identities after cancelled semantic work. Selected-body
-caching now strongly retains only owned facts, not HIR or whole query contexts; expired graph
-handles force safe fresh checking. Twenty-one focused preparation/revision/cancellation/body
-tests pass; full HA00 stage-cache/session/arena proof is pending.
+Phase commits remain authorized. Owned syntax preparation preserves exact published parses
+after semantic cancellation. Declaration/signature/body caches now strongly retain only owned
+records; full-file queries and graph handles are weakly indexed. Native preparation retains
+validated registration/source/parse and rebuilds graph-local attachments after graph expiry.
+Lifecycle tests release graphs while records and database clones survive, without clearing
+caches. Focused stage/reuse/Native/cancellation/regression tests pass. Scoped sessions, direct
+arena nodes and the real A1/A2/B1 proof remain pending; these preparatory checkpoints do not
+establish arena lifetime safety or a performance improvement.
 The plan records unchanged baseline workspace fmt/Clippy blockers; acceptance is not all-green.
 Concrete cache/borrow APIs remain HA00 work. No performance benefit is proven.
 [Native review notes](hir-model-review.md) remain deferred: declaration/Provider separation,

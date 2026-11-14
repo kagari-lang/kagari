@@ -3,7 +3,7 @@ use crate::{
     declare_analysis,
     imports::{ModuleGraph, types::TypeCatalog},
     lower,
-    native::{adoption, api, render::declaration_source},
+    native::{adoption, api::preparation::PreparedRegistration, render::declaration_source},
 };
 use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
 use kagari_source::{
@@ -22,15 +22,16 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
         .iter()
         .map(|module| {
             let mut generated = declaration_source(module, &modules).unwrap();
-            let (_, original) = api::import_source(
-                module,
-                &modules,
-                &generated,
+            let prepared = PreparedRegistration::new(
+                module.clone(),
+                modules.clone().into(),
+                Some(&generated),
                 "/native-declarations",
                 Default::default(),
                 &cancel,
             )
             .unwrap();
+            let original = prepared.attach(&cancel).unwrap();
             mutate_source(&mut generated.text);
             if generated.text == original.source.text() {
                 return original;
@@ -94,7 +95,9 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
             declared
                 .clone()
                 .check_signatures(
-                    types.bindings(&declared.names.facts, &cancel).unwrap(),
+                    types
+                        .bindings(&declared.record.names.facts, &cancel)
+                        .unwrap(),
                     None,
                     &cancel,
                 )
@@ -106,18 +109,18 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
         aggregates
             .add_module(
                 &module.lowered,
-                &module.declarations,
-                module.signatures.facts(),
+                &module.record.declarations,
+                module.record.signatures.facts(),
                 &cancel,
             )
             .unwrap();
     }
     let mut diagnostics = DiagnosticBuffer::default();
     for module in &prepared {
-        diagnostics.extend(module.names.diagnostics.iter().cloned());
-        diagnostics.extend(module.signatures.diagnostics().iter().cloned());
+        diagnostics.extend(module.record.names.diagnostics.iter().cloned());
+        diagnostics.extend(module.record.signatures.diagnostics().iter().cloned());
         validate_shapes(
-            &module.declarations,
+            &module.record.declarations,
             &aggregates,
             &module.lowered.registered_traits,
             &mut diagnostics,
@@ -211,7 +214,7 @@ fn copied_module_identity_does_not_authorize_application_roles() {
         &Default::default(),
     )
     .unwrap();
-    assert!(declared.names.diagnostics.iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidLanguageRole { reason, .. } if reason.contains("only installed"))));
+    assert!(declared.record.names.diagnostics.iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidLanguageRole { reason, .. } if reason.contains("only installed"))));
 }
 
 #[test]

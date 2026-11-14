@@ -16,7 +16,7 @@ impl FileAnalysis {
     ) -> Result<bool, Cancelled> {
         cancel.check()?;
         let old = self.result.records().facts();
-        let names = &prepared.names.facts;
+        let names = &prepared.record.names.facts;
         let compatible = self.source.revision() == prepared.lowered.source.revision()
             && old.lowered.module.body.arena() == prepared.lowered.module.body.arena()
             && old.names.imports == names.imports
@@ -28,7 +28,7 @@ impl FileAnalysis {
             && previous.imported_statics == environment.imported_statics
             && previous.imported_constants == environment.imported_constants
             && previous.aggregates == environment.aggregates
-            && previous.declarations.imported_types == prepared.declarations.imported_types;
+            && previous.declarations.imported_types == prepared.record.declarations.imported_types;
         cancel.check()?;
         Ok(compatible)
     }
@@ -47,7 +47,7 @@ impl FileAnalysis {
     ) -> Result<bool, Cancelled> {
         cancel.check()?;
         let old = self.result.records().facts();
-        let names = &prepared.names.facts;
+        let names = &prepared.record.names.facts;
         let compatible = self.parsed.physical().diagnostics().is_empty()
             && self.shared_valid
             && old.names.imports.same_bindings(&names.imports)
@@ -62,7 +62,7 @@ impl FileAnalysis {
             && previous.imported_constants == environment.imported_constants
             && previous.aggregates.same_contracts(&environment.aggregates)
             && previous.declarations.imported_types.same_reuse_inputs(
-                &prepared.declarations.imported_types,
+                &prepared.record.declarations.imported_types,
                 old.names.items.unit.as_ref(),
                 names.items.unit.as_ref(),
             )

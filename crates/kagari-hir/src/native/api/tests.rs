@@ -29,10 +29,10 @@ fn native_view_must_match_authoritative_signatures_bounds_members_and_visibility
         let mut source = original.clone();
         assert!(source.text.contains(from), "{from}: {}", source.text);
         source.text = source.text.replace(from, to);
-        let error = import_source(
-            &module,
-            &providers,
-            &source,
+        let error = PreparedRegistration::new(
+            module.clone(),
+            providers.clone().into(),
+            Some(&source),
             "/native-declarations",
             Default::default(),
             &Default::default(),
@@ -58,15 +58,16 @@ fn native_view_trivia_does_not_change_checked_binding_and_default_ownership() {
     let module = providers.last().unwrap();
     let mut source = declaration_source(module, &providers).unwrap();
     source.text = format!("// Tooling overlay.\n{}", source.text);
-    let (_, lowered) = import_source(
-        module,
-        &providers,
-        &source,
+    let prepared = PreparedRegistration::new(
+        module.clone(),
+        providers.clone().into(),
+        Some(&source),
         "/native-declarations",
         Default::default(),
         &Default::default(),
     )
     .unwrap();
+    let lowered = prepared.attach(&Default::default()).unwrap();
     assert_eq!(lowered.module.traits.len(), 1);
     assert_eq!(lowered.module.traits[0].methods.len(), 2);
     assert!(
@@ -113,15 +114,17 @@ fn core_roles_use_complete_parsed_modules_with_attribute_trivia_and_docs() {
         "//! # Module\n//!\n//! ```kgr\n//! #[lang = \"comment_only\"]\n//! ```\n{}",
         source.text
     );
-    let (parsed, lowered) = import_source(
-        module,
-        &providers,
-        &source,
+    let prepared = PreparedRegistration::new(
+        module.clone(),
+        providers.clone().into(),
+        Some(&source),
         "/native-declarations",
         Default::default(),
         &Default::default(),
     )
     .unwrap();
+    let parsed = prepared.parsed();
+    let lowered = prepared.attach(&Default::default()).unwrap();
     assert_eq!(
         parsed.module().module_documentation().lines().next(),
         Some("# Module")
@@ -142,10 +145,10 @@ fn core_roles_use_complete_parsed_modules_with_attribute_trivia_and_docs() {
     let forged = source.text.replace("\"iterator\"", "\"iterable\"");
     source.text = forged;
     assert!(
-        import_source(
-            module,
-            &providers,
-            &source,
+        PreparedRegistration::new(
+            module.clone(),
+            providers.clone().into(),
+            Some(&source),
             "/native-declarations",
             Default::default(),
             &Default::default()
@@ -176,10 +179,10 @@ fn malformed_or_mismatched_core_source_never_installs_a_native_parse() {
             ..original.clone()
         };
         assert!(
-            import_source(
-                module,
-                &providers,
-                &source,
+            PreparedRegistration::new(
+                module.clone(),
+                providers.clone().into(),
+                Some(&source),
                 "/native-declarations",
                 Default::default(),
                 &Default::default()

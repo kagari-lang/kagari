@@ -873,15 +873,17 @@ mod tests {
         )
         .unwrap();
         let declaration = declared
+            .record
             .declarations
             .definition(ResolvedName::Trait(declared.lowered.module.traits[0].id))
             .unwrap();
         assert_eq!(
-            declared.declarations.definitions().lookup(&identity),
+            declared.record.declarations.definitions().lookup(&identity),
             Some(*declaration)
         );
         assert_eq!(
             declared
+                .record
                 .declarations
                 .parameters_of(declaration)
                 .iter()
@@ -892,7 +894,7 @@ mod tests {
         assert_eq!(
             members(
                 &declared.lowered.module,
-                &declared.declarations,
+                &declared.record.declarations,
                 declaration
             ),
             ["Output", "Local"]
@@ -900,7 +902,7 @@ mod tests {
         assert_eq!(
             member_arity(
                 &declared.lowered.module,
-                &declared.declarations,
+                &declared.record.declarations,
                 declaration,
                 "Output"
             ),
@@ -909,7 +911,7 @@ mod tests {
         assert_eq!(
             member_arity(
                 &declared.lowered.module,
-                &declared.declarations,
+                &declared.record.declarations,
                 declaration,
                 "Local"
             ),
@@ -918,7 +920,7 @@ mod tests {
         assert_eq!(
             member_arity(
                 &declared.lowered.module,
-                &declared.declarations,
+                &declared.record.declarations,
                 declaration,
                 "Unknown"
             ),

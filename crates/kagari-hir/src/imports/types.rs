@@ -140,10 +140,11 @@ impl<'a> TypeCatalog<'a> {
             }
             if let SourceItem::Variant(variant) = source.item
                 && let Some(module) = self.modules.get(&source.unit.file)
-                && source
-                    .unit
-                    .matches(&module.lowered, &module.names.facts.catalog.definitions)
-                && let Some(declaration) = module.declarations.variant(variant)
+                && source.unit.matches(
+                    &module.lowered,
+                    &module.record.names.facts.catalog.definitions,
+                )
+                && let Some(declaration) = module.record.declarations.variant(variant)
             {
                 result.variants.insert(source.clone(), declaration.clone());
             }
@@ -192,21 +193,23 @@ impl<'a> TypeCatalog<'a> {
         let Some(module) = self.modules.get(&target.unit.file) else {
             return Ok(None);
         };
-        if !target
-            .unit
-            .matches(&module.lowered, &module.names.facts.catalog.definitions)
-        {
+        if !target.unit.matches(
+            &module.lowered,
+            &module.record.names.facts.catalog.definitions,
+        ) {
             return Ok(None);
         }
         let item = target.item;
         let source = target.clone();
         if let SourceItem::TypeAlias(id) = item {
             let declaration = module
+                .record
                 .declarations
                 .target(ResolvedName::TypeAlias(id))
                 .cloned();
             return Ok(declaration.map(|declaration| {
                 let identity = module
+                    .record
                     .declarations
                     .definition(ResolvedName::TypeAlias(id))
                     .expect("alias declaration");
@@ -234,7 +237,7 @@ impl<'a> TypeCatalog<'a> {
             .borrow()
             .as_ref()
             .and_then(|cache| {
-                cache.get(module.declarations.definition(match item {
+                cache.get(module.record.declarations.definition(match item {
                     SourceItem::Struct(id) => ResolvedName::Struct(id),
                     SourceItem::Enum(id) => ResolvedName::Enum(id),
                     SourceItem::Trait(id) => ResolvedName::Trait(id),
@@ -254,16 +257,17 @@ impl<'a> TypeCatalog<'a> {
             SourceItem::Trait(id) => ResolvedName::Trait(id),
             _ => return None,
         };
-        let declaration = module.declarations.target(resolved.clone())?;
-        let identity = module.declarations.definition(resolved)?;
+        let declaration = module.record.declarations.target(resolved.clone())?;
+        let identity = module.record.declarations.definition(resolved)?;
         let native_type = match item {
-            SourceItem::OpaqueType(id) => Some(module.declarations.native_type(id)?),
+            SourceItem::OpaqueType(id) => Some(module.record.declarations.native_type(id)?),
             _ => None,
         };
         let nominal = NominalType {
             associated_types: Default::default(),
             declaration: *identity,
             arguments: module
+                .record
                 .declarations
                 .parameters_of(identity)
                 .into_iter()
@@ -322,6 +326,7 @@ impl<'a> TypeCatalog<'a> {
                         Some(ImportedTraitMethod {
                             name: method.name.clone(),
                             declaration: *module
+                                .record
                                 .declarations
                                 .definition(ResolvedName::Function(method.function))?,
                         })
@@ -341,7 +346,10 @@ impl<'a> TypeCatalog<'a> {
             for item in &module.lowered.module.traits {
                 cancel.check()?;
                 let source = SourceDeclRef {
-                    unit: SourceUnit::of(&module.lowered, &module.names.facts.catalog.definitions),
+                    unit: SourceUnit::of(
+                        &module.lowered,
+                        &module.record.names.facts.catalog.definitions,
+                    ),
                     item: SourceItem::Trait(item.id),
                 };
                 if let Some(surface) = Self::surface(module, source) {
@@ -363,8 +371,8 @@ impl<'a> TypeCatalog<'a> {
             let mut next = previous.clone();
             for module in self.modules.values() {
                 cancel.check()?;
-                let mut declarations = module.declarations.clone();
-                declarations.imported_types = self.bindings(module.names.facts(), cancel)?;
+                let mut declarations = module.record.declarations.clone();
+                declarations.imported_types = self.bindings(module.record.names.facts(), cancel)?;
                 declarations.publish_definitions(declarations.context().snapshot());
                 for item in &module.lowered.module.traits {
                     let Some(id) = declarations.definition(ResolvedName::Trait(item.id)) else {

@@ -78,14 +78,14 @@ pub(crate) fn recover_invalid_identity(
     aggregates
         .add_module(
             &prepared.lowered,
-            &prepared.declarations,
-            prepared.signatures.facts(),
+            &prepared.record.declarations,
+            prepared.record.signatures.facts(),
             &cancel,
         )
         .expect("uncancelled recovery signatures");
     let body_signatures = prepare_body_signatures(
-        prepared.signatures.facts(),
-        &prepared.declarations,
+        prepared.record.signatures.facts(),
+        &prepared.record.declarations,
         &aggregates,
         &cancel,
     )?;
