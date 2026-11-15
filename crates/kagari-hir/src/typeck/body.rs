@@ -5,7 +5,6 @@ use crate::tests::cancellation::{Checkpoint, checkpoint};
 
 use crate::{
     aggregates::AggregateCatalog,
-    builtin::array_bridge,
     declarations::Declarations,
     hir::{
         expr::{ExprKind, literal::LiteralKind},
@@ -651,7 +650,7 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             ExprKind::ArrayRepeat { value, count } => {
-                let member = expected.and_then(|ty| array_bridge::element_context(ty));
+                let member = expected.and_then(TypeId::array_element);
                 let element = self.infer_expr_with_coercion(*value, env, member);
                 if !self.solving
                     && !types::supports_array_repetition(&element, |instance| {
@@ -709,7 +708,7 @@ impl<'a> BodyChecker<'a> {
                 let intrinsic = element_type.map(TypeId::Builtin);
                 let member = intrinsic
                     .as_ref()
-                    .or_else(|| expected.and_then(|ty| array_bridge::element_context(ty)));
+                    .or_else(|| expected.and_then(TypeId::array_element));
                 let mut element_ty = intrinsic.clone();
                 let mut reachable = true;
                 for expr in elements {

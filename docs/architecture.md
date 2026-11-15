@@ -2834,9 +2834,9 @@ witness or authorizes unchecked arithmetic.
 
 Builtin Array typing and MakeArray/RepeatArray lowering own fixed-length syntax
 and element context. Array indexing and indexed assignment carry intrinsic checked
-facts; assignment does not require MutableList. The bounded `builtin::array_bridge`
-retains only independent Array context and installed List indexing roles. Nominal
-Vec and List indexing use checked Index/MutableList contracts. Place lowering
+facts; assignment does not require MutableList. `TypeId::array_element` extracts the
+intrinsic element type for contextual inference; it does not consult library interfaces.
+Nominal Vec and List indexing use checked Index/MutableList contracts. Place lowering
 preserves once-only root/index/RHS evaluation and completed effects.
 
 Runtime-owned Array objects have an exact `gc::arrays::ArrayPayload` and a

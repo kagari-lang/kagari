@@ -192,6 +192,15 @@ pub enum TypeId {
 }
 
 impl TypeId {
+    /// Borrows the element type of a builtin array; other types return `None`.
+    pub(crate) fn array_element(&self) -> Option<&TypeId> {
+        if let Self::Array(element) = self {
+            Some(element)
+        } else {
+            None
+        }
+    }
+
     /// Resolve known outputs and retain the applied interface for other projections.
     /// A bound's sibling output constraints are part of the context supplied to
     /// inherited members, even when the requested output remains abstract.
