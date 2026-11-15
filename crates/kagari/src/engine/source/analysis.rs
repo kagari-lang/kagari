@@ -10,10 +10,31 @@ use crate::{
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_hir::{
-    analysis::AnalysisSnapshot, imports::ModuleOrderError, program::ProgramCheckError,
+    analysis::{AnalysisSnapshot, FileAnalysis},
+    imports::ModuleOrderError,
+    program::ProgramCheckError,
 };
-use kagari_source::{identity::FileId, presentation::DiagnosticRecord};
+use kagari_source::{diagnostic::Diagnostic, identity::FileId, presentation::DiagnosticRecord};
 use std::sync::Arc;
+
+fn diagnostic_record(diagnostic: Diagnostic, file: &FileAnalysis) -> DiagnosticRecord {
+    if let Some(source) = file.result().facts().lowered.source_surface() {
+        return DiagnosticRecord::from_diagnostic(diagnostic, source);
+    }
+    // Structured nodes can share legacy zero anchors. They identify no exact
+    // declaration or source location, so only the owning module is attributable.
+    DiagnosticRecord {
+        severity: diagnostic.severity,
+        code: diagnostic.kind.code().to_owned(),
+        span: None,
+        message: diagnostic.kind.to_string(),
+        notes: vec![format!(
+            "structured Native declaration in module `{}`; no source location is available",
+            file.source().module_identity(),
+        )],
+        labels: Vec::new(),
+    }
+}
 
 /// A recoverable root analysis under the engine's sealed native declarations.
 /// Retains the same facts for optional tools and strict checking; changing tool
@@ -78,9 +99,9 @@ impl SourceAnalysis {
                     diagnostics: records
                         .into_iter()
                         .map(|record| {
-                            DiagnosticRecord::from_diagnostic(
+                            diagnostic_record(
                                 record.diagnostic,
-                                snapshot.file(record.file).expect("checked source").source(),
+                                snapshot.file(record.file).expect("checked module"),
                             )
                         })
                         .collect(),
@@ -114,11 +135,13 @@ impl SourceAnalysis {
                             )
                             .expect("failed graph node");
                         let file = snapshot.file(node.file).expect("graph source");
-                        diagnostics.extend(node.imports.diagnostics.iter().cloned().map(
-                            |diagnostic| {
-                                DiagnosticRecord::from_diagnostic(diagnostic, file.source())
-                            },
-                        ));
+                        diagnostics.extend(
+                            node.imports
+                                .diagnostics
+                                .iter()
+                                .cloned()
+                                .map(|diagnostic| diagnostic_record(diagnostic, file)),
+                        );
                     }
                     EmbeddingError::Diagnostics { diagnostics }
                 }

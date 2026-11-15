@@ -52,6 +52,14 @@ MIR options. Export derives metadata from the exact seal, while editable/importe
 artifacts remain untrusted and independently validated. Caller cancellation is
 carried by lowering options through source checking and preparation admission.
 
+Default Native registration input is structured, without a declaration parse or authored source
+surface. `Compilation` retains immutable compilation inputs independently of an optional complete
+source package. Ordinary compilation and artifact export work without that package;
+`ArtifactOptions::retain_source = true` instead requires a complete compiler-captured manifest and
+returns `EmbeddingError::SourcePackage { error: SourcePackageError::MissingManifest }` when absent.
+A navigation document cannot retroactively authorize a complete implementation-source package.
+Explicit materialized registration views retain the existing checked parsed-source route.
+
 Source options propagate cancellation through checking, lowering and bytecode
 admission. `Program::from_artifact` propagates its caller token through
 resource checks, identity adoption and executable graph validation; interruption
@@ -172,7 +180,10 @@ range. Hosts must reject stale ranges before applying editor actions. UTF-8 and
 UTF-16 editor coordinates are checked conversions through the source line index.
 
 `FileQueries::definition_at(byte_offset)` follows resolved expression or assignment
-names to a declaration with a `FileSpan`. `FileQueries::visible_bindings(byte_offset)`
+names to a canonical declaration. `Declaration.origin` is either exact `Source(FileSpan)` or
+`Structured { declaration }`; `source_location()` returns `None` for structured attribution.
+Documentation can still come from retained registration metadata, without a written signature
+or invented navigation range. `FileQueries::visible_bindings(byte_offset)`
 returns typed declarations from an analyzer-derived `ScopeIndex` over structure and canonical
 bindings, including match arm bindings and declaration-order shadowing. Neither query
 executes script or host code.
@@ -181,7 +192,8 @@ Resolved trait method calls also navigate to their checked method declaration,
 including when argument checking reports an error. Field reads and assignment
 targets navigate through the checked field identity, even when the assignment is
 rejected as read-only or the field's type annotation is invalid. Field declarations
-have module/struct-owned identities; their names survive slot reordering while
+have module/type-owned identities; Native interface fields and Script struct fields share the
+field vocabulary. Their names survive slot reordering while
 their source locations remain revision-specific. Type references in signatures,
 field/const/local annotations and impl headers also provide type and definition
 queries. If a tuple or generic argument is unknown, later arguments still have
@@ -200,15 +212,17 @@ still prevents code generation. Trait-call analysis does not yet imply executabl
 interface dispatch, which requires the planned linked implementation tables.
 
 `TypeTable::field_type`, `expr_field`, `place_field` and `struct_init` provide the
-checked field facts. A HIR field slot is qualified by its declaring struct within
+checked field facts. A HIR field slot is qualified by its `FieldOwner` (Script struct or Native
+type) within
 the analysis; tools use the corresponding `Declarations::field` identity when
 retaining a target across revisions. Initializer fields retain source order and
 unknown fields remain explicit holes in an erroneous analysis. Field ABI generation
 uses checked types. Executable field layout/linking remains a separate boundary;
-the current bytecode field table still carries owner and field names.
+the current bytecode field table still carries owner and field names. Native interface-field
+analysis does not supply new Runtime access adapters; unsupported executable routes reject.
 
 `TypeTable::type_ref` returns `ResolvedTypeRef`: a checked type plus an optional
-`ResolvedTypeTarget`. The target is semantic evidence for declaration/binder selection,
+`ResolvedTypeTarget` and selected exact-definition exposure route. The target is semantic evidence for declaration/binder selection,
 not an editor index; alias checking, generic/Self constraints and reload evidence retain it.
 Generic parameter declarations are identified by owner and parameter position;
 renaming a parameter preserves this identity. Inherited parameters keep their
@@ -295,7 +309,7 @@ offline host-type queries select only the terminal CST name. For `lib::Box<T>`,
 Nested type arguments keep their own targets. This also applies to trait bounds,
 where targets and explicit constructor type arguments.
 
-Named declaration locations point to the identifier token. The HIR source map
+Available source declaration locations point to the identifier token. The HIR source map
 separately retains the complete item range for diagnostics and code lowering.
 The same token-boundary rule applies to local bindings and named members, so
 leading or trailing trivia does not become part of a declaration target.
@@ -1103,7 +1117,12 @@ acquisition provenance, compiler identity and preparation settings. They carry n
 installed Rust captures or mutable source database. `source_declarations` returns
 checked edit targets with exact executable revision identity; targets from another
 revision reject. Identity tokens retain no code or compilation inputs. Runtime
-source observations remain diagnostic, not portable edit authority.
+source observations remain diagnostic, not portable edit authority. Whole-document replacements
+and additions use the retained inputs even when structured Native declarations prevent a complete
+source package. Function-splice edits and `source_declarations` require exact authored locations:
+missing manifests report `SourcePackage(MissingManifest)`, while an existing manifest whose text
+was stripped reports `SourceNotRetained`. These are typed `EmbeddingError` variants, distinct from
+`MissingCompilationContext` when no immutable compilation inputs exist.
 
 A candidate Program carries bounded cumulative demands and a weak exact-base
 association, not a strong predecessor chain. `Runtime::program(&InstalledProgram)`

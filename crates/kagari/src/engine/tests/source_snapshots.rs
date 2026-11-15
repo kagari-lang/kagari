@@ -1,22 +1,39 @@
 use crate::{
     BytecodeArtifact,
-    engine::{KagariEngine, source::ArtifactOptions},
+    engine::{
+        KagariEngine,
+        source::{ArtifactOptions, analysis::SourceAnalysis},
+    },
     error::EmbeddingError,
     program::Program,
 };
 use kagari_analyzer::AnalyzerQueries;
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{ModuleIdentity, PackageId},
+    identity::{
+        DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
+        metadata::DefinitionMetadata,
+    },
 };
-use kagari_hir::typeck::const_budget::ConstLimits;
+use kagari_hir::{analysis::AnalysisDatabase, typeck::const_budget::ConstLimits};
 use kagari_runtime::native::builder::ModuleBuilder;
-use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile, source_database::SourceLayer};
+use kagari_source::{
+    diagnostic::DiagnosticKind,
+    source::SourceFile,
+    source_database::{SourceDatabase, SourceLayer},
+};
 use kagari_stdlib as stdlib;
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_syntax::parser::ParseLimits;
-use kagari_types::declaration::host::{
-    HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess,
+use kagari_types::{
+    callable::CallableImplementation,
+    declaration::{
+        FnDecl, Param,
+        host::{HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess},
+        module::ModuleDecl,
+    },
+    scalar::BuiltinType,
+    ty::{NominalTy, Ty},
 };
 use std::sync::Arc;
 
@@ -323,7 +340,7 @@ fn unchanged_installed_environment_reuses_analysis_results() {
 }
 
 #[test]
-fn diagnostics_carry_the_source_revision_that_produced_them() {
+fn diagnostics_preserve_source_revisions_without_fabricating_structured_locations() {
     let engine =
         KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let id = engine
@@ -339,11 +356,15 @@ fn diagnostics_carry_the_source_revision_that_produced_them() {
     else {
         panic!("expected source diagnostics")
     };
-    let span = diagnostics
+    let diagnostic = diagnostics
         .iter()
-        .find_map(|diagnostic| diagnostic.span)
-        .unwrap();
+        .find(|diagnostic| diagnostic.code == "KG_RESOLVE_UNKNOWN_NAME")
+        .expect("source name error is preserved");
+    let span = diagnostic
+        .span
+        .expect("authored source retains its location");
     assert!(snapshot.contains(span));
+    assert!(diagnostic.labels.iter().any(|label| label.span == span));
     engine
         .set_source(
             "memory://bad.kgr",
@@ -352,6 +373,95 @@ fn diagnostics_carry_the_source_revision_that_produced_them() {
         )
         .unwrap();
     assert!(!engine.source_snapshot().contains(span));
+
+    let identity = |package: &str, path: &str| ModuleIdentity {
+        package: PackageId(package.into()),
+        path: vec![path.into()],
+    };
+    let context = DefinitionContext::new().unwrap();
+    let provider = context.intern_root(&identity("exact", "api")).unwrap();
+    let public = context
+        .intern_child(provider, DefinitionKind::Struct, "Public", 0)
+        .unwrap();
+    let mut registration = ModuleDecl::new(identity("registration", "bridge"));
+    let owner = context.intern_root(&registration.identity).unwrap();
+    let inspect = context
+        .intern_child(owner, DefinitionKind::Function, "inspect", 0)
+        .unwrap();
+    registration.functions.push(FnDecl {
+        name: "inspect".into(),
+        implementation: CallableImplementation::Native(inspect),
+        generic_params: vec![],
+        bounds: vec![],
+        method_policy: Default::default(),
+        host_policy: None,
+        params: vec![Param {
+            name: "value".into(),
+            mutable: false,
+            // The source-owned Public<T> requires an argument. Registration has
+            // only its exact identity; common HIR checking must reject the shape.
+            ty: Ty::Struct(NominalTy {
+                declaration: public,
+                arguments: vec![],
+                associated_types: Default::default(),
+            }),
+        }],
+        return_type: Ty::Builtin(BuiltinType::I32),
+    });
+    registration.collect_definitions(&context).unwrap();
+    let registration = Arc::new(
+        DefinitionMetadata::checked(context.snapshot(), registration, &Default::default()).unwrap(),
+    );
+    let mut sources = SourceDatabase::new("/diagnostics").unwrap();
+    let mut root = None;
+    for (name, module, text) in [
+        (
+            "api.kgr",
+            identity("exact", "api"),
+            include_str!("../../../../kagari-hir/tests/fixtures/native/exact-provider.kgr"),
+        ),
+        (
+            "consumer.kgr",
+            identity("exact", "consumer"),
+            include_str!("../../../../kagari-hir/tests/fixtures/native/exact-consumer.kgr"),
+        ),
+    ] {
+        sources.bind_module(name, module).unwrap();
+        root = Some(sources.set(name, text.into(), SourceLayer::Base).unwrap());
+    }
+    let mut database = AnalysisDatabase::new("/diagnostics").unwrap();
+    database.set_native_modules(vec![registration]);
+    let snapshot = database
+        .snapshot(sources.snapshot(), &Default::default())
+        .expect("malformed exact type reaches checking, not a registration setup failure");
+    let native = snapshot
+        .files()
+        .find(|file| file.source().module_identity() == &identity("registration", "bridge"))
+        .unwrap();
+    assert!(native.result().facts().lowered.source_surface().is_none());
+    let raw = native.result().diagnostics().iter().find(|diagnostic| matches!(
+        &diagnostic.kind, DiagnosticKind::UnknownType { function_name, .. } if function_name == "inspect"
+    )).expect("structured signature checker rejects missing Public<T> argument");
+    let code = raw.kind.code();
+    let analysis = SourceAnalysis::new(snapshot, root.unwrap(), None).unwrap();
+    let Err(EmbeddingError::Diagnostics { diagnostics }) = analysis.check(&Default::default())
+    else {
+        panic!("structured signature error must block checking");
+    };
+    let diagnostic = diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code == code)
+        .expect("typed diagnostic code is preserved");
+    assert!(diagnostic.message.contains("inspect"), "{diagnostic:?}");
+    assert!(diagnostic.span.is_none(), "{diagnostic:?}");
+    assert!(diagnostic.labels.is_empty(), "{diagnostic:?}");
+    assert!(
+        diagnostic
+            .notes
+            .iter()
+            .any(|note| note.contains("registration::bridge")),
+        "{diagnostic:?}"
+    );
 }
 
 #[test]

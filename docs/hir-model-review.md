@@ -48,19 +48,21 @@ Record a demonstrated mismatch and its consumers before activating another slice
 `BodySignatures` and `update_source` stay unchanged. Broader naming, incremental parsing,
 function-granularity reuse/reclamation and LSP scheduling require separate scope.
 
-## Deferred LoweredModule boundary
+## LoweredModule boundary and deferred execution evidence
 
-The [Native model proposal](native-model-design.md#2-entry-into-hir) owns the target entry:
-source and typed declaration inputs lower into ordinary HIR with explicit origins. Generated
-source is optional; no name/span/ordinal attachment join or registration-only contract bundle
-belongs in the target LoweredModule. Current code still uses registration attachments.
+[Native input ownership](architecture/hir.md#native-declaration-inputs-and-origins) now uses direct
+structured lowering and explicit parsed inputs with common checking and real/structured origins.
+Construction records registration correspondence; generated text is not required for direct HIR.
+Existing installation/representation/Host policies remain attached at their active boundaries,
+not erased merely because declaration facts moved to ordinary owners. Broader provider/wire
+separation remains in the [deferred Native design](native-model-design.md#4-checked-libraries-and-rust-providers).
 
 ## Native model
 
-The design lives in [Native model: declarations, HIR and implementations](native-model-design.md).
-User review narrows the [execution plan](native-model-plan.md) to Native HIR representation and
-external declaration parsing/analysis. Current NM01–NM04 implementation is unstarted and not
-approved; the earlier whole-stack sequence is withdrawn. Keep one model and execution plan.
+The scoped NM01–NM04 frontend replacement is implemented; the completed plan is retired.
+[Architecture](architecture/hir.md#native-declaration-inputs-and-origins) owns current contracts,
+[the roadmap](implementation-roadmap.md#native-model-replacement) owns remaining acceptance limits,
+and the [design](native-model-design.md) retains future whole-stack discussion without activating it.
 
 - Ordinary HIR declares Required/Script/Native functions, fields, methods/associated functions
   and trait impls. Rust implementation code stays outside HIR; no general trait receiver loans.

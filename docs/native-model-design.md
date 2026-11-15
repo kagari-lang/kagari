@@ -1,622 +1,142 @@
-# Native model: declarations, HIR and implementations
+# Native model: implemented frontend and deferred whole-stack direction
 
-**Status:** NM00 proposal prepared against `c19a0ffbf`. User review limits this implementation
-to Native HIR representation and declaration parsing/analysis, not the overall design discussion.
-The subsequent user instruction authorizes unattended NM01–NM04 implementation and phase commits.
-The integrated NM01 frontend substrate is implemented; final phase acceptance remains in progress. The
-[execution plan](native-model-plan.md) owns sequencing, evidence and carried errors.
-This replaces the attachment-only draft. Current contracts remain in
-[HIR architecture](architecture/hir.md), [host interop](spec/host-interop.md) and
-[standard declarations](spec/standard-declarations.md).
+The Native HIR/declaration migration is implemented. Current contracts belong to
+[HIR architecture](architecture/hir.md), [Native declarations](spec/standard-declarations.md),
+[syntax](spec/syntax.md#native-declarations) and
+[embedding](spec/embedding-api.md). The [roadmap](implementation-roadmap.md#native-model-replacement)
+records local acceptance limits and owns activation of any follow-up. Completed NM phase ledgers
+belong to Git history, not a second execution queue.
 
-**Model:** Native declarations are ordinary Kagari declarations with explicit implementation,
-representation and boundary contracts. Rust implementations bind separately to checked declaration
-identities. This change unifies their compiler-facing representation, not the registration or
-execution protocol.
-
-**Current scope:** common Native function/type/member/impl records, direct structured lowering,
-parsing exported .kgr declarations, shared semantic checking and matching navigation origins.
-Ref/RefMut recognition and explicit reference-type records are included; no new reference operations,
-borrowing, projection, implicit adaptation or method forwarding are implemented. Preserve existing
-supported reference routes and safety checks rather than disabling them.
-Declared fields are in scope for HIR representation, read/write type checking and export parsing;
-new Rust field adapters and end-to-end Runtime field execution require separate authorization.
-HIR is the implementation owner. Upstream and downstream changes accompany its new records,
-inputs and consumers, including necessary signature/type/call-site changes; they are not frozen.
-Do not interpret this as edits confined physically to hir/, or use it to redesign registration,
-execution or tooling ownership. Their broader separation remains later work. The execution plan's
-implementation inventory owns the concrete slices and acceptance boundary.
-
-**Deferred:** registration/preparation redesign, LibraryContracts/NativeProvider cutover, binary
-prebuild/code generation, MIR/shared-library export, installation/linking/caches, directory
-publication/watch integration, output/reflection extraction and new Ref/RefMut behavior. Earlier
-whole-stack sketches below remain recorded future design directions, not abandoned/rejected
-ideas or frozen implementation commitments. Keep their structures, rationale and open decisions;
-they are not prerequisites or acceptance criteria for this HIR change. Reflection and current
-compiler/Runtime behavior remain unchanged.
-
-The record sketches below describe the reviewed design, not literal Rust API declarations.
-Current HIR/input implementations and final acceptance are tracked in the execution plan. Keep owned category tables, owner-qualified IDs and current weak graph retention;
-no arena, universal node identity, per-node Arc or new crate is required.
+This document retains material design decisions and explicitly deferred product/build/reference
+options. Sketches in sections 4–6 are not implemented APIs, approved phase requirements or a
+promise that the current compiler emits standalone library products.
 
 ## 1. Inputs and ownership
 
 ```text
-compilation: Rust structured declarations --+
-LSP input:   exported .kgr -> parsing -------+-> common declaration input
-user source: ordinary parsing --------------+             |
-                                                         v
-                                            HIR / resolution / checking
-                                                 |                 |
-                                       existing compiler       analyzer queries
-                                             handoff           and navigation
+Rust ModuleDecl records ------------------+-> ordinary HIR -> shared semantic analysis
+external .kgr plus static metadata -> parse+                         |            |
+user source -----------------------> parse+                    compiler      analyzer
 ```
 
-| Owner | Proposed responsibility |
-| --- | --- |
-| kagari-hir::authoring | Unchecked source/structured inputs, reservation handles, mixed-closure checking and checked body ownership |
-| kagari-source | Minimal input/origin/reporting vocabulary; no generated-document or LSP lifecycle state |
-| kagari-common | Existing context-scoped DefinitionId and explicit definition import/remapping |
-| kagari-types | Shared type, representation, access and declaration vocabulary; no authoring session or second checker |
-| kagari-analyzer | Queries/navigation over matching common analysis, including exported declaration inputs |
-| Existing compiler/SDK/Runtime consumers | Necessary call-site changes only; preserve current registration, binding and execution behavior |
+Syntax owns one recoverable grammar. HIR owns declaration/type/member identities, resolution,
+checking and origin attribution. Analyzer owns position/navigation/documentation queries over
+those facts. Rust callbacks, storage adapters, live state and installation authority remain at
+the existing registration/Runtime boundary. There is no Runtime-to-HIR dependency, new facade
+crate, arena, universal node identity or authoring DSL.
 
-Proposed module names indicate placement, not permission to create empty facades or new
-contract-product dependencies. Keep current dependency direction: compiler queries do not depend
-on analyzer; Runtime stays independent of HIR/syntax/compiler. Future product owners are discussed
-separately below, not implemented as part of this HIR change.
+The two lowerers converge on ordinary HIR, not independently checked semantic catalogs. Source
+is never the authority for the direct registration route. Explicit supplied complete documents
+are another admitted input; their structural correspondence cannot change installed bindings.
+Required trait members, Script blocks and Native declarations remain distinct. NativeDefault
+keeps its existing checked Script forwarding body and separate installed-default evidence.
 
 ## 2. Entry into HIR
 
 ### Reservation, references and checking
 
-The handle/session sketch describes valid input correspondence and forward references, not a
-requirement to ship a new public Rust builder, reservation framework or authoring DSL. For this
-HIR change, adapt existing upstream declaration records with only the construction machinery
-actually needed by common lowering/checking; upstream API design remains a separate task.
+Existing registration records supply construction-time declaration/HIR correspondence. Native
+contracts reuse scoped type/operation vocabulary, with recursive semantic checks before publication;
+interning a DefinitionId is not proof of a declaration, application, trait bound or implementation.
+Exact type references skip spelling selection, never category, arity, bounds, dependency or access
+checks. They retain a selected exposure route: a public re-export can expose a public declaration
+inside a private module without exposing its defining path. Ambiguous public routes need explicit
+selection; a retained route disappearing invalidates reuse rather than choosing another identity.
 
-```text
-AuthoringSessionId                     // fresh, process-local; never reused
-DeclarationHandle { session, slot }
-BinderHandle { owner: DeclarationHandle, position }
-
-DeclarationSlot {
-    header: { module, category, parent, name, own_binders },
-    state: Reserved | Filled(DeclarationInput),
-}
-
-DeclarationRef = Local(DeclarationHandle)
-               | Imported(ContractDeclarationRef)
-               | Pending(ExactSelector, expected_category_and_arity)
-```
-
-The session owns all mutually dependent unchecked modules. Source header collection exposes
-handles tied to the exact retained parse; structured headers use the same collection path.
-
-1. Register module owners and reserve declarations/members and their own binders.
-2. Fill each slot once; its category, parent and binder layout cannot change.
-3. Freeze immutable inputs; reject unfinished slots, duplicate fills and foreign/escaped handles.
-   Resolve pending selectors against actual headers, including unused references.
-4. Allocate ordinary HIR category IDs and record handle -> HIR ID -> DefinitionId correspondence.
-   Run common resolution, signature, trait/impl and body checking.
-5. Only successful checking issues contract references and binding-key mappings.
-   Cancellation/failure publishes no installable Provider authority.
-
-No slot recycling or per-slot generations: a new editing session is a fresh generation. A frozen
-input can be cloned without making its builder mutable again. These handles belong to HIR
-input construction; Runtime never consumes them. Interning a DefinitionId alone proves neither
-a completed declaration nor successful checking.
-
-```text
-Input type head = Path | Declaration(DeclarationRef) | Parameter(BinderHandle) | Self
-HIR type head   = Path | Declaration { target: DefinitionId, exposure: SelectedExposure }
-                      | Parameter(owner, position) | Self(owner)
-```
-
-Keep ordinary application arguments, tuples, arrays, functions and qualified projections.
-Associated bindings/projections can name an exact member as well as an unresolved spelling;
-otherwise structured input would still need name reconstruction. HIR heads are unchecked type
-expressions, not an escape hatch for inserting already-validated Ty values.
-
-SelectedExposure retains the selected local/import/re-export route or the existing exact
-importer-specific source-trait admission. Input references select that route; lowering must not
-collapse it to the target ID alone. Common accessibility checking validates this evidence in the
-referencing scope; it is not a second visibility checker or a general private-access permission.
-
-Direct references skip spelling selection only. Common checking still enforces declaration
-existence, category, visibility/exposure route, dependency membership, arity, bounds, associated
-outputs and role eligibility. Preserve valid public re-export paths and reject private-path
-bypasses. Import checked contexts with existing explicit remapping; reject conflicting semantic
-records even when their remapped definition identities coincide. Imported checked modules are
-contract-backed namespace entries, not newly lowered HIR modules: use a context-qualified
-library/module reference without a fabricated SourceUnit, input file or LoweringId.
-
-A generic binder remains `(declaring owner, own position)`. Impl binders retain their owner when
-inherited by methods; method-local or shadowing binders never reuse the outer identity. Imported
-open binders cannot escape independently of their declaration/application scope.
+A new public session/reservation/body-builder framework remains a possible future authoring design,
+not part of this implementation. Any such framework must reserve actual owners before filling
+references, reject foreign/unfinished slots, retain binder ownership and publish no authority on
+failure or cancellation. Current checked-library import uses explicit scope remapping.
 
 ### Source declarations and ordinary defaults
 
-Recommend `native fn` and `native type` in generated, read-only API views:
+Explicit `native fn` / `native type` parse in the same grammar as ordinary definitions. Semantic
+admission distinguishes ordinary source, explicitly supplied offline library source and installed
+registrations. Ordinary source cannot gain Native authoring or Runtime authority by spelling those
+keywords. External library inputs retain complete Script definitions/default bodies, including
+Rust-embedded source; authoring location does not change implementation kind. Missing dependencies
+are errors, not a reason to fabricate stripped traits or fake defaults.
 
-```text
-pub native fn answer() -> i32;
-pub native type Counter<T>;
-```
+ExternalModule accepts source plus scoped static sidecars for language constructors, Host schemas/
+paths, receiver/override restrictions, ordered operation/result requirements and foundation/
+conversion trait contracts. These describe analysis semantics only. They carry no Rust callback,
+provider key or executable binding. Actual foundation and Host inputs use the common checker;
+constructor ownership conflicts reject across the complete mixed environment. The current API
+loads these inputs explicitly. A filesystem exporter, persisted sidecar encoding and directory
+publication/watching remain future integration work.
 
-Rust authoring supplies structured declarations directly during compilation; that path never
-requires a render/parse round trip. Offline analyzer instead parses build-exported .kgr declarations
-into the same unchecked declaration-input model, then uses common HIR/resolution/checking with
-user source. These files are real declaration inputs for tooling, but neither proof of checked
-Rust bindings nor Runtime installation authority. User-authored Native declarations in ordinary
-source remain a separate, unapproved capability; parsing native syntax does not enable them.
-
-Definition kind is independent of authoring location. A trait, function or struct authored as
-Kagari text inside Rust is still a Script definition. Preserve its complete definition, including
-function/default bodies and ordinary fields; Rust compilation does not turn it into a Native stub.
-
-For offline LSP, a library's exported .kgr inputs include Native signatures/type interfaces plus
-complete Script definitions not otherwise available as source dependencies. Rust-embedded strings
-are retained/exported as real script source, not reduced to signatures. Structured authoring of an
-ordinary Script definition must likewise retain enough content for a complete definition; support
-for new body-building APIs remains deferred. Keep one semantic module/declaration identity per
-owner, whether its physical source is a project file, library file or Rust-embedded text.
-
-A Native impl references the actual trait owner, supplied either by original source or the complete
-library export. Do not create duplicate/stripped traits or a marker for omitted defaults. A genuinely
-missing dependency is diagnosed; it is not the intended export format.
-
-**Parser recommendation:** one lexer/parser recognizes explicit native syntax and ordinary
-Kagari syntax. Source-versus-exported input identity governs semantic admission, not a second
-grammar mode. Replace current Source/Declarations parsing switches and update their consumers;
-preserve context-specific member/visibility rules in normal grammar/semantic validation. This
-does not grant handwritten Native declarations execution authority.
-
-| Form | Meaning |
-| --- | --- |
-| Ordinary fn with body | Script implementation |
-| Trait fn without body | Required method |
-| native fn without body | Native implementation, not a missing/required body |
-| native type | Native type with optional declared fields; ownership is separate metadata |
-| impl Type / impl Trait for Type | Ordinary member ownership / checked trait implementation |
-
-Access, override, Host policy and Native operation/result requirements stay in structured
-contracts. Do not require call_access, override_policy, host_type/host_field/host_call attributes
-or a contract { requires ...; produces ...; } source DSL merely to render an API. Preserve
-required validation, supported Host passing/effects and ordered operation requirements. Export
-all facts needed to reconstruct static API semantics, not just pretty signatures; documentation
-alone cannot encode a restriction needed by checking. Rust-only adapter details stay in private
-contracts/bindings. The minimal external-declaration encoding is an NM03 design obligation.
-Do not infer Native authority from text or add new async/borrowed-return semantics.
-See the callable declaration views below for method/associated-function/trait examples.
-
-**Deferred body-authoring option:** a future structured Script implementation may retain authored
-block source as below. A new fragment parser or NativeDefault execution-model replacement is not
-required by the current HIR/declaration scope; preserve existing supported defaults.
-
-For that future option:
-
-```text
-ScriptBodyInput { source: Arc<SourceFile>, block_range }
-```
-
-The frozen input retains the real source independently of any lowering. Each lowering assigns
-its own SourceViewId; the same frozen block can be lowered again without reusing graph-local IDs.
-Add a real block-fragment parser entrypoint, not a generated function/module wrapper. Lower under
-the owning function's module imports, parameters, inherited/own binders, Self, bounds, result and
-async context. Result: ordinary `Script(BlockId)`. No general expression-builder DSL, helper-name
-injection, placeholder substitution or NativeDefault forwarding recipe. Reused physical inputs
-retain parser limits/cancellation accounting rather than restarting budgets per attachment.
+A possible future Script-body authoring API may retain actual block source and its exact range,
+parsed under the owning signature and binder environment. It must preserve cancellation/limits,
+source-view identity and body ownership; generated wrapper functions and string substitutions are
+not a replacement for a real fragment entrypoint. That API and NativeDefault replacement are not
+implemented or required here.
 
 ### Origins, not mandatory generated text
 
-```text
-ModuleInputVersion = Source { file, revision } | Structured(InputRevisionId)
-ModuleUnit { module: ModuleHandle, input: ModuleInputVersion, lowering: LoweringId }
+Source nodes retain exact authored ranges. Structured nodes and canonical declarations instead
+retain scoped declaration attribution; exact source locations, syntax and written signatures are
+optional. The current graph uses an empty logical registration key, explicitly not authored source
+or an editable declaration document. Complete-source packaging rejects absent authored manifests;
+normal executable compilation, whole-document updates and source-free loading remain valid.
+Debug capture omits unavailable positions rather than inventing implementation spans.
 
-OriginSite = Source { view: SourceViewId, range: Span }
-           | Structured { input, declaration_key, part }
-           | Synthetic { anchor: AuthoredOrigin, reason }
-
-ModuleOrigins {
-    views: Vec<Arc<SourceFile>>,
-    // Existing typed category tables and lowering/owner checks, now storing OriginSite.
-}
-
-LoweredModule { metadata, input, module: Module, origins: ModuleOrigins }
-```
-
-A sealed structured module gets a fresh opaque InputRevisionId. Clones preserve it; edits or
-independent freezes get a fresh token. Include bodies, references, semantic metadata and
-provenance in the immutable payload. This is equality, not a clock: retain existing request/
-settings publication guards. Fresh lowering gets a fresh LoweringId even for the same input.
-DefinitionId remains declaration correspondence, not a source/implementation version.
-
-Multiple body fragments may belong to one structured module. SourceViewId is lowering-qualified;
-source ranges address each view's unchanged bytes. Semantic scope comes from the owning function,
-not the fragment's filename. Resolve through the exact retained SourceFile::span for copied/inline
-physical provenance. Never associate diagnostics using bare Span across views or fabricate files.
-
-Declaration origins and diagnostic labels expose one authoritative source/structured/synthetic
-location. Exact source projection is optional; synthetic anchoring is a separate operation.
-A real authored default block has source origins; only genuinely compiler-generated nodes are
-synthetic. A body fragment is not the structured header's complete declaration source.
-
-Source-only inspection skips explicitly non-source declarations; exact-source/edit requests
-report unavailable. Invalid claimed source is still an error. Preserve semantic/body-owner
-inventories independently of source inventories. Propagate unavailable debug source through MIR/
-bytecode without fake zero spans or disabling liveness, root or executable checks. Debug source
-selection is per body, not the first view in a module.
-
-Complete KBC source packages keep their exact completeness contract: absent full declaration
-anchors means no complete package can be emitted, not a relaxed validator. Static initializer
-freeze evidence remains mandatory even if source is stripped; produce its existing canonical
-facts from an authored initializer, or explicitly reject unsupported structured initialization.
-Build-exported declaration text is offline analyzer input and a navigation target, not authored
-Rust/Script implementation source. Its locations cannot authorize source updates, complete
-implementation-source packaging or Runtime bindings. Compilation uses structured inputs directly.
-
-Build data encodes library-relative declaration/member attribution and optional real source
-coordinates, not process-local session/input/lowering IDs. Import requalifies those records in
-the current contract/reporting context; labels alone cannot claim an exact retained source view.
-ModuleUnit qualifies HIR-backed modules only; checked-library imports do not invent local HIR IDs.
+Default SDK preparation consumes structured registrations. Explicit declaration_cache materialization
+retains the existing parsed/validated source-view route for navigation. This does not introduce a
+new exporter or make rendered text installation authority. Future build data must encode portable
+library/member attribution and remap identities, not persist process-local handles.
 
 ### Library APIs versus compiler intrinsics
 
-**Deferred by user decision:** leave type_of, get_field, set_field, set_index and their current
-lookup, literal-field typing, validation and execution unchanged. Do not choose Field descriptors,
-dynamic reflection values or a new intrinsic API in NM00. Internal origin/contract changes must
-preserve their observable behavior. This is retained scope, not a newly added compatibility path.
-
-Output is separate: NM04 may make print/log an ordinary declared library/Host service. Remove
-only its special lookup/checking/lowering when replaced; retain reflection helper handling.
-Scalar arithmetic and constant legality remain compiler language semantics. Any later reflection
-migration needs separate authorization and must preserve evaluation, access and safety guarantees.
+Output/reflection extraction is deferred. Preserve existing print/log, type_of, get_field,
+set_field and set_index semantics, declared access and evaluation order. A frontend model cleanup
+is not permission to redesign these APIs or silently admit unsupported executable operations.
 
 ## 3. Declaration records
 
-The following is the current target frontend model, not a complete replacement for unrelated
-Module/Body fields or runtime protocols. Ordinary owned category tables and ID links remain.
-
-```text
-Module {
-    // Existing source-order items, ordinary Script declarations and attributes.
-    native_types: Vec<NativeTypeDeclaration>,
-    functions: Vec<Function>,
-    traits: Vec<Trait>,
-    impls: Vec<Impl>,
-    body: Body,
-}
-
-NativeTypeDeclaration {
-    id: NativeTypeId,
-    name,
-    visibility,
-    generic_params,
-    bounds,
-    fields: Vec<FieldDeclaration>,
-}
-
-FieldDeclaration {
-    id: FieldId,
-    name,
-    visibility,
-    ty: TypeRefId,
-    writeability: Val | Var,
-}
-
-Function {
-    id: FunctionId,
-    // Existing kind, visibility, name, async, generics and bounds.
-    params: Vec<Param>,
-    return_type: Option<TypeRefId>,
-    implementation: FunctionImplementation,
-}
-
-FunctionImplementation = Required | Script(BlockId) | Native(NativeContract)
-TraitMethod { function: FunctionId, override_policy: Allowed | Forbidden }
-
-NativeContract {
-    callable_requirements: Vec<OperationRequirement>,
-    concrete_result: Option<TypeRefId>,
-}
-
-OperationRequirement {
-    receiver: TypeRefId,          // Self target type, not a runtime receiver value or loan.
-    interface: TraitRef,           // Full trait application, including arguments/associated bindings.
-    member: DeclarationRef,        // Trait member declaration; not its selected impl or callback.
-    arguments: Vec<TypeRefId>,     // Method-owned generic type arguments, in declaration order.
-}
-
-Impl {
-    id: ImplId,
-    generic_params,
-    bounds,
-    self_ty: TypeRefId,
-    trait_ref: Option<TraitRef>,
-    methods: Vec<FunctionId>,
-    // Existing associated types/constants.
-}
-```
-
-NativeTypeId names the target declaration slot, replacing the misleading opaque-only concept;
-field records reuse the common field vocabulary and owner-qualified identities, not a second
-Native field schema or source-map allocation. The existing field owner must include its Native
-declaration where needed. Impl without trait_ref is inherent; self in a function signature marks
-an instance method, not a Rust loan. A function without self in that impl is associated.
-NativeContract retains only required semantic/boundary descriptors; no Rust callback, storage
-adapter, pointer or process-local borrow state enters these records.
+Functions, Native types, fields and impls use ordinary owned HIR tables and checked IDs. Native
+fields share Field records with Script structs; FieldOwner names the actual struct or Native type.
+Signatures/method links are not duplicated in a Native-only semantic catalog. Builtin interpretation
+belongs to the language constructor owner: String, ranges and references retain their existing
+semantic types and identity/arity rules, irrespective of Native methods on those types.
 
 ### Native argument semantics and Rust adaptation
 
-**Current decision:** remove host_call / HostCallContract from the target HIR NativeContract.
-Existing HostCallPolicy is a current execution boundary, not deleted by a documentation change;
-its replacement by explicit reference parameters and any effect-contract migration require later
-implementation. Preserve actual binding validation and static initializer/effect checks meanwhile.
-
-**Recommended argument model:** ordinary parameter types determine script argument semantics;
-Rust DTO/Serde conversion is a separate binding decision, not a hidden second parameter type.
-
-| Script parameter | HIR meaning | Rust boundary responsibility |
-| --- | --- | --- |
-| Scalar/ordinary value type | Existing language value semantics | Decode an admitted value; immutable data need not be physically deep-copied |
-| Ordinary script/native object T | Pass the existing object's identity, not an implicit clone or Rust reference | Receive a protected/retained object handle through the appropriate adapter |
-| Ref<T> | Explicit scoped shared-location capability | Validate/lend the mapped Rust location when supported |
-| RefMut<T> | Explicit scoped mutable-location capability | Validate/lend exclusively; actual overlapping accesses trap |
-
-There is no additional HIR passing = Owned/SharedBorrow/UniqueBorrow array. HIR Param stores
-TypeRefId; its resolved TypedParameter stores TypeId, including Reference(target, access).
-Ordinary Native self is an object argument, never an implicit Rust &self/&mut self contract.
-Hidden NativeContext/GC handle conversion belongs to the Rust adapter, not the script arity.
-Tuples/enums/composites retain their current value/identity rules, not blanket deep-copy semantics.
-
-For ordinary object input T, an implementation may explicitly extract supported data into a Rust
-DTO/Serde<T> snapshot. This is in-process schema conversion, not necessarily byte serialization.
-The supported schema/representation and converters must match the declaration; arbitrary Native
-payloads and scoped references cannot implicitly become owned Rust data. Snapshot extraction
-does not mutate or detach the original, transfer its ownership, preserve every graph identity, or
-write Rust-local edits back automatically. A binding promising shared-object behavior must actually
-operate on the original handle; a DTO conversion cannot silently stand in for such behavior.
-
-No new HIR Serialization/ByValue/Object passing flag is proposed just to select a Rust callback
-parameter type. If an API must promise a call-boundary snapshot/clone independently of implementation,
-that is a distinct observable operation/contract and needs an explicit language/API design, not a
-hidden adapter switch. This choice remains reviewable; do not implement new conversion machinery.
-Existing Object<S>/Opaque<T> identity-preserving adapters and FromKagari owned-data conversion
-illustrate the separation; do not merge or bypass their representation and lifetime checks.
-Ref/RefMut rows describe future execution direction; this phase implements recognition only.
-
-Type syntax and resolved types remain separate:
-
-```text
-// TypeRef syntax: ordinary paths/applications; no new special parser syntax required.
-Vec<i32>        -> Path(Vec, [Path(i32)])
-RefMut<Player>  -> Path(RefMut, [Path(Player)])
-
-// Relevant variants in the existing semantic TypeId model, not a new parallel type system.
-NativeObject(NominalType { declaration: DefinitionId, arguments, associated_types })
-Reference { target: Box<TypeId>, access: ReferenceAccess::Shared | Mutable }
-// Builtin(String/i32/...) and Range(element, kind) remain language-owned variants.
-```
-
-Resolution recognizes Ref/RefMut by builtin declaration identity, checks constructor shape and
-resolves the target type. Both constructors use Reference with different access, sharing the same
-target declaration. Recognizing that type grants no new executable capability.
-
-Required is legal only where an implementation may be supplied; Forbidden requires an existing
-Script/Native default. The earlier universal Function.access / CallAccessContract proposal is
-withdrawn: ordinary trait methods do not acquire Rust receiver-loan requirements. Preserve existing
-Native adapter access metadata, scoped-reference method eligibility, Host passing restrictions
-and declaration/binding agreement; NM01 must settle their narrow ownership after tracing current
-consumers, not expand them into language-wide access semantics. Actual alias conflicts remain
-Runtime-owned. Ordinary NativeType impls and trait implementations use normal self without
-shared/mutable receiver annotations. Explicit Rust-location access is expressed by Ref/RefMut
-parameter types; internal Rust &T/&mut T access is adapter/storage behavior, not another HIR
-function qualifier. This does not automatically forward all target methods to Ref/RefMut;
-preserve existing supported reference-method checks without designing new forwarding rules here.
-Only Ref/RefMut recognition/representation is included; new behavior is deferred as specified below.
+An ordinary object parameter carries the existing object identity, not an implicit clone, Rust
+reference or ownership transfer. Protected Object/Opaque handles preserve identity. Supported Rust
+DTO/Serde extraction is binding conversion: no automatic writeback, alias-graph preservation or
+hidden ownership transfer is promised. A mandatory observable snapshot needs its own explicit API.
+HostCallPolicy, initializer/effect evidence, codecs and scoped borrow validation remain at their
+existing boundaries; HIR has no parallel passing-mode array or serialization flag.
 
 ### Native operation requirements
 
-A requirement describes an operation a Rust algorithm needs from Kagari, not another function
-signature or a runtime argument pack. For <T as Convert<String>>::convert<i32>:
+Ordered NativeCallableRequirement slots retain receiver, applied trait, actual trait-member identity
+and method-owned arguments; repeated slots remain distinct. Signatures come from the member owner,
+not a copied parameter/result schema. The shared checker verifies recursive type categories/arity,
+scoped binders, owning-trait and associated-output bounds, method obligations and concrete interface
+results. Owner-qualified Self obligations must be proved, not deferred like an unapplied declaration.
+Rust bodies remain opaque; declared operation evidence is not Runtime name lookup.
 
-| Field | Value |
-| --- | --- |
-| receiver | T, retaining the Native function's binder owner |
-| interface | Convert<String>, including any associated-type equalities |
-| member | The convert member declared by Convert, not an impl method identity |
-| arguments | [i32], the method's own type arguments; excludes trait arguments and actual values |
+### Native fields
 
-TraitRef reuses ordinary trait application syntax. DeclarationRef uses the common local/imported/
-pending declaration reference machinery; it must resolve to a member of the selected declaring
-trait through normal lookup/access checks. No Rust callback/implementation selector is supplied.
-The member declaration owns parameter/result types: derive the applied signature by substituting
-Self, trait arguments/associated bindings and method type arguments, then check all bounds.
-Do not copy a second params/result signature into OperationRequirement.
-
-Resolved forms use existing semantic types and scoped DefinitionId. The current
-NativeCallableRequirement already carries receiver: Ty, interface: NominalTy, member: DefinitionId
-and arguments: Vec<Ty>; reuse/refine that vocabulary rather than create a parallel checked-call IR.
-Requirements remain ordered slots owned by the Native function's contract; preserve multiplicity.
-Ordinary Native functions need none. Rust bodies are opaque to HIR, so required Kagari operations
-must be declared explicitly; Script bodies instead expose their calls to normal analysis.
-
-Bounds prove capability; application compilation selects concrete operations or checked shared
-evidence, independently of whether the selected body is Script or Native. Runtime receives the
-resulting executable links/evidence, not a method name to resolve with a trait solver. Selection
-and new runtime application behavior remain outside this HIR redesign; preserve existing paths.
-Reflection lookup and callback string dispatch are not substitutes.
-
-Native declaration identity is independent of Runtime-GC versus Host management. Do not classify
-HIR Native declarations as ScriptManaged/NativeManaged/ExternalHost; those earlier proposed
-categories mixed declaration kind with execution ownership. Preserve existing representation and
-ABI facts at their required compiler/binding boundaries until their consumers are adjusted;
-unifying declarations is not permission to erase current Host identity/path or safety checks.
-Opaque<T> is a Rust owning handle, not an extra script type. HIR models Player and reference
-applications targeting Player, not duplicate Player declarations for each storage/access form.
-
-### Language built-ins versus Native types
-
-**User decision:** String and Range belong to language built-ins, like numeric types in ownership
-of their semantics, not to the ordinary Native type family. Built-in does not mean scalar: Range
-and reference/array constructors keep their own structured type rules.
-
-- String resolves to the existing builtin String type; Range resolves to the existing range type
-  constructor with its kind/element rules. Literals and explicit type annotations must agree.
-- NativeTypeKind currently mixes ordinary Native storage/Host descriptions with String, Range
-  and Reference constructor mappings. Move frontend builtin interpretation to the language/type
-  semantic owner; registration may still supply methods and validated declaration correspondence.
-  Keep existing arity, eligibility, identity and installation validation, not spelling-based magic.
-- A Rust-implemented method on String or Range is a Native function on a builtin type. It does not
-  make that type a native type declaration. Exported declarations and direct inputs must resolve
-  these types identically, without declaring a fake Native String/Range or adding a second type.
-- Recognize Ref/RefMut under the reference-type owner and preserve their explicit target/access
-  representation. Do not implement new reference behavior or an open-ended intrinsic constructor DSL.
-  Failure variants, language roles and conversion derivation retain their existing semantic owners.
-
-### Native fields (in scope)
-
-**User decision:** Native types may expose fields, including Kagari-managed Native objects.
-This supersedes the earlier NativeManaged-is-always-opaque rule. After scope narrowing, this
-phase implements declarations, HIR lookup/type/writeability checks and exported-declaration
-parsing; new runtime read/write adapters are a follow-up, not silently included. The intended
-field behavior remains recorded here. The declaration view may expose:
-
-```text
-pub native type Player {
-    var hp: i32,
-    val object: Object,
-}
-```
-
-- Fields describe a script interface, not Rust layout, offsets or unrestricted references.
-  An opaque declaration may omit fields; exposure is explicit and follows normal visibility.
-- Reading a scalar copies its value. Reading an object field of an ordinary managed Player
-  returns an ordinary Object handle, not Ref<Object> or RefMut<Object>.
-- var permits field replacement; val forbids replacement, not mutation through the returned
-  object's otherwise writable interface. Assignment checks use the declared field type and
-  existing evaluation/commit/trap order.
-- Common HIR/type checking owns field lookup, types and writeability. Compiler and portable
-  contracts carry checked field accesses; Rust bindings supply matching read/write adapters.
-  Runtime preserves object identity, roots and mutation publication. Nested object handles must
-  retain required storage/ownership; no unprotected interior Rust pointer may escape.
-- Build exports contain these same field declarations; analyzer parses them and consumes common
-  semantic results. This is ordinary typed field access, not a change to deferred reflection APIs.
-
-### Native callable declaration views
-
-**Required coverage:** every script-exposed Host-provided function, inherent method, associated
-function and trait implementation has an explicit declaration/relationship in the common model
-and a corresponding navigable API view. Unregistered Rust members are not discovered implicitly.
-
-Use ordinary impl syntax; mark the individual function whose implementation is Native:
-
-```text
-use app::traits::Damageable;
-
-pub native type Player {
-    var hp: i32,
-    val object: Object,
-}
-
-impl Player {
-    pub native fn new(hp: i32) -> Self;
-    pub native fn heal(self, amount: i32);
-}
-
-impl Damageable for Player {
-    native fn damage(self, amount: i32);
-}
-```
-
-The imported trait remains an ordinary Kagari declaration at its actual owner, for example:
-
-```text
-pub trait Damageable {
-    fn damage(self, amount: i32);
-}
-```
-
-| Declaration | Script use | Meaning |
-| --- | --- | --- |
-| Free native fn | answer() | Ordinary free function, Rust implementation |
-| Native fn without self in impl Player | Player::new(100) | Associated function; new is not special constructor syntax |
-| Native fn with self in impl Player | player.heal(10) | Inherent instance method |
-| impl Damageable for Player with Native member | player.damage(10), or a checked trait-bound call | Ordinary trait implementation with Rust-provided method body |
-
-- No native impl/native trait category or receiver-loan attributes are needed. A Native type may
-  have Script methods; a Script type may have a Native implementation where the existing safe
-  binding model supports it. Do not infer member implementation kind from type provenance.
-- Trait members inherit trait visibility and match its checked signatures/binders/bounds;
-  inherent members retain ordinary visibility. Associated trait functions also omit self.
-  Render generic impls, method binders, where bounds and associated type/constant assignments
-  using ordinary Kagari declaration forms, not Rust-only selector strings.
-- Native marks each supplied implementation, not the whole impl. Ordinary Script members may
-  coexist. Inherited defaults retain their actual trait body and navigation target; do not emit
-  synthetic Native copies or display a Script default as an unsatisfied Required method.
-- Imported/source-defined traits keep their actual definition identity and source navigation.
-  A generated impl references that trait; it must not manufacture a second trait declaration.
-- Each member has its own declaration DefinitionId for provider binding and display mapping;
-  impl metadata records receiver/interface/arguments and associated bindings. Normal checking
-  validates the relationship. Neither rendered spelling nor matching a Rust method name binds code.
-
-These examples specify proposed build-exported declarations parsed by tooling, not approval for
-user-authored Native declarations in ordinary source. The referenced trait is analyzed from its
-original source or the complete Script definition exported by its owning library, including
-Rust-embedded source. Never strip default bodies or emit duplicate/synthetic implementations.
+Declared fields specify types, visibility and var/val, not Rust offsets or unrestricted references.
+Reading an ordinary managed object field has an ordinary object-handle type; it does not insert
+Ref wrappers. Val prevents slot replacement, not mutation through another permitted alias.
+Frontend field support does not implement new Runtime access adapters; unsupported executable
+Native-field routes reject explicitly. Existing Host paths keep their own checked access semantics.
 
 ### Ref / RefMut: recognition now, behavior later
 
-**Updated user decision:** include builtin recognition, constructor/target resolution and explicit
-HIR/semantic reference-type records in this migration. Parse/structured-input tests assert the
-same target identity and Shared/Mutable distinction; no new executable feature is provided.
-Do not add borrowing syntax, runtime loans, reference field projection, implicit conversions,
-method/trait forwarding or lifetime/escape capabilities. Preserve existing supported routes and
-all their scoped-reference, Host path and borrow checks; recognition is not blanket admission.
+Ref/RefMut use ordinary type-application parsing and identity-based constructor resolution. Their
+semantic records retain the exact target and Shared/Mutable access, with existing target/position
+eligibility and execution checks. No new borrowing, conversion, projection, forwarding, escape or
+alias-analysis capability is implemented. Ordinary Native self is not a Rust receiver loan.
 
-The following behavior remains recorded future direction, not new implementation requirements:
-
-- Ref<T> / RefMut<T> are built-in, namespaced semantic wrappers for scoped Rust locations,
-  not script-owned Rust references. Exact namespace/spelling remains a follow-up decision;
-  ordinary generic path parsing is sufficient. Only eligible Rust target mappings are admitted.
-- Static checking enforces target types and access capabilities: RefMut<T> may be used as Ref<T>,
-  but not conversely. Passing one RefMut<T> twice to two mutable parameters passes static
-  checking; actual overlapping loans trap at runtime before callback entry. No static alias solver.
-- Handles encode location/capability and validity, not a continuously held Rust loan. Runtime
-  checks scope/generation and overlapping paths, including parent/child overlap; failure releases
-  reservations. Creating or copying a handle does not create a live Rust &mut T.
-- A scalar field read returns a value. Object-field projection from Ref<Player> yields Ref<Object>;
-  projection from RefMut<Player> yields RefMut<Object>. Parent capability limits access; val
-  prevents field replacement, not automatically a mutable projection through a mutable parent.
-  Ordinary managed Native parents still yield ordinary object handles, without wrappers.
-- Common semantic analysis would own projection types; LSP would consume them. Native Rust
-  adapter loans must not become mandatory call_access attributes on ordinary trait methods.
-  Existing receiver-access placement needs review, not expansion into a new language constraint.
-
-Native field semantics must not depend on new reference behavior. Unsupported new uses remain
-unsupported or report explicit diagnostics; they must not gain fake bodies, unchecked access or
-success merely because a reference type can now be represented.
-
-### Mixed input example
-
-```text
-app::model source: trait Readable { fn read(self) -> i32; fn twice(self) -> i32 { ... } }
-host::counter input: NativeManaged Counter; impl Readable for Counter { Native read }
-```
-
-Collect the actual Readable and Counter headers, check their impl/default and applicable Native contracts
-together, then bind Rust to the checked read/helper declarations. The default is an ordinary
-Script call to a Native helper; no per-impl synthetic function or NativeDefaultApplication.
-Forwarding elimination is optional optimization, not a correctness prerequisite or free-frame claim.
-
-If the script trait does not exist at Rust build time, keep the dependent authoring/binding
-request explicitly pending outside checked contracts. Finalize against the actual source owner
-in source-enabled compilation/preparation; Runtime cannot finalize it. An independently checked
-subclosure may be produced separately, but unfinished requests never certify the whole library.
-Preserve existing exact importer-specific admission for a referenced private script trait when
-Host composition supplies it; expected contracts are comparison obligations, not substitute trait
-definitions or general source visibility. Contract changes invalidate reuse even without calls.
+Future reference behavior may expose scoped location handles whose actual overlapping loans are
+checked at callback entry, not continuously held Rust references. A future child projection must
+preserve parent capability, path overlap, scope/generation and cleanup; val constrains replacement
+rather than blanket object immutability. Whether and how reference methods forward remains open.
+These directions cannot silently become callable trait requirements or field-execution acceptance.
 
 ## 4. Checked libraries and Rust providers
 
@@ -838,9 +358,10 @@ accompanies the declaration files; it is not a second binary semantic input requ
   remain separately embedded/consumed and independently verified; .kgr is not their replacement.
   Directory refresh does not authorize a new LSP scheduler or incremental compiler.
 
-The shared declaration-input boundary and equivalent analysis belong to current NM02/NM03.
-Build export, directory publication/configuration and watch/refresh integration are deferred;
-they have no implementation phase in the current HIR plan. Neither route is implemented yet.
+Direct structured lowering and explicit offline declaration analysis are implemented; see the
+[HIR input contracts](architecture/hir.md#native-declaration-inputs-and-origins). Build export,
+directory publication/configuration and watch/refresh integration remain deferred. Their export
+encoding must preserve the current static sidecars, not only pretty declaration signatures.
 
 ### Production versus installation
 
@@ -860,41 +381,28 @@ valid, not Runtime authority. Some dynamic environments still need first-admissi
 
 ## 7. Replacement boundaries and acceptance
 
-The [execution plan](native-model-plan.md#execution-phases) owns current HIR-only phase exits.
-Replace obsolete frontend representations directly; preserve existing registration/execution
-protocols as active boundaries, not hypothetical compatibility APIs. Do not require a new
-LibraryContracts/NativeProvider model, NativeDefault wire/execution migration or binary product
-producer to complete this change.
+The frontend replacement is complete within its scoped ownership. Native fields and equivalent
+structured/parsed analysis do not imply new Runtime execution, provider products, binary formats,
+GC adapters or startup improvements. Ordinary defaults, reflection/output, source-free validation,
+roots, cancellation and reload retain their existing owners and guarantees.
 
-The decisive witness analyzes the same API from direct structured input and parsed external
-.kgr declarations, each together with user source: Native type fields, inherent/associated
-functions and a Native impl of a real Kagari trait. Assert equivalent field/call types, var/val
-checks, trait selection and diagnostic kinds; exported documents provide navigation locations.
-No Rust implementation, running Host or new binary artifact is required for offline analysis.
-Do not claim new Runtime field execution from passing frontend checks.
-
-Existing Script defaults, reflection/output handling, source-free validation, GC/reentry,
-cancellation, snapshots and reload remain intact. Preserve semantic/body inventories and
-initializer/root/liveness evidence independently of optional source. Full pipeline redesign and
-performance improvements are deferred, not hidden acceptance requirements.
+Representative current contracts are independently asserted at the HIR/analyzer/compiler/SDK
+owners. Exact source packaging, installed binding agreement and malformed input rejection remain
+separate from successful frontend analysis. The roadmap records actual local checks and CI limits;
+no full-workspace, exhaustive backend/platform or performance acceptance is implied.
 
 ## 8. Review decisions and limits
 
-Current review decisions: explicit native syntax with unified parsing and semantic input admission;
-shared unchecked declaration input;
-ordinary HIR function/type/field/impl ownership; direct references with common accessibility;
-real structured/exported-source origins; and equivalent static analysis without Runtime bindings.
-There is no signature-only Script-default export requirement: analyze actual trait source.
-Resolve any remaining caller-relevant Native restrictions explicitly at their semantic owner,
-not through fake bodies, hidden grammar modes or unchecked assumptions.
+Current decisions are explicit unified Native syntax, ordinary HIR ownership, checked exact
+exposures, real/optional source origins and common analysis without Runtime bindings. The exact
+Rust records differ from earlier review sketches; current model rustdoc owns those structures.
 
-Required consumer adjustments must preserve actual Native binding/access and current executable
-behavior. If a frontend change proves inseparable from a new Runtime capability, stop that slice
-and explicitly revisit scope rather than silently starting whole-stack migration.
-The historical NM00 baseline has carried failures; see the plan before acceptance. Sections 4–6
-retain future direction only: their product schemas, prebuild/binary-versus-generated-code choice,
-producer/bootstrap, installation/caching and directory publication need separate authorization.
-Ref/RefMut redesign, output/reflection extraction, GC changes and LSP scheduling are also deferred.
+Remaining directions require separate authorization: registration/provider products, reusable
+preparation and generic/link caches, binary versus generated-code prebuild representation,
+producer/bootstrap and HOST/TARGET configuration, standalone MIR/shared libraries, export-sidecar
+encoding, directory publication/refresh, and new Ref behavior. Existing preparation/workflow is
+active, not an obsolete compatibility reader. Preserve these discussions while keeping follow-up
+scope finite at the existing roadmap owner.
 
 ## References
 

@@ -1,6 +1,6 @@
 # Reading HIR Data and Analysis
 
-`kagari-hir` owns source meaning and recoverable semantic analysis. `kagari-analyzer`
+`kagari-hir` owns source and structured declaration meaning and recoverable semantic analysis. `kagari-analyzer`
 owns protocol-neutral editor queries; `kagari-lint` owns optional lint projections.
 HIR contains more than the `hir/` node model: lowering, import/name resolution, type
 checking and snapshot publication have separate owners. The
@@ -29,7 +29,7 @@ keeps workloads, measurement boundaries and limitations separate from API guaran
 
 | Owner | Input and output |
 | --- | --- |
-| `hir`, `lower`, `source_map` | AST becomes owner-qualified structural nodes plus source sites; lowering does not infer types. |
+| `hir`, `lower`, `source_map`, `native::structured` | Parsed source or owned structured declarations become owner-qualified structural nodes plus source/structured origins; lowering does not infer types. |
 | `declarations`, `resolver`, `imports` | Declaration identities, lexical bindings and cross-module namespaces. |
 | `aggregates`, `semantic` | Shared nominal/signature contracts and immutable published body facts. |
 | `typeck` | Temporary inference and constraint state produces those facts and positive completion evidence. |
@@ -67,7 +67,7 @@ Start with [LoweredModule](../../crates/kagari-hir/src/lower.rs),
 
 ```text
 LoweredModule
-+-- source: Arc<SourceFile> -> text, identity, revision
++-- source: Arc<SourceFile> -> source text/identity/revision, or a logical registration key
 +-- module: Module
 |   +-- functions, consts, statics, structs, enums, traits, impls, ...
 |   +-- attributes: Vec<AttributeFact> -> typed declaration/member targets
@@ -76,7 +76,7 @@ LoweredModule
 |       +-- exprs:    Vec<(HirOwner, ExprData)>
 |       +-- stmts:    Vec<(HirOwner, StmtData)>
 |       `-- blocks, places, patterns, types: analogous owner-tagged vectors
-`-- source_map: SourceMap -> ID-keyed source byte sites (dense or explicit maps)
+`-- source_map: SourceMap -> ID-keyed source byte sites or structured declaration origins
 ```
 
 These arrows describe owned fields except the explicitly shared `Arc`. A body
@@ -93,7 +93,7 @@ reviewed inline capacities; ID checks and allocation behavior are unchanged.
 | `ExprId`, `StmtId`, `BlockId`, `PlaceId`, `PatternId`, `TypeRefId` | Carry `LoweringId`, owner and an allocation-wide index; `Body` checks lowering/owner and indexes its vector. |
 | `ParamId` | Carries lowering/owner and a position in `Function.params`; `Module::parameter` checks the function and stored identity. `SourceMap` explicitly registers the complete ID's span. |
 | `LocalId` | Carries lowering/owner and a source-map-wide index. Binding syntax lives in patterns or closure parameters; semantic maps use the complete ID. |
-| `FieldId`, `VariantId` | Carry lowering, enclosing struct/enum ID and member slot; look up the owner's nested member vector. |
+| `FieldId`, `VariantId` | Carry lowering, enclosing declaration owner and member slot; fields belong to a struct or Native type, variants to an enum. Look up the owner's nested member vector. |
 | `UseId` | Selects one authored declaration in Module.uses, including recovery with no import leaves. Its range selects Module.imports leaves without changing resolution. |
 | `AttributeTarget` | Item/member/use identity in the matching module. Methods name FunctionId; inline associated members name trait/impl plus category-list position. It is not a cross-lowering identity. |
 | `SourceDeclRef` | Carries a full `SourceUnit` plus a declaration handle for cross-module access. Do not index the importing module with it. |
@@ -111,12 +111,15 @@ mutation remains distinct from rebinding the parameter.
 Cloning/reusing one lowering retains its `LoweringId`; fresh lowering creates a new one.
 Existing `arena` fields/accessors name this identity, not a bump allocator. The graph uses
 ordinary owned `Vec`/`String` storage; no external-arena or borrowed-HIR redesign is involved.
-`SourceUnit` additionally records a context-owned module handle, source file and
-revision. Logical module identity is not the same as a physical filename. Even
-when file/revision/arena are identical, a handle from an independent context is
-foreign. Reusing a lowering in that context requires rebuilding its graph. See
-[source maps](../../crates/kagari-hir/src/source_map.rs) for node/declaration byte ranges;
-analyzer derives reference-token/path sites separately. Synthetic nodes may have empty ranges.
+`SourceUnit` additionally records a context-owned module handle, file key and
+revision. For a source-less registration the current graph retains an empty
+`SourceFile` at a `kagari-registration://...` logical key; it is not a physical
+source document or declaration surface. Even when file/revision/arena are identical,
+a handle from an independent context is foreign. Reusing a lowering in that context
+requires rebuilding its graph. See
+[source maps](../../crates/kagari-hir/src/source_map.rs) for node/declaration origins;
+analyzer derives reference-token/path sites only from real source. Empty internal
+ranges on structured nodes do not authorize navigation or debug source spans.
 
 HIR types, declarations, signatures and checked-call facts use fixed `DefinitionId`
 fields. Their Rust models have no parameter selecting paths versus IDs. A
@@ -903,8 +906,9 @@ Declaration/signature caches share authoritative owned records with live query v
 only weak graph/query handles. Signature records retain their checked imported types and
 updated definition prefix, not the earlier declaration-stage environment. Full-file results
 are weakly indexed; their expired bundles are rechecked. Native preparation strongly caches
-validated adopted registration/source/parse and reconstructs fresh graph-local attachments
-without reparsing. Neither database caches nor database clones strongly retain HIR. Reuse
+validated adopted registrations and any explicitly supplied source/parse, then reconstructs
+fresh graph-local attachments. Structured inputs require neither rendering nor parsing;
+source-backed inputs reuse their retained parse. Neither database caches nor database clones strongly retain HIR. Reuse
 requires a live exact old graph; retaining IDs/records alone cannot establish compatibility.
 With no retained result, the next standalone query rebuilds/checks graphs. This is the current
 cache policy, not a requirement of HIR ownership. The completed responsibility/identity
@@ -926,9 +930,10 @@ lowers attached ModuleBlock items directly; it neither masks text nor invokes th
 parser for a child. Position queries retain original UTF-8/CRLF offsets and route
 them to the corresponding logical analysis.
 
-FileDeclarations::syntax and FileAnalysis::syntax return
-[ModuleSyntax](../../crates/kagari-syntax/src/ast/module.rs), a root-or-inline view.
-Its item/descendant traversal includes child headers and excludes child bodies.
+`FileDeclarations::syntax`, `FileSignatures::syntax` and `FileAnalysis::syntax` return
+`Option<ModuleSyntax>`: a matching root-or-inline view for source-backed inputs, or
+`None` for structured registrations. [ModuleSyntax](../../crates/kagari-syntax/src/ast/module.rs)
+item/descendant traversal includes child headers and excludes child bodies.
 Attributes, documentation and lint use that boundary; signature/body surface
 comparisons use logical extents and explicitly translate physical offsets.
 An independently supplied inline source must match a body extent in its retained
@@ -974,6 +979,134 @@ alias templates retain exact comparison; an inherited foreign trait is not local
 merely because its contract is unchanged. Current declarations supply navigation,
 and whole-file/unchanged-query sharing still requires exact revision/arena equality.
 
+## Native declaration inputs and origins
+
+Native and Script declarations share the owned HIR category tables, ordinary
+function/parameter/member links, resolution and checking. The input paths differ,
+not the type checker:
+
+```text
+ModuleDecl + scoped provider records -> direct HIR construction --+
+real exported .kgr + static sidecars -> parse and lower ----------+-> shared checking
+ordinary user source ----------------> parse and lower ----------+
+```
+
+[Structured lowering](../../crates/kagari-hir/src/native/structured.rs) records
+`DefinitionId` to HIR-item correspondence during allocation. The default
+`AnalysisDatabase::set_native_modules` path does not render declarations or invoke
+the parser. [PreparedRegistration](../../crates/kagari-hir/src/native/api/preparation.rs)
+retains owned inputs and only weak handles to live lowerings; rebuilding an expired
+graph allocates fresh node tables rather than reusing old graph-local maps.
+Explicit `set_native_sources` instead checks supplied complete documents against
+registration, parses/lowers them and attaches the corresponding installed facts.
+Rendering is an optional presentation mechanism, not mandatory declaration authority.
+
+### Callable and type ownership
+
+[FunctionImplementation](../../crates/kagari-hir/src/hir/item/function.rs) has exactly
+three structural forms: `Required`, `Script(BlockId)` and `Native(NativeContract)`.
+A required trait member is not a Native stub. Native free functions, receiver methods
+and associated functions use ordinary `Function` records and trait/impl ownership;
+parameters, generic binders, bounds and result syntax stay on those records.
+`NativeContract` retains ordered operation requirements and an optional concrete
+result using scoped `NativeCallableRequirement`/`Ty` records. Shared recursive checking
+validates category, arity, binder scope, bounds, associated-member ownership and
+concrete-result conformance; an exact ID is not prechecked semantic success.
+Rust callbacks, storage implementations and Host call policy remain outside HIR.
+[Checked signatures](../../crates/kagari-hir/src/semantic/signatures.rs) separately
+distinguish `NativeDeclaration` from `Native(NativeBinding)`: an offline signature
+has no installed binding. This distinction does not add a fourth structural HIR form.
+
+Structured `TypeKind::Definition` inputs retain a requested
+[DefinitionExposure](../../crates/kagari-hir/src/hir/ty.rs), and resolution records
+the selected route. For a public re-export `api::Public` of private
+`api::hidden::Secret`, the reference must use an accessible route to that exact
+identity, not bypass privacy by supplying Secret's ID. Without an explicit route,
+resolution may select a unique reachable public exposure. Dependency membership,
+visibility, category, exact arity and bounds still apply in the common checker.
+
+[NativeTypeDeclaration](../../crates/kagari-hir/src/hir/item/adt.rs) owns nominal
+interface fields with ordinary `FieldId`, visibility, type and `Var`/`Val` writeability.
+Field reads preserve the declared value type: a scalar remains a scalar, while an
+ordinary managed object field yields an object handle, not a reference wrapper.
+These frontend facts supply no Rust offsets or field adapters. Unsupported Native
+field execution remains rejected by executable lowering/admission; existing checked
+Host path routes remain distinct. Declaring a field does not enable a new Runtime route.
+
+Builtin interpretation is separate from nominal Native classification. Explicit
+constructor metadata recognizes String, Range and `Ref<T>`/`RefMut<T>` by declaration
+identity, not spelling. Reference types retain the target and `Shared`/`Mutable`
+access. Existing target eligibility and boundary restrictions remain; recognition
+adds no borrowing, projection, implicit conversion or method forwarding.
+
+### Offline source and scoped static sidecars
+
+[ExternalModule](../../crates/kagari-hir/src/analysis/external.rs), supplied through
+`set_external_modules`, owns a real `.kgr` source with its semantic module identity,
+optional alias/prelude and explicit dependencies. One grammar parses ordinary and
+Native syntax; input admission, not a parser mode, controls where Native declarations
+are legal. Complete Script definitions, including default bodies, remain Script even
+when authored in Rust or distributed beside Native signatures. A signature cannot
+replace an unavailable Script body; direct registration requires complete supplied
+source for Script implementations it cannot construct.
+
+Source owns declarations, fields, bounds and bodies. The sidecars encode only static
+facts absent from syntax:
+
+- `ExternalType` identifies constructors or storage interpretation; mixed registered/
+  external inputs validate constructor shape/arity and require a unique defining
+  module for each builtin constructor. A same-named user type gains no builtin
+  interpretation.
+- Scoped `TraitDef` evidence describes actual foundation role shapes and conversion
+  adapters. `language_foundation` requests role admission, but identity, origin,
+  uniqueness, completeness and parsed member-shape checks still apply. Ordinary traits
+  need no sidecar; a copied `#[lang]` attribute is not sufficient.
+- [ExternalHost](../../crates/kagari-hir/src/analysis/external/evidence.rs) carries an
+  explicit Host root and complete schema/path closure. It preserves Host identity,
+  field/path access and existing async/reference restrictions instead of treating
+  Host values as ordinary owning Native objects. Parsed fields must match the schema;
+  shared schemas must agree across the mixed scope.
+- Exceptional method policies and scoped `NativeContract` records preserve receiver/
+  override restrictions, ordered operations and concrete results. Definition scopes
+  are explicitly imported before attachment; sidecar IDs are not ambient authority.
+
+These inputs can analyze actual foundation arithmetic, iteration, conversion and
+Host paths without an execution registry. They supply neither `NativeBinding`,
+installed trait authority nor engine-owned implementations. Successful offline
+analysis does not authorize compiler admission or Runtime installation; the checked
+compiler handoff explicitly rejects offline declaration modules. The caller supplies
+the inputs: this API does not discover, publish or watch an export directory.
+
+### Origins and the same call through each input path
+
+For example, consider the same `api::answer()` call against a hypothetical registered
+`pub native fn answer() -> i32;`:
+
+| Input path | Work and observable source metadata |
+| --- | --- |
+| Former mandatory generated view | Render registration to `.kgr`, parse it, lower and check the call; generated text was required even without a navigation consumer. |
+| Current default structured registration | Construct HIR directly from `ModuleDecl`, then resolve/check the call. There is no render/parse step in HIR and no physical declaration source to navigate to. |
+| Offline library input | Parse a real exported `.kgr` file, attach any required static sidecars, then resolve/check the same call. Navigation points into that exact retained file, but no executable binding is acquired. |
+
+The parameter/result and call checks are preserved; omitting source metadata is not
+omitting validation. [DeclarationOrigin](../../crates/kagari-hir/src/declarations.rs)
+is the canonical declaration attribution: `Source(FileSpan)` or
+`Structured { declaration }`. `Declaration::source_location()` returns `None` for
+the latter. [NodeOrigin](../../crates/kagari-hir/src/source_map/origin.rs) and
+`SourceMap` preserve the matching node attribution;
+`LoweredModule::source_surface()` and syntax queries are likewise optional. An
+empty logical registration key is not a zero-length physical declaration. Diagnostics
+and documentation retain structured identity without fabricated file locations;
+source navigation and debug capture use only real source spans. A separately rendered
+SDK view does not silently replace the structured declaration's canonical origin.
+
+This separation follows matching Rust mechanisms, not Rust's lifetime model:
+[ForeignItemKind and TraitFn](https://github.com/rust-lang/rust/blob/5f4effd579500175af844241eb179e756190f1e7/compiler/rustc_hir/src/hir.rs)
+separate bodyless foreign signatures from required/provided trait members, and
+[AST lowering](https://github.com/rust-lang/rust/blob/5f4effd579500175af844241eb179e756190f1e7/compiler/rustc_ast_lowering/src/lib.rs)
+records definition correspondence during construction. Kagari retains its own owned
+category tables, scoped identities, GC and explicit execution/binding checks.
+
 ## Checked handoff and registered inputs
 
 [CheckedAnalysis](../../crates/kagari-hir/src/lib.rs) represents the checked
@@ -985,23 +1118,20 @@ closure to produce `CheckedCompilation`; a checked single module alone is not a
 compiler input. HIR does not generate bytecode, verify MIR or run functions/static
 initializers.
 
-For where non-source declarations enter this flow, follow
-[native declaration import](../../crates/kagari-hir/src/native/api.rs),
-[generated source views](../../crates/kagari-hir/src/native/render.rs),
+[Native input ownership](#native-declaration-inputs-and-origins) distinguishes direct
+registrations, optional checked source views and offline declarations. Follow
+[native registration attachment](../../crates/kagari-hir/src/native/api.rs),
 [validated language roles](../../crates/kagari-hir/src/language/items.rs) and
-[builtin bridges](../../crates/kagari-hir/src/builtin.rs). The runnable semantic
-examples install `kagari_stdlib::catalog::shared()` explicitly, as required by the
-current foundation contract.
-
-Native types and methods use the same source-unit names, declaration identities,
-call checking and namespace lookup as source declarations. Analysis retains no
-separate host callable/type catalog or host revision; shared schema and binding
-facts remain attached to their installed native declarations.
+[builtin bridges](../../crates/kagari-hir/src/builtin.rs) for the implementation.
+The runnable semantic examples install `kagari_stdlib::catalog::shared()` explicitly,
+as required by the current foundation contract. Shared schema and installed binding
+facts stay at their explicit declaration/registration boundaries; source text alone
+cannot manufacture them.
 
 Registered native defaults follow an additional checked path:
 
 ```text
-NativeDefaultApplication recipe -> generated trait method with a tail call
+NativeDefaultApplication recipe -> Script trait method with a forwarding tail call
 FunctionId -> body BlockId -> tail ExprId -> ordinary ResolvedCall
 TypeTable.native_default_call(FunctionId) -> that call after recipe/bound validation
 CheckedModule.native_default_call(FunctionId) -> admitted NativeDefaultCall
@@ -1009,10 +1139,21 @@ instance planner -> selected native entry (no extra script frame)
 ```
 
 The implementing type receives no synthetic HIR function. Signature queries expose
-the method signature without claiming body validation; SDK preparation checks all
-generated bodies, including unused defaults. A retained snapshot keeps its proof
-and HIR node tables together. Source-free linking validates the portable recipe without
-depending on this HIR table.
+the method signature without claiming body validation. Direct lowering constructs the
+forwarding nodes without parsing text; an explicit source view retains the corresponding
+real forwarding body. SDK preparation checks the closed source-independent providers,
+including unused defaults; source-dependent providers are checked with the user's source.
+A retained snapshot keeps its proof and HIR node tables together. Source-free linking
+validates the portable recipe without depending on this HIR table.
+
+Executable compilation does not require complete authored source. If any module lacks
+`source_surface()`, the compiler omits the complete source manifest rather than treating
+logical registration keys or rendered presentation as authored documents. Ordinary
+executable preparation/export remains valid. Exact source-package construction and SDK
+`retain_source`/exact-splice requests require the original complete checked manifest;
+otherwise they report `SourcePackageError::MissingManifest`. Rendering files later cannot
+retrofit evidence onto that executable. See
+[source package ownership](../architecture.md#source-package-inputs).
 
 
 Ordinary interface relationships are owned by

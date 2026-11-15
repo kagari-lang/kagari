@@ -2,8 +2,10 @@
 
 The installed `core`/`alloc`/`std` foundation defines complete language types and
 protocols. Its 26 language traits and 15 other foundation traits are explicit
-standard-library registrations. Their generated source is parsed and checked
-against the installed declarations and validated language roles. The installed providers supply their checked native implementations; Runtime owns
+standard-library registrations. Structured records lower directly into shared HIR checking;
+explicit offline or materialized `.kgr` views use the same parser and checker with static
+language-role evidence. Text alone supplies no executable binding. The installed providers
+supply their checked native implementations; Runtime owns
 only builtin values and execution/safety mechanisms. Optional
 library modules and application modules use the same explicit registration API;
 see [native declarations](standard-declarations.md). Generated `.kgr` serves tooling

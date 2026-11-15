@@ -712,33 +712,17 @@ no actionable introduced bug in the binding, scope, navigation or member-checkin
 its focused tests also pass. Strict private-item HIR/analyzer rustdoc, all four HIR
 doctests, final diff and documentation-link checks pass.
 
-**Outstanding acceptance:**
-
-- Baseline `imports::tests::types::body_edit_cannot_reuse_signatures_after_transitive_type_change`
-  fails at `crates/kagari-hir/src/imports/tests/types.rs:88`, expecting reuse after dropping
-  the initial snapshot. Since `10ef6a15c`, weak retention correctly forces fresh checking.
-  Reproduced on original `c96148ea4`; a temporary probe retaining the initial snapshot passes
-  on original/current code. No cache-policy change or baseline-test repair is included.
-  The HIR reuse-test owner must reconcile the lifetime assumption without weakening
-  transitive-type invalidation. Reproduce with
-  `cargo test -p kagari-hir --lib imports::tests::types::body_edit_cannot_reuse_signatures_after_transitive_type_change -- --exact`.
-- `cargo fmt --all -- --check` is blocked by untouched
-  `crates/kagari-syntax/src/ast/tokens.rs`; workspace all-target Clippy reports
-  `needless_range_loop` at `crates/kagari-compiler/src/bytecode/placement.rs:110`.
-  These remain syntax/compiler-owner follow-ups, not authorized unrelated repairs.
-  Both required commands were rerun after HR08 and fail only at these known findings;
-    required workspace acceptance is not green.
-- NM00 additionally found kagari-runtime --lib cannot compile: module/tests/enum_declarations.rs
-  still calls documentation/module_documentation on HIR DeclarationSnapshot (E0599 at 107/112)
-  after query extraction. Fix the test's analyzer query consumer at this boundary; do not widen
-  HIR again. The three selected runtime Native cases were blocked before execution.
-- Exhaustive workspace tests and feature/backend/platform matrices remain CI-only and pending.
+**Acceptance limits:** the historical dropped-snapshot assertion, syntax formatting, placement
+Clippy and Runtime documentation test-consumer blockers were repaired during the Native frontend
+integration. The reuse scenario now distinguishes dropped-graph rebuilding from retained-snapshot
+reuse while preserving transitive invalidation and a fresh-analysis oracle. Current required local
+quality gates and directly affected regressions pass. Full workspace and exhaustive feature/backend/
+platform coverage remain CI-only and pending; local acceptance is not a full CI claim.
 
 **Separate deferred work:** [inline identities](hir-model-review.md#finite-inline-identity-follow-up),
-[cache retention](hir-model-review.md#cache-policy-is-separate),
-[Native model replacement](#native-model-replacement), incremental parsing, finer body
-reuse/reclamation and LSP scheduling. The Native queue below owns its NM execution plan;
-NC restoration keeps its existing owner.
+[cache retention](hir-model-review.md#cache-policy-is-separate), incremental parsing, finer body
+reuse/reclamation and LSP scheduling. [Native frontend ownership](#native-model-replacement) is
+implemented; broader Native products and NC restoration retain their separate follow-up owners.
 
 ## Compilation cancellation polling
 
@@ -1223,32 +1207,42 @@ host facade redesign and VM/backend expansion remain independent work.
 
 ## Native model replacement
 
-The [design](native-model-design.md) and [scoped execution plan](native-model-plan.md) now target
-Native HIR representation and declaration parsing/analysis only. User review withdraws the earlier
-unstarted whole-stack NM01–NM07 sequence. The user subsequently authorized unattended NM01–NM04
-implementation and phase commits. NM01's integrated frontend substrate, NM02 syntax/editor
-acceptance and NM03 direct/offline/SDK/source-free integration are complete locally; NM04 final
-documentation consolidation remains.
+The scoped NM01–NM04 frontend replacement is implemented and locally accepted. Current contracts
+live in [HIR inputs/origins](architecture/hir.md#native-declaration-inputs-and-origins),
+[Native declarations](spec/standard-declarations.md#declaration-analysis-inputs),
+[unified syntax](spec/syntax.md#native-declarations) and [embedding](spec/embedding-api.md).
+The completed execution plan is retired; Git history owns its phase ledger and historical NM00
+measurements. No startup or callback speedup is claimed.
 
-Compilation lowers Rust structured declarations directly; offline analyzer parses exported .kgr
-into the same declaration-input model and analyzes it with user source. Include function kinds,
-Native type fields, var/val and object-handle typing, methods/associated functions, ordinary trait
-impls and matching diagnostics/navigation. Adjust syntax/shared vocabulary/current consumers only
-where needed; no new Runtime field execution is implied by frontend field support.
-Ref/RefMut recognition and explicit target/Shared-or-Mutable records are included; new borrowing,
-projection, conversion, forwarding and execution features remain deferred.
+Direct ModuleDecl lowering records identities during construction; explicitly supplied exported
+source plus scoped static sidecars uses the same HIR/checker without installed bindings. Functions
+retain Required/Script/Native, Native fields share owner-qualified field records and var/val rules,
+and Ref/RefMut retain exact targets/access without new operations. Optional parses and canonical
+structured origins do not invent source locations or complete implementation-source manifests.
+Default SDK preparation uses direct inputs; explicit materialized views retain checked navigation.
 
-Registration/provider redesign, binary or generated-code prebuilding, MIR/shared-library products,
-build.rs/bootstrap, installation/caches, directory publication/watch, output/reflection extraction
-and new Ref/RefMut behavior are deferred. Retain those discussion results in the same design, not as
-current phase requirements. Preserve existing execution, reference and source-free safety.
+**Local evidence:** focused HIR native/contract/external equivalence (including actual foundation,
+Host paths, constructor conflicts and selected public exposures), analyzer queries, compiler exact
+source/source-free fields, SDK preparation/update/session and Runtime declaration/scalar/lifetime
+selections pass. SDK source-free artifacts run in a separate frontend-disabled build; actual
+source-free Cranelift execution and native-only SDK checking pass. Generic identity, DTO/handle
+semantics, synchronous Host reentry and retained-closure reload samples pass. Syntax/formatter tests,
+generated editor assets, Tree-sitter/Zed/TextMate/shared checks and required structure, workspace
+fmt, workspace all-target Clippy and diff gates pass. The existing optional blake3 Cargo manifest
+warning remains; it is not a Clippy failure. Complete workspace tests, exhaustive backend/feature/
+platform and actual-editor/WASM-host matrices remain CI-only/unrun locally.
 
-The historical NM00 baseline's formatting, placement lint, Runtime documentation test-consumer
-and dropped-snapshot reuse blockers are repaired. Current focused HIR/analyzer/compiler/Runtime/
-stdlib/SDK selections and required local gates pass; see the plan for exact selections and limits. A same-process stage-cost
-sample is recorded in the plan, not claimed as cold-process or Rust-callback performance.
-[HIR acceptance blockers](#hir-storage-and-attribute-refactor), NC restoration, general provider
-hot-swap, cache-retention policy and backend expansion remain at their separate owners.
+The NM00 syntax-spacing, placement lint, Runtime documentation-consumer and dropped-weak-snapshot
+reuse-test blockers are repaired without changing cache retention. The unchanged collection import
+sample still fails before execution on missing Vec; its exact reproduction and restoration remain
+with [NC](native-collections-plan.md), not a Native frontend regression or passing execution sample.
+
+**Deferred:** [the existing design](native-model-design.md#4-checked-libraries-and-rust-providers)
+retains registration/provider products, prebuild binary versus generated-code representation,
+standalone MIR/shared libraries, HOST/TARGET producer/bootstrap, preparation/link caches and
+export-sidecar encoding/directory publication/refresh. New Native field adapters, Ref operations,
+output/reflection extraction and broader LSP scheduling require separate scope. No new queue,
+Runtime-to-HIR dependency, format/ABI bump or provider installation redesign is implied.
 
 ## Numeric standard library
 

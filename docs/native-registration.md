@@ -5,7 +5,10 @@ They do not infer the script API from Rust signatures. This guide covers the run
 [authoring API](../crates/kagari-runtime/src/native/assembly.rs); the
 [declaration specification](spec/standard-declarations.md) defines the preserved
 contracts and [architecture](architecture.md#unified-library-registration) defines
-ownership. Generated `.kgr` files are analysis/navigation views, not another producer.
+ownership. Default SDK analysis lowers structured registrations directly; generated
+`.kgr` files are presentation views, not a required registration round trip or
+another signature authority. Explicit supplied/materialized views retain their
+parsed/validated route.
 
 ## Choose the authoring boundary
 
@@ -344,7 +347,58 @@ charge does not grant arbitrary editing. See the
 [host accounting contract](spec/host-interop.md#native-payload-accounting) and
 [runtime coverage](spec/runtime.md#gc-heap).
 
+## Analysis and declaration presentation
+
+Registration is the authority for installed bindings, independently of how a tool
+presents declarations. The current analysis choices are:
+
+- `AnalysisDatabase::set_native_modules`: owned `ModuleDecl` records lower directly
+  into common HIR, then undergo ordinary resolution and checking. Declaration-to-HIR
+  identity correspondence is constructed with the nodes, not recovered from text.
+- `set_native_sources`: explicitly supplied complete views are parsed and checked
+  against their paired registrations before Native metadata attaches. This remains
+  the source-backed navigation route, not the default compilation requirement.
+- `set_external_modules`: offline `ExternalModule` source is parsed alongside
+  project source. Scoped sidecars supply static constructor, Host schema/path,
+  foundation/conversion trait, exceptional method-policy and ordered Native
+  operation/concrete-result facts absent from syntax. Successful analysis grants
+  no installed bindings, executable admission or Runtime installation authority.
+
+The [declaration-input contract](spec/standard-declarations.md#declaration-analysis-inputs)
+includes explicit `native fn ...;` / `native type ...;` / field-bearing Native type
+syntax, field typing and the sidecar inventory. Ordinary Script definitions and
+defaults must remain complete, including embedded source: signatures or placeholder
+bodies are not substitutes. Registered NativeDefault forwarding stays checked
+Script HIR with separate binding evidence. Native field support is frontend typing,
+not a new Runtime field adapter. Ref/RefMut retain explicit target/access recognition
+without adding borrowing, projections, conversions or forwarding.
+
+Source-enabled engines use the direct route unless the host sets
+`builder.declaration_cache(path)` before `build()`. The SDK still renders
+`engine.native_declaration_sources()` presentation views in either case. With no
+cache directory these stay in memory and are not fed back through the parser;
+structured declarations retain docs and identities, but syntax/source locations
+may be absent. Documentation queries do not require a physical owning source.
+With a cache directory, the existing SDK route pairs generated views with the
+registrations, checks them (including unused defaults), and publishes immutable
+content/version-addressed files with parsed navigation ranges. Declarations that
+need user-source trait providers are checked with that source snapshot, rather
+than pretending those providers exist at engine construction. See the
+[materialization example](spec/standard-declarations.md#engine-source-presentation).
+
+These are current APIs, not a new exporter, directory watcher, publication protocol
+or provider product. Neither a generated URI nor an offline sidecar can select a
+Rust implementation, grant layout access or replace installation validation.
+
 ## The standard bundle and runtime boundaries
+
+Engine and Runtime constructors start with no Native providers. Install
+`kagari_stdlib::modules()` explicitly when the application needs the standard
+bundle; the SDK has no production stdlib dependency. `with_native_modules` likewise
+uses only its supplied modules. Concrete Vec/HashMap/HashSet providers are currently
+deferred to the separate NC collection restoration, not implicitly added by this
+registration/analysis work. The two-owner example above explicitly obtains standard
+authoring providers; its engine integration also requires their installation.
 
 The standard library's private [Bundle](../crates/kagari-stdlib/src/assembly.rs)
 retains one collected semantic projection and one terminal preparation result.

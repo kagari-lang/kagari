@@ -70,11 +70,12 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   views, demand-built indexes and the compiler/lint boundary. The arena/reference migration
   is withdrawn and cache policy is unchanged. [Review notes](hir-model-review.md) retain only
   separate inline-identity/cache follow-ups.
-- [Native HIR proposal](native-model-design.md): Rust structured declarations and parsed exported
-  .kgr declarations enter common HIR/checking. The [scoped NM00–NM04 plan](native-model-plan.md)
-  covers representation, fields/member semantics, declaration parsing and analyzer inputs;
-  implementation awaits approval. Registration/Runtime/prebuild and directory publication are
-  deferred, not current phase requirements. Reflection and Ref/RefMut behavior stay unchanged.
+- [Native HIR inputs and origins](architecture/hir.md#native-declaration-inputs-and-origins):
+  implemented direct structured input and parsed external `.kgr` analysis share HIR/checking,
+  field/member semantics and explicit optional source attribution. Local acceptance and CI limits
+  live in the [roadmap](implementation-roadmap.md#native-model-replacement). The
+  [Native design](native-model-design.md) retains deferred registration/provider/prebuild and
+  directory-publication directions; new field execution, reflection and Ref behavior are not implied.
 
 - [Runtime architecture](architecture/runtime.md), [call walkthrough](architecture/runtime/calls.md)
   and [reload walkthrough](architecture/runtime/reload.md): implemented exclusive
