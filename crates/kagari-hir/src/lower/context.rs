@@ -56,6 +56,10 @@ impl Lowerer {
             .into_iter()
             .map(|slot| slot.expect("completed function lowering"))
             .collect();
+        // Trait/impl lowering visits member categories rather than authored order.
+        self.module
+            .attributes
+            .sort_by_key(|attribute| attribute.span.start);
         (self.module, self.source_map)
     }
 

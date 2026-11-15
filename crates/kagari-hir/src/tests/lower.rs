@@ -1,5 +1,9 @@
 use crate::{
     hir::{
+        attribute::{
+            AssociatedOwner, AttributeArgument, AttributeForm, AttributePayload, AttributeTarget,
+            AttributeValue,
+        },
         expr::ExprKind,
         ids::{BodyOwner, HirOwner},
         item::{Item, function::FunctionKind},
@@ -9,11 +13,13 @@ use crate::{
         ty::TypeKind,
         writeability::Writeability,
     },
-    lower::{AttributeArgument, AttributeForm, AttributePayload, AttributeValue},
     tests::common,
 };
-use kagari_source::source::SourceFile;
-use kagari_syntax::parser::{self, ParseMode, ParseOptions};
+use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile};
+use kagari_syntax::{
+    ast::views::ItemView,
+    parser::{self, ParseLimits, ParseMode, ParseOptions},
+};
 use kagari_types::visibility::Visibility;
 use std::sync::Arc;
 
@@ -73,33 +79,112 @@ fn declaration_only_functions_do_not_acquire_script_bodies() {
 }
 
 #[test]
-fn attributes_preserve_structured_metadata_and_target_ranges() {
+fn attributes_preserve_structured_metadata_and_typed_targets() {
     let source = include_str!("../../tests/fixtures/lower/attributes.kgr");
     let lowered = common::lower_ok(source);
-    let [bare, empty_args, attribute, empty_list] = lowered.attributes.as_slice() else {
-        panic!("four attribute facts expected");
+    let [bare, empty_args, attribute, empty_list, rest @ ..] = lowered.module.attributes.as_slice()
+    else {
+        panic!("attribute facts expected");
     };
+    let module = &lowered.module;
+    let contract = &module.traits[0];
+    let implementation = &module.impls[0];
+    let trait_owner = AssociatedOwner::Trait(contract.id);
+    let impl_owner = AssociatedOwner::Impl(implementation.id);
+    let function = AttributeTarget::Item(Item::Function(module.functions[0].id));
+    assert_eq!(
+        module
+            .attributes
+            .iter()
+            .map(|fact| fact.target)
+            .collect::<Vec<_>>(),
+        [
+            function,
+            function,
+            function,
+            AttributeTarget::Field(module.structs[0].fields[0].id),
+            AttributeTarget::Use(module.uses[0].id),
+            AttributeTarget::Item(Item::Trait(contract.id)),
+            AttributeTarget::AssociatedConst {
+                owner: trait_owner,
+                index: 0
+            },
+            AttributeTarget::AssociatedType {
+                owner: trait_owner,
+                index: 0
+            },
+            AttributeTarget::Item(Item::Function(contract.methods[0].function)),
+            AttributeTarget::AssociatedConst {
+                owner: trait_owner,
+                index: 1
+            },
+            AttributeTarget::Item(Item::Impl(implementation.id)),
+            AttributeTarget::AssociatedType {
+                owner: impl_owner,
+                index: 0
+            },
+            AttributeTarget::AssociatedConst {
+                owner: impl_owner,
+                index: 0
+            },
+            AttributeTarget::Item(Item::Function(implementation.methods[0].function)),
+        ]
+    );
+    assert!(
+        module
+            .attributes
+            .windows(2)
+            .all(|pair| pair[0].span.start < pair[1].span.start)
+    );
+    assert_eq!(contract.associated_consts[0].name, "REQUIRED");
+    assert_eq!(contract.associated_consts[0].initializer, None);
+    assert_eq!(contract.associated_types[0].name, "Output");
+    assert_eq!(contract.associated_types[0].ty, None);
+    let default = module.constant(contract.associated_consts[1].initializer.unwrap());
+    assert_eq!(default.name, "DEFAULT");
+    assert_eq!(module.consts.len(), 2);
+    assert!(
+        !module
+            .attributes
+            .iter()
+            .any(|fact| matches!(fact.target, AttributeTarget::Item(Item::Const(_))))
+    );
+    assert_eq!(module.uses.len(), 1);
+    assert_eq!(module.uses[0].imports, 0..2);
+    assert_eq!(module.imports[0].segments, ["sample", "first"]);
+    assert_eq!(module.imports[1].local_name(), Some("other"));
+    for (fact, expected) in [
+        (&rest[0], "#[meta]\nuse sample::{ first, second as other };"),
+        (&rest[2], "#[meta]\n    const REQUIRED: i32;"),
+        (&rest[3], "#[meta]\n    type Output;"),
+        (&rest[4], "#[meta]\n    fn method(self);"),
+    ] {
+        let range = lowered.source_map.attribute_target_span(fact.target);
+        assert_eq!(&source[range.start..range.end], expected);
+    }
     assert_eq!(bare.form, AttributeForm::Bare);
     assert_eq!(empty_args.form, AttributeForm::Arguments(Vec::new()));
     assert_eq!(
         empty_list.form,
         AttributeForm::Value(AttributeValue::List(Vec::new()))
     );
-    for fact in &lowered.attributes {
+    for fact in &lowered.module.attributes {
         assert_eq!(fact.name, "meta");
     }
-    assert_eq!(bare.target_span, attribute.target_span);
-    assert_eq!(empty_args.target_span, attribute.target_span);
+    assert_eq!(bare.target, attribute.target);
+    assert_eq!(empty_args.target, attribute.target);
+    let field_span = lowered.source_map.attribute_target_span(empty_list.target);
     assert_eq!(
-        &source[empty_list.target_span.start..empty_list.target_span.end],
+        &source[field_span.start..field_span.end],
         "#[meta =[]]\n    val value: i32"
     );
     assert_eq!(
         &source[attribute.span.start..attribute.span.end],
         "#[meta(name = \"answer\", tags = [1, true, sample:: /* qualifier */ tag])]"
     );
+    let declaration = lowered.source_map.attribute_target_span(attribute.target);
     assert_eq!(
-        &source[attribute.target_span.start..attribute.target_span.end],
+        &source[declaration.start..declaration.end],
         source.split_once("\n\n").unwrap().0
     );
     assert_eq!(
@@ -147,11 +232,11 @@ fn attributes_preserve_structured_metadata_and_target_ranges() {
         unclosed_value,
         unclosed_bare,
         malformed_value,
-    ] = lowered.attributes.as_slice()
+    ] = lowered.module.attributes.as_slice()
     else {
         panic!(
             "nine retained attribute facts expected: {:?}",
-            lowered.attributes
+            lowered.module.attributes
         );
     };
     assert_eq!(missing.form, AttributeForm::Value(AttributeValue::Missing));
@@ -231,6 +316,59 @@ fn attributes_preserve_structured_metadata_and_target_ranges() {
         "#[meta(1]"
     );
     assert_eq!(lowered.module.structs[0].fields.len(), 4);
+    for (fact, field) in [
+        unclosed_args,
+        unclosed_value,
+        unclosed_bare,
+        malformed_value,
+    ]
+    .into_iter()
+    .zip(&lowered.module.structs[0].fields)
+    {
+        assert_eq!(fact.target, AttributeTarget::Field(field.id));
+    }
+    // Exhaustion after the use keyword retains an authored declaration with no tree/leaves.
+    let source = Arc::new(SourceFile::new(
+        "use-recovery.kgr",
+        include_str!("../../tests/fixtures/lower/attributes_use.kgr"),
+    ));
+    let parsed = parser::parse(
+        &source,
+        ParseOptions {
+            limits: ParseLimits {
+                max_nesting: 0,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        &cancel,
+    )
+    .unwrap();
+    assert!(
+        parsed.diagnostics().iter().any(|diagnostic| matches!(
+            diagnostic.kind,
+            DiagnosticKind::CompileLimitExceeded { .. }
+        ))
+    );
+    let syntax = parsed.module();
+    let ItemView::UseDecl(declaration) = syntax.items().next().unwrap() else {
+        panic!("recovered use expected")
+    };
+    assert!(declaration.tree().is_none());
+    let lowered = crate::lower::lower_module_controlled(source.clone(), &syntax, &cancel);
+    let [recovered_use] = lowered.module.attributes.as_slice() else {
+        panic!("one recovered use attribute expected")
+    };
+    assert_eq!(recovered_use.form, AttributeForm::Bare);
+    assert_eq!(lowered.module.uses.len(), 1);
+    let recovered = &lowered.module.uses[0];
+    assert_eq!(recovered_use.target, AttributeTarget::Use(recovered.id));
+    assert_eq!(recovered.imports, 0..0);
+    assert!(lowered.module.imports.is_empty());
+    let range = lowered
+        .source_map
+        .attribute_target_span(recovered_use.target);
+    assert_eq!(&source.text()[range.start..range.end], "#[meta]\nuse");
 }
 
 #[test]
@@ -443,7 +581,6 @@ pub const VERSION: i32 = 1;
 
 #[test]
 fn inline_ast_lowering_owns_only_its_items_and_attributes() {
-    use kagari_syntax::ast::views::ItemView;
     let source = Arc::new(SourceFile::new(
         "inline.kgr",
         "// π\r\n#[meta] mod a { #[meta] fn f() {} mod b { #[meta] fn g() {} } }",
@@ -462,8 +599,29 @@ fn inline_ast_lowering_owns_only_its_items_and_attributes() {
     let view = child.body().unwrap();
     let lowered = crate::lower::lower_module_controlled(source.clone(), &view, &Default::default());
     assert!(root.module.functions.is_empty());
-    assert_eq!(root.attributes.len(), 1);
-    assert_eq!(lowered.attributes.len(), 1);
+    let [root_attribute] = root.module.attributes.as_slice() else {
+        panic!("root attribute expected")
+    };
+    assert_eq!(
+        root_attribute.target,
+        AttributeTarget::Item(Item::Module(root.module.modules[0].id))
+    );
+    let [child_attribute] = lowered.module.attributes.as_slice() else {
+        panic!("child attribute expected")
+    };
+    assert_eq!(
+        child_attribute.target,
+        AttributeTarget::Item(Item::Function(lowered.module.functions[0].id))
+    );
+    let range = lowered
+        .source_map
+        .attribute_target_span(child_attribute.target);
+    assert_eq!(&source.text()[range.start..range.end], "#[meta] fn f() {}");
+    assert_eq!(
+        &source.text()[child_attribute.span.start..child_attribute.span.end],
+        "#[meta]"
+    );
+    assert!(Arc::ptr_eq(&source, &lowered.source));
     assert_eq!(lowered.module.functions.len(), 1);
     assert_eq!(lowered.module.functions[0].name, "f");
     assert_eq!(lowered.module.modules.len(), 1);
@@ -503,6 +661,32 @@ fn local_function_rows_preserve_owners_and_module_membership() {
             assert!(lowered.module.block(block).statements.iter().any(|stmt|
                 matches!(lowered.module.stmt(*stmt).kind, StmtKind::Function(id) if id == function.id)));
         }
+    }
+    assert_eq!(
+        lowered
+            .module
+            .attributes
+            .iter()
+            .map(|fact| fact.target)
+            .collect::<Vec<_>>(),
+        [
+            AttributeTarget::Item(Item::Function(functions[1].id)),
+            AttributeTarget::Item(Item::Function(functions[2].id)),
+            AttributeTarget::Item(Item::Function(functions[5].id)),
+        ]
+    );
+    for fact in &lowered.module.attributes {
+        let AttributeTarget::Item(Item::Function(id)) = fact.target else {
+            panic!("function target expected")
+        };
+        assert!(matches!(
+            functions[id.index()].kind,
+            FunctionKind::Local { .. }
+        ));
+        assert_eq!(
+            lowered.source_map.attribute_target_span(fact.target),
+            lowered.source_map.function_span(id)
+        );
     }
     assert_eq!(functions[1].generic_params.len(), 1);
     assert_eq!(functions[1].generic_params[0].name, "U");

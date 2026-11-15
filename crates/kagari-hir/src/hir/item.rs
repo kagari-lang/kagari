@@ -1,6 +1,7 @@
 //! Module declaration collections and handles into their shared HIR storage.
 
 use crate::hir::{
+    attribute::AttributeFact,
     body::Body,
     expr::ExprData,
     ids::{
@@ -13,7 +14,7 @@ use crate::hir::{
         alias::TypeAlias,
         behavior::{ImplBuffer, TraitBuffer},
         function::{FunctionBuffer, FunctionKind, Param},
-        module::{ImportBuffer, ModuleDeclBuffer},
+        module::{ImportBuffer, ModuleDeclBuffer, UseDecl},
         storage::{ConstBuffer, ConstItem, StaticBuffer, StaticItem},
     },
     pattern::PatternData,
@@ -63,6 +64,10 @@ pub mod storage;
 /// additional export collection here.
 #[derive(Debug, Clone, Default)]
 pub struct Module {
+    /// Uninterpreted attributes in authored source order, attached to typed identities.
+    pub attributes: Vec<AttributeFact>,
+    /// Authored use declarations indexed by `UseId`, including recovery with no leaves.
+    pub uses: Vec<UseDecl>,
     /// Top-level declaration handles in source order; import leaves are stored separately.
     pub items: ItemBuffer,
     /// Function declarations indexed by `FunctionId`, including trait/impl methods.

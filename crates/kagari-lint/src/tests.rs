@@ -218,7 +218,7 @@ fn pre_cancelled_lint_returns_no_findings() {
 #[case::declaration_naming_and_trait_contracts(include_str!("../tests/fixtures/rules/declaration-naming-and-trait-contracts.kgr"), &[("non_upper_camel_case", 7), ("KG_LINT_POLICY", 0), ("non_upper_case_globals", 1), ("non_snake_case", 5), ("unused_parameter", 0)])]
 #[case::local_function_usage_and_lexical_policy(include_str!("../tests/fixtures/rules/local-function-usage-and-lexical-policy.kgr"), &[("unused_binding", 1), ("unused_parameter", 2), ("non_snake_case", 1)])]
 #[case::eligible_static_initializers(include_str!("../tests/fixtures/rules/eligible-static-initializers.kgr"), &[("non_upper_case_globals", 1), ("non_snake_case", 1), ("unused_binding", 1), ("unnecessary_var", 1), ("KG_LINT_POLICY", 0)])]
-#[case::valid_names_and_malformed_policy(include_str!("../tests/fixtures/rules/valid-names-and-malformed-policy.kgr"), &[("KG_LINT_POLICY", 4), ("non_upper_camel_case", 0), ("non_upper_case_globals", 0), ("non_snake_case", 1), ("unused_parameter", 1), ("unused_binding", 1)])]
+#[case::valid_names_and_malformed_policy(include_str!("../tests/fixtures/rules/valid-names-and-malformed-policy.kgr"), &[("KG_LINT_POLICY", 5), ("non_upper_camel_case", 0), ("non_upper_case_globals", 0), ("non_snake_case", 1), ("unused_parameter", 1), ("unused_binding", 1)])]
 fn ordinary_rules(#[case] source: &str, #[case] expected: &[(&str, usize)]) {
     let (_, _, snapshot, root) = analyze(&[("root", source)], 100);
     snapshot.check_program(root, &Default::default()).unwrap();

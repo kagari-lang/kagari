@@ -150,6 +150,11 @@ fn missing_duplicate_unknown_and_malformed_roles_are_rejected() {
             "unknown reserved role",
         ),
         ("#[lang = \"eq\"]", "#[lang(\"eq\")] ", "expected #[lang"),
+        (
+            "#[lang = \"eq\"]",
+            "#[lang = \"eq\"] pub const MISPLACED: i32 = 0;",
+            "role requires a trait declaration",
+        ),
     ] {
         let diagnostics = check_core(|source| *source = source.replace(from, to));
         assert!(diagnostics.iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidLanguageRole { reason: actual, .. } if actual.contains(reason))), "{diagnostics:?}");

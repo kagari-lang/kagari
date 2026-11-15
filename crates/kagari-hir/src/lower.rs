@@ -20,20 +20,10 @@ use kagari_common::{
         ModuleIdentity,
         table::{DefinitionId, DefinitionTable},
     },
-    span::Span,
 };
 use kagari_source::source::SourceFile;
 use kagari_syntax::{
-    ast::{
-        borrow::Ast,
-        item::{
-            Attribute, AttributeArg, AttributePayload as AstAttributePayload,
-            AttributeValue as AstAttributeValue,
-        },
-        misc::Path,
-        module::ModuleSyntax,
-        site::{Required, SeparatedList},
-    },
+    ast::module::ModuleSyntax,
     parser::{ParseOptions, parse},
 };
 use kagari_types::{
@@ -46,6 +36,7 @@ use std::{
     sync::Arc,
 };
 
+mod attribute;
 pub(crate) mod context;
 mod expr;
 mod identity;
@@ -60,7 +51,6 @@ mod ty;
 /// +-- source: Arc<SourceFile>       // retained text + identity/revision
 /// +-- module: Module               // declaration vectors + shared Body
 /// +-- source_map: SourceMap        // matching arena, ID -> source byte sites
-/// +-- attributes: [AttributeFact]  // syntax metadata, not executed code
 /// `-- registered_* / native_*      // installed declaration/provider facts
 /// ```
 ///
@@ -83,8 +73,6 @@ pub struct LoweredModule {
     pub module: Module,
     /// ID-aligned source positions sharing the module body's arena.
     pub source_map: SourceMap,
-    /// Structured source attributes with attribute and target ranges.
-    pub attributes: Vec<AttributeFact>,
     /// Whether this unit was imported from an installed native declaration module.
     pub(crate) registered_native_api: bool,
     /// Retained scope for attached Native registration facts; absent for ordinary source.
@@ -142,184 +130,6 @@ impl LoweredModule {
     }
 }
 
-/// A lowered attribute attached to a source item, without interpretation of its policy.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AttributeFact {
-    /// Attribute name as written; recovery may produce an empty name.
-    pub name: String,
-    /// Exclusive authored form, including missing values and retained recovery.
-    pub form: AttributeForm,
-    /// Byte range of the entire attribute.
-    pub span: Span,
-    /// Byte range of the syntax node to which the attribute is attached.
-    pub target_span: Span,
-}
-
-/// Exclusive attribute syntax; empty arguments differ from a bare attribute.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AttributeForm {
-    Bare,
-    Value(AttributeValue),
-    Arguments(Vec<AttributeArgument>),
-    /// Damaged outer syntax with at most one recognizable payload.
-    Malformed {
-        recovered: Option<AttributePayload>,
-    },
-}
-
-/// Recognizable syntax retained inside a malformed attribute, without another wrapper.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AttributePayload {
-    Bare,
-    Value(AttributeValue),
-    Arguments(Vec<AttributeArgument>),
-}
-
-/// A positional or named value within an attribute argument/list.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AttributeArgument {
-    /// Argument key; absent for a positional argument.
-    pub name: Option<String>,
-    /// Literal, path, nested list, missing value or malformed retained syntax.
-    pub value: AttributeValue,
-}
-
-/// Attribute syntax retained for consumers rather than evaluated during lowering.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AttributeValue {
-    /// Literal source spelling, including its original delimiters/suffix.
-    Literal(String),
-    /// Unresolved source path spelling.
-    Path(String),
-    /// Nested positional/named elements in source order.
-    List(Vec<AttributeArgument>),
-    /// A required assigned/argument value absent in recovered syntax.
-    Missing,
-    /// A retained AST error or a value whose required structure is damaged.
-    Malformed,
-}
-
-fn attribute_argument(arg: Ast<'_, AttributeArg>) -> AttributeArgument {
-    let value = match arg.value() {
-        Some(value) => attribute_value(value),
-        None => AttributeValue::Missing,
-    };
-    AttributeArgument {
-        name: arg.name_text(),
-        value,
-    }
-}
-
-fn attribute_value(value: Ast<'_, AstAttributeValue>) -> AttributeValue {
-    match value.data() {
-        AstAttributeValue::Literal(_) => AttributeValue::Literal(value.source_text().to_owned()),
-        AstAttributeValue::Path(path) if attribute_path_is_complete(path) => {
-            AttributeValue::Path(value.source_text().to_owned())
-        }
-        AstAttributeValue::List(list)
-            if list.close.as_ref().is_some()
-                && value.unexpected().next().is_none()
-                && attribute_separators_are_present(&list.elements) =>
-        {
-            AttributeValue::List(attribute_arguments(&list.elements, value.elements()))
-        }
-        AstAttributeValue::Path(_) | AstAttributeValue::List(_) | AstAttributeValue::Error(_) => {
-            AttributeValue::Malformed
-        }
-    }
-}
-
-fn attribute_path_is_complete(path: &Path) -> bool {
-    match path {
-        Path::Single(_) => true,
-        Path::Segmented(path) => path
-            .rest
-            .iter()
-            .all(|segment| segment.name.as_ref().is_some()),
-    }
-}
-
-fn attribute_separators_are_present(list: &SeparatedList<AttributeArg>) -> bool {
-    list.entries
-        .iter()
-        .all(|entry| !matches!(entry.separator, Some(Required::Missing { .. })))
-}
-
-fn attribute_arguments<'a>(
-    list: &SeparatedList<AttributeArg>,
-    mut arguments: impl Iterator<Item = Ast<'a, AttributeArg>>,
-) -> Vec<AttributeArgument> {
-    // Typed iterators omit missing entries; retain their original list positions.
-    list.entries
-        .iter()
-        .map(|entry| match entry.element {
-            Required::Present(_) => attribute_argument(arguments.next().expect("present argument")),
-            Required::Missing { .. } => AttributeArgument {
-                name: None,
-                value: AttributeValue::Missing,
-            },
-        })
-        .collect()
-}
-
-fn attribute_form(attribute: Ast<'_, Attribute>) -> AttributeForm {
-    let data = attribute.data();
-    let mut malformed = data.open.as_ref().is_none()
-        || data.close.as_ref().is_none()
-        || !data.path.as_ref().is_some_and(attribute_path_is_complete)
-        || attribute.unexpected().next().is_some();
-    // Dispatch on the raw payload: a written `=` with no value is not bare syntax.
-    let payload = match &data.payload {
-        None => AttributePayload::Bare,
-        Some(AstAttributePayload::Value { value, .. }) => AttributePayload::Value(match value {
-            Required::Missing { .. } => AttributeValue::Missing,
-            Required::Present(_) => {
-                attribute_value(attribute.value().expect("present assigned value"))
-            }
-        }),
-        Some(AstAttributePayload::Arguments(args)) => {
-            let view = attribute.args().expect("argument payload");
-            malformed |= args.close.as_ref().is_none()
-                || view.unexpected().next().is_some()
-                || !attribute_separators_are_present(&args.arguments);
-            AttributePayload::Arguments(attribute_arguments(&args.arguments, view.arguments()))
-        }
-    };
-    if malformed {
-        AttributeForm::Malformed {
-            recovered: Some(payload),
-        }
-    } else {
-        match payload {
-            AttributePayload::Bare => AttributeForm::Bare,
-            AttributePayload::Value(value) => AttributeForm::Value(value),
-            AttributePayload::Arguments(arguments) => AttributeForm::Arguments(arguments),
-        }
-    }
-}
-
-pub(crate) fn lower_attributes(
-    module: &ModuleSyntax,
-    cancel: &CancellationToken,
-) -> Vec<AttributeFact> {
-    let mut facts = Vec::new();
-    module.visit_owned(&mut |owner| {
-        if cancel.check().is_err() {
-            return false;
-        }
-        for attribute in owner.attributes() {
-            facts.push(AttributeFact {
-                name: attribute.name_text().unwrap_or_default(),
-                form: attribute_form(attribute),
-                span: context::token_span(&attribute),
-                target_span: owner.body_span(),
-            });
-        }
-        true
-    });
-    facts
-}
-
 /// Parses and lowers a source file using a fresh arena and default cancellation.
 ///
 /// This convenience entrypoint returns structural HIR, not parse diagnostics or
@@ -371,7 +181,6 @@ pub(crate) fn lower_module_controlled(
     module: &ModuleSyntax,
     cancel: &CancellationToken,
 ) -> LoweredModule {
-    let attributes = lower_attributes(module, cancel);
     let mut lowerer = Lowerer::new(cancel.clone());
     lowerer.lower_module(module);
     let (module, source_map) = lowerer.finish();
@@ -380,7 +189,6 @@ pub(crate) fn lower_module_controlled(
         source,
         module,
         source_map,
-        attributes,
         registered_native_api: false,
         native_definitions: None,
         native_import_namespaces: BTreeMap::new(),

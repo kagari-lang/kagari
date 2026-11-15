@@ -698,14 +698,19 @@ SnapshotId or node-level Arc model is required. Existing result/module sharing s
 HR00 records current data owners; HR01 fixes parameter identity: Function.params owns the
 records and parameter positions, while SourceMap registers their source sites instead of
 allocating module-wide parameter slots. Keep lowering/owner validation, semantic facts,
-edit remapping, Native bindings and checked compiler admission. HR02 reviews bounded inline
-identity/attribute attachment follow-ups; no universal node graph or automatic scope expansion.
+edit remapping, Native bindings and checked compiler admission. HR02 now attaches attributes
+to typed targets during lowering and stores them on Module. Authored uses have one identity
+across flattened leaves, and required associated members use owner/category slots. Role,
+alias and lint consumers no longer identify targets by span; no universal node graph or
+automatic scope expansion is included. Other inline-identity work remains deferred.
 Checkpoint commits remain authorized. HR00 records the narrowed scope. HR01 now implements
 function-local parameter positions, explicit source registration, checked structural/typed
 lookup and signature remapping. Sixteen focused HIR, two compiler and two SDK tests pass;
 structure, changed-file formatting, HIR Clippy and diff checks pass. Workspace fmt still fails
 in untouched syntax tokens.rs, and workspace Clippy at compiler placement.rs:110. Touched
-hir/ids.rs is formatted. Full workspace tests/matrices remain CI-only; acceptance is not all-green.
+hir/ids.rs is formatted. HR02's 49 selected HIR/lint/compiler/SDK tests pass, as do structure,
+changed-file formatting, HIR/lint Clippy, fixture and diff checks. Full workspace tests/matrices
+remain CI-only; acceptance is not all-green.
 
 The implemented syntax/semantic-record and Native-preparation splits remain in place, including
 current weak graph/query indexes. No-live-graph queries still rebuild/check; cache retention

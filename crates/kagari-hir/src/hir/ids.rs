@@ -182,6 +182,11 @@ pub enum HirOwner {
 }
 
 id_newtype!(
+    /// A lowering-local index identifying authored declarations in `Module.uses`.
+    /// One grouped or recovered use has one ID, independently of its import leaves.
+    UseId
+);
+id_newtype!(
     /// A lowering-local index identifying `Module.functions`.
     /// See the [identity families](crate::hir::ids) for allocation and validity rules.
     FunctionId

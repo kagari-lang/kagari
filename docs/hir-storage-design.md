@@ -3,8 +3,8 @@
 **Status:** scope narrowed by user decision. Keep the current owned, ID-linked HIR and
 category tables. The external-arena/direct-reference HA00/HA01 migration is withdrawn,
 not completed. Its outstanding lifetime/session proofs are no longer acceptance requirements.
-HR00 is recorded; HR01 is implemented with focused validation, but required workspace checks
-remain blocked as noted below. [Roadmap](implementation-roadmap.md#hir-storage-and-attribute-refactor)
+HR00 is recorded; HR01 parameters and HR02 attribute attachment are implemented with focused
+validation, but required workspace checks remain blocked as noted below. [Roadmap](implementation-roadmap.md#hir-storage-and-attribute-refactor)
 owns activation.
 
 ## Model and responsibilities
@@ -14,11 +14,13 @@ LoweredModule
 ├─ source                         exact source/provenance
 ├─ module
 │  ├─ items                       top-level declaration links in source order
+│  ├─ attributes                  payloads with typed declaration/member targets
+│  ├─ uses                        authored use identities and flattened leaf ranges
 │  ├─ functions / consts / ...     owning per-kind declaration Vecs
 │  ├─ Function.params             owning parameter records in call order
 │  └─ Body                        owning per-kind node Vecs, with owner tags
 ├─ source_map                     node/declaration IDs → source sites
-├─ attributes                     exclusive payload forms; attachment review below
+
 └─ existing Native metadata       unchanged registration semantics
 
 resolution / declarations / type checking
@@ -112,13 +114,48 @@ right.params[0].id = { lowering: A, owner: Function(right), index: 0 }
 Different owners distinguish the two parameters; SourceMap does not assign their positions.
 ```
 
-## Other bounded follow-ups
+## Attribute attachment
 
-- **Attributes:** exclusive bare/value/arguments/malformed forms are implemented. Preserve
-  missing values, empty lists, authored spellings and recovery. Attachment still uses
-  target_span; design a typed declaration/member target using existing identities before
-  changing it. A universal node table is not a prerequisite. Grouped imports need one
-  authored target despite flattened leaves; no new syntax/attribute targets are authorized.
+Module owns the source-ordered attribute list. Types live in hir::attribute, not lower;
+there is no compatibility reexport or retained target_span field.
+
+```rust
+struct AttributeFact {
+    name: String,
+    form: AttributeForm,
+    span: Span,
+    target: AttributeTarget,
+}
+
+enum AttributeTarget {
+    Item(Item), // Methods/local functions use the canonical FunctionId.
+    Use(UseId),
+    Field(FieldId),
+    Variant(VariantId),
+    AssociatedConst { owner: AssociatedOwner, index: usize },
+    AssociatedType { owner: AssociatedOwner, index: usize },
+}
+
+enum AssociatedOwner {
+    Trait(TraitId),
+    Impl(ImplId),
+}
+```
+
+Targets address records in the matching module: associated indices select the owner's
+member-category list, including requirements without definitions. One UseDecl owns the
+contiguous range of its flattened import leaves; grouped/recovered uses keep one identity,
+even with zero leaves. Initializer ConstItem rows do not duplicate associated attachments.
+
+Lowering attaches while constructing each known target; no independent AST attribute walk
+or span-to-declaration search remains. SourceMap.attribute_target_span reads existing item
+ranges or additional full member/use ranges. Attribute spans order facts and locate diagnostics;
+lexical policy containment still uses ranges, while child inheritance uses ModuleIdentity.
+Language roles require a typed trait target; aliases and lint also match typed targets.
+Payload recovery/unknown attributes/Native admission stay unchanged. Fields/variants remain
+unsupported lint policy targets, and no new parser syntax or attribute targets are enabled.
+
+## Other bounded follow-ups
 - **Inline identities:** audit generic parameters, local bindings and associated members
   for the same record-versus-source-slot confusion. Record concrete cases here before
   expanding implementation; they are not automatically included in the parameter slice.
@@ -142,7 +179,7 @@ These replace the withdrawn arena phases; earlier implementation commits remain 
 | --- | --- |
 | HR00: responsibilities | Recorded current owners, the parameter defect and finite scope; docs/comments only. |
 | HR01: parameters | Implemented function-local ParamId positions, explicit source registration, checked structural and typed lookup, and signature remapping. Focused checks pass; required workspace acceptance remains blocked below. |
-| HR02: scoped follow-ups | After HR01, review concrete inline-identity/attribute-target findings; implement only agreed cohesive slices. This is not permission for a graph rewrite. |
+| HR02: attributes | Implemented Module-owned facts and typed attachment during lowering; migrate role/alias/lint consumers and preserve recovery, grouped uses and inheritance. Inline-identity review remains separate, not permission for a graph rewrite. |
 
 HR01 should strengthen existing lowering, arena/owner-isolation, signature/body reuse and
 checked-input scenarios. Assert actual parameter records, types, owner/slot rejection and
@@ -162,6 +199,14 @@ Structure, changed-file formatting, HIR all-target Clippy and diff checks pass. 
 new fixtures pass kg fmt --check; the declaration-only fixture requires declaration parsing
 and the malformed-recovery witness preserves authored bytes. Direct traversal keeps using
 already-borrowed records; it does not redundantly resolve their IDs through Module.parameter.
+
+HR02 local evidence: 49 selected tests pass (lowering/roles/Native/alias/unknown-attribute
+ranges/cancellation, lint and compiler/SDK integration). Existing scenarios assert exact target
+sequences and payloads, field ranges, required associated members, single default attachment,
+grouped/empty uses, local functions and inline ownership. Variant syntax remains unsupported;
+no new variant-parser matrix is claimed. Four ordinary fixtures pass kg fmt --check; malformed
+bytes remain unchanged. Structure, changed-file formatting, HIR/lint all-target Clippy and diff
+checks pass. No speedup is measured; ordinary declaration ranges are not duplicated.
 
 On rustc 1.100.0, workspace fmt is blocked only by existing differences in untouched
 kagari-syntax/src/ast/tokens.rs; touched hir/ids.rs is formatted. Workspace Clippy still reports

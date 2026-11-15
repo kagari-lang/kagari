@@ -69,6 +69,8 @@ LoweredModule
 +-- source: Arc<SourceFile> -> text, identity, revision
 +-- module: Module
 |   +-- functions, consts, statics, structs, enums, traits, impls, ...
+|   +-- attributes: Vec<AttributeFact> -> typed declaration/member targets
+|   +-- uses: Vec<UseDecl> -> authored identities and contiguous import-leaf ranges
 |   `-- body: Body
 |       +-- exprs:    Vec<(HirOwner, ExprData)>
 |       +-- stmts:    Vec<(HirOwner, StmtData)>
@@ -89,6 +91,8 @@ Its name does not imply one allocation per function.
 | `ParamId` | Carries lowering/owner and a position in Function.params; Module.parameter checks the function and stored identity. SourceMap explicitly registers the complete ID's span. |
 | `LocalId` | Carries arena/owner and a source-map-wide index. Bindings live in patterns or closure parameters; semantic maps use the complete ID. |
 | `FieldId`, `VariantId` | Carry arena, enclosing struct/enum ID and member slot; look up the owner's nested member vector. |
+| `UseId` | Selects one authored declaration in Module.uses, including recovery with no import leaves. Its range selects Module.imports leaves without changing resolution. |
+| `AttributeTarget` | Item/member/use identity in the matching module. Methods name FunctionId; inline associated members name trait/impl plus category-list position. It is not a cross-lowering identity. |
 | `SourceDeclRef` | Carries a full `SourceUnit` plus a declaration handle for cross-module access. Do not index the importing module with it. |
 | `ModuleHandle` | A checked definition-table module root. Resolve through `names.catalog.definitions()` or `ModuleGraph.catalog.definitions()`; membership in the table alone does not declare a source namespace. |
 | `DefinitionId` | Interpreted by its matching immutable definition-table prefix; distinct from all lowering-local IDs. Exact owned paths belong to explicit authoring/display queries. |
@@ -973,8 +977,16 @@ member/index writes read the receiver without rebinding its slot, while direct a
 compound assignments count slot writes. Rule consumers decide whether those facts
 warrant a diagnostic. HIR does not own rule names, severity or suppressions.
 
-`FileAnalysis::scoped_attributes` exposes uninterpreted declaration spans and logical
-child-module identities. An attribute on `mod child;` therefore identifies the same
-module as an external `child.kgr`, rather than relying on physical range containment.
-Inline child contents belong to their own analysis. The linter owns supported policy
-targets and argument/ID validation; ordinary language checking preserves tool metadata.
+Module owns [attribute facts](../../crates/kagari-hir/src/hir/attribute.rs). Lowering binds
+each fact directly to its declaration/member ID and preserves source order; it does not
+collect a second AST walk or recover targets by matching spans. Associated requirements
+without defaults keep their member target, and grouped uses keep one authored target.
+SourceMap supplies full ranges by typed target, reusing ordinary item spans and storing
+additional member/use ranges only where needed.
+
+`FileAnalysis::scoped_attributes` exposes the typed fact, its declaration range and an
+optional logical child-module identity selected directly by ModuleId. An attribute on
+`mod child;` therefore identifies the same module as an external `child.kgr`, rather than
+relying on physical range containment. Inline child contents belong to their own analysis.
+The linter owns supported target kinds and argument/ID validation without rewalking AST;
+ranges still delimit lexical effects. Ordinary language checking preserves tool metadata.

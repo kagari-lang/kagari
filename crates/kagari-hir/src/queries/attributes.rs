@@ -1,22 +1,20 @@
 //! Declaration policy sites and module identities, without interpreting tool policy.
 
-use crate::{analysis::FileAnalysis, lower::AttributeFact};
+use crate::{
+    analysis::FileAnalysis,
+    hir::{
+        attribute::{AttributeFact, AttributeTarget},
+        item::Item,
+    },
+};
 use kagari_common::{identity::ModuleIdentity, span::Span};
 
-/// A declaration site in this file or the identity of a declared child module.
-#[derive(Debug, Clone)]
-pub enum AttributeTarget {
-    Declaration(Span),
-    Module {
-        identity: ModuleIdentity,
-        declaration: Span,
-    },
-}
-
-/// One attribute and its HIR-owned declaration/module scope.
+/// One attribute, its full declaration/member range, and optional child-module scope.
+/// The typed target remains on `attribute`; ranges serve lexical containment only.
 pub struct ScopedAttribute<'a> {
     pub attribute: &'a AttributeFact,
-    pub target: AttributeTarget,
+    pub declaration: Span,
+    pub module: Option<ModuleIdentity>,
 }
 
 impl FileAnalysis {
@@ -26,23 +24,24 @@ impl FileAnalysis {
     pub fn scoped_attributes(&self) -> Vec<ScopedAttribute<'_>> {
         let lowered = &self.result().facts().lowered;
         lowered
+            .module
             .attributes
             .iter()
             .map(|attribute| {
-                let child = lowered.module.modules.iter().find(|module| {
-                    lowered.source_map.module_span(module.id) == attribute.target_span
-                });
-                let target = if let Some(child) = child {
+                let module = if let AttributeTarget::Item(Item::Module(id)) = attribute.target {
+                    let child = &lowered.module.modules[id.index()];
+                    assert_eq!(child.id, id, "module declaration slot mismatch");
                     let mut identity = self.source().module_identity().clone();
                     identity.path.push(child.name.clone());
-                    AttributeTarget::Module {
-                        identity,
-                        declaration: attribute.target_span,
-                    }
+                    Some(identity)
                 } else {
-                    AttributeTarget::Declaration(attribute.target_span)
+                    None
                 };
-                ScopedAttribute { attribute, target }
+                ScopedAttribute {
+                    attribute,
+                    declaration: lowered.source_map.attribute_target_span(attribute.target),
+                    module,
+                }
             })
             .collect()
     }

@@ -4,9 +4,10 @@ use crate::{
     DiagnosticBuffer,
     aggregates::{AggregateCatalog, implementations::ImplementationSearchError},
     declarations::Declarations,
-    hir::ids::{BodyOwner, HirOwner, TypeRefId},
     hir::{
-        item::{alias::TypeAlias, behavior::AssociatedType},
+        attribute::AttributeTarget,
+        ids::{BodyOwner, HirOwner, TypeRefId},
+        item::{Item, alias::TypeAlias, behavior::AssociatedType},
         ty::TypeKind,
     },
     imports::types::aliases::{CanonicalAlias, alias_references},
@@ -65,8 +66,8 @@ pub(crate) fn prepare(
             );
         }
     }
-    let invalid_attribute = lowered.attributes.iter().find(|attribute| {
-        attribute.target_span == lowered.source_map.type_alias_span(alias.id)
+    let invalid_attribute = lowered.module.attributes.iter().find(|attribute| {
+        attribute.target == AttributeTarget::Item(Item::TypeAlias(alias.id))
             && attribute.name != "meta"
             && !attribute.name.starts_with("tool::")
     });

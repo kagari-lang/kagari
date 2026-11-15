@@ -66,8 +66,9 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
 - [HIR responsibilities and identity](hir-storage-design.md): preserve current owned category
   tables and ID links; align record ownership, parameter positions and source metadata.
-  The arena/reference graph migration is withdrawn. Function-local parameter identity is
-  implemented; existing cache behavior stays unchanged. [Native model review](hir-model-review.md) remains deferred.
+  Function-local parameter identity and Module-owned, typed attribute attachment are implemented.
+  The arena/reference migration is withdrawn; cache behavior stays unchanged.
+  [Native model review](hir-model-review.md) remains deferred.
 
 - [Runtime architecture](architecture/runtime.md), [call walkthrough](architecture/runtime/calls.md)
   and [reload walkthrough](architecture/runtime/reload.md): implemented exclusive

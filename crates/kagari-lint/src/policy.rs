@@ -8,19 +8,14 @@ use kagari_common::{
 };
 use kagari_hir::{
     analysis::FileAnalysis,
-    lower::{AttributeFact, AttributeForm, AttributeValue},
-    queries::attributes::AttributeTarget,
+    hir::attribute::{AttributeFact, AttributeForm, AttributeTarget, AttributeValue},
 };
 use kagari_source::{
     diagnostic::Severity, identity::FileSpan, literal::decode_string_literal,
     presentation::DiagnosticRecord,
 };
-use kagari_syntax::ast::visit::NodeRef;
 use serde::Deserialize;
-use std::{
-    cmp::Reverse,
-    collections::{BTreeMap, HashSet},
-};
+use std::{cmp::Reverse, collections::BTreeMap};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -53,29 +48,6 @@ pub(crate) fn scopes(
     cancel: &CancellationToken,
 ) -> Result<Vec<Scope>, Cancelled> {
     // The linter owns accepted policy targets; HIR supplies uninterpreted scopes.
-    let mut targets = HashSet::new();
-    for node in file.syntax().descendants() {
-        cancel.check()?;
-        if matches!(
-            node,
-            NodeRef::FnDef(_)
-                | NodeRef::MethodDef(_)
-                | NodeRef::StructDef(_)
-                | NodeRef::EnumDef(_)
-                | NodeRef::TraitDef(_)
-                | NodeRef::TypeAlias(_)
-                | NodeRef::ImplBlock(_)
-                | NodeRef::ConstDef(_)
-                | NodeRef::StaticDef(_)
-                | NodeRef::AssociatedType(_)
-                | NodeRef::OpaqueTypeDef(_)
-                | NodeRef::ModuleDef(_)
-                | NodeRef::UseDecl(_)
-        ) {
-            let range = node.body_span();
-            targets.insert((range.start, range.end));
-        }
-    }
     let mut scopes = Vec::new();
     for scoped in file.scoped_attributes() {
         cancel.check()?;
@@ -86,10 +58,14 @@ pub(crate) fn scopes(
             "tool::deny" => Level::Deny,
             _ => continue,
         };
-        let rules = if targets.contains(&(attribute.target_span.start, attribute.target_span.end)) {
-            arguments(attribute)
-        } else {
-            Err("lint policy requires a supported declaration target".into())
+        let rules = match attribute.target {
+            AttributeTarget::Item(_)
+            | AttributeTarget::Use(_)
+            | AttributeTarget::AssociatedConst { .. }
+            | AttributeTarget::AssociatedType { .. } => arguments(attribute),
+            AttributeTarget::Field(_) | AttributeTarget::Variant(_) => {
+                Err("lint policy requires a supported declaration target".into())
+            }
         };
         let rules = match rules {
             Ok(rules) => rules,
@@ -98,17 +74,10 @@ pub(crate) fn scopes(
                 continue;
             }
         };
-        let (range, inherited) = match scoped.target {
-            AttributeTarget::Declaration(range) => (range, None),
-            AttributeTarget::Module {
-                declaration,
-                identity,
-            } => (declaration, Some(identity)),
-        };
-        if let Some(location) = file.source().span(range) {
+        if let Some(location) = file.source().span(scoped.declaration) {
             scopes.push(Scope {
                 module: file.source().module_identity().clone(),
-                inherited,
+                inherited: scoped.module,
                 location,
                 order: attribute.span.start,
                 level,

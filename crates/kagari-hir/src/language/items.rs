@@ -6,8 +6,11 @@ use crate::{
     aggregates::AggregateCatalog,
     aggregates::traits::MethodDefault,
     declarations::{DeclarationId, Declarations},
-    hir::item::Item,
-    lower::{AttributeForm, AttributeValue, LoweredModule},
+    hir::{
+        attribute::{AttributeForm, AttributeTarget, AttributeValue},
+        item::Item,
+    },
+    lower::LoweredModule,
     native::NativeBinding,
     resolver::resolved::ResolvedName,
     types::semantic::{lower_nominal_type, lower_type},
@@ -40,6 +43,7 @@ pub(crate) fn collect(
         )
     };
     for attribute in lowered
+        .module
         .attributes
         .iter()
         .filter(|attribute| attribute.name == "lang")
@@ -66,13 +70,12 @@ pub(crate) fn collect(
             );
             continue;
         }
-        let Some(item) = lowered.module.traits.iter().find(|item| {
-            lowered.source_map.item_span(Item::Trait(item.id)) == attribute.target_span
-        }) else {
+        let AttributeTarget::Item(Item::Trait(id)) = attribute.target else {
             report(&name, "role requires a trait declaration", attribute.span);
             continue;
         };
-        let Some(declaration) = declarations.target(ResolvedName::Trait(item.id)) else {
+        let item = &lowered.module.traits[id.index()];
+        let Some(declaration) = declarations.target(ResolvedName::Trait(id)) else {
             report(&name, "missing declaration identity", attribute.span);
             continue;
         };

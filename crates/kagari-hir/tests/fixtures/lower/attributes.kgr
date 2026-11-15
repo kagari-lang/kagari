@@ -9,3 +9,28 @@ struct Example {
     #[meta =[]]
     val value: i32
 }
+
+#[meta]
+use sample::{ first, second as other };
+
+#[meta]
+trait Contract {
+    #[meta]
+    const REQUIRED: i32;
+    #[meta]
+    type Output;
+    #[meta]
+    fn method(self);
+    #[meta]
+    const DEFAULT: i32 = 1;
+}
+
+#[meta]
+impl Contract for Example {
+    #[meta]
+    type Output = i32;
+    #[meta]
+    const REQUIRED: i32 = 2;
+    #[meta]
+    fn method(self) {}
+}

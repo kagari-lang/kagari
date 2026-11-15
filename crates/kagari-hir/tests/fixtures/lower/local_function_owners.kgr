@@ -1,8 +1,10 @@
 fn outer<T>(x: T) -> i32 {
+    #[meta]
     fn first<U>(x: U) -> U {
         x
     }
     {
+        #[meta]
         fn first() -> i32 {
             1
         }
@@ -17,6 +19,7 @@ struct S {}
 
 impl S {
     fn method(self) {
+        #[meta]
         fn child() {}
     }
 }

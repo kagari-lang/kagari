@@ -23,6 +23,7 @@
 //! currently unpopulated, and lowering can preserve syntax rejected by checking.
 //! Examples distinguish those cases from implemented language behavior.
 
+pub mod attribute;
 pub mod body;
 pub mod expr;
 pub mod ids;

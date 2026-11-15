@@ -7,7 +7,8 @@
 
 use crate::{
     hir::{
-        ids::{BodyOwner, FieldId, FunctionId, HirOwner, ParamId, TypeRefId, VariantId},
+        attribute::{AssociatedOwner, AttributeTarget},
+        ids::{BodyOwner, FieldId, FunctionId, HirOwner, ParamId, TypeRefId, UseId, VariantId},
         item::{
             Item,
             adt::{Enum, Field, OpaqueType, Struct, Variant},
@@ -17,7 +18,7 @@ use crate::{
                 TraitDef, TraitMethod, TraitRef,
             },
             function::{Function, FunctionKind, Param},
-            module::{Import, ImportLeaf, ModuleDecl},
+            module::{Import, ImportLeaf, ModuleDecl, UseDecl as HirUseDecl},
             storage::{ConstItem, ConstOwner, StaticItem},
         },
         ty::{TypeData, TypeKind},
@@ -98,7 +99,7 @@ impl Lowerer {
                     self.module.items.push(Item::Function(id));
                 }
                 ItemView::ConstDef(const_def) => {
-                    let hir_const = self.lower_const(&const_def);
+                    let hir_const = self.lower_const(&const_def, None);
                     self.module.items.push(Item::Const(hir_const.id));
                     self.module.consts.push(hir_const);
                 }
@@ -123,6 +124,7 @@ impl Lowerer {
 
     fn lower_type_alias(&mut self, declaration: &Ast<'_, AstTypeAlias>) -> TypeAlias {
         let id = self.source_map.push_type_alias(syntax_span(declaration));
+        self.attach_attributes(*declaration, AttributeTarget::Item(Item::TypeAlias(id)));
         if let Some(name) = declaration.name() {
             self.source_map
                 .insert_item_name(Item::TypeAlias(id), token_span(&name));
@@ -145,6 +147,7 @@ impl Lowerer {
 
     fn lower_opaque_type(&mut self, declaration: &Ast<'_, OpaqueTypeDef>) -> OpaqueType {
         let id = self.source_map.push_opaque_type(syntax_span(declaration));
+        self.attach_attributes(*declaration, AttributeTarget::Item(Item::OpaqueType(id)));
         if let Some(name) = declaration.name() {
             self.source_map
                 .insert_item_name(Item::OpaqueType(id), token_span(&name));
@@ -171,6 +174,7 @@ impl Lowerer {
 
     fn lower_module_decl(&mut self, module_def: &Ast<'_, ModuleDef>) -> ModuleDecl {
         let id = self.source_map.push_module(syntax_span(module_def));
+        self.attach_attributes(*module_def, AttributeTarget::Item(Item::Module(id)));
         if let Some(name) = module_def.name() {
             self.source_map
                 .insert_item_name(Item::Module(id), token_span(&name));
@@ -184,15 +188,21 @@ impl Lowerer {
     }
 
     fn lower_use_decl(&mut self, use_decl: &Ast<'_, UseDecl>) {
-        let Some(tree) = use_decl.tree() else {
-            return;
-        };
-        self.lower_use_tree(
-            lower_visibility(use_decl.visibility()),
-            None,
-            &tree,
-            token_span(&tree),
-        );
+        let id = UseId::new(self.module.uses.len());
+        self.attach_attributes(*use_decl, AttributeTarget::Use(id));
+        let start = self.module.imports.len();
+        if let Some(tree) = use_decl.tree() {
+            self.lower_use_tree(
+                lower_visibility(use_decl.visibility()),
+                None,
+                &tree,
+                token_span(&tree),
+            );
+        }
+        self.module.uses.push(HirUseDecl {
+            id,
+            imports: start..self.module.imports.len(),
+        });
     }
 
     /// Flattens a recursive use tree by extending a copied prefix for each child.
@@ -254,6 +264,7 @@ impl Lowerer {
 
     pub(crate) fn lower_trait(&mut self, trait_def: &Ast<'_, AstTraitDef>) -> TraitDef {
         let id = self.source_map.push_trait(syntax_span(trait_def));
+        self.attach_attributes(*trait_def, AttributeTarget::Item(Item::Trait(id)));
         if let Some(name) = trait_def.name() {
             self.source_map
                 .insert_item_name(Item::Trait(id), token_span(&name));
@@ -269,7 +280,10 @@ impl Lowerer {
         TraitDef {
             associated_consts: trait_def
                 .associated_consts()
-                .map(|item| self.lower_associated_const(&item, ConstOwner::Trait(id)))
+                .enumerate()
+                .map(|(index, item)| {
+                    self.lower_associated_const(&item, AssociatedOwner::Trait(id), index)
+                })
                 .collect(),
             id,
             supertraits: trait_def
@@ -282,12 +296,17 @@ impl Lowerer {
             methods,
             associated_types: trait_def
                 .associated_types()
-                .map(|item| self.lower_associated_type(&item))
+                .enumerate()
+                .map(|(index, item)| {
+                    self.lower_associated_type(&item, AssociatedOwner::Trait(id), index)
+                })
                 .collect(),
         }
     }
 
     fn lower_impl(&mut self, impl_block: &Ast<'_, ImplBlock>) -> Impl {
+        let id = self.source_map.push_impl(syntax_span(impl_block));
+        self.attach_attributes(*impl_block, AttributeTarget::Item(Item::Impl(id)));
         let generic_params = impl_block
             .generic_params()
             .map(|params| self.lower_generic_params(&params))
@@ -299,12 +318,14 @@ impl Lowerer {
             .methods()
             .map(|method| self.lower_impl_method(&method, for_type, &generic_params))
             .collect::<Vec<_>>();
-        let id = self.source_map.push_impl(syntax_span(impl_block));
         Impl {
             id,
             associated_consts: impl_block
                 .associated_consts()
-                .map(|item| self.lower_associated_const(&item, ConstOwner::Impl(id)))
+                .enumerate()
+                .map(|(index, item)| {
+                    self.lower_associated_const(&item, AssociatedOwner::Impl(id), index)
+                })
                 .collect(),
             generic_params,
             trait_ref: impl_block
@@ -318,12 +339,21 @@ impl Lowerer {
             methods,
             associated_types: impl_block
                 .associated_types()
-                .map(|item| self.lower_associated_type(&item))
+                .enumerate()
+                .map(|(index, item)| {
+                    self.lower_associated_type(&item, AssociatedOwner::Impl(id), index)
+                })
                 .collect(),
         }
     }
 
-    fn lower_associated_type(&mut self, item: &Ast<'_, AstAssociatedType>) -> AssociatedType {
+    fn lower_associated_type(
+        &mut self,
+        item: &Ast<'_, AstAssociatedType>,
+        owner: AssociatedOwner,
+        index: usize,
+    ) -> AssociatedType {
+        self.attach_attributes(*item, AttributeTarget::AssociatedType { owner, index });
         let name = item.name_text().unwrap_or_default();
         let name_ref = self.alloc_type(
             item.name()
@@ -400,6 +430,7 @@ impl Lowerer {
         inherited_generics: &[GenericParam],
     ) -> Function {
         let id = self.reserve_function(syntax_span(method));
+        self.attach_attributes(*method, AttributeTarget::Item(Item::Function(id)));
         if let Some(name) = method.name() {
             self.source_map
                 .insert_item_name(Item::Function(id), token_span(&name));
@@ -482,6 +513,7 @@ impl Lowerer {
         kind: FunctionKind,
     ) -> FunctionId {
         let id = self.reserve_function(syntax_span(function));
+        self.attach_attributes(*function, AttributeTarget::Item(Item::Function(id)));
         if let Some(name) = function.name() {
             self.source_map
                 .insert_item_name(Item::Function(id), token_span(&name));
@@ -643,8 +675,16 @@ impl Lowerer {
     }
 
     /// Lowers annotation and initializer under a fresh constant body owner, restoring the caller's owner.
-    fn lower_const(&mut self, const_def: &Ast<'_, ConstDef>) -> ConstItem {
+    fn lower_const(
+        &mut self,
+        const_def: &Ast<'_, ConstDef>,
+        owner: Option<ConstOwner>,
+    ) -> ConstItem {
         let id = self.source_map.push_const(syntax_span(const_def));
+        // Associated members attach once to their inline slot, not the initializer row.
+        if owner.is_none() {
+            self.attach_attributes(*const_def, AttributeTarget::Item(Item::Const(id)));
+        }
         if let Some(name) = const_def.name() {
             self.source_map
                 .insert_item_name(Item::Const(id), token_span(&name));
@@ -653,7 +693,7 @@ impl Lowerer {
             .source_map
             .set_owner(HirOwner::Body(BodyOwner::Const(id)));
         let result = ConstItem {
-            owner: None,
+            owner,
             id,
             visibility: lower_visibility(const_def.visibility()),
             name: const_def.name_text().unwrap_or_default(),
@@ -669,6 +709,7 @@ impl Lowerer {
 
     fn lower_static(&mut self, definition: &Ast<'_, StaticDef>) -> StaticItem {
         let id = self.source_map.push_static(syntax_span(definition));
+        self.attach_attributes(*definition, AttributeTarget::Item(Item::Static(id)));
         if let Some(initializer) = definition.initializer() {
             self.source_map
                 .insert_static_initializer(id, syntax_span(&initializer));
@@ -705,8 +746,10 @@ impl Lowerer {
     fn lower_associated_const(
         &mut self,
         item: &Ast<'_, ConstDef>,
-        owner: ConstOwner,
+        owner: AssociatedOwner,
+        index: usize,
     ) -> AssociatedConst {
+        self.attach_attributes(*item, AttributeTarget::AssociatedConst { owner, index });
         let name = item.name_text().unwrap_or_default();
         let name_ref = self.alloc_type(
             item.name()
@@ -717,8 +760,11 @@ impl Lowerer {
             },
         );
         let (ty, initializer) = if item.initializer().is_some() {
-            let mut constant = self.lower_const(item);
-            constant.owner = Some(owner);
+            let initializer_owner = match owner {
+                AssociatedOwner::Trait(id) => ConstOwner::Trait(id),
+                AssociatedOwner::Impl(id) => ConstOwner::Impl(id),
+            };
+            let constant = self.lower_const(item, Some(initializer_owner));
             let ty = constant
                 .ty
                 .unwrap_or_else(|| self.synthetic_named_type("<missing>"));
@@ -743,6 +789,7 @@ impl Lowerer {
 
     fn lower_struct(&mut self, struct_def: &Ast<'_, StructDef>) -> Struct {
         let id = self.source_map.push_struct(syntax_span(struct_def));
+        self.attach_attributes(*struct_def, AttributeTarget::Item(Item::Struct(id)));
         if let Some(name) = struct_def.name() {
             self.source_map
                 .insert_item_name(Item::Struct(id), token_span(&name));
@@ -759,6 +806,7 @@ impl Lowerer {
                     .enumerate()
                     .map(|(slot, field)| {
                         let field_id = FieldId::new(self.source_map.arena(), id, slot);
+                        self.attach_attributes(field, AttributeTarget::Field(field_id));
                         self.source_map.insert_field(
                             field_id,
                             field
@@ -797,6 +845,7 @@ impl Lowerer {
 
     fn lower_enum(&mut self, enum_def: &Ast<'_, EnumDef>) -> Enum {
         let id = self.source_map.push_enum(syntax_span(enum_def));
+        self.attach_attributes(*enum_def, AttributeTarget::Item(Item::Enum(id)));
         if let Some(name) = enum_def.name() {
             self.source_map
                 .insert_item_name(Item::Enum(id), token_span(&name));
@@ -813,6 +862,7 @@ impl Lowerer {
                     .enumerate()
                     .map(|(slot, variant)| {
                         let variant_id = VariantId::new(self.source_map.arena(), id, slot);
+                        self.attach_attributes(variant, AttributeTarget::Variant(variant_id));
                         self.source_map.insert_variant(
                             variant_id,
                             variant

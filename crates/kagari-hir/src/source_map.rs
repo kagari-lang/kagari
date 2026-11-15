@@ -1,6 +1,7 @@
 //! Allocation-aligned byte ranges and specialized navigation sites for lowered HIR.
 
 use crate::hir::{
+    attribute::AttributeTarget,
     ids::{
         BlockId, BodyOwner, ConstId, EnumId, ExprId, FieldId, FunctionId, GenericParamId,
         HirArenaId, HirOwner, ImplId, LocalId, ModuleId, OpaqueTypeId, ParamId, PatternId, PlaceId,
@@ -48,6 +49,8 @@ pub struct SourceMap {
     generic_param_spans: Vec<Span>,
     /// Sparse declaration-name sites, separate from full declaration ranges.
     item_name_spans: HashMap<Item, Span>,
+    /// Additional full member/use ranges; ordinary items reuse their declaration spans.
+    attribute_target_spans: HashMap<AttributeTarget, Span>,
     field_spans: HashMap<FieldId, Span>,
     variant_spans: HashMap<VariantId, Span>,
     function_spans: Vec<Span>,
@@ -99,6 +102,29 @@ pub struct SourceMap {
 }
 
 impl SourceMap {
+    pub(crate) fn insert_attribute_target(&mut self, target: AttributeTarget, span: Span) {
+        if matches!(target, AttributeTarget::Item(_)) {
+            return;
+        }
+        assert!(
+            self.attribute_target_spans.insert(target, span).is_none(),
+            "duplicate attribute target"
+        );
+    }
+
+    /// Returns the full authored declaration/member range for a typed attachment.
+    /// IDs must belong to this lowering, just like ordinary `Item` handles.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the target was not registered in this source map.
+    pub fn attribute_target_span(&self, target: AttributeTarget) -> Span {
+        match target {
+            AttributeTarget::Item(item) => self.item_span(item),
+            _ => self.attribute_target_spans[&target],
+        }
+    }
+
     pub(crate) fn insert_type_path(&mut self, id: TypeRefId, path: Vec<(String, Span)>) {
         self.type_paths.insert(id, path);
     }

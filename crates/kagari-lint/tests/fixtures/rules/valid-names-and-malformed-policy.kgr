@@ -1,4 +1,5 @@
 struct HTTPServer {
+    #[tool::allow("non_upper_camel_case")]
     val _field: i32
 }
 

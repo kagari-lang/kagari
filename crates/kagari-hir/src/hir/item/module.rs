@@ -1,8 +1,9 @@
 //! Child module headers and flattened import syntax, before graph construction.
 
-use crate::hir::ids::ModuleId;
+use crate::hir::ids::{ModuleId, UseId};
 use kagari_common::span::Span;
 use kagari_types::visibility::Visibility;
+use std::ops::Range;
 
 /// A child module header stored in its parent's Module.modules, not the child HIR.
 ///
@@ -28,6 +29,17 @@ pub struct ModuleDecl {
     pub name: String,
     /// Whether the declaration has a braced inline body.
     pub inline: bool,
+}
+
+/// One authored use declaration in `Module.uses`, even when recovery yields no leaves.
+///
+/// `imports` selects its contiguous flattened leaves in `Module.imports`. This is
+/// structural attachment identity only; import resolution still consumes the leaves.
+/// Full declaration ranges are retained by `SourceMap::attribute_target_span`.
+#[derive(Debug, Clone)]
+pub struct UseDecl {
+    pub id: UseId,
+    pub imports: Range<usize>,
 }
 
 /// One flattened use-tree leaf, stored inline in Module.imports before resolution.

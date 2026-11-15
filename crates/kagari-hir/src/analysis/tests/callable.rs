@@ -708,10 +708,20 @@ fn native_generic_bounds_and_authority_do_not_depend_on_script_visibility() {
                 "{diagnostics:?}"
             );
         } else {
-            assert!(diagnostics.iter().any(|diagnostic| matches!(
-                diagnostic.kind,
-                DiagnosticKind::UnknownAttribute { .. }
-            )));
+            let unknown = diagnostics
+                .iter()
+                .filter(|diagnostic| {
+                    matches!(
+                        &diagnostic.kind,
+                        DiagnosticKind::UnknownAttribute { name } if name == "native"
+                    )
+                })
+                .collect::<Vec<_>>();
+            let [diagnostic] = unknown.as_slice() else {
+                panic!("one unknown native attribute expected: {diagnostics:?}");
+            };
+            let span = diagnostic.span.expect("authored attribute range");
+            assert_eq!(&text[span.start..span.end], "#[native(fake)]");
             assert!(
                 analysis
                     .result()

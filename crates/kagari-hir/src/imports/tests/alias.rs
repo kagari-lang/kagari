@@ -327,7 +327,7 @@ fn type_alias_declaration_mode_rejects_native_only_attributes() {
         // native storage identity. Exercise signature validation independently
         // of the stricter native source/registration correspondence gate.
         lowered.registered_native_api = true;
-        for attribute in &lowered.attributes {
+        for attribute in &lowered.module.attributes {
             lowered
                 .native_attributes
                 .insert((attribute.span.start, attribute.span.end));

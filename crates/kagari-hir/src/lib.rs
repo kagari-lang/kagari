@@ -627,7 +627,7 @@ pub(crate) fn analyze_parsed(
     let mut analyzed = analyze_prepared(prepared, policy.const_limits, environment, reuse, cancel)?;
 
     analyzed.facts.source_diagnostics = parsed.physical().shared_diagnostics();
-    for attribute in &analyzed.facts.lowered.attributes {
+    for attribute in &analyzed.facts.lowered.module.attributes {
         if analyzed
             .facts
             .lowered
