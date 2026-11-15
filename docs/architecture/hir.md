@@ -1,6 +1,7 @@
 # Reading HIR Data and Analysis
 
-`kagari-hir` owns source meaning, recoverable analysis and editor queries. It
+`kagari-hir` owns source meaning and recoverable semantic analysis. `kagari-analyzer`
+owns protocol-neutral editor queries; `kagari-lint` owns optional lint projections. HIR It
 contains more than the `hir/` node model: lowering, import/name resolution, type
 checking and snapshot publication have separate owners. The
 [architecture overview](../architecture.md#compilation-pipeline) describes the
@@ -33,7 +34,8 @@ keeps workloads, measurement boundaries and limitations separate from API guaran
 | `aggregates`, `semantic` | Shared nominal/signature contracts and immutable published body facts. |
 | `typeck` | Temporary inference and constraint state produces those facts and positive completion evidence. |
 | `analysis`, `program` | Staged analysis, snapshots, reuse, diagnostics, cancellation publication and complete checked dependency closures. |
-| `queries` | Read-only call, method, namespace, documentation, attribute and usage projections from retained analysis results. |
+| Analyzer library | Demand-built position/navigation indexes, calls, documentation and completion over matching semantic results. |
+| Lint | Usage summaries and attribute-policy scopes over semantic identities and positive eligibility. |
 | `compile_input` | Admits matching declaration environments, body roots/facts and provenance for the compiler. |
 | `update_source`, `source_inspection` | Authored identities, static-initializer comparison evidence and exact source packaging. |
 | Compiler `source::elaborate` | Expands an admitted source body into temporary semantic operations. |
@@ -46,13 +48,12 @@ semantic facts to retain, editor/lint projections to extract and mixed storage t
 HR04 extracts lint usage/attribute-policy projections. HR05–HR08 migrate editor queries
 and split mixed facts; cache policy remains unchanged.
 
-The `queries/` directory supplies the context for `calls`, `methods`, `namespaces`,
-`documentation`, `attributes` and `usage`; filenames do not repeat a `_queries`
-suffix. Analysis-producing stages remain `analysis::declarations`,
-`analysis::signatures` and `analysis::body`. `analysis::type_targets` prepares
-navigation provenance during publication. Query methods remain on snapshot/result
-objects. Documentation uses the existing scoped declaration lookup; namespace
-queries borrow only a read-only view of the prepared type-path hits.
+The analyzer library's `AnalyzerQueries::queries()` borrows a declaration, signature,
+selected-body, file or snapshot result without forcing a later semantic stage. `FileQueries`
+and `SnapshotQueries` own cursor selection; `NavigationIndex` is demand-built, not prepared
+by HIR publication. Calls, documentation and method presentation live beside these views.
+Analysis-producing stages remain `analysis::declarations`, `analysis::signatures` and
+`analysis::body`. Semantic method eligibility is shared through HIR `typeck::members`.
 
 Private tests live under their owning module's `tests/` or `tests.rs`, using
 ordinary Rust modules. Public semantic cases remain in the crate's `tests/`

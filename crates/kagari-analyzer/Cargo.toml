@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+kagari-hir.workspace = true
+kagari-common.workspace = true
+kagari-syntax.workspace = true
+kagari-types.workspace = true
 kagari-source.workspace = true
 lsp-server = "0.10.0"
 lsp-types = "0.97.0"
@@ -12,4 +16,6 @@ serde.workspace = true
 serde_json = "1"
 
 [dev-dependencies]
+kagari-stdlib.workspace = true
+kagari-contract.workspace = true
 rstest.workspace = true

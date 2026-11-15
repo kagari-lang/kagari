@@ -91,7 +91,6 @@ pub mod lower;
 pub mod native;
 
 pub mod program;
-pub mod queries;
 pub mod resolver;
 pub mod semantic;
 pub mod source_inspection;

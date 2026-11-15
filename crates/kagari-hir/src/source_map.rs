@@ -129,7 +129,7 @@ impl SourceMap {
         self.type_paths.insert(id, path);
     }
 
-    pub(crate) fn type_path(&self, id: TypeRefId) -> &[(String, Span)] {
+    pub fn type_path(&self, id: TypeRefId) -> &[(String, Span)] {
         self.type_paths.get(&id).map_or(&[], Vec::as_slice)
     }
 
@@ -148,7 +148,8 @@ impl SourceMap {
         self.import_paths.insert(slot, path);
     }
 
-    pub(crate) fn import_path(&self, slot: usize) -> &[(usize, Span)] {
+    /// Temporary lowered import-prefix origins until analyzer extraction in HR07.
+    pub fn import_path(&self, slot: usize) -> &[(usize, Span)] {
         self.import_paths.get(&slot).map_or(&[], Vec::as_slice)
     }
 

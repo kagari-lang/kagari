@@ -4,6 +4,7 @@ use crate::{
     error::EmbeddingError,
     program::Program,
 };
+use kagari_analyzer::AnalyzerQueries;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{ModuleIdentity, PackageId},
@@ -541,7 +542,8 @@ fn default_parser_limits_retain_queryable_facts_across_recursive_syntax() {
         let analysis = engine.analyze(source.clone(), &Default::default()).unwrap();
         let file = analysis.file(id).unwrap();
         assert_eq!(
-            file.type_at("fn good(value: i32) -> i32 { ".len()),
+            file.queries()
+                .type_at("fn good(value: i32) -> i32 { ".len()),
             Some(kagari_hir::types::TypeId::Builtin(
                 kagari_types::scalar::BuiltinType::I32
             )),
@@ -717,7 +719,8 @@ fn const_budget_counts_short_circuit_work_and_rejects_deep_dependencies() {
         }
     )));
     assert_eq!(
-        file.type_at("fn good(value: i32) -> i32 { ".len()),
+        file.queries()
+            .type_at("fn good(value: i32) -> i32 { ".len()),
         Some(kagari_hir::types::TypeId::Builtin(
             kagari_types::scalar::BuiltinType::I32
         ))
@@ -809,7 +812,8 @@ fn invalid_const_types_cannot_bypass_validation_budget() {
         assert_eq!(&text[span.start..span.end], "[1]");
         assert!(span.start > text.find(&format!("const C{max_steps}:")).unwrap());
         assert_eq!(
-            file.type_at("fn good(value: i32) -> i32 { ".len()),
+            file.queries()
+                .type_at("fn good(value: i32) -> i32 { ".len()),
             Some(kagari_hir::types::TypeId::Builtin(
                 kagari_types::scalar::BuiltinType::I32
             ))

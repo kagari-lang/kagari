@@ -26,3 +26,7 @@ pub(crate) fn test_analysis() -> AnalysisDatabase {
 }
 
 mod language_contracts;
+
+// Shared declaration-only preparation also serves analyzer tests; it has no HIR dependencies.
+#[path = "../tests/support/native.rs"]
+pub(crate) mod native_fixture;

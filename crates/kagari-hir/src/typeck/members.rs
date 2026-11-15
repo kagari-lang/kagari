@@ -1,14 +1,16 @@
 //! Receiver method surfaces shared by body checking and source tooling.
 
 use crate::{
-    aggregates::{AggregateCatalog, InherentMethodSignature},
+    aggregates::{
+        AggregateCatalog, InherentMethodSignature, implementations::ImplementationSearchLimits,
+    },
     language::semantics::{self as traits, ProtocolSemantics},
     typeck::{GenericBounds, inference},
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, table::DefinitionTable},
+    identity::{DefinitionKind, ModuleIdentity, table::DefinitionTable},
 };
 use kagari_types::{
     language::{Protocol, role::LangRole},
@@ -59,7 +61,9 @@ pub(crate) fn inherent_substitution(
     (!owner.conflicts_with(receiver) || receiver.can_weaken_to(&owner)).then_some(substitution)
 }
 
-pub(crate) fn interfaces(
+/// Enumerates declared, assumed and intrinsic interfaces for this receiver.
+/// Definition IDs belong to `definitions`; no call is selected or admitted.
+pub fn interfaces(
     definitions: &DefinitionTable,
     aggregates: &AggregateCatalog,
     ty: &TypeId,
@@ -89,6 +93,31 @@ pub(crate) fn interfaces(
     }
     add_iterator_view(definitions, aggregates, ty, &mut implemented);
     implemented
+}
+
+/// Matches an instance method's receiver and visibility in the requesting module.
+/// Generic arguments and bounds are checked separately after candidate selection.
+pub fn inherent_method_substitution(
+    definitions: &DefinitionTable,
+    aggregates: &AggregateCatalog,
+    method: &InherentMethodSignature,
+    receiver: &TypeId,
+    importer: &ModuleIdentity,
+    cancel: &CancellationToken,
+) -> Option<TypeSubstitution> {
+    if !method
+        .function
+        .params
+        .first()
+        .is_some_and(|parameter| parameter.name == "self")
+        || !method.visibility.allows(
+            definitions.resolve(method.declaration).ok()?.module(),
+            importer,
+        )
+    {
+        return None;
+    }
+    inherent_substitution(definitions, aggregates, method, receiver, cancel)
 }
 
 fn add_iterator_view(
@@ -173,4 +202,81 @@ fn add_iterator_view(
     into.associated_types.insert(item_id, item);
     into.associated_types.insert(iter_id, receiver.clone());
     views.push(into);
+}
+
+/// Semantic receiver and constraint environment shared by member consumers.
+/// Incomplete candidates never constitute positive checking evidence.
+pub struct MemberQuery<'a> {
+    pub definitions: &'a DefinitionTable,
+    pub aggregates: &'a AggregateCatalog,
+    pub receiver: &'a TypeId,
+    pub assumptions: &'a GenericBounds,
+    pub cancel: &'a CancellationToken,
+}
+
+impl MemberQuery<'_> {
+    /// Tests substituted constraints using semantic interface and implementation search.
+    /// `allow_unresolved` is a caller policy; it does not establish executable validity.
+    pub fn bounds_allow(
+        &self,
+        bounds: &GenericBounds,
+        substitution: &TypeSubstitution,
+        interface: Option<&NominalType>,
+        allow_unresolved: bool,
+    ) -> bool {
+        let instantiate = |ty: &TypeId| {
+            let applied = if let Some(interface) = interface {
+                ty.with_self(&interface.declaration, self.receiver)
+                    .instantiate(substitution)
+                    .with_associated_types(interface, self.receiver)
+            } else {
+                ty.instantiate(substitution)
+            };
+            self.aggregates.normalize_type(self.definitions, &applied)
+        };
+        bounds.iter().all(|(target, constraints)| {
+            let actual = instantiate(target);
+
+            if actual.is_unresolved() {
+                return allow_unresolved;
+            }
+            constraints.iter().all(|required| {
+                let required = instantiate(&TypeId::Trait(required.clone()));
+                if required.is_unresolved() {
+                    return allow_unresolved;
+                }
+                let TypeId::Trait(required) = required else {
+                    return false;
+                };
+                self.aggregates.intrinsic_implementation(
+                    self.definitions,
+                    &required,
+                    &actual,
+                    self.assumptions,
+                ) || interfaces(
+                    self.definitions,
+                    self.aggregates,
+                    &actual,
+                    self.assumptions,
+                    self.cancel,
+                )
+                .iter()
+                .any(|available| available.satisfies(&required))
+                    || self
+                        .aggregates
+                        .concrete_interface_implementation(
+                            self.definitions,
+                            &required,
+                            &actual,
+                            self.assumptions,
+                            ImplementationSearchLimits {
+                                max_checks: 4096,
+                                max_depth: 64,
+                            },
+                            self.cancel,
+                        )
+                        .is_ok_and(|selected| selected.is_some())
+            })
+        })
+    }
 }

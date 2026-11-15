@@ -1,6 +1,11 @@
-//! External methods and nominal queries use the same common declaration owner.
 use super::*;
 use crate::{
+    AnalyzerQueries,
+    query_tests::{common::import_facts, test_analysis},
+};
+// External methods and nominal queries use the same common declaration owner.
+
+use kagari_hir::{
     declarations::DeclarationId, hir::expr::ExprKind, native::NativeBinding,
     semantic::signatures::FunctionImplementation,
 };
@@ -32,7 +37,7 @@ fn host_methods_keep_checked_receiver_targets_and_offline_documentation() {
             file.result().diagnostics()
         );
         let offset = text.find("add(").unwrap();
-        let target = file.source_function_at(offset).unwrap();
+        let target = file.queries().source_function_at(offset).unwrap();
         let FunctionImplementation::Native(NativeBinding::Entry(binding)) =
             target.signature.implementation
         else {
@@ -57,9 +62,14 @@ fn host_methods_keep_checked_receiver_targets_and_offline_documentation() {
             contract.function.host_policy.as_ref().unwrap().passing[0],
             HostPassingStyle::SharedBorrow
         );
-        assert_eq!(file.source_function_at(text.find(".add(").unwrap()), None);
         assert_eq!(
-            file.source_function_at(text.find("make()").unwrap())
+            file.queries()
+                .source_function_at(text.find(".add(").unwrap()),
+            None
+        );
+        assert_eq!(
+            file.queries()
+                .source_function_at(text.find("make()").unwrap())
                 .unwrap()
                 .signature
                 .name,
@@ -77,12 +87,13 @@ fn host_methods_keep_checked_receiver_targets_and_offline_documentation() {
         }
         assert_eq!(
             snapshot
+                .queries()
                 .documentation_at(root, offset)
                 .unwrap()
                 .documentation,
             "Add to the host counter"
         );
-        let signature = file.call_signature_at(offset).unwrap();
+        let signature = file.queries().call_signature_at(offset).unwrap();
         assert_eq!(
             import_facts(&signature.declaration, file.definitions(), &context).into_records(),
             DeclarationId::Definition(identity)
@@ -163,17 +174,18 @@ fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
         .unwrap();
     for spelling in ["Object as Item", "facade::Object", "api::Item", "Item ="] {
         assert_eq!(
-            old.definition_at(
-                root,
-                text.find(spelling).unwrap()
-                    + match spelling {
-                        "facade::Object" => "facade::".len(),
-                        "api::Item" => "api::".len(),
-                        _ => 0,
-                    },
-            )
-            .unwrap_or_else(|| panic!("missing declaration for {spelling}"))
-            .id,
+            old.queries()
+                .definition_at(
+                    root,
+                    text.find(spelling).unwrap()
+                        + match spelling {
+                            "facade::Object" => "facade::".len(),
+                            "api::Item" => "api::".len(),
+                            _ => 0,
+                        },
+                )
+                .unwrap_or_else(|| panic!("missing declaration for {spelling}"))
+                .id,
             DeclarationId::Definition(id),
             "{spelling}"
         );
@@ -194,29 +206,47 @@ fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
     assert!(!new.file(root).unwrap().result().diagnostics().is_empty());
     let offset = text.find("facade::Object").unwrap() + "facade::".len();
     let qualifier = text.find("facade::Object").unwrap();
-    assert!(file.definition_at(qualifier).is_none());
-    assert!(file.definition_at(qualifier + "facade".len()).is_none());
-    assert!(file.definition_at(offset + "Object".len()).is_none());
-    let signature = old.signature_snapshot().file(root).unwrap();
-    assert_eq!(
-        signature.definition_at(offset).unwrap().id,
-        DeclarationId::Definition(id)
-    );
-    assert!(signature.definition_at(qualifier).is_none());
+    assert!(file.queries().definition_at(qualifier).is_none());
     assert!(
-        signature
+        file.queries()
             .definition_at(qualifier + "facade".len())
             .is_none()
     );
-    assert!(signature.definition_at(offset + "Object".len()).is_none());
     assert!(
-        old.documentation_at(root, offset)
+        file.queries()
+            .definition_at(offset + "Object".len())
+            .is_none()
+    );
+    let signature = old.signature_snapshot().file(root).unwrap();
+    assert_eq!(
+        signature.queries().definition_at(offset).unwrap().id,
+        DeclarationId::Definition(id)
+    );
+    assert!(signature.queries().definition_at(qualifier).is_none());
+    assert!(
+        signature
+            .queries()
+            .definition_at(qualifier + "facade".len())
+            .is_none()
+    );
+    assert!(
+        signature
+            .queries()
+            .definition_at(offset + "Object".len())
+            .is_none()
+    );
+    assert!(
+        old.queries()
+            .documentation_at(root, offset)
             .unwrap()
             .documentation
             .is_empty()
     );
     assert_eq!(
-        new.documentation_at(root, offset).unwrap().documentation,
+        new.queries()
+            .documentation_at(root, offset)
+            .unwrap()
+            .documentation,
         "updated"
     );
     let actual = signature.declarations().external_type(id).unwrap();
@@ -225,11 +255,11 @@ fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
         declarations.modules[0].types[0]
     );
     assert_eq!(
-        file.type_at(text.find("value))").unwrap()),
+        file.queries().type_at(text.find("value))").unwrap()),
         Some(TypeId::Host(id))
     );
     assert_eq!(
-        file.type_at(text.find("left::make()").unwrap()),
+        file.queries().type_at(text.find("left::make()").unwrap()),
         Some(TypeId::Host(id))
     );
 }
@@ -307,7 +337,7 @@ fn erroneous_host_calls_retain_return_types_and_member_facts() {
             .expressions()
             .find_map(|(id, expr)| {
                 matches!(expr.kind, ExprKind::Call { .. })
-                    .then(|| facts.typed.type_table.expr_type(id))
+                    .then(|| facts.typed.type_table().expr_type(id))
                     .flatten()
             });
         assert_eq!(
@@ -328,7 +358,7 @@ fn erroneous_host_calls_retain_return_types_and_member_facts() {
         );
 
         assert_eq!(
-            file.type_at(text.rfind('7').unwrap()),
+            file.queries().type_at(text.rfind('7').unwrap()),
             Some(TypeId::Builtin(BuiltinType::I32))
         );
         assert!(snapshot.check_program(root, &Default::default()).is_err());
@@ -373,7 +403,7 @@ fn host_type_rules_preserve_value_namespaces_and_neighbor_functions() {
         );
         if let Some(offset) = text.find("value.") {
             assert_eq!(
-                file.member_receiver_type(offset + "value.".len()),
+                file.queries().member_receiver_type(offset + "value.".len()),
                 Some(TypeId::Host(
                     file.definitions()
                         .lookup(
@@ -389,7 +419,7 @@ fn host_type_rules_preserve_value_namespaces_and_neighbor_functions() {
         }
         if let Some(offset) = text.find("Item<i32>") {
             assert_eq!(
-                file.definition_at(offset).unwrap().id,
+                file.queries().definition_at(offset).unwrap().id,
                 DeclarationId::Definition(
                     file.definitions()
                         .lookup(
@@ -404,7 +434,7 @@ fn host_type_rules_preserve_value_namespaces_and_neighbor_functions() {
             );
         }
         assert_eq!(
-            file.type_at(text.rfind('7').unwrap()),
+            file.queries().type_at(text.rfind('7').unwrap()),
             Some(TypeId::Builtin(BuiltinType::I32))
         );
         assert_eq!(

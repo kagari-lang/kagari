@@ -1,5 +1,6 @@
-use crate::{declarations::DeclarationId, tests::test_analysis};
+use crate::{AnalyzerQueries, query_tests::test_analysis};
 use kagari_common::identity::DefinitionKind;
+use kagari_hir::declarations::DeclarationId;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
@@ -30,7 +31,9 @@ fn generic<T: Read>(value: T) { value. }
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let file = snapshot.file(id).unwrap();
-    let candidates = file.method_completions(text.find("value. }").unwrap() + 6);
+    let candidates = file
+        .queries()
+        .method_completions(text.find("value. }").unwrap() + 6);
     for (name, owner, expected_docs) in [
         ("inherited", DefinitionKind::Trait, "Inherited body."),
         ("read", DefinitionKind::Impl, "Concrete body."),
@@ -68,13 +71,16 @@ fn generic<T: Read>(value: T) { value. }
         assert_eq!(
             snapshot
                 .declaration_snapshot()
+                .queries()
                 .documentation(&candidate.declaration)
                 .unwrap()
                 .documentation,
             expected_docs
         );
     }
-    let generic = file.method_completions(text.rfind("value. }").unwrap() + 6);
+    let generic = file
+        .queries()
+        .method_completions(text.rfind("value. }").unwrap() + 6);
     for name in ["inherited", "read"] {
         let method = generic
             .iter()
@@ -124,7 +130,7 @@ fn floats(value: Box<f64>) { value. }
         (text.find("value. }").unwrap() + 6, true),
         (text.rfind("value. }").unwrap() + 6, false),
     ] {
-        let methods = file.method_completions(offset);
+        let methods = file.queries().method_completions(offset);
         assert_eq!(
             methods.iter().any(|method| method.name == "ordered"),
             ordered,

@@ -40,11 +40,6 @@ pub struct FileDeclarations {
 }
 
 impl FileDeclarations {
-    /// Finds a declared field or enum variant at a source byte offset.
-    pub fn member_at(&self, offset: usize) -> Option<&Declaration> {
-        self.declarations().member_at(offset)
-    }
-
     /// Borrows the physical or synthetic source analyzed by this declaration result.
     pub fn source(&self) -> &SourceFile {
         &self.declared.lowered.source

@@ -1053,12 +1053,5 @@ impl TypeTable {
     }
 }
 
-impl TypeTable {
-    #[cfg(test)]
-    pub(crate) fn host_write_places(&self) -> impl Iterator<Item = PlaceId> + '_ {
-        self.host_place_paths.keys().copied()
-    }
-}
-
 #[cfg(test)]
 mod tests;

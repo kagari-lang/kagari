@@ -319,6 +319,15 @@ captures, static eligibility and attribute inheritance. HIR/lint all-target chec
 structure, changed-file/fixture formatting and diff checks pass. Scope enumeration remains
 a temporary semantic input until HR06 establishes canonical bindings.
 
+HR05: protocol-neutral analyzer library now owns position queries, calls, documentation,
+namespace navigation and completion presentation. Borrowing views retain declaration,
+signature-only and selected-body routes; type navigation is built on demand. Shared member
+eligibility remains in HIR. All 142 analyzer library tests and four stdio lifecycle tests
+pass; focused HIR (22), compiler (2), SDK example and affected all-target checks pass.
+The normal dependency audit has no HIR/compiler/SDK → analyzer edge. Structure, HIR/analyzer
+Clippy and diff checks pass. Existing scope/site/prefix metadata is temporary until HR06/HR07;
+this is not yet the completed removal of editor-only preparation.
+
 On rustc 1.100.0, workspace fmt is blocked only by existing differences in untouched
 kagari-syntax/src/ast/tokens.rs; touched hir/ids.rs is formatted. Workspace Clippy still reports
 needless_range_loop at kagari-compiler/src/bytecode/placement.rs:110. SDK builds emit an unused

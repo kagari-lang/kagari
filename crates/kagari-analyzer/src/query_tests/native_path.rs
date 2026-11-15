@@ -1,12 +1,16 @@
-//! Manual external paths use common schemas and ordinary field identities.
 use crate::{
-    analysis::{AnalysisDatabase, FileAnalysis},
-    tests::{common::import_facts, test_analysis},
-    types::TypeId,
+    AnalyzerQueries,
+    query_tests::{common::import_facts, test_analysis},
 };
+use std::sync::*;
+// Manual external paths use common schemas and ordinary field identities.
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
     metadata::DefinitionMetadata, table::DefinitionId,
+};
+use kagari_hir::{
+    analysis::{AnalysisDatabase, FileAnalysis},
+    types::TypeId,
 };
 use kagari_source::{
     diagnostic::DiagnosticKind,
@@ -28,7 +32,6 @@ use kagari_types::{
     ty::Ty,
     visibility::Visibility,
 };
-use std::sync::Arc;
 
 struct Hosts {
     context: DefinitionContext,
@@ -210,7 +213,7 @@ fn imported_field_at(
     offset: usize,
     declarations: &Hosts,
 ) -> Option<DefinitionId> {
-    let field = file.field_at(offset)?;
+    let field = file.queries().field_at(offset)?;
     let definitions = file.definitions();
     let owner = definitions.parent(field).unwrap().unwrap();
     let name = definitions.resolve(field).unwrap().last().unwrap().name;
@@ -290,7 +293,7 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let new_file = new.file(root).unwrap();
-    assert_eq!(new_file.result().facts().typed.reused_bodies, 1);
+    assert_eq!(new_file.result().facts().typed.reused_bodies(), 1);
     let path_fact = |file: &FileAnalysis| {
         let authoring_facts = file.to_unverified(&Default::default()).unwrap();
         let facts = authoring_facts.records().facts();
@@ -299,7 +302,7 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
             .module
             .body
             .expressions()
-            .find_map(|(id, _)| facts.typed.type_table.host_path(id).cloned())
+            .find_map(|(id, _)| facts.typed.type_table().host_path(id).cloned())
             .unwrap()
     };
     let old_path = path_fact(old_file);
@@ -348,7 +351,8 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
     let file = snapshot.file(root).unwrap();
     assert!(!file.result().diagnostics().is_empty());
     assert_eq!(
-        file.type_at(incomplete.find("left::make()").unwrap()),
+        file.queries()
+            .type_at(incomplete.find("left::make()").unwrap()),
         Some(TypeId::Host(
             file.definitions()
                 .lookup(&context.snapshot().resolve(path.root).unwrap().to_path())
@@ -356,10 +360,12 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
         ))
     );
     assert_eq!(
-        file.type_at(incomplete.rfind('7').unwrap()),
+        file.queries().type_at(incomplete.rfind('7').unwrap()),
         Some(TypeId::Builtin(BuiltinType::I32))
     );
 }
+
+mod queries;
 
 #[test]
 fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
@@ -416,8 +422,17 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
-    let old_table = &authoring_old_table.records().facts().typed.type_table;
-    let old_place = old_table.host_write_places().next().unwrap();
+    let old_table = &authoring_old_table.records().facts().typed.type_table();
+    let old_place = old_file
+        .result()
+        .facts()
+        .lowered
+        .module
+        .body
+        .places()
+        .map(|(id, _)| id)
+        .find(|id| old_table.host_place_path(*id).is_some())
+        .unwrap();
     let old_path = old_table.host_place_path(old_place).unwrap().clone();
     sources
         .set(
@@ -430,10 +445,19 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let file = new.file(root).unwrap();
-    assert_eq!(file.result().facts().typed.reused_bodies, 1);
+    assert_eq!(file.result().facts().typed.reused_bodies(), 1);
     let authoring_table = file.to_unverified(&Default::default()).unwrap();
-    let table = &authoring_table.records().facts().typed.type_table;
-    let place = table.host_write_places().next().unwrap();
+    let table = &authoring_table.records().facts().typed.type_table();
+    let place = file
+        .result()
+        .facts()
+        .lowered
+        .module
+        .body
+        .places()
+        .map(|(id, _)| id)
+        .find(|id| table.host_place_path(*id).is_some())
+        .unwrap();
     let path = table.host_place_path(place).unwrap();
     assert_ne!(old_path.root, path.root);
     assert_eq!(old_path.declaration, path.declaration);
@@ -532,14 +556,14 @@ fn mixed_field_chains_resolve_the_complete_host_suffix() {
         .module
         .body
         .expressions()
-        .filter_map(|(id, _)| facts.typed.type_table.host_path(id))
+        .filter_map(|(id, _)| facts.typed.type_table().host_path(id))
         .collect();
     let writes: Vec<_> = facts
         .lowered
         .module
         .body
         .places()
-        .filter_map(|(id, _)| facts.typed.type_table.host_place_path(id))
+        .filter_map(|(id, _)| facts.typed.type_table().host_place_path(id))
         .collect();
     assert_eq!(reads.len(), 1);
     assert_eq!(writes.len(), 1);
@@ -573,5 +597,3 @@ fn mixed_field_chains_resolve_the_complete_host_suffix() {
     assert_eq!(&text[read_span.start..read_span.end], "value.inner.host");
     assert_eq!(&text[write_span.start..write_span.end], "value.inner.host");
 }
-
-mod queries;

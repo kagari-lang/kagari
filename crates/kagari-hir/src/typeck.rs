@@ -58,7 +58,7 @@ pub(crate) mod supertraits;
 
 pub mod constraints;
 pub(crate) mod inference;
-pub(crate) mod members;
+pub mod members;
 pub mod scalar;
 mod solver;
 mod state;

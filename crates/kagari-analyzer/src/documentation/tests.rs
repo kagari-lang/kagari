@@ -1,10 +1,11 @@
-use crate::{
+use crate::query_tests::native_fixture::function_module;
+use crate::{AnalyzerQueries, query_tests::test_analysis};
+use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_hir::{
     declarations::DeclarationId,
     native::{NativeBinding, render::declaration_source},
     semantic::signatures::FunctionImplementation,
-    tests::{native::function_module, test_analysis},
 };
-use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::source_database::{SourceDatabase, SourceLayer, normalize_source_name};
 use kagari_stdlib::{catalog as foundation_catalog, catalog};
 use kagari_types::{language as standard_traits, language::Protocol, scalar::BuiltinType, ty::Ty};
@@ -33,6 +34,7 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
             .find(|file| file.source().name() == generated.uri)
             .unwrap();
         let module_doc = snapshot
+            .queries()
             .module_documentation(&installed.records().identity)
             .unwrap();
         assert_eq!(module_doc.location.file, file.source().id());
@@ -63,7 +65,7 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
             assert_eq!(file.source().local_range(declaration.location), Some(range));
             assert_eq!(&generated.text[range.start..range.end], declaration.name);
             assert!(identities.insert(declaration.id.clone()));
-            let metadata = snapshot.documentation(&declaration.id).unwrap();
+            let metadata = snapshot.queries().documentation(&declaration.id).unwrap();
             assert_eq!(metadata.declaration, *declaration);
             assert_eq!(declaration.location.file, file.source().id());
             assert_eq!(
@@ -76,7 +78,12 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
                     .unwrap_or_default()
             );
             assert!(metadata.written_signature.contains(&declaration.name));
-            assert!(independent.documentation(&declaration.id).is_none());
+            assert!(
+                independent
+                    .queries()
+                    .documentation(&declaration.id)
+                    .is_none()
+            );
             let other_file = independent
                 .files()
                 .find(|file| file.source().name() == generated.uri)
@@ -87,6 +94,7 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
                 .lookup(&query)
                 .unwrap();
             let other = independent
+                .queries()
                 .documentation(&DeclarationId::Definition(other_id))
                 .unwrap();
             assert_ne!(other.declaration.id, declaration.id);
@@ -150,7 +158,10 @@ impl Items for Values {
             kagari_common::identity::DefinitionKind::Impl,
         ),
     ] {
-        let declaration = file.member_at(text.find(needle).unwrap()).unwrap();
+        let declaration = file
+            .queries()
+            .member_at(text.find(needle).unwrap())
+            .unwrap();
         let DeclarationId::Definition(identity) = &declaration.id else {
             panic!("associated declaration identity")
         };
@@ -167,7 +178,7 @@ impl Items for Values {
         );
         assert!(identities.insert(*identity));
         assert_eq!(file.declarations().get(&declaration.id), Some(declaration));
-        let metadata = snapshot.documentation(&declaration.id).unwrap();
+        let metadata = snapshot.queries().documentation(&declaration.id).unwrap();
         assert_eq!(metadata.documentation, documentation);
         assert!(metadata.written_signature.contains(needle));
     }
@@ -192,7 +203,7 @@ fn documentation_uses_declaration_identity_and_survives_edits() {
         .find(|declaration| declaration.name == "value")
         .unwrap();
     let id = declaration.id.clone();
-    let old = first.documentation(&id).unwrap();
+    let old = first.queries().documentation(&id).unwrap();
     assert_eq!(old.declaration, *declaration);
     assert_eq!(old.documentation, "Original 文本.\n\n```kgr\nvalue()\n```");
     assert_eq!(
@@ -211,8 +222,8 @@ fn documentation_uses_declaration_identity_and_survives_edits() {
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
     drop(database);
-    assert_eq!(first.documentation(&id).unwrap(), old);
-    let updated = second.documentation(&id).unwrap();
+    assert_eq!(first.queries().documentation(&id).unwrap(), old);
+    let updated = second.queries().documentation(&id).unwrap();
     assert!(updated.documentation.starts_with("Updated docs."));
     assert_ne!(
         updated.declaration.location.revision,
@@ -234,7 +245,7 @@ fn same_named_declarations_and_inline_modules_keep_their_own_documentation() {
         .files()
         .flat_map(|file| file.declarations().iter())
         .filter(|declaration| declaration.name == "same")
-        .map(|declaration| snapshot.documentation(&declaration.id).unwrap())
+        .map(|declaration| snapshot.queries().documentation(&declaration.id).unwrap())
         .collect::<Vec<_>>();
     docs.sort_by_key(|doc| doc.declaration.location.range.start);
     assert_eq!(docs.len(), 2);
@@ -279,7 +290,7 @@ fn installed_native_docs_are_owned_by_the_snapshot() {
                 declaration.name == name && matches!(declaration.id, DeclarationId::Definition(_))
             })
             .unwrap();
-        let docs = snapshot.documentation(&declaration.id).unwrap();
+        let docs = snapshot.queries().documentation(&declaration.id).unwrap();
         assert_eq!(docs.declaration, *declaration);
         assert!(
             !docs.documentation.is_empty(),
@@ -303,7 +314,7 @@ fn installed_native_docs_are_owned_by_the_snapshot() {
         .unwrap();
     assert_eq!(
         snapshot
-            .documentation(&declaration.id)
+            .queries().documentation(&declaration.id)
             .unwrap()
             .documentation,
         "User Option."
@@ -357,7 +368,7 @@ fn native_view_locations_are_snapshot_owned_and_do_not_select_binding_identity()
             file.result().diagnostics()
         );
         snapshot.check_program(root, &Default::default()).unwrap();
-        let target = file.source_function_at(offset).unwrap();
+        let target = file.queries().source_function_at(offset).unwrap();
         let FunctionImplementation::Native(NativeBinding::Entry(binding)) =
             target.signature.implementation
         else {
@@ -368,7 +379,7 @@ fn native_view_locations_are_snapshot_owned_and_do_not_select_binding_identity()
             file.definitions().resolve(binding).unwrap().module(),
             &identity
         );
-        let docs = snapshot.documentation_at(root, offset).unwrap();
+        let docs = snapshot.queries().documentation_at(root, offset).unwrap();
         assert_eq!(
             snapshot
                 .source(docs.declaration.location.file)
@@ -388,6 +399,9 @@ fn native_view_locations_are_snapshot_owned_and_do_not_select_binding_identity()
                 .name(),
             normalize_source_name(uri).unwrap()
         );
-        assert_eq!(snapshot.documentation_at(root, offset), Some(docs.clone()));
+        assert_eq!(
+            snapshot.queries().documentation_at(root, offset),
+            Some(docs.clone())
+        );
     }
 }

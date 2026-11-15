@@ -548,7 +548,7 @@ impl NamespaceCatalog {
     }
 
     /// Resolves a scope root and suffix, falling back to an absolute path only when the root is missing; returns only unique hits.
-    pub(crate) fn resolve_name(
+    pub fn resolve_name(
         &self,
         names: &NameTable,
         name: &str,

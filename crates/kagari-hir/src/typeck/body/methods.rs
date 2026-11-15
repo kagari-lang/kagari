@@ -230,29 +230,15 @@ impl<'a> BodyChecker<'a> {
         let candidates = self
             .aggregates
             .inherent_methods()
-            .filter(|method| {
-                method.function.name == name
-                    && method
-                        .function
-                        .params
-                        .first()
-                        .is_some_and(|parameter| parameter.name == "self")
-                    && method.visibility.allows(
-                        self.declarations
-                            .definitions()
-                            .resolve(method.declaration)
-                            .expect("scoped member owner")
-                            .module(),
-                        self.lowered.source.module_identity(),
-                    )
-            })
+            .filter(|method| method.function.name == name)
             .filter_map(|method| {
                 let function = method.function.clone();
-                let substitution = members::inherent_substitution(
+                let substitution = members::inherent_method_substitution(
                     self.declarations.definitions(),
                     self.aggregates,
                     method,
                     &receiver_ty,
+                    self.lowered.source.module_identity(),
                     self.cancel,
                 )?;
                 let target = if method

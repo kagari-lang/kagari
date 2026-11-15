@@ -525,6 +525,7 @@ dependencies = [
  "bincode",
  "blake3",
  "kagari-abi",
+ "kagari-analyzer",
  "kagari-bytecode",
  "kagari-codegen",
  "kagari-codegen-cranelift",
@@ -560,7 +561,13 @@ dependencies = [
 name = "kagari-analyzer"
 version = "0.1.0"
 dependencies = [
+ "kagari-common",
+ "kagari-contract",
+ "kagari-hir",
  "kagari-source",
+ "kagari-stdlib",
+ "kagari-syntax",
+ "kagari-types",
  "lsp-server",
  "lsp-types",
  "rstest",
@@ -719,6 +726,7 @@ name = "kagari-hir"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "kagari-analyzer",
  "kagari-common",
  "kagari-contract",
  "kagari-source",
@@ -827,6 +835,7 @@ name = "kagari-stdlib"
 version = "0.1.0"
 dependencies = [
  "kagari-abi",
+ "kagari-analyzer",
  "kagari-bytecode",
  "kagari-common",
  "kagari-compiler",

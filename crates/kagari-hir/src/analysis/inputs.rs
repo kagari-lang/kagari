@@ -78,7 +78,7 @@ impl AnalysisInputs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{native::render::declaration_source, tests::native::function_module};
+    use crate::{native::render::declaration_source, tests::native_fixture::function_module};
     use kagari_common::{
         cancellation::CancellationToken,
         identity::{ModuleIdentity, PackageId},

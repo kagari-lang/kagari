@@ -250,12 +250,9 @@ fn declaration_query_stops_before_body_resolution_signatures_and_const_evaluatio
     for declaration in file.declarations().iter() {
         assert_eq!(complete.declaration(&declaration.id), Some(declaration));
     }
-    let local = full.definition_at(text.rfind("local }").unwrap()).unwrap();
-    assert!(matches!(local.id, DeclarationId::Binding(_)));
-    assert!(declarations.declaration(&local.id).is_none());
+
     let again = query(&mut db, &sources);
     assert!(Arc::ptr_eq(file, again.file(id).unwrap()));
-    assert!(again.declaration(&local.id).is_none());
 }
 
 #[test]

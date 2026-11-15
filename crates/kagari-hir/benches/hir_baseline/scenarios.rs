@@ -1,5 +1,6 @@
 //! Shared preparation, semantic assertions and explicit snapshot lifetime boundaries.
 
+use kagari_analyzer::AnalyzerQueries;
 use std::sync::Arc;
 
 use kagari_common::identity::metadata::DefinitionMetadata;
@@ -118,17 +119,23 @@ pub fn verify_snapshot(
     assert!(summary.provider_modules > 0);
     let file = snapshot.file(ids[workload.query_index]).unwrap();
     assert_eq!(
-        file.type_at(workload.query_offset),
+        file.queries().type_at(workload.query_offset),
         Some(expected_type(signature))
     );
     if workload.name == "dependency_edit" {
         // Both consumers must see the changed contract; the independent module stays i32.
         let other = snapshot.file(ids[3]).unwrap();
         let offset = workload.inputs[3].text.find("saved;").unwrap();
-        assert_eq!(other.type_at(offset), Some(expected_type(signature)));
+        assert_eq!(
+            other.queries().type_at(offset),
+            Some(expected_type(signature))
+        );
         let independent = snapshot.file(ids[4]).unwrap();
         let offset = workload.inputs[4].text.find("x + 0").unwrap();
-        assert_eq!(independent.type_at(offset), Some(expected_type(false)));
+        assert_eq!(
+            independent.queries().type_at(offset),
+            Some(expected_type(false))
+        );
     }
     summary
 }

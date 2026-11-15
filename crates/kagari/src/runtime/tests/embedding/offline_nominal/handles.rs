@@ -7,6 +7,7 @@ use crate::{
     program::Compilation,
 };
 use kagari_abi::representation::ValueType;
+use kagari_analyzer::AnalyzerQueries;
 use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::identity::{PackageId, map::DefinitionContext, metadata::DefinitionMetadata};
@@ -57,7 +58,7 @@ fn offline_host_type_navigation_is_available_from_signature_query() {
             .signatures(engine.source_snapshot(), &Default::default())
             .unwrap();
         let signature = signatures.file(file).unwrap();
-        let declaration = signature.definition_at(annotation).unwrap();
+        let declaration = signature.queries().definition_at(annotation).unwrap();
         assert_eq!(declaration.name, "Item");
         let DeclarationId::Definition(id) = declaration.id else {
             panic!("common external declaration")
@@ -74,16 +75,16 @@ fn offline_host_type_navigation_is_available_from_signature_query() {
                 .package,
             PackageId("left".into())
         );
-        assert!(signature.definition_at(annotation - 1).is_none());
+        assert!(signature.queries().definition_at(annotation - 1).is_none());
         if type_start != annotation {
-            assert!(signature.definition_at(type_start).is_none());
+            assert!(signature.queries().definition_at(type_start).is_none());
         }
         assert!(signature.diagnostics().is_empty());
         let full = engine
             .analyze(engine.source_snapshot(), &Default::default())
             .unwrap();
         assert_eq!(
-            full.file(file).unwrap().definition_at(annotation),
+            full.file(file).unwrap().queries().definition_at(annotation),
             Some(declaration)
         );
     }

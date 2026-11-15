@@ -759,34 +759,21 @@ impl Declarations {
         self.targets.get(&DeclarationKey::Variant(id))
     }
 
-    /// Member declaration names only, so an unresolved body reference never
-    /// accidentally navigates to an enclosing declaration's whole-file span.
-    pub fn member_at(&self, offset: usize) -> Option<&Declaration> {
-        self.targets
-            .iter()
-            .filter(|(key, _)| {
-                matches!(
-                    key,
-                    DeclarationKey::Field(_)
-                        | DeclarationKey::Variant(_)
-                        | DeclarationKey::AssociatedType(_)
-                        | DeclarationKey::AssociatedConst(_)
-                )
-            })
-            .find_map(|(key, declaration)| {
-                let range = self.site_ranges.get(key)?;
-                (range.start <= offset && offset < range.end).then_some(declaration)
-            })
-    }
-
-    /// Declaration-site lookup uses analysis coordinates, independently of the
-    /// authoritative navigation location of a copied source fragment.
-    pub fn site_at(&self, offset: usize) -> Option<&Declaration> {
-        self.site_ranges
-            .iter()
-            .filter(|(_, range)| range.start <= offset && offset < range.end)
-            .min_by_key(|(_, range)| range.end - range.start)
-            .and_then(|(key, _)| self.targets.get(key))
+    /// Temporary analysis-coordinate declaration sites for HR06/HR07 extraction.
+    ///
+    /// Each entry borrows this table's canonical declaration and marks member sites.
+    /// Copied/native physical locations remain on the declaration itself.
+    pub fn sites(&self) -> impl Iterator<Item = (Span, &Declaration, bool)> {
+        self.site_ranges.iter().filter_map(|(key, range)| {
+            let member = matches!(
+                key,
+                DeclarationKey::Field(_)
+                    | DeclarationKey::Variant(_)
+                    | DeclarationKey::AssociatedType(_)
+                    | DeclarationKey::AssociatedConst(_)
+            );
+            Some((*range, self.targets.get(key)?, member))
+        })
     }
 
     /// Borrows canonical foreign type/variant declaration projections.
@@ -821,7 +808,8 @@ impl Declarations {
         self.definition_target(&duplicate).map(|_| owner)
     }
 
-    pub(crate) fn definition(&self, name: ResolvedName) -> Option<&DefinitionId> {
+    /// Resolves a selected name to its canonical definition ID in this table.
+    pub fn definition(&self, name: ResolvedName) -> Option<&DefinitionId> {
         match &self.target(name)?.id {
             DeclarationId::Definition(id) => Some(id),
             _ => None,

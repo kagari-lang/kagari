@@ -15,6 +15,7 @@ smallvec.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+kagari-analyzer.workspace = true
 kagari-stdlib.workspace = true
 kagari-contract.workspace = true
 rstest.workspace = true

@@ -66,7 +66,7 @@ impl SourceUnit {
     }
 
     /// Checks the complete identity before local IDs may index the supplied lowering.
-    pub(crate) fn matches(&self, lowered: &LoweredModule, definitions: &DefinitionTable) -> bool {
+    pub fn matches(&self, lowered: &LoweredModule, definitions: &DefinitionTable) -> bool {
         definitions.lookup_module(lowered.source.module_identity()) == Some(self.module)
             && self.file == lowered.source.id()
             && self.revision == lowered.source.revision()
@@ -112,7 +112,7 @@ impl SourceItem {
     }
 
     /// Converts eligible declaration kinds to local names; variants retain qualified source references.
-    pub(crate) fn local(self) -> Option<ResolvedName> {
+    pub fn local(self) -> Option<ResolvedName> {
         Some(match self {
             Self::Function(id) => ResolvedName::Function(id),
             Self::Const(id) => ResolvedName::Const(id),
@@ -191,7 +191,7 @@ impl ResolvedTarget {
     }
 
     /// Converts to a resolver name; localizes source IDs only when the full supplied unit matches.
-    pub(crate) fn resolved(&self, unit: Option<&SourceUnit>) -> ResolvedName {
+    pub fn resolved(&self, unit: Option<&SourceUnit>) -> ResolvedName {
         match self {
             Self::Source(source) => {
                 if Some(&source.unit) == unit
@@ -434,3 +434,10 @@ pub enum ModuleOrderError {
 
 #[cfg(test)]
 mod tests;
+
+impl ModuleImportFacts {
+    /// Temporary settled import-prefix provenance borrowed by analyzer until HR07.
+    pub fn path_hits(&self) -> &[(FileSpan, catalog::LookupHit)] {
+        &self.path_hits
+    }
+}

@@ -5,8 +5,8 @@ use crate::{
     hir::{
         body::Body,
         ids::{
-            BodyOwner, ConstId, EnumId, ExprId, FunctionId, HirOwner, LocalId, ModuleId,
-            OpaqueTypeId, ParamId, PatternId, PlaceId, StaticId, StructId, TraitId, TypeAliasId,
+            BodyOwner, ConstId, EnumId, ExprId, FunctionId, LocalId, ModuleId, OpaqueTypeId,
+            ParamId, PatternId, PlaceId, StaticId, StructId, TraitId, TypeAliasId,
         },
         pattern::PatternKind,
         writeability::Writeability,
@@ -17,11 +17,7 @@ use crate::{
     },
     resolver::table::NameTable,
 };
-use std::{
-    cmp::Reverse,
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use kagari_common::span::Span;
 
@@ -142,6 +138,11 @@ pub struct ResolvedNames {
 }
 
 impl ResolvedNames {
+    /// Temporary settled expression-prefix provenance borrowed by analyzer until HR07.
+    pub fn path_hits(&self) -> &[(Span, LookupHit)] {
+        &self.path_hits
+    }
+
     /// Borrows a recorded namespace hit with provenance, if resolution produced one.
     pub fn lookup_hit(&self, id: ExprId) -> Option<&LookupHit> {
         self.lookup_hits.get(&id)
@@ -251,41 +252,5 @@ impl ResolvedNames {
     /// Borrows all recorded lexical scopes; parent indices refer to this slice.
     pub fn scopes(&self) -> &[LexicalScope] {
         &self.scopes
-    }
-
-    /// Returns visible lexical bindings at a byte offset, sorted by name.
-    ///
-    /// Selects the smallest containing scope (latest entry breaks equal-range ties),
-    /// then walks parents. Later visible bindings shadow earlier/outer spellings.
-    /// Module-level declarations are not included; offsets outside all scopes yield none.
-    pub fn visible_bindings(&self, offset: usize) -> Vec<&ScopeBinding> {
-        let mut scope = self
-            .scopes
-            .iter()
-            .enumerate()
-            .filter(|(_, scope)| scope.span.start <= offset && offset < scope.span.end)
-            .min_by_key(|(id, scope)| (scope.span.end - scope.span.start, Reverse(*id)))
-            .map(|(id, _)| id);
-        let owner = scope.map(|id| self.scopes[id].owner);
-        let mut seen = HashSet::new();
-        let mut visible = HashMap::new();
-        while let Some(id) = scope {
-            for binding in self.scopes[id].bindings.iter().rev() {
-                if binding.visible_from <= offset && seen.insert(binding.name.as_str()) {
-                    let accessible = match binding.resolved {
-                        ResolvedName::Local(id) => Some(id.owner()) == owner.map(HirOwner::Body),
-                        ResolvedName::Param(id) => Some(id.owner()) == owner.map(HirOwner::Body),
-                        _ => true,
-                    };
-                    if accessible {
-                        visible.insert(binding.name.as_str(), binding);
-                    }
-                }
-            }
-            scope = self.scopes[id].parent;
-        }
-        let mut visible = visible.into_values().collect::<Vec<_>>();
-        visible.sort_by(|a, b| a.name.cmp(&b.name));
-        visible
     }
 }

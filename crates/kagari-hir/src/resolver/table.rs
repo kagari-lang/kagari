@@ -62,6 +62,11 @@ pub struct NameTable {
 }
 
 impl NameTable {
+    /// Borrows the complete lowering identity used to localize selected targets.
+    pub fn source_unit(&self) -> Option<&SourceUnit> {
+        self.unit.as_ref()
+    }
+
     pub(crate) fn for_unit(unit: SourceUnit) -> Self {
         Self {
             unit: Some(unit),

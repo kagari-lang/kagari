@@ -97,6 +97,22 @@ impl Body {
             .map(|(index, (owner, place))| (PlaceId::new(self.arena, *owner, index), place))
     }
 
+    /// Visits type syntax in allocation order with matching arena/owner IDs.
+    pub fn types(&self) -> impl Iterator<Item = (TypeRefId, &TypeData)> {
+        self.types
+            .iter()
+            .enumerate()
+            .map(|(index, (owner, ty))| (TypeRefId::new(self.arena, *owner, index), ty))
+    }
+
+    /// Visits patterns in allocation order with matching arena/owner IDs.
+    pub fn patterns(&self) -> impl Iterator<Item = (PatternId, &PatternData)> {
+        self.patterns
+            .iter()
+            .enumerate()
+            .map(|(index, (owner, pattern))| (PatternId::new(self.arena, *owner, index), pattern))
+    }
+
     /// Visits statement rows in allocation order, reconstructing their complete IDs.
     pub fn statements(&self) -> impl Iterator<Item = (StmtId, &StmtData)> {
         self.stmts

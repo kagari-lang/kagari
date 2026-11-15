@@ -17,7 +17,7 @@ use crate::{
     },
     declarations::{DeclarationId, Declarations},
     hir::{
-        ids::{BodyOwner, BodySelection, FunctionId},
+        ids::{BodySelection, FunctionId},
         item::function::FunctionKind,
     },
     lower::LoweredModule,
@@ -27,7 +27,6 @@ use crate::{
     },
     semantic::body::ModuleFacts,
     typeck::{BodyInputs, check::check_bodies_controlled, reuse::BodyReuse, table::TypeTable},
-    types::TypeId,
 };
 
 use std::sync::{Arc, Weak};
@@ -117,32 +116,6 @@ impl FunctionAnalysis {
         } else {
             BodyEligibility::Unavailable
         }
-    }
-
-    fn contains(&self, offset: usize) -> bool {
-        self.facts.names.scopes().iter().any(|scope| {
-            scope.owner == BodyOwner::Function(self.facts.function)
-                && scope.span.start <= offset
-                && offset <= scope.span.end
-        })
-    }
-
-    /// Returns a checked type in this result's definition scope at a byte offset inside the selected function.
-    pub fn type_at(&self, offset: usize) -> Option<TypeId> {
-        let ty = self
-            .contains(offset)
-            .then(|| super::type_at_in(self.lowered(), self.type_table(), offset))
-            .flatten()?;
-        Some(ty)
-    }
-
-    /// Returns a member receiver type in this result's definition scope inside the selected function.
-    pub fn member_receiver_type(&self, offset: usize) -> Option<TypeId> {
-        let ty = self
-            .contains(offset)
-            .then(|| super::member_receiver_type_in(self.lowered(), self.type_table(), offset))
-            .flatten()?;
-        Some(ty)
     }
 
     /// Returns the selected declaration's identity in this result's definition table.

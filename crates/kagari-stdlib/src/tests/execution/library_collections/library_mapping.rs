@@ -1,5 +1,6 @@
 use super::{Probe, program, run};
 use super::{after_failure_source, array_i32, inspect_retained};
+use kagari_analyzer::AnalyzerQueries;
 use kagari_runtime::{
     Runtime, RuntimeConfig, module::entry::ProgramEntry,
     native::conversion::context::ConversionContext,
@@ -340,6 +341,7 @@ fn native_iterator_completion_navigates_to_the_generated_impl() {
     let candidates = snapshot
         .file(file)
         .unwrap()
+        .queries()
         .method_completions(text.find("cursor. }").unwrap() + 7);
     let next = candidates
         .iter()

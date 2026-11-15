@@ -1,5 +1,6 @@
 //! Run with `cargo run -p kagari --example source_queries`.
 
+use kagari_analyzer::AnalyzerQueries;
 use kagari_hir::{
     declarations::DeclarationId,
     hir::ids::{BodyOwner, HirOwner},
@@ -52,6 +53,7 @@ fn main() -> kagari::CompileResult<()> {
     let header = headers.file(file).expect("source declarations");
     assert!(header.diagnostics().is_empty());
     let variant = header
+        .queries()
         .member_at(text.find("Ready").expect("variant declaration"))
         .expect("variant source identity");
     println!("variant {} -> {:?}", variant.name, variant.id);
@@ -85,6 +87,7 @@ fn main() -> kagari::CompileResult<()> {
     let payload_point = text.find("Running(Point").expect("payload") + "Running(".len();
     assert_eq!(
         signature
+            .queries()
             .definition_at(payload_point)
             .expect("checked signature target")
             .name,
@@ -92,7 +95,7 @@ fn main() -> kagari::CompileResult<()> {
     );
     println!(
         "enum payload type before body analysis: {:?}",
-        signature.type_at(payload_point)
+        signature.queries().type_at(payload_point)
     );
     println!(
         "{} function signatures before body analysis",
@@ -127,36 +130,52 @@ fn main() -> kagari::CompileResult<()> {
     assert!(body.diagnostics().is_empty());
     println!(
         "queried one body: {:?}",
-        body.type_at(text.rfind("answer }").expect("reference"))
+        body.queries()
+            .type_at(text.rfind("answer }").expect("reference"))
     );
     let snapshot = engine.analyze(engine.source_snapshot(), &Default::default())?;
     let analysis = snapshot.file(file).expect("source belongs to snapshot");
     assert_eq!(
-        analysis.definition_at(payload_point),
-        signature.definition_at(payload_point)
+        analysis.queries().definition_at(payload_point),
+        signature.queries().definition_at(payload_point)
     );
     let good_name = text.find("fn good").expect("function declaration") + "fn ".len();
     assert_eq!(
         analysis
+            .queries()
             .definition_at(good_name)
             .expect("declaration site")
             .id,
         kagari_hir::declarations::DeclarationId::Definition(*good)
     );
-    assert!(analysis.definition_at(good_name - "fn ".len()).is_none());
+    assert!(
+        analysis
+            .queries()
+            .definition_at(good_name - "fn ".len())
+            .is_none()
+    );
     let local_name = text.find("val answer").expect("local declaration") + "val ".len();
     assert_eq!(
-        analysis.definition_at(local_name).expect("local site").name,
+        analysis
+            .queries()
+            .definition_at(local_name)
+            .expect("local site")
+            .name,
         "answer"
     );
     let write_start = text.find("p.x = 2").expect("field write");
     assert_eq!(
-        analysis.definition_at(write_start).expect("receiver").name,
+        analysis
+            .queries()
+            .definition_at(write_start)
+            .expect("receiver")
+            .name,
         "p"
     );
-    assert!(analysis.definition_at(write_start + 1).is_none());
+    assert!(analysis.queries().definition_at(write_start + 1).is_none());
     assert_eq!(
         analysis
+            .queries()
             .definition_at(write_start + 2)
             .expect("member")
             .name,
@@ -164,28 +183,43 @@ fn main() -> kagari::CompileResult<()> {
     );
     let write_member = write_start + 2;
     assert!(
-        analysis.member_receiver_type(write_member).is_some(),
+        analysis
+            .queries()
+            .member_receiver_type(write_member)
+            .is_some(),
         "field write receiver"
     );
     let broken_index = text.find("items[true].x").expect("invalid index") + "items[true].".len();
     assert_eq!(
         analysis
+            .queries()
             .definition_at(broken_index)
             .expect("known array element field")
             .name,
         "x"
     );
-    assert!(analysis.member_receiver_type(broken_index).is_some());
+    assert!(
+        analysis
+            .queries()
+            .member_receiver_type(broken_index)
+            .is_some()
+    );
     let indexed_write =
         text.find("items[true].x =").expect("invalid indexed write") + "items[true].".len();
     assert_eq!(
         analysis
+            .queries()
             .definition_at(indexed_write)
             .expect("indexed write field")
             .name,
         "x"
     );
-    assert!(analysis.member_receiver_type(indexed_write).is_some());
+    assert!(
+        analysis
+            .queries()
+            .member_receiver_type(indexed_write)
+            .is_some()
+    );
     assert_eq!(
         analysis
             .result()
@@ -201,13 +235,14 @@ fn main() -> kagari::CompileResult<()> {
     );
     let readonly = text.find("p = Point").expect("readonly assignment");
     assert!(
-        analysis.type_at(readonly).is_some(),
+        analysis.queries().type_at(readonly).is_some(),
         "known type survives write rejection"
     );
     let initializer_field =
         text.find("Point { x: 2").expect("struct initializer") + "Point { ".len();
     assert_eq!(
         analysis
+            .queries()
             .definition_at(initializer_field)
             .expect("checked initializer field")
             .name,
@@ -216,12 +251,13 @@ fn main() -> kagari::CompileResult<()> {
     let index_member = text.find("missing[p.x]").expect("broken assignment") + "missing[p.".len();
     assert_eq!(
         analysis
+            .queries()
             .definition_at(index_member)
             .expect("independent index member")
             .name,
         "x"
     );
-    assert!(analysis.type_at(index_member).is_some());
+    assert!(analysis.queries().type_at(index_member).is_some());
     let facts = analysis.result().facts();
     let helper = facts
         .lowered
@@ -237,6 +273,7 @@ fn main() -> kagari::CompileResult<()> {
     let constructor_start = text.find("Mode::Running").expect("constructor reference");
     assert_eq!(
         analysis
+            .queries()
             .definition_at(constructor_start)
             .expect("enum owner")
             .name,
@@ -244,10 +281,12 @@ fn main() -> kagari::CompileResult<()> {
     );
     assert!(
         analysis
+            .queries()
             .definition_at(constructor_start + "Mode".len())
             .is_none()
     );
     let constructor = analysis
+        .queries()
         .definition_at(constructor_start + "Mode::".len())
         .expect("resolved variant target");
     println!("constructor {} -> {:?}", constructor.name, constructor.id);
@@ -263,7 +302,10 @@ fn main() -> kagari::CompileResult<()> {
             .expect("shared declarations")
     ));
     let offset = text.rfind("answer }").expect("reference offset");
-    let target = analysis.definition_at(offset).expect("resolved local");
+    let target = analysis
+        .queries()
+        .definition_at(offset)
+        .expect("resolved local");
     let position = analysis
         .source()
         .position(target.location.range.start, PositionEncoding::Utf16)
@@ -276,19 +318,24 @@ fn main() -> kagari::CompileResult<()> {
         target.name,
         target.id
     );
-    for binding in analysis.visible_bindings(offset) {
+    for binding in analysis.queries().visible_bindings(offset) {
         println!("{}: {:?}", binding.declaration.name, binding.ty);
     }
     let field = analysis
+        .queries()
         .definition_at(text.rfind("p.x").expect("field access") + 2)
         .expect("resolved field");
     println!("field {} -> {:?}", field.name, field.id);
     let annotation = text.find("p: Point").expect("type annotation") + 3;
     let point_type = analysis
+        .queries()
         .definition_at(annotation)
         .expect("resolved annotation");
     println!("type {} -> {:?}", point_type.name, point_type.id);
-    let nominal = analysis.type_at(annotation).expect("nominal type fact");
+    let nominal = analysis
+        .queries()
+        .type_at(annotation)
+        .expect("nominal type fact");
     let TypeId::Struct(definition) = &nominal else {
         panic!("Point has a struct identity");
     };
@@ -299,10 +346,12 @@ fn main() -> kagari::CompileResult<()> {
     assert!(definition.arguments.is_empty());
     println!("nominal type -> {nominal:?}");
     let constraint = analysis
+        .queries()
         .definition_at(text.find("T: Show").expect("trait bound") + 3)
         .expect("resolved trait constraint");
     println!("constraint {} -> {:?}", constraint.name, constraint.id);
     let method = analysis
+        .queries()
         .definition_at(text.find("value.show()").expect("generic method call") + "value.".len())
         .expect("nominal trait method target");
     println!("trait method {} -> {:?}", method.name, method.id);
@@ -321,6 +370,7 @@ fn main() -> kagari::CompileResult<()> {
         contract.params, contract.return_type
     );
     let implementation = analysis
+        .queries()
         .definition_at(text.find("impl Show").expect("impl header") + 5)
         .expect("checked impl trait target");
     assert_eq!(implementation.id, constraint.id);
@@ -371,9 +421,12 @@ fn main() -> kagari::CompileResult<()> {
             .iter()
             .any(|d| d.kind.code() == "KG_RESOLVE_DUPLICATE_DECLARATION")
     );
-    assert!(ambiguous_file.definition_at(annotation).is_none());
-    assert!(ambiguous_file.definition_at(offset).is_some());
-    assert_eq!(analysis.definition_at(annotation), Some(point_type));
+    assert!(ambiguous_file.queries().definition_at(annotation).is_none());
+    assert!(ambiguous_file.queries().definition_at(offset).is_some());
+    assert_eq!(
+        analysis.queries().definition_at(annotation),
+        Some(point_type)
+    );
     println!(
         "type collision has no selected declaration; the good function and old snapshot remain queryable"
     );
@@ -383,19 +436,25 @@ fn main() -> kagari::CompileResult<()> {
     let applied_file = applied.file(file).expect("edited source");
     let application = applied_text.find("T<>").expect("empty type application");
     assert_eq!(
-        applied_file.type_at(application),
+        applied_file.queries().type_at(application),
         Some(kagari_hir::types::TypeId::Error)
     );
     assert_eq!(
         applied_file
+            .queries()
             .definition_at(application)
             .expect("known base binder")
             .name,
         "T"
     );
-    assert!(applied_file.definition_at(application + 1).is_none());
+    assert!(
+        applied_file
+            .queries()
+            .definition_at(application + 1)
+            .is_none()
+    );
     assert_eq!(
-        applied_file.type_at(application + 1),
+        applied_file.queries().type_at(application + 1),
         Some(kagari_hir::types::TypeId::Error)
     );
     println!("invalid type application retains its binder target for navigation");
@@ -447,16 +506,19 @@ fn main() -> kagari::CompileResult<()> {
     let header = headers.file(file).expect("incomplete declarations");
     assert!(
         header
+            .queries()
             .member_at(incomplete.find(": i32").unwrap())
             .is_none()
     );
     assert!(
         header
+            .queries()
             .member_at(incomplete.find("(i32)").unwrap())
             .is_none()
     );
     assert_eq!(
         header
+            .queries()
             .member_at(incomplete.find("intact").unwrap())
             .unwrap()
             .name,

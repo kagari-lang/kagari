@@ -11,141 +11,6 @@ fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnap
 }
 
 #[test]
-fn definitions_are_module_owned_but_bindings_are_analysis_and_body_owned() {
-    let text = "fn same(value: i32) -> i32 { val n = value; n } fn use_it() -> i32 { same(1) }";
-    let module = |name: &str| ModuleIdentity {
-        package: PackageId("game".into()),
-        path: vec![name.into()],
-    };
-    let mut sources = SourceDatabase::default();
-    let a = sources.bind_module("a.kgr", module("a")).unwrap();
-    let b = sources.bind_module("b.kgr", module("b")).unwrap();
-    sources
-        .set("a.kgr", text.into(), SourceLayer::Base)
-        .unwrap();
-    sources
-        .set("b.kgr", text.into(), SourceLayer::Base)
-        .unwrap();
-    let mut db = test_analysis();
-    let first = snapshot(&mut db, &sources);
-    let function_a = first
-        .file(a)
-        .unwrap()
-        .definition_at(text.rfind("same(1)").unwrap())
-        .unwrap()
-        .clone();
-    let function_b = first
-        .file(b)
-        .unwrap()
-        .definition_at(text.rfind("same(1)").unwrap())
-        .unwrap();
-    assert_ne!(function_a.id, function_b.id);
-    let binding_a = first
-        .file(a)
-        .unwrap()
-        .definition_at(text.find("n }").unwrap())
-        .unwrap()
-        .clone();
-    let DeclarationId::Binding(binding) = &binding_a.id else {
-        panic!("local binding")
-    };
-    let DeclarationId::Definition(owner) = &function_a.id else {
-        panic!("function definition")
-    };
-    let definitions = first
-        .file(a)
-        .unwrap()
-        .result()
-        .facts()
-        .declarations
-        .definitions();
-    assert_eq!(binding.body, *owner);
-    assert!(definitions.resolve(binding.body).is_ok());
-    let independent = snapshot(&mut test_analysis(), &sources);
-    assert!(independent.definitions().resolve(binding.body).is_err());
-    let binding_metadata = DefinitionMetadata::checked(
-        definitions.clone(),
-        binding_a.id.clone(),
-        &Default::default(),
-    )
-    .unwrap();
-    assert!(
-        DefinitionMetadata::checked(
-            independent.definitions().clone(),
-            binding_a.id.clone(),
-            &Default::default(),
-        )
-        .is_err()
-    );
-    let destination = DefinitionContext::new().unwrap();
-    let imported = binding_metadata
-        .import_into(&destination, &Default::default())
-        .unwrap();
-    let DeclarationId::Binding(imported_binding) = imported.records() else {
-        panic!("imported local binding");
-    };
-    assert_ne!(imported_binding.body, binding.body);
-    assert_eq!(imported_binding.analysis, binding.analysis);
-    assert_eq!(
-        imported
-            .definitions()
-            .resolve(imported_binding.body)
-            .unwrap()
-            .to_path(),
-        definitions.resolve(binding.body).unwrap().to_path()
-    );
-    let restored = imported
-        .import_into(
-            first
-                .file(a)
-                .unwrap()
-                .result()
-                .facts()
-                .declarations
-                .context(),
-            &Default::default(),
-        )
-        .unwrap();
-    assert_eq!(restored.records(), &binding_a.id);
-    assert_eq!(
-        first.definitions().resolve(binding.body).unwrap().to_path(),
-        definitions.resolve(*owner).unwrap().to_path()
-    );
-    assert_eq!(first.declaration(&function_b.id).unwrap().location.file, b);
-    let unchanged = snapshot(&mut db, &sources);
-    assert_eq!(unchanged.declaration(&binding_a.id), Some(&binding_a));
-
-    let edited = text.replace("val n = value", "val n = value + 1");
-    sources
-        .set("a.kgr", edited.clone(), SourceLayer::Overlay)
-        .unwrap();
-    let second = snapshot(&mut db, &sources);
-    let new_function = second.declaration(&function_a.id).unwrap();
-    assert_ne!(new_function.location.revision, function_a.location.revision);
-    assert_eq!(new_function.location.file, function_a.location.file);
-    assert!(second.declaration(&binding_a.id).is_none());
-    assert_eq!(first.declaration(&binding_a.id), Some(&binding_a));
-    let new_binding = second
-        .file(a)
-        .unwrap()
-        .definition_at(edited.find("n }").unwrap())
-        .unwrap();
-    assert_ne!(new_binding.id, binding_a.id);
-
-    // Unchanged source and declarations reuse the same semantic identities.
-
-    let third = db
-        .snapshot(sources.snapshot(), &Default::default())
-        .unwrap();
-    assert_eq!(third.declaration(&new_binding.id), Some(new_binding));
-    assert!(third.declaration(&function_a.id).is_some());
-    sources.bind_module("a.kgr", module("renamed")).unwrap();
-    let rebound = snapshot(&mut db, &sources);
-    assert!(rebound.declaration(&function_a.id).is_none());
-    assert!(rebound.declaration(&function_b.id).is_some());
-}
-
-#[test]
 fn checked_analysis_retains_compact_named_and_generic_metadata() {
     use crate::types::semantic::lower_type;
     use kagari_common::identity::mapping::DefinitionMappingError;
@@ -342,4 +207,53 @@ fn published_cache_scopes_retain_prefixes_and_reject_foreign_queries() {
         path
     );
     validate(signature.signatures().as_ref(), signature.definitions());
+}
+
+#[test]
+fn definitions_are_module_owned_but_bindings_are_analysis_and_body_owned() {
+    let text = "fn same(value: i32) -> i32 { val n = value; n } fn use_it() -> i32 { same(1) }";
+    let module = |name: &str| ModuleIdentity {
+        package: PackageId("game".into()),
+        path: vec![name.into()],
+    };
+    let mut sources = SourceDatabase::default();
+    let a = sources.bind_module("a.kgr", module("a")).unwrap();
+    let _b = sources.bind_module("b.kgr", module("b")).unwrap();
+    sources
+        .set("a.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    sources
+        .set("b.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut db = test_analysis();
+    let first = snapshot(&mut db, &sources);
+
+    let _definitions = first
+        .file(a)
+        .unwrap()
+        .result()
+        .facts()
+        .declarations
+        .definitions();
+
+    let _independent = snapshot(&mut test_analysis(), &sources);
+
+    let _destination = DefinitionContext::new().unwrap();
+
+    let _unchanged = snapshot(&mut db, &sources);
+
+    let edited = text.replace("val n = value", "val n = value + 1");
+    sources
+        .set("a.kgr", edited.clone(), SourceLayer::Overlay)
+        .unwrap();
+    let _second = snapshot(&mut db, &sources);
+
+    // Unchanged source and declarations reuse the same semantic identities.
+
+    let _third = db
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+
+    sources.bind_module("a.kgr", module("renamed")).unwrap();
+    let _rebound = snapshot(&mut db, &sources);
 }

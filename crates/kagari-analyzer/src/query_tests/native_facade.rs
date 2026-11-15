@@ -1,19 +1,17 @@
-//! Native facade queries retain common declaration identity and immutable snapshots.
-use crate::{
-    analysis::AnalysisDatabase,
-    tests::{native::function_module, test_analysis},
-    types::TypeId,
-};
+use crate::query_tests::native_fixture::function_module;
+use crate::{AnalyzerQueries, query_tests::test_analysis};
+use std::sync::*;
+// Native facade queries retain common declaration identity and immutable snapshots.
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, metadata::DefinitionMetadata,
 };
+use kagari_hir::{analysis::AnalysisDatabase, types::TypeId};
 use kagari_source::{
     identity::FileId,
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{declaration::module::ModuleDecl, scalar::BuiltinType, ty::Ty};
-use std::sync::Arc;
 
 fn install_echo(
     db: &mut AnalysisDatabase,
@@ -103,11 +101,13 @@ fn facade_bindings_keep_offline_host_identity_queries_and_revision_invalidation(
         "relay::service::echo",
     ] {
         assert_eq!(
-            file.source_function_at(
-                text.find(spelling).unwrap() + spelling.rfind("::").map_or(0, |colon| colon + 2),
-            )
-            .unwrap()
-            .declaration,
+            file.queries()
+                .source_function_at(
+                    text.find(spelling).unwrap()
+                        + spelling.rfind("::").map_or(0, |colon| colon + 2),
+                )
+                .unwrap()
+                .declaration,
             file.definitions().lookup(&echo).unwrap()
         );
     }
@@ -122,11 +122,12 @@ fn facade_bindings_keep_offline_host_identity_queries_and_revision_invalidation(
     assert_eq!(old.revision(), current.revision());
     let current_snapshot = current;
     let current = current_snapshot.file(root).unwrap();
-    assert_eq!(current.result().facts().typed.reused_bodies, 0);
+    assert_eq!(current.result().facts().typed.reused_bodies(), 0);
     assert!(!current.result().diagnostics().is_empty());
     let offset = text.find("pkg::relay::call").unwrap() + "pkg::relay::".len();
     assert_eq!(
-        file.source_function_at(offset)
+        file.queries()
+            .source_function_at(offset)
             .unwrap()
             .signature
             .return_type,
@@ -134,6 +135,7 @@ fn facade_bindings_keep_offline_host_identity_queries_and_revision_invalidation(
     );
     assert_eq!(
         current
+            .queries()
             .source_function_at(offset)
             .unwrap()
             .signature
@@ -142,21 +144,30 @@ fn facade_bindings_keep_offline_host_identity_queries_and_revision_invalidation(
     );
     let call_offset = text.find("api::echo").unwrap() + "api::".len();
     assert_eq!(
-        file.call_signature_at(call_offset).unwrap().result,
+        file.queries()
+            .call_signature_at(call_offset)
+            .unwrap()
+            .result,
         TypeId::Builtin(BuiltinType::I32)
     );
     assert_eq!(
-        current.call_signature_at(call_offset).unwrap().result,
+        current
+            .queries()
+            .call_signature_at(call_offset)
+            .unwrap()
+            .result,
         TypeId::Builtin(BuiltinType::String)
     );
     assert_eq!(
-        old.documentation_at(root, call_offset)
+        old.queries()
+            .documentation_at(root, call_offset)
             .unwrap()
             .documentation,
         "Echo an integer"
     );
     assert_eq!(
         current_snapshot
+            .queries()
             .documentation_at(root, call_offset)
             .unwrap()
             .documentation,
@@ -181,11 +192,12 @@ fn host_facades_do_not_override_local_shadowing_or_duplicate_export_errors() {
             .unwrap();
         let file = snapshot.file(root).unwrap();
         assert!(
-            file.source_function_at(text.find("invoke(2)").unwrap())
+            file.queries()
+                .source_function_at(text.find("invoke(2)").unwrap())
                 .is_none()
         );
         assert_eq!(
-            file.type_at(text.rfind('7').unwrap()),
+            file.queries().type_at(text.rfind('7').unwrap()),
             Some(TypeId::Builtin(BuiltinType::I32))
         );
         assert!(snapshot.check_program(root, &Default::default()).is_err());
@@ -233,7 +245,7 @@ fn invalid_imports_and_calls_keep_neighbor_facts_but_block_codegen() {
             analysis.result().diagnostics()
         );
         assert_eq!(
-            analysis.type_at(text.rfind("42").unwrap()),
+            analysis.queries().type_at(text.rfind("42").unwrap()),
             Some(TypeId::Builtin(BuiltinType::I32))
         );
         assert!(analysis.result().clone().into_codegen().is_err());

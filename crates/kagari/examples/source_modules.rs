@@ -1,5 +1,6 @@
 //! Query source dependencies, then encode, load and execute their shared program.
 
+use kagari_analyzer::AnalyzerQueries;
 use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_stdlib as stdlib;
@@ -50,7 +51,7 @@ fn main() {
     let root = snapshot.module_graph().node(&root_handle).unwrap();
     let file = snapshot.file(root.file).unwrap();
     let offset = file.source().text().rfind("value()").unwrap();
-    let function = file.source_function_at(offset).unwrap();
+    let function = file.queries().source_function_at(offset).unwrap();
     println!(
         "imported {} -> {}",
         function.signature.name,
@@ -65,7 +66,10 @@ fn main() {
         file.result().diagnostics()
     );
     let type_offset = file.source().text().find("Data)").unwrap();
-    let declaration = snapshot.definition_at(root.file, type_offset).unwrap();
+    let declaration = snapshot
+        .queries()
+        .definition_at(root.file, type_offset)
+        .unwrap();
     assert_ne!(declaration.location.file, root.file);
     let defining_text = snapshot
         .file(declaration.location.file)

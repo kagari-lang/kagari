@@ -1,7 +1,6 @@
-//! Call signatures are projections of the selected declaration's checked facts.
+use crate::file::FileQueries;
 
-use crate::{
-    analysis::FileAnalysis,
+use kagari_hir::{
     callable::{AppliedCallSignature, CallableSignature},
     declarations::DeclarationId,
     hir::expr::ExprKind,
@@ -10,7 +9,7 @@ use crate::{
     types::TypeId,
 };
 
-/// Presentation view of a checked call with portable declaration/type identities.
+/// Presentation view of a checked call with identities scoped to its semantic owner.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CallSignature {
     /// Canonical declaration selected by the checked call.
@@ -22,11 +21,11 @@ pub struct CallSignature {
     pub result: TypeId,
 }
 
-impl FileAnalysis {
+impl FileQueries<'_> {
     /// The smallest enclosing call wins, including positions in its arguments.
     /// Source, engine-native and offline host declarations share this query.
     pub fn call_signature_at(&self, offset: usize) -> Option<CallSignature> {
-        let facts = self.result().facts();
+        let facts = self.analysis.result().facts();
         let (_, id) = facts
             .lowered
             .module
@@ -40,7 +39,7 @@ impl FileAnalysis {
                 (span.start <= offset && offset < span.end).then_some((span.end - span.start, id))
             })
             .min_by_key(|(length, _)| *length)?;
-        let call = facts.typed.type_table.call_resolution(id)?;
+        let call = facts.typed.type_table().call_resolution(id)?;
         let applied = call.signature.as_ref()?;
         let receiver_offset = usize::from(call.receiver.is_some());
         match &call.target {
@@ -50,7 +49,7 @@ impl FileAnalysis {
                     .target(ResolvedName::Function(*function))?;
                 let signature = facts
                     .typed
-                    .signatures
+                    .signatures()
                     .functions()
                     .iter()
                     .find(|candidate| candidate.id == *function)?;

@@ -112,7 +112,8 @@ impl BodySignatures {
         self.positions.get(&id).map(|index| &self.functions[*index])
     }
 
-    pub(crate) fn parameter(&self, id: ParamId) -> Option<&TypedParameter> {
+    /// Borrows a parameter only when its complete arena/owner/slot ID matches.
+    pub fn parameter(&self, id: ParamId) -> Option<&TypedParameter> {
         let HirOwner::Body(BodyOwner::Function(owner)) = id.owner() else {
             return None;
         };

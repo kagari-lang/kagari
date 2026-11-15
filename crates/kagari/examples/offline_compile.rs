@@ -1,6 +1,7 @@
 //! Compile against common native declarations without callbacks or a runtime.
 //! Run with `cargo run -p kagari --example offline_compile`.
 use kagari::BytecodeArtifact;
+use kagari_analyzer::AnalyzerQueries;
 use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, ArtifactSectionId, KBC_ARTIFACT_FORMAT_VERSION, KbcArtifact},
     native_input::PortableMir,
@@ -287,7 +288,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let signature = signatures.file(root).unwrap();
     let text = signature.source().text();
     let annotation = text.find("value: api::Player").unwrap() + "value: api::".len();
-    let declaration = signature.definition_at(annotation).unwrap();
+    let declaration = signature.queries().definition_at(annotation).unwrap();
     assert_eq!(declaration.name, "Player");
     let DeclarationId::Definition(player) = declaration.id else {
         panic!("external type identity")
@@ -296,7 +297,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         signature.declarations().external_type(player).unwrap().name,
         "Player"
     );
-    assert!(signature.definition_at(annotation - 2).is_none());
+    assert!(signature.queries().definition_at(annotation - 2).is_none());
     println!("offline type navigation is available before body analysis");
     let query = analysis
         .snapshot(sources.snapshot(), &Default::default())
@@ -304,9 +305,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let source = query.file(root).unwrap();
     let text = source.source().text();
     let field = text.find("value.score = next").unwrap();
-    assert!(source.field_at(field).is_none());
-    assert!(source.field_at(field + "value".len()).is_none());
-    let score = source.field_at(field + "value.".len()).unwrap();
+    assert!(source.queries().field_at(field).is_none());
+    assert!(source.queries().field_at(field + "value".len()).is_none());
+    let score = source.queries().field_at(field + "value.".len()).unwrap();
     let score = source.definitions().resolve(score)?.to_path();
     assert_eq!(score.module.package.0, "demo");
     assert_eq!(
@@ -318,14 +319,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         ["Player", "score"]
     );
     let indexed = text.find("value.scores[index]").unwrap();
-    let scores = source.field_at(indexed + "value.".len()).unwrap();
+    let scores = source.queries().field_at(indexed + "value.".len()).unwrap();
     assert_eq!(
         source.definitions().resolve(scores)?.last().unwrap().name,
         "scores"
     );
     let method = text.find(".read_score()").unwrap();
-    assert!(source.definition_at(method).is_none());
-    assert_eq!(source.definition_at(method + 1).unwrap().name, "read_score");
+    assert!(source.queries().definition_at(method).is_none());
+    assert_eq!(
+        source.queries().definition_at(method + 1).unwrap().name,
+        "read_score"
+    );
     println!("offline field and method navigation select their terminal names");
     let checked = query
         .check_program(root, &Default::default())

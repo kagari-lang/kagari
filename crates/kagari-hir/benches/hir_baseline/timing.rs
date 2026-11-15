@@ -1,5 +1,6 @@
 //! Independent timing routes; this module is not compiled into the allocator-instrumented target.
 
+use kagari_analyzer::AnalyzerQueries;
 use std::sync::Arc;
 
 use kagari_hir::{
@@ -184,7 +185,7 @@ fn verify_selected(result: &FunctionAnalysis, workload: &Workload, signature: bo
         assert!(file.diagnostics().is_empty(), "{:?}", file.diagnostics());
     }
     assert_eq!(
-        result.type_at(workload.query_offset),
+        result.queries().type_at(workload.query_offset),
         Some(expected_type(signature))
     );
 }

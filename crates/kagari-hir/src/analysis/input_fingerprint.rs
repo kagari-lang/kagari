@@ -80,7 +80,7 @@ fn hash_bytes(
 #[cfg(test)]
 mod tests {
     use crate::{
-        analysis::AnalysisDatabase, tests::native::function_module,
+        analysis::AnalysisDatabase, tests::native_fixture::function_module,
         typeck::const_budget::ConstLimits,
     };
     use kagari_common::{

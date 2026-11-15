@@ -1,5 +1,6 @@
 #[cfg(test)]
 use crate::tests::support::bytecode::load_bytecode;
+use kagari_analyzer::AnalyzerQueries;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     module::{ExecutableModule, entry::ProgramEntry},
@@ -396,14 +397,14 @@ fn generated_library_declarations_supply_navigation_docs_and_exported_signatures
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let offset = text.find("map(|value|").unwrap();
-    let target = snapshot.definition_at(file, offset).unwrap();
+    let target = snapshot.queries().definition_at(file, offset).unwrap();
     let source = snapshot.source(target.location.file).unwrap();
     assert_eq!(source.name(), generated.uri);
     assert_eq!(
         &source.text()[target.location.range.start..target.location.range.end],
         "map"
     );
-    let documentation = snapshot.documentation_at(file, offset).unwrap();
+    let documentation = snapshot.queries().documentation_at(file, offset).unwrap();
     assert!(documentation.documentation.contains("Lazily transform"));
     assert!(documentation.written_signature.contains("MapIterator"));
     assert!(documentation.written_signature.contains("Self"));

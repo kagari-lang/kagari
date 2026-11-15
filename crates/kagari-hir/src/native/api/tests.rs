@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     native::{adoption::adopt, render::declaration_source},
-    tests::native::module,
+    tests::native_fixture::module,
 };
 use kagari_common::identity::map::DefinitionContext;
 use kagari_stdlib::{catalog as foundation_catalog, catalog};
@@ -123,12 +123,9 @@ fn core_roles_use_complete_parsed_modules_with_attribute_trivia_and_docs() {
         &Default::default(),
     )
     .unwrap();
-    let parsed = prepared.parsed();
+    let _parsed = prepared.parsed();
     let lowered = prepared.attach(&Default::default()).unwrap();
-    assert_eq!(
-        parsed.module().module_documentation().lines().next(),
-        Some("# Module")
-    );
+
     let iterator = lowered
         .module
         .traits

@@ -1,0 +1,19 @@
+const N: i32 = 41;
+
+struct Packet {
+    val value: i32,
+}
+
+fn broken(x: i32) -> i32 {
+    val wrong = missing;
+    true
+}
+
+fn good(value: i32) -> i32 {
+    val answer = value + N;
+    answer
+}
+
+fn incomplete(value: Packet) {
+    value.
+}

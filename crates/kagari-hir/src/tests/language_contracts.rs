@@ -351,100 +351,11 @@ fn iterable_requires_a_real_iterator_with_the_same_item() {
 }
 
 /* Temporarily paused: stdlib restoration (NC01-NC06).
-#[test]
-fn list_method_navigation_uses_language_owned_declarations() {
-    let module = language::declarations()
-        .unwrap()
-        .into_iter()
-        .find(|module| module.records().identity == namespaces::module("std", "collections"))
-        .unwrap();
-    let generated = declaration_source(&module, &foundation_catalog::shared().unwrap()).unwrap();
-    let source = "use std::collections::{List};\nfn main() { val values: List<i32> = Vec::from([2,1]); values.sorted_by_key(|value| value); }";
-    let mut sources = SourceDatabase::default();
-    let file = sources
-        .set("list-navigation.kgr", source.into(), SourceLayer::Base)
-        .unwrap();
-    let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(language::shared().unwrap());
-    let snapshot = analysis
-        .snapshot(sources.snapshot(), &Default::default())
-        .unwrap();
-    let offset = source.find("sorted_by_key").unwrap();
-    let target = snapshot.definition_at(file, offset).unwrap();
-    let declaration = snapshot.source(target.location.file).unwrap();
-    assert_eq!(declaration.name(), generated.uri);
-    assert_eq!(
-        &declaration.text()[target.location.range.start..target.location.range.end],
-        "sorted_by_key"
-    );
-    let docs = snapshot.documentation_at(file, offset).unwrap();
-    assert!(docs.documentation.contains("during comparisons"));
-    assert!(docs.written_signature.contains("Ord"));
-}
+
 */
 
 /* Temporarily paused: stdlib restoration (NC01-NC06).
-#[test]
-fn string_method_docs_completion_and_navigation_share_the_language_catalog() {
-    let generated = declaration_source(
-        &language::declarations()
-            .unwrap()
-            .into_iter()
-            .find(|module| module.records().identity == namespaces::type_owner("String"))
-            .unwrap(),
-        &foundation_catalog::shared().unwrap(),
-    )
-    .unwrap();
-    let source = "fn main() { val text = \"é🙂\"; text.slice(0u64, 2u64); text. }";
-    let mut sources = SourceDatabase::default();
-    let file = sources
-        .set("string-navigation.kgr", source.into(), SourceLayer::Base)
-        .unwrap();
-    let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(language::shared().unwrap());
-    let snapshot = analysis
-        .snapshot(sources.snapshot(), &Default::default())
-        .unwrap();
-    let offset = source.find("slice").unwrap();
-    let target = snapshot.definition_at(file, offset).unwrap();
-    let declaration = snapshot.source(target.location.file).unwrap();
-    assert_eq!(declaration.name(), generated.uri);
-    assert_eq!(
-        &declaration.text()[target.location.range.start..target.location.range.end],
-        "slice"
-    );
-    let docs = snapshot.documentation_at(file, offset).unwrap();
-    assert!(docs.documentation.contains("UTF-8 boundaries"));
-    assert!(docs.written_signature.contains("u64"));
-    let candidates = snapshot
-        .file(file)
-        .unwrap()
-        .method_completions(source.rfind("text. }").unwrap() + 5);
-    for name in [
-        "len",
-        "is_empty",
-        "contains",
-        "starts_with",
-        "ends_with",
-        "find",
-        "slice",
-        "trim",
-        "trim_start",
-        "trim_end",
-        "replace",
-        "split",
-    ] {
-        let candidate = candidates
-            .iter()
-            .find(|candidate| candidate.name == name)
-            .expect(name);
-        let declaration = snapshot.declaration(&candidate.declaration).unwrap();
-        assert_eq!(
-            snapshot.source(declaration.location.file).unwrap().name(),
-            generated.uri
-        );
-    }
-}
+
 */
 
 #[test]

@@ -5,6 +5,7 @@ use crate::{
     error::EmbeddingError,
     program::Program,
 };
+use kagari_analyzer::AnalyzerQueries;
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_hir::declarations::DeclarationId;
 use kagari_stdlib as stdlib;
@@ -85,6 +86,7 @@ fn typed_registration_preserves_parameter_and_return_docs_in_materialized_naviga
         .unwrap();
     snapshot.check_program(file, &Default::default()).unwrap();
     let doc = snapshot
+        .queries()
         .documentation_at(file, text.rfind("duplicate(").unwrap())
         .unwrap();
     assert!(doc.documentation.starts_with(DOC));
@@ -262,7 +264,7 @@ fn generated_files_docs_and_navigation_share_the_checked_snapshot() {
         collections.text
     );
     let doc = snapshot
-        .documentation_at(file, text.find("answer()").unwrap())
+        .queries().documentation_at(file, text.find("answer()").unwrap())
         .unwrap();
     assert_eq!(doc.documentation, DOC);
     let target = snapshot.source(doc.declaration.location.file).unwrap();
@@ -271,13 +273,13 @@ fn generated_files_docs_and_navigation_share_the_checked_snapshot() {
     let range = target.local_range(doc.declaration.location).unwrap();
     assert_eq!(&target.text()[range.start..range.end], "answer");
     let module_doc = snapshot
-        .module_documentation_at(file, text.find("api;").unwrap())
+        .queries().module_documentation_at(file, text.find("api;").unwrap())
         .unwrap();
     assert_eq!(module_doc.documentation, DOC);
     assert_eq!(module_doc.location.file, target.id());
     for name in ["Opaque", "Describe"] {
         let item = snapshot
-            .documentation_at(file, text.find(name).unwrap())
+            .queries().documentation_at(file, text.find(name).unwrap())
             .unwrap();
         assert_eq!(item.documentation, DOC);
     }
@@ -367,6 +369,7 @@ fn task_navigation_uses_canonical_authored_members_and_docs() {
         )
         .unwrap();
         let documentation = snapshot
+            .queries()
             .documentation_at(file, text.find(&format!("{member}(")).unwrap())
             .unwrap();
         let DeclarationId::Definition(actual) = documentation.declaration.id else {
@@ -414,7 +417,7 @@ fn task_navigation_uses_canonical_authored_members_and_docs() {
         let offset = text
             .find(if name == "Task" { "Task<i32>" } else { name })
             .unwrap();
-        let documentation = snapshot.documentation_at(file, offset).unwrap();
+        let documentation = snapshot.queries().documentation_at(file, offset).unwrap();
         let DeclarationId::Definition(actual) = documentation.declaration.id else {
             panic!("canonical type declaration")
         };
@@ -459,8 +462,14 @@ fn content_paths_reuse_unchanged_docs_and_keep_old_snapshot_targets() {
     let new_snapshot = changed
         .declarations(changed.source_snapshot(), &Default::default())
         .unwrap();
-    let old_doc = old_snapshot.module_documentation(&module).unwrap();
-    let new_doc = new_snapshot.module_documentation(&module).unwrap();
+    let old_doc = old_snapshot
+        .queries()
+        .module_documentation(&module)
+        .unwrap();
+    let new_doc = new_snapshot
+        .queries()
+        .module_documentation(&module)
+        .unwrap();
     assert_eq!(old_doc.documentation, DOC);
     assert_ne!(old_doc.documentation, new_doc.documentation);
     let old_source = old_snapshot.source(old_doc.location.file).unwrap();
@@ -472,6 +481,7 @@ fn content_paths_reuse_unchanged_docs_and_keep_old_snapshot_targets() {
     );
     assert_eq!(
         old_snapshot
+            .queries()
             .module_documentation(&module)
             .unwrap()
             .documentation,
@@ -556,7 +566,7 @@ fn modified_cache_content_is_rejected_without_replacing_an_active_target() {
         package: PackageId("application".into()),
         path: vec!["api".into()],
     };
-    let doc = snapshot.module_documentation(&module).unwrap();
+    let doc = snapshot.queries().module_documentation(&module).unwrap();
     let source = snapshot.source(doc.location.file).unwrap();
     let path = physical_path(source.name());
     fs::write(&path, "edited cache").unwrap();
@@ -573,6 +583,7 @@ fn modified_cache_content_is_rejected_without_replacing_an_active_target() {
     assert!(source.text().contains("pub fn answer"));
     assert_eq!(
         snapshot
+            .queries()
             .module_documentation(&ModuleIdentity {
                 package: PackageId("application".into()),
                 path: vec!["api".into()]
