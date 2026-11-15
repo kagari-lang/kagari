@@ -1,0 +1,8 @@
+fn value(x: i32) -> i32 {
+    var (local, _) = (x, true);
+    local += 1;
+    match local {
+        2 => 3,
+        other => other,
+    }
+}

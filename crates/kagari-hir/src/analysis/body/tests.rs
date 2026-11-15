@@ -408,7 +408,7 @@ fn single_function_query_does_not_check_or_bind_its_neighbors() {
 #[test]
 fn body_reuse_remaps_types_and_refreshes_local_identity_after_neighbor_edit() {
     let mut sources = SourceDatabase::default();
-    let text = "fn first() -> i32 { 1 } struct P { var n: i32 } fn good() -> i32 { val p: P = P { n: first() }; val P { n: answer } = p; answer }";
+    let text = include_str!("../../../tests/fixtures/analysis/body_parameter_reuse.kgr");
     let id = sources
         .set("reuse.kgr", text.into(), SourceLayer::Base)
         .unwrap();
@@ -422,9 +422,10 @@ fn body_reuse_remaps_types_and_refreshes_local_identity_after_neighbor_edit() {
         .unwrap()
         .clone();
     let edit = text.replace(
-        "{ 1 }",
+        "{\n    1\n}",
         "{ val shifted: (i32, [i32]) = (10, [20]); missing }",
     );
+    assert_ne!(edit, text);
     sources
         .set("reuse.kgr", edit.clone(), SourceLayer::Overlay)
         .unwrap();
@@ -443,6 +444,26 @@ fn body_reuse_remaps_types_and_refreshes_local_identity_after_neighbor_edit() {
         fresh.lowered().module.body.arena(),
     );
     assert_eq!(second.diagnostics(), fresh.diagnostics());
+    let old_parameter = first.lowered().module.functions[1].params[0].id;
+    let lowered = second.lowered();
+    let parameter = lowered.module.functions[1].params[0].id;
+    assert_eq!((old_parameter.index(), parameter.index()), (0, 0));
+    assert_ne!(old_parameter, parameter);
+    assert_eq!(lowered.module.parameter(parameter).name, "value");
+    assert!(std::panic::catch_unwind(|| lowered.module.parameter(old_parameter)).is_err());
+    let span = lowered.source_map.param_span(parameter);
+    assert_eq!(span.start, edit.find("value: i32").unwrap());
+    assert_eq!(&edit[span.start..span.end], "value");
+    let binding = second
+        .declarations()
+        .iter()
+        .find(|item| item.name == "value")
+        .unwrap();
+    assert_eq!(binding.location.range, span);
+    assert_eq!(
+        second.type_at(edit.find("first(value)").unwrap() + "first(".len()),
+        Some(TypeId::Builtin(BuiltinType::I32))
+    );
     sources
         .set(
             "reuse.kgr",

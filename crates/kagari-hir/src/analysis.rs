@@ -508,10 +508,7 @@ impl FileAnalysis {
                     ResolvedName::Param(id) => facts
                         .typed
                         .signatures
-                        .functions()
-                        .iter()
-                        .flat_map(|function| &function.params)
-                        .find(|param| param.id == id)
+                        .parameter(id)
                         .map(|param| param.ty.clone()),
                     _ => None,
                 }

@@ -1,0 +1,6 @@
+pub fn native(value: i32) -> i32;
+
+trait Example {
+    fn required(self, value: i32) -> i32;
+    fn script(self) {}
+}

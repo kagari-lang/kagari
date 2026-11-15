@@ -41,8 +41,8 @@ use crate::hir::{
 /// creates statement and pattern rows; `y = x;` creates a place row;
 /// `match x { n => n }` creates pattern rows. Every vector row stores
 /// `(allocation_owner, payload)`. Parameters/locals still live inline in
-/// declaration, pattern or closure records; their IDs address source-map slots
-/// and semantic binding maps.
+/// declaration, pattern or closure records. ParamId indexes its owning function's
+/// parameter list; LocalId still addresses source-map slots and semantic binding maps.
 ///
 /// `arena` is synthesized once for the lowering and shared with SourceMap, not
 /// written in source. `HirOwner::Declaration` marks nodes outside function/constant

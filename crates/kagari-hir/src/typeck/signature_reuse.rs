@@ -192,10 +192,15 @@ pub(crate) fn reuse_signatures(
             || old.name != new.name
             || old.kind != new.kind
             || old.params.len() != new.params.len()
+            || typed.id != old.id
+            || typed.params.len() != old.params.len()
         {
             return None;
         }
-        for (param, new) in typed.params.iter_mut().zip(&new.params) {
+        for ((param, old), new) in typed.params.iter_mut().zip(&old.params).zip(&new.params) {
+            if param.id != old.id {
+                return None;
+            }
             param.id = new.id;
         }
     }

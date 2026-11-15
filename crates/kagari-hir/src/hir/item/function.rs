@@ -103,15 +103,16 @@ pub enum FunctionKind {
 /// p -> SourceMap.param_span(p); resolved uses of x refer to Param(p)
 /// ```
 ///
-/// `id` is allocated, not derived from the spelling. Its index addresses the
-/// allocation-wide parameter source map, not necessarily position zero in this
-/// function. Ordinary parameter lowering sets `writeability: Val`; this does not
-/// make a shared object deeply immutable. For a method's `self`, `name` is "self"
-/// and lowering supplies its type syntax. Missing required annotations recover
+/// `id` is allocated, not derived from the spelling. Its index is the position in
+/// the owning function's retained `params` list; `Module.parameter(id)` checks the
+/// lowering, function owner and stored identity. Ordinary lowering sets
+/// `writeability: Val`; this does not make a shared object deeply immutable. For a
+/// method's `self`, `name` is "self" and lowering supplies its type syntax. Missing
+/// required annotations recover
 /// with a placeholder type rather than an inference-enabled `None`.
 #[derive(Debug, Clone)]
 pub struct Param {
-    /// Arena/owner-qualified identity; its index is not necessarily its position in `params`.
+    /// Arena/function-qualified identity whose index is its position in `Function.params`.
     pub id: ParamId,
     /// Parameter binding writeability assigned by lowering.
     pub writeability: Writeability,

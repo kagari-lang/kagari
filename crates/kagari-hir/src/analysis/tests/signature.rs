@@ -113,6 +113,21 @@ fn body_edits_rebase_signature_types_and_preserve_old_queries() {
     let file = second.file(id).unwrap();
     assert!(file.signatures_reused());
     assert_fresh(&second, file, &sources);
+    let old = &first.file(id).unwrap().result().facts().lowered;
+    let current = &file.result().facts().lowered;
+    for function in file.result().facts().typed.signatures.functions() {
+        for (index, parameter) in function.params.iter().enumerate() {
+            assert_eq!(parameter.id.index(), index);
+            let record = current.module.parameter(parameter.id);
+            assert_eq!(record.name, parameter.name);
+            let span = current.source_map.param_span(parameter.id);
+            assert_eq!(&edit[span.start..span.end], parameter.name);
+            let old_parameter = old.module.functions[function.id.index()].params[index].id;
+            assert_ne!(old_parameter, parameter.id);
+            assert!(std::panic::catch_unwind(|| current.module.parameter(old_parameter)).is_err());
+            assert_eq!(old.module.parameter(old_parameter).name, parameter.name);
+        }
+    }
     assert_eq!(first.declaration(&old_target.id), Some(&old_target));
     let new_target = second.declaration(&old_target.id).unwrap();
     assert_ne!(new_target.location, old_target.location);

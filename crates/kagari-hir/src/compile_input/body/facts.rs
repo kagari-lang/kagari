@@ -159,8 +159,8 @@ impl<'a> CheckedBodyInput<'a> {
         }
         self.signature?
             .params
-            .iter()
-            .find(|parameter| parameter.id == id)
+            .get(id.index())
+            .filter(|parameter| parameter.id == id)
             .map(|parameter| &parameter.ty)
     }
 }

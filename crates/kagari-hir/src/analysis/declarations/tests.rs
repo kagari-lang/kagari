@@ -46,6 +46,7 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
     let method_count = file.declared.lowered.method_policies.len();
     assert!(method_count > 0);
     let old_type = file.declared.lowered.module.functions[0].params[0].ty;
+    let old_parameter = file.declared.lowered.module.functions[0].params[0].id;
     let graph_handles = first
         .files()
         .map(|file| Arc::downgrade(&file.declared.lowered))
@@ -86,6 +87,19 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
         assert!(lowered.method_policies.contains_key(&method.function));
     }
     assert_ne!(lowered.module.functions[0].params[0].ty, old_type);
+    assert!(std::panic::catch_unwind(|| lowered.module.parameter(old_parameter)).is_err());
+    assert!(std::panic::catch_unwind(|| lowered.source_map.param_span(old_parameter)).is_err());
+    for function in &lowered.module.functions {
+        for (index, parameter) in function.params.iter().enumerate() {
+            assert_eq!(parameter.id.index(), index);
+            assert!(std::ptr::eq(
+                lowered.module.parameter(parameter.id),
+                parameter
+            ));
+            let span = lowered.source_map.param_span(parameter.id);
+            assert_eq!(&lowered.source.text()[span.start..span.end], parameter.name);
+        }
+    }
     let adapter = lowered
         .module
         .opaque_types

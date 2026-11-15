@@ -3,7 +3,9 @@
 **Status:** scope narrowed by user decision. Keep the current owned, ID-linked HIR and
 category tables. The external-arena/direct-reference HA00/HA01 migration is withdrawn,
 not completed. Its outstanding lifetime/session proofs are no longer acceptance requirements.
-[Roadmap](implementation-roadmap.md#hir-storage-and-attribute-refactor) owns activation.
+HR00 is recorded; HR01 is implemented with focused validation, but required workspace checks
+remain blocked as noted below. [Roadmap](implementation-roadmap.md#hir-storage-and-attribute-refactor)
+owns activation.
 
 ## Model and responsibilities
 
@@ -44,15 +46,15 @@ is included. Existing module/result-level Arc ownership is not being removed.
 
 ## First implementation slice: parameters
 
-Current ownership is split:
+Before HR01, ownership was split:
 
 ```text
 SourceMap.push_param(span) → module-wide ParamId.index
 Function.params           → actual Param records in per-function call order
 ```
 
-Target: the ID addresses the record's real storage. Keep the existing qualified ParamId;
-its index becomes the zero-based position in its owning Function.params.
+Implemented: the existing qualified ParamId addresses the zero-based position in its
+owning Function.params. No new ID representation or storage model is introduced.
 
 ```text
 ParamId { arena: lowering_identity, owner: Body(Function(f)), index: parameter_position }
@@ -68,7 +70,7 @@ SourceMap.param_span(p)
 ```
 
 ```rust
-// Target sketch; no new node ownership model.
+// Abbreviated current layout; no new node ownership model.
 struct Function {
     id: FunctionId,
     params: Vec<Param>,
@@ -87,8 +89,8 @@ struct Param {
 ```
 
 - Lowering chooses the function/list slot, creates one Param, and records its span under
-  that ID. Replace push_param with explicit registration; no independent parameter-ID
-  counter or compatibility allocator remains in SourceMap.
+  that ID. insert_param replaces push_param; no independent parameter-ID counter or
+  compatibility allocator remains in SourceMap.
 - Both free-function and method lowering follow this rule, including self and bodyless
   requirements. The position is in the retained HIR list, not an AST token/recovery slot.
 - Closure parameters still use LocalId. Do not migrate local bindings/generic binders or
@@ -138,8 +140,8 @@ These replace the withdrawn arena phases; earlier implementation commits remain 
 
 | Checkpoint | Scope and acceptance |
 | --- | --- |
-| HR00: responsibilities | Record current owners, the parameter defect and finite scope; documentation only. |
-| HR01: parameters | Function-local ParamId positions, explicit source registration and checked structural lookup; update semantic/compiler/Native consumers and remapping together. |
+| HR00: responsibilities | Recorded current owners, the parameter defect and finite scope; docs/comments only. |
+| HR01: parameters | Implemented function-local ParamId positions, explicit source registration, checked structural and typed lookup, and signature remapping. Focused checks pass; required workspace acceptance remains blocked below. |
 | HR02: scoped follow-ups | After HR01, review concrete inline-identity/attribute-target findings; implement only agreed cohesive slices. This is not permission for a graph rewrite. |
 
 HR01 should strengthen existing lowering, arena/owner-isolation, signature/body reuse and
@@ -150,14 +152,22 @@ Sample compiler handoff and SDK analysis/replay. No bump allocation/lifetime tes
 
 Run focused affected tests, structure, fmt, workspace all-target Clippy and diff checks at
 implementation checkpoints. Full workspace tests and exhaustive backend/platform matrices
-remain CI-only. HR00 requires only content/link/diff checks; this plan revision changes no
-runtime behavior and establishes no new test-pass claim.
+remain CI-only. HR00 needed only content/link/diff checks.
 
-Known carried checks on rustc 1.100.0: workspace fmt has existing differences in
-hir/ids.rs and kagari-syntax/src/ast/tokens.rs; workspace Clippy reports
-needless_range_loop at kagari-compiler/src/bytecode/placement.rs:110. The prior transient
-Windows derive-DLL linker failure cleared; three active SDK regressions passed afterward.
-Do not silently fix unrelated findings or claim workspace acceptance.
+HR01 local evidence: 16 focused HIR tests, two compiler handoff/generic-method tests and two
+SDK analysis/replay tests pass. Existing scenarios were strengthened for same-position
+parameters with distinct owners/types, self/bodyless methods, actual record lookup, stale IDs,
+checked typed bindings, edit reuse and physical inline offsets. No new test cases were added.
+Structure, changed-file formatting, HIR all-target Clippy and diff checks pass. Five ordinary
+new fixtures pass kg fmt --check; the declaration-only fixture requires declaration parsing
+and the malformed-recovery witness preserves authored bytes. Direct traversal keeps using
+already-borrowed records; it does not redundantly resolve their IDs through Module.parameter.
+
+On rustc 1.100.0, workspace fmt is blocked only by existing differences in untouched
+kagari-syntax/src/ast/tokens.rs; touched hir/ids.rs is formatted. Workspace Clippy still reports
+needless_range_loop at kagari-compiler/src/bytecode/placement.rs:110. SDK builds emit an unused
+optional blake3 manifest warning. Do not silently fix unrelated findings or claim workspace
+acceptance; no performance improvement or exhaustive matrix pass is claimed.
 
 ## Reference boundary
 

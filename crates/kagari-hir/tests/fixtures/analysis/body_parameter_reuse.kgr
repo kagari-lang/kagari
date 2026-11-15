@@ -1,0 +1,13 @@
+fn first(seed: i32) -> i32 {
+    1
+}
+
+struct P {
+    var n: i32
+}
+
+fn good(value: i32) -> i32 {
+    val p: P = P { n: first(value) };
+    val P { n: answer } = p;
+    answer
+}

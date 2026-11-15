@@ -2,9 +2,9 @@
 
 use crate::hir::{
     ids::{
-        BlockId, ConstId, EnumId, ExprId, FieldId, FunctionId, GenericParamId, HirArenaId,
-        HirOwner, ImplId, LocalId, ModuleId, OpaqueTypeId, ParamId, PatternId, PlaceId, StaticId,
-        StmtId, StructId, TraitId, TraitMethodId, TypeAliasId, TypeRefId, VariantId,
+        BlockId, BodyOwner, ConstId, EnumId, ExprId, FieldId, FunctionId, GenericParamId,
+        HirArenaId, HirOwner, ImplId, LocalId, ModuleId, OpaqueTypeId, ParamId, PatternId, PlaceId,
+        StaticId, StmtId, StructId, TraitId, TraitMethodId, TypeAliasId, TypeRefId, VariantId,
     },
     item::Item,
 };
@@ -14,7 +14,8 @@ use std::{collections::HashMap, mem};
 /// Source byte ranges and ID allocation state for one [`crate::lower::LoweredModule`].
 ///
 /// This owns ranges, not source text. Interpret them against `LoweredModule.source`.
-/// The lowerer appends spans and payload rows together; their indices must agree.
+/// The lowerer appends dense spans and payload rows together; their indices must agree.
+/// Parameters instead register their function-local identities explicitly.
 /// `set_owner` switches the owner attached to subsequently allocated local IDs.
 ///
 /// ```text
@@ -36,7 +37,7 @@ use std::{collections::HashMap, mem};
 /// # Panics
 ///
 /// Dense range accessors panic for an invalid index; local-node accessors also check
-/// arena and owner. Required field/variant map lookups panic for an absent key.
+/// arena and owner. Required parameter/field/variant map lookups panic for an absent key.
 /// Plain declaration IDs do not carry an arena: callers must keep the matching map.
 #[derive(Debug, Clone, Default)]
 pub struct SourceMap {
@@ -58,8 +59,7 @@ pub struct SourceMap {
     trait_spans: Vec<Span>,
     trait_method_spans: Vec<Span>,
     impl_spans: Vec<Span>,
-    param_spans: Vec<Span>,
-    param_owners: Vec<HirOwner>,
+    param_spans: HashMap<ParamId, Span>,
     local_spans: Vec<Span>,
     local_owners: Vec<HirOwner>,
     struct_spans: Vec<Span>,
@@ -332,11 +332,14 @@ impl SourceMap {
         id
     }
 
-    pub(crate) fn push_param(&mut self, span: Span) -> ParamId {
-        let id = ParamId::new(self.arena, self.owner, self.param_spans.len());
-        self.param_spans.push(span);
-        self.param_owners.push(self.owner);
-        id
+    pub(crate) fn insert_param(&mut self, id: ParamId, span: Span) {
+        assert_eq!(id.arena(), self.arena, "foreign HIR parameter registration");
+        assert_eq!(id.owner(), self.owner, "foreign HIR parameter owner");
+        assert!(matches!(id.owner(), HirOwner::Body(BodyOwner::Function(_))));
+        assert!(
+            self.param_spans.insert(id, span).is_none(),
+            "duplicate HIR parameter"
+        );
     }
 
     pub(crate) fn push_local(&mut self, span: Span) -> LocalId {
@@ -499,12 +502,10 @@ impl SourceMap {
     /// Returns the parameter byte range; see the [ID validity requirements](Self#panics).
     pub fn param_span(&self, id: ParamId) -> Span {
         assert_eq!(id.arena(), self.arena, "foreign HIR source range");
-        assert_eq!(
-            id.owner(),
-            self.param_owners[id.index()],
-            "foreign HIR body source range"
-        );
-        self.param_spans[id.index()]
+        *self
+            .param_spans
+            .get(&id)
+            .expect("unregistered HIR parameter source range")
     }
 
     /// Returns the local binding byte range; see the [ID validity requirements](Self#panics).

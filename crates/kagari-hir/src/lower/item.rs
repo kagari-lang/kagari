@@ -7,7 +7,7 @@
 
 use crate::{
     hir::{
-        ids::{BodyOwner, FieldId, FunctionId, HirOwner, TypeRefId, VariantId},
+        ids::{BodyOwner, FieldId, FunctionId, HirOwner, ParamId, TypeRefId, VariantId},
         item::{
             Item,
             adt::{Enum, Field, OpaqueType, Struct, Variant},
@@ -407,7 +407,7 @@ impl Lowerer {
         let previous_owner = self
             .source_map
             .set_owner(HirOwner::Body(BodyOwner::Function(id)));
-        let params = self.lower_method_params(&method.param_list(), receiver_ty);
+        let params = self.lower_method_params(id, &method.param_list(), receiver_ty);
         let mut generic_params = inherited_generics.to_vec();
         generic_params.extend(
             method
@@ -436,12 +436,14 @@ impl Lowerer {
 
     fn lower_method_params(
         &mut self,
+        function: FunctionId,
         param_list: &Ast<'_, ParamList>,
         receiver_ty: Option<TypeRefId>,
     ) -> Vec<Param> {
         param_list
             .params()
-            .map(|param| {
+            .enumerate()
+            .map(|(index, param)| {
                 let name = param.name_text().unwrap_or_default();
                 let ty = if name == "self" {
                     receiver_ty.unwrap_or_else(|| self.synthetic_named_type("Self"))
@@ -451,13 +453,20 @@ impl Lowerer {
                         .map(|ty| self.lower_type(&ty))
                         .unwrap_or_else(|| self.synthetic_named_type("<missing>"))
                 };
+                let id = ParamId::new(
+                    self.source_map.arena(),
+                    HirOwner::Body(BodyOwner::Function(function)),
+                    index,
+                );
+                self.source_map.insert_param(
+                    id,
+                    param
+                        .name()
+                        .map(|name| token_span(&name))
+                        .unwrap_or_else(|| syntax_span(&param)),
+                );
                 Param {
-                    id: self.source_map.push_param(
-                        param
-                            .name()
-                            .map(|name| token_span(&name))
-                            .unwrap_or_else(|| syntax_span(&param)),
-                    ),
+                    id,
                     writeability: Writeability::Val,
                     name,
                     ty,
@@ -483,19 +492,29 @@ impl Lowerer {
         let params = function
             .param_list()
             .params()
-            .map(|param| Param {
-                id: self.source_map.push_param(
+            .enumerate()
+            .map(|(index, param)| {
+                let parameter = ParamId::new(
+                    self.source_map.arena(),
+                    HirOwner::Body(BodyOwner::Function(id)),
+                    index,
+                );
+                self.source_map.insert_param(
+                    parameter,
                     param
                         .name()
                         .map(|name| token_span(&name))
                         .unwrap_or_else(|| syntax_span(&param)),
-                ),
-                writeability: Writeability::Val,
-                name: param.name_text().unwrap_or_default(),
-                ty: param
-                    .ty()
-                    .map(|ty| self.lower_type(&ty))
-                    .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
+                );
+                Param {
+                    id: parameter,
+                    writeability: Writeability::Val,
+                    name: param.name_text().unwrap_or_default(),
+                    ty: param
+                        .ty()
+                        .map(|ty| self.lower_type(&ty))
+                        .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
+                }
             })
             .collect();
 

@@ -1,0 +1,4 @@
+struct P { val n: i32 }
+trait Show { fn show(self, value: i32) -> i32; }
+impl Show for P { fn show(self, value: i32) -> i32 { self.n + value } }
+fn missing(value) { val x = ; }

@@ -1,0 +1,11 @@
+const N: i32 = 1;
+
+fn first(x: i32, extra: bool) -> i32 {
+    x
+}
+
+fn second(flag: bool) -> bool {
+    flag
+}
+
+fn empty() {}

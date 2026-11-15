@@ -2,17 +2,19 @@ use crate::analysis::*;
 use crate::{
     hir::{
         expr::ExprKind,
-        ids::{BodyOwner, ExprId, HirOwner},
+        ids::{BodyOwner, ExprId, FunctionId, HirOwner, ParamId},
         stmt::StmtKind,
     },
     resolver::{collect::resolve_names, resolved::ResolvedName},
     tests::test_analysis,
+    types::TypeId,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_types::scalar::BuiltinType;
 
 #[test]
 fn lowering_records_owners_for_interleaved_functions_and_constants() {
-    let text = "const N: i32 = 2; fn first(x: i32) -> i32 { var (local, ignored) = (x, true); local += N; match local { 2 => 3, other => other } } fn second() -> i32 { 4 }";
+    let text = include_str!("../../../tests/fixtures/analysis/parameter_owners.kgr");
     let mut sources = SourceDatabase::default();
     let id = sources
         .set("owners.kgr", text.into(), SourceLayer::Base)
@@ -31,7 +33,11 @@ fn lowering_records_owners_for_interleaved_functions_and_constants() {
     for function in &module.functions {
         let expected = HirOwner::Body(BodyOwner::Function(function.id));
         assert_eq!(function.body.unwrap().owner(), expected);
-        for parameter in &function.params {
+        for (index, parameter) in function.params.iter().enumerate() {
+            assert_eq!(parameter.id.index(), index);
+            assert!(std::ptr::eq(module.parameter(parameter.id), parameter));
+            let span = facts.lowered.source_map.param_span(parameter.id);
+            assert_eq!(&text[span.start..span.end], parameter.name);
             assert_eq!(parameter.id.owner(), expected);
             assert_eq!(parameter.ty.owner(), expected);
         }
@@ -57,6 +63,28 @@ fn lowering_records_owners_for_interleaved_functions_and_constants() {
             }
         }
     }
+    let left = module.functions[0].params[0].id;
+    let right = module.functions[1].params[0].id;
+    assert_eq!((left.index(), right.index()), (0, 0));
+    assert_ne!(left, right);
+    assert_eq!(module.parameter(left).name, "x");
+    assert_eq!(module.parameter(right).name, "flag");
+    assert_eq!(
+        facts
+            .typed
+            .type_table
+            .type_ref(module.parameter(left).ty)
+            .map(|record| &record.ty),
+        Some(&TypeId::Builtin(BuiltinType::I32))
+    );
+    assert_eq!(
+        facts
+            .typed
+            .type_table
+            .type_ref(module.parameter(right).ty)
+            .map(|record| &record.ty),
+        Some(&TypeId::Builtin(BuiltinType::Bool))
+    );
     let constant = &module.consts[0];
     assert_eq!(
         constant.initializer.owner(),
@@ -80,7 +108,7 @@ fn lowering_records_owners_for_interleaved_functions_and_constants() {
 
 #[test]
 fn implicit_receiver_shares_declaration_type_without_losing_method_ownership() {
-    let text = "struct P { val n: i32 } trait Show { fn show(self) -> i32; } impl Show for P { fn show(self) -> i32 { self.n } } fn missing(value) { val x = ; }";
+    let text = include_str!("../../../tests/fixtures/lower/receiver_recovery.kgr");
     let lowered = crate::lower::lower_module(&SourceFile::new("receiver.kgr", text));
     let implementation = &lowered.module.impls[0];
     let method = lowered
@@ -89,6 +117,19 @@ fn implicit_receiver_shares_declaration_type_without_losing_method_ownership() {
         .iter()
         .find(|f| f.id == implementation.methods[0].function)
         .unwrap();
+    for function in &lowered.module.functions {
+        for (index, parameter) in function.params.iter().enumerate() {
+            assert_eq!(parameter.id.index(), index);
+            assert!(std::ptr::eq(
+                lowered.module.parameter(parameter.id),
+                parameter
+            ));
+            let span = lowered.source_map.param_span(parameter.id);
+            assert_eq!(&text[span.start..span.end], parameter.name);
+        }
+    }
+    assert_eq!(method.params[0].name, "self");
+    assert_eq!(method.params[1].name, "value");
     assert_eq!(method.params[0].ty, implementation.for_type.unwrap());
     assert_eq!(method.params[0].ty.owner(), HirOwner::Declaration);
     assert_eq!(
@@ -133,7 +174,7 @@ fn resolver_rejects_cross_body_edges_even_inside_the_same_arena() {
 fn stored_node_and_source_owners_reject_an_internally_mistagged_id() {
     let lowered = crate::lower::lower_module(&SourceFile::new(
         "tags.kgr",
-        "fn first() -> i32 { 1 } fn second() -> i32 { 2 }",
+        include_str!("../../../tests/fixtures/analysis/parameter_lookup.kgr"),
     ));
     let first = lowered.module.functions[0].body.unwrap();
     let second = lowered.module.functions[1].body.unwrap();
@@ -142,4 +183,45 @@ fn stored_node_and_source_owners_reject_an_internally_mistagged_id() {
     assert_ne!(expr, mistagged);
     assert!(std::panic::catch_unwind(|| lowered.module.expr(mistagged)).is_err());
     assert!(std::panic::catch_unwind(|| lowered.source_map.expr_span(mistagged)).is_err());
+
+    let module = &lowered.module;
+    let parameter = module.functions[0].params[0].id;
+    let other = module.functions[1].params[0].id;
+    assert_eq!((parameter.index(), other.index()), (0, 0));
+    assert_eq!(module.parameter(parameter).name, "x");
+    assert_eq!(module.parameter(other).name, "flag");
+    for invalid in [
+        ParamId::new(parameter.arena(), HirOwner::Declaration, 0),
+        ParamId::new(
+            parameter.arena(),
+            HirOwner::Body(BodyOwner::Const(module.consts[0].id)),
+            0,
+        ),
+        ParamId::new(
+            parameter.arena(),
+            HirOwner::Body(BodyOwner::Function(FunctionId::new(module.functions.len()))),
+            0,
+        ),
+        ParamId::new(parameter.arena(), second.owner(), 1),
+        ParamId::new(
+            parameter.arena(),
+            HirOwner::Body(BodyOwner::Function(module.functions[2].id)),
+            0,
+        ),
+    ] {
+        assert!(
+            std::panic::catch_unwind(|| module.parameter(invalid)).is_err(),
+            "{invalid:?}"
+        );
+        assert!(
+            std::panic::catch_unwind(|| lowered.source_map.param_span(invalid)).is_err(),
+            "{invalid:?}"
+        );
+    }
+    let mut corrupted = module.clone();
+    corrupted.functions[0].params.swap(0, 1);
+    assert!(std::panic::catch_unwind(|| corrupted.parameter(parameter)).is_err());
+    let mut corrupted = module.clone();
+    corrupted.functions.swap(0, 1);
+    assert!(std::panic::catch_unwind(|| corrupted.parameter(parameter)).is_err());
 }

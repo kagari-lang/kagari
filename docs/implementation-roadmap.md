@@ -700,8 +700,12 @@ records and parameter positions, while SourceMap registers their source sites in
 allocating module-wide parameter slots. Keep lowering/owner validation, semantic facts,
 edit remapping, Native bindings and checked compiler admission. HR02 reviews bounded inline
 identity/attribute attachment follow-ups; no universal node graph or automatic scope expansion.
-Checkpoint commits remain authorized. This scope revision changes docs/comments only; HR01
-is not implemented or validated yet.
+Checkpoint commits remain authorized. HR00 records the narrowed scope. HR01 now implements
+function-local parameter positions, explicit source registration, checked structural/typed
+lookup and signature remapping. Sixteen focused HIR, two compiler and two SDK tests pass;
+structure, changed-file formatting, HIR Clippy and diff checks pass. Workspace fmt still fails
+in untouched syntax tokens.rs, and workspace Clippy at compiler placement.rs:110. Touched
+hir/ids.rs is formatted. Full workspace tests/matrices remain CI-only; acceptance is not all-green.
 
 The implemented syntax/semantic-record and Native-preparation splits remain in place, including
 current weak graph/query indexes. No-live-graph queries still rebuild/check; cache retention

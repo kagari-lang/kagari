@@ -1,0 +1,14 @@
+const N: i32 = 2;
+
+fn first(x: i32) -> i32 {
+    var (local, ignored) = (x, true);
+    local += N;
+    match local {
+        2 => 3,
+        other => other,
+    }
+}
+
+fn second(flag: bool) -> bool {
+    flag
+}

@@ -9,7 +9,7 @@ fn analyze(db: &mut AnalysisDatabase, source: &SourceDatabase) -> AnalysisSnapsh
 #[test]
 fn identical_local_slots_from_different_lowerings_cannot_resolve() {
     let mut sources = SourceDatabase::default();
-    let text = "fn value(x: i32) -> i32 { var (local, _) = (x, true); local += 1; match local { 2 => 3, other => other } }";
+    let text = include_str!("../../../tests/fixtures/analysis/arena_bindings.kgr");
     let left_id = sources
         .set("left.kgr", text.into(), SourceLayer::Base)
         .unwrap();
@@ -34,6 +34,11 @@ fn identical_local_slots_from_different_lowerings_cannot_resolve() {
     assert_eq!(a.params[0].id.index(), b.params[0].id.index());
     assert_ne!(a.params[0].id, b.params[0].id);
     assert_ne!(a.params[0].ty, b.params[0].ty);
+    assert!(std::ptr::eq(
+        left.lowered.module.parameter(a.params[0].id),
+        &a.params[0]
+    ));
+    assert!(std::panic::catch_unwind(|| right.lowered.module.parameter(a.params[0].id)).is_err());
     assert!(right.typed.type_table.type_ref(a.params[0].ty).is_none());
     assert!(
         right
@@ -110,6 +115,13 @@ fn edits_retire_local_ids_while_unchanged_queries_share_the_lowering() {
     assert_ne!(old_expr.arena(), new.lowered.module.body.arena());
     assert!(new.typed.type_table.expr_type(old_expr).is_none());
     assert!(old_facts.typed.type_table.expr_type(old_expr).is_some());
+    let old_parameter = old_facts.lowered.module.functions[0].params[0].id;
+    let new_parameter = new.lowered.module.functions[0].params[0].id;
+    assert_eq!((old_parameter.index(), new_parameter.index()), (0, 0));
+    assert_eq!(old_facts.lowered.module.parameter(old_parameter).name, "x");
+    assert_eq!(new.lowered.module.parameter(new_parameter).name, "x");
+    assert!(std::panic::catch_unwind(|| new.lowered.module.parameter(old_parameter)).is_err());
+    assert!(std::panic::catch_unwind(|| new.lowered.source_map.param_span(old_parameter)).is_err());
 }
 
 #[test]

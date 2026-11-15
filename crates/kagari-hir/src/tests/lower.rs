@@ -21,7 +21,7 @@ use std::sync::Arc;
 fn declaration_only_functions_do_not_acquire_script_bodies() {
     let source = Arc::new(SourceFile::new(
         "declarations.kgr",
-        "pub fn native() -> i32; trait Example { fn required(self) -> i32; fn script(self) {} }",
+        include_str!("../../tests/fixtures/lower/declaration_only_functions.kgr"),
     ));
     let cancel = Default::default();
     let parsed = parser::parse(
@@ -40,6 +40,30 @@ fn declaration_only_functions_do_not_acquire_script_bodies() {
     };
     assert_eq!(native.body, None);
     assert_eq!(required.body, None);
+    for function in [native, required, script] {
+        for (index, parameter) in function.params.iter().enumerate() {
+            assert_eq!(parameter.id.index(), index);
+            assert_eq!(
+                parameter.id.owner(),
+                HirOwner::Body(BodyOwner::Function(function.id))
+            );
+            assert!(std::ptr::eq(
+                lowered.module.parameter(parameter.id),
+                parameter
+            ));
+            let span = lowered.source_map.param_span(parameter.id);
+            assert_eq!(&lowered.source.text()[span.start..span.end], parameter.name);
+        }
+    }
+    assert_eq!(native.params[0].name, "value");
+    assert_eq!(required.params[0].name, "self");
+    assert_eq!(required.params[1].name, "value");
+    assert!(
+        matches!(&lowered.module.type_ref(required.params[0].ty).kind, TypeKind::Named(name) if name == "Self")
+    );
+    assert!(
+        matches!(&lowered.module.type_ref(native.params[0].ty).kind, TypeKind::Named(name) if name == "i32")
+    );
     let script_body = lowered.module.block(script.body.unwrap());
     assert!(script_body.statements.is_empty());
     assert_eq!(script_body.tail_expr, None);

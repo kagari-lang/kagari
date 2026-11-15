@@ -1,13 +1,16 @@
 use super::*;
 use crate::{
-    compile_input::body::BodyRoot, hir::ids::HirOwner, tests::test_analysis, types::TypeId,
+    compile_input::body::{BodyRoot, bindings::BindingId},
+    hir::ids::{HirOwner, ParamId},
+    tests::test_analysis,
+    types::TypeId,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::scalar::BuiltinType;
 
 #[test]
 fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
-    let text = "const N: i32 = 2; static val S: i32 = N; trait Read { fn read(self) -> i32; } struct Box<T> { val value: T } type Alias<T> = Box<T>; impl<T> Box<T> where T: Read {} fn first() -> i32 { 3 } fn second() -> i32 { match true { _ if { return S; } => 0, _ => 1 } }";
+    let text = include_str!("../../../tests/fixtures/analysis/checked_parameters.kgr");
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("input.kgr", text.into(), SourceLayer::Base)
@@ -133,6 +136,29 @@ fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
         })
         .copied()
         .unwrap();
+    let parameter = first_function.params[0].id;
+    let other_parameter = second.enclosing_signature().unwrap().params[0].id;
+    assert_eq!((parameter.index(), other_parameter.index()), (0, 0));
+    assert_eq!(
+        first.parameter_type(parameter),
+        Some(&TypeId::Builtin(BuiltinType::I32))
+    );
+    assert_eq!(
+        second.parameter_type(other_parameter),
+        Some(&TypeId::Builtin(BuiltinType::Bool))
+    );
+    let binding = first.binding(BindingId::Parameter(parameter)).unwrap();
+    assert_eq!(binding.span.start, text.find("value: i32").unwrap());
+    assert_eq!(&text[binding.span.start..binding.span.end], "value");
+    for invalid in [
+        other_parameter,
+        ParamId::new(parameter.arena(), parameter.owner(), 1),
+        ParamId::new(parameter.arena(), HirOwner::Declaration, 0),
+    ] {
+        assert!(first.parameter_type(invalid).is_none());
+        assert!(first.binding(BindingId::Parameter(invalid)).is_none());
+    }
+    assert!(second.parameter_type(parameter).is_none());
     let BodyRoot::Block(second_root) = second.root() else {
         panic!("function block")
     };
@@ -180,7 +206,7 @@ fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
     sources
         .set(
             "input.kgr",
-            text.replace("first() -> i32 { 3 }", "first() -> i64 { 4 }"),
+            text.replace("first(value: i32) -> i32", "first(value: i64) -> i64"),
             SourceLayer::Overlay,
         )
         .unwrap();
@@ -218,6 +244,21 @@ fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
         TypeId::Builtin(BuiltinType::I64),
     );
     assert!(newer_module.body(first.key()).is_none());
+    assert!(newer_first.parameter_type(parameter).is_none());
+    assert!(
+        newer_first
+            .binding(BindingId::Parameter(parameter))
+            .is_none()
+    );
+    let newer_parameter = newer_first.enclosing_signature().unwrap().params[0].id;
+    assert_eq!(
+        newer_first.parameter_type(newer_parameter),
+        Some(&TypeId::Builtin(BuiltinType::I64))
+    );
+    assert_eq!(
+        first.parameter_type(parameter),
+        Some(&TypeId::Builtin(BuiltinType::I32))
+    );
     for body in newer_module.bodies() {
         assert!(body.expression(value).is_none());
         assert_eq!(

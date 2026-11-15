@@ -5,14 +5,14 @@ use crate::hir::{
     expr::ExprData,
     ids::{
         BlockId, BodyOwner, ConstId, EnumId, ExprId, FieldId, FunctionId, HirOwner, ImplId,
-        ModuleId, OpaqueTypeId, PatternId, PlaceId, StaticId, StmtId, StructId, TraitId,
+        ModuleId, OpaqueTypeId, ParamId, PatternId, PlaceId, StaticId, StmtId, StructId, TraitId,
         TypeAliasId, TypeRefId, VariantId,
     },
     item::{
         adt::{EnumBuffer, Field, OpaqueType, StructBuffer, Variant},
         alias::TypeAlias,
         behavior::{ImplBuffer, TraitBuffer},
-        function::{FunctionBuffer, FunctionKind},
+        function::{FunctionBuffer, FunctionKind, Param},
         module::{ImportBuffer, ModuleDeclBuffer},
         storage::{ConstBuffer, ConstItem, StaticBuffer, StaticItem},
     },
@@ -119,6 +119,24 @@ impl Module {
         let item = &self.consts[id.index()];
         assert_eq!(item.id, id, "constant declaration slot mismatch");
         item
+    }
+
+    /// Borrows the authoritative record at the ID's owning function and parameter position.
+    ///
+    /// # Panics
+    ///
+    /// Panics for a foreign lowering, a non-function owner, an absent function/parameter
+    /// slot, or a stored identity that does not match the requested ID.
+    pub fn parameter(&self, id: ParamId) -> &Param {
+        assert_eq!(id.arena(), self.body.arena(), "foreign HIR parameter");
+        let HirOwner::Body(BodyOwner::Function(owner)) = id.owner() else {
+            panic!("HIR parameter requires a function owner");
+        };
+        let function = &self.functions[owner.index()];
+        assert_eq!(function.id, owner, "function declaration slot mismatch");
+        let parameter = &function.params[id.index()];
+        assert_eq!(parameter.id, id, "parameter slot mismatch");
+        parameter
     }
 
     /// Borrows `enums[id.owner().index()].variants[id.slot()]`.

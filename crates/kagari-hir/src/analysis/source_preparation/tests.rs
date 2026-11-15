@@ -111,6 +111,19 @@ fn inline_views_share_the_parse_and_rebase_retained_queries() {
         .unwrap();
     let next = second.file(child_id).unwrap();
     assert!(next.signatures_reused());
+    let old_lowered = &child.result().facts().lowered;
+    let new_lowered = &next.result().facts().lowered;
+    let old_parameter = old_lowered.module.functions[0].params[0].id;
+    let parameter = new_lowered.module.functions[0].params[0].id;
+    assert_eq!(parameter.index(), 0);
+    assert_eq!(new_lowered.module.parameter(parameter).name, "x");
+    let old_span = old_lowered.source_map.param_span(old_parameter);
+    let span = new_lowered.source_map.param_span(parameter);
+    assert_eq!(old_span.start, text.find("x: i32").unwrap());
+    assert_eq!(span.start, changed.find("x: i32").unwrap());
+    assert_eq!(span.start - old_span.start, "// inserted\r\n".len());
+    assert_eq!(&changed[span.start..span.end], "x");
+    assert!(std::panic::catch_unwind(|| new_lowered.module.parameter(old_parameter)).is_err());
     // The nested module is a foreign namespace whose revision changed too.
     // Existing namespace validation conservatively rechecks both bodies.
     assert_eq!(next.result().facts().typed.checked_bodies, 2);

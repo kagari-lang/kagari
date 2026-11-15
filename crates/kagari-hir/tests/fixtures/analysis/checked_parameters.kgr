@@ -1,0 +1,28 @@
+const N: i32 = 2;
+
+static val S: i32 = N;
+
+trait Read {
+    fn read(self) -> i32;
+}
+
+struct Box<T> {
+    val value: T
+}
+
+type Alias<T> = Box<T>;
+
+impl<T> Box<T> where T: Read {}
+
+fn first(value: i32) -> i32 {
+    3
+}
+
+fn second(flag: bool) -> i32 {
+    match flag {
+        _ if {
+            return S;
+        } => 0,
+        _ => 1,
+    }
+}

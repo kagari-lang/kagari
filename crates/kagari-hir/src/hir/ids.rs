@@ -7,21 +7,22 @@
 //! ```text
 //! SourceMap::push_function -> FunctionId -> Module.functions[id.index()]
 //! SourceMap::push_expr     -> ExprId    -> Body.expr(id) -> exprs[id.index()]
-//! SourceMap::push_param    -> ParamId   -> Function.params entry with matching id
+//! Lowerer parameter slot   -> ParamId   -> Module.parameter(id) -> Function.params[id.index()]
 //! SourceMap::push_local    -> LocalId   -> binding record / semantic table by id
 //! FieldId                 -> Module.field(id)
 //!                            -> structs[id.owner().index()].fields[id.slot()]
 //! ```
 //!
-//! Parameter/local indices address allocation-wide source-map slots, not positions
-//! within one function's parameter list. A [`HirArenaId`] is allocated by a checked
-//! process-wide counter. Fresh lowering receives a fresh arena; cloning/reusing the
-//! same lowering retains it. [`HirOwner`] partitions records logically; it does not
-//! make their vector indices relative to the owner. It is distinct from an enclosing
-//! struct/enum owner in a member ID.
+//! Parameter indices address positions in the owning `Function.params` list;
+//! local indices still address allocation-wide source-map slots. A [`HirArenaId`]
+//! is allocated by a checked process-wide counter. Fresh lowering receives a fresh
+//! arena; cloning/reusing the same lowering retains it. [`HirOwner`] partitions body
+//! records logically; only parameter indices are relative to their function owner.
+//! It is distinct from an enclosing struct/enum owner in a member ID.
 //!
-//! The internal `Lowerer` allocates through the source map and appends
-//! matching body rows. Body access checks arena and owner before returning the row.
+//! The internal `Lowerer` allocates body nodes through the source map and appends
+//! matching body rows. Parameters instead register their chosen identity and span.
+//! Body/parameter access checks arena and owner before returning the record.
 //! Plain declaration IDs lack those checks and require the matching module.
 //! Cross-module references use [`crate::imports::SourceDeclRef`] with its complete
 //! source unit; they must not index the importing module's vectors. These are not
@@ -43,8 +44,8 @@
 //! different modules' FunctionId(0) values can compare equal, so callers must carry
 //! module context. Qualified IDs compare/hash all fields. `arena` separates fresh
 //! lowerings, `owner` records allocation context, and `index` selects the matching
-//! allocation-wide vector/source-map slot. A FieldId/VariantId instead uses an
-//! enclosing declaration and a member-relative `slot`.
+//! category's storage slot (function-local for parameters, otherwise allocation-wide).
+//! A FieldId/VariantId instead uses an enclosing declaration and a member-relative `slot`.
 //!
 //! `id_newtype` exposes an unchecked `new(usize)` using a u32 cast; allocation
 //! callers must bound it. `local_id_newtype` constructors are crate-private and
@@ -101,7 +102,8 @@ impl Default for HirArenaId {
 }
 
 /// Generates an arena/owner-qualified index for body nodes or inline binding records.
-/// The index is allocation-wide; owner tags do not create per-function vectors.
+/// The index addresses its category's storage: function-local for parameters,
+/// allocation-wide for body nodes and local binding source slots.
 macro_rules! local_id_newtype {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
@@ -166,8 +168,9 @@ pub enum BodyOwner {
 ///
 /// Lowering switches context, constructs children, then restores the previous
 /// owner. Declaration is a valid owner, not a missing-function error. Owner tags
-/// partition the shared node vectors logically; their indices are not relative
-/// to that owner. This allocation context is distinct from FieldId/VariantId's
+/// partition the shared node vectors logically; body-node indices are not relative
+/// to that owner. Parameter indices select the owning function's inline list.
+/// This allocation context is distinct from FieldId/VariantId's
 /// enclosing declaration and ConstItem's trait/impl container.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum HirOwner {
@@ -214,7 +217,7 @@ id_newtype!(
     ModuleId
 );
 local_id_newtype!(
-    /// An arena/owner-qualified handle identifying a function parameter record and its source-map slot.
+    /// A function-local position in `Function.params`, qualified by lowering and function owner.
     /// See the [identity families](crate::hir::ids) for allocation and lookup rules.
     ParamId
 );
@@ -341,10 +344,12 @@ macro_rules! member_id {
 member_id!(
     /// An arena-qualified struct field slot within its enclosing declaration.
     /// See the [identity families](crate::hir::ids) for member lookup.
-    FieldId, StructId
+    FieldId,
+    StructId
 );
 member_id!(
     /// An arena-qualified enum variant slot within its enclosing declaration.
     /// See the [identity families](crate::hir::ids) for member lookup.
-    VariantId, EnumId
+    VariantId,
+    EnumId
 );

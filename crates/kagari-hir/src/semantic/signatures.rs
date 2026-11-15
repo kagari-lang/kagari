@@ -2,7 +2,7 @@
 
 use crate::{
     hir::{
-        ids::{FunctionId, ParamId, StaticId},
+        ids::{BodyOwner, FunctionId, HirOwner, ParamId, StaticId},
         writeability::Writeability,
     },
     native::NativeBinding,
@@ -110,6 +110,16 @@ impl BodySignatures {
     /// callers must retain the owning module rather than mixing numeric slots.
     pub fn function(&self, id: FunctionId) -> Option<&TypedFunction> {
         self.positions.get(&id).map(|index| &self.functions[*index])
+    }
+
+    pub(crate) fn parameter(&self, id: ParamId) -> Option<&TypedParameter> {
+        let HirOwner::Body(BodyOwner::Function(owner)) = id.owner() else {
+            return None;
+        };
+        self.function(owner)?
+            .params
+            .get(id.index())
+            .filter(|parameter| parameter.id == id)
     }
 
     /// Borrows the normalized type of a runtime static in this module.

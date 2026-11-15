@@ -71,10 +71,7 @@ impl BodyBuilder {
                 module
                     .typed
                     .signatures
-                    .functions()
-                    .iter()
-                    .flat_map(|function| &function.params)
-                    .find(|param| param.id == id)
+                    .parameter(id)
                     .map(|param| param.ty.clone()),
             ),
             ResolvedName::RuntimeHelper(_) => return Ok(()),

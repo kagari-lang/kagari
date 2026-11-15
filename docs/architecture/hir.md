@@ -73,7 +73,7 @@ LoweredModule
 |       +-- exprs:    Vec<(HirOwner, ExprData)>
 |       +-- stmts:    Vec<(HirOwner, StmtData)>
 |       `-- blocks, places, patterns, types: analogous owner-tagged vectors
-`-- source_map: SourceMap -> matching ID slots and source byte sites
+`-- source_map: SourceMap -> ID-keyed source byte sites (dense or explicit maps)
 ```
 
 These arrows describe owned fields except the explicitly shared `Arc`. A body
@@ -86,14 +86,21 @@ Its name does not imply one allocation per function.
 | --- | --- |
 | `FunctionId`, `ConstId`, `StaticId`, other plain declaration IDs | Index the matching collection in the same module; no arena is carried. |
 | `ExprId`, `StmtId`, `BlockId`, `PlaceId`, `PatternId`, `TypeRefId` | Carry arena, owner and an allocation-wide index; `Body` checks arena/owner and indexes its vector. |
-| `ParamId`, `LocalId` | Carry arena/owner and source-map-wide indices. Parameters live in function records; local bindings live in statements, patterns or closure parameters. Semantic maps use the complete IDs. |
+| `ParamId` | Carries lowering/owner and a position in Function.params; Module.parameter checks the function and stored identity. SourceMap explicitly registers the complete ID's span. |
+| `LocalId` | Carries arena/owner and a source-map-wide index. Bindings live in patterns or closure parameters; semantic maps use the complete ID. |
 | `FieldId`, `VariantId` | Carry arena, enclosing struct/enum ID and member slot; look up the owner's nested member vector. |
 | `SourceDeclRef` | Carries a full `SourceUnit` plus a declaration handle for cross-module access. Do not index the importing module with it. |
 | `ModuleHandle` | A checked definition-table module root. Resolve through `names.catalog.definitions()` or `ModuleGraph.catalog.definitions()`; membership in the table alone does not declare a source namespace. |
 | `DefinitionId` | Interpreted by its matching immutable definition-table prefix; distinct from all lowering-local IDs. Exact owned paths belong to explicit authoring/display queries. |
 | `BindingId` | An analysis identity, scoped body definition and resolved local slot. Changing the definition context does not change the binding's owning analysis or source slot. |
 
-Cloning/reusing one lowering retains its arena; fresh lowering creates a new one.
+Parameter identity is chosen from its owning function's retained list, not allocated by
+SourceMap. Two functions can each have parameter index zero; their complete IDs differ.
+Closure binders remain LocalId. Other body-node indices remain module-wide category slots.
+
+Cloning/reusing one lowering retains its arena identity; fresh lowering creates a new one.
+Here arena is an identity term: the graph still uses ordinary owned Vec/String storage,
+not a bump allocator.
 `SourceUnit` additionally records a context-owned module handle, source file and
 revision. Logical module identity is not the same as a physical filename. Even
 when file/revision/arena are identical, a handle from an independent context is
