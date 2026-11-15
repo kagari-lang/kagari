@@ -1,8 +1,12 @@
 //! Rule predicates use syntax spelling and HIR-owned identity/validity facts.
 
-use crate::{Finding, registry::LintId};
+use crate::{
+    Finding,
+    registry::LintId,
+    usage::{self, BindingKind},
+};
 use kagari_common::cancellation::{CancellationToken, Cancelled};
-use kagari_hir::{analysis::FileAnalysis, hir::item::Item, queries::usage::BindingKind};
+use kagari_hir::{analysis::FileAnalysis, hir::item::Item};
 use kagari_source::identity::FileSpan;
 use kagari_syntax::ast::{borrow::Ast, misc::ParamList, visit::NodeRef};
 
@@ -74,7 +78,7 @@ pub(crate) fn collect(
         }
     }
 
-    for binding in file.binding_usage(cancel)? {
+    for binding in usage::binding_usage(file, cancel)? {
         cancel.check()?;
         let name = &binding.declaration.name;
         let location = binding.declaration.location;

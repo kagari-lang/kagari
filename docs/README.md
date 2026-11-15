@@ -68,7 +68,11 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   tables and ID links; align record ownership, parameter positions and source metadata.
   Function-local parameter identity and Module-owned, typed attribute attachment are implemented.
   The arena/reference migration is withdrawn; cache behavior stays unchanged.
-  [Native model review](hir-model-review.md) remains deferred.
+  [Compiler/tooling boundary review](hir-model-review.md#compiler-and-tooling-boundary) records
+  the current retain/move/split and naming inventory. The
+  [HR04–HR08 plan](hir-storage-design.md#compilertool-implementation-plan) is active;
+  lint projections are extracted, followed by editor queries and mixed-fact separation.
+  [Native model review](hir-model-review.md#native-model) remains deferred.
 
 - [Runtime architecture](architecture/runtime.md), [call walkthrough](architecture/runtime/calls.md)
   and [reload walkthrough](architecture/runtime/reload.md): implemented exclusive

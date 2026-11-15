@@ -1,5 +1,5 @@
 use super::*;
-use crate::policy::Level;
+use crate::{policy::Level, usage::binding_usage};
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_hir::analysis::{AnalysisDatabase, AnalysisSnapshot};
 use kagari_source::{
@@ -55,13 +55,26 @@ fn static_partial_facts_exclude_broken_initializers() {
     let (_, _, snapshot, root) = analyze(
         &[(
             "root",
-            "static val BROKEN: i32 = { val unused = 1; true }; static val HEALTHY: i32 = { val unused = 2; 3 };",
+            include_str!("../tests/fixtures/static-partial-facts.kgr"),
         )],
-        100,
+        0,
     );
     assert!(snapshot.check_program(root, &Default::default()).is_err());
     let records = lint(&snapshot, root, &Policy::default(), &Default::default()).unwrap();
     assert_eq!(codes(&records, "unused_binding"), 1, "{records:?}");
+    let usage = binding_usage(snapshot.file(root).unwrap(), &Default::default()).unwrap();
+    assert_eq!(usage.len(), 2, "{usage:?}");
+    let used = usage
+        .iter()
+        .find(|binding| binding.declaration.name == "used")
+        .unwrap();
+    assert_eq!(used.reads, 1);
+    let unused = usage
+        .iter()
+        .find(|binding| binding.declaration.name == "unused")
+        .unwrap();
+    assert_eq!(unused.reads, 0);
+    assert_eq!(unused.declaration.location, records[0].span.unwrap());
 }
 
 #[rstest]
@@ -211,9 +224,51 @@ fn pre_cancelled_lint_returns_no_findings() {
     assert!(lint(&snapshot, root, &Policy::default(), &cancel).is_err());
 }
 
+#[test]
+fn patterns_and_struct_update_capture_preserve_usage() {
+    let source = include_str!("../tests/fixtures/rules/patterns-and-struct-update-capture.kgr");
+    let (_, _, snapshot, root) = analyze(&[("root", source)], 100);
+    snapshot.check_program(root, &Default::default()).unwrap();
+    let records = lint(&snapshot, root, &Policy::default(), &Default::default()).unwrap();
+    assert_eq!(codes(&records, "unused_binding"), 1, "{records:?}");
+    assert_eq!(codes(&records, "unnecessary_var"), 1, "{records:?}");
+    let usage = binding_usage(snapshot.file(root).unwrap(), &Default::default()).unwrap();
+    for name in ["left", "right"] {
+        let binding = usage
+            .iter()
+            .find(|binding| binding.declaration.name == name)
+            .unwrap();
+        assert!(
+            binding.mutable && binding.initialized && binding.captured,
+            "{binding:?}"
+        );
+        assert_eq!(binding.writes, 1, "{binding:?}");
+        assert!(binding.reads > 0, "{binding:?}");
+    }
+    let base = usage
+        .iter()
+        .find(|binding| binding.declaration.name == "base")
+        .unwrap();
+    assert_eq!(base.reads, 1);
+    assert_eq!(base.writes, 0);
+    assert!(base.captured);
+    let read_only: Vec<_> = usage
+        .iter()
+        .filter(|binding| {
+            binding.declaration.location.range.start > source.find("fn read_only").unwrap()
+        })
+        .collect();
+    let [readonly] = read_only.as_slice() else {
+        panic!("one read-only binding expected, not a wildcard: {read_only:?}");
+    };
+    assert_eq!(readonly.declaration.name, "readonly");
+    assert!(!readonly.mutable);
+    assert_eq!(readonly.reads, 1);
+    assert_eq!(readonly.writes, 0);
+}
+
 #[rstest]
 #[case::reads_shadowing_captures_places(include_str!("../tests/fixtures/rules/reads-shadowing-captures-places.kgr"), &[("unused_binding", 2), ("unused_parameter", 1), ("unnecessary_var", 2)])]
-#[case::patterns_and_struct_update_capture(include_str!("../tests/fixtures/rules/patterns-and-struct-update-capture.kgr"), &[("unused_binding", 1), ("unnecessary_var", 1)])]
 #[case::async_block_capture(include_str!("../tests/fixtures/rules/async-block-capture.kgr"), &[("unused_binding", 1), ("unused_parameter", 0), ("unnecessary_var", 0)])]
 #[case::declaration_naming_and_trait_contracts(include_str!("../tests/fixtures/rules/declaration-naming-and-trait-contracts.kgr"), &[("non_upper_camel_case", 7), ("KG_LINT_POLICY", 0), ("non_upper_case_globals", 1), ("non_snake_case", 5), ("unused_parameter", 0)])]
 #[case::local_function_usage_and_lexical_policy(include_str!("../tests/fixtures/rules/local-function-usage-and-lexical-policy.kgr"), &[("unused_binding", 1), ("unused_parameter", 2), ("non_snake_case", 1)])]

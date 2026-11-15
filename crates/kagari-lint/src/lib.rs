@@ -1,9 +1,11 @@
 //! Six optional first-release rules over one retained HIR analysis.
 //! Required language diagnostics remain the responsibility of `check_program`.
 
+mod attributes;
 pub mod policy;
 pub mod registry;
 mod rules;
+mod usage;
 
 use crate::{policy::Policy, registry::LintId};
 use kagari_common::{

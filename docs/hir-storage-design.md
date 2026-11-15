@@ -165,6 +165,9 @@ unsupported lint policy targets, and no new parser syntax or attribute targets a
   kagari-hir. Fields now use Vec<T> directly; no compatibility aliases/new wrappers remain.
   SmallVec aliases retain explicit inline-capacity policy. MIR/bytecode containers and
   non-Vec diagnostic ownership aliases are outside this cleanup; storage is unchanged.
+- **Compiler/tool boundary:** the [consumer-backed review](hir-model-review.md#compiler-and-tooling-boundary)
+  classifies shared semantic facts, editor-derived indexes, lint projections and naming.
+  The HR04–HR08 implementation plan below is authorized; commit each buildable phase.
 - **Caches:** owned syntax/semantic records, weak graph/query indexes and split Native
   preparation are implemented. Leave their behavior unchanged in this cleanup. The old
   proposed session cutover is cancelled. Further retention-policy work needs a concrete
@@ -175,9 +178,98 @@ Native registration/Provider redesign, new tool crates/features, incremental par
 function-granularity reuse/reclamation and LSP scheduling remain deferred in the
 [review notes](hir-model-review.md). This cleanup makes no new sharing/reclamation promise.
 
+## Compiler/tool implementation plan
+
+**HR04–HR08 authorized for phased implementation and commits.** Continue in this plan rather
+than opening a parallel queue. The goal is no editor-only index preparation on compilation
+routes, not merely moving query methods. Existing owned HIR, staged semantic results,
+checking/admission and SDK compiler APIs remain the foundation.
+
+```text
+HIR: semantic result + diagnostic/debug origins + ID-based semantic reads
+ ├─ compiler: checked dependency closure → MIR/bytecode
+ ├─ lint: usage and attribute policy projections
+ └─ analyzer library: cursor queries and demand-built IDE indexes
+                       └─ existing analyzer binary: protocol/document lifecycle
+```
+
+Proposed editor API shape (names illustrative, not implemented):
+
+```rust
+struct FileQueries<'a> {
+    analysis: &'a FileAnalysis,
+}
+
+struct SnapshotQueries<'a> {
+    analysis: &'a AnalysisSnapshot,
+    navigation: Option<NavigationIndex>,
+}
+```
+
+Views borrow a fixed semantic owner; node IDs/indexes never outlive or switch that owner.
+Use equivalent narrow declaration/signature/function views for existing staged queries;
+do not make every IDE request run full snapshot analysis. Retained requests can own the
+ordinary analysis result and lend it to these views. This is not a borrowed-HIR/arena API
+or a new persistent editor cache.
+
+| Phase | Concrete changes | Buildable acceptance |
+| --- | --- | --- |
+| HR04: lint projections | Move queries/usage and queries/attributes to kagari-lint; update rules/policy and tests. Add only semantic read access actually needed by these consumers. | CLI lint/check reuse the same facts. Unused/capture/static eligibility and typed attribute inheritance/recovery remain; no HIR→lint/analyzer dependency. Delete the old HIR projection APIs, not forward them. |
+| HR05: IDE API cutover | Add a real library target in existing kagari-analyzer. Move offset queries across declaration/file/signature/function/snapshot results, namespaces, calls, docs and completion presentation, plus type_hits construction. Factor shared member eligibility into a narrow HIR semantic API consumed by both checking and completion. Update SDK/stdlib examples/tests and mixed compiler tests in the same checkpoint. | Real library query tests/consumers work; binary protocol capabilities stay unchanged. HIR publishes results without type_hits; no HIR/SDK/compiler production dependency on analyzer. Keep scope/site/prefix metadata only as the explicitly temporary input for HR06/HR07 below. No empty facade, old inherent-query forwarders or duplicate index computation. |
+| HR06: bindings and scopes | Give compiler/declaration/lint consumers an owner-aware canonical binding directory and enumeration, including unused binders. Separate resolver work frames from published results. Move persistent cursor visibility/shadow history and declaration-site selection into analyzer ScopeIndex/DeclarationSiteIndex, derived on demand from matching syntax/HIR/resolution and origins. | Captures, named-local-function environments, rebinding policy and declaration identities are unchanged. Compiler never needs the editor scope index. Scope entries reference canonical bindings, not a second authoritative name/writeability record. Remove temporary editor-history readers/exports introduced in HR05. |
+| HR07: path provenance/origins | Move resolver/import/type prefix hits, expression lookup_hits and joined-prefix expansion into analyzer navigation built after semantic settlement. Remove remaining editor-only SourceMap fields; retain actual diagnostic/debug/reuse/reload origins and ResolvedTypeRef.target. Preserve import solver observations required by semantic lookup. | Import binding/diagnostic/convergence/cancellation contracts and dual-namespace/glob/copied-source navigation remain. Compilation no longer constructs editor histories, prefix-hit collections or joined-prefix indexes. Remove HR05's remaining temporary prefix/site views; no solver weakening or second resolver in analyzer. |
+| HR08: naming and final integration | Rename HirArenaId→LoweringId, TypeTarget→ResolvedTypeTarget and internal PreparedAnalysis→PreparedSignatures, preserving checks. Editor names become VisibleBinding/CompletionCandidate as they move in HR05. Keep FileAnalysis/AnalyzedModule, BodySignatures and update_source renames out unless a concrete remaining ambiguity is separately agreed. Update architecture/API examples. | Dependency audit and focused compiler/tool/source-free/reload tests pass in their designated scope; no old API aliases, editor-only preparation on compile routes or carried integration errors. Full matrices remain CI-only. |
+
+### Dependency and intermediate-state rules
+
+- HR04 is independent and intentionally first. HR05 is a coherent dependency cut: docs,
+  namespace navigation and completion already call file/snapshot position helpers. Move
+  that closure together instead of leaving HIR methods calling analyzer or duplicating them.
+- HR05's library exports protocol-neutral query types; LSP conversion stays in the binary.
+  SDK/stdlib test/example-only IDE uses may use dev dependencies or move to analyzer tests.
+  Compiler production code keeps ID-based facts; its tests retain semantic snapshot-target
+  assertions without requiring editor cursor lookup. Share receiver/substitution/bound
+  eligibility primitives; do not impose the editor's incomplete-candidate policy on checking.
+- HR05 must expose matching-owner lowering/origin reads for signature-stage and selected-body
+  views: their current position adapters reach private preparation fields. Do not expose
+  PreparedAnalysis or force full analysis as a substitute. Preserve signature-before-body and
+  selected-body-only routes while relocating cursor assertions.
+- HR05 may still read existing mixed scope/site/prefix data through focused borrowed views.
+  This is temporary data access, not API compatibility: HR06 removes scope-history access,
+  HR07 removes prefix/site access. The existing metadata has one owner until removed.
+  Do not mark the separation complete at HR05 or add a second authoritative model.
+- In HR06, derive visibility indexes from selected binding identities/structure, not another
+  resolver. If origin data is insufficient, resolve that producer/consumer seam within the
+  checkpoint; do not publish stubs or silently change shadowing/local-function semantics.
+  HR04's lint usage pass must switch from scope enumeration to the canonical binding directory,
+  including unused declarations, without a lint→analyzer dependency. Any remaining selected-body
+  contains/routing helper must use semantic owner/structure rather than persistent editor history.
+- HR07 explicitly removes the producer/read path of ResolvedNames.lookup_hits as well as prefix
+  hit vectors, unless an actual semantic consumer justifies a retained fact. Derive navigation
+  provenance through shared semantic lookup and verify agreement with selected resolution.
+- No phase changes weak/strong graph retention, introduces an IDE host/scheduler, enables
+  new LSP features, removes generation checks, redesigns Native registration, or adds arenas.
+  Cache retention and request scheduling require their own concrete requirements later.
+
+### Validation selection
+
+Each phase must build its affected targets and commit only its cohesive change. Move existing
+editor/lint assertions to the new owner, keeping semantic halves in HIR and independent
+oracles. Preserve incomplete source, Type/Value ambiguity, equal-glob origins, shadowing,
+copied/native locations, UTF-8/CRLF and inline routing, old results, cancellation, capture/
+completion evidence, Native admission and checked compiler/reload/source-free boundaries.
+
+Locally run affected target/name-filtered tests, structure, fmt, workspace all-target Clippy
+and diff checks; record actual failures and unrun CI scope here. Check dependency direction
+from Cargo metadata/normal dependency trees, including non-tool SDK/CLI compilation routes.
+Use selected existing compilation workloads or structural call-path checks to confirm no
+IDE-index preparation remains; do not claim a speedup without before/after measurements.
+Local phase evidence is recorded below; full workspace tests remain CI-only.
+
 ## Checkpoints and validation
 
-These replace the withdrawn arena phases; earlier implementation commits remain in Git.
+HR00–HR03 replace the withdrawn arena phases; earlier implementation commits remain in Git.
+HR04–HR08 above are active follow-up work; phase progress is recorded below.
 
 | Checkpoint | Scope and acceptance |
 | --- | --- |
@@ -220,6 +312,12 @@ HR03 local evidence: HIR all-target check and ten existing focused tests (loweri
 signature/edit reuse), structure, changed-file formatting, HIR all-target Clippy and diff
 checks pass. All 21 removed aliases have no remaining HIR references; no new tests or fixtures
 are justified for this mechanical type-spelling cleanup.
+
+HR04: lint owns binding usage and typed-attribute policy projections; HIR no longer
+exports them. Twenty-seven selected lint/HIR/CLI tests pass, including unused bindings,
+captures, static eligibility and attribute inheritance. HIR/lint all-target check/Clippy,
+structure, changed-file/fixture formatting and diff checks pass. Scope enumeration remains
+a temporary semantic input until HR06 establishes canonical bindings.
 
 On rustc 1.100.0, workspace fmt is blocked only by existing differences in untouched
 kagari-syntax/src/ast/tokens.rs; touched hir/ids.rs is formatted. Workspace Clippy still reports

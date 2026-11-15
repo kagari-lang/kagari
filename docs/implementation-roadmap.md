@@ -720,9 +720,17 @@ The implemented syntax/semantic-record and Native-preparation splits remain in p
 current weak graph/query indexes. No-live-graph queries still rebuild/check; cache retention
 policy is not being rewritten to serve the withdrawn arena design. The plan retains the
 existing workspace fmt/Clippy blockers and makes no performance or workspace-pass claim.
-[Native model](hir-model-review.md) and
-[compiler/tool separation](hir-model-review.md#compiler-and-tooling-boundary) remain deferred,
-as do incremental parsing and LSP scheduling. NC restoration keeps its existing owner.
+[Native model](hir-model-review.md) remains deferred.
+[Compiler/tool separation](hir-model-review.md#compiler-and-tooling-boundary) is authorized,
+with its consumer-backed retain/move/split inventory and active
+[HR04–HR08 implementation plan](hir-storage-design.md#compilertool-implementation-plan): lint
+projections → coherent analyzer-library/IDE API cutover → bindings/scopes → path/origin
+cleanup → focused naming/integration. Keep shared compilation facts/admission in HIR and
+remove temporary mixed-data access in its designated phase. Scope/import history needs a
+mixed-data split, not wholesale removal. HR04 moves usage/attribute-policy projections to
+lint; 27 selected tests and scoped checks pass. Continue HR05–HR08 with phased commits;
+cache retention stays unchanged. Incremental parsing/LSP scheduling remain deferred; NC restoration
+keeps its existing owner.
 
 ## Compilation cancellation polling
 

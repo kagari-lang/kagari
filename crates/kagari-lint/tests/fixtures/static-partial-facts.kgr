@@ -1,0 +1,10 @@
+static val BROKEN: i32 = {
+    val unused = 1;
+    true
+};
+
+static val HEALTHY: i32 = {
+    val used = 2;
+    val unused = 3;
+    used
+};

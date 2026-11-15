@@ -40,6 +40,12 @@ keeps workloads, measurement boundaries and limitations separate from API guaran
 | Compiler `source::lower::instances` | Applies generic arguments and selects implementation/ABI recipes. |
 | Compiler `source::lower` emission | Evaluates operands and commits effects in order, building MIR from those operations and recipes. |
 
+This is current placement, not a requirement that editor projections remain in HIR. The
+[compiler/tooling review](../hir-model-review.md#compiler-and-tooling-boundary) inventories
+semantic facts to retain, editor/lint projections to extract and mixed storage to split;
+HR04 extracts lint usage/attribute-policy projections. HR05–HR08 migrate editor queries
+and split mixed facts; cache policy remains unchanged.
+
 The `queries/` directory supplies the context for `calls`, `methods`, `namespaces`,
 `documentation`, `attributes` and `usage`; filenames do not repeat a `_queries`
 suffix. Analysis-producing stages remain `analysis::declarations`,

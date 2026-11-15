@@ -431,14 +431,7 @@ fn struct_update_base_reads_are_resolved_and_captured() {
         .unwrap()
         .0;
     assert_eq!(facts.names.closure_captures(closure).len(), 1);
-    let usages = analysis.binding_usage(&Default::default()).unwrap();
-    let base = usages
-        .iter()
-        .find(|usage| usage.declaration.name == "base")
-        .unwrap();
-    assert_eq!(base.reads, 1);
-    assert_eq!(base.writes, 0);
-    assert!(base.captured);
+
     assert_eq!(
         analysis
             .definition_at(text.find("..base").unwrap() + 2)

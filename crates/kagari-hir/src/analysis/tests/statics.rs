@@ -540,7 +540,7 @@ static val EDITING: i32 = { val packet = Packet { value: SEED }; packet. };
 }
 
 #[test]
-fn static_initializer_binding_usage_retains_positive_evidence() {
+fn static_initializer_eligibility_retains_positive_evidence() {
     let mut sources = SourceDatabase::default();
     let file = insert(
         &mut sources,
@@ -562,10 +562,4 @@ fn static_initializer_binding_usage_retains_positive_evidence() {
         file.static_initializer_eligibility(statics[1].id),
         BodyEligibility::Unavailable
     );
-    let usage = file.binding_usage(&Default::default()).unwrap();
-    let used = usage
-        .iter()
-        .find(|binding| binding.declaration.name == "used")
-        .unwrap();
-    assert_eq!(used.reads, 1);
 }

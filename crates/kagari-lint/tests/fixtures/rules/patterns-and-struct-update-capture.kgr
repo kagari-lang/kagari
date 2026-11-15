@@ -11,3 +11,18 @@ fn read() -> i32 {
     val copy = || Point { ..base };
     read() + stable + copy().n
 }
+
+fn capture_pair() -> i32 {
+    var (left, right) = (1, 2);
+    val bump = || {
+        left += right;
+        left
+    };
+    right = 3;
+    bump()
+}
+
+fn read_only() -> i32 {
+    val (readonly, _) = (1, 2);
+    readonly
+}

@@ -1,6 +1,6 @@
 //! Optional findings receive levels here; language diagnostics never enter this policy.
 
-use crate::{Finding, registry::LintId};
+use crate::{Finding, attributes, registry::LintId};
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::ModuleIdentity,
@@ -47,9 +47,9 @@ pub(crate) fn scopes(
     errors: &mut Vec<DiagnosticRecord>,
     cancel: &CancellationToken,
 ) -> Result<Vec<Scope>, Cancelled> {
-    // The linter owns accepted policy targets; HIR supplies uninterpreted scopes.
+    // Policy scopes are projected from HIR's typed attribute attachments.
     let mut scopes = Vec::new();
-    for scoped in file.scoped_attributes() {
+    for scoped in attributes::scoped_attributes(file) {
         cancel.check()?;
         let attribute = scoped.attribute;
         let level = match attribute.name.as_str() {

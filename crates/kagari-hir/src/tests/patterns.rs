@@ -320,33 +320,7 @@ fn declaration_pattern_refutable_forms_remain_rejected() {
 }
 
 #[test]
-fn declaration_pattern_read_only_and_mutable_leaves_keep_usage_and_captures() {
-    let source = "
-fn read() -> i32 {
-    var (left, right) = (1, 2);
-    val bump = || { left += right; left };
-    right = 3;
-    bump()
-}";
-    let file = analyze_source(source);
-    assert!(
-        file.result().diagnostics().is_empty(),
-        "{:?}",
-        file.result().diagnostics()
-    );
-    let usage = file.binding_usage(&Default::default()).unwrap();
-    for name in ["left", "right"] {
-        let binding = usage
-            .iter()
-            .find(|binding| binding.declaration.name == name)
-            .unwrap();
-        assert!(
-            binding.mutable && binding.initialized && binding.captured,
-            "{binding:?}"
-        );
-        assert_eq!(binding.writes, 1, "{binding:?}");
-        assert!(binding.reads > 0, "{binding:?}");
-    }
+fn declaration_pattern_read_only_leaves_reject_writes_and_wildcards_do_not_bind() {
     let diagnostics =
         check_source("fn bad() { val (left, right) = (1, 2); left = 3; right += 1; }");
     assert_eq!(
@@ -363,10 +337,7 @@ fn read() -> i32 {
     let source = "fn read() -> i32 { val (left, _) = (1, 2); left }";
     let file = analyze_source(source);
     assert!(file.result().diagnostics().is_empty());
-    let usage = file.binding_usage(&Default::default()).unwrap();
-    assert_eq!(usage.len(), 1);
-    assert!(!usage[0].mutable);
-    assert_eq!(usage[0].declaration.name, "left");
+
     assert!(
         file.visible_bindings(source.rfind("left").unwrap())
             .iter()
