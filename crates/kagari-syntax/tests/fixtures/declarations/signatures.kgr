@@ -1,0 +1,6 @@
+/// Read one element.
+/// Returns None outside the array.
+#[intrinsic(array_get)]
+pub native fn get<T>(value: [T], index: u64) -> Option<T>;
+/// The next operation.
+pub native fn len<T>(value: [T]) -> u64;

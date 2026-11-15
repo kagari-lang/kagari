@@ -1,0 +1,7 @@
+pub native type Counter;
+
+impl missing::Read for Counter {
+    native fn read(self) -> i32;
+}
+
+pub native fn unused(value: missing::Value);

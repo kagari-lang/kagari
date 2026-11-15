@@ -35,7 +35,8 @@ fn signature_navigation_uses_checked_type_targets_before_body_analysis() {
     let structure = file.queries().definition_at(bad_annotation).unwrap();
     assert_eq!(structure.name, "Box");
     assert_eq!(
-        &text[structure.location.range.start..structure.location.range.end],
+        &text[structure.source_location().unwrap().range.start
+            ..structure.source_location().unwrap().range.end],
         "Box"
     );
     assert!(
@@ -59,7 +60,8 @@ fn signature_navigation_uses_checked_type_targets_before_body_analysis() {
         file.queries()
             .definition_at(text.find("Box<T>)").unwrap() + "Box<".len())
             .unwrap()
-            .location
+            .source_location()
+            .unwrap()
             .range
             .start,
         text.find("good<T>").unwrap() + "good<".len()

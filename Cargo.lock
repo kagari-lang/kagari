@@ -725,6 +725,7 @@ dependencies = [
 name = "kagari-hir"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "blake3",
  "kagari-analyzer",
  "kagari-common",

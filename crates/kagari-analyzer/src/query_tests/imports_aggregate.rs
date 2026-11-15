@@ -41,7 +41,7 @@ fn imported_struct_initializers_and_nested_mutations_use_nominal_fields() {
             .queries()
             .definition_at(root, offset + "x.inner.".len())
             .unwrap();
-        assert_eq!(field.location.file, models);
+        assert_eq!(field.source_location().unwrap().file, models);
         assert_eq!(field.name, "number");
     }
     for (id, _) in file.result().facts().lowered.module.body.expressions() {
@@ -92,7 +92,8 @@ fn imported_inherent_method_navigation_uses_its_source_declaration() {
             .queries()
             .definition_at(root, at)
             .unwrap()
-            .location
+            .source_location()
+            .unwrap()
             .file,
         model
     );
@@ -163,7 +164,8 @@ fn imported_readonly_fields_and_initializer_errors_keep_receiver_facts() {
             .queries()
             .definition_at(root, text.find("fixed =").unwrap())
             .unwrap()
-            .location
+            .source_location()
+            .unwrap()
             .file,
         models
     );

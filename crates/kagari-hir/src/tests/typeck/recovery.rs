@@ -25,7 +25,7 @@ fn unresolved_body_holes_preserve_neighbor_facts_without_leaking_variables() {
             facts
                 .lowered
                 .module
-                .block(good.body.unwrap())
+                .block(good.implementation.script_body().unwrap())
                 .tail_expr
                 .unwrap()
         ),

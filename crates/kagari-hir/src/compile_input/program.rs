@@ -11,13 +11,16 @@ use crate::{
     },
     hir::{
         ids::{BodyOwner, FunctionId, HirOwner, ImplId, StaticId},
-        item::Item,
+        item::{Item, function::FunctionImplementation as HirImplementation},
     },
-    native::NativeBinding,
+    native::{NativeBinding, NativeTypeKind},
     program::{CheckedProgram, exports::ProgramExports},
     resolver::resolved::ResolvedName,
     semantic::signatures::FunctionImplementation,
-    source_map::SourceMap,
+    source_map::{
+        SourceMap,
+        origin::{NodeOrigin, OriginTarget},
+    },
     typeck::table::CallTarget,
     update_source::{self, SourceBudget, SourceEvidence},
 };
@@ -68,10 +71,33 @@ impl<'a> CheckedModule<'a> {
         cancel: &CancellationToken,
         budget: &mut SourceBudget<'_>,
     ) -> Result<Self, AdmissionError> {
+        if module.lowered.is_external_api() {
+            return Err(AdmissionError::InvalidModule(
+                "offline declarations cannot authorize compilation",
+            ));
+        }
         if module.lowered.source_map.arena() != module.lowered.module.body.arena() {
             return Err(AdmissionError::InvalidModule(
                 "source map belongs to another lowering",
             ));
+        }
+        for declaration in &module.lowered.module.native_types {
+            cancel.check().map_err(|_| AdmissionError::Cancelled)?;
+            if !declaration.fields.is_empty()
+                && !matches!(
+                    module.lowered.native_types.get(&declaration.id),
+                    Some(NativeTypeKind::Host { .. })
+                )
+            {
+                return Err(AdmissionError::InvalidModule(
+                    "Native interface fields have no executable adapters",
+                ));
+            }
+            if !module.lowered.native_types.contains_key(&declaration.id) {
+                return Err(AdmissionError::InvalidModule(
+                    "Native type declaration has no installed representation",
+                ));
+            }
         }
         let handle = module
             .definitions()
@@ -163,6 +189,27 @@ impl<'a> CheckedModule<'a> {
                     "unresolved callable signature",
                 ));
             }
+            let implementation_matches = match (&function.implementation, &signature.implementation)
+            {
+                (HirImplementation::Required, FunctionImplementation::Required)
+                | (HirImplementation::Script(_), FunctionImplementation::Script) => {
+                    !module.lowered.native_functions.contains_key(&function.id)
+                }
+                (
+                    HirImplementation::Native(_),
+                    FunctionImplementation::Native(binding @ NativeBinding::Entry(_)),
+                )
+                | (
+                    HirImplementation::Script(_),
+                    FunctionImplementation::Native(binding @ NativeBinding::Default(_)),
+                ) => module.lowered.native_functions.get(&function.id) == Some(binding),
+                _ => false,
+            };
+            if !implementation_matches {
+                return Err(AdmissionError::InvalidModule(
+                    "function implementation and checked binding disagree",
+                ));
+            }
             let owner = BodyOwner::Function(function.id);
             if signature.params.len() != function.params.len()
                 || signature
@@ -179,7 +226,7 @@ impl<'a> CheckedModule<'a> {
                     "parameter signature belongs to another body",
                 ));
             }
-            if let Some(root) = function.body {
+            if let Some(root) = function.implementation.script_body() {
                 if !module.typed.valid_bodies.contains(&function.id) {
                     return Err(AdmissionError::InvalidBody {
                         key: BodyKey {
@@ -195,20 +242,11 @@ impl<'a> CheckedModule<'a> {
                     owner,
                     CheckedBodyInput::new(module, self.handle, owner, BodyRoot::Block(root))?,
                 );
-            } else if matches!(signature.implementation, FunctionImplementation::Script) {
-                return Err(AdmissionError::InvalidModule(
-                    "script function has no source body",
-                ));
             }
             if matches!(
                 signature.implementation,
                 FunctionImplementation::Native(NativeBinding::Default(_))
             ) {
-                if function.body.is_none() {
-                    return Err(AdmissionError::InvalidModule(
-                        "native default has no checked forwarding body",
-                    ));
-                }
                 let call = module
                     .typed
                     .type_table()
@@ -314,9 +352,15 @@ impl<'a> CheckedModule<'a> {
         self.handle
     }
 
-    /// Borrows retained source identity/revision and text for origins and diagnostics.
+    /// Borrows the logical input key, including source-less registration identity.
+    /// Use `source_surface()` before treating this value as authored text.
     pub fn source(&self) -> &'a SourceFile {
         self.source
+    }
+
+    /// Returns retained authored text, never a structured registration's graph key.
+    pub fn source_surface(&self) -> Option<&'a SourceFile> {
+        (!self.origins.is_structured()).then_some(self.source)
     }
 
     /// Borrows immutable declaration contracts, separate from body nodes and facts.
@@ -344,14 +388,24 @@ impl<'a> CheckedModule<'a> {
         self.registration
     }
 
-    /// Returns a declaration's physical source extent, or `None` for an absent local slot.
+    /// Returns source or structured attribution for an admitted declaration slot.
+    /// Structured definition IDs belong to the retained registration/environment scope.
+    pub fn declaration_origin(&self, item: Item) -> Option<NodeOrigin> {
+        self.headers
+            .contains(item)
+            .then(|| self.origins.origin(OriginTarget::Item(item)))
+    }
+
+    /// Returns a declaration's authored source extent, or `None` for a structured
+    /// declaration or absent local slot.
     ///
     /// Plain item IDs require this module's context; they cannot detect a coincident
     /// numeric slot from another module. Use canonical identities across modules.
     pub fn declaration_span(&self, item: Item) -> Option<Span> {
-        self.headers
-            .contains(item)
-            .then(|| self.origins.item_span(item))
+        match self.declaration_origin(item)? {
+            NodeOrigin::Source(span) => Some(span),
+            NodeOrigin::Structured { .. } => None,
+        }
     }
 
     /// Borrows the proved forwarding application for a native default in this module.

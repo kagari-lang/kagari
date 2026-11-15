@@ -59,16 +59,32 @@ mod tests {
 mod trait_tests {
     use super::*;
 
+    use kagari_hir::analysis::AnalysisDatabase;
     use kagari_source::source_database::{SourceDatabase, SourceLayer};
+
+    fn source_database() -> AnalysisDatabase {
+        let providers = foundation_catalog::shared()
+            .unwrap()
+            .into_iter()
+            .chain([crate::query_tests::native_fixture::module()])
+            .collect::<Vec<_>>();
+        let views = providers
+            .iter()
+            .map(|provider| declaration_source(provider, &providers).unwrap())
+            .collect();
+        let mut database = test_analysis();
+        database.set_native_sources(providers, views).unwrap();
+        database
+    }
 
     #[test]
     fn registered_defaults_navigate_to_source_and_expose_checked_signatures() {
-        let text = "use demo::native::NativeRead; struct Reader {} impl NativeRead for Reader {} fn main() { val value = Reader {}; value.read(); value.fixed(); }";
+        let text = "use demo::bindings::NativeRead; struct Reader {} impl NativeRead for Reader {} fn main() { val value = Reader {}; value.read(); value.fixed(); }";
         let mut sources = SourceDatabase::default();
         let file = sources
             .set("defaults.kgr", text.into(), SourceLayer::Base)
             .unwrap();
-        let snapshot = crate::query_tests::native::database()
+        let snapshot = source_database()
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let analysis = snapshot.file(file).unwrap();
@@ -84,7 +100,7 @@ mod trait_tests {
             assert_eq!(api.documentation, format!("Native {name} contract."));
             assert_eq!(
                 snapshot
-                    .source(api.declaration.location.file)
+                    .source(api.declaration.source_location().unwrap().file)
                     .unwrap()
                     .name(),
                 declaration_source(
@@ -111,7 +127,7 @@ mod trait_tests {
         let file = sources
             .set("traits.kgr", text.into(), SourceLayer::Base)
             .unwrap();
-        let mut db = test_analysis();
+        let mut db = source_database();
         let snapshot = db
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
@@ -130,7 +146,7 @@ mod trait_tests {
             let declaration = item.declaration;
             assert!(
                 snapshot
-                    .source(declaration.location.file)
+                    .source(declaration.source_location().unwrap().file)
                     .unwrap()
                     .text()
                     .contains("///")
@@ -141,7 +157,7 @@ mod trait_tests {
             .documentation_at(file, text.find("get(7)").unwrap())
             .unwrap();
         assert_eq!(user.declaration.name, "get");
-        assert_eq!(user.declaration.location.file, file);
+        assert_eq!(user.declaration.source_location().unwrap().file, file);
         assert!(user.documentation.is_empty());
         let authoring_iterator = analysis.to_unverified(&Default::default()).unwrap();
         let definitions = authoring_iterator.definitions();
@@ -158,7 +174,7 @@ mod trait_tests {
         assert_eq!(declaration.name, "Item");
         assert!(
             snapshot
-                .source(declaration.location.file)
+                .source(declaration.source_location().unwrap().file)
                 .unwrap()
                 .name()
                 .ends_with("kagari-core/iter.kgr")
@@ -215,8 +231,8 @@ mod interpolation_queries {
             .definition_at(offset + prefix.len())
             .unwrap();
         assert_eq!(
-            moved.location.range.start,
-            original.location.range.start + prefix.len()
+            moved.source_location().unwrap().range.start,
+            original.source_location().unwrap().range.start + prefix.len()
         );
         assert_eq!(
             old.file(file).unwrap().queries().definition_at(offset),

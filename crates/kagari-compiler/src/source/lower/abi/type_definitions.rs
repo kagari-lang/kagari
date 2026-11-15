@@ -84,26 +84,29 @@ pub(super) fn lower(module: &CheckedModule<'_>, item: Item) -> (Visibility, Type
                 },
             )
         }
-        Item::OpaqueType(id) => {
-            let item = &headers.opaque_types[id.index()];
-            let declaration = identity(ResolvedName::OpaqueType(id));
+        Item::NativeType(id) => {
+            let item = &headers.native_types[id.index()];
+            let declaration = identity(ResolvedName::NativeType(id));
             let signature = catalog
                 .native_type(&declaration)
                 .expect("admitted native type contract");
-            let definition =
-                if let NativeTypeKind::Host { definition, .. } = &signature.representation {
-                    // Installed host fields and policies belong to the registration contract.
-                    definition.as_ref().clone()
-                } else {
-                    TypeDef {
-                        name: item.name.clone(),
-                        kind: lower_native_kind(signature.representation.clone()),
-                        generic_params: abi_parameters(&signature.generic_params),
-                        bounds: checked_bounds(catalog, definitions, &signature.bounds),
-                        fields: Vec::new(),
-                        variants: Vec::new(),
-                    }
-                };
+            let representation = signature
+                .representation
+                .as_ref()
+                .expect("admitted installed Native representation");
+            let definition = if let NativeTypeKind::Host { definition, .. } = representation {
+                // Installed host fields and policies belong to the registration contract.
+                definition.as_ref().clone()
+            } else {
+                TypeDef {
+                    name: item.name.clone(),
+                    kind: lower_native_kind(representation.clone()),
+                    generic_params: abi_parameters(&signature.generic_params),
+                    bounds: checked_bounds(catalog, definitions, &signature.bounds),
+                    fields: Vec::new(),
+                    variants: Vec::new(),
+                }
+            };
             (declaration, item.visibility, definition)
         }
         _ => unreachable!("nominal type declaration"),

@@ -7,9 +7,12 @@ use crate::{
     },
     builtin::BuiltinFunction,
     callable::AppliedCallSignature,
-    hir::ids::{
-        EnumId, ExprId, FieldId, FunctionId, GenericParamId, LocalId, OpaqueTypeId, PatternId,
-        PlaceId, StructId, TraitId, TypeRefId,
+    hir::{
+        ids::{
+            EnumId, ExprId, FieldId, FunctionId, GenericParamId, LocalId, NativeTypeId, PatternId,
+            PlaceId, StructId, TraitId, TypeRefId,
+        },
+        ty::DefinitionExposure,
     },
     language::semantics as traits,
     source_map::SourceMap,
@@ -30,7 +33,7 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolvedTypeTarget {
     /// Local native-backed type slot.
-    OpaqueType(OpaqueTypeId),
+    NativeType(NativeTypeId),
     /// Canonical source type definition.
     Source(DefinitionId),
     /// Canonical associated type/family definition.
@@ -53,6 +56,9 @@ pub struct ResolvedTypeRef {
     /// Semantic target used by alias, constraint and Native type checking, as well as navigation.
     /// Structural/intrinsic type forms may have no declaration target.
     pub target: Option<ResolvedTypeTarget>,
+    /// Access-checked route selected for an exact structured reference in this
+    /// analysis generation. Ordinary spelled/structural references leave this absent.
+    pub exposure: Option<DefinitionExposure>,
 }
 
 /// Selected callable category, distinct from the callee expression's name binding.

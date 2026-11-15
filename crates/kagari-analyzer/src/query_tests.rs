@@ -13,6 +13,7 @@ mod associated_const;
 mod callable;
 mod common;
 mod constructor;
+mod external;
 mod gat;
 mod generic_type_context;
 mod generic_type_recovery;

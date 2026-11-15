@@ -143,7 +143,7 @@ impl<'a> BodyChecker<'a> {
             !matches!(
                 member.owner.clone(),
                 ResolvedName::TypeAlias(_)
-                    | ResolvedName::OpaqueType(_)
+                    | ResolvedName::NativeType(_)
                     | ResolvedName::Struct(_)
                     | ResolvedName::Enum(_)
                     | ResolvedName::Trait(_)

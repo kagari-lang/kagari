@@ -28,6 +28,7 @@ use kagari_hir::{
     },
     resolver::resolved::ResolvedName,
     semantic::signatures::{FunctionImplementation, TypedFunction},
+    source_map::origin::NodeOrigin,
     typeck::GenericBounds,
     types::{
         GenericParameterType, NominalType, TypeId, TypeSubstitution,
@@ -165,14 +166,19 @@ impl InstanceBody {
         }
     }
 
-    pub fn span(self, module: &CheckedModule<'_>) -> Span {
-        match self {
-            Self::Function(id) => module
-                .declaration_span(Item::Function(id))
-                .expect("admitted function span"),
-            Self::Static(id) => module
-                .declaration_span(Item::Static(id))
-                .expect("admitted static span"),
+    /// An authored location when available, otherwise an unlocated diagnostic anchor.
+    /// The fallback must never be used as authored-source or debug-origin evidence.
+    pub fn diagnostic_span(self, module: &CheckedModule<'_>) -> Span {
+        let item = match self {
+            Self::Function(id) => Item::Function(id),
+            Self::Static(id) => Item::Static(id),
+        };
+        match module
+            .declaration_origin(item)
+            .expect("admitted instance declaration")
+        {
+            NodeOrigin::Source(span) => span,
+            NodeOrigin::Structured { .. } => Span::default(),
         }
     }
 }

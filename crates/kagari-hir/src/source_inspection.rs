@@ -60,8 +60,10 @@ impl DefinitionReferences for AuthoredSourceIndex {
 
 /// Collect exact full syntax extents from the checked closure, not navigation names.
 ///
-/// Fails on missing identities, invalid physical/UTF-8 ranges, cancellation or
-/// the aggregate 64 MiB/one-million-record budget. No disk/editor lookup occurs.
+/// Fails on source-less declarations, missing identities, invalid physical/UTF-8
+/// ranges, cancellation or the aggregate 64 MiB/one-million-record budget.
+/// This complete-source index never substitutes registration graph keys for text.
+/// No disk/editor lookup occurs.
 pub fn collect_authored_sources(
     program: &CheckedCompilation<'_>,
     cancel: &CancellationToken,
@@ -86,6 +88,9 @@ pub fn collect_authored_sources(
                 .find(|typed| typed.id == function.id)
                 .ok_or(DefinitionMappingError::InvalidContract)?;
             let kind = match typed.implementation {
+                FunctionImplementation::NativeDeclaration => {
+                    return Err(DefinitionMappingError::InvalidContract);
+                }
                 FunctionImplementation::Native(_) => SourceBodyKind::Native,
                 FunctionImplementation::Required => SourceBodyKind::Required,
                 FunctionImplementation::Script if function.is_async => {
@@ -131,7 +136,7 @@ pub fn collect_authored_sources(
                 Item::Struct(id) => ResolvedName::Struct(id),
                 Item::Enum(id) => ResolvedName::Enum(id),
                 Item::Trait(id) => ResolvedName::Trait(id),
-                Item::OpaqueType(id) => ResolvedName::OpaqueType(id),
+                Item::NativeType(id) => ResolvedName::NativeType(id),
                 Item::TypeAlias(id) => ResolvedName::TypeAlias(id),
                 Item::Module(_) => continue,
                 Item::Impl(id) => {
@@ -213,7 +218,9 @@ impl Collector {
         if self.seen.len() > MAX_RECORDS {
             return Err(DefinitionMappingError::LimitExceeded);
         }
-        let source = module.source();
+        let source = module
+            .source_surface()
+            .ok_or(DefinitionMappingError::InvalidContract)?;
         let physical = source
             .span(range)
             .ok_or(DefinitionMappingError::InvalidContract)?;

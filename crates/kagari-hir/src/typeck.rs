@@ -54,6 +54,7 @@ pub(crate) mod constant_facts;
 pub(crate) mod definition_registration;
 mod families;
 mod interfaces;
+mod native_contracts;
 pub(crate) mod supertraits;
 
 pub mod constraints;

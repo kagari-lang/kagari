@@ -33,11 +33,18 @@ impl<'a> SnapshotQueries<'a> {
     /// Select the innermost inline module at an editor position in a physical file.
     pub fn analysis_at(&self, file: FileId, offset: usize) -> Option<&'a Arc<FileAnalysis>> {
         let physical = self.analysis.file(file)?;
+        physical.result().facts().lowered.source_surface()?;
         self.analysis
             .files()
             .filter(|candidate| {
                 let source = candidate.source();
-                source.origin_id() == file
+                candidate
+                    .result()
+                    .facts()
+                    .lowered
+                    .source_surface()
+                    .is_some()
+                    && source.origin_id() == file
                     && source
                         .inline_range()
                         .is_some_and(|range| range.start <= offset && offset < range.end)
@@ -49,9 +56,11 @@ impl<'a> SnapshotQueries<'a> {
             .or(Some(physical))
     }
 
-    /// Finds a declaration at a physical source position, including inline-module routing.
+    /// Finds a semantic declaration at a physical use or declaration site.
+    /// The target may be structured; `Declaration::source_location` is then absent.
     pub fn definition_at(&self, file: FileId, offset: usize) -> Option<&'a Declaration> {
         let analysis = self.analysis_at(file, offset)?;
+        analysis.syntax()?;
         if let Some(declaration) = FileQueries::new(analysis).definition_at(offset) {
             return Some(declaration);
         }

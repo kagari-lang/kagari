@@ -3,7 +3,10 @@ use kagari_common::identity::{map::DefinitionContext, table::DefinitionId};
 use kagari_stdlib::{catalog, namespaces};
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::{AssociatedConstDef, ConstDef, Param, conversion::ConversionAdapter},
+    declaration::{
+        AssociatedConstDef, ConstDef, FieldDef, Param, TypeDeclaration, TypeDef,
+        conversion::ConversionAdapter, native::NativeStorageLayout, verify::type_definition_valid,
+    },
     scalar::BuiltinType,
     ty::{
         GenericBound,
@@ -19,6 +22,85 @@ fn owner(
 ) -> DefinitionId {
     let root = context.intern_root(module).unwrap();
     context.intern_child(root, kind, name, 0).unwrap()
+}
+
+#[test]
+fn frontend_native_fields_do_not_authorize_executable_schemas() {
+    let context = DefinitionContext::new().unwrap();
+    let module = ModuleIdentity::single_file("native-fields.kgr");
+    let declaration = owner(&context, &module, DefinitionKind::AssociatedType, "Object");
+    context
+        .intern_child(declaration, DefinitionKind::Field, "value", 0)
+        .unwrap();
+    let definitions = context.snapshot();
+    let cancel = CancellationToken::default();
+    let mut definition = TypeDef {
+        name: "Object".into(),
+        kind: TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
+        generic_params: vec![],
+        bounds: vec![],
+        fields: vec![],
+        variants: vec![],
+    };
+    assert_eq!(
+        validate(
+            &[PublicItem::Type(definition.clone())],
+            &module,
+            &cancel,
+            &definitions
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        private_types::validate(
+            &[TypeDeclaration {
+                declaration,
+                definition: definition.clone()
+            }],
+            &[],
+            &module,
+            &[],
+            &[],
+            &cancel,
+            &definitions
+        ),
+        Ok(())
+    );
+    definition.fields.push(FieldDef {
+        host_policy: None,
+        visibility: Visibility::Public,
+        name: "value".into(),
+        ty: Ty::Builtin(BuiltinType::I32),
+        mutable: true,
+    });
+    assert!(
+        type_definition_valid(&definition, declaration, &cancel, &definitions),
+        "valid static interface must reach the executable gate"
+    );
+    assert_eq!(
+        validate(
+            &[PublicItem::Type(definition.clone())],
+            &module,
+            &cancel,
+            &definitions
+        ),
+        Err(LayoutValidationError::Invalid)
+    );
+    assert_eq!(
+        private_types::validate(
+            &[TypeDeclaration {
+                declaration,
+                definition
+            }],
+            &[],
+            &module,
+            &[],
+            &[],
+            &cancel,
+            &definitions
+        ),
+        Err(LayoutValidationError::Invalid)
+    );
 }
 
 #[test]

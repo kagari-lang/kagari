@@ -1,0 +1,11 @@
+mod hidden {
+    pub struct Secret {}
+}
+
+pub use self::hidden::Secret as Exposed;
+
+struct Private {}
+
+pub struct Public<T> {
+    pub val value: T,
+}

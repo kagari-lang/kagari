@@ -1,7 +1,8 @@
 //! Immutable declaration-only inputs for an independent analysis session.
 
 use crate::{
-    analysis::AnalysisDatabase, native::render::DeclarationSource,
+    analysis::{AnalysisDatabase, external::ExternalModule},
+    native::render::DeclarationSource,
     typeck::const_budget::ConstLimits,
 };
 use kagari_common::identity::metadata::DefinitionMetadata;
@@ -13,12 +14,14 @@ use std::sync::Arc;
 ///
 /// This contains no query caches, mutable identity context or executable callbacks.
 /// Restoring creates a fresh context; ordinary declaration import maps each retained
-/// provider scope into it. Native and offline Host declarations use the same path.
+/// provider scope into it. Independent offline exports retain real source and
+/// static sidecars, not registration authority; they use ordinary source checking.
 #[derive(Debug, Clone)]
 pub struct AnalysisInputs {
     source_root: String,
     native_modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
     native_sources: Option<Vec<DeclarationSource>>,
+    external_modules: Vec<ExternalModule>,
     const_limits: ConstLimits,
     parse_limits: ParseLimits,
     max_semantic_diagnostics: usize,
@@ -31,6 +34,7 @@ impl AnalysisDatabase {
             source_root: self.source_root.clone(),
             native_modules: self.native_modules.clone(),
             native_sources: self.native_sources.clone(),
+            external_modules: self.external_modules.clone(),
             const_limits: self.const_limits,
             parse_limits: self.parse_limits,
             max_semantic_diagnostics: self.max_semantic_diagnostics,
@@ -44,6 +48,7 @@ impl AnalysisInputs {
         let mut database = AnalysisDatabase::new(&self.source_root)?;
         database.native_modules = self.native_modules.clone();
         database.native_sources = self.native_sources.clone();
+        database.external_modules = self.external_modules.clone();
         database.const_limits = self.const_limits;
         database.parse_limits = self.parse_limits;
         database.max_semantic_diagnostics = self.max_semantic_diagnostics;
@@ -60,6 +65,11 @@ impl AnalysisInputs {
 
     pub fn native_sources(&self) -> Option<&[DeclarationSource]> {
         self.native_sources.as_deref()
+    }
+
+    /// Explicit source-backed offline declarations retained by this environment.
+    pub fn external_modules(&self) -> &[ExternalModule] {
+        &self.external_modules
     }
 
     pub fn const_limits(&self) -> ConstLimits {

@@ -15,7 +15,7 @@ fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnaps
 
 #[test]
 fn native_and_script_variants_share_checked_constructor_and_pattern_facts() {
-    let text = "enum Local<T> { Some(T), None } use self::Local::{Some as LocalSome, None as LocalNone}; fn native(value:i32)->Option<i32> { Some(value) } fn script(value:i32)->Local<i32> { LocalSome(value) } fn read(value:Option<i32>)->i32 { match value { Some(payload)=>payload, None=>0 } }";
+    let text = "enum Local<T> { Some(T), None } use self::Local::{Some as LocalSome, None as LocalNone}; fn make_option(value:i32)->Option<i32> { Some(value) } fn script(value:i32)->Local<i32> { LocalSome(value) } fn read(value:Option<i32>)->i32 { match value { Some(payload)=>payload, None=>0 } }";
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("variants.kgr", text.into(), SourceLayer::Base)
@@ -104,13 +104,13 @@ fn native_and_script_variants_share_checked_constructor_and_pattern_facts() {
         .definition_at(file, text.find("LocalSome(value)").unwrap())
         .unwrap();
     assert_ne!(native.id, script.id);
-    assert_ne!(native.location.file, file);
-    assert_eq!(script.location.file, file);
+    assert!(native.source_location().is_none());
+    assert_eq!(script.source_location().unwrap().file, file);
 }
 
 #[test]
 fn explicit_variant_imports_shadow_prelude_in_calls_patterns_and_navigation() {
-    let text = "enum Local<T> { Some(T), None } use self::Local::{Some, None}; use core::option::Option::{Some as Present, None as Absent}; fn native(value:i32)->Option<i32> { Present(value) } fn local(value:i32)->Local<i32> { Some(value) } fn read(value:Local<i32>)->i32 { match value { None=>0, Some(payload)=>payload } } fn read_native(value:Option<i32>)->i32 { match value { Absent=>0, Present(payload)=>payload } }";
+    let text = "enum Local<T> { Some(T), None } use self::Local::{Some, None}; use core::option::Option::{Some as Present, None as Absent}; fn make_option(value:i32)->Option<i32> { Present(value) } fn local(value:i32)->Local<i32> { Some(value) } fn read(value:Local<i32>)->i32 { match value { None=>0, Some(payload)=>payload } } fn read_native(value:Option<i32>)->i32 { match value { Absent=>0, Present(payload)=>payload } }";
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("shadowed-variants.kgr", text.into(), SourceLayer::Base)
@@ -136,7 +136,11 @@ fn explicit_variant_imports_shadow_prelude_in_calls_patterns_and_navigation() {
             .queries()
             .definition_at(file, text.find(needle).unwrap())
             .unwrap();
-        assert_eq!(declaration.location.file == file, !native, "{needle}");
+        assert_eq!(
+            declaration.source_location().map(|site| site.file),
+            (!native).then_some(file),
+            "{needle}"
+        );
         let DeclarationId::Definition(id) = &declaration.id else {
             panic!("variant declaration")
         };
@@ -203,7 +207,12 @@ fn explicit_enum_navigation_separates_owner_arguments_and_variant_after_errors()
             .facts()
             .aggregates
             .enumerations()
-            .find(|enumeration| enumeration.declaration.location.file == file)
+            .find(|enumeration| {
+                enumeration
+                    .declaration
+                    .source_location()
+                    .is_some_and(|site| site.file == file)
+            })
             .unwrap();
         for argument in ["bool", "i32", "Missing"] {
             let start = text.find(&format!("Event<{argument}>")).unwrap();
@@ -278,7 +287,12 @@ fn constructors_retain_nominal_targets_through_argument_errors() {
     let enumeration = facts
         .aggregates
         .enumerations()
-        .find(|enumeration| enumeration.declaration.location.file == file)
+        .find(|enumeration| {
+            enumeration
+                .declaration
+                .source_location()
+                .is_some_and(|site| site.file == file)
+        })
         .unwrap();
     let good = text.find("Event::Data").unwrap();
     let wrong = text.rfind("Event::Data").unwrap();
@@ -411,13 +425,13 @@ fn source_facades_and_value_parameters_preserve_constructor_owners() {
             .name,
         "Event"
     );
-    assert_eq!(a.location.file, left);
-    assert_eq!(b.location.file, right);
+    assert_eq!(a.source_location().unwrap().file, left);
+    assert_eq!(b.source_location().unwrap().file, right);
     assert_ne!(a.id, b.id);
     let same_name = text.rfind("Event::Data").unwrap();
     let owner = analysis.queries().definition_at(same_name).unwrap();
     assert_eq!(owner.name, "Event");
-    assert_eq!(owner.location.file, left);
+    assert_eq!(owner.source_location().unwrap().file, left);
     assert_eq!(
         analysis
             .queries()

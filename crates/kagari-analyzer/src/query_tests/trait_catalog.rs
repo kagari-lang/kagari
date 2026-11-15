@@ -31,13 +31,16 @@ fn insert(sources: &mut SourceDatabase, name: &str, text: &str) -> FileId {
 }
 
 fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
-    db.set_native_modules(
-        foundation_catalog::shared()
-            .unwrap()
-            .into_iter()
-            .chain([fixture::module()])
-            .collect(),
-    );
+    let providers = foundation_catalog::shared()
+        .unwrap()
+        .into_iter()
+        .chain([fixture::module()])
+        .collect::<Vec<_>>();
+    let views = providers
+        .iter()
+        .map(|provider| declaration_source(provider, &providers).unwrap())
+        .collect();
+    db.set_native_sources(providers, views).unwrap();
     db.snapshot(sources.snapshot(), &Default::default())
         .unwrap()
 }
@@ -48,7 +51,7 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
     let root = insert(
         &mut sources,
         "root",
-        "use demo::native::NativeRead; trait Local { fn required(self) -> i32; fn map(self) -> i32 { 1 } fn join(self) -> i32 { 2 } } struct Point {} impl Local for Point { fn required(self) -> i32 { 3 } fn join(self) -> i32 { 4 } }",
+        "use demo::bindings::NativeRead; trait Local { fn required(self) -> i32; fn map(self) -> i32 { 1 } fn join(self) -> i32 { 2 } } struct Point {} impl Local for Point { fn required(self) -> i32 { 3 } fn join(self) -> i32 { 4 } }",
     );
     let snapshot = analyze(&mut test_analysis(), &sources);
     let file = snapshot.file(root).unwrap();
@@ -68,7 +71,7 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
     for method in &local.methods[1..] {
         assert_eq!(method.default, Some(MethodDefault::Script));
         assert!(method.allows_override());
-        assert_eq!(method.declaration.location.file, root);
+        assert_eq!(method.declaration.source_location().unwrap().file, root);
     }
     let iterator = catalog
         .traits()
@@ -101,14 +104,18 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
             )))
         );
         assert_eq!(method.allows_override(), overridable);
-        let source = snapshot.source(method.declaration.location.file).unwrap();
+        let source = snapshot
+            .source(method.declaration.source_location().unwrap().file)
+            .unwrap();
         assert_eq!(
             source.name(),
             declaration_source(&fixture::module(), &foundation_catalog::shared().unwrap())
                 .unwrap()
                 .uri
         );
-        let native = snapshot.file(method.declaration.location.file).unwrap();
+        let native = snapshot
+            .file(method.declaration.source_location().unwrap().file)
+            .unwrap();
         assert!(
             native.result().diagnostics().is_empty(),
             "{:?}",
@@ -123,7 +130,8 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
         };
         assert!(
             facts.lowered.module.functions[function.index()]
-                .body
+                .implementation
+                .script_body()
                 .is_some()
         );
         assert!(
@@ -141,7 +149,7 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
             native.queries().definition_at(call_offset).unwrap().name,
             format!("default_{name}")
         );
-        let range = method.declaration.location.range;
+        let range = method.declaration.source_location().unwrap().range;
         assert_eq!(&source.text()[range.start..range.end], name);
     }
     let point = TypeId::Struct(NominalType {
@@ -270,7 +278,8 @@ fn imported_methods_keep_checked_parameters_self_types_and_source_targets() {
             .queries()
             .definition_at(text.find("x.read(7)").unwrap() + 2)
             .unwrap()
-            .location
+            .source_location()
+            .unwrap()
             .file,
         left
     );
@@ -279,7 +288,8 @@ fn imported_methods_keep_checked_parameters_self_types_and_source_targets() {
             .queries()
             .definition_at(text.find("x.read(\"ok\")").unwrap() + 2)
             .unwrap()
-            .location
+            .source_location()
+            .unwrap()
             .file,
         right
     );

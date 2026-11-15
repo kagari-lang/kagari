@@ -11,9 +11,13 @@ use {
 
 pub(super) fn capture_origin(
     function: &MirFunction,
-    source: &SourceFile,
+    source: Option<&SourceFile>,
     cancel: &CancellationToken,
-) -> Result<SourceOrigin, MirLoweringError> {
+) -> Result<Option<SourceOrigin>, MirLoweringError> {
+    cancel.check().map_err(|_| MirLoweringError::Cancelled)?;
+    let Some(source) = source else {
+        return Ok(None);
+    };
     let mut offsets = BTreeSet::new();
     for span in function.source_spans() {
         cancel.check().map_err(|_| MirLoweringError::Cancelled)?;
@@ -30,11 +34,11 @@ pub(super) fn capture_origin(
             column: position.and_then(|position| u32::try_from(position.character + 1).ok()),
         });
     }
-    Ok(SourceOrigin {
+    Ok(Some(SourceOrigin {
         uri: source.name().to_owned(),
         byte_len: source.text().len(),
         positions,
-    })
+    }))
 }
 
 #[cfg(test)]
@@ -43,11 +47,21 @@ mod tests {
     use crate::{tests::common, tests::common::lower_root};
     use kagari_common::identity::map::DefinitionContext;
     use kagari_common::span::Span;
+    use kagari_hir::analysis::AnalysisDatabase;
+    use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
     #[test]
     fn origin_capture_preserves_unlocatable_crlf_offsets_and_cancellation() {
         let context = DefinitionContext::new().unwrap();
-        let checked = common::program_ok("fn main() {}\r\n");
+        let mut sources = SourceDatabase::default();
+        let root = sources
+            .set("debug.kgr", "fn main() {}\r\n".into(), SourceLayer::Base)
+            .unwrap();
+        let checked = AnalysisDatabase::default()
+            .snapshot(sources.snapshot(), &Default::default())
+            .unwrap()
+            .check_program(root, &Default::default())
+            .unwrap();
         let mut raw = common::adopt(
             &context,
             lower_root(&checked, &Default::default())
@@ -59,10 +73,16 @@ mod tests {
         function.blocks[0].terminator_span = Some(Span::new(offset, offset));
         let origin = capture_origin(
             function,
-            &checked.root().lowered.source,
+            Some(&checked.root().lowered.source),
             &Default::default(),
         )
+        .unwrap()
         .unwrap();
+        assert!(
+            capture_origin(function, None, &Default::default())
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(
             origin.position(offset),
             Some(&SourcePosition {
@@ -74,7 +94,11 @@ mod tests {
         let cancel = CancellationToken::default();
         cancel.cancel();
         assert!(matches!(
-            capture_origin(function, &checked.root().lowered.source, &cancel),
+            capture_origin(function, Some(&checked.root().lowered.source), &cancel),
+            Err(MirLoweringError::Cancelled)
+        ));
+        assert!(matches!(
+            capture_origin(function, None, &cancel),
             Err(MirLoweringError::Cancelled)
         ));
         function.debug.source = Some(origin);

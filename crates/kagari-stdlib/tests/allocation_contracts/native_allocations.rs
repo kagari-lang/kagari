@@ -32,7 +32,7 @@ use std::{hint::black_box, sync::Arc, time::Duration};
 fn module() -> NativeModule {
     let language = StandardDeclarations::default();
     let mut module = ModuleBuilder::new(
-        "measure::native",
+        "measure::bindings",
         &language.catalog().expect("explicit standard providers"),
     )
     .unwrap();

@@ -22,7 +22,7 @@ use kagari_types::visibility::Visibility;
 /// parent_type -> Body.type_ref -> Named("Parent")
 /// limit / item -> inline AssociatedConst / AssociatedType, explained below
 /// read -> inline TraitMethod { has_default: false, function: f, ... }
-/// f -> Module.functions[f.index()] -> Function { kind: TraitMethod, body: None, ... }
+/// f -> Module.functions[f.index()] -> Function { kind: TraitMethod, implementation: Required, ... }
 /// ```
 ///
 /// This fragment illustrates storage; the parent/output traits must be declared.
@@ -144,10 +144,10 @@ pub struct AssociatedType {
 /// trait Reader { fn read(self) -> i32; }
 /// TraitMethod { has_default: false, id: m, name: "read", function: f }
 /// m -> SourceMap.trait_method_span(m)
-/// f -> Module.functions[f.index()] -> Function { kind: TraitMethod, body: None, ... }
+/// f -> Module.functions[f.index()] -> Function { kind: TraitMethod, implementation: Required, ... }
 /// ```
 ///
-/// Replacing `;` with `{ 1 }` sets `has_default: true` and `Function.body: Some(b)`.
+/// Replacing `;` with `{ 1 }` sets `has_default: true` and `Function.implementation: Script(b)`.
 /// `id` is a source-map-wide trait-method identity, not its ordinal within one
 /// trait. `name` is written syntax; the function parameters establish receiver
 /// presence. Generics, visibility, parameter/return types and body live in the
@@ -181,7 +181,7 @@ pub struct TraitMethod {
 /// }
 /// reader_type -> Body.type_ref -> Named("Reader")
 /// box_type -> Body.type_ref -> Generic { name: "Box", args: [T_type], ... }
-/// f -> Module.functions[f.index()] -> Function { kind: ImplMethod, body: Some(b), ... }
+/// f -> Module.functions[f.index()] -> Function { kind: ImplMethod, implementation: Script(b), ... }
 /// ```
 ///
 /// This is a source-shape example; Box/Reader/Display and their members must be
@@ -221,7 +221,7 @@ pub struct Impl {
 /// impl Point { pub fn count(self) -> i32 { self.x } }
 /// Impl.methods = [ImplMethod { name: "count", function: f }]
 /// f -> Module.functions[f.index()]
-///   -> Function { kind: ImplMethod, visibility: Public, name: "count", body: Some(b), ... }
+///   -> Function { kind: ImplMethod, visibility: Public, name: "count", implementation: Script(b), ... }
 /// ```
 ///
 /// The member has no separate method ID or body. Signature, visibility, async flag,

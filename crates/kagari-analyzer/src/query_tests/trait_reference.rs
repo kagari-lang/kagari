@@ -196,7 +196,8 @@ fn imported_trait_headers_keep_distinct_executable_identities() {
             .queries()
             .definition_at(first)
             .unwrap()
-            .location
+            .source_location()
+            .unwrap()
             .file,
         left
     );
@@ -205,7 +206,8 @@ fn imported_trait_headers_keep_distinct_executable_identities() {
             .queries()
             .definition_at(second)
             .unwrap()
-            .location
+            .source_location()
+            .unwrap()
             .file,
         right
     );
@@ -214,7 +216,8 @@ fn imported_trait_headers_keep_distinct_executable_identities() {
             .queries()
             .definition_at(text.find("T: L").unwrap() + 3)
             .unwrap()
-            .location
+            .source_location()
+            .unwrap()
             .file,
         left
     );

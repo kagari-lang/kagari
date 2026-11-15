@@ -258,6 +258,9 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
             for (slot, method) in source.methods.iter().enumerate() {
                 assert_eq!(record.methods[slot].name, method.name);
                 let expected = match &method.default {
+                    Some(MethodDefault::NativeDeclaration) => {
+                        panic!("offline declaration passed compiler admission")
+                    }
                     None => CallableImplementation::Required,
                     Some(MethodDefault::Script) => CallableImplementation::Script,
                     Some(MethodDefault::Native(HirNativeBinding::Entry(binding))) => {

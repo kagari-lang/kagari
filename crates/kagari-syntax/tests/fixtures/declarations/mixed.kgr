@@ -1,0 +1,44 @@
+/// A native array.
+#[builtin_type(Array)]
+pub native type List<T>;
+
+pub type Items<T> = List<T>;
+
+pub native type Counter<T>: Resource where T: Read {
+    #[tag]
+    pub val value: T,
+    pub var count: i32,
+}
+
+pub struct Script {
+    val value: i32,
+}
+
+pub fn identity<T>(value: T) -> T {
+    value
+}
+
+pub trait Read {
+    type Item;
+    fn read(self) -> Self::Item;
+    fn answer(self) -> i32 {
+        42
+    }
+}
+
+impl<T> Counter<T> where T: Read {
+    pub native fn new(value: T) -> Counter<T>;
+    pub native fn inspect(self, shared: Ref<T>, mutable: RefMut<T>) -> T;
+}
+
+impl<T> Read for Counter<T> where T: Read {
+    type Item = T;
+    native fn read(self) -> T;
+}
+
+pub native fn borrow<T: Read<Item = i32>>(value: Ref<T>) -> RefMut<T>;
+
+mod nested {
+    native type Handle;
+    type Count = i32;
+}

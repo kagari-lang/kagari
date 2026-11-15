@@ -6,7 +6,10 @@ use crate::{
         },
         expr::ExprKind,
         ids::{BodyOwner, HirOwner},
-        item::{Item, function::FunctionKind},
+        item::{
+            Item,
+            function::{FunctionImplementation, FunctionKind},
+        },
         pattern::PatternKind,
         place::PlaceKind,
         stmt::StmtKind,
@@ -18,7 +21,7 @@ use crate::{
 use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile};
 use kagari_syntax::{
     ast::views::ItemView,
-    parser::{self, ParseLimits, ParseMode, ParseOptions},
+    parser::{self, ParseLimits, ParseOptions},
 };
 use kagari_types::visibility::Visibility;
 use std::sync::Arc;
@@ -30,22 +33,24 @@ fn declaration_only_functions_do_not_acquire_script_bodies() {
         include_str!("../../tests/fixtures/lower/declaration_only_functions.kgr"),
     ));
     let cancel = Default::default();
-    let parsed = parser::parse(
-        &source,
-        ParseOptions {
-            mode: ParseMode::Declarations,
-            limits: Default::default(),
-        },
-        &cancel,
-    )
-    .unwrap();
+    let parsed = parser::parse(&source, ParseOptions::default(), &cancel).unwrap();
     assert!(parsed.diagnostics().is_empty());
     let lowered = crate::lower::lower_module_controlled(source, &parsed.module(), &cancel);
     let [native, required, script] = lowered.module.functions.as_slice() else {
         panic!("three declarations expected");
     };
-    assert_eq!(native.body, None);
-    assert_eq!(required.body, None);
+    // Explicit Native syntax selects a declaration kind, not installation authority.
+    assert!(matches!(
+        native.implementation,
+        FunctionImplementation::Native(_)
+    ));
+    assert!(!lowered.registered_native_api);
+    assert!(lowered.native_functions.is_empty());
+    assert_eq!(required.implementation, FunctionImplementation::Required);
+    assert!(matches!(
+        script.implementation,
+        FunctionImplementation::Script(_)
+    ));
     for function in [native, required, script] {
         for (index, parameter) in function.params.iter().enumerate() {
             assert_eq!(parameter.id.index(), index);
@@ -70,7 +75,9 @@ fn declaration_only_functions_do_not_acquire_script_bodies() {
     assert!(
         matches!(&lowered.module.type_ref(native.params[0].ty).kind, TypeKind::Named(name) if name == "i32")
     );
-    let script_body = lowered.module.block(script.body.unwrap());
+    let script_body = lowered
+        .module
+        .block(script.implementation.script_body().unwrap());
     assert!(script_body.statements.is_empty());
     assert_eq!(script_body.tail_expr, None);
     let methods = &lowered.module.traits[0].methods;
@@ -339,7 +346,6 @@ fn attributes_preserve_structured_metadata_and_typed_targets() {
                 max_nesting: 0,
                 ..Default::default()
             },
-            ..Default::default()
         },
         &cancel,
     )
@@ -464,7 +470,9 @@ fn lowers_function_body_expressions_and_statements() {
         TypeKind::Named(name) if name == "i32"
     ));
 
-    let block = lowered.module.block(function.body.unwrap());
+    let block = lowered
+        .module
+        .block(function.implementation.script_body().unwrap());
     let stmt = lowered.module.stmt(block.statements[0]);
     match &stmt.kind {
         StmtKind::Binding {
@@ -503,9 +511,12 @@ fn lowers_function_body_expressions_and_statements() {
     }
 
     let assign = common::lower_ok("fn main(value: i32) -> i32 { value = 1; value }");
-    let assign_block = assign
-        .module
-        .block(assign.module.functions[0].body.unwrap());
+    let assign_block = assign.module.block(
+        assign.module.functions[0]
+            .implementation
+            .script_body()
+            .unwrap(),
+    );
     match &assign.module.stmt(assign_block.statements[0]).kind {
         StmtKind::Assign { target, .. } => {
             assert!(matches!(
@@ -519,9 +530,12 @@ fn lowers_function_body_expressions_and_statements() {
     let nested = common::lower_ok(include_str!(
         "../../tests/fixtures/lower/nested_field_assignment.kgr"
     ));
-    let block = nested
-        .module
-        .block(nested.module.functions[0].body.unwrap());
+    let block = nested.module.block(
+        nested.module.functions[0]
+            .implementation
+            .script_body()
+            .unwrap(),
+    );
     match &nested.module.stmt(block.statements[1]).kind {
         StmtKind::Assign { target, .. } => {
             assert!(matches!(
@@ -537,7 +551,9 @@ fn lowers_function_body_expressions_and_statements() {
 fn lowers_var_binding() {
     let lowered = common::lower_ok("fn main() { var value = 1; value = 2; }");
     let function = &lowered.module.functions[0];
-    let block = lowered.module.block(function.body.unwrap());
+    let block = lowered
+        .module
+        .block(function.implementation.script_body().unwrap());
     let stmt = lowered.module.stmt(block.statements[0]);
 
     match &stmt.kind {
@@ -621,9 +637,12 @@ fn inline_ast_lowering_owns_only_its_items_and_attributes() {
     assert_eq!(lowered.module.functions.len(), 1);
     assert_eq!(lowered.module.functions[0].name, "f");
     assert_eq!(lowered.module.modules.len(), 1);
-    let span = lowered
-        .source_map
-        .block_span(lowered.module.functions[0].body.unwrap());
+    let span = lowered.source_map.block_span(
+        lowered.module.functions[0]
+            .implementation
+            .script_body()
+            .unwrap(),
+    );
     assert_eq!(&source.text()[span.start..span.end].trim(), &"{}");
 }
 
@@ -644,7 +663,7 @@ fn local_function_rows_preserve_owners_and_module_membership() {
     );
     for (index, function) in functions.iter().enumerate() {
         assert_eq!(function.id.index(), index);
-        let body = function.body.unwrap();
+        let body = function.implementation.script_body().unwrap();
         assert_eq!(
             body.owner(),
             HirOwner::Body(BodyOwner::Function(function.id))

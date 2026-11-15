@@ -70,14 +70,11 @@ fn main() {
         .queries()
         .definition_at(root.file, type_offset)
         .unwrap();
-    assert_ne!(declaration.location.file, root.file);
-    let defining_text = snapshot
-        .file(declaration.location.file)
-        .unwrap()
-        .source()
-        .text();
+    let location = declaration.source_location().expect("authored dependency");
+    assert_ne!(location.file, root.file);
+    let defining_text = snapshot.file(location.file).unwrap().source().text();
     assert_eq!(
-        &defining_text[declaration.location.range.start..declaration.location.range.end],
+        &defining_text[location.range.start..location.range.end],
         "Data"
     );
     println!(

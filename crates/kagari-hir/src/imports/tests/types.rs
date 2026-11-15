@@ -56,7 +56,7 @@ fn module_facade_bindings_share_source_type_call_and_navigation_targets() {
                     },
             )
             .unwrap();
-        assert_eq!(target.location.file, library);
+        assert_eq!(target.source_location().unwrap().file, library);
     }
     assert_eq!(
         file.source_function_at(text.find("lib::answer()").unwrap() + "lib::".len())
@@ -85,14 +85,21 @@ fn body_edit_cannot_reuse_signatures_after_transitive_type_change() {
     let edited = analysis
         .snapshot(db.snapshot(), &Default::default())
         .unwrap();
-    assert!(edited.file(root).unwrap().signatures_reused());
+    // The baseline snapshot was dropped; weak graph caches cannot supply old IDs.
+    assert!(!edited.file(root).unwrap().signatures_reused());
+    db.set("mem://root", text.replace("42", "44"), SourceLayer::Overlay)
+        .unwrap();
+    let retained_edit = analysis
+        .snapshot(db.snapshot(), &Default::default())
+        .unwrap();
+    assert!(retained_edit.file(root).unwrap().signatures_reused());
     db.set(
         "mem://types",
         "struct Data { val value: i32 }".into(),
         SourceLayer::Overlay,
     )
     .unwrap();
-    db.set("mem://root", text.replace("42", "44"), SourceLayer::Overlay)
+    db.set("mem://root", text.replace("42", "45"), SourceLayer::Overlay)
         .unwrap();
     let changed = analysis
         .snapshot(db.snapshot(), &Default::default())

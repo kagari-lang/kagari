@@ -19,7 +19,7 @@ use kagari_types::declaration::verify::{
 
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::{FnDecl, TraitDef, ownership::ReceiverOwners},
+    declaration::{FnDecl, TraitDef, TypeDefKind, ownership::ReceiverOwners},
     decode_limits,
     language::Protocol,
     scalar::BuiltinType,
@@ -82,6 +82,8 @@ pub fn validate(
                     return Err(invalid());
                 };
                 aggregate_names.insert(&ty.name)
+                    // Interface fields are frontend facts until native field adapters exist.
+                    && (!matches!(ty.kind, TypeDefKind::NativeStorage(_)) || ty.fields.is_empty())
                     && aggregate_shape_valid(ty, cancel)
                     && parameters(&ty.generic_params, &owner, &Parameters::new()).is_some_and(
                         |params| {

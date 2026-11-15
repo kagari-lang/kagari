@@ -1,13 +1,23 @@
-//! Analyze native declaration views normally, then attach checked registration metadata.
+//! Lower owned registration records directly; retain complete supplied tool source when present.
 mod correspondence;
 pub(crate) mod preparation;
 
 use crate::{
-    hir::{ids::FunctionId, item::function::FunctionKind, ty::TypeKind},
+    hir::{
+        ids::FunctionId,
+        item::{
+            Item,
+            function::{FunctionImplementation, NativeContract},
+        },
+        ty::TypeKind,
+    },
     lower::{LoweredModule, lower_module_controlled},
     native::{
-        NativeBinding, NativeTypeKind, api::preparation::PreparedRegistration, paths::module_path,
+        NativeBinding, NativeTypeKind,
+        api::preparation::PreparedRegistration,
+        paths::module_path,
         render::DeclarationSource,
+        structured::{self, RegistrationMap},
     },
 };
 use kagari_common::{
@@ -19,10 +29,12 @@ use kagari_common::{
         table::{DefinitionId, DefinitionTable},
     },
 };
-use kagari_source::source::SourceFile;
 use kagari_syntax::{
-    ast::visit::NodeRef,
-    parser::{Parse, ParseLimits, ParseMode, ParseOptions, parse},
+    ast::{views::ItemView, visit::NodeRef},
+    kind::SyntaxKind,
+    lexer::lex_with_cancellation,
+    parser::Parse,
+    token::TokenKind,
 };
 use kagari_types::{
     callable::CallableImplementation,
@@ -44,16 +56,22 @@ fn attach(
     let providers = &prepared.providers;
     let definition = metadata.records();
     let definitions = metadata.definitions();
-    let mut lowered =
-        lower_module_controlled(prepared.source.clone(), &prepared.parsed().module(), cancel);
+    let (mut lowered, correspondence) = if let Some(parsed) = prepared.parsed() {
+        debug_assert!(prepared.source_surface().is_some());
+        let lowered = lower_module_controlled(prepared.source.clone(), &parsed.module(), cancel);
+        let correspondence = correspondence::supplied(definition, definitions, &lowered)?;
+        (lowered, correspondence)
+    } else {
+        structured::lower(metadata, providers, prepared.source.clone(), cancel)?
+    };
     lowered.registered_native_api = true;
     lowered.native_definitions = Some(definitions.clone());
     lowered.language_foundation = language::is_language_module(&definition.identity);
     lowered.native_package_alias = definition.package_alias.clone();
     lowered.native_prelude = definition.prelude;
     lowered.native_trait_references = definition.trait_references.clone();
-    // The renderer emits authored aliases first, in this same ordered map traversal.
-    // Exact syntax correspondence above binds these trusted categories to the leaves.
+    // Both constructors allocate authored aliases first in this ordered traversal.
+    // Namespace categories belong to registration, not to an inferred source spelling.
     lowered.native_import_namespaces = definition
         .exports
         .keys()
@@ -71,9 +89,14 @@ fn attach(
         })
         .collect::<Result<_, DeclarationError>>()?;
     lowered.registered_declarations = definition.native_declarations(definitions)?;
-    attach_types(definition, definitions, providers, &mut lowered)?;
-    attach_functions(definition, &mut lowered)?;
-    correspondence::validate(definition, definitions, &mut lowered)?;
+    attach_types(
+        definition,
+        definitions,
+        providers,
+        &correspondence,
+        &mut lowered,
+    )?;
+    attach_functions(definition, definitions, &correspondence, &mut lowered)?;
     attach_dependencies(metadata, providers, &mut lowered, cancel)?;
     Ok(lowered)
 }
@@ -84,32 +107,101 @@ fn attach(
 fn validate_view(
     expected: &DeclarationSource,
     parsed: &Parse,
-    limits: ParseLimits,
+    definition: &ModuleDecl,
     cancel: &CancellationToken,
 ) -> Result<(), DeclarationError> {
-    let expected = parse(
-        &SourceFile::new(&expected.uri, &expected.text),
-        ParseOptions {
-            mode: ParseMode::Declarations,
-            limits,
-        },
-        cancel,
-    )
-    .map_err(|_| DeclarationError("native declaration correspondence cancelled".into()))?;
-    let tokens = |parsed: &Parse| {
-        parsed
-            .module()
-            .items()
-            .map(|item| {
-                NodeRef::from(item)
-                    .tokens()
-                    .filter(|token| !token.kind().is_trivia())
-                    .map(|token| (token.kind(), token.text().to_owned()))
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>()
-    };
-    if tokens(parsed) != tokens(&expected) {
+    let mut script_bodies = Vec::new();
+    let mut implementation_index = 0;
+    for item in parsed.module().items() {
+        match item {
+            ItemView::FnDef(function) => {
+                if definition.functions.iter().any(|registered| {
+                    registered.name == function.name_text().unwrap_or_default()
+                        && registered.implementation == CallableImplementation::Script
+                }) {
+                    let body = function.body().ok_or_else(|| {
+                        DeclarationError(
+                            "Script registration requires complete supplied body".into(),
+                        )
+                    })?;
+                    script_bodies.push(body.body_span());
+                }
+            }
+            ItemView::TraitDef(contract) => {
+                if let Some(registered) = definition
+                    .traits
+                    .iter()
+                    .find(|registered| registered.name == contract.name_text().unwrap_or_default())
+                {
+                    for method in contract.methods() {
+                        if registered.methods.iter().any(|registered| {
+                            registered.name == method.name_text().unwrap_or_default()
+                                && registered.implementation == CallableImplementation::Script
+                        }) {
+                            let body = method.body().ok_or_else(|| {
+                                DeclarationError(
+                                    "Script registration requires complete supplied body".into(),
+                                )
+                            })?;
+                            script_bodies.push(body.body_span());
+                        }
+                    }
+                }
+            }
+            ItemView::ImplBlock(implementation) => {
+                if let Some(registered) = definition.implementations.get(implementation_index) {
+                    for method in implementation.methods() {
+                        if registered.methods.iter().any(|registered| {
+                            registered.name == method.name_text().unwrap_or_default()
+                                && registered.implementation == CallableImplementation::Script
+                        }) {
+                            let body = method.body().ok_or_else(|| {
+                                DeclarationError(
+                                    "Script registration requires complete supplied body".into(),
+                                )
+                            })?;
+                            script_bodies.push(body.body_span());
+                        }
+                    }
+                }
+                implementation_index += 1;
+            }
+            _ => {}
+        }
+    }
+    let supplied_tokens = parsed
+        .module()
+        .items()
+        .flat_map(|item| {
+            NodeRef::from(item)
+                .tokens()
+                .filter(|token| !token.kind().is_trivia())
+                .filter_map(|token| {
+                    if let Some(body) = script_bodies.iter().find(|body| {
+                        token.span().start >= body.start && token.span().end <= body.end
+                    }) {
+                        return (token.span().start == body.start)
+                            .then(|| (SyntaxKind::Semi, ";".to_owned()));
+                    }
+                    Some((token.kind(), token.text().to_owned()))
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    // Lex the tool projection, not an incomplete Script signature as a program.
+    // Only the supplied complete source is parsed/lowered and retained as HIR.
+    let expected_tokens = lex_with_cancellation(&expected.text, cancel)
+        .map_err(|_| DeclarationError("native declaration correspondence cancelled".into()))?
+        .iter()
+        .filter(|token| !token.kind.is_trivia() && token.kind != TokenKind::Eof)
+        .map(|token| {
+            (
+                token.kind.to_syntax_kind(),
+                expected.text[token.span.start..token.span.end].to_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    if supplied_tokens != expected_tokens {
         return Err(DeclarationError(
             "native declaration source differs from authoritative registration".into(),
         ));
@@ -121,6 +213,7 @@ fn attach_types(
     definition: &ModuleDecl,
     definitions: &DefinitionTable,
     providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
+    correspondence: &RegistrationMap,
     lowered: &mut LoweredModule,
 ) -> Result<(), DeclarationError> {
     let schemas = providers
@@ -145,40 +238,22 @@ fn attach_types(
         .collect::<Result<Vec<_>, DeclarationError>>()?;
     let schemas: Arc<[TypeDeclaration]> = schemas.into();
     for ty in &definition.types {
-        if ty.kind == TypeDefKind::Struct {
-            if !lowered
-                .module
-                .structs
-                .iter()
-                .any(|item| item.name == ty.name)
-            {
-                return Err(DeclarationError(
-                    "missing registered struct declaration".into(),
-                ));
-            }
-            // Exact source correspondence leaves ordinary struct typing/layout intact.
+        let declaration =
+            definition.definition(ty.kind.definition_kind(), &ty.name, definitions)?;
+        let item = correspondence.item(declaration)?;
+        if let Item::Struct(_) = item {
             continue;
         }
-        if ty.kind == TypeDefKind::Enum {
-            let item = lowered
-                .module
-                .enums
-                .iter()
-                .find(|item| item.name == ty.name)
-                .ok_or_else(|| DeclarationError("missing registered enum declaration".into()))?;
-            for variant in &ty.variants {
+        if let Item::Enum(id) = item {
+            let item = &lowered.module.enums[id.index()];
+            if item.variants.len() != ty.variants.len() {
+                return Err(DeclarationError("registered enum inventory differs".into()));
+            }
+            for (member, variant) in item.variants.iter().zip(&ty.variants) {
                 if variant.reports_failure {
-                    let member = item
-                        .variants
-                        .iter()
-                        .find(|member| member.name == variant.name)
-                        .ok_or_else(|| {
-                            DeclarationError("missing registered enum variant".into())
-                        })?;
                     lowered.registered_enum_failures.insert(member.id);
                 }
             }
-            // Ordinary registered enums use the parsed nominal enum representation.
             continue;
         }
         let kind = match ty.kind {
@@ -221,85 +296,91 @@ fn attach_types(
             },
             _ => return Err(DeclarationError("missing native representation".into())),
         };
-        let item = lowered
-            .module
-            .opaque_types
-            .iter()
-            .find(|item| item.name == ty.name)
-            .ok_or_else(|| DeclarationError("missing native type declaration".into()))?;
-        lowered.native_types.insert(item.id, kind);
+        let Item::NativeType(id) = item else {
+            return Err(DeclarationError(
+                "registered native type kind differs".into(),
+            ));
+        };
+        lowered.native_types.insert(id, kind);
     }
     Ok(())
 }
 
 fn attach_functions(
     definition: &ModuleDecl,
+    definitions: &DefinitionTable,
+    correspondence: &RegistrationMap,
     lowered: &mut LoweredModule,
 ) -> Result<(), DeclarationError> {
-    let mut bindings = vec![];
-    for trait_ in &definition.traits {
-        let item = lowered
-            .module
-            .traits
-            .iter_mut()
-            .find(|item| item.name == trait_.name)
-            .ok_or_else(|| DeclarationError("missing native trait declaration".into()))?;
-        if let Some(adapter) = &trait_.conversion_adapter {
-            lowered
-                .native_trait_adapters
-                .insert(item.id, adapter.clone());
-        }
-        for method in &trait_.methods {
-            let member = item
-                .methods
-                .iter_mut()
-                .find(|item| item.name == method.name)
-                .ok_or_else(|| DeclarationError("missing native trait member".into()))?;
-            let registered_default = matches!(
-                method.implementation,
-                CallableImplementation::NativeDefault(_)
-            );
-            if member.has_default != registered_default {
-                return Err(DeclarationError(
-                    "native trait default body differs from registration".into(),
-                ));
-            }
-            bindings.push((member.function, method));
+    for contract in &definition.traits {
+        let declaration =
+            definition.definition(DefinitionKind::Trait, &contract.name, definitions)?;
+        let Item::Trait(id) = correspondence.item(declaration)? else {
+            return Err(DeclarationError("registered trait kind differs".into()));
+        };
+        if let Some(adapter) = &contract.conversion_adapter {
+            lowered.native_trait_adapters.insert(id, adapter.clone());
         }
     }
-    if lowered.module.impls.len() != definition.implementations.len() {
-        return Err(DeclarationError(
-            "native implementation inventory differs".into(),
-        ));
-    }
-    for (item, implementation) in lowered.module.impls.iter().zip(&definition.implementations) {
-        for method in &implementation.methods {
-            let member = item
-                .methods
-                .iter()
-                .find(|item| item.name == method.name)
-                .ok_or_else(|| DeclarationError("missing native implementation member".into()))?;
-            bindings.push((member.function, method));
-        }
-    }
-    for function in &definition.functions {
-        let item = lowered
-            .module
+    let functions =
+        definition
             .functions
             .iter()
-            .find(|item| item.kind == FunctionKind::User && item.name == function.name)
-            .ok_or_else(|| DeclarationError("missing native function declaration".into()))?;
-        bindings.push((item.id, function));
-    }
-    for (id, function) in bindings {
-        attach_binding(lowered, id, function);
+            .map(|function| {
+                Ok((
+                    definition.definition(DefinitionKind::Function, &function.name, definitions)?,
+                    function,
+                ))
+            })
+            .chain(definition.traits.iter().flat_map(|contract| {
+                let owner =
+                    definition.definition(DefinitionKind::Trait, &contract.name, definitions);
+                contract.methods.iter().map(move |method| {
+                    Ok((
+                        ModuleDecl::method_id(owner.clone()?, &method.name, definitions)?,
+                        method,
+                    ))
+                })
+            }))
+            .chain(definition.implementations.iter().enumerate().flat_map(
+                |(index, implementation)| {
+                    let owner = definition.implementation_id(index, definitions);
+                    implementation.methods.iter().map(move |method| {
+                        Ok((
+                            ModuleDecl::method_id(owner.clone()?, &method.name, definitions)?,
+                            method,
+                        ))
+                    })
+                },
+            ))
+            .collect::<Result<Vec<_>, DeclarationError>>()?;
+    for (declaration, function) in functions {
+        let Item::Function(id) = correspondence.item(declaration)? else {
+            return Err(DeclarationError("registered function kind differs".into()));
+        };
+        attach_binding(definition, lowered, id, declaration, function);
     }
     Ok(())
 }
 
-fn attach_binding(lowered: &mut LoweredModule, id: FunctionId, function: &FnDecl) {
+fn attach_binding(
+    definition: &ModuleDecl,
+    lowered: &mut LoweredModule,
+    id: FunctionId,
+    declaration: DefinitionId,
+    function: &FnDecl,
+) {
     match &function.implementation {
         CallableImplementation::Native(binding) => {
+            lowered.module.functions[id.index()].implementation =
+                FunctionImplementation::Native(NativeContract {
+                    callable_requirements: definition
+                        .callable_requirements
+                        .get(&declaration)
+                        .cloned()
+                        .unwrap_or_default(),
+                    concrete_result: definition.concrete_results.get(&declaration).cloned(),
+                });
             lowered
                 .native_functions
                 .insert(id, NativeBinding::Entry(*binding));
@@ -329,7 +410,9 @@ fn attach_dependencies(
         .types
         .iter()
         .filter_map(|(_, ty)| match &ty.kind {
-            TypeKind::Named(name) | TypeKind::Generic { name, .. } => Some(name.as_str()),
+            TypeKind::Named(name)
+            | TypeKind::Generic { name, .. }
+            | TypeKind::Definition { name, .. } => Some(name.as_str()),
             _ => None,
         })
         .collect();

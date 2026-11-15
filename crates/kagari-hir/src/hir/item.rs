@@ -5,12 +5,12 @@ use crate::hir::{
     body::Body,
     expr::ExprData,
     ids::{
-        BlockId, BodyOwner, ConstId, EnumId, ExprId, FieldId, FunctionId, HirOwner, ImplId,
-        ModuleId, OpaqueTypeId, ParamId, PatternId, PlaceId, StaticId, StmtId, StructId, TraitId,
-        TypeAliasId, TypeRefId, VariantId,
+        BlockId, BodyOwner, ConstId, EnumId, ExprId, FieldId, FieldOwner, FunctionId, HirOwner,
+        ImplId, ModuleId, NativeTypeId, ParamId, PatternId, PlaceId, StaticId, StmtId, StructId,
+        TraitId, TypeAliasId, TypeRefId, VariantId,
     },
     item::{
-        adt::{Enum, Field, OpaqueType, Struct, Variant},
+        adt::{Enum, Field, NativeTypeDeclaration, Struct, Variant},
         alias::TypeAlias,
         behavior::{Impl, TraitDef},
         function::{Function, FunctionKind, Param},
@@ -41,17 +41,17 @@ pub mod storage;
 ///     items: [Const(c), Struct(s), Function(f)],
 ///     functions: [main_function], consts: [limit_constant], structs: [point_struct],
 ///     imports: [Import { segments: ["pkg", "math", "sum"], kind: Named { alias: None }, ... }],
-///     modules: [], opaque_types: [], enums: [], traits: [], impls: [],
+///     modules: [], native_types: [], enums: [], traits: [], impls: [],
 ///     body: Body { types, exprs, blocks, ... },
 /// }
 /// f -> functions[f.index()]; s -> structs[s.index()]; c -> constant(c)
-/// main_function.body -> BlockId -> body.block -> statements/tail ExprId
+/// main_function.implementation -> Script(BlockId) -> body.block -> statements/tail ExprId
 /// ```
 ///
 /// Rows/indices above are illustrative and abbreviated where marked. `items`
 /// contains top-level declaration handles in source order, excluding use leaves.
 /// Each separate collection stores payloads of one declaration kind: enum/trait/
-/// impl/type/module syntax populates enums/traits/impls/opaque_types/modules.
+/// impl/native type/module syntax populates enums/traits/impls/native_types/modules.
 /// Trait/impl methods also allocate function rows and associated constant defaults
 /// allocate constant rows, but do not add top-level Item entries for those members.
 ///
@@ -82,8 +82,8 @@ pub struct Module {
     pub imports: Vec<Import>,
     /// Struct declarations indexed by `StructId`.
     pub structs: Vec<Struct>,
-    /// Native-backed type declarations indexed by `OpaqueTypeId`.
-    pub opaque_types: Vec<OpaqueType>,
+    /// Native-backed type declarations indexed by `NativeTypeId`.
+    pub native_types: Vec<NativeTypeDeclaration>,
     /// Transparent script type declarations indexed by `TypeAliasId`.
     pub type_aliases: Vec<TypeAlias>,
     /// Enum declarations indexed by `EnumId`; variants are nested within them.
@@ -154,14 +154,28 @@ impl Module {
         &self.enums[id.owner().index()].variants[id.slot()]
     }
 
-    /// Borrows `structs[id.owner().index()].fields[id.slot()]`.
+    /// Borrows a field from its owning struct or Native declaration.
     ///
     /// # Panics
     ///
     /// Panics for a foreign arena or out-of-range owner/slot.
     pub fn field(&self, id: FieldId) -> &Field {
         assert_eq!(id.arena(), self.body.arena(), "foreign HIR field");
-        &self.structs[id.owner().index()].fields[id.slot()]
+        let fields = match id.owner() {
+            FieldOwner::Struct(owner) => {
+                let declaration = &self.structs[owner.index()];
+                assert_eq!(declaration.id, owner, "struct declaration slot mismatch");
+                &declaration.fields
+            }
+            FieldOwner::NativeType(owner) => {
+                let declaration = &self.native_types[owner.index()];
+                assert_eq!(declaration.id, owner, "native declaration slot mismatch");
+                &declaration.fields
+            }
+        };
+        let field = &fields[id.slot()];
+        assert_eq!(field.id, id, "field slot mismatch");
+        field
     }
 
     /// Borrows node data through [`Body::block`], including its arena/owner checks.
@@ -199,7 +213,7 @@ impl Module {
 ///
 /// | Source declaration | Item | Payload lookup |
 /// | --- | --- | --- |
-/// | `type Handle;` (installed native surface) | `OpaqueType(o)` | `opaque_types[o.index()]` |
+/// | `native type Handle;` (Native interface) | `NativeType(o)` | `native_types[o.index()]` |
 /// | `fn run() {}` | `Function(f)` | `functions[f.index()]` |
 /// | `const N: i32 = 1;` | `Const(c)` | `constant(c)` |
 /// | `mod child;` / `mod child { ... }` | `Module(m)` | `modules[m.index()]`, header only |
@@ -217,8 +231,8 @@ impl Module {
 pub enum Item {
     /// An entry in [`Module::type_aliases`], with no nominal/runtime identity.
     TypeAlias(TypeAliasId),
-    /// An entry in [`Module::opaque_types`], indexed by the enclosed ID.
-    OpaqueType(OpaqueTypeId),
+    /// An entry in [`Module::native_types`], indexed by the enclosed ID.
+    NativeType(NativeTypeId),
     /// An entry in [`Module::functions`], indexed by the enclosed ID.
     Function(FunctionId),
     /// An entry in [`Module::consts`], indexed by the enclosed ID.

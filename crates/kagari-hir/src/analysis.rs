@@ -1,5 +1,6 @@
 //! Protocol-independent immutable source analysis. Queries never execute code.
 
+pub mod external;
 mod input_fingerprint;
 pub mod inputs;
 pub(crate) mod records;
@@ -92,8 +93,8 @@ impl FileAnalysis {
         &self.result.records().facts().signatures
     }
 
-    /// Returns a typed AST view of the retained parse tree.
-    pub fn syntax(&self) -> ModuleSyntax {
+    /// Returns the retained source AST, or `None` for a structured declaration input.
+    pub fn syntax(&self) -> Option<ModuleSyntax> {
         self.parsed.syntax()
     }
 
@@ -119,7 +120,7 @@ impl FileAnalysis {
 /// Choose the required depth explicitly:
 ///
 /// ```text
-/// SourceSnapshot + host/native registrations
+/// SourceSnapshot + host/native registrations + explicit offline library sources
 ///   declarations() -> DeclarationSnapshot: parse, lower, imports, declaration names
 ///   signatures()   -> SignatureSnapshot: declarations + checked signatures
 ///   body(owner)    -> FunctionAnalysis: signatures + selected body/constant prerequisites
@@ -168,6 +169,7 @@ pub struct AnalysisDatabase {
     inline_ids: HashMap<(FileId, String), FileId>,
     native_modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
     native_sources: Option<Vec<DeclarationSource>>,
+    external_modules: Vec<external::ExternalModule>,
     /// Owned prepared registrations/syntax with weak handles to live graphs.
     /// Invalidated by registration/source/parser-limit changes, not user revisions.
     native_files: OnceCell<NativeFiles>,
@@ -208,6 +210,7 @@ impl AnalysisDatabase {
             inline_ids: HashMap::new(),
             native_modules: vec![],
             native_sources: None,
+            external_modules: vec![],
             native_files: OnceCell::new(),
             environment_fingerprint: OnceCell::new(),
         })
@@ -231,6 +234,7 @@ impl AnalysisDatabase {
 
     /// Supply presentation origins in the same order as the explicit providers.
     /// Every source is parsed and checked against its authoritative registration.
+    /// Independent offline exports use [`Self::set_external_modules`] instead.
     pub fn set_native_sources(
         &mut self,
         modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,

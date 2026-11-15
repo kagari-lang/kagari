@@ -7,10 +7,10 @@ use crate::{
     hir::{
         ids::{BodyOwner, HirOwner, ImplId, TraitId, TypeRefId},
         item::{Module, behavior::GenericParam},
-        ty::TypeKind,
+        ty::{DefinitionExposure, TypeKind},
     },
     imports::types::aliases::CanonicalAlias,
-    native::NativeTypeKind,
+    language::types::TypeConstructor,
     resolver::resolved::ResolvedName,
     typeck::{
         aliases::ExpansionBudget,
@@ -22,7 +22,10 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, table::DefinitionTable},
+    identity::{
+        DefinitionKind,
+        table::{DefinitionId, DefinitionTable},
+    },
 };
 use kagari_types::{declaration::names::NameNamespace, language::Protocol, scalar::BuiltinType};
 use std::iter;
@@ -53,14 +56,31 @@ fn alias_target<'a>(
 pub(super) fn native_type(
     target: Option<ResolvedTypeTarget>,
     declarations: &Declarations,
-) -> Option<NativeTypeKind> {
+) -> Option<TypeConstructor> {
     match target? {
-        ResolvedTypeTarget::OpaqueType(id) => declarations.native_type(id),
-        ResolvedTypeTarget::Source(id) => declarations
-            .imported_types()
-            .by_declaration(&id)?
-            .native_type
-            .clone(),
+        ResolvedTypeTarget::NativeType(id) => {
+            if let Some(kind) = declarations.native_type(id) {
+                return Some(TypeConstructor::registered(&kind));
+            }
+            let declaration = *declarations.definition(ResolvedName::NativeType(id))?;
+            Some(TypeConstructor::Native {
+                declaration,
+                arity: declarations.parameters_of(&declaration).len(),
+            })
+        }
+        ResolvedTypeTarget::Source(id) => {
+            let imported = declarations.imported_types().by_declaration(&id)?;
+            if let Some(kind) = &imported.native_type {
+                return Some(TypeConstructor::registered(kind));
+            }
+            let TypeId::NativeObject(nominal) = &imported.ty else {
+                return None;
+            };
+            Some(TypeConstructor::Native {
+                declaration: nominal.declaration,
+                arity: nominal.arguments.len(),
+            })
+        }
         _ => None,
     }
 }
@@ -103,80 +123,120 @@ fn resolve_named_reference(
                 .declarations
                 .resolve_name(name, NameNamespace::Type)
                 .and_then(|resolved| {
-                    if let Some(imported) = context
-                        .declarations
-                        .imported_types()
-                        .resolved(resolved.clone())
-                    {
-                        target = Some(ResolvedTypeTarget::Source(match &imported.declaration.id {
-                            DeclarationId::Definition(id) => *id,
-                            _ => return None,
-                        }));
-                        if !materialize_alias
-                            && alias_target(target.as_ref(), context.declarations).is_some()
-                        {
-                            return Some(TypeId::Error);
-                        }
-                        return Some(imported.ty.clone());
-                    }
-                    let definition = *context.declarations.definition(resolved.clone())?;
-                    if let ResolvedName::TypeAlias(_) = resolved {
-                        target = Some(ResolvedTypeTarget::Source(definition));
-                        if !materialize_alias {
-                            return Some(TypeId::Error);
-                        }
-                        return Some(
-                            context
-                                .declarations
-                                .imported_types()
-                                .alias(&definition)?
-                                .target
-                                .clone(),
-                        );
-                    }
-                    let arguments = context
-                        .declarations
-                        .parameters_of(&definition)
-                        .into_iter()
-                        .map(TypeId::Generic)
-                        .collect::<Vec<_>>();
-                    Some(match resolved {
-                        ResolvedName::OpaqueType(id) => {
-                            target = Some(ResolvedTypeTarget::OpaqueType(id));
-                            return context.declarations.native_type(id)?.apply(&arguments);
-                        }
-                        ResolvedName::Struct(id) => {
-                            target = Some(ResolvedTypeTarget::Struct(id));
-                            TypeId::Struct(NominalType {
-                                associated_types: Default::default(),
-                                declaration: definition,
-                                arguments,
-                            })
-                        }
-                        ResolvedName::Enum(id) => {
-                            target = Some(ResolvedTypeTarget::Enum(id));
-                            TypeId::Enum(NominalType {
-                                associated_types: Default::default(),
-                                declaration: definition,
-                                arguments,
-                            })
-                        }
-                        ResolvedName::Trait(id) => {
-                            target = Some(ResolvedTypeTarget::Trait(id));
-                            TypeId::Trait(NominalType {
-                                associated_types: Default::default(),
-                                declaration: definition,
-                                arguments,
-                            })
-                        }
-                        _ => return None,
-                    })
+                    resolve_declaration_reference(resolved, context, materialize_alias, &mut target)
                 })
         }
     })();
     ResolvedTypeRef {
         ty: ty.unwrap_or(TypeId::Error),
         target,
+        exposure: None,
+    }
+}
+
+fn resolve_declaration_reference(
+    resolved: ResolvedName,
+    context: TypeContext<'_>,
+    materialize_alias: bool,
+    target: &mut Option<ResolvedTypeTarget>,
+) -> Option<TypeId> {
+    if let Some(imported) = context
+        .declarations
+        .imported_types()
+        .resolved(resolved.clone())
+    {
+        *target = Some(ResolvedTypeTarget::Source(match &imported.declaration.id {
+            DeclarationId::Definition(id) => *id,
+            _ => return None,
+        }));
+        if !materialize_alias && alias_target(target.as_ref(), context.declarations).is_some() {
+            return Some(TypeId::Error);
+        }
+        return Some(imported.ty.clone());
+    }
+    let definition = *context.declarations.definition(resolved.clone())?;
+    if let ResolvedName::TypeAlias(_) = resolved {
+        *target = Some(ResolvedTypeTarget::Source(definition));
+        if !materialize_alias {
+            return Some(TypeId::Error);
+        }
+        return Some(
+            context
+                .declarations
+                .imported_types()
+                .alias(&definition)?
+                .target
+                .clone(),
+        );
+    }
+    let arguments = context
+        .declarations
+        .parameters_of(&definition)
+        .into_iter()
+        .map(TypeId::Generic)
+        .collect::<Vec<_>>();
+    Some(match resolved {
+        ResolvedName::NativeType(id) => {
+            *target = Some(ResolvedTypeTarget::NativeType(id));
+            return native_type(target.clone(), context.declarations)?.apply(&arguments);
+        }
+        ResolvedName::Struct(id) => {
+            *target = Some(ResolvedTypeTarget::Struct(id));
+            TypeId::Struct(NominalType {
+                associated_types: Default::default(),
+                declaration: definition,
+                arguments,
+            })
+        }
+        ResolvedName::Enum(id) => {
+            *target = Some(ResolvedTypeTarget::Enum(id));
+            TypeId::Enum(NominalType {
+                associated_types: Default::default(),
+                declaration: definition,
+                arguments,
+            })
+        }
+        ResolvedName::Trait(id) => {
+            *target = Some(ResolvedTypeTarget::Trait(id));
+            TypeId::Trait(NominalType {
+                associated_types: Default::default(),
+                declaration: definition,
+                arguments,
+            })
+        }
+        _ => return None,
+    })
+}
+
+fn resolve_reference(
+    name: &str,
+    exact: Option<(DefinitionId, Option<&DefinitionExposure>)>,
+    context: TypeContext<'_>,
+    cancel: &CancellationToken,
+) -> ResolvedTypeRef {
+    let Some((exact, exposure)) = exact else {
+        return resolve_named_reference(name, context, false);
+    };
+    let selected = context
+        .declarations
+        .resolve_definition_exposure(exact, NameNamespace::Type, exposure, cancel)
+        .ok()
+        .flatten();
+    let mut selected_exposure = None;
+    let mut target = None;
+    let ty = selected.and_then(|selection| {
+        let resolved = selection
+            .hit
+            .target
+            .resolved(context.declarations.names.unit.as_ref());
+        let ty = resolve_declaration_reference(resolved, context, false, &mut target)?;
+        selected_exposure = Some(selection.exposure);
+        Some(ty)
+    });
+    ResolvedTypeRef {
+        ty: ty.unwrap_or(TypeId::Error),
+        target,
+        exposure: selected_exposure,
     }
 }
 
@@ -239,6 +299,7 @@ fn resolve_type_bounded(
             ResolvedTypeRef {
                 ty: inferred.clone(),
                 target: None,
+                exposure: None,
             },
         );
         return inferred;
@@ -277,18 +338,52 @@ fn resolve_type_bounded(
         context
     };
     let mut target = None;
-    let resolved = match &module.type_ref(ty).kind {
-        TypeKind::Named(name) if name == "Self" && context.implementation.is_some() => module
-            .impls
-            .iter()
-            .find(|item| Some(item.id) == context.implementation)
-            .and_then(|item| item.for_type)
-            .map(|receiver| resolve_type_argument(module, receiver, context, table, cancel, budget))
-            .unwrap_or(TypeId::Error),
+    let mut selected_exposure = None;
+    let authored = &module.type_ref(ty).kind;
+    let (normalized, exact) = if let TypeKind::Definition {
+        declaration,
+        name,
+        exposure,
+        args,
+        bindings,
+    } = authored
+    {
+        let kind = if args.is_empty() && bindings.is_empty() {
+            TypeKind::Named(name.clone())
+        } else {
+            TypeKind::Generic {
+                name: name.clone(),
+                args: args.clone(),
+                bindings: bindings.clone(),
+                positional_after_binding: false,
+                callable_syntax: false,
+            }
+        };
+        (Some(kind), Some((*declaration, exposure.as_ref())))
+    } else {
+        (None, None)
+    };
+    let resolved = match normalized.as_ref().unwrap_or(authored) {
+        TypeKind::Definition { .. } => unreachable!("normalized structured application"),
+        TypeKind::Named(name)
+            if exact.is_none() && name == "Self" && context.implementation.is_some() =>
+        {
+            module
+                .impls
+                .iter()
+                .find(|item| Some(item.id) == context.implementation)
+                .and_then(|item| item.for_type)
+                .map(|receiver| {
+                    resolve_type_argument(module, receiver, context, table, cancel, budget)
+                })
+                .unwrap_or(TypeId::Error)
+        }
         TypeKind::Named(name) => {
-            let reference = resolve_named_reference(name, context, false);
+            let reference = resolve_reference(name, exact, context, cancel);
             target = reference.target;
-            if reference.ty == TypeId::Error
+            selected_exposure = reference.exposure;
+            if exact.is_none()
+                && reference.ty == TypeId::Error
                 && name.contains("::")
                 && alias_target(target.as_ref(), context.declarations).is_none()
             {
@@ -333,8 +428,9 @@ fn resolve_type_bounded(
             positional_after_binding,
             callable_syntax,
         } => {
-            let reference = resolve_named_reference(name, context, false);
+            let reference = resolve_reference(name, exact, context, cancel);
             target = reference.target;
+            selected_exposure = reference.exposure;
             // Visit every argument even if an earlier one cannot resolve.
             let args = args
                 .iter()
@@ -349,7 +445,8 @@ fn resolve_type_bounded(
                     )
                 })
                 .collect::<Vec<_>>();
-            if reference.ty.is_unresolved()
+            if exact.is_none()
+                && reference.ty.is_unresolved()
                 && name.contains("::")
                 && bindings.is_empty()
                 && alias_target(target.as_ref(), context.declarations).is_none()
@@ -520,6 +617,7 @@ fn resolve_type_bounded(
         ResolvedTypeRef {
             ty: resolved.clone(),
             target,
+            exposure: selected_exposure,
         },
     );
     resolved
@@ -577,6 +675,27 @@ fn resolve_composite_members(
 
 pub(super) fn display_type(module: &Module, ty: TypeRefId) -> String {
     match &module.type_ref(ty).kind {
+        TypeKind::Definition {
+            name,
+            args,
+            bindings,
+            ..
+        } => {
+            let mut arguments = args
+                .iter()
+                .map(|arg| display_type(module, *arg))
+                .collect::<Vec<_>>();
+            arguments.extend(
+                bindings
+                    .iter()
+                    .map(|(name, ty)| format!("{name} = {}", display_type(module, *ty))),
+            );
+            if arguments.is_empty() {
+                name.clone()
+            } else {
+                format!("{name}<{}>", arguments.join(", "))
+            }
+        }
         TypeKind::Named(name) => name.clone(),
         TypeKind::Generic {
             name,

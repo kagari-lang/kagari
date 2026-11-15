@@ -36,7 +36,7 @@ fn named_declarations_point_to_identifier_tokens() {
             .iter()
             .find(|declaration| declaration.name == name)
             .unwrap();
-        let range = declaration.location.range;
+        let range = declaration.source_location().unwrap().range;
         assert_eq!(&text[range.start..range.end], name);
         assert_eq!(range.start, text.find(source).unwrap() + name_offset);
         assert_eq!(file.queries().definition_at(range.start), Some(declaration));
@@ -107,10 +107,14 @@ fn scope_queries_and_navigation_share_resolver_shadowing_and_match_bindings() {
     let initializer = text.find("n + 1").unwrap();
     let outer = analysis.queries().definition_at(initializer).unwrap();
     assert_eq!(
-        &text[outer.location.range.start..outer.location.range.end],
+        &text[outer.source_location().unwrap().range.start
+            ..outer.source_location().unwrap().range.end],
         "n"
     );
-    assert_eq!(outer.location.range.start, text.find("var n").unwrap() + 4);
+    assert_eq!(
+        outer.source_location().unwrap().range.start,
+        text.find("var n").unwrap() + 4
+    );
     let visible = analysis.queries().visible_bindings(initializer);
     assert_eq!(
         visible
@@ -123,7 +127,8 @@ fn scope_queries_and_navigation_share_resolver_shadowing_and_match_bindings() {
     let bound = text.find("bound + n").unwrap();
     let pattern = analysis.queries().definition_at(bound).unwrap();
     assert_eq!(
-        &text[pattern.location.range.start..pattern.location.range.end],
+        &text[pattern.source_location().unwrap().range.start
+            ..pattern.source_location().unwrap().range.end],
         "bound"
     );
     let visible = analysis.queries().visible_bindings(bound);
@@ -152,8 +157,11 @@ fn scope_queries_and_navigation_share_resolver_shadowing_and_match_bindings() {
         ["n", "value"]
     );
     assert_eq!(analysis.queries().definition_at(sibling).unwrap(), inner);
-    assert_eq!(pattern.location.file, file);
-    assert_eq!(pattern.location.revision, analysis.source().revision());
+    assert_eq!(pattern.source_location().unwrap().file, file);
+    assert_eq!(
+        pattern.source_location().unwrap().revision,
+        analysis.source().revision()
+    );
 }
 
 #[test]
@@ -230,7 +238,7 @@ fn structural_scopes_preserve_binder_regions_and_noncapturing_shadow_blockers() 
         let site = text.find(&format!("val {name} =")).unwrap() + 4;
         let declaration = file.queries().definition_at(site).unwrap();
         assert_eq!(declaration.name, name);
-        assert_eq!(declaration.location.range.start, site);
+        assert_eq!(declaration.source_location().unwrap().range.start, site);
     }
 }
 
@@ -264,11 +272,12 @@ fn assignment_navigation_resolves_the_retained_target_and_broken_neighbors_survi
         .definition_at(text.rfind("value;").unwrap())
         .unwrap();
     assert_eq!(
-        &text[value.location.range.start..value.location.range.end],
+        &text[value.source_location().unwrap().range.start
+            ..value.source_location().unwrap().range.end],
         "value"
     );
     assert_eq!(
-        value.location.range.start,
+        value.source_location().unwrap().range.start,
         text.find("good(value").unwrap() + 5
     );
 }
@@ -358,7 +367,10 @@ fn trait_call_navigation_consumes_checked_method_target_even_with_bad_arguments(
         .definition_at(text.find("show(true)").unwrap())
         .unwrap();
     assert_eq!(method.name, "show");
-    assert_eq!(method.location.range.start, text.find("show(self").unwrap());
+    assert_eq!(
+        method.source_location().unwrap().range.start,
+        text.find("show(self").unwrap()
+    );
     let receiver = analysis
         .queries()
         .definition_at(text.find("value.show").unwrap())
@@ -397,15 +409,16 @@ fn field_navigation_distinguishes_owners_and_retains_rejected_write_targets() {
     assert_ne!(readonly.id, writable.id);
     assert_eq!(writable, read);
     assert_eq!(
-        readonly.location.range.start,
+        readonly.source_location().unwrap().range.start,
         text.find("val x").unwrap() + 4
     );
     assert_eq!(
-        writable.location.range.start,
+        writable.source_location().unwrap().range.start,
         text.find("var x").unwrap() + 4
     );
     assert_eq!(
-        &text[writable.location.range.start..writable.location.range.end],
+        &text[writable.source_location().unwrap().range.start
+            ..writable.source_location().unwrap().range.end],
         "x"
     );
     let DeclarationId::Definition(id) = &writable.id else {
@@ -482,9 +495,12 @@ fn named_field_identity_survives_slot_reordering_and_remains_module_owned() {
         .unwrap();
     let second = snapshot(&mut db, &sources);
     let current = second.declaration(&x.id).unwrap();
-    assert_ne!(current.location, x.location);
+    assert_ne!(
+        current.source_location().unwrap(),
+        x.source_location().unwrap()
+    );
     assert_eq!(
-        current.location.range.start,
+        current.source_location().unwrap().range.start,
         second_text.find("val x").unwrap() + 4
     );
     assert_eq!(
@@ -567,7 +583,7 @@ fn generic_parameter_identity_is_owner_and_position_based() {
         .unwrap();
     assert_ne!(parameter.id, other.id);
     assert_eq!(
-        parameter.location.range.start,
+        parameter.source_location().unwrap().range.start,
         text.find("<T>").unwrap() + 1
     );
     assert_eq!(
@@ -647,7 +663,10 @@ fn bound_navigation_retains_valid_references_beside_unknown_constraints() {
         .unwrap();
     assert_eq!(inline.id, constraint.id);
     assert_eq!(inline.name, "Show");
-    assert_eq!(predicate.location.range.start, text.find("<T").unwrap() + 1);
+    assert_eq!(
+        predicate.source_location().unwrap().range.start,
+        text.find("<T").unwrap() + 1
+    );
     assert_eq!(
         analysis
             .queries()
@@ -882,11 +901,11 @@ fn implicit_receiver_keeps_impl_type_context_when_method_shadows_a_generic() {
         .unwrap();
     assert_ne!(target.id, argument.id);
     assert_eq!(
-        target.location.range.start,
+        target.source_location().unwrap().range.start,
         text.find("impl<T").unwrap() + 5
     );
     assert_eq!(
-        argument.location.range.start,
+        argument.source_location().unwrap().range.start,
         text.find("apply<T").unwrap() + 6
     );
 }

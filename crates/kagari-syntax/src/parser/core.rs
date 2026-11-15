@@ -24,7 +24,7 @@ use crate::{
     },
     kind::SyntaxKind,
     lexical::Lexical,
-    parser::{ParseLimits, ParseMode, ParsedFile},
+    parser::{ParseLimits, ParsedFile},
     token::TokenKind,
 };
 
@@ -77,7 +77,7 @@ pub(crate) struct Parser<'a> {
     stopped: Option<usize>,
     pub(crate) completed_depth: usize,
     pub(crate) cancel: CancellationToken,
-    pub(crate) mode: ParseMode,
+
     pub(crate) allow_struct_literals: bool,
 }
 
@@ -87,7 +87,6 @@ impl<'a> Parser<'a> {
         lexical: Lexical,
         limits: ParseLimits,
         cancel: CancellationToken,
-        mode: ParseMode,
     ) -> Self {
         Self {
             source,
@@ -102,7 +101,7 @@ impl<'a> Parser<'a> {
             stopped: None,
             completed_depth: 0,
             cancel,
-            mode,
+
             allow_struct_literals: true,
         }
     }
@@ -111,7 +110,7 @@ impl<'a> Parser<'a> {
         assert!(self.frames.is_empty(), "closed grammar recovery scopes");
         ParsedFile {
             source: self.source.clone(),
-            mode: self.mode,
+
             lexical: self.lexical,
             modules: self
                 .modules

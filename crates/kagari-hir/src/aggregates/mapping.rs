@@ -158,7 +158,12 @@ impl RemapDefinitions for NativeTypeSignature {
                 }),
             )?,
             declaration: self.declaration.remap_definitions(mapper)?,
-            representation: self.representation.remap_definitions(mapper)?,
+            representation: self
+                .representation
+                .as_ref()
+                .map(|value| value.remap_definitions(mapper))
+                .transpose()?,
+            fields: map_sequence(&self.fields, |value| value.remap_definitions(mapper))?,
         })
     }
 }
@@ -181,7 +186,12 @@ impl DefinitionReferences for NativeTypeSignature {
             }
         }
         self.declaration.visit_definition_ids(visit, cancel)?;
-        self.representation.visit_definition_ids(visit, cancel)?;
+        if let Some(representation) = &self.representation {
+            representation.visit_definition_ids(visit, cancel)?;
+        }
+        for field in &self.fields {
+            field.visit_definition_ids(visit, cancel)?;
+        }
         Ok(())
     }
 }

@@ -5,7 +5,7 @@ use crate::ast::views::ItemView;
 use crate::{
     ast::borrow::AstNode,
     kind::SyntaxKind,
-    parser::{ParseMode, ParseOptions, parse},
+    parser::{ParseOptions, parse},
 };
 
 use kagari_source::source::SourceFile;
@@ -88,17 +88,9 @@ fn invalid_attribute_forms_are_rejected_and_following_functions_survive() {
     for prefix in ["@intrinsic(ArrayLen)", "#![intrinsic(ArrayLen)]"] {
         let source = SourceFile::new(
             "invalid-sdk.kgr",
-            format!("{prefix}\npub fn len<T>(value: [T]) -> u64;"),
+            format!("{prefix}\npub native fn len<T>(value: [T]) -> u64;"),
         );
-        let parsed = parse(
-            &source,
-            ParseOptions {
-                mode: ParseMode::Declarations,
-                limits: Default::default(),
-            },
-            &Default::default(),
-        )
-        .unwrap();
+        let parsed = parse(&source, ParseOptions::default(), &Default::default()).unwrap();
         assert!(!parsed.diagnostics().is_empty(), "{prefix}");
     }
 }

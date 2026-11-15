@@ -149,14 +149,18 @@ fn alias_target_swap_invalidates_body_reuse_after_trivia_edit() {
         .queries()
         .definition_at(root, new_offset)
         .unwrap();
-    assert_eq!(old_type.location, new_type.location);
     assert_eq!(
-        new_type.location,
+        old_type.source_location().unwrap(),
+        new_type.source_location().unwrap()
+    );
+    assert_eq!(
+        new_type.source_location().unwrap(),
         fresh
             .queries()
             .definition_at(root, new_offset)
             .unwrap()
-            .location
+            .source_location()
+            .unwrap()
     );
     assert_eq!(
         result.diagnostics(),

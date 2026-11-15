@@ -10,7 +10,7 @@ use crate::{
         ids::{BodyOwner, BodySelection, HirOwner},
         item::{
             Module,
-            function::{Function, FunctionKind},
+            function::{Function, FunctionImplementation as HirImplementation, FunctionKind},
         },
         writeability::Writeability,
     },
@@ -127,9 +127,9 @@ pub(crate) fn check_signatures(
         .chain(
             lowered
                 .module
-                .opaque_types
+                .native_types
                 .iter()
-                .map(|item| (ResolvedName::OpaqueType(item.id), &item.generic_params)),
+                .map(|item| (ResolvedName::NativeType(item.id), &item.generic_params)),
         )
     {
         cancel.check()?;
@@ -140,14 +140,26 @@ pub(crate) fn check_signatures(
         );
     }
 
-    for structure in &lowered.module.structs {
+    for (name, generic_params, fields) in lowered
+        .module
+        .structs
+        .iter()
+        .map(|item| (&item.name, &item.generic_params, &item.fields))
+        .chain(
+            lowered
+                .module
+                .native_types
+                .iter()
+                .map(|item| (&item.name, &item.generic_params, &item.fields)),
+        )
+    {
         let mut field_names = HashSet::new();
-        for field in &structure.fields {
+        for field in fields {
             cancel.check()?;
             if !field_names.insert(&field.name) {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::DuplicateField {
-                        struct_name: structure.name.clone(),
+                        struct_name: name.clone(),
                         name: field.name.clone(),
                     })
                     .with_span(lowered.source_map.field_span(field.id)),
@@ -158,7 +170,7 @@ pub(crate) fn check_signatures(
                 field.ty,
                 TypeContext {
                     declarations,
-                    generics: &structure.generic_params,
+                    generics: generic_params,
                     self_type: None,
                     implementation: None,
                 },
@@ -181,7 +193,7 @@ pub(crate) fn check_signatures(
             if ty.contains_stored_reference() {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidReference {
-                        reason: "a scoped view cannot be stored in a struct field",
+                        reason: "a scoped view cannot be stored in a field",
                     })
                     .with_span(lowered.source_map.type_span(field.ty)),
                 );
@@ -269,10 +281,28 @@ pub(crate) fn check_signatures(
 
     for function in &lowered.module.functions {
         cancel.check()?;
-        let implementation = match lowered.native_functions.get(&function.id) {
-            Some(binding) => FunctionImplementation::Native(binding.clone()),
-            None if function.body.is_some() => FunctionImplementation::Script,
-            None => FunctionImplementation::Required,
+        let implementation = match (
+            &function.implementation,
+            lowered.native_functions.get(&function.id),
+        ) {
+            (HirImplementation::Native(_), Some(binding @ NativeBinding::Entry(_)))
+            | (HirImplementation::Script(_), Some(binding @ NativeBinding::Default(_))) => {
+                FunctionImplementation::Native(binding.clone())
+            }
+            (HirImplementation::Native(_), None) if !lowered.registered_native_api => {
+                FunctionImplementation::NativeDeclaration
+            }
+            (HirImplementation::Script(_), None) => FunctionImplementation::Script,
+            (HirImplementation::Required, None) => FunctionImplementation::Required,
+            _ => {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::UnsupportedSyntax {
+                        feature: "function implementation and installed native binding disagree",
+                    })
+                    .with_span(lowered.source_map.function_span(function.id)),
+                );
+                FunctionImplementation::Required
+            }
         };
         let mut params: TypedParameterBuffer = SmallVec::new();
         let context = function_type_context(&lowered.module, function, declarations);
@@ -715,7 +745,7 @@ pub(crate) fn check_bodies_controlled(
             .any(|diagnostic| diagnostic.severity == Severity::Error);
         for function in &lowered.module.functions {
             cancel.check()?;
-            let Some(body) = function.body else {
+            let Some(body) = function.implementation.script_body() else {
                 continue;
             };
             if matches!(function.kind, FunctionKind::TraitMethod)

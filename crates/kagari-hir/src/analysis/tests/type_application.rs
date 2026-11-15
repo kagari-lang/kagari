@@ -180,7 +180,7 @@ fn type_bindings_shadow_standard_constructors_independently_of_value_bindings() 
         assert_eq!(
             file.definition_at(application)
                 .unwrap()
-                .location
+                .source_location().unwrap()
                 .range
                 .start,
             "fn bad<".len()

@@ -71,7 +71,7 @@ pub(super) fn validate_trait_surface(
         // just as Iterator's registered Iterable adapter does. This does not
         // extend source impl targets or allow bare generic receiver blankets.
         if matches!(for_ty, TypeId::Generic(_))
-            || matches!(for_ty, TypeId::Trait(_)) && !lowered.registered_native_api
+            || matches!(for_ty, TypeId::Trait(_)) && !lowered.is_library_api()
         {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
@@ -106,7 +106,7 @@ pub(super) fn validate_trait_surface(
         let standard = Protocol::from_definition(&id.declaration, declarations.definitions());
         if standard.is_some_and(|kind| {
             !kind.host_implementable() && matches!(for_ty, TypeId::Host(_))
-                || !lowered.registered_native_api
+                || !lowered.is_library_api()
                     && kind != Protocol::From
                     && !matches!(
                         for_ty,

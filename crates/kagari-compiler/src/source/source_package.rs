@@ -28,12 +28,17 @@ mod correspondence;
 /// Includes unused/private/generic/named-local declarations. Generated bodies reuse
 /// compiler-produced authored-owner edges, including foreign default placements.
 /// Exact anchors captured before executable verification must match: equivalent
-/// tokens alone cannot establish definition extents. No HIR is retained.
+/// tokens alone cannot establish definition extents. A source-less registration
+/// cannot satisfy this complete-source contract. No HIR is retained.
 pub fn build_source_package(
     checked: &CheckedCompilation<'_>,
     bytecode: &VerifiedBytecodeProgram,
     cancel: &CancellationToken,
 ) -> Result<VerifiedSourcePackage, SourcePackageError> {
+    check_cancel(cancel)?;
+    if bytecode.program().update_evidence.source_manifest.is_none() {
+        return Err(SourcePackageError::MissingManifest);
+    }
     correspondence::validate(checked, bytecode, cancel)?;
     let (manifest, documents) = capture(checked, true, cancel)?;
     let definitions = manifest.definitions().clone();
@@ -71,12 +76,22 @@ pub fn build_source_package(
     )
 }
 
-/// Capture anchors before optimization/verification, without copying source text.
+/// Capture complete anchors when available, without copying source text.
+///
+/// Executable metadata does not require authored source. Omit the manifest for a
+/// mixed structured/source closure rather than claiming partial anchors are a
+/// complete source package. Debug locations are captured independently.
 pub(crate) fn build_source_manifest(
     checked: &CheckedCompilation<'_>,
     cancel: &CancellationToken,
-) -> Result<SourceManifest, DefinitionMappingError> {
-    Ok(capture(checked, false, cancel)?.0.into_records())
+) -> Result<Option<SourceManifest>, DefinitionMappingError> {
+    for module in checked.modules() {
+        check_cancel(cancel)?;
+        if module.source_surface().is_none() {
+            return Ok(None);
+        }
+    }
+    Ok(Some(capture(checked, false, cancel)?.0.into_records()))
 }
 
 fn capture(

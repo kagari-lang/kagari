@@ -12,6 +12,9 @@ fn replay_syntax_seeds() {
     paths.sort();
     assert!(!paths.is_empty());
     check_input(b"");
+    check_input(include_bytes!(
+        "../../crates/kagari-syntax/tests/fixtures/declarations/mixed.kgr"
+    ));
     for path in paths {
         let bytes = fs::read(&path).unwrap();
         eprintln!("replaying {}", path.display());

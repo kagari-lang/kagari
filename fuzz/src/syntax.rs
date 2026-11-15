@@ -2,7 +2,7 @@ use kagari_common::span::Span;
 use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile};
 use kagari_syntax::{
     ast::visit::{ElementRef, LexicalToken, NodeRef},
-    parser::{ParseLimits, ParseMode, ParseOptions, parse},
+    parser::{ParseLimits, ParseOptions, parse},
     token::TokenKind,
 };
 
@@ -17,25 +17,23 @@ pub(crate) fn check(text: &str) {
         max_tree_depth: usize::from(text.as_bytes().last().copied().unwrap_or(0)) % 17,
     };
     let source = SourceFile::new("fuzz.kgr", text);
-    for mode in [ParseMode::Source, ParseMode::Declarations] {
-        for limits in [
-            ParseLimits::default(),
-            ParseLimits {
-                max_diagnostics: small.max_diagnostics,
-                ..ParseLimits::default()
-            },
-            ParseLimits {
-                max_nesting: small.max_nesting,
-                ..ParseLimits::default()
-            },
-            ParseLimits {
-                max_tree_depth: small.max_tree_depth,
-                ..ParseLimits::default()
-            },
-            small,
-        ] {
-            check_parse(&source, ParseOptions { mode, limits });
-        }
+    for limits in [
+        ParseLimits::default(),
+        ParseLimits {
+            max_diagnostics: small.max_diagnostics,
+            ..ParseLimits::default()
+        },
+        ParseLimits {
+            max_nesting: small.max_nesting,
+            ..ParseLimits::default()
+        },
+        ParseLimits {
+            max_tree_depth: small.max_tree_depth,
+            ..ParseLimits::default()
+        },
+        small,
+    ] {
+        check_parse(&source, ParseOptions { limits });
     }
 }
 
@@ -43,7 +41,6 @@ fn check_parse(source: &SourceFile, options: ParseOptions) {
     let text = source.text();
     let parsed = parse(source, options, &Default::default())
         .expect("an uncancelled parse returns a recoverable snapshot");
-    assert_eq!(parsed.mode(), options.mode);
     let mut offset = 0;
     let mut lexical = String::new();
     let mut expected = Vec::new();

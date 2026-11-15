@@ -6,17 +6,14 @@ use crate::{
     ast::{
         item::{
             AliasTarget, ConstDef, ConstInitializer, EnumDef, FnDef, FunctionBody, InlineModule,
-            Item, ModuleBody, ModuleDef, ModuleForm, ModuleId, OpaqueTypeDef, StaticDef, StructDef,
+            Item, ModuleBody, ModuleDef, ModuleForm, ModuleId, NativeTypeDef, StaticDef, StructDef,
             Supertraits, TypeAlias, UseDecl, UseSuffix, UseTree, UseTreeList,
         },
         misc::{Field, FieldList, TuplePayload, TypeAnnotation, Variant, VariantList},
         site::Required,
         tokens,
     },
-    parser::{
-        ParseMode,
-        core::{Built, Parser},
-    },
+    parser::core::{Built, Parser},
     token::TokenKind,
 };
 
@@ -128,6 +125,7 @@ impl Parser<'_> {
         let mark = self.begin();
         let attributes = self.parse_attributes();
         let visibility = self.parse_visibility();
+        let native_keyword = self.eat(TokenKind::NativeKw);
         let async_keyword = self.eat(TokenKind::AsyncKw);
         let keyword = self.expect(TokenKind::FnKw, DiagnosticKind::ExpectedFunctionKeyword);
         let name = self.parse_name(DiagnosticKind::ExpectedFunctionName);
@@ -135,9 +133,14 @@ impl Parser<'_> {
         let (parameters, _) = self.parse_parameters(false);
         let result = self.parse_return_type();
         let where_clause = self.parse_where_clause();
-        let body = if self.mode == ParseMode::Declarations && self.at(TokenKind::Semi) {
-            FunctionBody::Declaration(Required::Present(self.take()))
+        let body = if native_keyword.is_some() && !self.at(TokenKind::LBrace) {
+            FunctionBody::Declaration(
+                self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator),
+            )
         } else {
+            if native_keyword.is_some() {
+                self.error_here(DiagnosticKind::UnexpectedToken);
+            }
             let body = self.parse_block();
             FunctionBody::Block(body.node.map(Box::new))
         };
@@ -147,6 +150,7 @@ impl Parser<'_> {
                 site,
                 attributes,
                 visibility,
+                native_keyword,
                 async_keyword,
                 keyword,
                 name,
@@ -310,6 +314,20 @@ impl Parser<'_> {
         let keyword = self.expect(TokenKind::StructKw, DiagnosticKind::ExpectedStructKeyword);
         let name = self.parse_name(DiagnosticKind::ExpectedStructName);
         let generics = self.parse_generic_params();
+        let fields = Required::Present(self.parse_fields());
+        let site = self.end(mark);
+        StructDef {
+            site,
+            attributes,
+            visibility,
+            keyword,
+            name,
+            generics,
+            fields,
+        }
+    }
+
+    fn parse_fields(&mut self) -> FieldList {
         let fields_mark = self.begin();
         let open = self.expect(TokenKind::LBrace, DiagnosticKind::ExpectedTraitBodyStart);
         let (fields, _) = self.list(
@@ -321,21 +339,11 @@ impl Parser<'_> {
         );
         let close = self.expect(TokenKind::RBrace, DiagnosticKind::ExpectedBlockEnd);
         let site = self.end(fields_mark);
-        let fields = Required::Present(FieldList {
+        FieldList {
             site,
             open,
             fields,
             close,
-        });
-        let site = self.end(mark);
-        StructDef {
-            site,
-            attributes,
-            visibility,
-            keyword,
-            name,
-            generics,
-            fields,
         }
     }
 
@@ -419,11 +427,12 @@ impl Parser<'_> {
         let mark = self.begin();
         let attributes = self.parse_attributes();
         let visibility = self.parse_visibility();
+        let native_keyword = self.eat(TokenKind::NativeKw);
         let keyword = self.expect(TokenKind::TypeKw, DiagnosticKind::UnexpectedToken);
         let name = self.parse_name(DiagnosticKind::ExpectedFunctionName);
         let generics = self.parse_generic_params();
         let bounds = self.eat(TokenKind::Colon).map(|colon| {
-            if self.mode != ParseMode::Declarations {
+            if native_keyword.is_none() {
                 self.error_here(DiagnosticKind::UnexpectedToken);
             }
             Supertraits {
@@ -432,53 +441,57 @@ impl Parser<'_> {
             }
         });
         let where_clause = self.parse_where_clause();
-        if self.at(TokenKind::Eq) || self.mode != ParseMode::Declarations {
-            if bounds.is_some() && self.mode == ParseMode::Declarations {
-                self.error_here(DiagnosticKind::UnexpectedToken);
+        match native_keyword {
+            None => {
+                let equal = self.expect(TokenKind::Eq, DiagnosticKind::ExpectedAssignmentOperator);
+                let ty = if matches!(equal, Required::Present(_)) {
+                    self.parse_type_ref().node
+                } else {
+                    Required::Missing { at: self.anchor() }
+                };
+                let target = match where_clause {
+                    Some(clause) => AliasTarget::LeadingWhere { clause, equal, ty },
+                    None => AliasTarget::TrailingWhere {
+                        equal,
+                        ty,
+                        clause: self.parse_where_clause(),
+                    },
+                };
+                let terminator =
+                    self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
+                let site = self.end(mark);
+                Item::TypeAlias(Box::new(TypeAlias {
+                    site,
+                    attributes,
+                    visibility,
+                    keyword,
+                    name,
+                    generics,
+                    bounds,
+                    target,
+                    terminator,
+                }))
             }
-            let equal = self.expect(TokenKind::Eq, DiagnosticKind::ExpectedAssignmentOperator);
-            let ty = if matches!(equal, Required::Present(_)) {
-                self.parse_type_ref().node
-            } else {
-                Required::Missing { at: self.anchor() }
-            };
-            let target = match where_clause {
-                Some(clause) => AliasTarget::LeadingWhere { clause, equal, ty },
-                None => AliasTarget::TrailingWhere {
-                    equal,
-                    ty,
-                    clause: self.parse_where_clause(),
-                },
-            };
-            let terminator =
-                self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
-            let site = self.end(mark);
-            Item::TypeAlias(Box::new(TypeAlias {
-                site,
-                attributes,
-                visibility,
-                keyword,
-                name,
-                generics,
-                bounds,
-                target,
-                terminator,
-            }))
-        } else {
-            let terminator =
-                self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
-            let site = self.end(mark);
-            Item::OpaqueTypeDef(Box::new(OpaqueTypeDef {
-                site,
-                attributes,
-                visibility,
-                keyword,
-                name,
-                generics,
-                bounds,
-                where_clause,
-                terminator,
-            }))
+            Some(native_keyword) => {
+                let fields = self.at(TokenKind::LBrace).then(|| self.parse_fields());
+                let terminator = fields.is_none().then(|| {
+                    self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator)
+                });
+                let site = self.end(mark);
+                Item::NativeTypeDef(Box::new(NativeTypeDef {
+                    site,
+                    attributes,
+                    visibility,
+                    keyword,
+                    name,
+                    generics,
+                    bounds,
+                    where_clause,
+                    native_keyword: Required::Present(native_keyword),
+                    fields,
+                    terminator,
+                }))
+            }
         }
     }
 

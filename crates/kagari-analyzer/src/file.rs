@@ -47,6 +47,7 @@ impl<'a> FileQueries<'a> {
     /// retain an identity without a source declaration location; resolve it through
     /// this snapshot's definition table and the owning shared type schema.
     pub fn field_at(&self, offset: usize) -> Option<DefinitionId> {
+        self.analysis.syntax()?;
         let facts = self.analysis.result().facts();
         let sites = SourceSites::build(
             &facts.lowered,
@@ -85,6 +86,7 @@ impl<'a> FileQueries<'a> {
 
     /// Finds an imported source function at a reference, checked call or import directive.
     pub fn source_function_at(&self, offset: usize) -> Option<&'a ImportedFunction> {
+        self.analysis.syntax()?;
         let facts = self.analysis.result().facts();
         let sites = SourceSites::build(
             &facts.lowered,
@@ -155,6 +157,7 @@ impl<'a> FileQueries<'a> {
 
     /// Returns the most specific available checked type at a source byte offset.
     pub fn type_at(&self, offset: usize) -> Option<TypeId> {
+        self.analysis.syntax()?;
         let facts = self.analysis.result().facts();
         let ty = type_at_in(&facts.lowered, facts.typed.type_table(), offset)?;
         Some(ty)
@@ -162,6 +165,7 @@ impl<'a> FileQueries<'a> {
 
     /// Returns the checked receiver type for member access at this byte offset.
     pub fn member_receiver_type(&self, offset: usize) -> Option<TypeId> {
+        self.analysis.syntax()?;
         let facts = self.analysis.result().facts();
         let ty = member_receiver_type_in(&facts.lowered, facts.typed.type_table(), offset)?;
         Some(ty)
@@ -169,6 +173,7 @@ impl<'a> FileQueries<'a> {
 
     /// Finds a declaration site or the declaration selected by a checked source reference.
     pub fn definition_at(&self, offset: usize) -> Option<&'a Declaration> {
+        self.analysis.syntax()?;
         let facts = self.analysis.result().facts();
         if let Some(declaration) =
             DeclarationQueries::new(&facts.lowered, &facts.declarations).site_at(offset)
@@ -180,9 +185,14 @@ impl<'a> FileQueries<'a> {
             .traits()
             .flat_map(|contract| contract.associated_consts.values())
             .find(|member| {
-                member.declaration.location.file == self.analysis.source().id()
-                    && member.declaration.location.range.start <= offset
-                    && offset < member.declaration.location.range.end
+                member
+                    .declaration
+                    .source_location()
+                    .is_some_and(|location| {
+                        location.file == self.analysis.source().id()
+                            && location.range.start <= offset
+                            && offset < location.range.end
+                    })
             })
         {
             return Some(&member.declaration);
@@ -387,6 +397,9 @@ impl<'a> FileQueries<'a> {
 
     /// Collects visible lexical bindings and their checked types at a source byte offset.
     pub fn visible_bindings(&self, offset: usize) -> Vec<VisibleBinding> {
+        if self.analysis.syntax().is_none() {
+            return Vec::new();
+        }
         let facts = self.analysis.result().facts();
         ScopeIndex::new(&facts.lowered, &facts.names)
             .visible_bindings(offset)
@@ -421,7 +434,7 @@ pub(crate) fn type_reference_at<'a>(
 ) -> Option<Option<&'a Declaration>> {
     type_reference_target_at(lowered, sites, table, offset).map(|target| {
         target.and_then(|target| match target {
-            ResolvedTypeTarget::OpaqueType(id) => declarations.target(ResolvedName::OpaqueType(id)),
+            ResolvedTypeTarget::NativeType(id) => declarations.target(ResolvedName::NativeType(id)),
             ResolvedTypeTarget::Source(id) => declarations
                 .get(&DeclarationId::Definition(id))
                 .or_else(|| {

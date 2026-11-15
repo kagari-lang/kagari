@@ -79,7 +79,7 @@ impl ModuleGraph {
                 .entry(unit.module)
                 .or_default()
                 .push(unit.clone());
-            if module.registered_native_api {
+            if module.is_library_api() {
                 let package = &module.source.module_identity().package;
                 base.native_dependencies.insert(
                     unit.module,
@@ -145,7 +145,7 @@ impl ModuleGraph {
                 ));
             }
             if sources.iter().any(|source| {
-                source.registered_native_api && &source.source.module_identity().package == package
+                source.is_library_api() && &source.source.module_identity().package == package
             }) {
                 return Err(ImportSolveError::Packages(
                     "source package collides with installed provider".into(),
@@ -409,15 +409,15 @@ fn add_declarations(
             location(module, module.source_map.enum_span(item.id)),
         );
     }
-    for item in &module.module.opaque_types {
+    for item in &module.module.native_types {
         cancel.check()?;
         add_source(
             &mut names,
             &unit,
             &item.name,
-            SourceItem::OpaqueType(item.id),
+            SourceItem::NativeType(item.id),
             item.visibility,
-            location(module, module.source_map.opaque_type_span(item.id)),
+            location(module, module.source_map.native_type_span(item.id)),
         );
     }
     for item in &module.module.type_aliases {
@@ -495,12 +495,12 @@ fn add_declarations(
             ),
         );
     }
-    for item in &module.module.opaque_types {
+    for item in &module.module.native_types {
         cancel.check()?;
         associated.insert(
             item.name.clone(),
             (
-                SourceItem::OpaqueType(item.id),
+                SourceItem::NativeType(item.id),
                 item.visibility,
                 NameTable::default(),
             ),
@@ -599,10 +599,10 @@ fn add_installed_prefixes(
 ) -> Result<(), Cancelled> {
     let native_units = sources
         .iter()
-        .filter(|module| module.registered_native_api)
+        .filter(|module| module.is_library_api())
         .map(|module| SourceUnit::of(module, &catalog.definitions))
         .collect::<HashSet<_>>();
-    for module in sources.iter().filter(|m| m.registered_native_api) {
+    for module in sources.iter().filter(|m| m.is_library_api()) {
         let unit = SourceUnit::of(module, &catalog.definitions);
         let portable = module.source.module_identity();
         for len in 0..portable.path.len() {

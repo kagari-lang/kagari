@@ -21,7 +21,7 @@ pub(crate) fn module() -> Arc<DefinitionMetadata<ModuleDecl>> {
     let context = fixture_context();
     let mut module = ModuleDecl::new(ModuleIdentity {
         package: PackageId("demo".into()),
-        path: vec!["native".into()],
+        path: vec!["bindings".into()],
     });
     let root = context.intern_root(&module.identity).unwrap();
     module

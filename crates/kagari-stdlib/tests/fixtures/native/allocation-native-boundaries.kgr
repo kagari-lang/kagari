@@ -1,4 +1,4 @@
-use measure::native::{ add, sum };
+use measure::bindings::{ add, sum };
 
 fn scalar(a: i32, b: i32) -> i32 {
     add(a, b)

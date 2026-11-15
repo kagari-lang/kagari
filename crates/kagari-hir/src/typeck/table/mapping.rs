@@ -23,7 +23,7 @@ impl RemapDefinitions for ResolvedTypeTarget {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
-            Self::OpaqueType(field0) => ResolvedTypeTarget::OpaqueType(*(field0)),
+            Self::NativeType(field0) => ResolvedTypeTarget::NativeType(*(field0)),
             Self::Source(field0) => ResolvedTypeTarget::Source(mapper.reference(field0)?),
             Self::AssociatedType(field0) => {
                 ResolvedTypeTarget::AssociatedType(mapper.reference(field0)?)
@@ -44,7 +44,7 @@ impl DefinitionReferences for ResolvedTypeTarget {
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         match self {
-            Self::OpaqueType(_) => {}
+            Self::NativeType(_) => {}
             Self::Source(field0) => {
                 check_cancel(cancel)?;
                 visit(field0)?;
@@ -70,6 +70,7 @@ impl RemapDefinitions for ResolvedTypeRef {
         mapper.check()?;
         Ok(ResolvedTypeRef {
             ty: self.ty.remap_definitions(mapper)?,
+            exposure: self.exposure.clone(),
             target: self
                 .target
                 .as_ref()

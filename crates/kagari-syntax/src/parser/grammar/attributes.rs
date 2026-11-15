@@ -71,13 +71,21 @@ impl Parser<'_> {
             if next == TokenKind::LParen {
                 self.nth_nontrivia_kind_from(&mut cursor)?;
                 self.nth_nontrivia_kind_from(&mut cursor)?;
-                self.nth_nontrivia_kind_from(&mut cursor)
+                kind = self.nth_nontrivia_kind_from(&mut cursor)?;
             } else {
-                Some(next)
+                kind = next;
             }
-        } else {
-            Some(kind)
         }
+        if kind == TokenKind::NativeKw {
+            kind = self.nth_nontrivia_kind_from(&mut cursor)?;
+            if !matches!(
+                kind,
+                TokenKind::FnKw | TokenKind::AsyncKw | TokenKind::TypeKw
+            ) {
+                return None;
+            }
+        }
+        Some(kind)
     }
 
     pub(crate) fn parse_attributes(&mut self) -> Attributes {

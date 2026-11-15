@@ -166,7 +166,8 @@ impl BodyChecker<'_> {
                         },
                     );
                 }
-                TypeKind::Generic { args, bindings, .. } => {
+                TypeKind::Generic { args, bindings, .. }
+                | TypeKind::Definition { args, bindings, .. } => {
                     pending.extend(args);
                     pending.extend(bindings.iter().map(|(_, ty)| ty));
                 }

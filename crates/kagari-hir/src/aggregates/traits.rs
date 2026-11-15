@@ -72,6 +72,8 @@ pub enum MethodDefault {
     Script,
     /// Default implementation comes from an installed native binding.
     Native(NativeBinding),
+    /// An external default declaration with no executable binding.
+    NativeDeclaration,
 }
 
 impl MethodSignature {
@@ -235,6 +237,9 @@ impl AggregateCatalog {
                         }
                         FunctionImplementation::Script => Some(MethodDefault::Script),
                         FunctionImplementation::Required => None,
+                        FunctionImplementation::NativeDeclaration => {
+                            Some(MethodDefault::NativeDeclaration)
+                        }
                     },
                     policy: lowered
                         .method_policies

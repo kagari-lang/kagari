@@ -32,7 +32,7 @@ pub(super) fn resolve_constraints(
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     cancel: &CancellationToken,
 ) {
-    for item in &lowered.module.opaque_types {
+    for item in &lowered.module.native_types {
         resolve_owner(
             lowered,
             &item.generic_params,
@@ -219,7 +219,7 @@ pub(super) fn resolve_constraint(
     }
     // Every trait constraint retains its applied type arguments in its identity.
     let (name, applied) = match &lowered.module.type_ref(reference.ty).kind {
-        TypeKind::Generic { name, .. } => (name, true),
+        TypeKind::Generic { name, .. } | TypeKind::Definition { name, .. } => (name, true),
         TypeKind::Named(name) => (name, false),
         _ => unreachable!("trait references have a named base"),
     };
@@ -232,7 +232,10 @@ pub(super) fn resolve_constraint(
     } else {
         ty::resolve_named_type(name, context)
     };
-    if applied && let TypeKind::Generic { args, .. } = &lowered.module.type_ref(reference.ty).kind {
+    if applied
+        && let TypeKind::Generic { args, .. } | TypeKind::Definition { args, .. } =
+            &lowered.module.type_ref(reference.ty).kind
+    {
         for argument in args {
             if table
                 .type_ref(*argument)

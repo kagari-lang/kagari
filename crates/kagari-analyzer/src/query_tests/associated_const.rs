@@ -22,7 +22,7 @@ fn associated_constant_targets_survive_cached_body_rebasing_and_revision_changes
         .definition_at(text.rfind("VALUE").unwrap())
         .unwrap();
     assert_eq!(
-        declaration.location.range.start,
+        declaration.source_location().unwrap().range.start,
         text.find("VALUE").unwrap()
     );
     assert_eq!(

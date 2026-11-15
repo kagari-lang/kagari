@@ -260,7 +260,7 @@ The complete mappings are beside their owners:
 | --- | --- |
 | Which declarations does a file contribute, and where are their payloads? | [Module / Item](../../crates/kagari-hir/src/hir/item.rs): source order, per-kind collections, imports and shared body storage. |
 | Which function fields come from `pub`, `async`, generics, parameters, `where`, result and body? | [Function / Param / FunctionKind](../../crates/kagari-hir/src/hir/item/function.rs): full signature expansion, omitted annotations/bodies and method links. |
-| How do field/variant declarations differ from constructor values and patterns? | [Struct / Field / Enum / Variant / OpaqueType](../../crates/kagari-hir/src/hir/item/adt.rs): complete declaration payloads, owner/member slots and native-provider surfaces. |
+| How do field/variant declarations differ from constructor values and patterns? | [Struct / Field / Enum / Variant / NativeTypeDeclaration](../../crates/kagari-hir/src/hir/item/adt.rs): complete declaration payloads, owner/member slots and native-provider surfaces. |
 | What do trait/impl headers, associated items and generic bounds store? | [TraitDef / Impl / associated members / bounds](../../crates/kagari-hir/src/hir/item/behavior.rs): required versus defined members, member input versus output constraints and function/constant links. |
 | Where do constant/static initializers, child module bodies and flattened use leaves go? | [Constants and statics](../../crates/kagari-hir/src/hir/item/storage.rs) and [modules/imports](../../crates/kagari-hir/src/hir/item/module.rs): distinct body owners, compile-time versus runtime declarations, header-only children, alias/glob and leaf/root source ranges. |
 | Is the final expression also a statement, and how is `+=` represented? | [BlockData / StmtKind](../../crates/kagari-hir/src/hir/stmt.rs): all statement payloads, tail absence, place/loop/pattern links. |
@@ -320,7 +320,7 @@ The diagrams below abbreviate complete IDs; positions are illustrative.
 
 ```text
 Function(f).params = [Param { id: p, name: "x", ty: t, ... }]
-Function(f).body = Some(b)
+Function(f).implementation = Script(b)
 Block(b).statements = [s]
 Block(b).tail_expr = Some(result)
 Stmt(s) = Binding { pattern: binding, initializer: sum, ... }
@@ -330,6 +330,15 @@ Expr(x) = Name { name: "x", ... }
 Expr(one) = Literal(Number, "1")       // literal record abbreviated
 Expr(result) = Name { name: "y", ... }
 ```
+
+`Function.implementation` distinguishes `Required`, `Script(BlockId)` and
+`Native(NativeContract)`. Native contracts retain ordered callable requirements and
+the concrete result descriptor, using the existing scoped declaration vocabulary;
+they do not contain Rust adapters, host-call policy or binding authority.
+`TypedFunction` remains a separate checked signature. Installed native entries and
+method policies retain their existing boundary evidence. A registered NativeDefault
+keeps its generated `Script` forwarding block in HIR and its installed default binding
+in the checked signature; compilation still requires a checked forwarding call.
 
 The lowerer allocates source-map slots and node rows together under owner
 `Body(Function(f))`. `p` and `l` are identities, not indices into `Body.exprs`.

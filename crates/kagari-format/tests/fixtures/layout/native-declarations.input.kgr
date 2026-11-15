@@ -1,0 +1,8 @@
+/// Native fields retain ordinary val/var rules.
+#[tag] pub native type Counter<T>:Resource where T:Read{pub val value:T,pub var count:i32,}
+pub native type Handle;
+pub native fn borrow<T:Read<Item=i32>>(value:Ref<T>)->RefMut<T>;
+trait Read{type Item;fn read(self)->Self::Item;fn answer(self)->i32{42}}
+impl<T> Counter<T> where T:Read{pub native fn new(value:T)->Counter<T>;pub native fn inspect(self,shared:Ref<T>)->T;}
+impl<T> Read for Counter<T> where T:Read{type Item=T;native fn read(self)->T;}
+pub fn identity<T>(value:T)->T{value}

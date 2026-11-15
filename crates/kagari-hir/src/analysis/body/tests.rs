@@ -444,7 +444,7 @@ fn body_reuse_remaps_types_and_refreshes_local_identity_after_neighbor_edit() {
         .iter()
         .find(|item| item.name == "value")
         .unwrap();
-    assert_eq!(binding.location.range, span);
+    assert_eq!(binding.source_location().unwrap().range, span);
 
     sources
         .set(

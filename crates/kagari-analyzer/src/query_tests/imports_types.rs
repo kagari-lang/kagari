@@ -59,8 +59,11 @@ fn imported_annotations_preserve_nominal_identity_and_definition_locations() {
                 _ => 0,
             };
         let declaration = snapshot.queries().definition_at(root, offset).unwrap();
-        assert_eq!(declaration.location.file, types);
-        assert!(db.snapshot().contains(declaration.location));
+        assert_eq!(declaration.source_location().unwrap().file, types);
+        assert!(
+            db.snapshot()
+                .contains(declaration.source_location().unwrap())
+        );
     }
 }
 
@@ -181,7 +184,7 @@ fn type_facades_resolve_before_signatures_including_module_aliases() {
         .queries()
         .definition_at(root, text.find("m::Data").unwrap() + "m::".len())
         .unwrap();
-    assert_eq!(declaration.location.file, types);
+    assert_eq!(declaration.source_location().unwrap().file, types);
     assert_eq!(declaration.name, "Data");
     let signature = file
         .signatures()

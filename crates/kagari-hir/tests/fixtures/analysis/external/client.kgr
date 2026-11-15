@@ -1,0 +1,13 @@
+use api::Read;
+
+fn inspect(counter: api::Counter) -> i32 {
+    counter.value = 9;
+    val child: api::Child = counter.child;
+    child.number = 3;
+    val made: api::Counter = api::Counter::new();
+    val echoed: bool = made.echo(true);
+    val read: i32 = counter.read();
+    val defaulted: i32 = counter.defaulted();
+    val kept: api::Counter = api::bounded(counter);
+    api::embedded(kept)
+}

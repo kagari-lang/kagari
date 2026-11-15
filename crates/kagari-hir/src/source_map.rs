@@ -4,17 +4,24 @@ use crate::hir::{
     attribute::AttributeTarget,
     ids::{
         BlockId, BodyOwner, ConstId, EnumId, ExprId, FieldId, FunctionId, GenericParamId, HirOwner,
-        ImplId, LocalId, LoweringId, ModuleId, OpaqueTypeId, ParamId, PatternId, PlaceId, StaticId,
+        ImplId, LocalId, LoweringId, ModuleId, NativeTypeId, ParamId, PatternId, PlaceId, StaticId,
         StmtId, StructId, TraitId, TraitMethodId, TypeAliasId, TypeRefId, VariantId,
     },
     item::Item,
 };
-use kagari_common::span::Span;
+pub mod origin;
+
+use self::origin::OriginTarget;
+use kagari_common::{identity::table::DefinitionId, span::Span};
 use std::{collections::HashMap, mem};
 
 /// Source byte ranges and ID allocation state for one [`crate::lower::LoweredModule`].
 ///
-/// This owns ranges, not source text. Interpret them against `LoweredModule.source`.
+/// This owns origins, not source text. Authored ranges refer to the matching
+/// `LoweredModule::source_surface()`. Structured nodes have declaration-ID origins
+/// and no source surface; use `origin()` / `source_span()` for attribution.
+/// Legacy span accessors return empty diagnostic anchors for structured nodes,
+/// which must never be interpreted as authored or implementation-source evidence.
 /// The lowerer appends dense spans and payload rows together; their indices must agree.
 /// Parameters instead register their function-local identities explicitly.
 /// `set_owner` switches the owner attached to subsequently allocated local IDs.
@@ -46,6 +53,9 @@ pub struct SourceMap {
     arena: LoweringId,
     /// Current allocation owner; restored when nested declaration lowering returns.
     owner: HirOwner,
+    structured_input: bool,
+    structured_owner: Option<DefinitionId>,
+    structured_origins: HashMap<OriginTarget, DefinitionId>,
     generic_param_spans: Vec<Span>,
     /// Sparse declaration-name sites, separate from full declaration ranges.
     item_name_spans: HashMap<Item, Span>,
@@ -66,7 +76,7 @@ pub struct SourceMap {
     local_spans: Vec<Span>,
     local_owners: Vec<HirOwner>,
     struct_spans: Vec<Span>,
-    opaque_type_spans: Vec<Span>,
+    native_type_spans: Vec<Span>,
     type_alias_spans: Vec<Span>,
     enum_spans: Vec<Span>,
     block_spans: Vec<Span>,
@@ -114,6 +124,7 @@ impl SourceMap {
     pub(crate) fn push_type_alias(&mut self, span: Span) -> TypeAliasId {
         let id = TypeAliasId::new(self.type_alias_spans.len());
         self.type_alias_spans.push(span);
+        self.record_origin(OriginTarget::Item(Item::TypeAlias(id)));
         id
     }
 
@@ -122,19 +133,21 @@ impl SourceMap {
         self.type_alias_spans[id.index()]
     }
 
-    pub(crate) fn push_opaque_type(&mut self, span: Span) -> OpaqueTypeId {
-        let id = OpaqueTypeId::new(self.opaque_type_spans.len());
-        self.opaque_type_spans.push(span);
+    pub(crate) fn push_native_type(&mut self, span: Span) -> NativeTypeId {
+        let id = NativeTypeId::new(self.native_type_spans.len());
+        self.native_type_spans.push(span);
+        self.record_origin(OriginTarget::Item(Item::NativeType(id)));
         id
     }
 
-    /// Returns the opaque type declaration byte range; see the [ID validity requirements](Self#panics).
-    pub fn opaque_type_span(&self, id: OpaqueTypeId) -> Span {
-        self.opaque_type_spans[id.index()]
+    /// Returns the Native type declaration byte range; see the [ID validity requirements](Self#panics).
+    pub fn native_type_span(&self, id: NativeTypeId) -> Span {
+        self.native_type_spans[id.index()]
     }
 
     pub(crate) fn insert_variant(&mut self, id: VariantId, span: Span) {
         self.variant_spans.insert(id, span);
+        self.record_origin(OriginTarget::Variant(id));
     }
 
     /// Returns the enum variant byte range; see the [ID validity requirements](Self#panics).
@@ -195,6 +208,7 @@ impl SourceMap {
     pub(crate) fn push_generic_param(&mut self, span: Span) -> GenericParamId {
         let id = GenericParamId::new(self.generic_param_spans.len());
         self.generic_param_spans.push(span);
+        self.record_origin(OriginTarget::GenericParam(id));
         id
     }
 
@@ -209,6 +223,7 @@ impl SourceMap {
 
     pub(crate) fn insert_field(&mut self, id: FieldId, span: Span) {
         self.field_spans.insert(id, span);
+        self.record_origin(OriginTarget::Field(id));
     }
 
     /// Returns the struct field byte range; see the [ID validity requirements](Self#panics).
@@ -220,7 +235,7 @@ impl SourceMap {
     pub fn item_span(&self, item: Item) -> Span {
         match item {
             Item::TypeAlias(id) => self.type_alias_span(id),
-            Item::OpaqueType(id) => self.opaque_type_span(id),
+            Item::NativeType(id) => self.native_type_span(id),
             Item::Function(id) => self.function_span(id),
             Item::Const(id) => self.const_span(id),
             Item::Static(id) => self.static_span(id),
@@ -251,42 +266,49 @@ impl SourceMap {
     pub(crate) fn push_function(&mut self, span: Span) -> FunctionId {
         let id = FunctionId::new(self.function_spans.len());
         self.function_spans.push(span);
+        self.record_origin(OriginTarget::Item(Item::Function(id)));
         id
     }
 
     pub(crate) fn push_static(&mut self, span: Span) -> StaticId {
         let id = StaticId::new(self.static_spans.len());
         self.static_spans.push(span);
+        self.record_origin(OriginTarget::Item(Item::Static(id)));
         id
     }
 
     pub(crate) fn push_const(&mut self, span: Span) -> ConstId {
         let id = ConstId::new(self.const_spans.len());
         self.const_spans.push(span);
+        self.record_origin(OriginTarget::Item(Item::Const(id)));
         id
     }
 
     pub(crate) fn push_module(&mut self, span: Span) -> ModuleId {
         let id = ModuleId::new(self.module_spans.len());
         self.module_spans.push(span);
+        self.record_origin(OriginTarget::Item(Item::Module(id)));
         id
     }
 
     pub(crate) fn push_trait(&mut self, span: Span) -> TraitId {
         let id = TraitId::new(self.trait_spans.len());
         self.trait_spans.push(span);
+        self.record_origin(OriginTarget::Item(Item::Trait(id)));
         id
     }
 
     pub(crate) fn push_trait_method(&mut self, span: Span) -> TraitMethodId {
         let id = TraitMethodId::new(self.trait_method_spans.len());
         self.trait_method_spans.push(span);
+        self.record_origin(OriginTarget::TraitMethod(id));
         id
     }
 
     pub(crate) fn push_impl(&mut self, span: Span) -> ImplId {
         let id = ImplId::new(self.impl_spans.len());
         self.impl_spans.push(span);
+        self.record_origin(OriginTarget::Item(Item::Impl(id)));
         id
     }
 
@@ -298,24 +320,28 @@ impl SourceMap {
             self.param_spans.insert(id, span).is_none(),
             "duplicate HIR parameter"
         );
+        self.record_origin(OriginTarget::Param(id));
     }
 
     pub(crate) fn push_local(&mut self, span: Span) -> LocalId {
         let id = LocalId::new(self.arena, self.owner, self.local_spans.len());
         self.local_spans.push(span);
         self.local_owners.push(self.owner);
+        self.record_origin(OriginTarget::Local(id));
         id
     }
 
     pub(crate) fn push_struct(&mut self, span: Span) -> StructId {
         let id = StructId::new(self.struct_spans.len());
         self.struct_spans.push(span);
+        self.record_origin(OriginTarget::Item(Item::Struct(id)));
         id
     }
 
     pub(crate) fn push_enum(&mut self, span: Span) -> EnumId {
         let id = EnumId::new(self.enum_spans.len());
         self.enum_spans.push(span);
+        self.record_origin(OriginTarget::Item(Item::Enum(id)));
         id
     }
 
@@ -323,6 +349,7 @@ impl SourceMap {
         let id = BlockId::new(self.arena, self.owner, self.block_spans.len());
         self.block_spans.push(span);
         self.block_owners.push(self.owner);
+        self.record_origin(OriginTarget::Block(id));
         id
     }
 
@@ -330,6 +357,7 @@ impl SourceMap {
         let id = ExprId::new(self.arena, self.owner, self.expr_spans.len());
         self.expr_spans.push(span);
         self.expr_owners.push(self.owner);
+        self.record_origin(OriginTarget::Expr(id));
         id
     }
 
@@ -352,6 +380,7 @@ impl SourceMap {
         let id = PlaceId::new(self.arena, self.owner, self.place_spans.len());
         self.place_spans.push(span);
         self.place_owners.push(self.owner);
+        self.record_origin(OriginTarget::Place(id));
         id
     }
 
@@ -359,6 +388,7 @@ impl SourceMap {
         let id = StmtId::new(self.arena, self.owner, self.stmt_spans.len());
         self.stmt_spans.push(span);
         self.stmt_owners.push(self.owner);
+        self.record_origin(OriginTarget::Stmt(id));
         id
     }
 
@@ -366,6 +396,7 @@ impl SourceMap {
         let id = PatternId::new(self.arena, self.owner, self.pattern_spans.len());
         self.pattern_spans.push(span);
         self.pattern_owners.push(self.owner);
+        self.record_origin(OriginTarget::Pattern(id));
         id
     }
 
@@ -373,6 +404,7 @@ impl SourceMap {
         let id = TypeRefId::new(self.arena, self.owner, self.type_spans.len());
         self.type_spans.push(span);
         self.type_owners.push(self.owner);
+        self.record_origin(OriginTarget::Type(id));
         id
     }
 

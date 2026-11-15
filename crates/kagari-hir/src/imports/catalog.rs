@@ -1,4 +1,5 @@
 //! Snapshot-owned, unfiltered namespaces. Targets never carry member tables.
+pub(crate) mod definitions;
 #[cfg(test)]
 use crate::tests::cancellation::{Checkpoint, checkpoint};
 
@@ -620,10 +621,7 @@ impl NamespaceCatalog {
             let direct = dependencies.is_some_and(|aliases| {
                 aliases.values().any(|package| package == &portable.package)
             });
-            let native = self
-                .native_dependencies
-                .get(ctx.importer)
-                .is_some_and(|dependencies| dependencies.contains(identity));
+            let native = self.native_exposure_root(ctx.importer, identity);
             if (own || native || (direct && portable.path.is_empty()))
                 && units.len() == 1
                 && self.module_accessible(ctx, identity, cancel)?

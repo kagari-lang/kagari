@@ -4,6 +4,7 @@ use crate::{
     analysis::{
         AnalysisDatabase,
         error::AnalysisError,
+        external::evidence,
         ownership,
         records::{DeclarationCache, DeclarationCacheEntry},
         source_preparation::{self, ParsedModule, SourcePreparer},
@@ -11,6 +12,7 @@ use crate::{
     declarations::{Declaration, DeclarationId, Declarations},
     declare_analysis,
     imports::{ModuleGraph, SourceUnit},
+    language::types::builtin_constructor,
     lower::LoweredModule,
     native::{adoption, api::preparation::NativeFiles},
     resolver::resolved::DeclarationNames,
@@ -24,6 +26,10 @@ use kagari_source::{
     source_database::SourceSnapshot,
 };
 use kagari_syntax::ast::module::ModuleSyntax;
+use kagari_types::declaration::{
+    module::{DeclarationError, ModuleDecl},
+    ownership::ReceiverOwners,
+};
 use std::{collections::BTreeMap, sync::Arc};
 
 #[cfg(test)]
@@ -46,8 +52,8 @@ impl FileDeclarations {
         &self.declared.lowered.source
     }
 
-    /// Returns a typed AST view of the retained parse.
-    pub fn syntax(&self) -> ModuleSyntax {
+    /// Returns the retained source AST, or `None` for a structured declaration input.
+    pub fn syntax(&self) -> Option<ModuleSyntax> {
         self.parsed.syntax()
     }
 
@@ -80,6 +86,7 @@ impl FileDeclarations {
 /// its declaration sites.
 #[derive(Debug, Clone)]
 pub struct DeclarationSnapshot {
+    native_modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
     /// Returns the input source snapshot revision.
     revision: Revision,
     pub(super) graph: Arc<ModuleGraph>,
@@ -87,6 +94,12 @@ pub struct DeclarationSnapshot {
 }
 
 impl DeclarationSnapshot {
+    /// Retained registration metadata in its provider scopes, including documentation.
+    /// This supplies no authored source or navigation coordinates.
+    pub fn native_modules(&self) -> &[Arc<DefinitionMetadata<ModuleDecl>>] {
+        &self.native_modules
+    }
+
     /// Returns the input source snapshot revision.
     pub fn revision(&self) -> Revision {
         self.revision
@@ -195,8 +208,8 @@ impl AnalysisDatabase {
         cancel: &CancellationToken,
     ) -> Result<DeclarationSnapshot, AnalysisError> {
         cancel.check()?;
+        let mut lowered_files = self.prepare_external(cancel)?;
         let previous = self.declaration_cache.as_ref();
-        let mut lowered_files = BTreeMap::new();
         let native_files = match self.native_files.get_mut() {
             Some(files) => {
                 let attached = files.attach(cancel);
@@ -224,7 +237,23 @@ impl AnalysisDatabase {
             }
         };
         for (parsed, lowered) in native_files {
-            lowered_files.insert(lowered.source.id(), (ParsedModule::root(parsed), lowered));
+            if lowered_files.values().any(|(_, external)| {
+                external.source.module_identity() == lowered.source.module_identity()
+            }) {
+                return Err(DeclarationError(
+                    "external module conflicts with installed provider".into(),
+                )
+                .into());
+            }
+            if lowered_files
+                .insert(lowered.source.id(), (ParsedModule::root(parsed), lowered))
+                .is_some()
+            {
+                return Err(DeclarationError(
+                    "external file conflicts with installed provider".into(),
+                )
+                .into());
+            }
         }
         let preparer = SourcePreparer {
             cache: &mut self.source_parse_cache,
@@ -232,8 +261,27 @@ impl AnalysisDatabase {
             limits: self.parse_limits,
         };
         for (id, prepared) in source_preparation::prepare(preparer, &source, previous, cancel)? {
+            if lowered_files.values().any(|(_, library)| {
+                library.source.id() == id
+                    || library.source.module_identity() == prepared.lowered.source.module_identity()
+            }) {
+                return Err(DeclarationError(
+                    "source conflicts with library declaration input".into(),
+                )
+                .into());
+            }
             lowered_files.insert(id, (prepared.parsed, prepared.lowered));
         }
+        ReceiverOwners::from_constructors(lowered_files.values().flat_map(|(_, lowered)| {
+            lowered.native_types.values().filter_map(|kind| {
+                let constructor = builtin_constructor(kind)?;
+                Some((lowered.source.module_identity(), constructor))
+            })
+        }))?;
+        evidence::validate_schema_closure(
+            lowered_files.values().map(|(_, lowered)| lowered.as_ref()),
+            cancel,
+        )?;
         #[cfg(test)]
         let limits = self.import_solver_limits;
         #[cfg(not(test))]
@@ -305,6 +353,7 @@ impl AnalysisDatabase {
         }
         cancel.check()?;
         Ok(DeclarationSnapshot {
+            native_modules: self.native_modules.clone(),
             revision: source.revision(),
             graph,
             files: Arc::new(files),

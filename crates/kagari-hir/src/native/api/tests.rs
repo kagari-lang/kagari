@@ -4,7 +4,13 @@ use crate::{
     tests::native_fixture::module,
 };
 use kagari_common::identity::map::DefinitionContext;
+use kagari_source::source::SourceFile;
 use kagari_stdlib::{catalog as foundation_catalog, catalog};
+use kagari_syntax::parser::ParseLimits;
+use kagari_types::{
+    declaration::requirement::NativeCallableRequirement,
+    ty::{GenericBound, NominalTy, Ty},
+};
 
 #[test]
 fn native_view_must_match_authoritative_signatures_bounds_members_and_visibility() {
@@ -47,8 +53,51 @@ fn native_view_must_match_authoritative_signatures_bounds_members_and_visibility
 
 #[test]
 fn native_view_trivia_does_not_change_checked_binding_and_default_ownership() {
+    let (definitions, mut definition) = module().as_ref().clone().into_parts();
+    let template = definition
+        .definition(DefinitionKind::Function, "default_read", &definitions)
+        .unwrap();
+    let interface = definition
+        .definition(DefinitionKind::Trait, "NativeRead", &definitions)
+        .unwrap();
+    let requirements = ["read", "fixed", "read"].map(|name| NativeCallableRequirement {
+        receiver: definition
+            .functions
+            .iter()
+            .find(|function| function.name == "default_read")
+            .unwrap()
+            .generic_params[0]
+            .as_type(),
+        interface: NominalTy {
+            declaration: interface,
+            arguments: vec![],
+            associated_types: Default::default(),
+        },
+        member: ModuleDecl::method_id(interface, name, &definitions).unwrap(),
+        arguments: vec![],
+    });
+    let echo = definition
+        .functions
+        .iter_mut()
+        .find(|function| function.name == "echo")
+        .unwrap();
+    let result = echo.generic_params[0].as_type();
+    echo.return_type = Ty::Trait(requirements[0].interface.clone());
+    echo.bounds.push(GenericBound {
+        ty: result.clone(),
+        constraints: vec![requirements[0].interface.clone()],
+    });
+    definition
+        .concrete_results
+        .insert(echo.generic_params[0].owner, result);
+    definition
+        .callable_requirements
+        .insert(template, requirements.into());
+    let module = Arc::new(
+        DefinitionMetadata::checked(definitions, definition, &Default::default()).unwrap(),
+    );
     let mut providers = catalog::shared().unwrap();
-    providers.push(module());
+    providers.push(module);
     let providers = adopt(
         &providers,
         &DefinitionContext::new().unwrap(),
@@ -58,25 +107,112 @@ fn native_view_trivia_does_not_change_checked_binding_and_default_ownership() {
     let module = providers.last().unwrap();
     let mut source = declaration_source(module, &providers).unwrap();
     source.text = format!("// Tooling overlay.\n{}", source.text);
-    let prepared = PreparedRegistration::new(
-        module.clone(),
-        providers.clone().into(),
-        Some(&source),
-        "/native-declarations",
-        Default::default(),
-        &Default::default(),
-    )
-    .unwrap();
-    let lowered = prepared.attach(&Default::default()).unwrap();
-    assert_eq!(lowered.module.traits.len(), 1);
-    assert_eq!(lowered.module.traits[0].methods.len(), 2);
-    assert!(
-        lowered.module.traits[0]
-            .methods
-            .iter()
-            .all(|method| method.has_default)
-    );
-    assert_eq!(lowered.native_functions.len(), 6);
+    for supplied in [None, Some(&source)] {
+        // A source-less registration must not consume parser budgets at all.
+        let limits = ParseLimits {
+            max_nesting: if supplied.is_none() {
+                0
+            } else {
+                ParseLimits::default().max_nesting
+            },
+            ..Default::default()
+        };
+        let prepared = PreparedRegistration::new(
+            module.clone(),
+            providers.clone().into(),
+            supplied,
+            "/native-declarations",
+            limits,
+            &Default::default(),
+        )
+        .unwrap();
+        assert_eq!(prepared.parsed().is_some(), supplied.is_some());
+        let lowered = prepared.attach(&Default::default()).unwrap();
+        assert_eq!(lowered.source_surface().is_some(), supplied.is_some());
+        assert_eq!(lowered.module.traits.len(), 1);
+        assert_eq!(lowered.module.traits[0].methods.len(), 2);
+        assert!(
+            lowered.module.traits[0]
+                .methods
+                .iter()
+                .all(|method| method.has_default)
+        );
+        assert_eq!(lowered.native_functions.len(), 6);
+        for (id, binding) in &lowered.native_functions {
+            let function = &lowered.module.functions[id.index()];
+            match binding {
+                NativeBinding::Entry(entry) => {
+                    let FunctionImplementation::Native(contract) = &function.implementation else {
+                        panic!("installed entry must own a Native implementation");
+                    };
+                    assert_eq!(
+                        contract.callable_requirements.as_slice(),
+                        module
+                            .records()
+                            .callable_requirements
+                            .get(entry)
+                            .map(Vec::as_slice)
+                            .unwrap_or_default()
+                    );
+                    assert_eq!(
+                        contract.concrete_result.as_ref(),
+                        module.records().concrete_results.get(entry)
+                    );
+                    if function.name == "default_read" {
+                        assert_eq!(contract.callable_requirements.len(), 3);
+                        assert_ne!(
+                            contract.callable_requirements[0],
+                            contract.callable_requirements[1]
+                        );
+                        assert_eq!(
+                            contract.callable_requirements[0],
+                            contract.callable_requirements[2]
+                        );
+                    }
+                    if function.name == "echo" {
+                        assert!(matches!(
+                            contract.concrete_result,
+                            Some(Ty::Parameter { .. })
+                        ));
+                    }
+                }
+                NativeBinding::Default(_) => {
+                    let FunctionImplementation::Script(body) = function.implementation else {
+                        panic!("native default must retain its forwarding proof body");
+                    };
+                    let call = lowered.module.block(body).tail_expr.unwrap();
+                    let crate::hir::expr::ExprKind::Call {
+                        args, type_args, ..
+                    } = &lowered.module.expr(call).kind
+                    else {
+                        panic!("forwarding default must be a real checked call");
+                    };
+                    assert_eq!(args.len(), function.params.len());
+                    assert_eq!(type_args.as_ref().map_or(0, |arguments| arguments.len()), 1);
+                    let target = crate::source_map::origin::OriginTarget::Expr(call);
+                    assert_eq!(
+                        lowered.source_map.source_span(target).is_some(),
+                        supplied.is_some()
+                    );
+                    if supplied.is_none() {
+                        assert!(matches!(
+                            lowered.source_map.origin(target),
+                            crate::source_map::origin::NodeOrigin::Structured { .. }
+                        ));
+                    }
+                    let registered = &module.records().traits[0]
+                        .methods
+                        .iter()
+                        .find(|method| method.name == function.name)
+                        .unwrap();
+                    assert_eq!(
+                        lowered.method_policies.get(id),
+                        Some(&registered.method_policy)
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[test]
@@ -189,5 +325,7 @@ fn malformed_or_mismatched_core_source_never_installs_a_native_parse() {
     }
 }
 
+mod exact;
 mod host;
 mod reference;
+mod script;

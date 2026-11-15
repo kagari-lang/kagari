@@ -434,8 +434,8 @@ pub(super) fn collect(
                 Some(ResolvedTypeTarget::Trait(id)) => {
                     Some(definition(module, ResolvedName::Trait(*id))?)
                 }
-                Some(ResolvedTypeTarget::OpaqueType(id)) => {
-                    Some(definition(module, ResolvedName::OpaqueType(*id))?)
+                Some(ResolvedTypeTarget::NativeType(id)) => {
+                    Some(definition(module, ResolvedName::NativeType(*id))?)
                 }
                 _ => None,
             };

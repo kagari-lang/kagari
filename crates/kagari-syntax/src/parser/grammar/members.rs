@@ -7,7 +7,7 @@ use crate::{
         AssociatedDefault, AssociatedType, FunctionBody, ImplBlock, ImplTrait, Member, MethodDef,
         Supertraits, TraitDef,
     },
-    parser::{ParseMode, core::Parser},
+    parser::core::Parser,
     token::TokenKind,
 };
 
@@ -116,6 +116,7 @@ impl Parser<'_> {
             self.error_here(DiagnosticKind::UnexpectedToken);
         }
         let visibility = self.parse_visibility();
+        let native_keyword = self.eat(TokenKind::NativeKw);
         let async_keyword = self.eat(TokenKind::AsyncKw);
         let keyword = self.expect(TokenKind::FnKw, DiagnosticKind::ExpectedFunctionKeyword);
         let name = self.parse_name(DiagnosticKind::ExpectedFunctionName);
@@ -124,6 +125,9 @@ impl Parser<'_> {
         let result = self.parse_return_type();
         let where_clause = self.parse_where_clause();
         let body = if self.at(TokenKind::LBrace) {
+            if native_keyword.is_some() {
+                self.error_here(DiagnosticKind::UnexpectedToken);
+            }
             FunctionBody::Block(self.parse_block().node.map(Box::new))
         } else {
             FunctionBody::Declaration(
@@ -135,6 +139,7 @@ impl Parser<'_> {
             site,
             attributes,
             visibility,
+            native_keyword,
             async_keyword,
             keyword,
             name,
@@ -149,7 +154,7 @@ impl Parser<'_> {
     fn parse_associated_type(&mut self) -> AssociatedType {
         let mark = self.begin();
         let attributes = self.parse_attributes();
-        if self.mode != ParseMode::Declarations && self.at(TokenKind::PubKw) {
+        if self.at(TokenKind::PubKw) {
             self.error_here(DiagnosticKind::UnexpectedToken);
         }
         let visibility = self.parse_visibility();

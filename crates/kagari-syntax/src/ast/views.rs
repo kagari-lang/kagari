@@ -12,7 +12,7 @@ use crate::ast::{
         StructExpr, TupleExpr,
     },
     item::{
-        ConstDef, EnumDef, FnDef, ImplBlock, Item, ModuleDef, OpaqueTypeDef, StaticDef, StructDef,
+        ConstDef, EnumDef, FnDef, ImplBlock, Item, ModuleDef, NativeTypeDef, StaticDef, StructDef,
         TraitDef, TypeAlias, UseDecl,
     },
     misc::Path,
@@ -120,7 +120,7 @@ borrowed_enum!(
         TraitDef: TraitDef,
         ImplBlock: ImplBlock,
         TypeAlias: TypeAlias,
-        OpaqueTypeDef: OpaqueTypeDef,
+        NativeTypeDef: NativeTypeDef,
     }
 );
 

@@ -38,7 +38,7 @@ fn native_type_annotations_resolve_aliases_and_qualified_source_declarations() {
             declaration.id,
             snapshot.queries().definition_at(id, right).unwrap().id
         );
-        assert_ne!(declaration.location.file, id);
+        assert!(declaration.source_location().is_none());
         assert_eq!(file.queries().type_at(left), file.queries().type_at(right));
         assert!(
             file.queries()
@@ -79,7 +79,8 @@ fn source_bindings_shadow_native_types_and_the_standard_namespace() {
                 .queries()
                 .definition_at(id, offset)
                 .unwrap()
-                .location
+                .source_location()
+                .unwrap()
                 .file,
             id
         );
@@ -158,7 +159,8 @@ fn nested_namespace_types_keep_distinct_declaration_identities() {
             .queries()
             .definition_at(id, a)
             .unwrap()
-            .location
+            .source_location()
+            .unwrap()
             .file,
         left
     );
@@ -167,7 +169,8 @@ fn nested_namespace_types_keep_distinct_declaration_identities() {
             .queries()
             .definition_at(id, b)
             .unwrap()
-            .location
+            .source_location()
+            .unwrap()
             .file,
         right
     );
@@ -255,7 +258,7 @@ fn invalid_imported_application_retains_base_and_all_argument_facts() {
     let start = text.find("Map<").unwrap();
     let base = file.queries().definition_at(start).unwrap();
     assert_eq!(base.name, "Map");
-    assert_eq!(base.location.file, library);
+    assert_eq!(base.source_location().unwrap().file, library);
     assert_eq!(file.queries().type_at(start), Some(TypeId::Error));
     assert!(
         file.queries()
@@ -267,7 +270,8 @@ fn invalid_imported_application_retains_base_and_all_argument_facts() {
         file.queries()
             .definition_at(argument)
             .unwrap()
-            .location
+            .source_location()
+            .unwrap()
             .file,
         library
     );
@@ -299,7 +303,10 @@ fn erroneous_applications_rebase_signature_targets_and_repair_without_stale_erro
         .queries()
         .definition_at(edit.find("T<>").unwrap())
         .unwrap();
-    assert_eq!(target.location.range.start, edit.find("bad<T").unwrap() + 4);
+    assert_eq!(
+        target.source_location().unwrap().range.start,
+        edit.find("bad<T").unwrap() + 4
+    );
     assert_eq!(
         file.queries().type_at(edit.find("T<>").unwrap()),
         Some(TypeId::Error)

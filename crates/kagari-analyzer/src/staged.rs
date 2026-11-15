@@ -26,6 +26,7 @@ impl<'a> SignatureQueries<'a> {
 
     /// Checked signature names and declaration sites only.
     pub fn definition_at(&self, offset: usize) -> Option<&'a Declaration> {
+        self.analysis.syntax()?;
         DeclarationQueries::new(self.analysis.lowered(), self.analysis.declarations())
             .site_at(offset)
             .or_else(|| {
@@ -48,6 +49,7 @@ impl<'a> SignatureQueries<'a> {
 
     /// Body annotations have no facts until a selected/full body query checks them.
     pub fn type_at(&self, offset: usize) -> Option<TypeId> {
+        self.analysis.syntax()?;
         type_at_in(
             self.analysis.lowered(),
             self.analysis.signatures().facts().type_table(),
@@ -70,13 +72,16 @@ impl<'a> FunctionQueries<'a> {
 
     fn contains(&self, offset: usize) -> bool {
         let lowered = self.analysis.lowered();
+        if lowered.source_map.is_structured() {
+            return false;
+        }
         let function = &lowered.module.functions[self.analysis.function().index()];
         assert_eq!(
             function.id,
             self.analysis.function(),
             "selected function owner mismatch"
         );
-        function.body.is_some() && {
+        function.implementation.script_body().is_some() && {
             let span = lowered.source_map.function_span(function.id);
             span.start <= offset && offset <= span.end
         }

@@ -225,8 +225,12 @@ fn imported_constant_edits_invalidate_value_facts_without_retargeting_aliases() 
 #[test]
 fn qualified_standard_source_and_host_calls_use_type_prefixes() {
     let cases = [
-        ("use demo::native as api;", "api::choose(1, 1, 1)", "api"),
-        ("use demo::native;", "native::choose(1, 1, 1)", "native"),
+        ("use demo::bindings as api;", "api::choose(1, 1, 1)", "api"),
+        (
+            "use demo::bindings;",
+            "bindings::choose(1, 1, 1)",
+            "bindings",
+        ),
         ("use pkg::library as api;", "api::number()", "api"),
         ("use demo as api;", "api::number()", "api"),
         ("", "demo::number()", "demo"),
@@ -351,7 +355,7 @@ fn absent_imports_release_categories_and_ambiguous_imports_block_fallback() {
             Some(NameResolution::Ambiguous),
         ),
         (
-            "use demo::native as api; use core::cmp as api;",
+            "use demo::bindings as api; use core::cmp as api;",
             "api::choose(1, 1, 1)",
             "api",
             Some(NameResolution::Ambiguous),
@@ -364,9 +368,9 @@ fn absent_imports_release_categories_and_ambiguous_imports_block_fallback() {
         ),
         ("use missing as demo;", "demo::number()", "demo", None),
         (
-            "use missing as native;",
-            "native::choose(1, 1, 1)",
-            "native",
+            "use missing as bindings;",
+            "bindings::choose(1, 1, 1)",
+            "bindings",
             None,
         ),
         (

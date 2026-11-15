@@ -59,7 +59,7 @@ pub enum Item {
     TraitDef(Box<TraitDef>),
     ImplBlock(Box<ImplBlock>),
     TypeAlias(Box<TypeAlias>),
-    OpaqueTypeDef(Box<OpaqueTypeDef>),
+    NativeTypeDef(Box<NativeTypeDef>),
     Error(SyntaxSite),
 }
 
@@ -352,9 +352,12 @@ node!(
     ///
     /// The sketch abbreviates present required slots and child nodes. Attributes
     /// belong to this declaration; [`FunctionBody`] distinguishes blocks from signatures.
+    /// `native fn id<T>(x: T) -> T;` has a present `native_keyword` and a
+    /// declaration body instead; parsing it grants no installation authority.
     FnDef {
         attributes: Attributes,
         visibility: Visibility,
+        native_keyword: Option<Token<tokens::NativeKw>>,
         async_keyword: Option<Token<tokens::AsyncKw>>,
         keyword: Required<Token<tokens::FnKw>>,
         name: Required<Name>,
@@ -370,7 +373,7 @@ node!(
 ///
 /// `fn f() {}` stores a required [`BlockExpr`] in `Block`; an admitted
 /// `fn f();` signature stores its semicolon in `Declaration`. A missing block
-/// is distinct from a declaration; parser mode and context govern admission.
+/// is distinct from a declaration; explicit Native syntax and context govern admission.
 #[derive(Debug)]
 pub enum FunctionBody {
     Block(Required<Box<BlockExpr>>),
@@ -558,9 +561,12 @@ node!(
     /// receiver and explicit parameter, `result` stores `-> T`, and `body` is a block.
     /// [`ParamList`] owns parentheses and commas; [`FunctionBody`] also represents
     /// semicolon-only declarations. Attributes and visibility belong to this method.
+    /// A `native fn get(self) -> T;` method retains its `native_keyword` separately
+    /// from the semicolon, distinguishing it from an ordinary Required trait method.
     MethodDef {
         attributes: Attributes,
         visibility: Visibility,
+        native_keyword: Option<Token<tokens::NativeKw>>,
         async_keyword: Option<Token<tokens::AsyncKw>>,
         keyword: Required<Token<tokens::FnKw>>,
         name: Required<Name>,
@@ -616,20 +622,24 @@ pub enum AliasTarget {
 }
 
 node!(
-    /// A declaration-mode type without an alias target.
+    /// An explicit Native type with optional declared fields and no alias target.
     ///
-    /// For `type Handle<T>: Resource;`, `name` is `Handle`, `generics` stores `<T>`,
-    /// `bounds` stores `: Resource`, and `terminator` holds `;`. An optional
-    /// `where_clause` precedes the terminator. No equals token or target type is invented.
-    OpaqueTypeDef {
+    /// For `native type Handle<T>: Resource;`, `name` is `Handle`, `generics` stores
+    /// `<T>`, `bounds` stores `: Resource`, and `terminator` holds `;`. In
+    /// `native type Counter { pub var value: i32 }`, `fields` holds the ordinary
+    /// field list and `terminator` is absent. An optional `where_clause` precedes
+    /// either form. No equals token, alias target or storage implementation is invented.
+    NativeTypeDef {
         attributes: Attributes,
         visibility: Visibility,
+        native_keyword: Required<Token<tokens::NativeKw>>,
         keyword: Required<Token<tokens::TypeKw>>,
         name: Required<Name>,
         generics: Option<Box<GenericParamList>>,
         bounds: Option<Supertraits>,
         where_clause: Option<Box<WhereClause>>,
-        terminator: Required<Token<tokens::Semi>>,
+        fields: Option<FieldList>,
+        terminator: Option<Required<Token<tokens::Semi>>>,
     }
 );
 

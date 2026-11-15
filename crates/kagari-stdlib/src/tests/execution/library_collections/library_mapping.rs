@@ -348,10 +348,13 @@ fn native_iterator_completion_navigates_to_the_generated_impl() {
         .find(|candidate| candidate.name == "next")
         .expect("next completion");
     let declaration = snapshot.declaration(&next.declaration).unwrap();
-    let source = snapshot.source(declaration.location.file).unwrap();
+    let source = snapshot
+        .source(declaration.source_location().unwrap().file)
+        .unwrap();
     assert_eq!(source.name(), generated.uri);
     assert_eq!(
-        &source.text()[declaration.location.range.start..declaration.location.range.end],
+        &source.text()[declaration.source_location().unwrap().range.start
+            ..declaration.source_location().unwrap().range.end],
         "next"
     );
 }

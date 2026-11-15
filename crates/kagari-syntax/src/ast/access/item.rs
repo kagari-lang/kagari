@@ -7,7 +7,7 @@ use crate::ast::{
     item::{
         AliasTarget, AssociatedType, Attribute, AttributeArg, AttributeArgs, AttributePayload,
         AttributeValue, ConstDef, ConstInitializer, EnumDef, FnDef, FunctionBody, ImplBlock,
-        Member, MethodDef, ModuleDef, OpaqueTypeDef, StaticDef, StructDef, TraitDef, TypeAlias,
+        Member, MethodDef, ModuleDef, NativeTypeDef, StaticDef, StructDef, TraitDef, TypeAlias,
         UseDecl, UseSuffix, UseTree, UseTreeList, VisibilityKind,
     },
     misc::{
@@ -38,7 +38,7 @@ declaration_fields!(
     TraitDef,
     ImplBlock,
     TypeAlias,
-    OpaqueTypeDef,
+    NativeTypeDef,
     MethodDef,
     AssociatedType,
     Field,
@@ -66,7 +66,7 @@ named_visibility!(
     EnumDef,
     TraitDef,
     TypeAlias,
-    OpaqueTypeDef,
+    NativeTypeDef,
     MethodDef,
     AssociatedType
 );
@@ -86,7 +86,7 @@ generics!(
     TraitDef,
     ImplBlock,
     TypeAlias,
-    OpaqueTypeDef,
+    NativeTypeDef,
     MethodDef,
     AssociatedType
 );
@@ -99,12 +99,15 @@ macro_rules! where_clauses {
     )+ };
 }
 
-where_clauses!(FnDef, ImplBlock, OpaqueTypeDef, MethodDef, AssociatedType);
+where_clauses!(FnDef, ImplBlock, NativeTypeDef, MethodDef, AssociatedType);
 
 macro_rules! functions {
     ($($ty:ty),+ $(,)?) => { $(
         impl<'a> Ast<'a, $ty> {
             pub fn is_async(self) -> bool { self.node.async_keyword.is_some() }
+
+            /// Whether the declaration explicitly selects a Native implementation.
+            pub fn is_native(self) -> bool { self.node.native_keyword.is_some() }
 
             pub fn param_list(self) -> Ast<'a, ParamList> { self.with(&self.node.parameters) }
 
@@ -248,7 +251,9 @@ impl<'a> Ast<'a, AssociatedType> {
     }
 }
 
-impl<'a> Ast<'a, OpaqueTypeDef> {
+impl<'a> Ast<'a, NativeTypeDef> {
+    optional_child!(field_list, FieldList, fields);
+
     pub fn bounds(self) -> Option<Ast<'a, TraitBoundList>> {
         self.node
             .bounds
@@ -381,7 +386,7 @@ impl<'a> ItemView<'a> {
             Self::TraitDef(node) => (node.owner, node.node.attributes.as_slice()),
             Self::ImplBlock(node) => (node.owner, node.node.attributes.as_slice()),
             Self::TypeAlias(node) => (node.owner, node.node.attributes.as_slice()),
-            Self::OpaqueTypeDef(node) => (node.owner, node.node.attributes.as_slice()),
+            Self::NativeTypeDef(node) => (node.owner, node.node.attributes.as_slice()),
             Self::Error(node) => (node.owner, &[][..]),
         };
         attributes.iter().map(move |node| Ast { owner, node })

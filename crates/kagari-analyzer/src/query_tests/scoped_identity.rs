@@ -103,7 +103,15 @@ fn definitions_are_module_owned_but_bindings_are_analysis_and_body_owned() {
         first.definitions().resolve(binding.body).unwrap().to_path(),
         definitions.resolve(*owner).unwrap().to_path()
     );
-    assert_eq!(first.declaration(&function_b.id).unwrap().location.file, b);
+    assert_eq!(
+        first
+            .declaration(&function_b.id)
+            .unwrap()
+            .source_location()
+            .unwrap()
+            .file,
+        b
+    );
     let unchanged = snapshot(&mut db, &sources);
     assert_eq!(unchanged.declaration(&binding_a.id), Some(&binding_a));
 
@@ -113,8 +121,14 @@ fn definitions_are_module_owned_but_bindings_are_analysis_and_body_owned() {
         .unwrap();
     let second = snapshot(&mut db, &sources);
     let new_function = second.declaration(&function_a.id).unwrap();
-    assert_ne!(new_function.location.revision, function_a.location.revision);
-    assert_eq!(new_function.location.file, function_a.location.file);
+    assert_ne!(
+        new_function.source_location().unwrap().revision,
+        function_a.source_location().unwrap().revision
+    );
+    assert_eq!(
+        new_function.source_location().unwrap().file,
+        function_a.source_location().unwrap().file
+    );
     assert!(second.declaration(&binding_a.id).is_none());
     assert_eq!(first.declaration(&binding_a.id), Some(&binding_a));
     let new_binding = second

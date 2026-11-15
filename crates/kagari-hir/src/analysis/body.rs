@@ -242,7 +242,7 @@ impl AnalysisDatabase {
             };
             file.prepared.lowered.module.functions.iter().find(|f| {
                 f.id == function
-                    && f.body.is_some()
+                    && f.implementation.script_body().is_some()
                     && (f.kind != FunctionKind::TraitMethod
                         || file
                             .prepared
@@ -306,10 +306,9 @@ impl AnalysisDatabase {
                     Ok(old_file
                         .declaration
                         .parsed
-                        .physical()
-                        .diagnostics()
+                        .physical_diagnostics()
                         .is_empty()
-                        && file.declaration.parsed.physical().diagnostics().is_empty()
+                        && file.declaration.parsed.physical_diagnostics().is_empty()
                         && old.typed.diagnostics().is_empty()
                         && old_file.diagnostics().is_empty()
                         && file.diagnostics().is_empty()

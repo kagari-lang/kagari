@@ -15,6 +15,7 @@ use kagari_hir::{
         bindings::LookupOutcome,
         catalog::{LookupContext, LookupHit, LookupResult},
     },
+    source_map::origin::OriginTarget,
     typeck::table::ResolvedTypeTarget,
 };
 use kagari_types::declaration::names::NameNamespace;
@@ -87,8 +88,8 @@ fn type_hits(
                         .unit
                         .matches(&facts.lowered, facts.names.catalog.definitions())
             }
-            (ResolvedTypeTarget::OpaqueType(expected), ResolvedTarget::Source(source)) => {
-                matches!(source.item, SourceItem::OpaqueType(actual) if actual == *expected)
+            (ResolvedTypeTarget::NativeType(expected), ResolvedTarget::Source(source)) => {
+                matches!(source.item, SourceItem::NativeType(actual) if actual == *expected)
                     && source
                         .unit
                         .matches(&facts.lowered, facts.names.catalog.definitions())
@@ -160,10 +161,10 @@ fn expression_hits(
         // Synthetic shorthand name expressions have no PathExpr syntax.
         if sites.expr_path(id).is_empty()
             && let Some(hit) = full
-        {
-            let span = sites
+            && let Some(span) = sites
                 .expr_reference_span(id)
-                .unwrap_or_else(|| facts.lowered.source_map.expr_span(id));
+                .or_else(|| facts.lowered.source_map.source_span(OriginTarget::Expr(id)))
+        {
             hits.push((span, hit));
         }
     }
@@ -268,6 +269,12 @@ impl<'a> NavigationIndex<'a> {
     ) -> Result<Self, Cancelled> {
         cancel.check()?;
         let facts = analysis.result().facts();
+        if analysis.syntax().is_none() {
+            return Ok(Self {
+                analysis,
+                hits: vec![],
+            });
+        }
         let sites = SourceSites::build(&facts.lowered, &analysis.syntax(), cancel)?;
         let mut hits = type_hits(facts, &sites, cancel)?;
         expression_hits(facts, &sites, &mut hits, cancel)?;

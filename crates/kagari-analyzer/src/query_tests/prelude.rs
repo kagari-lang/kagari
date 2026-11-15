@@ -145,11 +145,11 @@ fn invalid_values_and_type_only_names_are_rejected_without_losing_neighbor_targe
         "Point",
         "Mode",
         "View",
-        "native::choose",
-        "native",
+        "bindings::choose",
+        "bindings",
     ] {
         let text = format!(
-            "use demo::native; fn answer() -> i32 {{ 42 }} struct Point {{}} enum Mode {{ Ready }} trait View {{}} fn bad() {{ val value = {name}; }} fn good(x: i32) -> i32 {{ x }}"
+            "use demo::bindings; fn answer() -> i32 {{ 42 }} struct Point {{}} enum Mode {{ Ready }} trait View {{}} fn bad() {{ val value = {name}; }} fn good(x: i32) -> i32 {{ x }}"
         );
         let (snapshot, file) = analyze(&text);
         let file = snapshot.file(file).unwrap();
@@ -161,7 +161,7 @@ fn invalid_values_and_type_only_names_are_rejected_without_losing_neighbor_targe
             .expressions()
             .find(|(_, expr)| matches!(&expr.kind, ExprKind::Name { name: n, .. } if n == name))
             .unwrap();
-        let type_only = matches!(name, "Point" | "Mode" | "View" | "native");
+        let type_only = matches!(name, "Point" | "Mode" | "View" | "bindings");
         let expected_code = if type_only {
             "KG_RESOLVE_UNKNOWN_NAME"
         } else {

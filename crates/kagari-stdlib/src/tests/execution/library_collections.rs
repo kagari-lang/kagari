@@ -398,16 +398,31 @@ fn generated_library_declarations_supply_navigation_docs_and_exported_signatures
         .unwrap();
     let offset = text.find("map(|value|").unwrap();
     let target = snapshot.queries().definition_at(file, offset).unwrap();
-    let source = snapshot.source(target.location.file).unwrap();
+    let source = snapshot
+        .source(target.source_location().unwrap().file)
+        .unwrap();
     assert_eq!(source.name(), generated.uri);
     assert_eq!(
-        &source.text()[target.location.range.start..target.location.range.end],
+        &source.text()[target.source_location().unwrap().range.start
+            ..target.source_location().unwrap().range.end],
         "map"
     );
     let documentation = snapshot.queries().documentation_at(file, offset).unwrap();
     assert!(documentation.documentation.contains("Lazily transform"));
-    assert!(documentation.written_signature.contains("MapIterator"));
-    assert!(documentation.written_signature.contains("Self"));
+    assert!(
+        documentation
+            .written_signature
+            .as_deref()
+            .unwrap()
+            .contains("MapIterator")
+    );
+    assert!(
+        documentation
+            .written_signature
+            .as_deref()
+            .unwrap()
+            .contains("Self")
+    );
     // Trait methods and types are exposed through the declaration inventory.
     for name in ["map", "MapIterator"] {
         let (id, site) = generated
@@ -429,6 +444,6 @@ fn generated_library_declarations_supply_navigation_docs_and_exported_signatures
             .declaration(&DeclarationId::Definition(scoped))
             .unwrap();
         assert_eq!(declaration.name, name);
-        assert_eq!(declaration.location.range, site.name_span);
+        assert_eq!(declaration.source_location().unwrap().range, site.name_span);
     }
 }

@@ -107,10 +107,10 @@ pub(super) fn select(
     let mut barriers = Vec::new();
     for (id, block) in mir.emission_order() {
         let facts = analysis.block(BlockId::new(id)).expect("sealed block");
-        for index in 0..block.instructions.len() {
+        for (index, instruction) in block.instructions.iter().enumerate() {
             block_of[points.len()] = id;
             points.push(facts.instruction(index).expect("sealed point"));
-            let effects = block.instructions[index].effects();
+            let effects = instruction.effects();
             barriers.push(effects.calls || effects.may_suspend);
         }
         block_of[points.len()] = id;

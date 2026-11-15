@@ -28,9 +28,9 @@ trait Boxer {
         val b = (Local {}, right);
         val direct = a == b;
         val forwarded = same(a, b);
-        val native = list_content_equal(Vec::from([a]), Vec::from([b]));
+        val native_equal = list_content_equal(Vec::from([a]), Vec::from([b]));
         val collection = same(Vec::from([a]), Vec::from([b]));
-        if direct != forwarded || direct != native || direct != collection {
+        if direct != forwarded || direct != native_equal || direct != collection {
             val zero = 0;
             1 / zero;
         }

@@ -48,7 +48,7 @@ impl FileAnalysis {
         cancel.check()?;
         let old = self.result.records().facts();
         let names = &prepared.record.names.facts;
-        let compatible = self.parsed.physical().diagnostics().is_empty()
+        let compatible = self.parsed.physical_diagnostics().is_empty()
             && self.shared_valid
             && old.names.imports.same_bindings(&names.imports)
             && old.names.catalog.same_reuse_namespaces(

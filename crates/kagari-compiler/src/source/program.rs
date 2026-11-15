@@ -124,7 +124,7 @@ fn lower_program(
         context: &context,
         options,
         sources: &source_inputs,
-        source_manifest: &source_manifest,
+        source_manifest: source_manifest.as_ref(),
         exports: &exports,
     };
     let mut update_budget = Budget::new(Default::default(), &options.cancel).map_err(|error| {

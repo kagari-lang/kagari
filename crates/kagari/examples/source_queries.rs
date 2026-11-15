@@ -122,7 +122,8 @@ fn main() -> kagari::CompileResult<()> {
         .expect("selected function");
     assert_eq!(
         selected
-            .body
+            .implementation
+            .script_body()
             .expect("selected script function body")
             .owner(),
         HirOwner::Body(BodyOwner::Function(body.function()))
@@ -308,7 +309,14 @@ fn main() -> kagari::CompileResult<()> {
         .expect("resolved local");
     let position = analysis
         .source()
-        .position(target.location.range.start, PositionEncoding::Utf16)
+        .position(
+            target
+                .source_location()
+                .expect("source-backed local declaration")
+                .range
+                .start,
+            PositionEncoding::Utf16,
+        )
         .expect("source position");
     println!(
         "{}:{}:{} -> {} ({:?})",

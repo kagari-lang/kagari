@@ -29,6 +29,9 @@ struct DeclarationSiteIndex<'a> {
 impl<'a> DeclarationSiteIndex<'a> {
     fn new(lowered: &LoweredModule, declarations: &'a Declarations) -> Self {
         let mut index = Self::default();
+        if lowered.source_map.is_structured() {
+            return index;
+        }
         let module = &lowered.module;
         let map = &lowered.source_map;
         let mut named = |item, name| {
@@ -51,8 +54,8 @@ impl<'a> DeclarationSiteIndex<'a> {
         for item in &module.type_aliases {
             named(Item::TypeAlias(item.id), ResolvedName::TypeAlias(item.id));
         }
-        for item in &module.opaque_types {
-            named(Item::OpaqueType(item.id), ResolvedName::OpaqueType(item.id));
+        for item in &module.native_types {
+            named(Item::NativeType(item.id), ResolvedName::NativeType(item.id));
         }
         for item in &module.structs {
             named(Item::Struct(item.id), ResolvedName::Struct(item.id));
@@ -76,8 +79,11 @@ impl<'a> DeclarationSiteIndex<'a> {
         for item in &module.type_aliases {
             index.generics(lowered, declarations, &item.generic_params);
         }
-        for item in &module.opaque_types {
+        for item in &module.native_types {
             index.generics(lowered, declarations, &item.generic_params);
+            for field in &item.fields {
+                index.insert(map.field_span(field.id), declarations.field(field.id), true);
+            }
         }
         for item in &module.structs {
             index.generics(lowered, declarations, &item.generic_params);
@@ -165,6 +171,7 @@ impl<'a> DeclarationSiteIndex<'a> {
 
     fn insert(&mut self, range: Span, declaration: Option<&'a Declaration>, member: bool) {
         if let Some(declaration) = declaration
+            && declaration.source_location().is_some()
             && !declaration.name.is_empty()
             && !declaration.name.starts_with('<')
         {
@@ -240,6 +247,7 @@ impl<'a> DeclarationFileQueries<'a> {
 
     /// Finds a declared member name without checking signatures or bodies.
     pub fn member_at(&self, offset: usize) -> Option<&'a Declaration> {
+        self.analysis.syntax()?;
         DeclarationQueries::new(self.analysis.lowered(), self.analysis.declarations())
             .member_at(offset)
     }

@@ -21,7 +21,7 @@ use kagari_types::{
 use std::{iter, slice, sync::Arc};
 
 fn fixture() -> (Runtime, VerifiedProgram, DefinitionId, DefinitionId) {
-    let mut provider = ModuleBuilder::new("authority::native", &Default::default()).unwrap();
+    let mut provider = ModuleBuilder::new("authority::bindings", &Default::default()).unwrap();
     let mut shared = provider.define_trait("Shared").unwrap();
     shared.type_parameter("T").unwrap();
     shared.finish().unwrap();

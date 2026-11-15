@@ -1,9 +1,7 @@
 use super::*;
 use crate::{
-    declarations::DeclarationId,
-    native::{NativeBinding, render::declaration_source},
-    semantic::signatures::FunctionImplementation,
-    tests::test_analysis,
+    declarations::DeclarationId, hir::item::function::FunctionImplementation as HirImplementation,
+    native::NativeBinding, semantic::signatures::FunctionImplementation, tests::test_analysis,
     typeck::signature_reuse::reuse_signatures,
 };
 use kagari_common::identity::{ModuleIdentity, PackageId};
@@ -11,7 +9,8 @@ use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_stdlib::{catalog as foundation_catalog, catalog};
+
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> SignatureSnapshot {
     db.signatures(sources.snapshot(), &Default::default())
@@ -29,20 +28,8 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
         .files
         .values()
         .find(|file| {
-            file.source().name()
-                == declaration_source(
-                    &catalog::shared()
-                        .unwrap()
-                        .into_iter()
-                        .find(|module| {
-                            module.records().identity
-                                == kagari_stdlib::namespaces::module("std", "collections")
-                        })
-                        .unwrap(),
-                    &foundation_catalog::shared().unwrap(),
-                )
-                .unwrap()
-                .uri
+            file.source().module_identity()
+                == &kagari_stdlib::namespaces::module("std", "collections")
         })
         .unwrap();
     assert!(
@@ -71,6 +58,48 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
     let mut changed = original.as_ref().clone();
     changed.native_functions.clear();
     assert_eq!(changed.source.text(), original.source.text());
+    assert!(
+        reuse_signatures(
+            original,
+            &prepared.record.signatures,
+            &changed,
+            &Default::default()
+        )
+        .is_none()
+    );
+    let mut changed = original.as_ref().clone();
+    let native = changed
+        .module
+        .functions
+        .iter()
+        .position(|function| matches!(function.implementation, HirImplementation::Native(_)))
+        .unwrap();
+    let HirImplementation::Native(contract) = &mut changed.module.functions[native].implementation
+    else {
+        unreachable!();
+    };
+    contract.concrete_result = Some(Ty::Builtin(BuiltinType::I64));
+    assert!(
+        reuse_signatures(
+            original,
+            &prepared.record.signatures,
+            &changed,
+            &Default::default()
+        )
+        .is_none()
+    );
+    changed.module.functions[native].implementation = HirImplementation::Required;
+    assert!(
+        reuse_signatures(
+            original,
+            &prepared.record.signatures,
+            &changed,
+            &Default::default()
+        )
+        .is_none()
+    );
+    let mut changed = original.as_ref().clone();
+    changed.external_api = true;
     assert!(
         reuse_signatures(
             original,

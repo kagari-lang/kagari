@@ -1,8 +1,9 @@
 # Native HIR declaration implementation plan
 
-**Status:** NM00 design/baseline work is prepared for review. User review narrows this change to
-Native HIR representation, declaration inputs and parsing/analysis. Implementation is unstarted
-and not authorized by this scope clarification. Baseline: design/hir-native-model, c19a0ffbf.
+**Status:** The user authorized unattended NM01–NM04 implementation and phase commits after
+scope review. NM01 implementation and its integrated frontend prerequisites are complete locally;
+NM02 editor/grammar acceptance, NM03 final SDK/executable sampling and NM04 documentation remain.
+Baseline: design/hir-native-model, c19a0ffbf.
 The [design](native-model-design.md) owns structures and semantics; this plan owns sequencing and
 acceptance. The [roadmap](implementation-roadmap.md#native-model-replacement) owns activation.
 This replaces the unstarted whole-stack NM01–NM07 sequence, not a second migration queue.
@@ -126,8 +127,62 @@ authority. Source-versus-exported admission belongs to analysis, not a grammar-m
 
 ## Execution phases
 
-The scoped sequence below replaces the earlier unstarted phases. No implementation or commits
-are authorized merely by recording it; each approved checkpoint must integrate its affected consumers.
+The scoped sequence below replaces the earlier unstarted phases. The subsequent user instruction
+authorizes implementation and phase commits. Each checkpoint integrates its affected consumers.
+
+### Execution decisions and current evidence
+
+The NM01 category/ownership replacement requires coordinated parser, declaration-input, optional
+parse/origin and shared-checker changes to keep the compiler/analyzer consumers buildable. These
+NM02/NM03 prerequisites are included in the atomic NM01 frontend checkpoint rather than retaining
+obsolete HIR wrappers or introducing a temporary second checker. NM02 separately completes the
+editor/generated-grammar and written-syntax integration; NM03 completes SDK/executable sampling.
+
+- Functions use HIR Required/Script/Native. Checked signatures separately distinguish unbound
+  Native declarations from installed Native bindings; this is authority separation, not a fourth
+  HIR implementation kind. NativeDefault forwarding remains Script with existing binding evidence.
+- Owned ModuleDecl records lower directly with construction-time identity correspondence.
+  Explicit supplied documents retain complete Script definitions and validated structural slots.
+  Exact-ID type inputs are unchecked; selected public exposure is retained and validated against
+  the same catalog. ID-only inputs may select a unique reachable exposure, never private access.
+- Native contracts reuse scoped Ty/NativeCallableRequirement records rather than duplicate a
+  type-expression schema. Shared recursive checks enforce actual category, identity, exact arity,
+  binder scope, bounds, associated-member ownership and concrete-result conformance before use.
+  Projection proofs consume declared associated-output bounds with exact substitutions.
+- Source-less registrations use an empty logical graph key under the current SourceUnit graph;
+  it is not a physical declaration input. NodeOrigin/DeclarationOrigin retain structured identity,
+  syntax/source-location APIs return None, and complete-source packaging rejects missing authored
+  manifests. Executables without complete source remain valid; debug capture does not invent spans.
+- ExternalModule explicitly supplies real source plus scoped static sidecars for constructors,
+  Host schemas/paths, method restrictions, ordered operations/results and foundation/conversion
+  traits. The sidecars are analysis inputs, not bindings or installed authority. Mixed inputs check
+  constructor ownership and dependencies. Native fields have shared types/writeability; unsupported
+  executable fields remain rejected. No new Runtime adapter or Ref operation is implemented.
+- Default SDK preparation uses structured input. Explicit materialized declaration views retain
+  the existing parsed/validated navigation route; publication/export architecture is unchanged.
+- Baseline blockers were repaired at their narrow owners: placement iteration, removed Runtime
+  documentation-query test consumers, dropped weak-graph reuse expectation (with retained-snapshot
+  positive control), and syntax token spacing. No execution invalidation guarantee was relaxed.
+
+NM01 local evidence (macOS, workspace defaults; no full-workspace test run):
+
+| Selection | Result |
+| --- | --- |
+| HIR native selection | 40 passed |
+| External/equivalent/foundation/Host inputs | 9 passed |
+| Transitive signature invalidation | 1 passed |
+| Analyzer Native queries/navigation | 19 passed |
+| Compiler source-package/origin tests | 9 passed |
+| Compiler source-free field visibility | 1 passed |
+| Stdlib native_schema including DTO/Serde/identity and source-free schema | 16 passed |
+| Runtime enum declaration/navigation tests | 8 passed |
+| SDK registration, documentation/cache, execution | 6 passed |
+| Structure / fmt / workspace all-target Clippy / diff | Passed; existing optional blake3 Cargo manifest warning remains |
+
+Independent review exposed and prompted fixes for actual offline foundation roles, Host semantic
+classification, public-reexport exact references, malformed contract applications, constructor-owner
+conflicts and fabricated canonical source locations. Corresponding independent assertions remain
+at their semantic owners. Broader CI backend/feature/platform matrices remain unrun.
 
 ### NM01 — unify Native HIR records and ownership
 
@@ -363,4 +418,6 @@ No unrelated failure was repaired during NM00. The
 Do not repeat unchanged failures awaiting their owner or call them green. Resolve affected owners
 when touched, otherwise report the external acceptance blocker. No commit/push is authorized by
 scope review; when requested, use buildable Conventional Commit checkpoints and Plan-Phase: NMxx.
-NM01–NM04 are unstarted. No Runtime redesign, new binary format, field execution or speedup is claimed.
+The historical failures above have been rechecked and repaired as recorded in current execution
+evidence. NM01 is locally complete; later phase acceptance remains pending. No Runtime redesign,
+new binary format, field execution or speedup is claimed.

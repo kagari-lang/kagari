@@ -1,38 +1,38 @@
 //! Nominal struct, enum and native-backed type declarations; no runtime object storage.
 
 use crate::hir::{
-    ids::{EnumId, FieldId, ImplId, OpaqueTypeId, StructId, TypeRefId, VariantId},
+    ids::{EnumId, FieldId, ImplId, NativeTypeId, StructId, TypeRefId, VariantId},
     item::behavior::{GenericParam, TraitBound, TraitRef},
     writeability::Writeability,
 };
 use kagari_types::visibility::Visibility;
 
-/// A type surface whose storage/identity must come from an installed native provider.
+/// A Native nominal interface, independent of its installed storage representation.
 ///
 /// ```text
-/// pub type Handle<T: Display>: Marker where T: Copy;
-/// OpaqueType {
-///     id: o, visibility: Public, name: "Handle",
+/// pub native type Handle<T: Display> { pub var value: T }
+/// NativeTypeDeclaration {
+///     id: n, visibility: Public, name: "Handle",
 ///     generic_params: [GenericParam { id: g, name: "T", bounds: [display_ref] }],
-///     bounds: [TraitBound { target: "T", target_ref: t, traits: [copy_ref] }],
-///     trait_bounds: [marker_ref], definition: None,
+///     bounds: [], trait_bounds: [],
+///     fields: [Field { id: f, visibility: Public, writeability: Var, name: "value", ty: t }],
 /// }
-/// o -> Module.opaque_types[o.index()]
-/// t / each TraitRef.ty -> Body.type_ref -> target / trait application syntax
+/// n -> Module.native_types[n.index()]
+/// f = FieldId { arena, owner: FieldOwner::NativeType(n), slot: 0 }
+/// t / each TraitRef.ty -> Body.type_ref -> field / trait application syntax
 /// ```
 ///
-/// This illustrates the offline/native declaration surface accepted by
-/// `kagari_syntax::parser::parse` with declaration mode; ordinary script parsing rejects
-/// opaque `type Handle;` declarations. Ordinary `type Alias = Target;` declarations
-/// have their own transparent alias model. This is not a script-created storage definition
-/// or ordinary type alias. A matching installed declaration is required. Omitted generics/where/output bounds leave their buffers empty;
-/// absence of `pub` selects private visibility. An `= Type` suffix, if parsed,
-/// is retained as `definition: Some(type_id)` for later validation, not automatic
-/// alias expansion. Native registration and signature checking own acceptance.
+/// Fields use ordinary visibility, type and var/val checking, not Rust layout or
+/// executable adapters. A semicolon declaration has no fields. Omitted generic
+/// and bound lists remain empty; omitted visibility selects private access.
+/// Declaration-only analysis needs no installed provider. Executable admission
+/// separately requires matching representation facts; native field execution is
+/// unsupported until runtime adapters exist. Transparent `type Alias = Target`
+/// declarations have a separate alias owner and create no Native identity.
 #[derive(Debug, Clone)]
-pub struct OpaqueType {
-    /// Slot in `Module.opaque_types`.
-    pub id: OpaqueTypeId,
+pub struct NativeTypeDeclaration {
+    /// Slot in `Module.native_types`.
+    pub id: NativeTypeId,
     /// Declared visibility.
     pub visibility: Visibility,
     /// Declared nominal type name.
@@ -43,8 +43,9 @@ pub struct OpaqueType {
     pub bounds: Vec<TraitBound>,
     /// Declared trait requirements on the type surface.
     pub trait_bounds: Vec<TraitRef>,
-    /// Optional source type definition retained for validation.
-    pub definition: Option<TypeRefId>,
+    /// Fields in declaration order, using the same interface rules as struct fields.
+    /// These records describe no Rust offsets or runtime access adapters.
+    pub fields: Vec<Field>,
 }
 
 /// A nominal struct declaration with inline field records, not a runtime object.
@@ -57,7 +58,7 @@ pub struct OpaqueType {
 ///     fields: [x_field, label_field], impls: [],
 /// }
 /// x_field = Field { id: x, visibility: Public, writeability: Var, name: "x", ty: t }
-/// x = FieldId { arena, owner: s, slot: 0 }
+/// x = FieldId { arena, owner: FieldOwner::Struct(s), slot: 0 }
 /// Module.field(x) -> Module.structs[s.index()].fields[0]
 /// t -> Body.type_ref -> Named("T")
 /// label_field has slot 1, Private visibility, Val writeability and String type syntax
@@ -85,30 +86,30 @@ pub struct Struct {
     pub impls: Vec<ImplId>,
 }
 
-/// A field declaration stored inline in its struct, distinct from a field initializer.
+/// A field declaration stored inline in its struct or Native type, not a field initializer.
 ///
 /// ```text
 /// struct Point { pub var x: i32 }
 /// Field { id: f, visibility: Public, writeability: Var, name: "x", ty: t }
-/// f = FieldId { arena, owner: point_id, slot: 0 }
+/// f = FieldId { arena, owner: FieldOwner::Struct(point_id), slot: 0 }
 /// t -> Body.type_ref -> Named("i32")
 /// f -> Module.field(f); SourceMap.field_span(f) records the name site
 /// ```
 ///
 /// `pub`, `var`, `x` and `i32` supply visibility, writeability, name and type syntax;
-/// `id` is synthesized from the enclosing struct and member slot. `val` instead
+/// `id` is synthesized from the enclosing declaration and member slot. `val` instead
 /// selects `Val`, and omitted visibility selects `Private`. A constructor's
 /// `Point { x: 1 }` uses FieldInit with an expression value, not this declaration.
 /// Checking determines field layout/access; missing type syntax becomes a placeholder.
 #[derive(Debug, Clone)]
 pub struct Field {
-    /// Arena/struct/slot identity used by `Module::field`.
+    /// Lowering/declaration/slot identity used by `Module::field`.
     pub id: FieldId,
     /// Visibility required to select this field.
     pub visibility: Visibility,
     /// Declared field assignment policy.
     pub writeability: Writeability,
-    /// Field spelling within its struct.
+    /// Field spelling within its owning declaration.
     pub name: String,
     /// Unresolved field type syntax.
     pub ty: TypeRefId,

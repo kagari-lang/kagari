@@ -1,4 +1,4 @@
-//! Recoverable typed parsing with retained source identity and explicit parse mode.
+//! Recoverable typed parsing with retained source identity and explicit Native syntax.
 
 mod core;
 mod grammar;
@@ -83,41 +83,19 @@ impl Default for ParseLimits {
     }
 }
 
-/// Declaration-mode provenance is retained and cannot imply executable acceptance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ParseMode {
-    /// Ordinary script source, with normal function-body and type-alias requirements.
-    Source,
-    /// Admits bodyless native function signatures and opaque type declarations.
-    /// This does not validate those declarations against an installed host contract.
-    Declarations,
-}
-
-/// Grammar mode and resource limits for one physical source file.
+/// Resource limits for one physical source file.
 ///
-/// Defaults select ordinary source grammar and [`ParseLimits::default`].
+/// Native declarations and ordinary definitions share one grammar regardless of provenance.
 /// Cancellation belongs to the individual [`parse`] operation, not these options.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ParseOptions {
-    /// Grammar policy, retained in [`Parse::mode`]. Defaults to [`ParseMode::Source`].
-    pub mode: ParseMode,
     /// Per-physical-file limits shared by all inline modules in this operation.
     pub limits: ParseLimits,
-}
-
-impl Default for ParseOptions {
-    fn default() -> Self {
-        Self {
-            mode: ParseMode::Source,
-            limits: ParseLimits::default(),
-        }
-    }
 }
 
 #[derive(Debug)]
 pub(crate) struct ParsedFile {
     pub source: SourceFile,
-    pub mode: ParseMode,
     pub lexical: Lexical,
     pub modules: Vec<ModuleBody>,
     pub recoveries: Vec<Recovery>,
@@ -161,11 +139,6 @@ impl Parse {
         &self.file.source
     }
 
-    /// The grammar mode used for this snapshot, not a statement of semantic validity.
-    pub fn mode(&self) -> ParseMode {
-        self.file.mode
-    }
-
     /// Share the immutable physical-file diagnostics without copying individual records.
     /// This handle does not retain the AST or source text; retain the source separately
     /// when presenting the diagnostic spans after dropping the parse.
@@ -195,9 +168,8 @@ impl Parse {
 ///
 /// Syntax errors and resource exhaustion remain in [`Parse::diagnostics`]; callers
 /// decide whether those diagnostics prevent their operation. The snapshot retains
-/// the source, selected mode, missing grammar roles and unparsed recovery suffix.
-/// Declaration mode admits native declarations but does not establish executable
-/// or installed-contract validity.
+/// the source, missing grammar roles and unparsed recovery suffix. Explicit Native
+/// syntax does not establish semantic admission, executable or installed-contract validity.
 ///
 /// # Errors
 ///
@@ -231,13 +203,7 @@ pub fn parse(
     let tokens = lex_with_cancellation(source.text(), cancel)?;
     let lexical = Lexical::new(source.text(), tokens, cancel)?;
     cancel.check()?;
-    let mut parser = Parser::new(
-        source,
-        lexical,
-        options.limits,
-        cancel.clone(),
-        options.mode,
-    );
+    let mut parser = Parser::new(source, lexical, options.limits, cancel.clone());
     let root = parser.parse_root();
     let file = parser.finish(root);
     #[cfg(test)]

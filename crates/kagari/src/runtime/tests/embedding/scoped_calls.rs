@@ -88,7 +88,7 @@ fn scoped_native_calls_accept_compatible_reloaded_descriptors() {
                         r#"
             use game::reload::{{Stats, read}};
             pub fn direct(stats: Ref<Stats>) -> i32 {{ stats.hp }}
-            pub fn native(stats: Ref<Stats>) -> i32 {{ read(stats) + {offset} }}
+            pub fn through_native(stats: Ref<Stats>) -> i32 {{ read(stats) + {offset} }}
             pub fn heal(stats: RefMut<Stats>) -> i32 {{ stats.heal() }}
         "#
                     ),
@@ -116,7 +116,11 @@ fn scoped_native_calls_accept_compatible_reloaded_descriptors() {
         .with_host_scope(|scope| {
             let view = scope.borrow_mut(&descriptor, &mut stats)?;
             for (loaded, hp) in [(&old, 40), (&current, 41), (&old, 42)] {
-                for (entry, expected) in [("direct", hp), ("native", hp + 100), ("heal", hp + 1)] {
+                for (entry, expected) in [
+                    ("direct", hp),
+                    ("through_native", hp + 100),
+                    ("heal", hp + 1),
+                ] {
                     assert_eq!(
                         Runtime::execute_scoped(scope, loaded, entry, &[view.value()], &context)?
                             .as_i32(),
@@ -132,8 +136,14 @@ fn scoped_native_calls_accept_compatible_reloaded_descriptors() {
         .with_host_scope(|scope| {
             let view = scope.borrow(&descriptor, &stats)?;
             assert_eq!(
-                Runtime::execute_scoped(scope, &current, "native", &[view.value()], &context)?
-                    .as_i32(),
+                Runtime::execute_scoped(
+                    scope,
+                    &current,
+                    "through_native",
+                    &[view.value()],
+                    &context
+                )?
+                .as_i32(),
                 Some(143)
             );
             assert!(

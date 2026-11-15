@@ -22,7 +22,7 @@ use kagari_source::{
     diagnostic::DiagnosticKind, source::SourceFile, source_database::SourceDatabase,
 };
 use kagari_stdlib::catalog as foundation_catalog;
-use kagari_syntax::parser::{ParseMode, ParseOptions, parse};
+use kagari_syntax::parser::{ParseOptions, parse};
 use kagari_types::scalar::BuiltinType;
 use std::sync::Arc;
 
@@ -298,22 +298,14 @@ fn type_alias_review_final_size_does_not_sum_intermediate_expansions() {
 }
 
 #[test]
-fn type_alias_declaration_mode_rejects_native_only_attributes() {
-    for attribute in ["#[builtin_type(Array)]", "#[lang = \"array\"]", "#[native]"] {
+fn type_alias_rejects_native_only_attributes() {
+    for attribute in ["#[builtin_type(Array)]", "#[lang = \"array\"]"] {
         let source = Arc::new(SourceFile::new(
             "alias-metadata.kgr",
             format!("{attribute} pub type Value = i32;"),
         ));
         let cancel = CancellationToken::default();
-        let parsed = parse(
-            &source,
-            ParseOptions {
-                mode: ParseMode::Declarations,
-                limits: Default::default(),
-            },
-            &cancel,
-        )
-        .unwrap();
+        let parsed = parse(&source, ParseOptions::default(), &cancel).unwrap();
         assert!(
             parsed.diagnostics().is_empty(),
             "{:?}",
@@ -388,7 +380,7 @@ fn type_alias_transparency_substitution_and_nominal_construction() {
     );
     let canonical = facts.declarations.imported_types().alias(&id).unwrap();
     assert_eq!(canonical.target, TypeId::Builtin(BuiltinType::I32));
-    assert!(facts.lowered.module.opaque_types.is_empty());
+    assert!(facts.lowered.module.native_types.is_empty());
     assert!(result.into_codegen().is_ok());
 }
 

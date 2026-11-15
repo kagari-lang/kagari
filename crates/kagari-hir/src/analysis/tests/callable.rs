@@ -324,7 +324,7 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
     let root = sources
         .set(
             "implementations.kgr",
-            "use demo::native::NativeRead; trait Local { fn required(self)->i32; fn defaulted(self)->i32 { 42 } }".into(),
+            "use demo::bindings::NativeRead; trait Local { fn required(self)->i32; fn defaulted(self)->i32 { 42 } }".into(),
             SourceLayer::Base,
         )
         .unwrap();
@@ -358,7 +358,17 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
         .traits()
         .find(|item| item.declaration.name == "NativeRead")
         .unwrap();
-    let file = snapshot.file(iterator.declaration.location.file).unwrap();
+    assert!(iterator.declaration.source_location().is_none());
+    let owner = authoring_facts
+        .definitions()
+        .resolve(iterator.id)
+        .unwrap()
+        .module()
+        .clone();
+    let file = snapshot
+        .files()
+        .find(|candidate| candidate.source().module_identity() == &owner)
+        .unwrap();
     let authoring = file.to_unverified(&Default::default()).unwrap();
     for name in ["read", "fixed"] {
         let expected =
@@ -395,6 +405,22 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
             })
             .unwrap();
         assert_eq!(function.implementation, expected);
+        let lowered = &authoring.records().facts().lowered;
+        assert!(
+            lowered.module.functions[function.id.index()]
+                .implementation
+                .script_body()
+                .is_some()
+        );
+        assert!(
+            authoring
+                .records()
+                .facts()
+                .typed
+                .type_table()
+                .native_default_call(function.id)
+                .is_some()
+        );
     }
 }
 
@@ -402,11 +428,11 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
 fn native_generic_bounds_and_authority_do_not_depend_on_script_visibility() {
     for (text, native) in [
         (
-            "use demo::native::choose as bound; fn main() { bound(1.0, 2.0, 3.0); }",
+            "use demo::bindings::choose as bound; fn main() { bound(1.0, 2.0, 3.0); }",
             true,
         ),
         (
-            "#[native(fake)] pub fn bound<T>(value:T)->T { value } fn main() { bound(1); }",
+            "#[uninstalled(fake)] pub fn bound<T>(value:T)->T { value } fn main() { bound(1); }",
             false,
         ),
     ] {
@@ -433,15 +459,15 @@ fn native_generic_bounds_and_authority_do_not_depend_on_script_visibility() {
                 .filter(|diagnostic| {
                     matches!(
                         &diagnostic.kind,
-                        DiagnosticKind::UnknownAttribute { name } if name == "native"
+                        DiagnosticKind::UnknownAttribute { name } if name == "uninstalled"
                     )
                 })
                 .collect::<Vec<_>>();
             let [diagnostic] = unknown.as_slice() else {
-                panic!("one unknown native attribute expected: {diagnostics:?}");
+                panic!("one unknown binding attribute expected: {diagnostics:?}");
             };
             let span = diagnostic.span.expect("authored attribute range");
-            assert_eq!(&text[span.start..span.end], "#[native(fake)]");
+            assert_eq!(&text[span.start..span.end], "#[uninstalled(fake)]");
             assert!(
                 analysis
                     .result()

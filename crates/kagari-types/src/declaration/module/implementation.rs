@@ -122,14 +122,21 @@ impl ModuleDecl {
                 }
                 return Err(invalid());
             };
+            let owner = self.implementation_id(index, definitions)?;
             let bindings = implementation
                 .methods
                 .iter()
                 .map(|method| {
-                    let CallableImplementation::Native(binding) = &method.implementation else {
-                        return Err(invalid());
+                    let binding = match method.implementation {
+                        CallableImplementation::Native(binding) => binding,
+                        // Reuse signature projection without inventing a native
+                        // entry for the source body. Restore Script before comparison.
+                        CallableImplementation::Script => {
+                            Self::method_id(owner, &method.name, definitions)?
+                        }
+                        _ => return Err(invalid()),
                     };
-                    Ok((method.name.as_str(), *binding))
+                    Ok((method.name.as_str(), binding))
                 })
                 .collect::<Result<Vec<_>, DeclarationError>>()?;
             let mut expected = implementation_methods(
@@ -144,6 +151,9 @@ impl ModuleDecl {
             // native declaration and installed binding validation check this fact
             // against the receiver target and the actual lifetime-aware adapter.
             for (expected, actual) in expected.iter_mut().zip(&implementation.methods) {
+                if actual.implementation == CallableImplementation::Script {
+                    expected.implementation = CallableImplementation::Script;
+                }
                 if expected.method_policy.receiver_access.is_none() {
                     expected.method_policy.receiver_access = actual.method_policy.receiver_access;
                 }

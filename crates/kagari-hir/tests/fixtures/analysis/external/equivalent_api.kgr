@@ -1,0 +1,18 @@
+pub native type Counter {
+    pub var value: i32,
+    pub val child: support::Child,
+    val secret: i32,
+}
+
+impl Counter {
+    pub native fn new() -> Counter;
+    pub native fn echo<T>(self, value: T) -> T;
+}
+
+impl support::Read for Counter {
+    native fn read(self) -> i32;
+}
+
+pub native fn bounded<T: support::Read>(value: T) -> T;
+
+pub native fn produce() -> support::Read;

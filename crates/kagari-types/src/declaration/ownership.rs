@@ -42,17 +42,37 @@ impl ReceiverOwners {
                     "invalid native constructor declaration".into(),
                 ));
             }
-            if owners
-                .constructors
-                .insert(constructor, module.clone())
-                .is_some_and(|previous| previous != *module)
-            {
-                return Err(DeclarationError(
-                    "native constructor has multiple defining modules".into(),
-                ));
-            }
+            owners.insert(constructor, module)?;
         }
         Ok(owners)
+    }
+
+    /// Checks a mixed environment of already shape-validated constructor bindings.
+    pub fn from_constructors<'a>(
+        constructors: impl IntoIterator<Item = (&'a ModuleIdentity, NativeTypeConstructor)>,
+    ) -> Result<Self, DeclarationError> {
+        let mut owners = Self::default();
+        for (module, constructor) in constructors {
+            owners.insert(constructor, module)?;
+        }
+        Ok(owners)
+    }
+
+    fn insert(
+        &mut self,
+        constructor: NativeTypeConstructor,
+        module: &ModuleIdentity,
+    ) -> Result<(), DeclarationError> {
+        if self
+            .constructors
+            .insert(constructor, module.clone())
+            .is_some_and(|previous| previous != *module)
+        {
+            return Err(DeclarationError(
+                "native constructor has multiple defining modules".into(),
+            ));
+        }
+        Ok(())
     }
 
     /// Resolve receiver ownership in the supplied identity scope. Unknown or

@@ -47,6 +47,8 @@ pub enum SyntaxKind {
     AsyncKw,
     /// The `await` keyword.
     AwaitKw,
+    /// The `native` keyword marking a Native function or type declaration.
+    NativeKw,
     /// The `fn` keyword.
     FnKw,
     /// The `impl` keyword.
@@ -235,6 +237,8 @@ pub enum SyntaxKind {
     TraitRef,
     /// A module-level transparent type alias. See [`TypeAlias`](crate::ast::item::TypeAlias).
     TypeAliasDef,
+    /// An explicit Native type with optional declared fields. See [`NativeTypeDef`](crate::ast::item::NativeTypeDef).
+    NativeTypeDef,
     /// An associated type. See [`AssociatedType`](crate::ast::item::AssociatedType).
     AssociatedType,
     /// An associated-type equality inside generic arguments. See [`AssociatedTypeBinding`](crate::ast::misc::AssociatedTypeBinding).

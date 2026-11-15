@@ -2,8 +2,8 @@
 
 **Status:** NM00 proposal prepared against `c19a0ffbf`. User review limits this implementation
 to Native HIR representation and declaration parsing/analysis, not the overall design discussion.
-Only design/baseline work is authorized;
-implementation has not started. The
+The subsequent user instruction authorizes unattended NM01–NM04 implementation and phase commits.
+The integrated NM01 frontend substrate is implemented; final phase acceptance remains in progress. The
 [execution plan](native-model-plan.md) owns sequencing, evidence and carried errors.
 This replaces the attachment-only draft. Current contracts remain in
 [HIR architecture](architecture/hir.md), [host interop](spec/host-interop.md) and
@@ -35,8 +35,8 @@ ideas or frozen implementation commitments. Keep their structures, rationale and
 they are not prerequisites or acceptance criteria for this HIR change. Reflection and current
 compiler/Runtime behavior remain unchanged.
 
-All records and syntax below are **proposed shapes for review**, not implemented APIs or accepted
-Kagari syntax. Keep owned category tables, owner-qualified IDs and current weak graph retention;
+The record sketches below describe the reviewed design, not literal Rust API declarations.
+Current HIR/input implementations and final acceptance are tracked in the execution plan. Keep owned category tables, owner-qualified IDs and current weak graph retention;
 no arena, universal node identity, per-node Arc or new crate is required.
 
 ## 1. Inputs and ownership

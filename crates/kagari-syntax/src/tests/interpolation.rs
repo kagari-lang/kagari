@@ -177,7 +177,6 @@ fn interpolation_recovery_is_bounded_and_cancellable() {
                 max_diagnostics: 16,
                 ..Default::default()
             },
-            ..Default::default()
         },
         &CancellationToken::default(),
     )
@@ -191,15 +190,5 @@ fn interpolation_recovery_is_bounded_and_cancellable() {
     assert_eq!(parsed.module().text().to_owned(), source.text());
     let cancel = CancellationToken::default();
     cancel.cancel();
-    assert!(
-        parse(
-            &source,
-            ParseOptions {
-                limits: Default::default(),
-                ..Default::default()
-            },
-            &cancel
-        )
-        .is_err()
-    );
+    assert!(parse(&source, ParseOptions::default(), &cancel).is_err());
 }

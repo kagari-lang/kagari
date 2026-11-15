@@ -179,6 +179,16 @@ impl FunctionLowerer<'_, '_> {
             .aggregates()
             .field(field)
             .expect("checked field contract");
+        if self
+            .environment
+            .aggregates()
+            .native_type(&field.owner)
+            .is_some()
+        {
+            return Err(MirLoweringError::UnsupportedExpr(
+                "Native type field access requires runtime field adapters",
+            ));
+        }
         let (receiver, reference) = match receiver {
             TypeId::Reference { target, access } => (target.as_ref(), Some(*access)),
             _ => (receiver, None),

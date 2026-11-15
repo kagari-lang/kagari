@@ -34,7 +34,10 @@ impl NativeDefaultCheck<'_> {
         application: &NativeDefaultApplication,
         table: &TypeTable,
     ) -> Option<ExprId> {
-        let block = self.lowered.module.block(function.body?);
+        let block = self
+            .lowered
+            .module
+            .block(function.implementation.script_body()?);
         if !block.statements.is_empty() {
             return None;
         }

@@ -43,7 +43,7 @@ impl Parser<'_> {
                 TokenKind::AsyncKw if self.nth_nontrivia_kind(1) == Some(TokenKind::FnKw) => {
                     Some(self.local_function())
                 }
-                TokenKind::Hash | TokenKind::PubKw
+                TokenKind::Hash | TokenKind::PubKw | TokenKind::NativeKw
                     if matches!(
                         self.attributed_item_kind(),
                         Some(TokenKind::FnKw | TokenKind::AsyncKw)

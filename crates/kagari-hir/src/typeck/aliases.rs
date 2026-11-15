@@ -252,7 +252,7 @@ impl AliasValidation<'_> {
         };
         let args = match &self.lowered.module.type_ref(reference).kind {
             TypeKind::Named(_) => Vec::new(),
-            TypeKind::Generic { args, .. } => args
+            TypeKind::Generic { args, .. } | TypeKind::Definition { args, .. } => args
                 .iter()
                 .map(|arg| {
                     self.table

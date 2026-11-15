@@ -58,6 +58,16 @@ fn syntax_spec_positive_cases(
     "static mut instead of static val/var",
     "pub static mut COUNTER: i32 = 0;"
 )]
+#[case::reserved_native_function_name(
+    "docs/spec/syntax.md#keywords",
+    "reserved Native keyword as a function name",
+    "fn native() {}"
+)]
+#[case::reserved_native_module_name(
+    "docs/spec/syntax.md#keywords",
+    "reserved Native keyword as a module name",
+    "mod native {}"
+)]
 #[case::dyn_trait_object(
     "docs/spec/traits.md#scope-exclusions",
     "dyn trait object syntax",

@@ -89,37 +89,60 @@ pub(super) struct SourcePreparer<'a> {
 /// A logical view paired with the exact immutable parse that owns its locator.
 #[derive(Debug, Clone)]
 pub(crate) struct ParsedModule {
-    physical: Arc<Parse>,
-    location: ModuleLocation,
+    physical: Option<Arc<Parse>>,
+    location: Option<ModuleLocation>,
     diagnostics: Arc<[usize]>,
     // Native root parses are prepared separately and are not source-reuse inputs.
     limits: Option<ParseLimits>,
 }
 
 impl ParsedModule {
-    pub(crate) fn root(parsed: Parse) -> Self {
+    pub(crate) fn root(parsed: Option<Parse>) -> Self {
         Self {
-            location: parsed.module().location(),
-            diagnostics: (0..parsed.diagnostics().len()).collect(),
-            physical: Arc::new(parsed),
+            location: parsed.as_ref().map(|parsed| parsed.module().location()),
+            diagnostics: (0..parsed
+                .as_ref()
+                .map_or(0, |parsed| parsed.diagnostics().len()))
+                .collect(),
+            physical: parsed.map(Arc::new),
             limits: None,
         }
     }
 
-    pub(crate) fn syntax(&self) -> ModuleSyntax {
-        self.location
-            .resolve(&self.physical)
-            .expect("retained module locator")
+    pub(crate) fn syntax(&self) -> Option<ModuleSyntax> {
+        Some(
+            self.location
+                .as_ref()?
+                .resolve(self.physical.as_ref()?)
+                .expect("retained module locator"),
+        )
     }
 
     pub(crate) fn diagnostics(&self) -> impl ExactSizeIterator<Item = &Diagnostic> {
-        self.diagnostics
-            .iter()
-            .map(|index| &self.physical.diagnostics()[*index])
+        self.diagnostics.iter().map(|index| {
+            &self
+                .physical
+                .as_ref()
+                .expect("source diagnostic owner")
+                .diagnostics()[*index]
+        })
     }
 
-    pub(crate) fn physical(&self) -> &Parse {
-        &self.physical
+    pub(crate) fn physical(&self) -> Option<&Parse> {
+        self.physical.as_deref()
+    }
+
+    pub(crate) fn physical_diagnostics(&self) -> &[Diagnostic] {
+        self.physical()
+            .map_or(&[], |parsed| parsed.diagnostics().as_slice())
+    }
+
+    fn same_parse(&self, other: &Self) -> bool {
+        match (&self.physical, &other.physical) {
+            (Some(left), Some(right)) => Arc::ptr_eq(left, right),
+            (None, None) => true,
+            _ => false,
+        }
     }
 }
 
@@ -170,11 +193,17 @@ pub(super) fn prepare(
             old.source.revision() == source.revision()
                 && old.source.module_identity() == source.module_identity()
                 && old.source.inline_range() == source.inline_range()
-                && Arc::ptr_eq(&old.parsed.physical, &parsed.physical)
+                && old.parsed.same_parse(&parsed)
         });
         let lowered = old
             .and_then(|old| old.lowered.upgrade())
-            .unwrap_or_else(|| Arc::new(lower_module_controlled(source, &parsed.syntax(), cancel)));
+            .unwrap_or_else(|| {
+                Arc::new(lower_module_controlled(
+                    source,
+                    &parsed.syntax().expect("prepared source syntax"),
+                    cancel,
+                ))
+            });
         files.insert(id, PreparedSource { parsed, lowered });
     }
     cancel.check()?;
@@ -210,7 +239,7 @@ pub(super) fn prepare_syntax(
             .filter(|old| {
                 Arc::ptr_eq(&old.source, physical) && old.parsed.limits == Some(preparer.limits)
             })
-            .map(|old| old.parsed.physical.clone())
+            .and_then(|old| old.parsed.physical.clone())
             .or_else(|| preparer.cache.get(physical, preparer.limits));
         let parsed = match cached {
             Some(parsed) => parsed,
@@ -218,7 +247,6 @@ pub(super) fn prepare_syntax(
                 physical,
                 ParseOptions {
                     limits: preparer.limits,
-                    ..Default::default()
                 },
                 cancel,
             )?),
@@ -277,8 +305,8 @@ pub(super) fn prepare_syntax(
                 logical.source.id(),
                 PreparedSyntax {
                     parsed: ParsedModule {
-                        physical: parsed.clone(),
-                        location: logical.syntax.location(),
+                        physical: Some(parsed.clone()),
+                        location: Some(logical.syntax.location()),
                         diagnostics: logical.diagnostics.into(),
                         limits: Some(preparer.limits),
                     },

@@ -74,7 +74,7 @@ fn shared_host_declarations_keep_external_identity_without_rust_reference_admiss
     let mut providers = kagari_stdlib::catalog::shared().unwrap();
     providers.push(module.clone());
     let view = declaration_source(&module, &providers).unwrap();
-    assert!(view.text.contains("pub type Player;"));
+    assert!(view.text.contains("pub native type Player;"));
     assert!(view.text.contains("player: Player"));
     let analysis = analyze_source(&SourceFile::new("root.kgr", "use example::roots::{Player, inspect}; fn forward(player: Player) -> i32 { inspect(player) }"), providers.clone()).unwrap();
     assert!(

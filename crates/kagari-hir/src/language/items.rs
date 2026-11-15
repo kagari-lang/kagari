@@ -26,7 +26,7 @@ use kagari_types::{
 };
 use std::collections::{BTreeMap, btree_map::Entry};
 
-/// Collects validated `#[lang]` trait identities from the owning installed foundation module; reports duplicates, missing and invalid roles.
+/// Collects canonical `#[lang]` identities from an explicitly admitted foundation.
 pub(crate) fn collect(
     lowered: &LoweredModule,
     declarations: &Declarations,
@@ -65,7 +65,7 @@ pub(crate) fn collect(
         {
             report(
                 &name,
-                "only installed language foundation source may declare roles",
+                "only admitted language foundation source may declare roles",
                 attribute.span,
             );
             continue;
@@ -90,7 +90,7 @@ pub(crate) fn collect(
         {
             report(
                 &name,
-                "role differs from the installed declaration identity or visibility",
+                "role differs from the canonical declaration identity or visibility",
                 attribute.span,
             );
             continue;
@@ -114,20 +114,40 @@ pub(crate) fn collect(
     items
 }
 
-/// Compare analyzed member types/binders/parents against installed registrations
-/// before any role-dependent body is accepted.
+/// Compare foundation and static conversion shapes before role-dependent bodies.
+/// Offline defaults remain either complete checked Script bodies or unbound Native
+/// declarations; neither supplies the installed recipe's execution authority.
 pub(crate) fn validate_shapes(
     declarations: &Declarations,
     aggregates: &AggregateCatalog,
     expected: &BTreeMap<DefinitionId, TraitDef>,
+    external: &BTreeMap<DefinitionId, TraitDef>,
     diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {
-    for (role, id) in &declarations.language_items {
-        let Some(expected) = expected.get(id) else {
+    let mut contracts = declarations
+        .language_items
+        .iter()
+        .map(|(role, id)| {
+            (
+                role.name(),
+                id,
+                expected.get(id).or_else(|| external.get(id)),
+                external.contains_key(id),
+            )
+        })
+        .collect::<Vec<_>>();
+    contracts.extend(
+        external
+            .iter()
+            .filter(|(id, _)| !declarations.language_items.values().any(|role| role == *id))
+            .map(|(id, contract)| (contract.name.as_str(), id, Some(contract), true)),
+    );
+    for (name, id, expected, offline) in contracts {
+        let Some(expected) = expected else {
             diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidLanguageRole {
-                role: role.name().into(),
-                reason: "missing installed language declaration".into(),
+                role: name.into(),
+                reason: "missing static language declaration evidence".into(),
             }));
             continue;
         };
@@ -136,8 +156,13 @@ pub(crate) fn validate_shapes(
             actual.conversion_adapter == expected.conversion_adapter
                 && actual.generic_params.len() == expected.generic_params.len()
                 && actual.bounds.values().all(Vec::is_empty)
+                && expected.bounds.is_empty()
                 && actual.associated_consts.is_empty()
+                && expected.associated_consts.is_empty()
                 && actual.associated_type_parameters.is_empty()
+                && expected.associated_types.iter().all(|member| {
+                    member.generic_params.is_empty() && member.parameter_bounds.is_empty()
+                })
                 && actual
                     .supertraits
                     .iter()
@@ -162,6 +187,21 @@ pub(crate) fn validate_shapes(
                     .all(|(actual, expected)| {
                         actual.name == expected.name
                             && match &expected.implementation {
+                                CallableImplementation::NativeDefault(_) if offline => {
+                                    matches!(
+                                        actual.default,
+                                        Some(
+                                            MethodDefault::NativeDeclaration
+                                                | MethodDefault::Script
+                                        )
+                                    )
+                                }
+                                CallableImplementation::Native(_) if offline => {
+                                    actual.default == Some(MethodDefault::NativeDeclaration)
+                                }
+                                CallableImplementation::Script if offline => {
+                                    actual.default == Some(MethodDefault::Script)
+                                }
                                 CallableImplementation::NativeDefault(application) => {
                                     actual.default
                                         == Some(MethodDefault::Native(NativeBinding::Default(
@@ -194,7 +234,9 @@ pub(crate) fn validate_shapes(
                             && actual.params.len() == expected.params.len()
                             && actual.params.iter().zip(&expected.params).all(
                                 |(actual, expected)| {
-                                    !actual.ty.is_unresolved()
+                                    actual.name == expected.name
+                                        && actual.writeability.is_var() == expected.mutable
+                                        && !actual.ty.is_unresolved()
                                         && lower_type(&actual.ty) == expected.ty
                                 },
                             )
@@ -204,8 +246,8 @@ pub(crate) fn validate_shapes(
         });
         if !valid {
             diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidLanguageRole {
-                role: role.name().into(),
-                reason: "declaration binders, parents or member shapes differ from the installed language contract".into(),
+                role: name.into(),
+                reason: "declaration binders, parents or member shapes differ from the static language contract".into(),
             }));
         }
     }

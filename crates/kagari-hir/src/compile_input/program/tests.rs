@@ -7,6 +7,7 @@ use crate::{
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::scalar::BuiltinType;
+use std::sync::Arc;
 
 #[test]
 fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
@@ -324,6 +325,25 @@ fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
             module.lowered.source.module_identity() == native.0.source().module_identity()
         })
         .unwrap();
+    let mut inconsistent = source
+        .to_unverified(&Default::default())
+        .unwrap()
+        .into_records();
+    Arc::make_mut(&mut inconsistent.lowered).module.functions[native.1.index()].implementation =
+        HirImplementation::Required;
+    let inconsistent =
+        CheckedAnalysis::adopt_scoped(&inconsistent, source.definitions(), &Default::default())
+            .unwrap();
+    assert!(matches!(
+        CheckedModule::admit(
+            &inconsistent,
+            &Default::default(),
+            &mut SourceBudget::new(&Default::default())
+        ),
+        Err(AdmissionError::InvalidModule(
+            "function implementation and checked binding disagree"
+        ))
+    ));
     let mut missing = source
         .to_unverified(&Default::default())
         .unwrap()

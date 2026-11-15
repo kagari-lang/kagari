@@ -8,7 +8,7 @@ use kagari_common::identity::{
 };
 use kagari_contract::language::primitive;
 use kagari_stdlib::{catalog as foundation_catalog, identity as library, namespaces};
-use kagari_syntax::parser::{ParseMode, ParseOptions, parse};
+use kagari_syntax::parser::{ParseOptions, parse};
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy},
     declaration::{
@@ -40,15 +40,7 @@ fn native_fixture_source_is_a_valid_offline_declaration() {
         let generated =
             declaration_source(&module, &foundation_catalog::shared().unwrap()).unwrap();
         let source = kagari_source::source::SourceFile::new(&generated.uri, &generated.text);
-        let parsed = parse(
-            &source,
-            ParseOptions {
-                mode: ParseMode::Declarations,
-                limits: Default::default(),
-            },
-            &Default::default(),
-        )
-        .unwrap();
+        let parsed = parse(&source, ParseOptions::default(), &Default::default()).unwrap();
         assert!(
             parsed.diagnostics().is_empty(),
             "{:?}\n{}",

@@ -300,7 +300,7 @@ impl TypeCatalog<'_> {
             ResolvedName::Struct(id) => lowered.structs[id.index()].visibility,
             ResolvedName::Enum(id) => lowered.enums[id.index()].visibility,
             ResolvedName::Trait(id) => lowered.traits[id.index()].visibility,
-            ResolvedName::OpaqueType(id) => lowered.opaque_types[id.index()].visibility,
+            ResolvedName::NativeType(id) => lowered.native_types[id.index()].visibility,
             _ => return true,
         };
         target_visibility.allows_reexport(
@@ -335,7 +335,8 @@ pub(crate) fn alias_references(
         result.push(id);
         match &module.type_ref(id).kind {
             TypeKind::Named(_) => {}
-            TypeKind::Generic { args, bindings, .. } => {
+            TypeKind::Generic { args, bindings, .. }
+            | TypeKind::Definition { args, bindings, .. } => {
                 pending.extend(args);
                 pending.extend(bindings.iter().map(|(_, ty)| ty));
             }

@@ -1,7 +1,7 @@
 use crate::{
     lexer::lex,
     lexical::Lexical,
-    parser::{ParseMode, ParseOptions, core::Parser, parse},
+    parser::{ParseOptions, core::Parser, parse},
     token::TokenKind,
 };
 use kagari_source::source::SourceFile;
@@ -17,13 +17,7 @@ fn comparison_lookahead_stops_at_its_statement_boundary() {
             .filter_map(|(index, token)| (token.kind == TokenKind::Lt).then_some(index + 1))
             .collect::<Vec<_>>();
         let lexical = Lexical::new(source.text(), tokens, &Default::default()).unwrap();
-        let parser = Parser::new(
-            &source,
-            lexical,
-            Default::default(),
-            Default::default(),
-            ParseMode::Source,
-        );
+        let parser = Parser::new(&source, lexical, Default::default(), Default::default());
         let mut visited = 0;
         for start in starts {
             let mut cursor = start;
@@ -53,13 +47,7 @@ fn angle_lookahead_preserves_type_shapes_and_delimiter_ownership() {
         let text = format!("<{arguments}>; next");
         let source = SourceFile::new("types.kgr", &text);
         let lexical = Lexical::new(source.text(), lex(source.text()), &Default::default()).unwrap();
-        let parser = Parser::new(
-            &source,
-            lexical,
-            Default::default(),
-            Default::default(),
-            ParseMode::Source,
-        );
+        let parser = Parser::new(&source, lexical, Default::default(), Default::default());
         let mut cursor = 1;
         assert!(parser.skip_angle_group(&mut cursor), "{arguments}");
         assert_eq!(
@@ -87,13 +75,7 @@ fn angle_lookahead_rejects_non_type_tokens_and_mismatched_delimiters() {
     for text in ["<T; next >", "<T + U>", "<[T)>", "<(T]>", "<fn(T> -> U)"] {
         let source = SourceFile::new("not-types.kgr", text);
         let lexical = Lexical::new(source.text(), lex(source.text()), &Default::default()).unwrap();
-        let parser = Parser::new(
-            &source,
-            lexical,
-            Default::default(),
-            Default::default(),
-            ParseMode::Source,
-        );
+        let parser = Parser::new(&source, lexical, Default::default(), Default::default());
         assert!(!parser.skip_angle_group(&mut 1), "{text}");
     }
 }

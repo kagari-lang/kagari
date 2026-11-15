@@ -30,7 +30,10 @@ pub(crate) fn collect(
                 .item_name_span(Item::Function(method.function))
         })
         .collect();
-    for node in file.syntax().descendants() {
+    let Some(syntax) = file.syntax() else {
+        return Ok(());
+    };
+    for node in syntax.descendants() {
         cancel.check()?;
         // Module traversal excludes child bodies; bodyless callable parameters
         // have their known owner here instead of recovering it through parents.
@@ -61,7 +64,7 @@ pub(crate) fn collect(
             | NodeRef::GenericParam(_)
             | NodeRef::Variant(_)
             | NodeRef::AssociatedType(_)
-            | NodeRef::OpaqueTypeDef(_) => LintId::NonUpperCamelCase,
+            | NodeRef::NativeTypeDef(_) => LintId::NonUpperCamelCase,
             NodeRef::ConstDef(_) | NodeRef::StaticDef(_) => LintId::NonUpperCaseGlobals,
             NodeRef::FnDef(_)
             | NodeRef::MethodDef(_)
@@ -81,7 +84,9 @@ pub(crate) fn collect(
     for binding in usage::binding_usage(file, cancel)? {
         cancel.check()?;
         let name = &binding.declaration.name;
-        let location = binding.declaration.location;
+        let Some(location) = binding.declaration.source_location() else {
+            continue;
+        };
         naming(file, LintId::NonSnakeCase, name, location, out);
         if binding.reads == 0 && !name.starts_with('_') && name != "self" {
             let id = match binding.kind {

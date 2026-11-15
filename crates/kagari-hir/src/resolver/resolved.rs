@@ -5,7 +5,7 @@ use crate::{
     hir::{
         body::Body,
         ids::{
-            BodyOwner, ConstId, EnumId, ExprId, FunctionId, LocalId, ModuleId, OpaqueTypeId,
+            BodyOwner, ConstId, EnumId, ExprId, FunctionId, LocalId, ModuleId, NativeTypeId,
             ParamId, PatternId, PlaceId, StaticId, StructId, TraitId, TypeAliasId,
         },
         pattern::PatternKind,
@@ -35,7 +35,7 @@ pub enum ResolvedName {
     /// A local transparent type alias declaration.
     TypeAlias(TypeAliasId),
     /// A local native-backed type declaration.
-    OpaqueType(OpaqueTypeId),
+    NativeType(NativeTypeId),
     /// A canonical declaration in a qualified source unit.
     Source(SourceDeclRef),
     /// A member container identified through the namespace catalog.

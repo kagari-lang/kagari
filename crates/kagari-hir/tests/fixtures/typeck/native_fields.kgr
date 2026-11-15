@@ -1,0 +1,29 @@
+pub native type Cell<T> {
+    pub var value: T,
+    pub val child: Child,
+    pub val locked: i32,
+}
+
+pub native type Child {
+    pub var count: i32,
+}
+
+struct Script {
+    var value: i32,
+}
+
+fn update(cell: Cell<i32>, value: i32) -> i32 {
+    cell.value = value;
+    cell.child.count = 1;
+    cell.value
+}
+
+fn child(cell: Cell<i32>) -> Child {
+    cell.child
+}
+
+fn invalid(cell: Cell<i32>) {
+    cell.locked = 1;
+    cell.value = false;
+    cell.absent;
+}

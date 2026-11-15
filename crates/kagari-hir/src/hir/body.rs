@@ -21,7 +21,7 @@ use crate::hir::{
 /// For `fn add(x: i32) -> i32 { x + 1 }`, with illustrative indices:
 ///
 /// ```text
-/// Module.functions[f] -> Function { body: Some(b), ... }
+/// Module.functions[f] -> Function { implementation: Script(b), ... }
 /// Body.blocks[b.index] -> (Body(Function(f)), BlockData { tail_expr: Some(e2), ... })
 /// Body.exprs
 /// +-- e0.index -> (Body(Function(f)), Name { name: "x", ... })

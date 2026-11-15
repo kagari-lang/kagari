@@ -1,0 +1,6 @@
+use host::Player;
+
+fn update(player: Player) -> i32 {
+    player.hp = 7;
+    player.hp + player.rank
+}

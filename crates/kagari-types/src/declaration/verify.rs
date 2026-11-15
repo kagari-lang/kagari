@@ -362,9 +362,7 @@ pub fn aggregate_shape_valid(ty: &TypeDef, cancel: &CancellationToken) -> bool {
             }
             TypeDefKind::Native(kind) => !kind.shape_valid(ty),
             TypeDefKind::NativeStorage(layout) => {
-                !ty.fields.is_empty()
-                    || !ty.variants.is_empty()
-                    || !layout.valid_parameters(ty.generic_params.len())
+                !ty.variants.is_empty() || !layout.valid_parameters(ty.generic_params.len())
             }
         }
     {

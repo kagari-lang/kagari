@@ -51,7 +51,7 @@ pub struct NativeBoundSite {
 /// ```text
 /// registered ModuleDecl + providers -> declaration_source
 ///   -> DeclarationSource { uri, text, sites }
-///   -> native::api declaration-mode parsing + correspondence validation
+///   -> native::api ordinary parsing + correspondence validation
 ///   -> ordinary LoweredModule + attached installed metadata
 /// ```
 ///
@@ -252,7 +252,7 @@ impl<'a> DeclarationView<'a> {
             } else if is_struct {
                 "pub struct "
             } else {
-                "pub type "
+                "pub native type "
             });
             let name_span = output.name(&ty.name);
             let generics = output.generics(&ty.generic_params)?;
@@ -280,7 +280,7 @@ impl<'a> DeclarationView<'a> {
                     output.site(owner, start, name_span, vec![], payload);
                 }
                 output.text.push_str("}\n\n");
-            } else if is_struct {
+            } else if is_struct || !ty.fields.is_empty() {
                 output.text.push_str(" {\n");
                 for field in &ty.fields {
                     let owner = self
@@ -697,9 +697,9 @@ impl Renderer<'_> {
         let start = self.text.len();
         self.text
             .push_str(if self.module.private_functions.contains(&id) {
-                "fn "
+                ""
             } else if !method {
-                "pub fn "
+                "pub "
             } else if self
                 .module
                 .view(id)?
@@ -707,10 +707,14 @@ impl Renderer<'_> {
                 .next()
                 .is_some_and(|part| part.kind == DefinitionKind::Trait)
             {
-                "    fn "
+                "    "
             } else {
-                "    pub fn "
+                "    pub "
             });
+        if matches!(function.implementation, CallableImplementation::Native(_)) {
+            self.text.push_str("native ");
+        }
+        self.text.push_str("fn ");
         let name_span = self.name(&function.name);
         let own = function
             .generic_params

@@ -133,7 +133,7 @@ impl ModuleLowering {
                 planner.catalog,
                 planner.options,
                 &planner.definitions(),
-                instance.body.span(origin),
+                instance.body.diagnostic_span(origin),
             )?;
             let classification = instance.classification.lower(&identity);
             // Intrinsic recipes borrow a source context, not its authored ownership.
@@ -322,7 +322,7 @@ fn seed(
                 Vec::new(),
                 module
                     .declaration_span(Item::Function(function.id))
-                    .expect("admitted function span"),
+                    .unwrap_or_default(),
             )?;
         }
     }

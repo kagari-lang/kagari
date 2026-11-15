@@ -16,7 +16,7 @@ use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
 fn native_generic_scalar_calls_keep_their_exact_declared_types() {
-    let text = "use demo::native::{echo, choose}; fn narrow() { echo(1i8); choose(1i8, 2i8, 3i8); } fn wide() { echo(1u64); choose(1u64, 2u64, 3u64); }";
+    let text = "use demo::bindings::{echo, choose}; fn narrow() { echo(1i8); choose(1i8, 2i8, 3i8); } fn wide() { echo(1u64); choose(1u64, 2u64, 3u64); }";
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("numeric-bindings.kgr", text.into(), SourceLayer::Base)
@@ -39,7 +39,10 @@ fn native_generic_scalar_calls_keep_their_exact_declared_types() {
         } else {
             BuiltinType::U64
         });
-        let block = facts.lowered.module.block(function.body.unwrap());
+        let block = facts
+            .lowered
+            .module
+            .block(function.implementation.script_body().unwrap());
         for statement in &block.statements {
             let StmtKind::Expr(expression) = facts.lowered.module.stmt(*statement).kind else {
                 panic!("call statement");
@@ -94,7 +97,7 @@ fn native_generic_scalar_calls_keep_their_exact_declared_types() {
 #[test]
 fn native_generic_calls_use_source_signatures_and_ordinary_inference() {
     let text = r#"
-use demo::native::{choose as bound, echo};
+use demo::bindings::{choose as bound, echo};
 fn identity<T>(value: T) -> T { value }
 fn main() -> i32 {
     val value = bound(identity(42), 0, 100);
@@ -150,7 +153,7 @@ fn main() -> i32 {
                 .unwrap(),
             CallTarget::SourceFunction(target) if name != "identity" => {
                 let imported = facts.imported_functions.target(target).unwrap();
-                assert_ne!(imported.site.location.file, root);
+                assert!(imported.site.source_location().is_none());
                 assert_eq!(
                     *facts
                         .declarations

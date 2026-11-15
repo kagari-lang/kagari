@@ -44,7 +44,7 @@ fn main() -> u64 {
     let typed = &analyzed.typed;
     let lowered = &analyzed.lowered;
     let function = &lowered.module.functions[0];
-    let block = lowered.module.block(function.body.unwrap());
+    let block = lowered.module.block(function.implementation.script_body().unwrap());
 
     let push_expr = match &lowered.module.stmt(block.statements[1]).kind {
         StmtKind::Binding { initializer, .. } => *initializer,
@@ -85,7 +85,7 @@ fn main(value: HashMap<String, i32>) -> u64 {
     let typed = &analyzed.typed;
     let lowered = &analyzed.lowered;
     let function = &lowered.module.functions[0];
-    let block = lowered.module.block(function.body.unwrap());
+    let block = lowered.module.block(function.implementation.script_body().unwrap());
     let tail_expr = block.tail_expr.expect("tail expr");
 
     assert_eq!(
@@ -394,7 +394,7 @@ fn resolves_native_constructor_imports_facade_exports_and_function_calls() {
     for function in &lowered.module.functions {
         let tail = lowered
             .module
-            .block(function.body.unwrap())
+            .block(function.implementation.script_body().unwrap())
             .tail_expr
             .unwrap();
         let call = analyzed.typed.type_table.call_resolution(tail).unwrap();
@@ -471,7 +471,7 @@ fn popped(values: Vec<i32>) -> Option<i32> {
 
     let keys_tail = lowered
         .module
-        .block(lowered.module.functions[0].body.unwrap())
+        .block(lowered.module.functions[0].implementation.script_body().unwrap())
         .tail_expr
         .expect("keys tail expr");
     assert_eq!(
@@ -500,7 +500,7 @@ fn popped(values: Vec<i32>) -> Option<i32> {
 
     let chars_tail = lowered
         .module
-        .block(lowered.module.functions[1].body.unwrap())
+        .block(lowered.module.functions[1].implementation.script_body().unwrap())
         .tail_expr
         .expect("chars tail expr");
     assert_eq!(
@@ -517,7 +517,7 @@ fn popped(values: Vec<i32>) -> Option<i32> {
 
     let popped_tail = lowered
         .module
-        .block(lowered.module.functions[2].body.unwrap())
+        .block(lowered.module.functions[2].implementation.script_body().unwrap())
         .tail_expr
         .expect("popped tail expr");
     assert_eq!(

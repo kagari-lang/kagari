@@ -1,0 +1,18 @@
+struct Local {}
+
+impl api::Read for Local {
+    fn read(self) -> i32 {
+        1
+    }
+    fn defaulted(self) -> i32 {
+        2
+    }
+}
+
+fn invalid(counter: api::Counter, child: api::Child) {
+    counter.child = child;
+    val secret = counter.secret;
+    counter.hidden();
+    api::bounded(true);
+    api::Counter::new(1);
+}

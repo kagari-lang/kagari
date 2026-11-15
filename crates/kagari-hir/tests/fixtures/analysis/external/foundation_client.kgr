@@ -1,0 +1,16 @@
+fn arithmetic(a: i32, b: i32) -> i32 {
+    a + b * 2
+}
+
+fn iteration(values: Iterator<Item = i32>) -> i32 {
+    val mapped = values.map(|value| value + 1);
+    var result = 0;
+    for value in mapped {
+        result += value;
+    }
+    result + values.sum() + values.product()
+}
+
+fn conversion(value: i32) -> i64 {
+    value.into()
+}

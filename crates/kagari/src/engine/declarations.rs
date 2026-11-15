@@ -39,7 +39,8 @@ pub(super) fn prepare(
         .map_err(|error| EmbeddingError::Source {
             message: error.to_string(),
         })?;
-    // Analyze the final source identity once; publish files only after checking.
+    // Explicit materialized views retain their checked navigation surface. Ordinary
+    // compilation lowers registration records directly, independently of these views.
     if let Some(root) = &builder.declaration_cache {
         for source in &mut sources {
             source.uri = source_name(&cache_path(root, &source.text)?)?;
@@ -47,11 +48,15 @@ pub(super) fn prepare(
     }
     let mut analysis =
         AnalysisDatabase::new(source_root).map_err(|message| EmbeddingError::Source { message })?;
-    analysis
-        .set_native_sources(providers.clone(), sources.clone())
-        .map_err(|error| EmbeddingError::Source {
-            message: format!("{error:?}"),
-        })?;
+    if builder.declaration_cache.is_some() {
+        analysis
+            .set_native_sources(providers.clone(), sources.clone())
+            .map_err(|error| EmbeddingError::Source {
+                message: format!("{error:?}"),
+            })?;
+    } else {
+        analysis.set_native_modules(providers.clone());
+    }
     // Source-dependent declarations retain checked expected contracts, but their
     // actual trait definitions arrive with the user's source snapshot. Validate
     // the closed source-independent subset now; ordinary compilation validates
@@ -59,20 +64,25 @@ pub(super) fn prepare(
     let mut validation = source_independent_modules(&providers)
         .map(|indices| {
             let mut validation = analysis.clone();
-            validation
-                .set_native_sources(
-                    indices
-                        .iter()
-                        .map(|index| providers[*index].clone())
-                        .collect(),
-                    indices
-                        .iter()
-                        .map(|index| sources[*index].clone())
-                        .collect(),
-                )
-                .map_err(|error| EmbeddingError::Source {
-                    message: format!("{error:?}"),
-                })?;
+            let modules = indices
+                .iter()
+                .map(|index| providers[*index].clone())
+                .collect();
+            if builder.declaration_cache.is_some() {
+                validation
+                    .set_native_sources(
+                        modules,
+                        indices
+                            .iter()
+                            .map(|index| sources[*index].clone())
+                            .collect(),
+                    )
+                    .map_err(|error| EmbeddingError::Source {
+                        message: format!("{error:?}"),
+                    })?;
+            } else {
+                validation.set_native_modules(modules);
+            }
             Ok::<_, EmbeddingError>(validation)
         })
         .transpose()?;

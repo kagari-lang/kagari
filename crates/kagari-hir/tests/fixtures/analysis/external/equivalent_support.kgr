@@ -1,0 +1,30 @@
+pub trait Read {
+    fn read(self) -> i32;
+    fn defaulted(self) -> i32 {
+        7
+    }
+}
+
+pub trait Operation<T> {
+    type Output;
+    fn apply<U>(self, value: T, extra: U) -> U;
+    fn again<U>(self, value: T, extra: U) -> U;
+}
+
+pub struct Child {
+    pub var number: i32,
+}
+
+impl Operation<i32> for Child {
+    type Output = i32;
+    fn apply<U>(self, value: i32, extra: U) -> U {
+        extra
+    }
+    fn again<U>(self, value: i32, extra: U) -> U {
+        extra
+    }
+}
+
+pub fn identity(value: i32) -> i32 {
+    value
+}

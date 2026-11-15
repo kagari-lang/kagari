@@ -7,6 +7,7 @@ use kagari_common::{
 use kagari_hir::{
     hir::ids::{ExprId, PatternId, PlaceId, TypeRefId},
     lower::LoweredModule,
+    source_map::origin::OriginTarget,
 };
 use kagari_syntax::ast::{
     borrow::Ast,
@@ -72,7 +73,7 @@ fn type_site(path: Option<Ast<'_, Path>>, terminal: Option<Ast<'_, Name>>) -> Ty
 impl<'a> SourceSites<'a> {
     pub(crate) fn build(
         lowered: &'a LoweredModule,
-        syntax: &ModuleSyntax,
+        syntax: &Option<ModuleSyntax>,
         cancel: &CancellationToken,
     ) -> Result<Self, Cancelled> {
         cancel.check()?;
@@ -82,6 +83,9 @@ impl<'a> SourceSites<'a> {
             types: HashMap::new(),
             patterns: HashMap::new(),
             imports: Vec::new(),
+        };
+        let Some(syntax) = syntax else {
+            return Ok(sites);
         };
         syntax.visit_owned(&mut |node| {
             if cancel.check().is_err() {
@@ -263,19 +267,28 @@ impl<'a> SourceSites<'a> {
 
     pub(crate) fn expr_reference_span(&self, id: ExprId) -> Option<Span> {
         self.expressions
-            .get(&key(self.lowered.source_map.expr_span(id)))?
+            .get(&key(self
+                .lowered
+                .source_map
+                .source_span(OriginTarget::Expr(id))?))?
             .reference
     }
 
     pub(crate) fn expr_owner_span(&self, id: ExprId) -> Option<Span> {
         self.expressions
-            .get(&key(self.lowered.source_map.expr_span(id)))?
+            .get(&key(self
+                .lowered
+                .source_map
+                .source_span(OriginTarget::Expr(id))?))?
             .owner
     }
 
     pub(crate) fn expr_path(&self, id: ExprId) -> &[(String, Span)] {
+        let Some(span) = self.lowered.source_map.source_span(OriginTarget::Expr(id)) else {
+            return &[];
+        };
         self.expressions
-            .get(&key(self.lowered.source_map.expr_span(id)))
+            .get(&key(span))
             .map_or(&[], |site| &site.path)
     }
 
@@ -283,38 +296,54 @@ impl<'a> SourceSites<'a> {
         Some(
             &self
                 .expressions
-                .get(&key(self.lowered.source_map.expr_span(id)))?
+                .get(&key(self
+                    .lowered
+                    .source_map
+                    .source_span(OriginTarget::Expr(id))?))?
                 .fields,
         )
     }
 
     pub(crate) fn place_member_span(&self, id: PlaceId) -> Option<Span> {
         self.expressions
-            .get(&key(self.lowered.source_map.place_span(id)))?
+            .get(&key(self
+                .lowered
+                .source_map
+                .source_span(OriginTarget::Place(id))?))?
             .reference
     }
 
     pub(crate) fn pattern_reference_span(&self, id: PatternId) -> Option<Span> {
         self.patterns
-            .get(&key(self.lowered.source_map.pattern_span(id)))
+            .get(&key(self
+                .lowered
+                .source_map
+                .source_span(OriginTarget::Pattern(id))?))
             .copied()
     }
 
     pub(crate) fn type_name_span(&self, id: TypeRefId) -> Option<Span> {
         self.types
-            .get(&key(self.lowered.source_map.type_span(id)))?
+            .get(&key(self
+                .lowered
+                .source_map
+                .source_span(OriginTarget::Type(id))?))?
             .name
     }
 
     pub(crate) fn type_terminal_span(&self, id: TypeRefId) -> Option<Span> {
         self.types
-            .get(&key(self.lowered.source_map.type_span(id)))?
+            .get(&key(self
+                .lowered
+                .source_map
+                .source_span(OriginTarget::Type(id))?))?
             .terminal
     }
 
     pub(crate) fn type_path(&self, id: TypeRefId) -> &[(String, Span)] {
-        self.types
-            .get(&key(self.lowered.source_map.type_span(id)))
-            .map_or(&[], |site| &site.path)
+        let Some(span) = self.lowered.source_map.source_span(OriginTarget::Type(id)) else {
+            return &[];
+        };
+        self.types.get(&key(span)).map_or(&[], |site| &site.path)
     }
 }

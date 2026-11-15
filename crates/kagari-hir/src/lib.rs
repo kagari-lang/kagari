@@ -32,6 +32,7 @@ use crate::analysis::error::AnalysisError;
 use crate::analysis::source_preparation::ParsedModule;
 use crate::{
     analysis::{
+        external::evidence::validate_host_surfaces,
         ownership::recover_invalid_identity,
         records::{DeclarationRecord, SignatureRecord},
         signatures::BodyEnvironment,
@@ -280,6 +281,13 @@ impl PreparedSignatures {
             &self.record.declarations,
             aggregates,
             &self.lowered.registered_traits,
+            &self.lowered.external_traits,
+            &mut diagnostics,
+            cancel,
+        );
+        validate_host_surfaces(
+            &self.lowered,
+            self.record.signatures.facts(),
             &mut diagnostics,
             cancel,
         );
@@ -625,7 +633,10 @@ pub(crate) fn analyze_parsed(
 ) -> Result<AnalysisResult<AnalyzedModule>, Cancelled> {
     let mut analyzed = analyze_prepared(prepared, policy.const_limits, environment, reuse, cancel)?;
 
-    analyzed.facts.source_diagnostics = parsed.physical().shared_diagnostics();
+    analyzed.facts.source_diagnostics = parsed
+        .physical()
+        .map(|parsed| parsed.shared_diagnostics())
+        .unwrap_or_default();
     for attribute in &analyzed.facts.lowered.module.attributes {
         if analyzed
             .facts

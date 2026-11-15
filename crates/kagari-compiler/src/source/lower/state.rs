@@ -57,7 +57,7 @@ pub(crate) struct LoopScope {
 
 pub(crate) struct FunctionLowerer<'a, 'p> {
     pub(crate) environment: CheckedEnvironment<'a>,
-    pub(crate) source: &'a SourceFile,
+    pub(crate) source: Option<&'a SourceFile>,
     /// Generated adapters have no authored operation tree.
     pub(crate) body: Option<CheckedBody>,
     pub(crate) instance: Instance,
@@ -91,7 +91,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             ));
         }
         let entry = BlockId::new(0);
-        let span = instance.body.span(module);
+        let span = instance.body.diagnostic_span(module);
         let value_type = |ty| planner.value_type(ty, &instance.substitution, span);
         let mut function = MirFunction {
             semantic: Default::default(),
@@ -123,7 +123,9 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             effects: EffectSet::default(),
             debug: MirFunctionDebugMetadata {
                 source: None,
-                source_module: Some(module.source().module_identity().clone()),
+                source_module: module
+                    .source_surface()
+                    .map(|source| source.module_identity().clone()),
                 source_span: span,
                 locals: Vec::new(),
                 captured_bindings: Vec::new(),
@@ -197,7 +199,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             planner.implementation_bounds(scope_bounds, &instance.substitution)?;
         Ok(Self {
             environment: module.environment(),
-            source: module.source(),
+            source: module.source_surface(),
             body,
             instance,
             implementation_bounds,
@@ -236,11 +238,8 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
 
     pub(crate) fn finish(mut self) -> Result<MirFunction, MirLoweringError> {
         self.function.effects = self.effects;
-        self.function.debug.source = Some(capture_origin(
-            &self.function,
-            self.source,
-            &self.planner.options.cancel,
-        )?);
+        self.function.debug.source =
+            capture_origin(&self.function, self.source, &self.planner.options.cancel)?;
         Ok(self.function)
     }
 

@@ -1,25 +1,38 @@
 use crate::query_tests::native_fixture::function_module;
 use crate::{AnalyzerQueries, query_tests::test_analysis};
-use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_common::identity::{
+    DefinitionKind, ModuleIdentity, PackageId, metadata::DefinitionMetadata,
+};
 use kagari_hir::{
-    declarations::DeclarationId,
+    declarations::{DeclarationId, DeclarationOrigin},
     native::{NativeBinding, render::declaration_source},
     semantic::signatures::FunctionImplementation,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer, normalize_source_name};
 use kagari_stdlib::{catalog as foundation_catalog, catalog};
 use kagari_types::{language as standard_traits, language::Protocol, scalar::BuiltinType, ty::Ty};
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc};
 
 #[test]
 fn installed_declaration_inventory_preserves_every_named_source_site() {
     let sources = SourceDatabase::default();
+    let installed_modules = catalog::shared().unwrap();
+    let views = installed_modules
+        .iter()
+        .map(|provider| declaration_source(provider, &installed_modules).unwrap())
+        .collect::<Vec<_>>();
     let mut database = test_analysis();
+    database
+        .set_native_sources(installed_modules.clone(), views.clone())
+        .unwrap();
     let snapshot = database
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
-    let installed_modules = catalog::shared().unwrap();
-    let independent = test_analysis()
+    let mut independent = test_analysis();
+    independent
+        .set_native_sources(installed_modules.clone(), views)
+        .unwrap();
+    let independent = independent
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
     drop(database);
@@ -37,7 +50,7 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
             .queries()
             .module_documentation(&installed.records().identity)
             .unwrap();
-        assert_eq!(module_doc.location.file, file.source().id());
+        assert_eq!(module_doc.location.unwrap().file, file.source().id());
         assert_eq!(
             module_doc.documentation,
             installed.records().module_documentation
@@ -62,12 +75,19 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
             let declaration = snapshot
                 .declaration(&DeclarationId::Definition(scoped))
                 .unwrap_or_else(|| panic!("missing generated declaration: {id:?}"));
-            assert_eq!(file.source().local_range(declaration.location), Some(range));
+            assert_eq!(
+                file.source()
+                    .local_range(declaration.source_location().unwrap()),
+                Some(range)
+            );
             assert_eq!(&generated.text[range.start..range.end], declaration.name);
             assert!(identities.insert(declaration.id.clone()));
             let metadata = snapshot.queries().documentation(&declaration.id).unwrap();
             assert_eq!(metadata.declaration, *declaration);
-            assert_eq!(declaration.location.file, file.source().id());
+            assert_eq!(
+                declaration.source_location().unwrap().file,
+                file.source().id()
+            );
             assert_eq!(
                 metadata.documentation,
                 installed
@@ -77,7 +97,13 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
                     .cloned()
                     .unwrap_or_default()
             );
-            assert!(metadata.written_signature.contains(&declaration.name));
+            assert!(
+                metadata
+                    .written_signature
+                    .as_deref()
+                    .unwrap()
+                    .contains(&declaration.name)
+            );
             assert!(
                 independent
                     .queries()
@@ -99,10 +125,16 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
                 .unwrap();
             assert_ne!(other.declaration.id, declaration.id);
             assert_eq!(other.declaration.name, declaration.name);
-            assert_eq!(other.declaration.location.range, declaration.location.range);
+            assert_eq!(
+                other.declaration.source_location().unwrap().range,
+                declaration.source_location().unwrap().range
+            );
             assert_eq!(other.documentation, metadata.documentation);
             assert_eq!(other.written_signature, metadata.written_signature);
-            assert_eq!(file.source().span(range), Some(declaration.location));
+            assert_eq!(
+                file.source().span(range),
+                Some(declaration.source_location().unwrap())
+            );
             count += 1;
         }
     }
@@ -180,7 +212,13 @@ impl Items for Values {
         assert_eq!(file.declarations().get(&declaration.id), Some(declaration));
         let metadata = snapshot.queries().documentation(&declaration.id).unwrap();
         assert_eq!(metadata.documentation, documentation);
-        assert!(metadata.written_signature.contains(needle));
+        assert!(
+            metadata
+                .written_signature
+                .as_deref()
+                .unwrap()
+                .contains(needle)
+        );
     }
 }
 
@@ -207,8 +245,8 @@ fn documentation_uses_declaration_identity_and_survives_edits() {
     assert_eq!(old.declaration, *declaration);
     assert_eq!(old.documentation, "Original 文本.\n\n```kgr\nvalue()\n```");
     assert_eq!(
-        old.written_signature,
-        "fn value() -> Missing { unresolved }"
+        old.written_signature.as_deref(),
+        Some("fn value() -> Missing { unresolved }")
     );
     assert!(first.file(file).unwrap().diagnostics().is_empty());
     sources
@@ -226,8 +264,8 @@ fn documentation_uses_declaration_identity_and_survives_edits() {
     let updated = second.queries().documentation(&id).unwrap();
     assert!(updated.documentation.starts_with("Updated docs."));
     assert_ne!(
-        updated.declaration.location.revision,
-        old.declaration.location.revision
+        updated.declaration.source_location().unwrap().revision,
+        old.declaration.source_location().unwrap().revision
     );
 }
 
@@ -247,12 +285,15 @@ fn same_named_declarations_and_inline_modules_keep_their_own_documentation() {
         .filter(|declaration| declaration.name == "same")
         .map(|declaration| snapshot.queries().documentation(&declaration.id).unwrap())
         .collect::<Vec<_>>();
-    docs.sort_by_key(|doc| doc.declaration.location.range.start);
+    docs.sort_by_key(|doc| doc.declaration.source_location().unwrap().range.start);
     assert_eq!(docs.len(), 2);
     assert_eq!(docs[0].documentation, "Outer.");
     assert_eq!(docs[1].documentation, "Inner.");
     assert_ne!(docs[0].declaration.id, docs[1].declaration.id);
-    assert!(docs.iter().all(|doc| doc.declaration.location.file == file));
+    assert!(
+        docs.iter()
+            .all(|doc| doc.declaration.source_location().unwrap().file == file)
+    );
 }
 
 /* Temporarily paused: stdlib restoration (NC01-NC06).
@@ -296,13 +337,13 @@ fn installed_native_docs_are_owned_by_the_snapshot() {
             !docs.documentation.is_empty(),
             "missing docs for {name}: {docs:?}"
         );
-        assert!(docs.written_signature.contains(name));
+        assert!(docs.written_signature.as_deref().unwrap().contains(name));
         assert_eq!(
             snapshot
-                .source(declaration.location.file)
+                .source(declaration.source_location().unwrap().file)
                 .unwrap()
-                .span(declaration.location.range),
-            Some(docs.declaration.location)
+                .span(declaration.source_location().unwrap().range),
+            Some(docs.declaration.source_location().unwrap())
         );
     }
     let declaration = snapshot
@@ -334,8 +375,19 @@ fn native_view_locations_are_snapshot_owned_and_do_not_select_binding_identity()
         vec![("value", Ty::Builtin(BuiltinType::I32))],
         Ty::Builtin(BuiltinType::I32),
     );
-    let mut providers = catalog::shared().unwrap();
-    providers.push(module);
+    let mut records = module.records().clone();
+    let echo_id = records
+        .definition(DefinitionKind::Function, "echo", module.definitions())
+        .unwrap();
+    records
+        .documentation
+        .insert(echo_id, "Echo structured documentation.".into());
+    records.module_documentation = "Demo structured module.".into();
+    let module = Arc::new(
+        DefinitionMetadata::checked(module.definitions().clone(), records, &Default::default())
+            .unwrap(),
+    );
+    let providers = vec![module];
     let original = providers
         .iter()
         .map(|module| declaration_source(module, &providers).unwrap())
@@ -347,6 +399,41 @@ fn native_view_locations_are_snapshot_owned_and_do_not_select_binding_identity()
         .unwrap();
     let offset = text.rfind("echo(1)").unwrap();
     let mut database = test_analysis();
+    database.set_native_modules(providers.clone());
+    let structured = database
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    let target = structured.queries().definition_at(root, offset).unwrap();
+    let DeclarationId::Definition(declaration) = target.id else {
+        panic!("registered definition")
+    };
+    assert_eq!(target.origin, DeclarationOrigin::Structured { declaration });
+    assert!(target.source_location().is_none());
+    let structured_docs = structured.queries().documentation_at(root, offset).unwrap();
+    assert_eq!(structured_docs.declaration, *target);
+    assert_eq!(
+        structured_docs.documentation,
+        "Echo structured documentation."
+    );
+    assert!(structured_docs.written_signature.is_none());
+    let declaration_snapshot = structured.declaration_snapshot();
+    let module_docs = declaration_snapshot
+        .queries()
+        .module_documentation(&identity)
+        .unwrap();
+    assert_eq!(module_docs.documentation, "Demo structured module.");
+    assert!(module_docs.location.is_none());
+    let provider = structured
+        .files()
+        .find(|file| file.source().module_identity() == &identity)
+        .unwrap();
+    assert!(provider.queries().definition_at(0).is_none());
+    assert!(
+        structured
+            .queries()
+            .analysis_at(provider.source().id(), 0)
+            .is_none()
+    );
     let uris = [
         "file:///not-installed/provider.kgr",
         "kagari://std/math.kgr",
@@ -382,19 +469,23 @@ fn native_view_locations_are_snapshot_owned_and_do_not_select_binding_identity()
         let docs = snapshot.queries().documentation_at(root, offset).unwrap();
         assert_eq!(
             snapshot
-                .source(docs.declaration.location.file)
+                .source(docs.declaration.source_location().unwrap().file)
                 .unwrap()
                 .name(),
             normalize_source_name(uri).unwrap()
         );
-        assert!(docs.written_signature.contains("echo"));
+        assert!(docs.written_signature.as_deref().unwrap().contains("echo"));
         retained.push((snapshot, docs));
     }
     drop(database);
+    assert_eq!(
+        structured.queries().documentation_at(root, offset),
+        Some(structured_docs)
+    );
     for ((snapshot, docs), uri) in retained.iter().zip(uris) {
         assert_eq!(
             snapshot
-                .source(docs.declaration.location.file)
+                .source(docs.declaration.source_location().unwrap().file)
                 .unwrap()
                 .name(),
             normalize_source_name(uri).unwrap()

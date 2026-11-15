@@ -72,7 +72,7 @@ recovered_walk!(item::Item {
     TraitDef,
     ImplBlock,
     TypeAlias,
-    OpaqueTypeDef
+    NativeTypeDef
 });
 recovered_walk!(item::Member {
     MethodDef,

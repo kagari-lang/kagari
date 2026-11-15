@@ -15,7 +15,7 @@ use crate::{
         GenericBounds, ModuleSignatures,
         aliases::{self, AliasValidation},
         check::{self, MethodComparison},
-        constraints, families, interfaces,
+        constraints, families, interfaces, native_contracts,
     },
     types::{NominalType, TypeId, TypeSubstitution},
 };
@@ -44,6 +44,19 @@ pub(super) fn validate(
     diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {
+    if let Err(reason) = validate_shape(context.catalog, ty, cancel) {
+        if cancel.check().is_ok() {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
+                    type_name: ty.display_name(context.definitions),
+                    constraint: "well-formed type application".into(),
+                    reason: reason.into(),
+                })
+                .with_span(span),
+            );
+        }
+        return;
+    }
     // Signature completion and body-query publication recheck this same token;
     // cancellation is returned there, not converted into a semantic diagnostic here.
     if let Err(ImplementationSearchError::LimitExceeded) =
@@ -56,6 +69,186 @@ pub(super) fn validate(
             })
             .with_span(span),
         );
+    }
+}
+
+/// Check the complete application tree before any zip, substitution or trait search.
+/// Associated-output keys are members of their declaring trait, not type applications.
+fn validate_shape(
+    catalog: &AggregateCatalog,
+    ty: &TypeId,
+    cancel: &CancellationToken,
+) -> Result<(), &'static str> {
+    let trait_shape = |instance: &NominalType| {
+        let contract = catalog
+            .trait_(&instance.declaration)
+            .ok_or("trait declaration is missing or has another semantic category")?;
+        if contract.generic_params.len() != instance.arguments.len() {
+            return Err("trait type argument count differs from its declaration");
+        }
+        if instance.associated_types.keys().any(|member| {
+            !contract.associated_types.contains_key(member)
+                || contract
+                    .associated_type_parameters
+                    .get(member)
+                    .is_some_and(|inputs| !inputs.parameters.is_empty())
+        }) {
+            return Err("associated output is not a non-generic member of this trait");
+        }
+        Ok(())
+    };
+    let mut pending = vec![ty];
+    while let Some(ty) = pending.pop() {
+        cancel
+            .check()
+            .map_err(|_| "type application validation cancelled")?;
+        let nominal = match ty {
+            TypeId::Trait(instance) => {
+                trait_shape(instance)?;
+                Some(instance)
+            }
+            TypeId::NativeObject(instance) | TypeId::Struct(instance) | TypeId::Enum(instance) => {
+                let arity = match ty {
+                    TypeId::Struct(_) => catalog
+                        .structure(&instance.declaration)
+                        .map(|contract| contract.generic_params.len()),
+                    TypeId::Enum(_) => catalog
+                        .enumeration(&instance.declaration)
+                        .map(|contract| contract.generic_params.len()),
+                    TypeId::NativeObject(_) => catalog
+                        .native_type(&instance.declaration)
+                        .filter(|contract| match &contract.representation {
+                            None => true,
+                            Some(NativeTypeKind::Storage { layout, .. }) => {
+                                layout.valid_parameters(instance.arguments.len())
+                            }
+                            _ => false,
+                        })
+                        .map(|contract| contract.generic_params.len()),
+                    _ => unreachable!(),
+                }
+                .ok_or("nominal declaration is missing or has another semantic category")?;
+                if arity != instance.arguments.len() {
+                    return Err("nominal type argument count differs from its declaration");
+                }
+                if !instance.associated_types.is_empty() {
+                    return Err("only trait applications can bind associated outputs");
+                }
+                Some(instance)
+            }
+            TypeId::Projection {
+                receiver,
+                interface,
+                member,
+                arguments,
+            } => {
+                trait_shape(interface)?;
+                let contract = catalog
+                    .trait_(&interface.declaration)
+                    .expect("validated trait");
+                if !contract.associated_types.contains_key(member)
+                    || contract
+                        .associated_type_parameters
+                        .get(member)
+                        .map_or(0, |inputs| inputs.parameters.len())
+                        != arguments.len()
+                {
+                    return Err(
+                        "projection member or type argument count differs from its declaration",
+                    );
+                }
+                pending.push(receiver);
+                pending.extend(arguments);
+                Some(interface.as_ref())
+            }
+            TypeId::Host(id) => {
+                if !catalog.native_type(id).is_some_and(|contract| {
+                    contract.generic_params.is_empty()
+                        && matches!(contract.representation, Some(NativeTypeKind::Host { .. }))
+                }) {
+                    return Err("host type is missing its declared Host representation");
+                }
+                None
+            }
+            TypeId::Reference { target, .. } => {
+                pending.push(target);
+                None
+            }
+            TypeId::Tuple(items) => {
+                pending.extend(items);
+                None
+            }
+            TypeId::Function { params, result } => {
+                pending.extend(params);
+                pending.push(result);
+                None
+            }
+            TypeId::Array(item) | TypeId::Range(item, _) => {
+                pending.push(item);
+                None
+            }
+            _ => None,
+        };
+        if let Some(instance) = nominal {
+            pending.extend(&instance.arguments);
+            pending.extend(instance.associated_types.values());
+        }
+    }
+    Ok(())
+}
+
+/// Resolve declared projection bounds through the same applied-interface query as
+/// member lookup, retaining trait/family arguments and associated-output equalities.
+fn requirement_satisfied(
+    definitions: &DefinitionTable,
+    catalog: &AggregateCatalog,
+    required: &NominalType,
+    actual: &TypeId,
+    search: ImplementationSearchContext<'_>,
+) -> Result<bool, ImplementationSearchError> {
+    if search.assumptions.get(actual).is_some_and(|available| {
+        available
+            .iter()
+            .any(|available| available.satisfies(required))
+    }) {
+        return Ok(true);
+    }
+    // Owner-qualified Self carries its declaring trait's formal application,
+    // not an arbitrary application of that trait with different arguments/outputs.
+    if let TypeId::SelfType(owner) = actual
+        && let Some(contract) = catalog.trait_(owner)
+    {
+        let own = NominalType {
+            declaration: *owner,
+            arguments: contract
+                .generic_params
+                .iter()
+                .cloned()
+                .map(TypeId::Generic)
+                .collect(),
+            associated_types: Default::default(),
+        };
+        if catalog
+            .trait_closure(&own, actual, search.cancel)?
+            .iter()
+            .any(|available| available.satisfies(required))
+        {
+            return Ok(true);
+        }
+    }
+    if matches!(actual, TypeId::Projection { .. })
+        && catalog
+            .declared_interfaces(definitions, actual, search.assumptions, search.cancel)?
+            .iter()
+            .any(|available| available.satisfies(required))
+    {
+        return Ok(true);
+    }
+    match actual {
+        TypeId::Generic(_) => {
+            Ok(catalog.intrinsic_implementation(definitions, required, actual, search.assumptions))
+        }
+        _ => Ok(catalog.implementation_count_bounded(definitions, required, actual, search)? == 1),
     }
 }
 
@@ -122,22 +315,7 @@ pub(super) fn validate_requirements(
                 return Err(ImplementationSearchError::LimitExceeded);
             }
             let applied = constraint.instantiate(substitution);
-            let satisfied = bounds
-                .get(&actual)
-                .is_some_and(|bounds| bounds.iter().any(|available| available.satisfies(&applied)))
-                || match &actual {
-                    TypeId::Generic(_) => {
-                        catalog.intrinsic_implementation(definitions, &applied, &actual, bounds)
-                    }
-                    _ => {
-                        catalog.implementation_count_bounded(
-                            definitions,
-                            &applied,
-                            &actual,
-                            search,
-                        )? == 1
-                    }
-                };
+            let satisfied = requirement_satisfied(definitions, catalog, &applied, &actual, search)?;
             if !satisfied {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::GenericBoundNotSatisfied {
@@ -148,6 +326,74 @@ pub(super) fn validate_requirements(
                             .declaration
                             .name
                             .clone(),
+                    })
+                    .with_span(span),
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_outputs(
+    context: ApplicationContext<'_>,
+    instance: &NominalType,
+    bounds: &GenericBounds,
+    span: Span,
+    diagnostics: &mut DiagnosticBuffer,
+    cancel: &CancellationToken,
+) -> Result<(), ImplementationSearchError> {
+    let ApplicationContext {
+        definitions,
+        catalog,
+        receiver,
+    } = context;
+    let contract = catalog
+        .trait_(&instance.declaration)
+        .expect("validated trait");
+    let mut substitution: TypeSubstitution = contract
+        .generic_params
+        .iter()
+        .cloned()
+        .zip(instance.arguments.iter().cloned())
+        .collect();
+    if let Some(receiver) = receiver {
+        substitution.insert_receiver(instance.declaration, receiver.clone());
+    }
+    let self_type = TypeId::SelfType(instance.declaration);
+    let search = ImplementationSearchContext {
+        assumptions: bounds,
+        limits: ImplementationSearchLimits {
+            max_checks: 4096,
+            max_depth: 64,
+        },
+        cancel,
+    };
+    for (member, actual) in &instance.associated_types {
+        for constraint in contract.associated_types.get(member).into_iter().flatten() {
+            cancel
+                .check()
+                .map_err(|_| ImplementationSearchError::Cancelled)?;
+            let TypeId::Trait(required) = TypeId::Trait(constraint.instantiate(&substitution))
+                .with_associated_types(instance, receiver.unwrap_or(&self_type))
+            else {
+                unreachable!()
+            };
+            let satisfied = requirement_satisfied(definitions, catalog, &required, actual, search)?;
+            if !satisfied && !actual.is_unresolved() {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
+                        name: definitions
+                            .resolve(*member)
+                            .expect("scoped associated member")
+                            .last()
+                            .expect("associated member")
+                            .name
+                            .to_owned(),
+                        reason: format!(
+                            "type `{}` does not satisfy its declared bound",
+                            actual.display_name(definitions)
+                        ),
                     })
                     .with_span(span),
                 );
@@ -180,9 +426,7 @@ fn validate_inner(
         },
         cancel,
     };
-    let implementation_count = |interface: &NominalType, receiver: &TypeId| {
-        catalog.implementation_count_bounded(definitions, interface, receiver, search)
-    };
+
     let mut pending = vec![(ty, receiver)];
     while let Some((ty, receiver)) = pending.pop() {
         cancel
@@ -208,10 +452,10 @@ fn validate_inner(
                     && !catalog.native_type(&nominal.declaration).is_some_and(|ty| {
                         matches!(
                             ty.representation,
-                            NativeTypeKind::Storage {
+                            Some(NativeTypeKind::Storage {
                                 layout: NativeStorageLayout::Opaque,
                                 ..
-                            }
+                            })
                         )
                     })
                 {
@@ -230,56 +474,70 @@ fn validate_inner(
                 member,
                 arguments,
             } => {
-                if let Some(contract) = catalog.trait_(&interface.declaration)
-                    && let Some(inputs) = contract.associated_type_parameters.get(member)
-                {
-                    let mut substitution: TypeSubstitution = contract
-                        .generic_params
-                        .iter()
-                        .cloned()
-                        .zip(interface.arguments.iter().cloned())
-                        .chain(
-                            inputs
-                                .parameters
-                                .iter()
-                                .cloned()
-                                .zip(arguments.iter().cloned()),
-                        )
-                        .collect();
-                    substitution.insert_receiver(contract.id, receiver.as_ref().clone());
-                    if inputs.parameters.len() != arguments.len() {
-                        diagnostics.push(
-                            Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
-                                name: definitions
-                                    .resolve(*member)
-                                    .expect("scoped associated member")
-                                    .last()
-                                    .expect("associated member")
-                                    .name
-                                    .to_owned(),
-                                reason: "generic associated type argument count differs".into(),
-                            })
-                            .with_span(span),
-                        );
-                    }
+                let contract = catalog
+                    .trait_(&interface.declaration)
+                    .expect("validated projection trait");
+                let mut substitution: TypeSubstitution = contract
+                    .generic_params
+                    .iter()
+                    .cloned()
+                    .zip(interface.arguments.iter().cloned())
+                    .collect();
+                substitution.insert_receiver(contract.id, receiver.as_ref().clone());
+                validate_requirements(
+                    ApplicationContext {
+                        definitions,
+                        catalog,
+                        receiver: Some(receiver),
+                    },
+                    &contract.bounds,
+                    &substitution,
+                    bounds,
+                    span,
+                    diagnostics,
+                    cancel,
+                )?;
+                validate_outputs(
+                    ApplicationContext {
+                        definitions,
+                        catalog,
+                        receiver: Some(receiver),
+                    },
+                    interface,
+                    bounds,
+                    span,
+                    diagnostics,
+                    cancel,
+                )?;
+                if let Some(inputs) = contract.associated_type_parameters.get(member) {
+                    substitution.extend(
+                        inputs
+                            .parameters
+                            .iter()
+                            .cloned()
+                            .zip(arguments.iter().cloned()),
+                    );
+
                     for (parameter, constraints) in &inputs.bounds {
                         let actual = parameter.instantiate(&substitution);
                         for constraint in constraints {
-                            let satisfied = {
-                                let required = constraint.instantiate(&substitution);
-                                bounds.get(&actual).is_some_and(|bounds| {
-                                    bounds
-                                        .iter()
-                                        .any(|available| available.satisfies(&required))
-                                }) || implementation_count(&required, &actual)? == 1
-                            };
+                            let required = constraint.instantiate(&substitution);
+                            let satisfied = requirement_satisfied(
+                                definitions,
+                                catalog,
+                                &required,
+                                &actual,
+                                search,
+                            )?;
                             if !satisfied && !actual.is_unresolved() {
                                 diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidAssociatedType { name: definitions.resolve(*member).expect("scoped associated member").last().expect("associated member").name.to_owned(), reason: "generic associated type input does not satisfy its bound".into() }).with_span(span));
                             }
                         }
                     }
                 }
-                if receiver.is_concrete() && implementation_count(interface, receiver)? != 1 {
+                if !receiver.is_unresolved()
+                    && !requirement_satisfied(definitions, catalog, interface, receiver, search)?
+                {
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
                             name: definitions
@@ -290,7 +548,7 @@ fn validate_inner(
                                 .name
                                 .to_owned(),
                             reason:
-                                "projection requires a unique implementation satisfying its bounds"
+                                "projection receiver must satisfy its declaring trait and bounds"
                                     .into(),
                         })
                         .with_span(span),
@@ -343,61 +601,19 @@ fn validate_inner(
                         cancel,
                     )?;
                 }
-                if let TypeId::Trait(_) = ty
-                    && let Some(contract) = catalog.trait_(&instance.declaration)
-                {
-                    let mut substitution: TypeSubstitution = contract
-                        .generic_params
-                        .iter()
-                        .cloned()
-                        .zip(instance.arguments.iter().cloned())
-                        .collect();
-                    if let Some(receiver) = receiver {
-                        substitution.insert_receiver(instance.declaration, receiver.clone());
-                    }
-                    for (member, actual) in &instance.associated_types {
-                        for constraint in
-                            contract.associated_types.get(member).into_iter().flatten()
-                        {
-                            let satisfied = {
-                                let required = constraint;
-
-                                let TypeId::Trait(required) =
-                                    TypeId::Trait(required.instantiate(&substitution))
-                                        .with_associated_types(
-                                            instance,
-                                            receiver
-                                                .unwrap_or(&TypeId::SelfType(instance.declaration)),
-                                        )
-                                else {
-                                    unreachable!()
-                                };
-                                bounds.get(actual).is_some_and(|constraints| {
-                                    constraints
-                                        .iter()
-                                        .any(|available| available.satisfies(&required))
-                                }) || implementation_count(&required, actual)? == 1
-                            };
-                            if !satisfied && !actual.is_unresolved() {
-                                diagnostics.push(
-                                    Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
-                                        name: definitions
-                                            .resolve(*member)
-                                            .expect("scoped associated member")
-                                            .last()
-                                            .expect("associated member")
-                                            .name
-                                            .to_owned(),
-                                        reason: format!(
-                                            "type `{}` does not satisfy its declared bound",
-                                            actual.display_name(definitions)
-                                        ),
-                                    })
-                                    .with_span(span),
-                                );
-                            }
-                        }
-                    }
+                if let TypeId::Trait(_) = ty {
+                    validate_outputs(
+                        ApplicationContext {
+                            definitions,
+                            catalog,
+                            receiver,
+                        },
+                        instance,
+                        bounds,
+                        span,
+                        diagnostics,
+                        cancel,
+                    )?;
                 }
                 pending.extend(instance.arguments.iter().map(|ty| (ty, None)));
                 pending.extend(instance.associated_types.values().map(|ty| (ty, None)));
@@ -425,6 +641,14 @@ pub(crate) fn validate_signatures(
 ) {
     let definitions = declarations.definitions();
     families::validate(lowered, declarations, catalog, diagnostics, cancel);
+    native_contracts::validate(
+        lowered,
+        declarations,
+        signatures,
+        catalog,
+        diagnostics,
+        cancel,
+    );
     AliasValidation {
         lowered,
         declarations,
@@ -631,19 +855,20 @@ pub(crate) fn validate_signatures(
         }
     }
     let identity = lowered.source.module_identity();
-    for structure in catalog.structures().filter(|s| {
-        definitions
-            .resolve(s.id)
-            .expect("scoped aggregate")
-            .module()
-            == identity
-    }) {
-        for field in &structure.fields {
+    for (_, bounds, fields) in catalog
+        .structures()
+        .map(|s| (s.id, &s.bounds, &s.fields))
+        .chain(catalog.native_types().map(|s| (s.id, &s.bounds, &s.fields)))
+        .filter(|(id, _, _)| {
+            definitions.resolve(*id).expect("scoped aggregate").module() == identity
+        })
+    {
+        for field in fields {
             interfaces::validate_type(
                 definitions,
                 &field.ty,
                 catalog,
-                field.declaration.location.range,
+                field.declaration.diagnostic_span(),
                 diagnostics,
                 cancel,
             );
@@ -654,8 +879,8 @@ pub(crate) fn validate_signatures(
                     receiver: None,
                 },
                 &field.ty,
-                &structure.bounds,
-                field.declaration.location.range,
+                bounds,
+                field.declaration.diagnostic_span(),
                 diagnostics,
                 cancel,
             );
@@ -674,7 +899,7 @@ pub(crate) fn validate_signatures(
                     definitions,
                     payload,
                     catalog,
-                    variant.declaration.location.range,
+                    variant.declaration.diagnostic_span(),
                     diagnostics,
                     cancel,
                 );
@@ -686,7 +911,7 @@ pub(crate) fn validate_signatures(
                     },
                     payload,
                     &enumeration.bounds,
-                    variant.declaration.location.range,
+                    variant.declaration.diagnostic_span(),
                     diagnostics,
                     cancel,
                 );

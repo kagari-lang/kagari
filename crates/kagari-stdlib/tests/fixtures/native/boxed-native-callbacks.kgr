@@ -20,7 +20,7 @@ pub fn wrong(f: fn(i32) -> i32) -> i32 {
     f(42)
 }
 
-pub fn native(f: fn(i32, i32) -> i32) -> i32 {
+pub fn through_native(f: fn(i32, i32) -> i32) -> i32 {
     through(f)
 }
 

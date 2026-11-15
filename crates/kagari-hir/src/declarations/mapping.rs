@@ -1,6 +1,6 @@
 //! Explicit traversal of the owning HIR records.
 
-use crate::declarations::{BindingId, Declaration, DeclarationId, Declarations};
+use crate::declarations::{BindingId, Declaration, DeclarationId, DeclarationOrigin, Declarations};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -57,7 +57,12 @@ impl RemapDefinitions for Declaration {
         Ok(Declaration {
             id: self.id.remap_definitions(mapper)?,
             name: self.name.clone(),
-            location: self.location,
+            origin: match self.origin {
+                DeclarationOrigin::Source(location) => DeclarationOrigin::Source(location),
+                DeclarationOrigin::Structured { declaration } => DeclarationOrigin::Structured {
+                    declaration: mapper.reference(&declaration)?,
+                },
+            },
         })
     }
 }
@@ -68,7 +73,12 @@ impl DefinitionReferences for Declaration {
         visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
-        self.id.visit_definition_ids(visit, cancel)
+        self.id.visit_definition_ids(visit, cancel)?;
+        if let DeclarationOrigin::Structured { declaration } = self.origin {
+            check_cancel(cancel)?;
+            visit(&declaration)?;
+        }
+        Ok(())
     }
 }
 
@@ -99,5 +109,75 @@ impl DefinitionReferences for Declarations {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::declarations::{Declaration, DeclarationId, DeclarationOrigin};
+    use kagari_common::{
+        identity::{
+            DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
+            metadata::DefinitionMetadata,
+        },
+        span::Span,
+    };
+    use kagari_source::source::SourceFile;
+
+    #[test]
+    fn declaration_origins_remap_registration_ids_without_fabricating_source() {
+        let context = DefinitionContext::new().unwrap();
+        let root = context
+            .intern_root(&ModuleIdentity {
+                package: PackageId("origins".into()),
+                path: vec![],
+            })
+            .unwrap();
+        let owner = context
+            .intern_child(root, DefinitionKind::Trait, "Owner", 0)
+            .unwrap();
+        let member = context
+            .intern_child(owner, DefinitionKind::AssociatedType, "Item", 0)
+            .unwrap();
+        let declaration = Declaration {
+            id: DeclarationId::Definition(member),
+            name: "Item".into(),
+            origin: DeclarationOrigin::Structured { declaration: owner },
+        };
+        assert!(declaration.source_location().is_none());
+        let definitions = context.snapshot();
+        let owner_path = definitions.resolve(owner).unwrap().to_path();
+        let member_path = definitions.resolve(member).unwrap().to_path();
+        let target = DefinitionContext::new().unwrap();
+        let metadata = DefinitionMetadata::checked(
+            definitions.clone(),
+            declaration.clone(),
+            &Default::default(),
+        )
+        .unwrap();
+        let remapped = metadata.import_into(&target, &Default::default()).unwrap();
+        assert_eq!(
+            remapped.records().id,
+            DeclarationId::Definition(target.snapshot().lookup(&member_path).unwrap())
+        );
+        assert_eq!(
+            remapped.records().origin,
+            DeclarationOrigin::Structured {
+                declaration: target.snapshot().lookup(&owner_path).unwrap()
+            }
+        );
+        assert_ne!(remapped.records().origin, declaration.origin);
+        assert!(remapped.records().source_location().is_none());
+
+        let source = SourceFile::new("origin.kgr", "Item");
+        let location = source.span(Span::new(0, 4)).unwrap();
+        let declaration = Declaration {
+            origin: DeclarationOrigin::Source(location),
+            ..declaration
+        };
+        let metadata =
+            DefinitionMetadata::checked(definitions, declaration, &Default::default()).unwrap();
+        let remapped = metadata.import_into(&target, &Default::default()).unwrap();
+        assert_eq!(remapped.records().source_location(), Some(location));
     }
 }

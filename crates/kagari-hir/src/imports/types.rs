@@ -4,6 +4,7 @@ use crate::{
     DeclaredAnalysis,
     declarations::{Declaration, DeclarationId},
     imports::{SourceDeclRef, SourceItem, SourceUnit},
+    language::types::TypeConstructor,
     native::NativeTypeKind,
     resolver::resolved::{DeclarationNames, ResolvedName},
     typeck::supertraits::trait_supertrait_surface,
@@ -59,7 +60,7 @@ impl ImportedType {
                 Declaration {
                     id: declaration_id,
                     name,
-                    location,
+                    origin: _,
                 },
             ty,
             trait_methods,
@@ -73,7 +74,8 @@ impl ImportedType {
             && id.item == other.id.item
             && declaration_id == &other.declaration.id
             && name == &other.declaration.name
-            && location.file == other.declaration.location.file
+            && self.declaration.source_location().map(|site| site.file)
+                == other.declaration.source_location().map(|site| site.file)
             && native_type == &other.native_type
             && associated_arities == &other.associated_arities
             && ty == &other.ty
@@ -251,7 +253,7 @@ impl<'a> TypeCatalog<'a> {
     fn surface(module: &DeclaredAnalysis, source: SourceDeclRef) -> Option<ImportedType> {
         let item = source.item;
         let resolved = match item {
-            SourceItem::OpaqueType(id) => ResolvedName::OpaqueType(id),
+            SourceItem::NativeType(id) => ResolvedName::NativeType(id),
             SourceItem::Struct(id) => ResolvedName::Struct(id),
             SourceItem::Enum(id) => ResolvedName::Enum(id),
             SourceItem::Trait(id) => ResolvedName::Trait(id),
@@ -260,7 +262,7 @@ impl<'a> TypeCatalog<'a> {
         let declaration = module.record.declarations.target(resolved.clone())?;
         let identity = module.record.declarations.definition(resolved)?;
         let native_type = match item {
-            SourceItem::OpaqueType(id) => Some(module.record.declarations.native_type(id)?),
+            SourceItem::NativeType(id) => module.record.declarations.native_type(id),
             _ => None,
         };
         let nominal = NominalType {
@@ -275,7 +277,10 @@ impl<'a> TypeCatalog<'a> {
                 .collect(),
         };
         let ty = match item {
-            _ if native_type.is_some() => native_type.as_ref()?.apply(&nominal.arguments)?,
+            _ if native_type.is_some() => {
+                TypeConstructor::registered(native_type.as_ref()?).apply(&nominal.arguments)?
+            }
+            SourceItem::NativeType(_) => TypeId::NativeObject(nominal),
             SourceItem::Struct(_) => TypeId::Struct(nominal),
             SourceItem::Enum(_) => TypeId::Enum(nominal),
             SourceItem::Trait(_) => TypeId::Trait(nominal),

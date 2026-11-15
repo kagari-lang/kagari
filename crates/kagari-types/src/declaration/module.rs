@@ -141,6 +141,9 @@ impl ModuleDecl {
     ) -> Result<Vec<NativeDeclaration>, DeclarationError> {
         let mut result = Vec::new();
         for function in &self.functions {
+            if !matches!(function.implementation, CallableImplementation::Native(_)) {
+                continue;
+            }
             let id = self.definition(DefinitionKind::Function, &function.name, definitions)?;
             result.push(NativeDeclaration {
                 declaration: id,
@@ -156,6 +159,9 @@ impl ModuleDecl {
         for (index, implementation) in self.implementations.iter().enumerate() {
             let owner = self.implementation_id(index, definitions)?;
             for function in &implementation.methods {
+                if !matches!(function.implementation, CallableImplementation::Native(_)) {
+                    continue;
+                }
                 let id = Self::method_id(owner, &function.name, definitions)?;
                 let mut function = function.clone();
                 function.bounds = GenericBound::normalize(
@@ -276,6 +282,7 @@ impl ModuleDecl {
                         || !matches!(
                             method.implementation,
                             CallableImplementation::Required
+                                | CallableImplementation::Script
                                 | CallableImplementation::NativeDefault(_)
                         )
                 })
@@ -300,8 +307,10 @@ impl ModuleDecl {
             {
                 return Err(fail());
             }
-            if !(matches!(function.implementation, CallableImplementation::Native(_))
-                || (function.generic_params.is_empty() && function.bounds.is_empty()))
+            if !(matches!(
+                function.implementation,
+                CallableImplementation::Native(_) | CallableImplementation::Script
+            ) || (function.generic_params.is_empty() && function.bounds.is_empty()))
                 || !function_valid(
                     function,
                     owner,
@@ -396,6 +405,12 @@ impl ModuleDecl {
             }
             for method in &implementation.methods {
                 if !identifier(&method.name)
+                    || !matches!(
+                        method.implementation,
+                        CallableImplementation::Native(_) | CallableImplementation::Script
+                    )
+                    || (method.implementation == CallableImplementation::Script
+                        && method.host_policy.is_some())
                     || !method_names.insert(&method.name)
                     || !method
                         .generic_params

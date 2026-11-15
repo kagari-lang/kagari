@@ -49,7 +49,17 @@ fn host_methods_keep_checked_receiver_targets_and_offline_documentation() {
         assert_eq!(mapping.map(target.declaration).unwrap(), identity);
         assert_eq!(mapping.map(binding).unwrap(), identity);
         assert_eq!(target.signature.params.len(), 2);
-        let provider = snapshot.file(target.site.location.file).unwrap();
+        assert!(target.site.source_location().is_none());
+        let owner = file
+            .definitions()
+            .resolve(binding)
+            .unwrap()
+            .module()
+            .clone();
+        let provider = snapshot
+            .files()
+            .find(|candidate| candidate.source().module_identity() == &owner)
+            .unwrap();
         let contract = provider
             .result()
             .facts()

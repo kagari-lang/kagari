@@ -1,0 +1,3 @@
+pub native type Text;
+
+pub native type Alias;

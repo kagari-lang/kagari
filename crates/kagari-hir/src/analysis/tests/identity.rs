@@ -94,7 +94,7 @@ fn single_source_analysis_uses_installed_declarations_without_replacing_source_i
         )
         .unwrap();
     assert_eq!(option.declaration.name, "Option");
-    assert_ne!(option.declaration.location.file, id);
+    assert!(option.declaration.source_location().is_none());
     assert!(option.native_type.is_none());
     let enumeration = facts
         .aggregates

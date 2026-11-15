@@ -9,7 +9,7 @@ use crate::{
         traits::{MethodDefault, MethodSignature},
     },
     declarations::Declarations,
-    language::{semantics as traits, semantics::ProtocolSemantics},
+    language::{semantics as traits, semantics::ProtocolSemantics, types::external_receiver_owned},
     lower::LoweredModule,
     native::NativeBinding,
     resolver::resolved::ResolvedName,
@@ -115,6 +115,11 @@ impl<'a> SearchBudget<'a> {
 pub struct ImplementationSignature {
     /// Derived from the retained installation object, never a source identity.
     pub(crate) engine_owned: bool,
+    /// Offline declarations may belong to a builtin receiver's defining module.
+    /// This is static coherence evidence, not installed native dispatch authority.
+    pub(crate) external_type_owned: bool,
+    /// A conversion may instead belong to its source argument's defining module.
+    pub(crate) external_conversion_owned: bool,
     /// Associated member definition to parameterized output implementation.
     pub associated_type_families: BTreeMap<DefinitionId, AssociatedTypeFamily>,
     /// Canonical semantic definition identity used as the catalog key.
@@ -182,7 +187,7 @@ impl AggregateCatalog {
             let owned=iter::once(&implementation.for_type).chain(&implementation.trait_type.arguments).any(|ty| {
                 matches!(ty, TypeId::NativeObject(n) | TypeId::Struct(n) | TypeId::Enum(n) if definitions.resolve(n.declaration).expect("scoped nominal type").module()==definitions.resolve(implementation.id).expect("scoped implementation").module())
             });
-            return (!owned && !implementation.engine_owned).then_some("a conversion must belong to the defining module of its nominal source or destination");
+            return (!owned && !implementation.engine_owned && !implementation.external_type_owned && !implementation.external_conversion_owned).then_some("a conversion must belong to the defining module of its nominal source or destination");
         }
         let protocol = protocol?;
         if protocol.iteration() {
@@ -220,7 +225,7 @@ impl AggregateCatalog {
                     );
                 }
             }
-            _ if !implementation.engine_owned => {
+            _ if !implementation.engine_owned && !implementation.external_type_owned => {
                 return Some("language protocol implementations require a declared nominal type");
             }
             _ => {}
@@ -591,6 +596,15 @@ impl AggregateCatalog {
                 *id,
                 Arc::new(ImplementationSignature {
                     engine_owned: lowered.registered_native_api,
+                    external_type_owned: external_receiver_owned(
+                        lowered,
+                        for_type,
+                        declarations.definitions(),
+                    ),
+                    external_conversion_owned: trait_type
+                        .arguments
+                        .iter()
+                        .any(|ty| external_receiver_owned(lowered, ty, declarations.definitions())),
                     associated_type_families: signatures
                         .type_table()
                         .associated_type_families
@@ -663,7 +677,12 @@ impl AggregateCatalog {
             };
             let Some(target) = implementation.methods.get(method).cloned().or_else(|| {
                 self.trait_method(method)
-                    .filter(|method| method.default == Some(MethodDefault::Script))
+                    .filter(|method| {
+                        matches!(
+                            method.default,
+                            Some(MethodDefault::Script | MethodDefault::NativeDeclaration)
+                        )
+                    })
                     .map(|_| implementation_member(definitions, implementation.id, *method))
             }) else {
                 continue;
@@ -700,7 +719,11 @@ impl AggregateCatalog {
             })?;
         (matches!(
             method.default,
-            Some(MethodDefault::Script | MethodDefault::Native(NativeBinding::Default(_)))
+            Some(
+                MethodDefault::Script
+                    | MethodDefault::NativeDeclaration
+                    | MethodDefault::Native(NativeBinding::Default(_))
+            )
         ) && !implementation.methods.contains_key(&method.id))
         .then_some((implementation, method))
     }
@@ -721,6 +744,7 @@ impl AggregateCatalog {
                         method.default,
                         Some(
                             MethodDefault::Script
+                                | MethodDefault::NativeDeclaration
                                 | MethodDefault::Native(NativeBinding::Default(_))
                         )
                     ))
@@ -866,7 +890,7 @@ impl AggregateCatalog {
         ) else {
             return Ok(None);
         };
-        if implementation.engine_owned
+        if (implementation.engine_owned || implementation.external_type_owned)
             && !implementation.accepts_native_receiver(&receiver, &matched)
         {
             return Ok(None);

@@ -1,249 +1,80 @@
-//! Validate registered source type occurrences against checked declaration shapes.
-use crate::{
-    hir::{
-        ids::TypeRefId,
-        item::{
-            behavior::{TraitBound, TraitRef},
-            function::FunctionKind,
-        },
-        ty::TypeKind,
-    },
-    lower::LoweredModule,
-};
-use kagari_common::identity::table::DefinitionTable;
-use kagari_types::{
-    declaration::module::{DeclarationError, ModuleDecl},
-    ty::{GenericBound, NominalTy, Ty},
+//! Structural correspondence for explicitly supplied, validated tool source.
+use crate::{hir::item::Item, lower::LoweredModule, native::structured::RegistrationMap};
+use kagari_common::identity::{DefinitionKind, table::DefinitionTable};
+use kagari_types::declaration::{
+    TypeDefKind,
+    module::{DeclarationError, ModuleDecl},
 };
 
-pub(super) fn validate(
-    definition: &ModuleDecl,
+/// The exact non-trivia projection has already established declaration order and
+/// complete Script bodies. Bind typed structural slots, never names or byte spans.
+/// Default registration instead records these handles during direct allocation.
+pub(super) fn supplied(
+    declaration: &ModuleDecl,
     definitions: &DefinitionTable,
-    lowered: &mut LoweredModule,
-) -> Result<(), DeclarationError> {
-    let invalid = || DeclarationError("registered concrete access correspondence".into());
-    let mut pending = Vec::new();
-    let mut functions = Vec::new();
-    for declaration in &definition.types {
-        if let Some(item) = lowered
-            .module
-            .enums
-            .iter()
-            .find(|item| item.name == declaration.name)
-        {
-            for variant in &declaration.variants {
-                let syntax = item
-                    .variants
-                    .iter()
-                    .find(|item| item.name == variant.name)
-                    .ok_or_else(invalid)?;
-                pending.extend(
-                    syntax
-                        .payload
-                        .iter()
-                        .copied()
-                        .zip(variant.payload.iter().cloned()),
-                );
-            }
-        } else if let Some(item) = lowered
-            .module
-            .opaque_types
-            .iter()
-            .find(|item| item.name == declaration.name)
-        {
-            bounds(&mut pending, &item.bounds, &declaration.bounds);
+    lowered: &LoweredModule,
+) -> Result<RegistrationMap, DeclarationError> {
+    let invalid = || DeclarationError("registered structure differs from supplied source".into());
+    let mut map = RegistrationMap::default();
+    let mut items = lowered.module.items.iter().copied();
+    for ty in &declaration.types {
+        let item = items.next().ok_or_else(invalid)?;
+        let matching_kind = match ty.kind {
+            TypeDefKind::Struct => matches!(item, Item::Struct(_)),
+            TypeDefKind::Enum => matches!(item, Item::Enum(_)),
+            _ => matches!(item, Item::NativeType(_)),
+        };
+        if !matching_kind {
+            return Err(invalid());
+        }
+        let owner = declaration.definition(ty.kind.definition_kind(), &ty.name, definitions)?;
+        map.items.insert(owner, item);
+    }
+    for contract in &declaration.traits {
+        let Some(Item::Trait(id)) = items.next() else {
+            return Err(invalid());
+        };
+        let item = &lowered.module.traits[id.index()];
+        if item.methods.len() != contract.methods.len() {
+            return Err(invalid());
+        }
+        let owner = declaration.definition(DefinitionKind::Trait, &contract.name, definitions)?;
+        map.items.insert(owner, Item::Trait(id));
+        for (member, method) in item.methods.iter().zip(&contract.methods) {
+            map.items.insert(
+                ModuleDecl::method_id(owner, &method.name, definitions)?,
+                Item::Function(member.function),
+            );
         }
     }
-    for (item, implementation) in lowered.module.impls.iter().zip(&definition.implementations) {
-        pending.push((
-            item.for_type.ok_or_else(invalid)?,
-            implementation.for_type.clone(),
-        ));
-        bounds(&mut pending, &item.bounds, &implementation.bounds);
-        if let (Some(reference), Some(interface)) = (&item.trait_ref, &implementation.trait_type) {
-            let mut header = interface.clone();
-            header.associated_types.clear();
-            pending.push((reference.ty, Ty::Trait(header)));
-            for (member, ty) in &interface.associated_types {
-                let name = definitions
-                    .resolve(*member)
-                    .map_err(|_| invalid())?
-                    .last()
-                    .ok_or_else(invalid)?
-                    .name;
-                let syntax = item
-                    .associated_types
-                    .iter()
-                    .find(|item| item.name == name)
-                    .ok_or_else(invalid)?;
-                pending.push((syntax.ty.ok_or_else(invalid)?, ty.clone()));
-            }
+    for (index, implementation) in declaration.implementations.iter().enumerate() {
+        let Some(Item::Impl(id)) = items.next() else {
+            return Err(invalid());
+        };
+        let item = &lowered.module.impls[id.index()];
+        if item.methods.len() != implementation.methods.len() {
+            return Err(invalid());
         }
-        for method in &implementation.methods {
-            let member = item
-                .methods
-                .iter()
-                .find(|member| member.name == method.name)
-                .ok_or_else(invalid)?;
-            functions.push((member.function, method));
+        let owner = declaration.implementation_id(index, definitions)?;
+        map.items.insert(owner, Item::Impl(id));
+        for (member, method) in item.methods.iter().zip(&implementation.methods) {
+            map.items.insert(
+                ModuleDecl::method_id(owner, &method.name, definitions)?,
+                Item::Function(member.function),
+            );
         }
     }
-    for contract in &definition.traits {
-        let item = lowered
-            .module
-            .traits
-            .iter()
-            .find(|item| item.name == contract.name)
-            .ok_or_else(invalid)?;
-        pending.extend(
-            item.supertraits
-                .iter()
-                .zip(&contract.supertraits)
-                .map(|(syntax, ty)| (syntax.ty, Ty::Trait(ty.clone()))),
+    for function in &declaration.functions {
+        let Some(Item::Function(id)) = items.next() else {
+            return Err(invalid());
+        };
+        map.items.insert(
+            declaration.definition(DefinitionKind::Function, &function.name, definitions)?,
+            Item::Function(id),
         );
-        for declaration in &contract.associated_types {
-            let name = definitions
-                .resolve(declaration.declaration)
-                .map_err(|_| invalid())?
-                .last()
-                .ok_or_else(invalid)?
-                .name;
-            let syntax = item
-                .associated_types
-                .iter()
-                .find(|item| item.name == name)
-                .ok_or_else(invalid)?;
-            constraints(&mut pending, &syntax.bounds, &declaration.bounds);
-        }
-        for method in &contract.methods {
-            let member = item
-                .methods
-                .iter()
-                .find(|member| member.name == method.name)
-                .ok_or_else(invalid)?;
-            functions.push((member.function, method));
-        }
     }
-    for function in &definition.functions {
-        let item = lowered
-            .module
-            .functions
-            .iter()
-            .find(|item| item.kind == FunctionKind::User && item.name == function.name)
-            .ok_or_else(invalid)?;
-        functions.push((item.id, function));
+    if items.next().is_some() {
+        return Err(invalid());
     }
-    for (id, declaration) in functions {
-        let function = lowered
-            .module
-            .functions
-            .iter()
-            .find(|function| function.id == id)
-            .ok_or_else(invalid)?;
-        bounds(&mut pending, &function.bounds, &declaration.bounds);
-        pending.extend(
-            function
-                .params
-                .iter()
-                .zip(&declaration.params)
-                .map(|(parameter, declared)| (parameter.ty, declared.ty.clone())),
-        );
-        if let Some(result) = function.return_type {
-            pending.push((result, declaration.return_type.clone()));
-        }
-    }
-    validate_occurrences(definitions, lowered, pending)
-}
-
-fn validate_occurrences(
-    definitions: &DefinitionTable,
-    lowered: &mut LoweredModule,
-    mut pending: Vec<(TypeRefId, Ty)>,
-) -> Result<(), DeclarationError> {
-    let invalid = || DeclarationError("registered concrete access correspondence".into());
-    while let Some((id, ty)) = pending.pop() {
-        let syntax = &lowered.module.type_ref(id).kind;
-        let mut children: Vec<(TypeRefId, Ty)> = Vec::new();
-        match (syntax, ty) {
-            (TypeKind::Generic { args, .. }, Ty::Range(item, _)) => {
-                children.extend(args.iter().copied().zip([*item]));
-            }
-            (
-                TypeKind::Generic { args, bindings, .. },
-                Ty::NativeObject(nominal) | Ty::Trait(nominal) | Ty::Enum(nominal),
-            ) => {
-                children.extend(args.iter().copied().zip(nominal.arguments));
-                for (member, ty) in nominal.associated_types {
-                    let name = definitions
-                        .resolve(member)
-                        .map_err(|_| invalid())?
-                        .last()
-                        .ok_or_else(invalid)?
-                        .name;
-                    let (_, id) = bindings
-                        .iter()
-                        .find(|(candidate, _)| candidate == name)
-                        .ok_or_else(invalid)?;
-                    children.push((*id, ty));
-                }
-            }
-            (TypeKind::Tuple(elements), Ty::Tuple(types)) => {
-                children.extend(elements.iter().copied().zip(types))
-            }
-            (TypeKind::Array(element), Ty::Array(ty)) => children.push((*element, *ty)),
-            (
-                TypeKind::Function { params, result },
-                Ty::Function {
-                    params: types,
-                    result: ty,
-                },
-            ) => {
-                children.extend(params.iter().copied().zip(types));
-                children.push((*result, *ty));
-            }
-            (
-                TypeKind::Projection {
-                    receiver,
-                    trait_ref,
-                    arguments,
-                    ..
-                },
-                Ty::Projection {
-                    receiver: ty,
-                    interface,
-                    arguments: types,
-                    ..
-                },
-            ) => {
-                children.push((*receiver, *ty));
-                children.push((*trait_ref, Ty::Trait(*interface)));
-                children.extend(arguments.iter().copied().zip(types));
-            }
-            _ => {}
-        }
-        pending.extend(children);
-    }
-    Ok(())
-}
-
-// The authoritative renderer emits where predicates and constraints in this order.
-fn bounds(
-    pending: &mut Vec<(TypeRefId, Ty)>,
-    syntax: &[TraitBound],
-    declarations: &[GenericBound],
-) {
-    for (syntax, declaration) in syntax.iter().zip(declarations) {
-        pending.push((syntax.target_ref, declaration.ty.clone()));
-        constraints(pending, &syntax.traits, &declaration.constraints);
-    }
-}
-
-fn constraints(
-    pending: &mut Vec<(TypeRefId, Ty)>,
-    syntax: &[TraitRef],
-    declarations: &[NominalTy],
-) {
-    for (syntax, declaration) in syntax.iter().zip(declarations) {
-        pending.push((syntax.ty, Ty::Trait(declaration.clone())));
-    }
+    Ok(map)
 }

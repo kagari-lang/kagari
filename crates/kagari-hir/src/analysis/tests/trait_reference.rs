@@ -150,9 +150,12 @@ fn imported_supertraits_resolve_native_associated_members_from_source_facts() {
     let declaration = snapshot
         .declaration(&crate::declarations::DeclarationId::Definition(*member))
         .unwrap();
+    assert!(declaration.source_location().is_none());
     assert_eq!(
-        snapshot.source(declaration.location.file).unwrap().name(),
-        "kagari://native/kagari-core/iter.kgr"
+        declaration.origin,
+        crate::declarations::DeclarationOrigin::Structured {
+            declaration: *member
+        }
     );
 }
 

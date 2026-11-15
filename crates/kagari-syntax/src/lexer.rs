@@ -500,6 +500,7 @@ fn identifier_kind(ident: &str) -> TokenKind {
         "in" => TokenKind::InKw,
         "async" => TokenKind::AsyncKw,
         "await" => TokenKind::AwaitKw,
+        "native" => TokenKind::NativeKw,
         "fn" => TokenKind::FnKw,
         "impl" => TokenKind::ImplKw,
         "mod" => TokenKind::ModKw,

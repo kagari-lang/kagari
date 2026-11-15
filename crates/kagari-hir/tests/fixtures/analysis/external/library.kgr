@@ -1,0 +1,38 @@
+/// Complete Script contract retained in the offline export.
+pub trait Read {
+    fn read(self) -> i32;
+    fn defaulted(self) -> i32 {
+        7
+    }
+}
+
+pub struct Child {
+    pub var number: i32,
+}
+/// A Native object with an ordinary managed child handle.
+pub native type Counter {
+    pub var value: i32,
+    pub val child: Child,
+    val secret: i32,
+}
+
+impl Counter {
+    /// Creates a counter without granting an offline executable binding.
+    pub native fn new() -> Counter;
+    pub native fn echo<T>(self, value: T) -> T;
+    native fn hidden(self) -> i32;
+}
+
+impl Read for Counter {
+    native fn read(self) -> i32;
+}
+
+pub native fn bounded<T: Read>(value: T) -> T;
+
+pub fn embedded(value: Counter) -> i32 {
+    value.defaulted()
+}
+
+pub fn script_identity(value: i32) -> i32 {
+    value
+}

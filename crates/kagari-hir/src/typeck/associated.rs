@@ -337,6 +337,7 @@ pub(super) fn resolve_projection_name(
 ) -> ResolvedTypeRef {
     let Some((base, member)) = name.rsplit_once("::") else {
         return ResolvedTypeRef {
+            exposure: None,
             ty: TypeId::Error,
             target: None,
         };
@@ -351,6 +352,7 @@ pub(super) fn resolve_projection_name(
             .expect("impl context");
         let Some(reference) = &item.trait_ref else {
             return ResolvedTypeRef {
+                exposure: None,
                 ty: TypeId::Error,
                 target: None,
             };
@@ -358,6 +360,7 @@ pub(super) fn resolve_projection_name(
         let interface = resolve_type_in(module, reference.ty, context, table, cancel);
         let Some(receiver) = item.for_type else {
             return ResolvedTypeRef {
+                exposure: None,
                 ty: TypeId::Error,
                 target: None,
             };
@@ -365,6 +368,7 @@ pub(super) fn resolve_projection_name(
         let receiver = resolve_type_in(module, receiver, context, table, cancel);
         let TypeId::Trait(interface) = interface else {
             return ResolvedTypeRef {
+                exposure: None,
                 ty: TypeId::Error,
                 target: None,
             };
@@ -384,6 +388,7 @@ pub(super) fn resolve_projection_name(
         });
         if owners.len() != 1 {
             return ResolvedTypeRef {
+                exposure: None,
                 ty: TypeId::Error,
                 target: None,
             };
@@ -396,6 +401,7 @@ pub(super) fn resolve_projection_name(
             0,
         ) else {
             return ResolvedTypeRef {
+                exposure: None,
                 ty: TypeId::Error,
                 target: None,
             };
@@ -432,6 +438,7 @@ pub(super) fn resolve_projection_name(
             })
         else {
             return ResolvedTypeRef {
+                exposure: None,
                 ty: TypeId::Error,
                 target: None,
             };
@@ -480,6 +487,7 @@ pub(super) fn resolve_projection_name(
     let mut candidates = unique;
     if candidates.len() != 1 {
         return ResolvedTypeRef {
+            exposure: None,
             ty: TypeId::Error,
             target: None,
         };
@@ -492,6 +500,7 @@ pub(super) fn resolve_projection_name(
         0,
     ) else {
         return ResolvedTypeRef {
+            exposure: None,
             ty: TypeId::Error,
             target: None,
         };
@@ -534,7 +543,11 @@ fn owner_predicates<'a>(
 
 fn projection_reference(ty: TypeId, member: DefinitionId) -> ResolvedTypeRef {
     let target = (ty != TypeId::Error).then_some(ResolvedTypeTarget::AssociatedType(member));
-    ResolvedTypeRef { ty, target }
+    ResolvedTypeRef {
+        ty,
+        target,
+        exposure: None,
+    }
 }
 
 pub(super) fn qualified_projection(

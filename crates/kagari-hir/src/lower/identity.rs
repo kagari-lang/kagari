@@ -1,6 +1,9 @@
 //! Reference coverage for attached registration facts; source arenas remain unchanged.
 
-use crate::lower::LoweredModule;
+use crate::{
+    hir::{item::function::FunctionImplementation, ty::TypeKind},
+    lower::LoweredModule,
+};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -17,10 +20,26 @@ impl DefinitionReferences for LoweredModule {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
+        for (_, ty) in self.module.body.types.iter() {
+            check_cancel(cancel)?;
+            if let TypeKind::Definition { declaration, .. } = &ty.kind {
+                visit(declaration)?;
+            }
+        }
+        for function in &self.module.functions {
+            if let FunctionImplementation::Native(contract) = &function.implementation {
+                contract.visit_definition_ids(visit, cancel)?;
+            }
+        }
+        for declaration in self.source_map.structured_definitions() {
+            check_cancel(cancel)?;
+            visit(declaration)?;
+        }
         for (id, value) in self
             .registered_traits
             .iter()
             .chain(&self.native_trait_references)
+            .chain(&self.external_traits)
         {
             check_cancel(cancel)?;
             visit(id)?;

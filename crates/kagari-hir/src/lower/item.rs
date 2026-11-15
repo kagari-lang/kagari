@@ -8,16 +8,19 @@
 use crate::{
     hir::{
         attribute::{AssociatedOwner, AttributeTarget},
-        ids::{BodyOwner, FieldId, FunctionId, HirOwner, ParamId, TypeRefId, UseId, VariantId},
+        ids::{
+            BodyOwner, FieldId, FieldOwner, FunctionId, HirOwner, ParamId, TypeRefId, UseId,
+            VariantId,
+        },
         item::{
             Item,
-            adt::{Enum, Field, OpaqueType, Struct, Variant},
+            adt::{Enum, Field, NativeTypeDeclaration, Struct, Variant},
             alias::TypeAlias,
             behavior::{
                 AssociatedConst, AssociatedType, GenericParam, Impl, ImplMethod, TraitBound,
                 TraitDef, TraitMethod, TraitRef,
             },
-            function::{Function, FunctionKind, Param},
+            function::{Function, FunctionImplementation, FunctionKind, NativeContract, Param},
             module::{Import, ImportLeaf, ModuleDecl, UseDecl as HirUseDecl},
             storage::{ConstItem, ConstOwner, StaticItem},
         },
@@ -30,10 +33,10 @@ use kagari_syntax::ast::{
     borrow::Ast,
     item::{
         AssociatedType as AstAssociatedType, ConstDef, EnumDef, FnDef, ImplBlock, MethodDef,
-        ModuleDef, OpaqueTypeDef, StaticDef, StructDef, TraitDef as AstTraitDef,
+        ModuleDef, NativeTypeDef, StaticDef, StructDef, TraitDef as AstTraitDef,
         TypeAlias as AstTypeAlias, UseDecl, UseTree, VisibilityKind as AstVisibility,
     },
-    misc::{GenericParamList, ParamList, TraitRef as AstTraitRef, WhereClause},
+    misc::{FieldList, GenericParamList, ParamList, TraitRef as AstTraitRef, WhereClause},
     module::ModuleSyntax,
     views::ItemView,
 };
@@ -66,10 +69,10 @@ impl Lowerer {
                     self.module.items.push(Item::TypeAlias(item.id));
                     self.module.type_aliases.push(item);
                 }
-                ItemView::OpaqueTypeDef(declaration) => {
-                    let item = self.lower_opaque_type(&declaration);
-                    self.module.items.push(Item::OpaqueType(item.id));
-                    self.module.opaque_types.push(item);
+                ItemView::NativeTypeDef(declaration) => {
+                    let item = self.lower_native_type(&declaration);
+                    self.module.items.push(Item::NativeType(item.id));
+                    self.module.native_types.push(item);
                 }
                 ItemView::ModuleDef(module_def) => {
                     let hir_module = self.lower_module_decl(&module_def);
@@ -138,14 +141,14 @@ impl Lowerer {
         }
     }
 
-    fn lower_opaque_type(&mut self, declaration: &Ast<'_, OpaqueTypeDef>) -> OpaqueType {
-        let id = self.source_map.push_opaque_type(syntax_span(declaration));
-        self.attach_attributes(*declaration, AttributeTarget::Item(Item::OpaqueType(id)));
+    fn lower_native_type(&mut self, declaration: &Ast<'_, NativeTypeDef>) -> NativeTypeDeclaration {
+        let id = self.source_map.push_native_type(syntax_span(declaration));
+        self.attach_attributes(*declaration, AttributeTarget::Item(Item::NativeType(id)));
         if let Some(name) = declaration.name() {
             self.source_map
-                .insert_item_name(Item::OpaqueType(id), token_span(&name));
+                .insert_item_name(Item::NativeType(id), token_span(&name));
         }
-        OpaqueType {
+        NativeTypeDeclaration {
             id,
             visibility: lower_visibility(declaration.visibility()),
             name: declaration.name_text().unwrap_or_default(),
@@ -161,7 +164,7 @@ impl Lowerer {
                 .bounds()
                 .map(|bounds| self.lower_trait_refs(bounds.bounds()))
                 .unwrap_or_default(),
-            definition: None,
+            fields: self.lower_fields(declaration.field_list(), FieldOwner::NativeType(id)),
         }
     }
 
@@ -385,7 +388,7 @@ impl Lowerer {
         let function_id = function.id;
         self.finish_function(function);
         TraitMethod {
-            has_default: method.body().is_some(),
+            has_default: method.is_native() || method.body().is_some(),
             id,
             name: method.name_text().unwrap_or_default(),
             function: function_id,
@@ -450,7 +453,15 @@ impl Lowerer {
                 .unwrap_or_default(),
             params,
             return_type: method.return_type().map(|ty| self.lower_type(&ty)),
-            body: method.body().map(|body| self.lower_block(&body)),
+            implementation: if method.is_native() {
+                FunctionImplementation::Native(NativeContract::default())
+            } else {
+                method
+                    .body()
+                    .map_or(FunctionImplementation::Required, |body| {
+                        FunctionImplementation::Script(self.lower_block(&body))
+                    })
+            },
         };
         self.source_map.set_owner(previous_owner);
         result
@@ -551,7 +562,15 @@ impl Lowerer {
                 .unwrap_or_default(),
             params,
             return_type: function.return_type().map(|ty| self.lower_type(&ty)),
-            body: function.body().map(|body| self.lower_block(&body)),
+            implementation: if function.is_native() {
+                FunctionImplementation::Native(NativeContract::default())
+            } else {
+                function
+                    .body()
+                    .map_or(FunctionImplementation::Required, |body| {
+                        FunctionImplementation::Script(self.lower_block(&body))
+                    })
+            },
         };
         self.source_map.set_owner(previous_owner);
         self.finish_function(result);
@@ -781,40 +800,7 @@ impl Lowerer {
             .generic_params()
             .map(|params| self.lower_generic_params(&params))
             .unwrap_or_default();
-        let fields = struct_def
-            .field_list()
-            .map(|field_list| {
-                field_list
-                    .fields()
-                    .enumerate()
-                    .map(|(slot, field)| {
-                        let field_id = FieldId::new(self.source_map.arena(), id, slot);
-                        self.attach_attributes(field, AttributeTarget::Field(field_id));
-                        self.source_map.insert_field(
-                            field_id,
-                            field
-                                .name()
-                                .map(|name| token_span(&name))
-                                .unwrap_or_else(|| syntax_span(&field)),
-                        );
-                        Field {
-                            visibility: lower_visibility(field.visibility()),
-                            id: field_id,
-                            writeability: if field.is_var() {
-                                Writeability::Var
-                            } else {
-                                Writeability::Val
-                            },
-                            name: field.name_text().unwrap_or_default(),
-                            ty: field
-                                .ty()
-                                .map(|ty| self.lower_type(&ty))
-                                .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
-                        }
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let fields = self.lower_fields(struct_def.field_list(), FieldOwner::Struct(id));
 
         Struct {
             id,
@@ -824,6 +810,41 @@ impl Lowerer {
             fields,
             impls: Vec::new(),
         }
+    }
+
+    fn lower_fields(&mut self, list: Option<Ast<'_, FieldList>>, owner: FieldOwner) -> Vec<Field> {
+        list.map(|field_list| {
+            field_list
+                .fields()
+                .enumerate()
+                .map(|(slot, field)| {
+                    let field_id = FieldId::new(self.source_map.arena(), owner, slot);
+                    self.attach_attributes(field, AttributeTarget::Field(field_id));
+                    self.source_map.insert_field(
+                        field_id,
+                        field
+                            .name()
+                            .map(|name| token_span(&name))
+                            .unwrap_or_else(|| syntax_span(&field)),
+                    );
+                    Field {
+                        visibility: lower_visibility(field.visibility()),
+                        id: field_id,
+                        writeability: if field.is_var() {
+                            Writeability::Var
+                        } else {
+                            Writeability::Val
+                        },
+                        name: field.name_text().unwrap_or_default(),
+                        ty: field
+                            .ty()
+                            .map(|ty| self.lower_type(&ty))
+                            .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
     }
 
     fn lower_enum(&mut self, enum_def: &Ast<'_, EnumDef>) -> Enum {

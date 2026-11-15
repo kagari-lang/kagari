@@ -118,7 +118,7 @@ struct Key<T> { val value: T }
 impl<T: PartialEq> PartialEq for Key<T> { fn eq(self, other: Self) -> bool { self.value == other.value } }
 impl<T: Eq> Eq for Key<T> {}
 impl<T: Eq + Hash> Hash for Key<T> { fn hash(self) -> i64 { self.value.hash() } }
-fn native() -> u64 { val xs: Vec<i32> = Vec::new(); xs.len() }
+fn native_length() -> u64 { val xs: Vec<i32> = Vec::new(); xs.len() }
 "#,
     );
     let records = evidence(&module);

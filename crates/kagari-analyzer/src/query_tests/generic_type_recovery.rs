@@ -81,7 +81,7 @@ fn generic_type_parameters_navigate_and_rebase_without_losing_their_owner() {
         .definition_at(text.find("value: T").unwrap() + 7)
         .unwrap();
     assert_eq!(
-        parameter.location.range.start,
+        parameter.source_location().unwrap().range.start,
         text.find("Cell<T").unwrap() + 5
     );
     let payload = old_file
@@ -104,7 +104,7 @@ fn generic_type_parameters_navigate_and_rebase_without_losing_their_owner() {
         .unwrap();
     assert_eq!(new_parameter.id, parameter.id);
     assert_eq!(
-        new_parameter.location.range.start,
+        new_parameter.source_location().unwrap().range.start,
         edit.find("Cell<T").unwrap() + 5
     );
     assert!(matches!(

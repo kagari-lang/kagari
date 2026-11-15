@@ -1,0 +1,21 @@
+pub native type Ref<T>;
+
+pub native type RefMut<T>;
+
+pub native type String;
+
+pub native type Range<T>;
+
+pub native type Target;
+
+impl Target {
+    pub native fn shared(self) -> i32;
+    pub native fn mutable(self) -> i32;
+    pub native fn plain(self) -> i32;
+}
+
+pub native fn references(shared: Ref<Target>, mutable: RefMut<Target>);
+
+pub native fn text(value: String) -> String;
+
+pub native fn range(value: Range<i32>) -> Range<i32>;

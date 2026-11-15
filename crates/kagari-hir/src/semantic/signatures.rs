@@ -49,6 +49,12 @@ pub enum FunctionImplementation {
     Script,
     /// An installed native binding carrying its registered contract.
     Native(NativeBinding),
+    /// Native signature without an installed binding or executable authority.
+    /// External inputs and inadmissible ordinary-source recovery retain this kind.
+    /// HIR still has the three Required/Script/Native implementation forms. This
+    /// semantic distinction is necessary while `Native(binding)` itself carries
+    /// installed authority; unbound declarations must not invent a binding or a body.
+    NativeDeclaration,
     /// A trait requirement awaiting an implementation, with no script body.
     Required,
 }

@@ -11,7 +11,7 @@ use kagari_common::{
 use crate::{
     aggregates::{implementations::ImplementationSignature, traits::TraitSignature},
     declarations::{Declaration, DeclarationId, Declarations},
-    hir::writeability::Writeability,
+    hir::{item::adt::Field, writeability::Writeability},
     imports::{ModuleGraph, SourceDeclRef, SourceItem, SourceUnit},
     language::semantics as builtin_traits,
     lower::LoweredModule,
@@ -92,7 +92,7 @@ pub struct StructSignature {
     pub fields: Vec<FieldSignature>,
 }
 
-/// Shared registered nominal type contract and its installed representation descriptor.
+/// Shared Native interface contract and optional static representation facts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeTypeSignature {
     /// Canonical semantic definition identity used as the catalog key.
@@ -103,8 +103,10 @@ pub struct NativeTypeSignature {
     pub bounds: GenericBounds,
     /// Semantic identity and authoritative source navigation site.
     pub declaration: Declaration,
-    /// Installed storage/type representation; independent of source spelling.
-    pub representation: NativeTypeKind,
+    /// Static storage/type interpretation; independent of source spelling and not binding proof.
+    pub representation: Option<NativeTypeKind>,
+    /// Declared interface fields; these do not grant executable adapters.
+    pub fields: Vec<FieldSignature>,
 }
 
 /// Canonical enum variant, payload types and logical variant slot.
@@ -217,17 +219,17 @@ impl AggregateCatalog {
                 .iter()
                 .map(|(role, id)| (*role, *id)),
         );
-        for item in &lowered.module.opaque_types {
+        for item in &lowered.module.native_types {
             cancel.check()?;
-            let Some(declaration) = declarations.target(ResolvedName::OpaqueType(item.id)) else {
+            let Some(declaration) = declarations.target(ResolvedName::NativeType(item.id)) else {
                 continue;
             };
             let DeclarationId::Definition(id) = &declaration.id else {
                 continue;
             };
-            let Some(representation) = declarations.native_type(item.id) else {
-                continue;
-            };
+            let representation = declarations.native_type(item.id);
+            let fields =
+                self.collect_fields(&item.fields, *id, declarations, signatures, cancel)?;
             self.native_types.insert(
                 *id,
                 Arc::new(NativeTypeSignature {
@@ -239,6 +241,7 @@ impl AggregateCatalog {
                         .clone(),
                     declaration: declaration.clone(),
                     representation,
+                    fields,
                 }),
             );
         }
@@ -250,30 +253,8 @@ impl AggregateCatalog {
             let DeclarationId::Definition(id) = &declaration.id else {
                 continue;
             };
-            let mut fields = Vec::new();
-            for field in &structure.fields {
-                cancel.check()?;
-                let Some(declaration) = declarations.field(field.id) else {
-                    continue;
-                };
-                let DeclarationId::Definition(field_id) = &declaration.id else {
-                    continue;
-                };
-                self.fields.insert(*field_id, (*id, fields.len()));
-                fields.push(FieldSignature {
-                    id: *field_id,
-                    owner: *id,
-                    slot: field.id.slot(),
-                    name: field.name.clone(),
-                    visibility: field.visibility,
-                    writeability: field.writeability,
-                    ty: signatures
-                        .type_table()
-                        .field_type(field.id)
-                        .unwrap_or(TypeId::Error),
-                    declaration: declaration.clone(),
-                });
-            }
+            let fields =
+                self.collect_fields(&structure.fields, *id, declarations, signatures, cancel)?;
             self.structures.insert(
                 *id,
                 Arc::new(StructSignature {
@@ -430,6 +411,41 @@ impl AggregateCatalog {
         Ok(())
     }
 
+    fn collect_fields(
+        &mut self,
+        fields: &[Field],
+        owner: DefinitionId,
+        declarations: &Declarations,
+        signatures: &ModuleSignatures,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<FieldSignature>, Cancelled> {
+        let mut result = Vec::new();
+        for field in fields {
+            cancel.check()?;
+            let Some(declaration) = declarations.field(field.id) else {
+                continue;
+            };
+            let DeclarationId::Definition(id) = declaration.id else {
+                continue;
+            };
+            self.fields.insert(id, (owner, result.len()));
+            result.push(FieldSignature {
+                id,
+                owner,
+                slot: field.id.slot(),
+                name: field.name.clone(),
+                visibility: field.visibility,
+                writeability: field.writeability,
+                ty: signatures
+                    .type_table()
+                    .field_type(field.id)
+                    .unwrap_or(TypeId::Error),
+                declaration: declaration.clone(),
+            });
+        }
+        Ok(result)
+    }
+
     pub(crate) fn for_module(
         &self,
         root: &ModuleIdentity,
@@ -484,6 +500,10 @@ impl AggregateCatalog {
         for (id, native_type) in &self.native_types {
             cancel.check()?;
             if reachable.contains(&definitions.module_of(*id).expect("scoped type identity")) {
+                for (slot, field) in native_type.fields.iter().enumerate() {
+                    cancel.check()?;
+                    result.fields.insert(field.id, (*id, slot));
+                }
                 result.native_types.insert(*id, native_type.clone());
             }
         }
@@ -514,6 +534,7 @@ impl AggregateCatalog {
 
     pub(crate) fn same_contracts(&self, other: &Self) -> bool {
         self.same_trait_contracts(other)
+            && self.native_types == other.native_types
             && self.implementation_constants == other.implementation_constants
             && self.implementations == other.implementations
             && self.inherent_methods == other.inherent_methods
@@ -553,7 +574,12 @@ impl AggregateCatalog {
 mod mapping;
 
 impl AggregateCatalog {
-    /// Borrows a registered native type contract by canonical definition identity.
+    /// Visits Native type interfaces, including declaration-only inputs.
+    pub fn native_types(&self) -> impl Iterator<Item = &NativeTypeSignature> {
+        self.native_types.values().map(AsRef::as_ref)
+    }
+
+    /// Borrows a Native type contract by canonical definition identity.
     pub fn native_type(&self, id: &DefinitionId) -> Option<&NativeTypeSignature> {
         self.native_types.get(id).map(Arc::as_ref)
     }
@@ -609,6 +635,10 @@ impl AggregateCatalog {
     /// Finds a canonical field through its owner/slot reverse index.
     pub fn field(&self, id: &DefinitionId) -> Option<&FieldSignature> {
         let (owner, slot) = self.fields.get(id)?;
-        self.structure(owner)?.fields.get(*slot)
+        if let Some(structure) = self.structure(owner) {
+            structure.fields.get(*slot)
+        } else {
+            self.native_type(owner)?.fields.get(*slot)
+        }
     }
 }

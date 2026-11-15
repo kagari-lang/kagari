@@ -1,0 +1,20 @@
+use api::{ Ref, RefMut, Target };
+
+pub native fn missing(value: Ref<Missing>);
+
+pub native fn scalar(value: Ref<i32>);
+
+pub native fn arity(value: Ref<Target, Target>);
+
+pub native fn nested(value: Ref<RefMut<Target>>);
+
+pub native fn returned() -> Ref<Target>;
+
+pub fn methods(shared: Ref<Target>) {
+    shared.mutable();
+    shared.plain();
+}
+
+pub native type Stored {
+    pub val reference: Ref<Target>,
+}

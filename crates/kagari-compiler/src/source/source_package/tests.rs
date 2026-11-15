@@ -10,11 +10,29 @@ use kagari_common::{
     span::Span,
 };
 use kagari_contract::{source::ExecutableOrigin, updates::BodyClassification};
-use kagari_hir::{analysis::AnalysisDatabase, program::CheckedProgram};
+use kagari_hir::{
+    analysis::AnalysisDatabase, native::render::declaration_source, program::CheckedProgram,
+    source_map::origin::NodeOrigin,
+};
 use kagari_source::{
     package::{PackageEnvironment, PackageScope},
     source_database::{CapturedSource, SourceDatabase, SourceLayer},
 };
+use kagari_types::declaration::{
+    TypeDef, TypeDefKind, module::ModuleDecl, native::NativeStorageLayout,
+};
+use std::{slice, sync::Arc};
+
+/// Complete-source tests explicitly retain the Native declaration documents.
+/// Default structured registration deliberately has no authored source surface.
+fn supply_complete_native_source(analysis: &mut AnalysisDatabase) {
+    let modules = kagari_stdlib::catalog::shared().unwrap();
+    let sources = modules
+        .iter()
+        .map(|module| declaration_source(module, &modules).unwrap())
+        .collect();
+    analysis.set_native_sources(modules, sources).unwrap();
+}
 
 fn checked(text: &str) -> CheckedProgram {
     let mut sources = SourceDatabase::default();
@@ -22,12 +40,134 @@ fn checked(text: &str) -> CheckedProgram {
         .set("exact.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(kagari_stdlib::catalog::shared().unwrap());
+    supply_complete_native_source(&mut analysis);
     analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap()
         .check_program(root, &Default::default())
         .unwrap()
+}
+
+#[test]
+fn structured_registrations_compile_without_claiming_complete_authored_source() {
+    let text = include_str!("../../../tests/fixtures/source_package/declaration-swaps.kgr");
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set("exact.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let mut native = ModuleDecl::new(ModuleIdentity {
+        package: PackageId("structured-fixture".into()),
+        path: vec!["schema".into()],
+    });
+    native.types.push(TypeDef {
+        name: "Handle".into(),
+        kind: TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
+        generic_params: vec![],
+        bounds: vec![],
+        fields: vec![],
+        variants: vec![],
+    });
+    native.collect_definitions(&context).unwrap();
+    let native = Arc::new(
+        DefinitionMetadata::checked(context.snapshot(), native, &Default::default()).unwrap(),
+    );
+    let mut analysis = AnalysisDatabase::default();
+    analysis.set_native_modules(vec![native.clone()]);
+    let direct = analysis
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap()
+        .check_program(root, &Default::default())
+        .unwrap();
+    let input = compilation(&direct);
+    let mut structured_declarations = 0;
+    for module in input
+        .modules()
+        .iter()
+        .filter(|module| module.source_surface().is_none())
+    {
+        for item in module.headers().items {
+            assert!(matches!(
+                module.declaration_origin(*item),
+                Some(NodeOrigin::Structured { .. })
+            ));
+            assert!(module.declaration_span(*item).is_none());
+            structured_declarations += 1;
+        }
+    }
+    assert!(structured_declarations > 0);
+    assert!(
+        build_source_manifest(&input, &Default::default())
+            .unwrap()
+            .is_none()
+    );
+    assert!(matches!(
+        collect_authored_sources(&input, &Default::default()),
+        Err(DefinitionMappingError::InvalidContract)
+    ));
+    let bytecode = compile(&direct);
+    assert!(bytecode.program().update_evidence.source_manifest.is_none());
+    assert!(
+        bytecode
+            .program()
+            .modules
+            .iter()
+            .flat_map(|module| &module.functions)
+            .all(|function| function
+                .metadata
+                .debug
+                .source_uri
+                .as_ref()
+                .is_none_or(|uri| !uri.starts_with("kagari-registration:")))
+    );
+    assert!(matches!(
+        build_source_package(&input, &bytecode, &Default::default()),
+        Err(SourcePackageError::MissingManifest)
+    ));
+    // Supplying a rendered view later cannot authorize source attachment to an
+    // executable whose original compilation had no complete source manifest.
+    let view = declaration_source(&native, slice::from_ref(&native)).unwrap();
+    let mut analysis = AnalysisDatabase::default();
+    analysis
+        .set_native_sources(vec![native], vec![view])
+        .unwrap();
+    let with_source = analysis
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap()
+        .check_program(root, &Default::default())
+        .unwrap();
+    assert!(matches!(
+        build_source_package(&compilation(&with_source), &bytecode, &Default::default()),
+        Err(SourcePackageError::MissingManifest)
+    ));
+    let complete = compile(&with_source);
+    assert!(complete.program().update_evidence.source_manifest.is_some());
+    let package =
+        build_source_package(&compilation(&with_source), &complete, &Default::default()).unwrap();
+    let artifact =
+        KbcArtifact::from_verified(bytecode, Default::default(), &Default::default()).unwrap();
+    let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let decoded = KbcArtifact::from_bytes(&bytes)
+        .unwrap()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records()
+        .into_verified(
+            &ArtifactCompatibility::default(),
+            &context,
+            &Default::default(),
+        )
+        .unwrap();
+    assert!(
+        decoded
+            .bytecode()
+            .program()
+            .update_evidence
+            .source_manifest
+            .is_none()
+    );
+    assert!(KbcArtifact::with_source_package(artifact, &package, &Default::default()).is_err());
 }
 
 #[test]
@@ -179,7 +319,7 @@ fn equal_display_and_text_keep_distinct_module_origins_and_inline_coordinates() 
         .unwrap();
     let file = snapshot.module(&root).unwrap().id();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(kagari_stdlib::catalog::shared().unwrap());
+    supply_complete_native_source(&mut analysis);
     let checked = analysis
         .snapshot(snapshot, &cancel)
         .unwrap()
@@ -489,7 +629,7 @@ fn foreign_defaults_and_materialized_generic_applications_keep_authored_owner() 
         "use pkg::model::{Read, identity}; struct Holder { val value: i32 } impl Read for Holder { fn read(self) -> i32 { self.value } } fn main() -> i32 { val x: Read = Holder { value: 7 }; identity(x.again()) }",
     );
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(kagari_stdlib::catalog::shared().unwrap());
+    supply_complete_native_source(&mut analysis);
     let checked = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap()

@@ -25,6 +25,7 @@ impl FileQueries<'_> {
     /// The smallest enclosing call wins, including positions in its arguments.
     /// Source, engine-native and offline host declarations share this query.
     pub fn call_signature_at(&self, offset: usize) -> Option<CallSignature> {
+        self.analysis.syntax()?;
         let facts = self.analysis.result().facts();
         let (_, id) = facts
             .lowered

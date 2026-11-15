@@ -106,7 +106,7 @@ pub fn load(root: &Path) -> Vec<Workload> {
         ")".repeat(160)
     );
     let declarations = (0..256)
-        .map(|i| format!("pub fn api{i}<T>(value: T) -> T;\n"))
+        .map(|i| format!("pub native fn api{i}<T>(value: T) -> T;\n"))
         .collect::<String>();
     for (name, text, declarations, erroneous) in [
         ("recovery", recovery, false, true),

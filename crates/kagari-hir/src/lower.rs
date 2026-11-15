@@ -7,7 +7,7 @@
 
 use crate::{
     hir::{
-        ids::{FunctionId, OpaqueTypeId, TraitId, VariantId},
+        ids::{FunctionId, NativeTypeId, TraitId, VariantId},
         item::Module,
     },
     lower::context::Lowerer,
@@ -59,7 +59,7 @@ mod ty;
 /// names: this value is neither typed nor a code-generation authorization.
 #[derive(Debug, Clone)]
 pub struct LoweredModule {
-    /// Installed declaration dependencies added to source import reachability.
+    /// Explicit library dependencies added to source import reachability.
     pub(crate) native_dependencies: Vec<ModuleIdentity>,
     /// Exact source traits referenced by checked native implementation metadata.
     pub(crate) native_trait_references: BTreeMap<DefinitionId, TraitDef>,
@@ -67,7 +67,8 @@ pub struct LoweredModule {
     pub(crate) native_import_namespaces: BTreeMap<usize, NameNamespace>,
     /// Registered enum failure variants identified by lowering-local variant handles.
     pub(crate) registered_enum_failures: HashSet<VariantId>,
-    /// Source retained for this lowering; source-map byte offsets refer to this text.
+    /// Retained source or a source-less registration's logical graph key.
+    /// Use `source_surface()` before treating this value as authored text.
     pub source: Arc<SourceFile>,
     /// Owned declaration collections and node storage.
     pub module: Module,
@@ -75,33 +76,53 @@ pub struct LoweredModule {
     pub source_map: SourceMap,
     /// Whether this unit was imported from an installed native declaration module.
     pub(crate) registered_native_api: bool,
+    /// Parsed external declarations are static tooling inputs, never installation evidence.
+    pub(crate) external_api: bool,
     /// Retained scope for attached Native registration facts; absent for ordinary source.
     pub(crate) native_definitions: Option<DefinitionTable>,
-    /// Whether the installed unit provides the required language foundation.
+    /// Whether explicit static evidence admits this unit's language foundation roles.
     pub(crate) language_foundation: bool,
     /// Optional short package alias supplied by registration metadata.
     pub(crate) native_package_alias: Option<String>,
-    /// Whether this registered unit contributes implicit prelude bindings.
+    /// Whether this library unit contributes implicit prelude bindings.
     pub(crate) native_prelude: bool,
     /// Authoritative installed trait contracts indexed by scoped definition identity.
     pub(crate) registered_traits: BTreeMap<DefinitionId, TraitDef>,
-    /// Validated native declaration records retained alongside their generated source view.
+    /// Offline shape/conversion evidence; never installed bindings or registration authority.
+    pub(crate) external_traits: BTreeMap<DefinitionId, TraitDef>,
+    /// Validated installed Native contracts, separate from optional source presentation.
     pub(crate) registered_declarations: Vec<NativeDeclaration>,
-    /// Lowering-local opaque type slots mapped to registered representation descriptors.
-    pub(crate) native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
+    /// Native slots mapped to static type/schema interpretation, not callable authority.
+    pub(crate) native_types: HashMap<NativeTypeId, NativeTypeKind>,
     /// Exact registered readonly Map/Set occurrences in the validated source view.
     /// These are concrete host descriptors, not trait capability markers.
     /// Lowering-local function slots mapped to registered semantic binding descriptors.
     pub(crate) native_functions: HashMap<FunctionId, NativeBinding>,
-    /// Registered conversion adapters indexed by the generated trait slot.
+    /// Static conversion adapters indexed by the lowering-local trait slot.
     pub(crate) native_trait_adapters: HashMap<TraitId, ConversionAdapter>,
-    /// Registered receiver/call policies indexed by generated function slot.
+    /// Static receiver/call policies indexed by the lowering-local function slot.
     pub(crate) method_policies: HashMap<FunctionId, MethodPolicy>,
     /// Registered attribute byte ranges allowed on generated declaration source.
     pub(crate) native_attributes: HashSet<(usize, usize)>,
 }
 
 impl LoweredModule {
+    /// Authored source when available. A structured registration retains `source`
+    /// only as a logical graph key; it is not a navigation or implementation surface.
+    pub fn source_surface(&self) -> Option<&Arc<SourceFile>> {
+        (!self.source_map.is_structured()).then_some(&self.source)
+    }
+
+    /// Whether this module supplies an explicitly admitted library namespace.
+    pub(crate) fn is_library_api(&self) -> bool {
+        self.registered_native_api || self.external_api
+    }
+
+    /// Whether this module came from offline source rather than executable registration.
+    pub fn is_external_api(&self) -> bool {
+        self.external_api
+    }
+
     /// Reports whether registration marks this variant as a failure case.
     pub fn registered_enum_failure(&self, variant: VariantId) -> bool {
         self.registered_enum_failures.contains(&variant)
@@ -145,7 +166,7 @@ impl LoweredModule {
 /// let source = SourceFile::new("add.kg", "fn add(x: i32) -> i32 { x + 1 }");
 /// let lowered = lower_module(&source);
 /// let function = &lowered.module.functions[0];
-/// let block = lowered.module.block(function.body.unwrap());
+/// let block = lowered.module.block(function.implementation.script_body().unwrap());
 /// let sum = block.tail_expr.unwrap();
 /// let ExprKind::Binary { lhs, rhs, .. } = &lowered.module.expr(sum).kind else {
 ///     panic!("expected the addition node");
@@ -184,25 +205,37 @@ pub(crate) fn lower_module_controlled(
     let mut lowerer = Lowerer::new(cancel.clone());
     lowerer.lower_module(module);
     let (module, source_map) = lowerer.finish();
-    LoweredModule {
-        registered_enum_failures: HashSet::new(),
-        source,
-        module,
-        source_map,
-        registered_native_api: false,
-        native_definitions: None,
-        native_import_namespaces: BTreeMap::new(),
-        language_foundation: false,
-        native_package_alias: None,
-        native_prelude: false,
-        native_dependencies: Vec::new(),
-        native_trait_references: BTreeMap::new(),
-        registered_traits: BTreeMap::new(),
-        registered_declarations: vec![],
-        native_types: HashMap::new(),
-        native_functions: HashMap::new(),
-        native_trait_adapters: HashMap::new(),
-        method_policies: HashMap::new(),
-        native_attributes: HashSet::new(),
+    LoweredModule::from_parts(source, module, source_map)
+}
+
+impl LoweredModule {
+    pub(crate) fn from_parts(
+        source: Arc<SourceFile>,
+        module: Module,
+        source_map: SourceMap,
+    ) -> Self {
+        Self {
+            registered_enum_failures: HashSet::new(),
+            source,
+            module,
+            source_map,
+            registered_native_api: false,
+            external_api: false,
+            native_definitions: None,
+            native_import_namespaces: BTreeMap::new(),
+            language_foundation: false,
+            native_package_alias: None,
+            native_prelude: false,
+            native_dependencies: Vec::new(),
+            native_trait_references: BTreeMap::new(),
+            registered_traits: BTreeMap::new(),
+            external_traits: BTreeMap::new(),
+            registered_declarations: vec![],
+            native_types: HashMap::new(),
+            native_functions: HashMap::new(),
+            native_trait_adapters: HashMap::new(),
+            method_policies: HashMap::new(),
+            native_attributes: HashSet::new(),
+        }
     }
 }

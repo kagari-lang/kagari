@@ -7,7 +7,7 @@ use crate::{
     declarations::Declarations,
     hir::item::{
         Item, Module,
-        adt::{Enum, OpaqueType, Struct},
+        adt::{Enum, NativeTypeDeclaration, Struct},
         alias::TypeAlias,
         behavior::{Impl, TraitDef},
         function::Function,
@@ -48,7 +48,7 @@ pub struct DeclarationHeaders<'a> {
     /// Struct metadata; semantic member types belong to the aggregate catalog.
     pub structs: &'a [Struct],
     /// Native-backed type headers with separately registered representation facts.
-    pub opaque_types: &'a [OpaqueType],
+    pub native_types: &'a [NativeTypeDeclaration],
     /// Transparent aliases; normalized templates belong to the declaration environment.
     pub aliases: &'a [TypeAlias],
     /// Enum headers, retaining authored variant order.
@@ -68,7 +68,7 @@ impl<'a> DeclarationHeaders<'a> {
             statics: &module.statics,
             modules: &module.modules,
             structs: &module.structs,
-            opaque_types: &module.opaque_types,
+            native_types: &module.native_types,
             aliases: &module.type_aliases,
             enums: &module.enums,
             traits: &module.traits,
@@ -89,8 +89,8 @@ impl<'a> DeclarationHeaders<'a> {
             Item::Static(id) => self.statics.get(id.index()).is_some_and(|row| row.id == id),
             Item::Module(id) => self.modules.get(id.index()).is_some_and(|row| row.id == id),
             Item::Struct(id) => self.structs.get(id.index()).is_some_and(|row| row.id == id),
-            Item::OpaqueType(id) => self
-                .opaque_types
+            Item::NativeType(id) => self
+                .native_types
                 .get(id.index())
                 .is_some_and(|row| row.id == id),
             Item::TypeAlias(id) => self.aliases.get(id.index()).is_some_and(|row| row.id == id),

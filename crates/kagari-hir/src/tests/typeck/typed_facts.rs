@@ -28,7 +28,9 @@ fn main(point: Point) -> Point {
         .iter()
         .find(|function| function.name == "main")
         .expect("expected main function");
-    let block = lowered.module.block(function.body.unwrap());
+    let block = lowered
+        .module
+        .block(function.implementation.script_body().unwrap());
     let tail_expr = block.tail_expr.expect("tail expr");
 
     assert_eq!(
@@ -60,7 +62,9 @@ fn records_expression_types_for_resolved_body_expressions() {
         .expect("type checker should succeed");
     let function = &lowered.module.functions[0];
 
-    let block = lowered.module.block(function.body.unwrap());
+    let block = lowered
+        .module
+        .block(function.implementation.script_body().unwrap());
     let let_stmt = lowered.module.stmt(block.statements[0]);
     let init_expr = match &let_stmt.kind {
         StmtKind::Binding { initializer, .. } => *initializer,
@@ -90,7 +94,9 @@ fn allows_assignment_to_var_local_but_not_val_local_or_param() {
         .into_checked()
         .expect("type checker should succeed");
     let function = &var_local.module.functions[0];
-    let block = var_local.module.block(function.body.unwrap());
+    let block = var_local
+        .module
+        .block(function.implementation.script_body().unwrap());
     let tail_expr = block.tail_expr.expect("tail expr");
     assert_eq!(
         typed.type_table.expr_type(tail_expr),
@@ -121,7 +127,9 @@ fn main() -> i32 {
         .into_checked()
         .expect("field assignment should type check");
     let function = &field_assignment.module.functions[0];
-    let block = field_assignment.module.block(function.body.unwrap());
+    let block = field_assignment
+        .module
+        .block(function.implementation.script_body().unwrap());
     let tail_expr = block.tail_expr.expect("tail expr");
     assert_eq!(
         typed.type_table.expr_type(tail_expr),
@@ -146,7 +154,9 @@ fn main(point: Point) -> i32 {
         .into_checked()
         .expect("var field assignment through parameter should type check");
     let function = &param_field_assignment.module.functions[0];
-    let block = param_field_assignment.module.block(function.body.unwrap());
+    let block = param_field_assignment
+        .module
+        .block(function.implementation.script_body().unwrap());
     let tail_expr = block.tail_expr.expect("tail expr");
     assert_eq!(
         typed.type_table.expr_type(tail_expr),
@@ -170,7 +180,9 @@ fn main() -> i32 {
         .into_checked()
         .expect("index assignment should type check");
     let function = &index_assignment.module.functions[0];
-    let block = index_assignment.module.block(function.body.unwrap());
+    let block = index_assignment
+        .module
+        .block(function.implementation.script_body().unwrap());
     let tail_expr = block.tail_expr.expect("tail expr");
     assert_eq!(
         typed.type_table.expr_type(tail_expr),
@@ -190,7 +202,9 @@ fn records_named_match_pattern_binding_type() {
         .into_checked()
         .expect("type checker should succeed");
     let function = &lowered.module.functions[0];
-    let block = lowered.module.block(function.body.unwrap());
+    let block = lowered
+        .module
+        .block(function.implementation.script_body().unwrap());
     let tail_expr = block.tail_expr.expect("tail expr");
 
     let pattern_local = match &lowered.module.expr(tail_expr).kind {
@@ -230,7 +244,9 @@ fn main() -> i32 { VERSION }
         .iter()
         .find(|function| function.name == "main")
         .expect("expected main function");
-    let block = lowered.module.block(function.body.unwrap());
+    let block = lowered
+        .module
+        .block(function.implementation.script_body().unwrap());
     let tail_expr = block.tail_expr.expect("tail expr");
 
     assert_eq!(

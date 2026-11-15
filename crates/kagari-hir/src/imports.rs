@@ -1,7 +1,7 @@
 //! Immutable import syntax, scope bindings and qualified namespace identities.
 use crate::{
     hir::ids::{
-        ConstId, EnumId, FunctionId, LoweringId, ModuleId, OpaqueTypeId, StaticId, StructId,
+        ConstId, EnumId, FunctionId, LoweringId, ModuleId, NativeTypeId, StaticId, StructId,
         TraitId, TypeAliasId, VariantId,
     },
     imports::bindings::{LookupOutcome, PerNamespace},
@@ -89,8 +89,8 @@ pub enum SourceItem {
     Struct(StructId),
     /// A local `EnumId` interpreted in the enclosing `SourceDeclRef.unit`.
     Enum(EnumId),
-    /// A local `OpaqueTypeId` interpreted in the enclosing `SourceDeclRef.unit`.
-    OpaqueType(OpaqueTypeId),
+    /// A local `NativeTypeId` interpreted in the enclosing `SourceDeclRef.unit`.
+    NativeType(NativeTypeId),
     /// A local `TraitId` interpreted in the enclosing `SourceDeclRef.unit`.
     Trait(TraitId),
     /// A local `VariantId` interpreted in the enclosing `SourceDeclRef.unit`.
@@ -106,7 +106,7 @@ impl SourceItem {
             Self::TypeAlias(_)
             | Self::Struct(_)
             | Self::Enum(_)
-            | Self::OpaqueType(_)
+            | Self::NativeType(_)
             | Self::Trait(_) => NameNamespace::Type,
         }
     }
@@ -120,7 +120,7 @@ impl SourceItem {
             Self::TypeAlias(id) => ResolvedName::TypeAlias(id),
             Self::Struct(id) => ResolvedName::Struct(id),
             Self::Enum(id) => ResolvedName::Enum(id),
-            Self::OpaqueType(id) => ResolvedName::OpaqueType(id),
+            Self::NativeType(id) => ResolvedName::NativeType(id),
             Self::Trait(id) => ResolvedName::Trait(id),
             Self::Variant(_) => return None,
         })

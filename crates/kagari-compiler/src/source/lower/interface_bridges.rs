@@ -254,7 +254,9 @@ impl InterfaceBridges {
                 effects,
                 debug: MirFunctionDebugMetadata {
                     source: None,
-                    source_module: Some(module.source().module_identity().clone()),
+                    source_module: module
+                        .source_surface()
+                        .map(|source| source.module_identity().clone()),
                     source_span: span,
                     locals: params
                         .iter()
@@ -274,11 +276,8 @@ impl InterfaceBridges {
                     }],
                 },
             };
-            function.debug.source = Some(capture_origin(
-                &function,
-                module.source(),
-                &planner.options.cancel,
-            )?);
+            function.debug.source =
+                capture_origin(&function, module.source_surface(), &planner.options.cancel)?;
             classifications.push((
                 function.instance.clone(),
                 BodyClassification::IntrinsicAdapter(function.instance.clone()),

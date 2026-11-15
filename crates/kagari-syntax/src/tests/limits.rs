@@ -1,7 +1,7 @@
 use crate::ast::site::Required;
 use crate::ast::visit::NodeRef;
 
-use crate::parser::{ParseLimits, ParseMode, ParseOptions, parse};
+use crate::parser::{ParseLimits, ParseOptions, parse};
 use crate::tests::common;
 
 use {
@@ -18,27 +18,26 @@ fn exhausted_header_recovery_does_not_consume_following_tokens() {
         "trait T { #[tag(,)] type A; }",
         "use a { b };",
     ] {
-        for mode in [ParseMode::Source, ParseMode::Declarations] {
-            let parsed = parse(
-                &SourceFile::new("prefix-limit", text),
-                ParseOptions {
-                    mode,
-                    limits: ParseLimits {
-                        max_diagnostics: 0,
-                        ..Default::default()
-                    },
+        let parsed = parse(
+            &SourceFile::new("prefix-limit", text),
+            ParseOptions {
+                limits: ParseLimits {
+                    max_diagnostics: 0,
+                    ..Default::default()
                 },
-                &Default::default(),
-            )
-            .unwrap();
-            let module = parsed.module();
-            let missing = NodeRef::ModuleBody(module.body())
+            },
+            &Default::default(),
+        )
+        .unwrap();
+        let module = parsed.module();
+        let missing =
+            NodeRef::ModuleBody(module.body())
                 .descendants()
                 .find_map(|node| match node {
                     NodeRef::TypeAlias(node) => {
                         Some(matches!(node.data().keyword, Required::Missing { .. }))
                     }
-                    NodeRef::OpaqueTypeDef(node) => {
+                    NodeRef::NativeTypeDef(node) => {
                         Some(matches!(node.data().keyword, Required::Missing { .. }))
                     }
                     NodeRef::ImplBlock(node) => {
@@ -52,24 +51,23 @@ fn exhausted_header_recovery_does_not_consume_following_tokens() {
                     }
                     _ => None,
                 });
-            assert_eq!(missing, Some(true), "{text}: {mode:?}");
-            assert!(parsed.diagnostics().iter().any(|diagnostic| matches!(
-                diagnostic.kind,
-                DiagnosticKind::CompileLimitExceeded { .. }
-            )));
-            let suffix = module
-                .body()
-                .unexpected()
-                .find(|part| part.position().field == "unparsed_suffix")
-                .unwrap();
-            assert!(suffix.text().contains(if text.starts_with("use") {
-                "{"
-            } else if text.contains("impl") {
-                "impl"
-            } else {
-                "type"
-            }));
-        }
+        assert_eq!(missing, Some(true), "{text}");
+        assert!(parsed.diagnostics().iter().any(|diagnostic| matches!(
+            diagnostic.kind,
+            DiagnosticKind::CompileLimitExceeded { .. }
+        )));
+        let suffix = module
+            .body()
+            .unexpected()
+            .find(|part| part.position().field == "unparsed_suffix")
+            .unwrap();
+        assert!(suffix.text().contains(if text.starts_with("use") {
+            "{"
+        } else if text.contains("impl") {
+            "impl"
+        } else {
+            "type"
+        }));
     }
 }
 
@@ -82,30 +80,27 @@ fn abandoned_expressions_keep_recovery_disjoint_from_the_unparsed_suffix() {
             format!("Point {{ ..base, x: {expression} }}"),
         ] {
             let source = SourceFile::new("abandoned.kgr", format!("fn f() {{ {body} }}"));
-            for mode in [ParseMode::Source, ParseMode::Declarations] {
-                for limits in (3..=12).flat_map(|limit| {
-                    [
-                        ParseLimits {
-                            max_tree_depth: limit,
-                            ..Default::default()
-                        },
-                        ParseLimits {
-                            max_nesting: limit,
-                            ..Default::default()
-                        },
-                    ]
-                }) {
-                    let parsed =
-                        parse(&source, ParseOptions { mode, limits }, &Default::default()).unwrap();
-                    let module = parsed.module();
-                    let actual = common::grammar_text(NodeRef::ModuleBody(module.body()));
-                    let expected = parsed
-                        .tokens()
-                        .filter(|token| !token.lexical_kind().is_trivia())
-                        .map(|token| token.text())
-                        .collect::<String>();
-                    assert_eq!(actual, expected, "{body}: {mode:?}, {limits:?}");
-                }
+            for limits in (3..=12).flat_map(|limit| {
+                [
+                    ParseLimits {
+                        max_tree_depth: limit,
+                        ..Default::default()
+                    },
+                    ParseLimits {
+                        max_nesting: limit,
+                        ..Default::default()
+                    },
+                ]
+            }) {
+                let parsed = parse(&source, ParseOptions { limits }, &Default::default()).unwrap();
+                let module = parsed.module();
+                let actual = common::grammar_text(NodeRef::ModuleBody(module.body()));
+                let expected = parsed
+                    .tokens()
+                    .filter(|token| !token.lexical_kind().is_trivia())
+                    .map(|token| token.text())
+                    .collect::<String>();
+                assert_eq!(actual, expected, "{body}: {limits:?}");
             }
         }
     }
@@ -127,7 +122,6 @@ fn parser_diagnostic_budget_stops_recovery_and_preserves_lossless_suffix() {
                         max_diagnostics,
                         ..Default::default()
                     },
-                    ..Default::default()
                 },
                 &Default::default(),
             )
@@ -166,7 +160,6 @@ fn parser_budget_allows_exact_limit_and_valid_source_at_zero() {
                     max_diagnostics: limit,
                     ..Default::default()
                 },
-                ..Default::default()
             },
             &Default::default(),
         )
@@ -189,7 +182,6 @@ fn parser_budget_allows_exact_limit_and_valid_source_at_zero() {
                     max_diagnostics: 0,
                     ..Default::default()
                 },
-                ..Default::default()
             },
             &cancel
         )
@@ -265,7 +257,6 @@ fn recursive_grammar_families_stop_at_nesting_budget() {
                         max_diagnostics: 0,
                         ..Default::default()
                     },
-                    ..Default::default()
                 },
                 &Default::default(),
             )
@@ -295,17 +286,10 @@ fn nesting_budget_is_released_between_sibling_expressions() {
         ..Default::default()
     };
     assert!(
-        parse(
-            &source,
-            ParseOptions {
-                limits,
-                ..Default::default()
-            },
-            &Default::default()
-        )
-        .unwrap()
-        .diagnostics()
-        .is_empty()
+        parse(&source, ParseOptions { limits }, &Default::default())
+            .unwrap()
+            .diagnostics()
+            .is_empty()
     );
     let parsed = parse(
         &source,
@@ -314,7 +298,6 @@ fn nesting_budget_is_released_between_sibling_expressions() {
                 max_nesting: 2,
                 ..limits
             },
-            ..Default::default()
         },
         &Default::default(),
     )
@@ -345,7 +328,6 @@ fn iterative_expression_chains_obey_tree_depth_budget() {
                     max_tree_depth: 24,
                     ..Default::default()
                 },
-                ..Default::default()
             },
             &Default::default(),
         )
@@ -388,7 +370,6 @@ fn tree_depth_accounts_for_wrappers_and_not_sibling_width() {
                     max_tree_depth: depth,
                     ..Default::default()
                 },
-                ..Default::default()
             },
             &Default::default(),
         )
@@ -401,7 +382,6 @@ fn tree_depth_accounts_for_wrappers_and_not_sibling_width() {
                     max_tree_depth: depth - 1,
                     ..Default::default()
                 },
-                ..Default::default()
             },
             &Default::default(),
         )
@@ -428,7 +408,6 @@ fn tree_depth_accounts_for_wrappers_and_not_sibling_width() {
                 max_tree_depth: 8,
                 ..Default::default()
             },
-            ..Default::default()
         },
         &Default::default(),
     )

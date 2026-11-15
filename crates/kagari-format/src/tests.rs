@@ -20,6 +20,14 @@ fn formatted(text: &str, width: usize) -> String {
 }
 
 #[rstest]
+#[case::native_declarations(
+    "native-declarations",
+    include_str!("../tests/fixtures/layout/native-declarations.input.kgr"),
+    include_str!("../tests/fixtures/layout/native-declarations.expected.kgr"),
+    100,
+    true,
+    Some(30)
+)]
 #[case::type_aliases(
     "type-aliases",
     include_str!("../tests/fixtures/layout/type-aliases.input.kgr"),

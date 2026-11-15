@@ -29,7 +29,7 @@ fn string_literals_lower_decoded_content_without_synthetic_quoting() {
         let facts = analysis.facts();
         let module = &facts.lowered.module;
         let expr = module
-            .block(module.functions[0].body.unwrap())
+            .block(module.functions[0].implementation.script_body().unwrap())
             .tail_expr
             .unwrap();
         let ExprKind::Literal(value) = &module.expr(expr).kind else {
@@ -51,7 +51,7 @@ fn interpolation_text_and_occurrences_keep_decoded_values_and_physical_spans() {
     let lowered = common::lower_ok(text);
     let module = &lowered.module;
     let expr = module
-        .block(module.functions[0].body.unwrap())
+        .block(module.functions[0].implementation.script_body().unwrap())
         .tail_expr
         .unwrap();
     let ExprKind::InterpolatedString(parts) = &module.expr(expr).kind else {

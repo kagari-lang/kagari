@@ -166,7 +166,7 @@ enum_sites!(Item {
     TraitDef,
     ImplBlock,
     TypeAlias,
-    OpaqueTypeDef
+    NativeTypeDef
 });
 enum_sites!(Member {
     MethodDef,

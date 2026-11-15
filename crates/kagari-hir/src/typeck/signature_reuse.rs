@@ -3,7 +3,11 @@ use std::collections::HashMap;
 
 use kagari_common::{cancellation::CancellationToken, span::Span};
 
-use crate::{AnalysisResult, hir::item::function::FunctionKind, lower::LoweredModule};
+use crate::{
+    AnalysisResult,
+    hir::item::function::{FunctionImplementation, FunctionKind},
+    lower::LoweredModule,
+};
 
 use super::ModuleSignatures;
 
@@ -29,7 +33,11 @@ impl Surface {
             .functions
             .iter()
             .filter(|f| matches!(f.kind, FunctionKind::User | FunctionKind::ImplMethod))
-            .filter_map(|f| f.body.map(|body| module.source_map.block_span(body)))
+            .filter_map(|f| {
+                f.implementation
+                    .script_body()
+                    .map(|body| module.source_map.block_span(body))
+            })
             .collect::<Vec<_>>();
         bodies.sort_by_key(|span| span.start);
         let mut text = String::new();
@@ -128,9 +136,33 @@ pub(crate) fn reuse_signatures(
     }
     // Equal text cannot transfer native authority between installed and source
     // inputs. The implementation facts are retained by a reused signature.
-    if previous.registered_native_api != current.registered_native_api
+    if previous.external_api != current.external_api
+        || previous.registered_native_api != current.registered_native_api
         || previous.native_functions != current.native_functions
+        || previous.native_types != current.native_types
         || previous.native_import_namespaces != current.native_import_namespaces
+        || previous.method_policies != current.method_policies
+        || previous.language_foundation != current.language_foundation
+        || previous.external_traits != current.external_traits
+        || previous.native_trait_adapters != current.native_trait_adapters
+        || previous.module.functions.len() != current.module.functions.len()
+        || previous
+            .module
+            .functions
+            .iter()
+            .zip(&current.module.functions)
+            .any(
+                |(old, new)| match (&old.implementation, &new.implementation) {
+                    (FunctionImplementation::Required, FunctionImplementation::Required)
+                    | (FunctionImplementation::Script(_), FunctionImplementation::Script(_)) => {
+                        false
+                    }
+                    (FunctionImplementation::Native(old), FunctionImplementation::Native(new)) => {
+                        old != new
+                    }
+                    _ => true,
+                },
+            )
     {
         return None;
     }
@@ -205,10 +237,29 @@ pub(crate) fn reuse_signatures(
         }
     }
     let mut fields = HashMap::new();
-    if previous.module.structs.len() != current.module.structs.len() {
+    if previous.module.structs.len() != current.module.structs.len()
+        || previous.module.native_types.len() != current.module.native_types.len()
+    {
         return None;
     }
     for (old, new) in previous.module.structs.iter().zip(&current.module.structs) {
+        cancel.check().ok()?;
+        if old.id != new.id || old.fields.len() != new.fields.len() {
+            return None;
+        }
+        fields.extend(
+            old.fields
+                .iter()
+                .zip(&new.fields)
+                .map(|(a, b)| (a.id, b.id)),
+        );
+    }
+    for (old, new) in previous
+        .module
+        .native_types
+        .iter()
+        .zip(&current.module.native_types)
+    {
         cancel.check().ok()?;
         if old.id != new.id || old.fields.len() != new.fields.len() {
             return None;

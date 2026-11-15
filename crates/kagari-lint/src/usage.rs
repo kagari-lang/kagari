@@ -153,8 +153,18 @@ pub(crate) fn binding_usage(
             _ => {}
         }
     }
-    let mut result: Vec<_> = usage.into_values().collect();
-    result.sort_by_key(|binding| binding.declaration.location.range.start);
+    let mut result: Vec<_> = usage
+        .into_values()
+        .filter(|binding| binding.declaration.source_location().is_some())
+        .collect();
+    result.sort_by_key(|binding| {
+        binding
+            .declaration
+            .source_location()
+            .expect("source-backed binding")
+            .range
+            .start
+    });
     cancel.check()?;
     Ok(result)
 }

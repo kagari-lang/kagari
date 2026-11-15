@@ -10,7 +10,7 @@
 //! Lowerer parameter slot   -> ParamId   -> Module.parameter(id) -> Function.params[id.index()]
 //! SourceMap::push_local    -> LocalId   -> binding record / semantic table by id
 //! FieldId                 -> Module.field(id)
-//!                            -> structs[id.owner().index()].fields[id.slot()]
+//!                            -> struct/native owner.fields[id.slot()]
 //! ```
 //!
 //! Parameter indices address positions in the owning `Function.params` list;
@@ -35,7 +35,7 @@
 //! id_newtype!(FunctionId)      -> FunctionId(index)
 //! local_id_newtype!(ExprId)    -> ExprId { arena: A, owner: Body(Function(f)), index: k }
 //! local_id_newtype!(ParamId)   -> ParamId { arena: A, owner: Body(Function(f)), index: p }
-//! member_id!(FieldId, StructId)-> FieldId { arena: A, owner: s, slot: j }
+//! member_id!(FieldId, FieldOwner) -> FieldId { arena: A, owner: Struct(s), slot: j }
 //! ```
 //!
 //! The macros create separate Rust types: FunctionId and StructId cannot be
@@ -239,9 +239,9 @@ id_newtype!(
     StructId
 );
 id_newtype!(
-    /// A lowering-local index identifying `Module.opaque_types`.
+    /// A lowering-local index identifying `Module.native_types`.
     /// See the [identity families](crate::hir::ids) for allocation and validity rules.
-    OpaqueTypeId
+    NativeTypeId
 );
 id_newtype!(
     /// A lowering-local index identifying `Module.type_aliases`; never a nominal type identity.
@@ -309,7 +309,7 @@ impl BodySelection {
     }
 }
 
-/// Generates a lowering-qualified member slot with a concrete struct/enum owner ID.
+/// Generates a lowering-qualified member slot with a typed declaration owner.
 /// Unlike node indices, slot is relative to the enclosing declaration's member list.
 macro_rules! member_id {
     ($(#[$meta:meta])* $name:ident, $owner:ident) => {
@@ -348,11 +348,20 @@ macro_rules! member_id {
     };
 }
 
+/// Declaration whose inline field list owns a field identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FieldOwner {
+    /// An ordinary script struct declaration.
+    Struct(StructId),
+    /// A Native type's declared interface, independent of runtime layout.
+    NativeType(NativeTypeId),
+}
+
 member_id!(
-    /// A lowering-qualified struct field slot within its enclosing declaration.
+    /// A lowering-qualified field slot within its struct or Native declaration.
     /// See the [identity families](crate::hir::ids) for member lookup.
     FieldId,
-    StructId
+    FieldOwner
 );
 member_id!(
     /// A lowering-qualified enum variant slot within its enclosing declaration.

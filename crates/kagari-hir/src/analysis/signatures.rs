@@ -70,8 +70,8 @@ impl FileSignatures {
         &self.prepared.lowered
     }
 
-    /// Returns the matching retained syntax without preparing any body facts.
-    pub fn syntax(&self) -> ModuleSyntax {
+    /// Returns matching source syntax without preparing bodies; structured inputs have none.
+    pub fn syntax(&self) -> Option<ModuleSyntax> {
         self.declaration.syntax()
     }
 
@@ -119,7 +119,7 @@ impl SignatureSnapshot {
     /// Shared parser/name/signature validity, before body diagnostic presentation.
     pub(super) fn shared_inputs_valid(&self) -> bool {
         self.files.values().all(|file| {
-            file.declaration.parsed.physical().diagnostics().is_empty()
+            file.declaration.parsed.physical_diagnostics().is_empty()
                 && file.prepared.record.names.diagnostics().is_empty()
                 && file.prepared.record.signatures.diagnostics().is_empty()
         })

@@ -1,0 +1,5 @@
+fn accepts(value: i32, item: i32) {}
+
+fn from_exposure(value: exact::api::Exposed) -> i32 {
+    registration::bridge::inspect(value)
+}

@@ -22,24 +22,16 @@ use kagari_source::source::SourceFile;
 use kagari_syntax::{
     ast::{module::ModuleSyntax, views::ExprView, visit::NodeRef},
     lexer::lex,
-    parser::{Parse, ParseMode, ParseOptions, parse},
+    parser::{Parse, ParseOptions, parse},
 };
 use serde_json::{Value, json};
 
 use crate::workloads::Workload;
 
-fn parse_source(workload: &Workload, source: &SourceFile) -> Parse {
-    let mode = if workload.declarations {
-        ParseMode::Declarations
-    } else {
-        ParseMode::Source
-    };
+fn parse_source(_workload: &Workload, source: &SourceFile) -> Parse {
     parse(
         source,
-        ParseOptions {
-            mode,
-            ..Default::default()
-        },
+        ParseOptions::default(),
         &CancellationToken::default(),
     )
     .expect("fresh cancellation token")

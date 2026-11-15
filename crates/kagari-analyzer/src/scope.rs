@@ -131,7 +131,7 @@ impl<'a> ScopeIndex<'a> {
 
     fn function(&mut self, id: FunctionId, parent: Option<usize>) {
         let function = &self.lowered.module.functions[id.index()];
-        let Some(body) = function.body else {
+        let Some(body) = function.implementation.script_body() else {
             return;
         };
         let scope = self.scope(

@@ -210,7 +210,7 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
     assert_eq!(
         vm.execute_typed::<_, i32>(
             &_old_program,
-            "native",
+            "through_native",
             (function.clone(),),
             &Default::default()
         )

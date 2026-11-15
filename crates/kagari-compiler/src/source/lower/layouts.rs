@@ -60,7 +60,11 @@ impl Layouts {
                         declaration: structure.id,
                         arguments: Vec::new(),
                     }),
-                    structure.declaration.location.range,
+                    structure
+                        .declaration
+                        .source_location()
+                        .map(|location| location.range)
+                        .unwrap_or_default(),
                 ));
             }
             let mut enumerations: Vec<_> = module
@@ -86,7 +90,11 @@ impl Layouts {
                             .map(TypeId::Generic)
                             .collect(),
                     }),
-                    enumeration.declaration.location.range,
+                    enumeration
+                        .declaration
+                        .source_location()
+                        .map(|location| location.range)
+                        .unwrap_or_default(),
                 ));
             }
             if module.registration().is_some() {

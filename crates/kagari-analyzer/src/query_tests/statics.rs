@@ -45,9 +45,9 @@ fn static_imports_reexports_inline_modules_and_navigation_keep_original_identity
         .queries()
         .definition_at(root, text.rfind("count }").unwrap())
         .unwrap();
-    assert_eq!(target.location.file, owner);
+    assert_eq!(target.source_location().unwrap().file, owner);
     assert_eq!(
-        target.location.range.start,
+        target.source_location().unwrap().range.start,
         owner_text.find("counter").unwrap()
     );
     assert_eq!(
@@ -80,9 +80,9 @@ fn static_imports_reexports_inline_modules_and_navigation_keep_original_identity
         .queries()
         .definition_at(text.rfind("nested }").unwrap())
         .unwrap();
-    assert_eq!(nested.location.file, root);
+    assert_eq!(nested.source_location().unwrap().file, root);
     assert_eq!(
-        nested.location.range.start,
+        nested.source_location().unwrap().range.start,
         text.find("nested: i32").unwrap()
     );
     let facts = file.result().facts();
@@ -127,7 +127,7 @@ static val EDITING: i32 = { val packet = Packet { value: SEED }; packet. };
         .definition_at(text.find("value + 1").unwrap())
         .unwrap();
     assert_eq!(
-        outer.location.range.start,
+        outer.source_location().unwrap().range.start,
         text.find("val value = SEED").unwrap() + 4
     );
     let capture_offset = text.find("value + argument").unwrap();
@@ -152,14 +152,15 @@ static val EDITING: i32 = { val packet = Packet { value: SEED }; packet. };
         .unwrap();
     let method = snapshot.declaration(&read.declaration).unwrap();
     assert_eq!(
-        method.location.range.start,
+        method.source_location().unwrap().range.start,
         text.find("read(self)").unwrap()
     );
     assert_eq!(
         file.queries()
             .definition_at(text.find("value: SEED").unwrap())
             .unwrap()
-            .location
+            .source_location()
+            .unwrap()
             .range
             .start,
         text.find("value: i32").unwrap()

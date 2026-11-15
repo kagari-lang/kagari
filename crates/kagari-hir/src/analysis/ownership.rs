@@ -91,7 +91,7 @@ pub(crate) fn recover_invalid_identity(
     )?;
     Ok(analyze_parsed(
         prepared,
-        &ParsedModule::root(parsed),
+        &ParsedModule::root(Some(parsed)),
         AnalysisPolicy {
             const_limits: Default::default(),
             max_semantic_diagnostics: super::DEFAULT_MAX_SEMANTIC_DIAGNOSTICS,

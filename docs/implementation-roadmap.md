@@ -1225,8 +1225,9 @@ host facade redesign and VM/backend expansion remain independent work.
 
 The [design](native-model-design.md) and [scoped execution plan](native-model-plan.md) now target
 Native HIR representation and declaration parsing/analysis only. User review withdraws the earlier
-unstarted whole-stack NM01–NM07 sequence. NM00 design work is authorized; current NM01–NM04
-implementation is unstarted and awaits approval.
+unstarted whole-stack NM01–NM07 sequence. The user subsequently authorized unattended NM01–NM04
+implementation and phase commits. NM01's integrated frontend substrate is implemented; NM02 editor
+acceptance, NM03 final integration sampling and NM04 documentation are in progress.
 
 Compilation lowers Rust structured declarations directly; offline analyzer parses exported .kgr
 into the same declaration-input model and analyzes it with user source. Include function kinds,
@@ -1241,10 +1242,9 @@ build.rs/bootstrap, installation/caches, directory publication/watch, output/ref
 and new Ref/RefMut behavior are deferred. Retain those discussion results in the same design, not as
 current phase requirements. Preserve existing execution, reference and source-free safety.
 
-The historical NM00 baseline has sixteen passing selected HIR/stdlib/SDK/source-free tests;
-three Runtime tests are compile-blocked
-and the known dropped-snapshot reuse assertion fails. Structure/dependency checks and native-only
-SDK build pass; workspace fmt/Clippy still fail at their existing owners. A same-process stage-cost
+The historical NM00 baseline's formatting, placement lint, Runtime documentation test-consumer
+and dropped-snapshot reuse blockers are repaired. Current focused HIR/analyzer/compiler/Runtime/
+stdlib/SDK selections and required local gates pass; see the plan for exact selections and limits. A same-process stage-cost
 sample is recorded in the plan, not claimed as cold-process or Rust-callback performance.
 [HIR acceptance blockers](#hir-storage-and-attribute-refactor), NC restoration, general provider
 hot-swap, cache-retention policy and backend expansion remain at their separate owners.

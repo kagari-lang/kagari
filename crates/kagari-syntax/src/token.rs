@@ -29,6 +29,8 @@ pub enum TokenKind {
     AsyncKw,
     /// The `await` keyword.
     AwaitKw,
+    /// The `native` keyword marking a Native function or type declaration.
+    NativeKw,
     /// The `fn` keyword.
     FnKw,
     /// The `impl` keyword.
@@ -231,6 +233,7 @@ impl TokenKind {
             Self::InKw => SyntaxKind::InKw,
             Self::AsyncKw => SyntaxKind::AsyncKw,
             Self::AwaitKw => SyntaxKind::AwaitKw,
+            Self::NativeKw => SyntaxKind::NativeKw,
             Self::FnKw => SyntaxKind::FnKw,
             Self::ImplKw => SyntaxKind::ImplKw,
             Self::ModKw => SyntaxKind::ModKw,

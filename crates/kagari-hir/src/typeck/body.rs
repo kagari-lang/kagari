@@ -373,7 +373,7 @@ impl<'a> BodyChecker<'a> {
                     | ResolvedName::Namespace(_)
                     | ResolvedName::Module(_)
                     | ResolvedName::TypeAlias(_)
-                    | ResolvedName::OpaqueType(_)
+                    | ResolvedName::NativeType(_)
                     | ResolvedName::Struct(_)
                     | ResolvedName::Enum(_)
                     | ResolvedName::Trait(_) => None,

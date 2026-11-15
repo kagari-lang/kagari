@@ -67,9 +67,9 @@ mod tests {
                 assert_eq!(matches.len(), 1, "{name}");
                 let api = matches[0];
                 let declaration = snapshot.declaration(&api.declaration).unwrap();
-                let text = snapshot.source(declaration.location.file).unwrap();
+                let text = snapshot.source(declaration.source_location().unwrap().file).unwrap();
                 assert_eq!(
-                    &text.text()[declaration.location.range.start..declaration.location.range.end],
+                    &text.text()[declaration.source_location().unwrap().range.start..declaration.source_location().unwrap().range.end],
                     name
                 );
             }
@@ -165,9 +165,9 @@ mod tests {
                 api.declaration
             );
             let declaration = snapshot.declaration(&api.declaration).unwrap();
-            let source = snapshot.source(declaration.location.file).unwrap();
+            let source = snapshot.source(declaration.source_location().unwrap().file).unwrap();
             assert_eq!(
-                &source.text()[declaration.location.range.start..declaration.location.range.end],
+                &source.text()[declaration.source_location().unwrap().range.start..declaration.source_location().unwrap().range.end],
                 name
             );
         }
@@ -218,9 +218,9 @@ mod tests {
                 .definition_at(offset)
                 .unwrap_or_else(|| panic!("missing {needle}"));
             assert_eq!(definition.name, expected);
-            let source = snapshot.source(definition.location.file).unwrap();
+            let source = snapshot.source(definition.source_location().unwrap().file).unwrap();
             assert_eq!(
-                &source.text()[definition.location.range.start..definition.location.range.end],
+                &source.text()[definition.source_location().unwrap().range.start..definition.source_location().unwrap().range.end],
                 expected
             );
             let api = snapshot.documentation_at(file, offset).unwrap();

@@ -25,12 +25,15 @@ fn standard_item_spellings_require_installed_declarations() {
         "None",
         "Option::Some",
         "Vec::new",
-        "demo::native::choose",
+        "demo::bindings::choose",
     ] {
         let lowered = common::lower_ok(&format!("fn main() {{ {name}; }}"));
         let resolved = resolve_names(&lowered).unwrap();
         let function = &lowered.module.functions[0];
-        let statement = lowered.module.block(function.body.unwrap()).statements[0];
+        let statement = lowered
+            .module
+            .block(function.implementation.script_body().unwrap())
+            .statements[0];
         let StmtKind::Expr(expression) = lowered.module.stmt(statement).kind else {
             panic!("name expression statement");
         };
@@ -52,7 +55,9 @@ fn resolves_params_and_locals_in_function_body() {
         .expect("resolver should succeed");
     let function = &lowered.module.functions[0];
 
-    let block = lowered.module.block(function.body.unwrap());
+    let block = lowered
+        .module
+        .block(function.implementation.script_body().unwrap());
     let let_stmt = lowered.module.stmt(block.statements[0]);
     let (let_local, init_expr) = match &let_stmt.kind {
         StmtKind::Binding {
@@ -140,7 +145,9 @@ fn resolves_named_match_pattern_bindings_inside_arm() {
         .into_checked()
         .expect("resolver should succeed");
     let function = &lowered.module.functions[0];
-    let block = lowered.module.block(function.body.unwrap());
+    let block = lowered
+        .module
+        .block(function.implementation.script_body().unwrap());
     let tail_expr = block.tail_expr.expect("tail expr");
 
     let (pattern_local, arm_expr) = match &lowered.module.expr(tail_expr).kind {
@@ -180,7 +187,9 @@ fn main() -> i32 { VERSION }
         .iter()
         .find(|function| function.name == "main")
         .expect("expected main function");
-    let block = lowered.module.block(function.body.unwrap());
+    let block = lowered
+        .module
+        .block(function.implementation.script_body().unwrap());
     let tail_expr = block.tail_expr.expect("tail expr");
 
     assert_eq!(
@@ -261,7 +270,7 @@ fn same_named_user_functions_are_not_reflection_helpers() {
     let call = checked
         .lowered
         .module
-        .block(main.body.unwrap())
+        .block(main.implementation.script_body().unwrap())
         .tail_expr
         .unwrap();
     assert_eq!(

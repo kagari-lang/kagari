@@ -33,7 +33,7 @@ fn type_alias_definition_scope_imports_reexports_and_navigation() {
         .definition_at(root, text.find("-> Renamed").unwrap() + 3)
         .unwrap();
     assert_eq!(target.name, "Item");
-    assert_eq!(target.location.file, library);
+    assert_eq!(target.source_location().unwrap().file, library);
     let signature = file
         .signatures()
         .facts()

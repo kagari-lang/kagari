@@ -46,7 +46,7 @@ fn contextual_trait_static_calls_share_checked_dispatch_and_expected_boundaries(
         let call = checked
             .lowered
             .module
-            .block(function.body.unwrap())
+            .block(function.implementation.script_body().unwrap())
             .tail_expr
             .unwrap();
         let resolution = checked

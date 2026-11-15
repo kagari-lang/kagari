@@ -11,7 +11,7 @@ use kagari_source::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::{catalog as foundation_catalog, catalog};
-use kagari_syntax::parser::{ParseMode, ParseOptions, parse};
+use kagari_syntax::parser::{ParseOptions, parse};
 use std::sync::Arc;
 
 fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
@@ -46,15 +46,7 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
                 .set(&generated.uri, generated.text, SourceLayer::Base)
                 .unwrap();
             let source = sources.snapshot().file(file).unwrap().clone();
-            let parsed = parse(
-                &source,
-                ParseOptions {
-                    mode: ParseMode::Declarations,
-                    limits: Default::default(),
-                },
-                &cancel,
-            )
-            .unwrap();
+            let parsed = parse(&source, ParseOptions::default(), &cancel).unwrap();
             assert!(parsed.diagnostics().is_empty());
             let mut lowered = lower::lower_module_controlled(source, &parsed.module(), &cancel);
             lowered.language_foundation = original.language_foundation;
@@ -123,6 +115,7 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
             &module.record.declarations,
             &aggregates,
             &module.lowered.registered_traits,
+            &module.lowered.external_traits,
             &mut diagnostics,
             &cancel,
         );
@@ -219,7 +212,7 @@ fn copied_module_identity_does_not_authorize_application_roles() {
         &Default::default(),
     )
     .unwrap();
-    assert!(declared.record.names.diagnostics.iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidLanguageRole { reason, .. } if reason.contains("only installed"))));
+    assert!(declared.record.names.diagnostics.iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidLanguageRole { reason, .. } if reason.contains("only admitted"))));
 }
 
 #[test]

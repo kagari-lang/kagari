@@ -1,8 +1,21 @@
-//! Unresolved type syntax, distinct from the semantic type model in `crate::types`.
+//! Unchecked source/structured type references, distinct from semantic `crate::types` facts.
 
+use kagari_common::identity::{ModuleIdentity, table::DefinitionId};
 use smallvec::SmallVec;
 
 use crate::hir::ids::TypeRefId;
+
+/// A module-relative exposure route, independent of package-alias spelling.
+///
+/// In unchecked HIR this is a requested route, not access evidence. Resolution
+/// validates the module/dependency boundary and every path component, then records
+/// the selected route on the resolved type fact. For `api::Public` re-exporting a
+/// private `api::hidden::Secret`, this names module `api` and path `["Public"]`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DefinitionExposure {
+    pub module: ModuleIdentity,
+    pub path: Vec<String>,
+}
 
 /// One unresolved type-syntax row in Body.types, addressed by TypeRefId.
 ///
@@ -29,7 +42,8 @@ pub struct TypeData {
     pub kind: TypeKind,
 }
 
-/// Source type spelling and links to child type syntax, before semantic resolution.
+/// Source spelling or an exact structured declaration, with unchecked child applications.
+/// Exact references skip spelling selection, not visibility, eligibility, arity or bounds.
 ///
 /// Symbolic child IDs below enter Body.types through Body::type_ref; quoted names
 /// are actual strings. Examples are syntax fragments, not standalone programs.
@@ -59,6 +73,18 @@ pub struct TypeData {
 /// spelling whose legality depends on the annotation context.
 #[derive(Debug, Clone)]
 pub enum TypeKind {
+    /// Exact declaration application from structured registration. This is unchecked:
+    /// the shared checker must establish accessibility, kind, arity and bounds.
+    /// `name` is diagnostic text, never the route or binding authority.
+    Definition {
+        declaration: DefinitionId,
+        name: String,
+        /// Explicit unchecked exposure, or `None` to select a unique accessible
+        /// public exposure from the actual catalog when the defining route is private.
+        exposure: Option<DefinitionExposure>,
+        args: TypeBuffer,
+        bindings: Vec<(String, TypeRefId)>,
+    },
     /// A bare type path such as `i32` or `m::Point`, or a recovery placeholder.
     Named(String),
     /// A type/trait application with positional arguments and associated bindings.

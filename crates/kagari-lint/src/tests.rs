@@ -74,7 +74,10 @@ fn static_partial_facts_exclude_broken_initializers() {
         .find(|binding| binding.declaration.name == "unused")
         .unwrap();
     assert_eq!(unused.reads, 0);
-    assert_eq!(unused.declaration.location, records[0].span.unwrap());
+    assert_eq!(
+        unused.declaration.source_location().unwrap(),
+        records[0].span.unwrap()
+    );
 }
 
 #[rstest]
@@ -255,7 +258,8 @@ fn patterns_and_struct_update_capture_preserve_usage() {
     let read_only: Vec<_> = usage
         .iter()
         .filter(|binding| {
-            binding.declaration.location.range.start > source.find("fn read_only").unwrap()
+            binding.declaration.source_location().unwrap().range.start
+                > source.find("fn read_only").unwrap()
         })
         .collect();
     let [readonly] = read_only.as_slice() else {

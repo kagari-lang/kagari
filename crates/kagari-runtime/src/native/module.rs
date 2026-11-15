@@ -101,9 +101,10 @@ impl NativeModule {
             .collect();
         if storage_types.len() != storage.len()
             || storage_types.iter().any(|(id, ty)| {
-                storage
-                    .get(id)
-                    .is_none_or(|storage| ty.kind != TypeDefKind::NativeStorage(storage.layout()))
+                !ty.fields.is_empty()
+                    || storage.get(id).is_none_or(|storage| {
+                        ty.kind != TypeDefKind::NativeStorage(storage.layout())
+                    })
             })
         {
             return Err(RuntimeError::metadata_conflict(

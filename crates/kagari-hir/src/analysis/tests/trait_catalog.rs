@@ -51,7 +51,7 @@ fn native_default_bodies_are_checked_without_synthesizing_impl_bodies() {
     let root = insert(
         &mut sources,
         "root",
-        "use demo::native::NativeRead; struct Values {} impl NativeRead for Values {}",
+        "use demo::bindings::NativeRead; struct Values {} impl NativeRead for Values {}",
     );
     let mut db = test_analysis();
     let snapshot = analyze(&mut db, &sources);
@@ -93,8 +93,17 @@ fn native_default_bodies_are_checked_without_synthesizing_impl_bodies() {
             Some(MethodDefault::Native(NativeBinding::Default(_)))
         ));
     }
-    let native_file = contract.methods[0].declaration.location.file;
-    let native = snapshot.file(native_file).unwrap();
+    assert!(contract.methods[0].declaration.source_location().is_none());
+    let owner = definitions
+        .resolve(contract.methods[0].id)
+        .unwrap()
+        .module()
+        .clone();
+    let native = snapshot
+        .files()
+        .find(|candidate| candidate.source().module_identity() == &owner)
+        .unwrap();
+    let native_file = native.source().id();
     let defaults = || {
         native
             .result()
@@ -225,7 +234,7 @@ fn installed_non_overridable_default_rejects_a_script_replacement() {
     let root = insert(
         &mut sources,
         "root",
-        "use demo::native::NativeRead; struct Values {} impl NativeRead for Values { fn fixed(self) -> i32 { 7 } }",
+        "use demo::bindings::NativeRead; struct Values {} impl NativeRead for Values { fn fixed(self) -> i32 { 7 } }",
     );
     let snapshot = analyze(&mut test_analysis(), &sources);
     let file = snapshot.file(root).unwrap();

@@ -90,7 +90,7 @@ pub(crate) fn validate(
                     },
                     &TypeId::Trait(parent.clone()),
                     &assumptions,
-                    contract.declaration.location.range,
+                    contract.declaration.diagnostic_span(),
                     diagnostics,
                     cancel,
                 );
@@ -106,7 +106,7 @@ pub(crate) fn validate(
                     trait_name: contract.declaration.name.clone(),
                     reason: "cyclic, unavailable or excessively deep supertrait graph",
                 })
-                .with_span(contract.declaration.location.range),
+                .with_span(contract.declaration.diagnostic_span()),
             );
         }
     }

@@ -8,6 +8,7 @@ use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile};
 
 use kagari_types::scalar::BuiltinType;
 
+mod native_fields;
 mod recovery;
 mod standard;
 mod traits;

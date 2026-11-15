@@ -15,6 +15,7 @@ use kagari_hir::{
     analysis::AnalysisDatabase, declarations::DeclarationId, native::render::declaration_source,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_syntax::ast::borrow::AstNode;
 use kagari_types::{
     declaration::TypeDefKind,
     scalar::BuiltinType,
@@ -82,7 +83,9 @@ fn registered_enum_views_are_parsed_with_full_documentation_and_owning_sites() {
     let providers = vec![module.clone()];
     let generated = declaration_source(&module, &providers).unwrap();
     let mut database = AnalysisDatabase::default();
-    database.set_native_modules(providers);
+    database
+        .set_native_sources(providers, vec![generated.clone()])
+        .unwrap();
     let sources = SourceDatabase::default();
     let snapshot = database
         .declarations(sources.snapshot(), &Default::default())
@@ -92,6 +95,9 @@ fn registered_enum_views_are_parsed_with_full_documentation_and_owning_sites() {
         .find(|file| file.source().name() == generated.uri)
         .unwrap();
     assert!(file.diagnostics().is_empty(), "{:?}", file.diagnostics());
+    let syntax = file
+        .syntax()
+        .expect("explicitly supplied declaration source");
     for id in [event.id(), data.id()] {
         let path = module.definitions().resolve(id).unwrap().to_path();
         let declaration = snapshot
@@ -101,17 +107,21 @@ fn registered_enum_views_are_parsed_with_full_documentation_and_owning_sites() {
             .unwrap();
         let site = &generated.sites[&generated.definitions.lookup(&path).unwrap()];
         assert_eq!(
-            file.source().local_range(declaration.location),
+            file.source()
+                .local_range(declaration.source_location().unwrap()),
             Some(site.name_span)
         );
-        let doc = snapshot.documentation(&declaration.id).unwrap();
-        assert_eq!(doc.documentation, module.records().documentation[&id]);
+        let node = syntax
+            .descendants()
+            .find(|node| {
+                node.declaration_name()
+                    .is_some_and(|name| name.body_span() == site.name_span)
+            })
+            .unwrap();
+        assert_eq!(node.documentation(), module.records().documentation[&id]);
     }
     assert_eq!(
-        snapshot
-            .module_documentation(&module.records().identity)
-            .unwrap()
-            .documentation,
+        syntax.module_documentation(),
         module.records().module_documentation
     );
 }

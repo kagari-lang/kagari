@@ -625,7 +625,7 @@ mod tests {
             let names = resolve_names(&lowered).unwrap().facts;
             let module = &mut lowered.module;
             let mut expr = module
-                .block(module.functions[0].body.unwrap())
+                .block(module.functions[0].implementation.script_body().unwrap())
                 .tail_expr
                 .unwrap();
             let arena = expr.arena();
@@ -702,7 +702,12 @@ mod tests {
         let names = resolve_names(&lowered).unwrap().facts;
         let expr = lowered
             .module
-            .block(lowered.module.functions[0].body.unwrap())
+            .block(
+                lowered.module.functions[0]
+                    .implementation
+                    .script_body()
+                    .unwrap(),
+            )
             .tail_expr
             .unwrap();
         let mut visits = 0;
@@ -737,7 +742,7 @@ mod tests {
         let names = resolve_names(&lowered).unwrap().facts;
         let module = &mut lowered.module;
         let mut expr = module
-            .block(module.functions[0].body.unwrap())
+            .block(module.functions[0].implementation.script_body().unwrap())
             .tail_expr
             .unwrap();
         let arena = expr.arena();
@@ -816,7 +821,7 @@ mod tests {
                     &lowered.module,
                     &names,
                     &TypeTable::default(),
-                    function.body.unwrap(),
+                    function.implementation.script_body().unwrap(),
                     &token
                 ),
                 Err(Cancelled)
@@ -824,7 +829,12 @@ mod tests {
         }
         let expr = lowered
             .module
-            .block(lowered.module.functions[1].body.unwrap())
+            .block(
+                lowered.module.functions[1]
+                    .implementation
+                    .script_body()
+                    .unwrap(),
+            )
             .tail_expr
             .unwrap();
         assert_eq!(
@@ -846,7 +856,12 @@ mod tests {
         let names = resolve_names(&lowered).unwrap().facts;
         let expr = lowered
             .module
-            .block(lowered.module.functions[0].body.unwrap())
+            .block(
+                lowered.module.functions[0]
+                    .implementation
+                    .script_body()
+                    .unwrap(),
+            )
             .tail_expr
             .unwrap();
         let token = CancellationToken::default();

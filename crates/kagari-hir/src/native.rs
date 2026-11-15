@@ -1,5 +1,5 @@
 //! HIR representation hooks supplied only by an installed native declaration.
-use crate::types::{NominalType, TypeId};
+
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::{
     callable::NativeDefaultApplication,
@@ -7,7 +7,6 @@ use kagari_types::{
     declaration::{TypeDeclaration, TypeDef, native::NativeStorageLayout},
     range::RangeKind,
     reference::ReferenceAccess,
-    scalar::BuiltinType,
 };
 
 use std::sync::Arc;
@@ -17,6 +16,7 @@ pub(crate) mod adoption;
 pub(crate) mod api;
 pub(crate) mod paths;
 pub mod render;
+pub(crate) mod structured;
 
 /// Installed entry identity or symbolic default mapping.
 /// Selection resolves defaults to ordinary entries; bindings are not function pointers.
@@ -57,11 +57,6 @@ pub enum NativeTypeKind {
     },
     /// Intrinsic String representation with no generic arguments.
     String,
-    /// Existing map storage representation with key and value types.
-
-    /// Existing set storage representation with one element type.
-
-    /// Existing iterator representation with one element type.
 
     /// Range representation; full ranges take no argument and other shapes take an element type.
     Range(RangeKind),
@@ -76,33 +71,6 @@ impl NativeTypeKind {
 
             _ => 1,
         }
-    }
-
-    /// Builds the semantic representation with supplied arguments; returns `None` on arity mismatch.
-    pub fn apply(&self, arguments: &[TypeId]) -> Option<TypeId> {
-        if arguments.len() != self.arity() {
-            return None;
-        }
-        let first = || Box::new(arguments[0].clone());
-        Some(match self {
-            Self::Host { declaration, .. } => TypeId::Host(*declaration),
-            Self::Reference(access) => TypeId::Reference {
-                target: first(),
-                access: *access,
-            },
-            Self::Storage { declaration, .. } => TypeId::NativeObject(NominalType {
-                declaration: *declaration,
-                arguments: arguments.to_vec(),
-                associated_types: Default::default(),
-            }),
-            Self::String => TypeId::Builtin(BuiltinType::String),
-
-            Self::Range(RangeKind::Full) => TypeId::Range(
-                Box::new(TypeId::Builtin(BuiltinType::Unit)),
-                RangeKind::Full,
-            ),
-            Self::Range(kind) => TypeId::Range(first(), *kind),
-        })
     }
 }
 

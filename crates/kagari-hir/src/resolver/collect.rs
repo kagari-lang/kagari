@@ -5,7 +5,7 @@ use crate::{
     analysis::error::AnalysisError,
     hir::{
         ids::{BodyOwner, BodySelection, HirOwner},
-        item::function::FunctionKind,
+        item::function::{FunctionImplementation, FunctionKind},
     },
     imports::{
         BindingOrigin, ModuleGraph, ModuleImportFacts, SourceUnit, catalog::NamespaceCatalog,
@@ -68,6 +68,27 @@ pub(crate) fn collect_declarations(
     let names = imports.scope.clone();
     let mut diagnostics = SmallVec::<[Diagnostic; 4]>::new();
 
+    if !lowered.is_library_api() {
+        for declaration in &lowered.module.native_types {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::UnsupportedSyntax {
+                    feature: "native declarations in ordinary source",
+                })
+                .with_span(lowered.source_map.native_type_span(declaration.id)),
+            );
+        }
+        for function in &lowered.module.functions {
+            if matches!(function.implementation, FunctionImplementation::Native(_)) {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::UnsupportedSyntax {
+                        feature: "native declarations in ordinary source",
+                    })
+                    .with_span(lowered.source_map.function_span(function.id)),
+                );
+            }
+        }
+    }
+
     let mut local_names = HashMap::new();
     for function in &lowered.module.functions {
         if cancel.check().is_err() {
@@ -88,7 +109,7 @@ pub(crate) fn collect_declarations(
                 Some("visibility on a local function")
             } else if matches!(block.owner(), HirOwner::Body(BodyOwner::Const(_))) {
                 Some("function declarations in constant initializers")
-            } else if function.body.is_none() {
+            } else if function.implementation.script_body().is_none() {
                 Some("local functions without a body")
             } else {
                 None
@@ -266,7 +287,7 @@ pub(crate) fn resolve_bodies(
         if !required.contains(&function.id) {
             continue;
         }
-        let Some(body) = function.body else {
+        let Some(body) = function.implementation.script_body() else {
             continue;
         };
         resolver.resolve_function(

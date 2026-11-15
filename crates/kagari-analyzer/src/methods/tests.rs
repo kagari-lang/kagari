@@ -63,9 +63,10 @@ fn generic<T: Read>(value: T) { value. }
             owner
         );
         let declaration = snapshot.declaration(&candidate.declaration).unwrap();
-        assert_eq!(declaration.location.file, id);
+        assert_eq!(declaration.source_location().unwrap().file, id);
         assert_eq!(
-            &text[declaration.location.range.start..declaration.location.range.end],
+            &text[declaration.source_location().unwrap().range.start
+                ..declaration.source_location().unwrap().range.end],
             name
         );
         assert_eq!(

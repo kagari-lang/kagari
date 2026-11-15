@@ -75,6 +75,7 @@ pub fn validate(
             .is_ok_and(|view| view.module() == module)
             && names.insert(ty.name.as_str())
             && private.insert(declaration.declaration, ty).is_none()
+            && (!matches!(ty.kind, TypeDefKind::NativeStorage(_)) || ty.fields.is_empty())
             && type_definition_valid(ty, declaration.declaration, cancel, definitions);
         check_cancel(cancel)?;
         if !valid {

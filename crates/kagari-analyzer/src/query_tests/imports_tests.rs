@@ -69,8 +69,11 @@ fn inline_module_queries_use_physical_offsets_and_stable_child_identity() {
         .file;
     let reference = text.rfind("value()").unwrap();
     let target = first.queries().definition_at(root, reference).unwrap();
-    assert_eq!(target.location.file, root);
-    assert_eq!(target.location.range.start, text.find("value()").unwrap());
+    assert_eq!(target.source_location().unwrap().file, root);
+    assert_eq!(
+        target.source_location().unwrap().range.start,
+        text.find("value()").unwrap()
+    );
     db.set("mem://root", text.replace("42", "41"), SourceLayer::Overlay)
         .unwrap();
     let second = analysis
@@ -227,8 +230,8 @@ fn definition_queries_distinguish_modules_and_follow_source_facades() {
         .queries()
         .definition_at(root, text.find("r::same()").unwrap() + "r::".len())
         .unwrap();
-    assert_eq!(a.location.file, left);
-    assert_eq!(b.location.file, right);
+    assert_eq!(a.source_location().unwrap().file, left);
+    assert_eq!(b.source_location().unwrap().file, right);
     assert_ne!(a.id, b.id);
     assert_eq!(
         snapshot
@@ -316,9 +319,10 @@ fn dependency_overlay_invalidates_cached_imports_and_preserves_old_snapshot() {
             .queries()
             .definition_at(root, text.find("pkg::library").unwrap())
             .unwrap()
-            .location
+            .source_location()
+            .unwrap()
             .revision,
-        old.location.revision
+        old.source_location().unwrap().revision
     );
     db.set(
         "mem://library",
@@ -406,7 +410,8 @@ fn adding_and_removing_an_overlay_module_reanalyzes_unchanged_importers() {
             .queries()
             .definition_at(root, offset)
             .unwrap()
-            .location
+            .source_location()
+            .unwrap()
             .file,
         editor
     );
@@ -437,7 +442,8 @@ fn adding_and_removing_an_overlay_module_reanalyzes_unchanged_importers() {
             .queries()
             .definition_at(root, offset)
             .unwrap()
-            .location
+            .source_location()
+            .unwrap()
             .file,
         editor
     );
@@ -471,7 +477,7 @@ fn associated_methods_respect_owner_visibility_and_type_aliases() {
     let offset = analysis.source().text().find("make()").unwrap();
     let declaration = snapshot.queries().definition_at(valid, offset).unwrap();
     assert_eq!(declaration.name, "make");
-    assert_eq!(declaration.location.file, library);
+    assert_eq!(declaration.source_location().unwrap().file, library);
     let analysis = snapshot.file(invalid).unwrap();
     assert_eq!(
         analysis
@@ -528,7 +534,8 @@ fn deep_aliases_and_direct_leaves_share_declarations_without_child_bindings() {
                 text.find("a::nested::value()").unwrap() + "a::nested::".len()
             )
             .unwrap()
-            .location
+            .source_location()
+            .unwrap()
             .file,
         leaf
     );
@@ -540,7 +547,8 @@ fn deep_aliases_and_direct_leaves_share_declarations_without_child_bindings() {
                 text.find("c::nested::value()").unwrap() + "c::nested::".len()
             )
             .unwrap()
-            .location
+            .source_location()
+            .unwrap()
             .file,
         other
     );

@@ -175,7 +175,7 @@ fn struct_update_navigation_keeps_explicit_labels_and_base_references_separate()
         assert!(analysis.queries().definition_at(marker).is_none());
         let base = analysis.queries().definition_at(marker + 2).unwrap();
         assert_eq!(base.name, "base");
-        assert!(base.location.range.start < marker);
+        assert!(base.source_location().unwrap().range.start < marker);
     }
     let facts = analysis.result().facts();
     let sites =
@@ -236,9 +236,15 @@ fn members_keep_module_ownership_and_exact_declaration_locations() {
     assert!(std::panic::catch_unwind(|| b.lowered.source_map.variant_span(variant)).is_err());
     assert_eq!(facts.lowered.module.variant(variant).name, "Ready");
     let offset = text.find("Ready").unwrap();
-    assert_eq!(declaration.location.file, left);
-    assert_eq!(declaration.location.revision, a.source().revision());
-    assert_eq!(declaration.location.range, Span::new(offset, offset + 5));
+    assert_eq!(declaration.source_location().unwrap().file, left);
+    assert_eq!(
+        declaration.source_location().unwrap().revision,
+        a.source().revision()
+    );
+    assert_eq!(
+        declaration.source_location().unwrap().range,
+        Span::new(offset, offset + 5)
+    );
     assert_eq!(
         a.queries().definition_at(offset),
         a.result().facts().declarations.variant(variant)
@@ -306,8 +312,8 @@ fn variant_reordering_preserves_nominal_identity_and_retires_raw_ids() {
     assert_ne!(old_id.arena(), new_id.arena());
     assert_eq!(old_declaration.id, new_declaration.id);
     assert_ne!(
-        old_declaration.location.revision,
-        new_declaration.location.revision
+        old_declaration.source_location().unwrap().revision,
+        new_declaration.source_location().unwrap().revision
     );
     assert!(new_facts.declarations.variant(old_id).is_none());
     assert!(old_facts.declarations.variant(new_id).is_none());
@@ -404,9 +410,12 @@ fn reflection_field_navigation_retains_owner_and_survives_errors_and_body_reuse(
         .definition_at(uses[1])
         .expect("reflection write field");
     assert_ne!(left.id, right.id);
-    assert_eq!(left.location.range.start, text.find("value").unwrap());
     assert_eq!(
-        right.location.range.start,
+        left.source_location().unwrap().range.start,
+        text.find("value").unwrap()
+    );
+    assert_eq!(
+        right.source_location().unwrap().range.start,
         text.find("var value").unwrap() + 4
     );
     assert_eq!(
@@ -434,10 +443,13 @@ fn reflection_field_navigation_retains_owner_and_survives_errors_and_body_reuse(
             .definition_at(offset + edit.len() - text.len())
             .unwrap();
         assert_eq!(current.id, old.id);
-        assert_ne!(current.location.revision, old.location.revision);
+        assert_ne!(
+            current.source_location().unwrap().revision,
+            old.source_location().unwrap().revision
+        );
         assert_eq!(
-            current.location.range.start,
-            old.location.range.start + edit.len() - text.len()
+            current.source_location().unwrap().range.start,
+            old.source_location().unwrap().range.start + edit.len() - text.len()
         );
     }
     assert_eq!(
@@ -460,7 +472,10 @@ fn reflection_field_navigation_retains_owner_and_survives_errors_and_body_reuse(
             .definition_at(offset + edit.len() - text.len())
             .unwrap();
         assert_eq!(current.id, old.id);
-        assert_eq!(current.location.revision, reused.source().revision());
+        assert_eq!(
+            current.source_location().unwrap().revision,
+            reused.source().revision()
+        );
     }
 }
 
@@ -638,7 +653,10 @@ fn erroneous_array_indexes_retain_element_members_without_accepting_codegen() {
             .queries()
             .definition_at(member)
             .expect("known element field");
-        assert_eq!(field.location.range.start, text.find("value").unwrap());
+        assert_eq!(
+            field.source_location().unwrap().range.start,
+            text.find("value").unwrap()
+        );
         assert!(
             matches!(file.queries().member_receiver_type(member), Some(TypeId::Struct(ty)) if file.definitions().resolve(ty.declaration).unwrap().last().unwrap().name == "Item")
         );

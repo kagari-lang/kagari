@@ -225,7 +225,7 @@ impl<'a> BodyChecker<'a> {
                         | ResolvedName::Module(_)
                         | ResolvedName::RuntimeHelper(_)
                         | ResolvedName::TypeAlias(_)
-                        | ResolvedName::OpaqueType(_)
+                        | ResolvedName::NativeType(_)
                         | ResolvedName::Struct(_)
                         | ResolvedName::Enum(_)
                         | ResolvedName::Trait(_) => None,
@@ -325,7 +325,7 @@ impl<'a> BodyChecker<'a> {
                         "standard function item is not assignable".to_string()
                     }
                     ResolvedName::TypeAlias(_) => "type alias is not assignable".to_string(),
-                    ResolvedName::OpaqueType(_) => "opaque type is not assignable".to_string(),
+                    ResolvedName::NativeType(_) => "native type is not assignable".to_string(),
                     ResolvedName::Struct(_) => "struct type is not assignable".to_string(),
                     ResolvedName::Enum(_) => "enum type is not assignable".to_string(),
                     ResolvedName::Trait(_) => "trait type is not assignable".to_string(),
@@ -449,24 +449,32 @@ impl<'a> BodyChecker<'a> {
         field_name: &str,
     ) -> Option<FieldSignature> {
         let receiver = match receiver {
-            TypeId::Reference { target, .. } => target.as_ref(),
+            TypeId::Reference { target, .. } if matches!(target.as_ref(), TypeId::Struct(_)) => {
+                target.as_ref()
+            }
+            TypeId::Reference { .. } => return None,
             _ => receiver,
         };
-        let TypeId::Struct(id) = receiver else {
-            return None;
+        let (id, generic_params, fields) = match receiver {
+            TypeId::Struct(id) => {
+                let owner = self.aggregates.structure(&id.declaration)?;
+                (id, &owner.generic_params, &owner.fields)
+            }
+            TypeId::NativeObject(id) => {
+                let owner = self.aggregates.native_type(&id.declaration)?;
+                (id, &owner.generic_params, &owner.fields)
+            }
+            _ => return None,
         };
-        let structure = self.aggregates.structure(&id.declaration)?;
-        if structure.generic_params.len() != id.arguments.len() {
+        if generic_params.len() != id.arguments.len() {
             return None;
         }
-        let substitution = structure
-            .generic_params
+        let substitution = generic_params
             .iter()
             .cloned()
             .zip(id.arguments.iter().cloned())
             .collect();
-        let mut field = structure
-            .fields
+        let mut field = fields
             .iter()
             .find(|field| {
                 field.name == field_name

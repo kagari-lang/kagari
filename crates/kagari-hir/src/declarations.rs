@@ -7,23 +7,34 @@ use kagari_types::{
 use crate::{
     hir::{
         ids::{
-            BodyOwner, FieldId, GenericParamId, HirOwner, ImplId, OpaqueTypeId, TypeRefId,
+            BodyOwner, FieldId, GenericParamId, HirOwner, ImplId, NativeTypeId, TypeRefId,
             VariantId,
         },
         item::{Item, behavior::GenericParam, function::FunctionKind},
+        ty::DefinitionExposure,
     },
-    imports::{SourceItem, catalog::NamespaceCatalog, types::ImportedTypes},
+    imports::{
+        SourceItem,
+        catalog::{
+            LookupContext, NamespaceCatalog,
+            definitions::{DefinitionLookup, DefinitionSelection},
+        },
+        types::ImportedTypes,
+    },
     lower::LoweredModule,
     native::NativeTypeKind,
     resolver::{
         resolved::{DeclarationNames, ResolvedName, ResolvedNames},
         table::NameTable,
     },
-    source_map::SourceMap,
+    source_map::{
+        SourceMap,
+        origin::{NodeOrigin, OriginTarget},
+    },
     types::GenericParameterType,
 };
 use kagari_common::{
-    cancellation::CancellationToken,
+    cancellation::{CancellationToken, Cancelled},
     identity::{
         DefinitionKind,
         map::DefinitionContext,
@@ -78,21 +89,48 @@ pub enum DeclarationId {
     Binding(BindingId),
 }
 
-/// Semantic identity and authoritative source navigation site for one declaration.
+/// Authoritative attribution of a declaration, not executable installation evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeclarationOrigin {
+    /// Exact physical source coordinates, including exported declaration sources.
+    Source(FileSpan),
+    /// Registered record identity in this declaration's retained definition scope.
+    /// No file or authored byte range is available.
+    Structured { declaration: DefinitionId },
+}
+
+/// Semantic identity and authoritative attribution for one declaration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Declaration {
     /// Named definition, generic binder or analysis-local binding identity.
     pub id: DeclarationId,
     /// Display spelling; identity is carried separately.
     pub name: String,
-    /// Physical file/revision and half-open byte range for navigation.
-    pub location: FileSpan,
+    /// Exact source coordinates or structured registration attribution.
+    pub origin: DeclarationOrigin,
+}
+
+impl Declaration {
+    /// Exact authored navigation destination, absent for structured registrations.
+    pub fn source_location(&self) -> Option<FileSpan> {
+        match self.origin {
+            DeclarationOrigin::Source(location) => Some(location),
+            DeclarationOrigin::Structured { .. } => None,
+        }
+    }
+
+    /// Diagnostic anchor only; an empty anchor is not source/navigation evidence.
+    pub(crate) fn diagnostic_span(&self) -> Span {
+        self.source_location()
+            .map(|location| location.range)
+            .unwrap_or_default()
+    }
 }
 
 /// Declaration identities and source sites collected before and during body analysis.
 ///
 /// ```text
-/// resolved local/member handle -> targets -> Declaration { id, name, location }
+/// resolved local/member handle -> targets -> Declaration { id, name, origin }
 /// DeclarationId               -> identities -> local/member handle -> targets
 /// generic parameter           -> owner definition + ordinal
 /// parameter/local binding     -> AnalysisId + scoped body definition + local slot
@@ -122,7 +160,7 @@ pub struct Declarations {
     identities: HashMap<DeclarationId, DeclarationKey>,
     /// Local implementation slots to semantic definition identities.
     impl_identities: HashMap<ImplId, DefinitionId>,
-    native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
+    native_types: HashMap<NativeTypeId, NativeTypeKind>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -133,6 +171,35 @@ enum DeclarationKey {
     GenericParameter(GenericParamId),
     AssociatedType(TypeRefId),
     AssociatedConst(TypeRefId),
+}
+
+impl DeclarationKey {
+    fn origin_target(&self) -> OriginTarget {
+        match self {
+            Self::Field(id) => OriginTarget::Field(*id),
+            Self::Variant(id) => OriginTarget::Variant(*id),
+            Self::GenericParameter(id) => OriginTarget::GenericParam(*id),
+            Self::AssociatedType(id) | Self::AssociatedConst(id) => OriginTarget::Type(*id),
+            Self::Name(name) => match name {
+                ResolvedName::Function(id) => OriginTarget::Item(Item::Function(*id)),
+                ResolvedName::Const(id) => OriginTarget::Item(Item::Const(*id)),
+                ResolvedName::Static(id) => OriginTarget::Item(Item::Static(*id)),
+                ResolvedName::Module(id) => OriginTarget::Item(Item::Module(*id)),
+                ResolvedName::Struct(id) => OriginTarget::Item(Item::Struct(*id)),
+                ResolvedName::NativeType(id) => OriginTarget::Item(Item::NativeType(*id)),
+                ResolvedName::TypeAlias(id) => OriginTarget::Item(Item::TypeAlias(*id)),
+                ResolvedName::Enum(id) => OriginTarget::Item(Item::Enum(*id)),
+                ResolvedName::Trait(id) => OriginTarget::Item(Item::Trait(*id)),
+                ResolvedName::Param(id) => OriginTarget::Param(*id),
+                ResolvedName::Local(id) => OriginTarget::Local(*id),
+                ResolvedName::Source(_)
+                | ResolvedName::Namespace(_)
+                | ResolvedName::RuntimeHelper(_) => {
+                    unreachable!("only local declarations have source-map keys")
+                }
+            },
+        }
+    }
 }
 
 impl From<ResolvedName> for DeclarationKey {
@@ -185,6 +252,7 @@ impl Declarations {
         let root = context.intern_root(source.module_identity())?;
         let mut builder = Builder {
             source,
+            map: &lowered.source_map,
             cancel,
             result: Self::empty(lowered, names, context),
             occurrences: HashMap::new(),
@@ -262,12 +330,12 @@ impl Declarations {
             )?;
             builder.generic_params(&owner, &item.generic_params, map);
         }
-        for item in &module.opaque_types {
+        for item in &module.native_types {
             cancel
                 .check()
                 .map_err(|_| DefinitionMappingError::Cancelled)?;
             let owner = builder.definition(
-                ResolvedName::OpaqueType(item.id),
+                ResolvedName::NativeType(item.id),
                 root,
                 if matches!(
                     lowered.native_types.get(&item.id),
@@ -278,9 +346,21 @@ impl Declarations {
                     DefinitionKind::AssociatedType
                 },
                 &item.name,
-                map.item_declaration_span(Item::OpaqueType(item.id)),
+                map.item_declaration_span(Item::NativeType(item.id)),
             )?;
             builder.generic_params(&owner, &item.generic_params, map);
+            for field in &item.fields {
+                cancel
+                    .check()
+                    .map_err(|_| DefinitionMappingError::Cancelled)?;
+                let id = builder.identity(owner, DefinitionKind::Field, &field.name)?;
+                builder.insert(
+                    DeclarationKey::Field(field.id),
+                    DeclarationId::Definition(id),
+                    &field.name,
+                    map.field_span(field.id),
+                );
+            }
         }
         for item in &module.structs {
             cancel
@@ -517,6 +597,7 @@ impl Declarations {
         let map = &lowered.source_map;
         let mut builder = Builder {
             source: &lowered.source,
+            map: &lowered.source_map,
             cancel,
             result: self,
             occurrences: HashMap::new(),
@@ -557,6 +638,7 @@ impl Declarations {
 
 struct Builder<'a> {
     source: &'a SourceFile,
+    map: &'a SourceMap,
     cancel: &'a CancellationToken,
     result: Declarations,
     occurrences: HashMap<(DefinitionId, DefinitionKind, String), u32>,
@@ -632,17 +714,27 @@ impl Builder<'_> {
     ) {
         let key = key.into();
 
+        let origin = match self.map.origin(key.origin_target()) {
+            NodeOrigin::Source(_) => {
+                assert!(
+                    !self.map.is_structured(),
+                    "structured declaration must retain registration attribution"
+                );
+                DeclarationOrigin::Source(
+                    self.source
+                        .span(range)
+                        .expect("declaration range must belong to its retained source"),
+                )
+            }
+            NodeOrigin::Structured { declaration } => DeclarationOrigin::Structured { declaration },
+        };
         self.result.identities.insert(id.clone(), key.clone());
         self.result.targets.insert(
             key,
             Declaration {
                 id,
                 name: name.into(),
-                location: self.source.span(range).unwrap_or(FileSpan {
-                    file: self.source.origin_id(),
-                    revision: self.source.revision(),
-                    range,
-                }),
+                origin,
             },
         );
     }
@@ -664,7 +756,7 @@ impl Declarations {
     }
 
     /// Clones the installed representation for a local opaque type, if registered.
-    pub fn native_type(&self, id: OpaqueTypeId) -> Option<NativeTypeKind> {
+    pub fn native_type(&self, id: NativeTypeId) -> Option<NativeTypeKind> {
         self.native_types.get(&id).cloned()
     }
 
@@ -697,6 +789,54 @@ impl Declarations {
         self.catalog
             .resolve_name(&self.names, name, namespace, &Default::default())
             .map(|hit| hit.target.resolved(self.names.unit.as_ref()))
+    }
+
+    /// Resolve an exact structured reference through the same access-checked catalog.
+    /// The caller must still verify the selected definition and its semantic eligibility.
+    pub(crate) fn resolve_definition(
+        &self,
+        declaration: DefinitionId,
+        namespace: NameNamespace,
+        cancel: &CancellationToken,
+    ) -> Result<Option<ResolvedName>, Cancelled> {
+        Ok(self
+            .resolve_definition_exposure(declaration, namespace, None, cancel)?
+            .map(|selected| selected.hit.target.resolved(self.names.unit.as_ref())))
+    }
+
+    /// Select or validate the exact reference's exposure in this catalog generation.
+    /// The returned route is resolution evidence, never a substitute for type checking.
+    pub(crate) fn resolve_definition_exposure(
+        &self,
+        declaration: DefinitionId,
+        namespace: NameNamespace,
+        exposure: Option<&DefinitionExposure>,
+        cancel: &CancellationToken,
+    ) -> Result<Option<DefinitionSelection>, Cancelled> {
+        let Some(unit) = self.names.unit.as_ref() else {
+            return Ok(None);
+        };
+        self.catalog.resolve_definition(
+            &LookupContext::new(&unit.module),
+            DefinitionLookup {
+                declaration,
+                definitions: &self.definitions,
+                namespace,
+                exposure,
+            },
+            |target| {
+                let resolved = target.resolved(self.names.unit.as_ref());
+                let id = self.definition(resolved.clone()).copied().or_else(|| {
+                    let imported = self.imported_types.resolved(resolved)?;
+                    match imported.declaration.id {
+                        DeclarationId::Definition(id) => Some(id),
+                        _ => None,
+                    }
+                });
+                id == Some(declaration)
+            },
+            cancel,
+        )
     }
 
     pub(crate) fn resolved_variant(&self, name: ResolvedName) -> Option<&Declaration> {

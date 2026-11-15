@@ -91,7 +91,7 @@ pub(crate) fn collect_module_abi(module: &CheckedModule<'_>) -> ModuleContract {
                     }));
                 }
             }
-            Item::Struct(_) | Item::Enum(_) | Item::OpaqueType(_) => {
+            Item::Struct(_) | Item::Enum(_) | Item::NativeType(_) => {
                 let (visibility, declaration) = type_definitions::lower(module, *item);
                 if visibility == Visibility::Public {
                     public_items.push(PublicItem::Type(declaration.definition));
@@ -364,6 +364,9 @@ fn implementation_methods_abi(module: &CheckedModule<'_>, item: &Impl) -> Vec<Fn
             method_policy: method.policy,
             name: method.name.clone(),
             implementation: match method.default.clone().expect("selected default method") {
+                MethodDefault::NativeDeclaration => {
+                    unreachable!("offline module passed compiler admission")
+                }
                 MethodDefault::Script => CallableImplementation::Script,
                 MethodDefault::Native(NativeBinding::Default(application)) => {
                     CallableImplementation::NativeDefault(NativeDefaultApplication {
@@ -421,6 +424,9 @@ fn function_abi(module: &CheckedModule<'_>, function: &Function) -> Option<FnDec
             .map_or_else(Default::default, |method| method.policy),
         name: typed.name.clone(),
         implementation: match typed.implementation.clone() {
+            FunctionImplementation::NativeDeclaration => {
+                unreachable!("offline module passed compiler admission")
+            }
             FunctionImplementation::Required => CallableImplementation::Required,
             FunctionImplementation::Script => CallableImplementation::Script,
             FunctionImplementation::Native(NativeBinding::Default(_)) => {

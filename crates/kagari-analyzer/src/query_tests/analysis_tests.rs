@@ -68,7 +68,8 @@ fn local_function_signature_edits_refresh_facts_and_retain_old_navigation() {
         .queries()
         .definition_at(call)
         .unwrap()
-        .location;
+        .source_location()
+        .unwrap();
     for changed in [
         "fn outer() -> i32 { fn inner() -> bool { true } inner() }",
         "fn outer() -> i32 { fn renamed() -> i32 { 42 } inner() }",
@@ -92,7 +93,8 @@ fn local_function_signature_edits_refresh_facts_and_retain_old_navigation() {
             .queries()
             .definition_at(call)
             .unwrap()
-            .location,
+            .source_location()
+            .unwrap(),
         old_site
     );
     assert_eq!(
@@ -129,7 +131,8 @@ fn local_function_navigation_distinguishes_shadowed_blocks_and_moved_sources() {
                     .queries()
                     .definition_at(call)
                     .unwrap()
-                    .location
+                    .source_location()
+                    .unwrap()
                     .range
                     .start,
                 expected
@@ -140,7 +143,10 @@ fn local_function_navigation_distinguishes_shadowed_blocks_and_moved_sources() {
                 .filter(|binding| binding.declaration.name == "same")
                 .collect::<Vec<_>>();
             assert_eq!(named.len(), 1);
-            assert_eq!(named[0].declaration.location.range.start, expected);
+            assert_eq!(
+                named[0].declaration.source_location().unwrap().range.start,
+                expected
+            );
         }
         retained.push((snapshot, file, text.rfind("same()").unwrap(), first));
     }
@@ -152,7 +158,8 @@ fn local_function_navigation_distinguishes_shadowed_blocks_and_moved_sources() {
                 .queries()
                 .definition_at(call)
                 .unwrap()
-                .location
+                .source_location()
+                .unwrap()
                 .range
                 .start,
             expected

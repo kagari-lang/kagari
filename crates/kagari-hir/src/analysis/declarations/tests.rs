@@ -27,6 +27,12 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
         .set("main.kgr", "fn main() {}".into(), SourceLayer::Base)
         .unwrap();
     let mut db = test_analysis();
+    let modules = db.native_modules.clone();
+    let views = modules
+        .iter()
+        .map(|module| declaration_source(module, &modules).unwrap())
+        .collect();
+    db.set_native_sources(modules, views).unwrap();
     let first = query(&mut db, &sources);
     let file = first
         .files()
@@ -41,7 +47,7 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
     );
     let id = file.source().id();
     let source = file.declared.lowered.source.clone();
-    let location = file.syntax().location();
+    let location = file.syntax().unwrap().location();
     let arena = file.declared.lowered.module.body.arena();
     let method_count = file.declared.lowered.method_policies.len();
     assert!(method_count > 0);
@@ -76,7 +82,7 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
     // A locator resolves only against the original physical parse, not a reparse.
     let third = query(&mut db, &sources);
     let file = third.file(id).unwrap();
-    assert!(location.resolve(file.parsed.physical()).is_some());
+    assert!(location.resolve(file.parsed.physical().unwrap()).is_some());
     assert!(Arc::ptr_eq(&source, &file.declared.lowered.source));
     let lowered = &file.declared.lowered;
     assert_ne!(lowered.module.body.arena(), arena);
@@ -102,7 +108,7 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
     }
     let adapter = lowered
         .module
-        .opaque_types
+        .native_types
         .iter()
         .find(|item| item.name == "MapIterator")
         .unwrap();
@@ -144,8 +150,12 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
         .files()
         .find(|file| file.source().module_identity() == source.module_identity())
         .unwrap();
-    assert!(location.resolve(replacement.parsed.physical()).is_none());
-    assert!(location.resolve(file.parsed.physical()).is_some());
+    assert!(
+        location
+            .resolve(replacement.parsed.physical().unwrap())
+            .is_none()
+    );
+    assert!(location.resolve(file.parsed.physical().unwrap()).is_some());
     drop(db);
     drop(fork);
     assert_eq!(file.source().text(), source.text());
@@ -168,6 +178,12 @@ fn cancelled_or_invalid_native_import_never_publishes_a_snapshot() {
     ));
     assert!(db.native_files.get().is_none());
     assert!(db.declaration_cache.is_none());
+    let modules = db.native_modules.clone();
+    let views = modules
+        .iter()
+        .map(|module| declaration_source(module, &modules).unwrap())
+        .collect();
+    db.set_native_sources(modules, views).unwrap();
     db.set_parse_limits(parser::ParseLimits {
         max_tree_depth: 1,
         ..Default::default()
@@ -319,7 +335,14 @@ fn declaration_cache_tracks_dependencies_and_keeps_unrelated_files_shared() {
             .any(|d| matches!(d.kind, DiagnosticKind::ImportNotPublic { .. }))
     );
     assert_eq!(first.declaration(&old.id), Some(&old));
-    assert_ne!(second.declaration(&old.id).unwrap().location, old.location);
+    assert_ne!(
+        second
+            .declaration(&old.id)
+            .unwrap()
+            .source_location()
+            .unwrap(),
+        old.source_location().unwrap()
+    );
     let fresh = query(&mut test_analysis(), &sources);
     assert_eq!(
         second.file(root).unwrap().diagnostics(),

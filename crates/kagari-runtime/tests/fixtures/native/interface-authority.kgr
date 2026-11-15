@@ -1,4 +1,4 @@
-use authority::native::Shared;
+use authority::bindings::Shared;
 
 pub trait Counter {
     fn next(self) -> i32;

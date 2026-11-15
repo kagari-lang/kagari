@@ -1,0 +1,21 @@
+pub struct Point {
+    pub var value: i32,
+}
+
+pub trait Getter {
+    fn get(self) -> i32 {
+        17
+    }
+}
+
+impl Getter for Point {
+    pub fn get(self) -> i32 {
+        self.value
+    }
+}
+
+pub fn read(value: Point) -> i32 {
+    value.value + 1
+}
+
+pub native fn native_echo(value: i32) -> i32;

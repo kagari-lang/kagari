@@ -1,7 +1,11 @@
 //! Portable provider/settings identity owned by the analysis input environment.
 
 use crate::{
-    analysis::{AnalysisDatabase, error::AnalysisError},
+    analysis::{
+        AnalysisDatabase,
+        error::AnalysisError,
+        external::{contracts, evidence_fingerprint},
+    },
     typeck::const_budget::ConstLimits,
 };
 use blake3::Hasher;
@@ -37,6 +41,60 @@ impl AnalysisDatabase {
                 .records()
                 .compiler_input_bytes(provider.definitions(), cancel)?;
             hash_bytes(&mut hash, &bytes, cancel)?;
+        }
+        let mut external = self.external_modules.iter().collect::<Vec<_>>();
+        external.sort_by_key(|input| input.source.module_identity());
+        hash.update(&(external.len() as u64).to_le_bytes());
+        for input in external {
+            // All non-syntactic facts participate; source locations and process-local
+            // FileIds do not. This is an input key, not authority or validation.
+            hash_bytes(
+                &mut hash,
+                format!("{:?}", input.source.module_identity()).as_bytes(),
+                cancel,
+            )?;
+            hash_bytes(&mut hash, input.source.text().as_bytes(), cancel)?;
+            hash_bytes(
+                &mut hash,
+                format!("{:?}", input.source.inline_range()).as_bytes(),
+                cancel,
+            )?;
+            hash_bytes(
+                &mut hash,
+                format!(
+                    "{:?}{:?}{:?}{:?}{:?}{:?}",
+                    input.package_alias,
+                    input.prelude,
+                    input.dependencies,
+                    input.types,
+                    input.methods,
+                    input.language_foundation
+                )
+                .as_bytes(),
+                cancel,
+            )?;
+            for (name, metadata) in &input.traits {
+                hash_bytes(&mut hash, name.as_bytes(), cancel)?;
+                hash_bytes(
+                    &mut hash,
+                    &evidence_fingerprint::trait_bytes(metadata, cancel)?,
+                    cancel,
+                )?;
+            }
+            for (name, metadata) in &input.hosts {
+                hash_bytes(&mut hash, name.as_bytes(), cancel)?;
+                hash_bytes(
+                    &mut hash,
+                    &evidence_fingerprint::host_bytes(metadata, cancel)?,
+                    cancel,
+                )?;
+            }
+            for (selector, metadata) in &input.contracts {
+                hash_bytes(&mut hash, format!("{selector:?}").as_bytes(), cancel)?;
+                let contract =
+                    contracts::fingerprint(metadata.records(), metadata.definitions(), cancel)?;
+                hash_bytes(&mut hash, contract.as_bytes(), cancel)?;
+            }
         }
         let ConstLimits {
             max_steps,

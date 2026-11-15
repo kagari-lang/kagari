@@ -238,9 +238,9 @@ enum Local<T> { Some(T), None }
 use self::Local::{Some, None};
 fn make<T>(value: T) -> Option<T> { Present(value) }
 fn main() -> i32 {
-    val native = make(41);
+    val provided = make(41);
     val local = Some(1);
-    val base = match native { Absent => 0, Present(value) => value };
+    val base = match provided { Absent => 0, Present(value) => value };
     match local { None => 0, Some(value) => base + value }
 }
 "#,

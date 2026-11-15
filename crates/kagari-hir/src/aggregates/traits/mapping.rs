@@ -117,6 +117,7 @@ impl RemapDefinitions for MethodDefault {
         mapper.check()?;
         Ok(match self {
             Self::Script => MethodDefault::Script,
+            Self::NativeDeclaration => MethodDefault::NativeDeclaration,
             Self::Native(field0) => MethodDefault::Native((field0).remap_definitions(mapper)?),
         })
     }
@@ -130,7 +131,7 @@ impl DefinitionReferences for MethodDefault {
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         match self {
-            Self::Script => {}
+            Self::Script | Self::NativeDeclaration => {}
             Self::Native(field0) => {
                 (field0).visit_definition_ids(visit, cancel)?;
             }

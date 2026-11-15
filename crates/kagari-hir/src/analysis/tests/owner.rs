@@ -32,7 +32,10 @@ fn lowering_records_owners_for_interleaved_functions_and_constants() {
     let module = &facts.lowered.module;
     for function in &module.functions {
         let expected = HirOwner::Body(BodyOwner::Function(function.id));
-        assert_eq!(function.body.unwrap().owner(), expected);
+        assert_eq!(
+            function.implementation.script_body().unwrap().owner(),
+            expected
+        );
         for (index, parameter) in function.params.iter().enumerate() {
             assert_eq!(parameter.id.index(), index);
             assert!(std::ptr::eq(module.parameter(parameter.id), parameter));
@@ -41,7 +44,10 @@ fn lowering_records_owners_for_interleaved_functions_and_constants() {
             assert_eq!(parameter.id.owner(), expected);
             assert_eq!(parameter.ty.owner(), expected);
         }
-        for statement in &module.block(function.body.unwrap()).statements {
+        for statement in &module
+            .block(function.implementation.script_body().unwrap())
+            .statements
+        {
             assert_eq!(statement.owner(), expected);
             match &module.stmt(*statement).kind {
                 StmtKind::Binding {
@@ -163,8 +169,14 @@ fn resolver_rejects_cross_body_edges_even_inside_the_same_arena() {
         "edges.kgr",
         "fn first() -> i32 { 1 } fn second() -> i32 { 2 }",
     ));
-    let first = lowered.module.functions[0].body.unwrap();
-    let second = lowered.module.functions[1].body.unwrap();
+    let first = lowered.module.functions[0]
+        .implementation
+        .script_body()
+        .unwrap();
+    let second = lowered.module.functions[1]
+        .implementation
+        .script_body()
+        .unwrap();
     assert_eq!(first.arena(), second.arena());
     assert_ne!(first.owner(), second.owner());
     let other_expr = lowered.module.block(second).tail_expr.unwrap();
@@ -178,8 +190,14 @@ fn stored_node_and_source_owners_reject_an_internally_mistagged_id() {
         "tags.kgr",
         include_str!("../../../tests/fixtures/analysis/parameter_lookup.kgr"),
     ));
-    let first = lowered.module.functions[0].body.unwrap();
-    let second = lowered.module.functions[1].body.unwrap();
+    let first = lowered.module.functions[0]
+        .implementation
+        .script_body()
+        .unwrap();
+    let second = lowered.module.functions[1]
+        .implementation
+        .script_body()
+        .unwrap();
     let expr = lowered.module.block(first).tail_expr.unwrap();
     let mistagged = ExprId::new(expr.arena(), second.owner(), expr.index());
     assert_ne!(expr, mistagged);

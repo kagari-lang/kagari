@@ -98,12 +98,16 @@ fn typed_registration_preserves_parameter_and_return_docs_in_materialized_naviga
         doc.documentation
             .contains("# Returns\n\nTwo independent strings.\n\n```kgr\nduplicate(\"雪\")\n```")
     );
-    let target = snapshot.source(doc.declaration.location.file).unwrap();
+    let target = snapshot
+        .source(doc.declaration.source_location().unwrap().file)
+        .unwrap();
     assert_eq!(
         fs::read_to_string(physical_path(target.name())).unwrap(),
         target.text()
     );
-    let range = target.local_range(doc.declaration.location).unwrap();
+    let range = target
+        .local_range(doc.declaration.source_location().unwrap())
+        .unwrap();
     assert_eq!(&target.text()[range.start..range.end], "duplicate");
     assert!(
         target.text().contains("text: alloc::string::String"),
@@ -267,16 +271,16 @@ fn generated_files_docs_and_navigation_share_the_checked_snapshot() {
         .queries().documentation_at(file, text.find("answer()").unwrap())
         .unwrap();
     assert_eq!(doc.documentation, DOC);
-    let target = snapshot.source(doc.declaration.location.file).unwrap();
+    let target = snapshot.source(doc.declaration.source_location().unwrap().file).unwrap();
     let path = physical_path(target.name());
     assert_eq!(fs::read_to_string(&path).unwrap(), target.text());
-    let range = target.local_range(doc.declaration.location).unwrap();
+    let range = target.local_range(doc.declaration.source_location().unwrap()).unwrap();
     assert_eq!(&target.text()[range.start..range.end], "answer");
     let module_doc = snapshot
         .queries().module_documentation_at(file, text.find("api;").unwrap())
         .unwrap();
     assert_eq!(module_doc.documentation, DOC);
-    assert_eq!(module_doc.location.file, target.id());
+    assert_eq!(module_doc.location.unwrap().file, target.id());
     for name in ["Opaque", "Describe"] {
         let item = snapshot
             .queries().documentation_at(file, text.find(name).unwrap())
@@ -386,13 +390,8 @@ fn task_navigation_uses_canonical_authored_members_and_docs() {
             documentation.documentation,
             owner.records().documentation[&expected]
         );
-        let target = snapshot
-            .source(documentation.declaration.location.file)
-            .unwrap();
-        let range = target
-            .local_range(documentation.declaration.location)
-            .unwrap();
-        assert_eq!(&target.text()[range.start..range.end], member);
+        assert!(documentation.declaration.source_location().is_none());
+        assert!(documentation.written_signature.is_none());
     }
     for (name, path) in [
         ("Future", "future"),
@@ -472,8 +471,8 @@ fn content_paths_reuse_unchanged_docs_and_keep_old_snapshot_targets() {
         .unwrap();
     assert_eq!(old_doc.documentation, DOC);
     assert_ne!(old_doc.documentation, new_doc.documentation);
-    let old_source = old_snapshot.source(old_doc.location.file).unwrap();
-    let new_source = new_snapshot.source(new_doc.location.file).unwrap();
+    let old_source = old_snapshot.source(old_doc.location.unwrap().file).unwrap();
+    let new_source = new_snapshot.source(new_doc.location.unwrap().file).unwrap();
     assert_ne!(old_source.name(), new_source.name());
     assert_eq!(
         fs::read_to_string(physical_path(old_source.name())).unwrap(),
@@ -567,7 +566,7 @@ fn modified_cache_content_is_rejected_without_replacing_an_active_target() {
         path: vec!["api".into()],
     };
     let doc = snapshot.queries().module_documentation(&module).unwrap();
-    let source = snapshot.source(doc.location.file).unwrap();
+    let source = snapshot.source(doc.location.unwrap().file).unwrap();
     let path = physical_path(source.name());
     fs::write(&path, "edited cache").unwrap();
     let mut builder = KagariEngine::builder().unwrap();
@@ -580,7 +579,7 @@ fn modified_cache_content_is_rejected_without_replacing_an_active_target() {
         Err(EmbeddingError::DeclarationCache { .. })
     ));
     assert_eq!(fs::read_to_string(path).unwrap(), "edited cache");
-    assert!(source.text().contains("pub fn answer"));
+    assert!(source.text().contains("pub native fn answer"));
     assert_eq!(
         snapshot
             .queries()

@@ -44,7 +44,7 @@ pub(super) struct CandidateInputs<'a> {
     pub context: &'a DefinitionContext,
     pub options: &'a MirLoweringOptions,
     pub sources: &'a SourceInputs,
-    pub source_manifest: &'a SourceManifest,
+    pub source_manifest: Option<&'a SourceManifest>,
     pub exports: &'a ProgramExports,
 }
 
@@ -134,7 +134,7 @@ pub(super) fn build(
         stage: "capture preoptimization evidence",
         error,
     })?;
-    evidence.source_manifest = Some(inputs.source_manifest.clone());
+    evidence.source_manifest = inputs.source_manifest.cloned();
     let (modules, evidence) = update_records::optimize(modules, evidence, context, options)
         .map_err(|error| SourceProgramError::Lowering {
             module: Box::new(root.clone()),

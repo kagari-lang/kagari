@@ -3,7 +3,10 @@ use crate::native::adoption::adopt;
 use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
 use kagari_source::source::SourceFile;
 use kagari_stdlib::catalog;
-use kagari_syntax::parser::{ParseMode, ParseOptions, parse};
+use kagari_syntax::{
+    ast::visit::NodeRef,
+    parser::{ParseOptions, parse},
+};
 
 #[test]
 fn native_views_preserve_canonical_text_and_scoped_navigation() {
@@ -19,19 +22,56 @@ fn native_views_preserve_canonical_text_and_scoped_navigation() {
         assert_eq!(left_source.uri, right_source.uri);
         assert_eq!(left_source.text, right_source.text);
         let source = SourceFile::new(&left_source.uri, &left_source.text);
-        let parsed = parse(
-            &source,
-            ParseOptions {
-                mode: ParseMode::Declarations,
-                limits: Default::default(),
-            },
-            &Default::default(),
-        )
-        .unwrap();
+        let parsed = parse(&source, ParseOptions::default(), &Default::default()).unwrap();
         assert!(
             parsed.diagnostics().is_empty(),
             "{:?}",
             parsed.diagnostics()
+        );
+        let module = parsed.module();
+        let mut actual = NodeRef::ModuleBody(module.body())
+            .descendants()
+            .filter_map(|node| match node {
+                NodeRef::FnDef(function) => Some((
+                    function.name_text().unwrap(),
+                    function.is_native(),
+                    function.body().is_some(),
+                )),
+                NodeRef::MethodDef(function) => Some((
+                    function.name_text().unwrap(),
+                    function.is_native(),
+                    function.body().is_some(),
+                )),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let records = left_module.records();
+        let mut expected = records
+            .functions
+            .iter()
+            .chain(records.traits.iter().flat_map(|item| &item.methods))
+            .chain(
+                records
+                    .implementations
+                    .iter()
+                    .flat_map(|item| &item.methods),
+            )
+            .map(|function| {
+                (
+                    function.name.clone(),
+                    matches!(function.implementation, CallableImplementation::Native(_)),
+                    matches!(
+                        function.implementation,
+                        CallableImplementation::NativeDefault(_)
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+        actual.sort();
+        expected.sort();
+        assert_eq!(
+            actual, expected,
+            "NativeDefault must retain its Script forwarding body"
         );
         let sites = |source: &DeclarationSource| {
             source

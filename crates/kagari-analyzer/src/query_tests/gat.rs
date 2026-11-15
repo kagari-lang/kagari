@@ -17,7 +17,7 @@ fn constructor_binders_and_cached_queries_follow_the_latest_signature() {
     let use_offset = text.find("= U;").unwrap() + 2;
     let target = old_file.queries().definition_at(use_offset).unwrap();
     assert_eq!(
-        target.location.range.start,
+        target.source_location().unwrap().range.start,
         text.find("Item<U>").unwrap() + 5
     );
     let edited = text.replace("{ 1 }", "{ val x = 2; x }");

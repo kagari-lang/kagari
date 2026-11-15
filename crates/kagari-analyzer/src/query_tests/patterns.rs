@@ -141,7 +141,7 @@ fn declaration_pattern_canonical_leaf_order_uses_the_first_alternative() {
         file.result().diagnostics()
     );
     let module = &file.result().facts().lowered.module;
-    let block = module.block(module.functions[0].body.unwrap());
+    let block = module.block(module.functions[0].implementation.script_body().unwrap());
     let StmtKind::Binding { pattern, .. } = module.stmt(block.statements[0]).kind else {
         panic!("declaration");
     };

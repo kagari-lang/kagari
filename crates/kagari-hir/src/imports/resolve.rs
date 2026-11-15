@@ -477,9 +477,9 @@ fn add_implicit(
         unit,
         cancel,
     } = context;
-    for source in sources.iter().filter(|source| source.registered_native_api) {
+    for source in sources.iter().filter(|source| source.is_library_api()) {
         let installed = SourceUnit::of(source, &catalog.definitions);
-        if !module.registered_native_api {
+        if !module.is_library_api() {
             dependencies.insert(installed.module);
         }
         let alias = source
@@ -510,7 +510,7 @@ fn add_implicit(
             }
         }
     }
-    if !module.registered_native_api {
+    if !module.is_library_api() {
         let preludes = sources
             .iter()
             .filter(|source| source.native_prelude)

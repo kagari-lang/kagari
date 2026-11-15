@@ -4,9 +4,19 @@ use crate::hir::{
     ids::{BlockId, FunctionId, ParamId, TypeRefId},
     item::behavior::{GenericParam, TraitBound},
 };
-use kagari_types::visibility::Visibility;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        mapping::{DefinitionMapper, DefinitionMappingError},
+        scoped::{DefinitionReferences, RemapDefinitions},
+        table::DefinitionId,
+    },
+};
+use kagari_types::{
+    declaration::requirement::NativeCallableRequirement, ty::Ty, visibility::Visibility,
+};
 
-/// A function declaration's signature and optional body, stored in `Module.functions`.
+/// A function declaration's signature and implementation, stored in `Module.functions`.
 ///
 /// ```text
 /// pub fn echo<T: PartialEq>(x: T) -> T where T: Eq { x }
@@ -15,7 +25,7 @@ use kagari_types::visibility::Visibility;
 ///     generic_params: [GenericParam { id: g, name: "T", bounds: [partial_eq_ref] }],
 ///     bounds: [TraitBound { target: "T", target_ref: t_where, traits: [eq_ref] }],
 ///     params: [Param { id: p, name: "x", ty: t_param }],
-///     return_type: Some(t_result), body: Some(b),
+///     return_type: Some(t_result), implementation: Script(b),
 /// }
 /// t_where, t_param, t_result -> Body.type_ref -> TypeKind::Named("T")
 /// partial_eq_ref / eq_ref -> TraitRef { ty: ... } -> trait type syntax
@@ -31,8 +41,9 @@ use kagari_types::visibility::Visibility;
 /// Omitting `pub` selects `Private`; omitting generics/`where` leaves those buffers
 /// empty. Omitting `-> T` sets `return_type` to `None` (checked as unit), whereas
 /// `-> ()` stores `Some(unit_type)`. `async fn` sets `is_async`, while its written
-/// result type still describes the completed body. Trait requirements and installed
-/// declaration-only functions can have `body: None`; `{}` is `Some(empty_block)`.
+/// result type still describes the completed body. Trait requirements use `Required`;
+/// installed native entries use `Native`. An empty `{}` is `Script(empty_block)`.
+/// Missing bodies in recovered syntax also use `Required`, without making them legal.
 ///
 /// Method signatures/bodies use this same collection: their `kind` is
 /// `TraitMethod` or `ImplMethod`, with an external trait/impl member linking to `f`.
@@ -64,8 +75,80 @@ pub struct Function {
     pub params: Vec<Param>,
     /// Explicit result type syntax, absent when omitted.
     pub return_type: Option<TypeRefId>,
-    /// Absent for interface requirements and installed native declarations.
-    pub body: Option<BlockId>,
+    /// Required member, authored script block or native declaration contract.
+    pub implementation: FunctionImplementation,
+}
+
+/// Structural implementation owned by a function declaration, not a runtime binding.
+///
+/// A native declaration alone grants no installation authority. Checked callable
+/// signatures separately retain installed bindings. Generated native-default
+/// forwarding bodies remain `Script` here so their calls can be checked normally.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FunctionImplementation {
+    /// A trait member awaiting an implementation, or a missing body during recovery.
+    Required,
+    /// A script block in the enclosing module's body table.
+    Script(BlockId),
+    /// A native declaration with its static operation/result requirements.
+    Native(NativeContract),
+}
+
+impl FunctionImplementation {
+    /// Returns the authored block only for a script implementation.
+    pub fn script_body(&self) -> Option<BlockId> {
+        match self {
+            Self::Script(body) => Some(*body),
+            Self::Required | Self::Native(_) => None,
+        }
+    }
+}
+
+/// Static requirements supplied by a native declaration, without binding authority.
+///
+/// These reuse the existing scoped declaration vocabulary: definition identities
+/// and generic binders belong to the enclosing analysis's retained definition
+/// table. External sidecars import that scope before attachment, without acquiring
+/// registration authority. Requirements are ordered slots; repeated operations remain distinct.
+/// Parameter/result syntax stays on `Function`; Rust adapters, HostCallPolicy and
+/// method policies remain at their existing registration/execution boundaries.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct NativeContract {
+    /// Operations required by the native algorithm, including applied trait/member arguments.
+    pub callable_requirements: Vec<NativeCallableRequirement>,
+    /// Concrete result before the existing checked interface-result adaptation.
+    pub concrete_result: Option<Ty>,
+}
+
+impl DefinitionReferences for NativeContract {
+    fn visit_definition_ids(
+        &self,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
+        cancel: &CancellationToken,
+    ) -> Result<(), DefinitionMappingError> {
+        self.callable_requirements
+            .visit_definition_ids(visit, cancel)?;
+        if let Some(result) = &self.concrete_result {
+            result.visit_definition_ids(visit, cancel)?;
+        }
+        Ok(())
+    }
+}
+
+impl RemapDefinitions for NativeContract {
+    fn remap_definitions(
+        &self,
+        mapper: &mut DefinitionMapper<'_>,
+    ) -> Result<Self, DefinitionMappingError> {
+        Ok(Self {
+            callable_requirements: self.callable_requirements.remap_definitions(mapper)?,
+            concrete_result: self
+                .concrete_result
+                .as_ref()
+                .map(|result| result.remap_definitions(mapper))
+                .transpose()?,
+        })
+    }
 }
 
 /// Declaration origin used by namespace collection and method-specific checking.
