@@ -39,15 +39,25 @@ function regionsIn(text, spans, context, expected) {
 }
 
 test('type aliases reuse type declaration scopes without guessing target identities', async () => {
-  const source = 'pub type Pair<T> where T: Show = (T, T);\ntrait Source { type Item; }\ntype Native;';
+  const source = 'pub type Pair<T> where T: Show = (T, T);\ntrait Source { type Item; }\nnative type Native;';
   const spans = await tokenize(source);
   for (const name of ['Pair', 'Item', 'Native']) {
     region(source, spans, name, 'code', 'entity.name.type.kagari');
   }
   region(source, spans, 'type', 'code', 'storage.type.kagari');
   region(source, spans, 'where', 'code', 'keyword.control.kagari');
+  region(source, spans, 'native', 'code', 'storage.modifier.kagari');
   region(source, spans, '=', 'code', 'keyword.operator.kagari');
   region(source, spans, 'Show', 'code', 'variable.other.kagari');
+});
+
+test('Native function and type names retain declaration scopes in mixed library inputs', async () => {
+  const source = await readFile(new URL('../../../crates/kagari-syntax/tests/fixtures/declarations/mixed.kgr', import.meta.url), 'utf8');
+  const spans = await tokenize(source);
+  region(source, spans, 'native', 'code', 'storage.modifier.kagari', 2);
+  region(source, spans, 'borrow', 'code', 'entity.name.function.kagari');
+  region(source, spans, 'Counter', 'code', 'entity.name.type.kagari');
+  region(source, spans, 'identity', 'code', 'entity.name.function.kagari');
 });
 
 test('character literals retain scalar spelling, escape scopes and interpolation boundaries', async () => {

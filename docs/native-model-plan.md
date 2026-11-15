@@ -2,7 +2,8 @@
 
 **Status:** The user authorized unattended NM01–NM04 implementation and phase commits after
 scope review. NM01 implementation and its integrated frontend prerequisites are complete locally;
-NM02 editor/grammar acceptance, NM03 final SDK/executable sampling and NM04 documentation remain.
+NM02 editor/grammar acceptance is complete. NM03 final SDK/executable sampling and NM04
+documentation remain.
 Baseline: design/hir-native-model, c19a0ffbf.
 The [design](native-model-design.md) owns structures and semantics; this plan owns sequencing and
 acceptance. The [roadmap](implementation-roadmap.md#native-model-replacement) owns activation.
@@ -183,6 +184,19 @@ Independent review exposed and prompted fixes for actual offline foundation role
 classification, public-reexport exact references, malformed contract applications, constructor-owner
 conflicts and fabricated canonical source locations. Corresponding independent assertions remain
 at their semantic owners. Broader CI backend/feature/platform matrices remain unrun.
+
+NM02 local evidence: syntax/formatter package tests, typed-field integration tests and doctests
+passed, including Native mixed definitions, malformed recovery, cancellation and lossless LF/CRLF
+surfaces. Editor generated-asset consistency, Tree-sitter corpus/unit, Zed captures, VS Code
+TextMate and shared-region checks passed. Optional actual-editor/WASM host and complete inventory
+checks remain CI-owned/unrun; no manual editor acceptance is claimed. Grammar/spec inventories,
+AST naming and reserved-keyword consumers are synchronized without parser-mode aliases.
+
+A second independent review found one remaining NM03 contract-admission defect: a default Native
+operation/result involving owner-qualified Self inherited generic-application deferral instead of
+proving its trait obligation. The NM03 repair identity-binds Self for those proofs only; the focused
+negative/supertrait tests reproduce and then reject the invalid contracts. This does not change
+generic declaration application's intentional Self deferral. NM03 acceptance includes this repair.
 
 ### NM01 — unify Native HIR records and ownership
 
@@ -419,5 +433,5 @@ Do not repeat unchanged failures awaiting their owner or call them green. Resolv
 when touched, otherwise report the external acceptance blocker. No commit/push is authorized by
 scope review; when requested, use buildable Conventional Commit checkpoints and Plan-Phase: NMxx.
 The historical failures above have been rechecked and repaired as recorded in current execution
-evidence. NM01 is locally complete; later phase acceptance remains pending. No Runtime redesign,
+evidence. NM01 and NM02 are locally complete; NM03 and NM04 acceptance remain pending. No Runtime redesign,
 new binary format, field execution or speedup is claimed.

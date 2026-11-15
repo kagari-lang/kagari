@@ -7,6 +7,7 @@ function_item	covered	examples/syntax/expressions.kgr	-
 const_item	covered	examples/standard-library.kgr	-
 static_item	covered	examples/syntax/grammar-witnesses.kgr	Module-only val/var with an explicit closed type and runtime initializer.
 type_alias_item	covered	examples/syntax/grammar-witnesses.kgr	Module-only transparent aliases with generic parameters and either where-clause position.
+native_type_item	partial	-	Parsed and structurally asserted by crates/kagari-syntax/tests/fixtures/declarations/mixed.kgr; no executable source example.
 struct_item	covered	examples/syntax/data-model.kgr	-
 enum_item	covered	examples/syntax/data-model.kgr	-
 trait_item	covered	examples/syntax/where-bounds.kgr	-
@@ -23,6 +24,7 @@ use_tree_group	covered	examples/imported-traits/generic-consumer.kgr	-
 use_tree_list	covered	examples/imported-traits/generic-consumer.kgr	-
 use_alias	covered	examples/syntax/import-alias.kgr	-
 function_decl	covered	examples/syntax/expressions.kgr	-
+native_function_decl	partial	-	Parsed by crates/kagari-syntax/tests/fixtures/declarations/signatures.kgr and mixed.kgr; no executable source example.
 generic_param_clause	covered	examples/syntax/where-bounds.kgr	-
 generic_param	covered	examples/syntax/where-bounds.kgr	-
 type_bound_list	covered	examples/syntax/where-bounds.kgr	-

@@ -21,11 +21,12 @@ item_decl           ::= use_decl
                       | enum_item
                       | trait_item
                       | impl_block
-                      | type_alias_item ;
+                      | type_alias_item
+                      | native_type_item ;
 
 visibility          ::= "pub" ("(" ("super" | "crate") ")")? ;
 
-function_item       ::= visibility? function_decl ;
+function_item       ::= visibility? (function_decl | native_function_decl) ;
 
 const_item          ::= visibility? "const" IDENT type_annotation? "=" expr ";" ;
 
@@ -34,9 +35,13 @@ const_item          ::= visibility? "const" IDENT type_annotation? "=" expr ";" 
    initialization is an ordinary runtime expression, not const evaluation. *)
 static_item         ::= visibility? "static" ("val" | "var") IDENT type_annotation "=" expr ";" ;
 
-(* Transparent aliases are module items, not associated types or native opaque
+(* Transparent aliases are module items, not associated types or Native
    declarations. One where clause may precede `=` or follow the target. *)
 type_alias_item     ::= visibility? "type" IDENT generic_param_clause? (where_clause "=" type | "=" type where_clause?) ";" ;
+
+(* Explicit Native declarations share the ordinary grammar regardless of input
+   provenance; HIR owns admission. `native` is reserved, never an IDENT. *)
+native_type_item    ::= visibility? "native" "type" IDENT generic_param_clause? supertrait_clause? where_clause? (";" | "{" field_list? "}") ;
 
 struct_item         ::= visibility? struct_decl ;
 
@@ -79,6 +84,8 @@ use_alias           ::= "as" IDENT ;
 
 function_decl       ::= ("async")? "fn" IDENT generic_param_clause? "(" param_list? ")" return_type? where_clause? block ;
 
+native_function_decl ::= "native" ("async")? "fn" IDENT generic_param_clause? "(" param_list? ")" return_type? where_clause? ";" ;
+
 generic_param_clause ::= "<" generic_param ("," generic_param)* (",")? ">" ;
 
 generic_param       ::= IDENT (":" type_bound_list)? ;
@@ -119,7 +126,7 @@ associated_const_decl ::= "const" IDENT ":" type ("=" expr)? ";" ;
 
 associated_type_decl ::= "type" IDENT generic_param_clause? (":" type_bound_list)? where_clause? ";" ;
 
-trait_method        ::= method_sig (";" | block) ;
+trait_method        ::= ("native" method_sig ";" | method_sig (";" | block)) ;
 
 method_sig          ::= ("async")? "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? ;
 
@@ -184,7 +191,7 @@ associated_type_def ::= "type" IDENT generic_param_clause? "=" type where_clause
 
 impl_item           ::= attribute* method_decl ;
 
-method_decl         ::= visibility? ("async")? "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? block ;
+method_decl         ::= visibility? ("native" method_sig ";" | method_sig block) ;
 
 method_param_list   ::= receiver_param ("," param_list)? (",")?
                       | param_list ;

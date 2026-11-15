@@ -6,6 +6,7 @@
 (function_item name: (identifier) @function)
 (method_item name: (identifier) @function)
 (struct_item name: (type_identifier) @type)
+(native_type_item name: (type_identifier) @type)
 (enum_item name: (type_identifier) @enum)
 (trait_item name: (type_identifier) @type)
 (module_item name: (identifier) @label)
@@ -25,7 +26,7 @@
 
 ["as" "async" "await" "break" "const" "continue" "crate" "else"
  "enum" "fn" "for" "trait" "if" "impl" "in" "loop" "match" "mod"
- "pub" "return" "self" "static" "struct" "super" "use" "val" "var" "type"
+ "native" "pub" "return" "self" "static" "struct" "super" "use" "val" "var" "type"
  "where" "while"] @keyword
 
 (boolean_literal) @boolean

@@ -32,7 +32,7 @@ Module-level transparent type aliases have parse witnesses in
 [grammar-witnesses.kgr](../examples/syntax/grammar-witnesses.kgr), including
 visibility, attributes, generics, either where-clause position, compound targets
 and inline-module placement. They require `=` and remain distinct from trait/impl
-associated types and native opaque declarations. Formatter and editor tests cover
+associated types and explicit Native declarations. Formatter and editor tests cover
 layout and lexical structure; parse coverage does not establish alias expansion,
 constraint checking or semantic navigation.
 
@@ -67,8 +67,12 @@ executes initialization and reload; grammar coverage alone does not establish th
 runtime semantics. HIR navigation/completion/usage facts and initializer lints use
 the same checked body owners; editor semantic LSP features remain separately deferred.
 
-All inventoried EBNF rules and top-level alternatives have parse-clean
-witnesses. This is parser coverage, not an assertion that every form has linked
+The ordinary source rules and top-level alternatives have parse-clean example
+witnesses. Explicit Native declarations are additionally checked by the
+[syntax declaration fixtures](../crates/kagari-syntax/tests/fixtures/declarations/)
+and their structural AST tests. Their inventory rows remain partial/unverified
+for the example-only audit: those fixtures are not executable project-source
+examples. This is parser coverage, not an assertion that every form has linked
 runtime behavior. [`grammar-witnesses.kgr`](../examples/syntax/grammar-witnesses.kgr)
 is parser-only because it combines unrelated grammar forms. Inline modules and
 wildcard imports also have executable examples and artifact tests in

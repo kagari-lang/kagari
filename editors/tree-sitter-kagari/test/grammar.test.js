@@ -131,6 +131,25 @@ test('async blocks are distinct cold expressions with ordinary postfix and recov
   assert.ok(nodes(broken.rootNode, 'binding_statement').some(n => n.childForFieldName('pattern')?.text === 'after'));
 });
 
+test('explicit Native declarations share ordinary fields, types and complete Script defaults', () => {
+  const file = path.join(__dirname, '../../../crates/kagari-syntax/tests/fixtures/declarations/mixed.kgr');
+  const tree = valid(fs.readFileSync(file, 'utf8'));
+  const types = nodes(tree.rootNode, 'native_type_item');
+  assert.deepEqual(types.map(node => node.childForFieldName('name').text), ['List', 'Counter', 'Handle']);
+  assert.equal(types[0].childForFieldName('body'), null);
+  assert.equal(nodes(types[1], 'field_declaration').length, 2);
+  assert.equal(nodes(tree.rootNode, 'struct_item').length, 1);
+  assert.equal(nodes(tree.rootNode, 'associated_type_binding')[0].text, 'Item = i32');
+  const functions = nodes(tree.rootNode, 'function_item');
+  assert.deepEqual(functions.map(node => [node.childForFieldName('name').text, !!node.childForFieldName('body')]),
+    [['identity', true], ['borrow', false]]);
+  const methods = nodes(tree.rootNode, 'method_item');
+  assert.deepEqual(methods.map(node => [node.childForFieldName('name').text, !!node.childForFieldName('body')]),
+    [['read', false], ['answer', true], ['new', false], ['inspect', false], ['read', false]]);
+  for (const source of ['fn missing();', 'native fn body() {}', 'native type Alias = i32;',
+    'impl T { native fn body(self) {} }']) assert.ok(parse(source).rootNode.hasError, source);
+});
+
 test('module type aliases retain targets and bounds separately from associated types', () => {
   const file = path.join(__dirname, '../../../examples/syntax/grammar-witnesses.kgr');
   const tree = valid(fs.readFileSync(file, 'utf8'));

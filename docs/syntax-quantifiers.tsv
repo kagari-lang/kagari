@@ -9,6 +9,11 @@ static_item	1	?	visibility
 type_alias_item	1	?	visibility
 type_alias_item	2	?	generic_param_clause
 type_alias_item	3	?	where_clause
+native_type_item	1	?	visibility
+native_type_item	2	?	generic_param_clause
+native_type_item	3	?	supertrait_clause
+native_type_item	4	?	where_clause
+native_type_item	5	?	field_list
 struct_item	1	?	visibility
 enum_item	1	?	visibility
 trait_item	1	?	visibility
@@ -29,6 +34,11 @@ function_decl	2	?	generic_param_clause
 function_decl	3	?	param_list
 function_decl	4	?	return_type
 function_decl	5	?	where_clause
+native_function_decl	1	?	("async")
+native_function_decl	2	?	generic_param_clause
+native_function_decl	3	?	param_list
+native_function_decl	4	?	return_type
+native_function_decl	5	?	where_clause
 generic_param_clause	1	*	("," generic_param)
 generic_param_clause	2	?	(",")
 generic_param	1	?	(":" type_bound_list)
@@ -80,11 +90,6 @@ trait_impl	3	*	trait_impl_item
 trait_impl_item	1	*	attribute
 impl_item	1	*	attribute
 method_decl	1	?	visibility
-method_decl	2	?	("async")
-method_decl	3	?	generic_param_clause
-method_decl	4	?	method_param_list
-method_decl	5	?	return_type
-method_decl	6	?	where_clause
 method_param_list	1	?	("," param_list)
 method_param_list	2	?	(",")
 block	1	*	stmt

@@ -4283,7 +4283,7 @@
     "fields": {
       "body": {
         "multiple": false,
-        "required": true,
+        "required": false,
         "types": [
           {
             "type": "block",
@@ -5752,6 +5752,10 @@
           "named": true
         },
         {
+          "type": "native_type_item",
+          "named": true
+        },
+        {
           "type": "static_item",
           "named": true
         },
@@ -5809,6 +5813,58 @@
         },
         {
           "type": "visibility",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "native_type_item",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "field_declarations",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "attribute",
+          "named": true
+        },
+        {
+          "type": "generic_parameters",
+          "named": true
+        },
+        {
+          "type": "type_bounds",
+          "named": true
+        },
+        {
+          "type": "visibility",
+          "named": true
+        },
+        {
+          "type": "where_clause",
           "named": true
         }
       ]
@@ -7036,6 +7092,10 @@
         },
         {
           "type": "module_item",
+          "named": true
+        },
+        {
+          "type": "native_type_item",
           "named": true
         },
         {
@@ -8933,6 +8993,10 @@
   },
   {
     "type": "mod",
+    "named": false
+  },
+  {
+    "type": "native",
     "named": false
   },
   {

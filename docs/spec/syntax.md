@@ -123,6 +123,7 @@ The following keywords are reserved:
 - `loop`
 - `match`
 - `mod`
+- `native`
 - `pub`
 - `return`
 - `self`
@@ -507,19 +508,48 @@ fn example() -> Cell<i32> {
 `IntCell::make(true)` is rejected: the closed alias fixes `T` to `i32`; associated
 lookup cannot re-infer `Cell<bool>`. Open generic alias associated-function
 inference is not supported. Aliases do not change field/member visibility or grant
-new constructor capabilities to an opaque native target. Closed struct/enum alias
+new constructor capabilities to a Native target. Closed struct/enum alias
 patterns likewise preserve their fixed arguments; generic-alias patterns are not
 supported. A closed alias to `Cell<i32>` cannot match a `Cell<bool>` merely because
 both use the same nominal struct declaration.
 
 These are module declarations, not local aliases, associated-type definitions or
-trait aliases. Native declaration-mode `type Name;` remains a distinct opaque
-contract. Transparent aliases reject `builtin_type`, `lang` and `native`
-attributes even in declaration mode; those attributes cannot discard the target
-or grant it a new native identity. Ordinary `meta` and `tool` metadata remains
+trait aliases. Explicit `native type Name;` and `native type Name { ... }`
+are distinct Native declarations, not aliases. Transparent aliases reject
+`builtin_type` and `lang` attributes; those attributes cannot discard the target
+or grant it a new Native identity. `native` is a reserved keyword, not an attribute
+name or an ordinary identifier. Ordinary `meta` and `tool` metadata remains
 allowed under its existing validation rules. Rust-side registration aliases are
 not this source-language feature. See [module alias names and visibility](modules.md#transparent-alias-names)
 and [enforced alias bounds and interface values](traits.md#type-alias-bounds-and-interface-values).
+
+### Native Declarations
+
+The ordinary parser recognizes explicit Native declarations in every input:
+
+```text
+pub native type Counter {
+    pub val label: String,
+    pub var count: i32,
+}
+
+pub native type Handle;
+
+impl Counter {
+    pub native fn new() -> Counter;
+    pub native fn read(self) -> i32;
+}
+```
+
+Native functions and methods end in a semicolon, not a Script body. An ordinary
+trait method without a body remains Required; an ordinary function or default
+with a body remains Script. Native type fields reuse ordinary field syntax,
+including visibility, `val`/`var`, attributes and generic type references.
+`Ref<T>` and `RefMut<T>` use ordinary path/application syntax, not special parser
+rules. Source/export provenance governs semantic admission in HIR; recognizing
+these forms does not authorize handwritten Native declarations or install Rust
+implementations. The AST stores Native types as `NativeTypeDef`, not an opaque
+alias or an associated type.
 
 ### Modules and Imports
 

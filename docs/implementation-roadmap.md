@@ -1226,8 +1226,8 @@ host facade redesign and VM/backend expansion remain independent work.
 The [design](native-model-design.md) and [scoped execution plan](native-model-plan.md) now target
 Native HIR representation and declaration parsing/analysis only. User review withdraws the earlier
 unstarted whole-stack NM01–NM07 sequence. The user subsequently authorized unattended NM01–NM04
-implementation and phase commits. NM01's integrated frontend substrate is implemented; NM02 editor
-acceptance, NM03 final integration sampling and NM04 documentation are in progress.
+implementation and phase commits. NM01's integrated frontend substrate and NM02 syntax/editor
+acceptance are complete locally; NM03 final integration sampling and NM04 documentation remain.
 
 Compilation lowers Rust structured declarations directly; offline analyzer parses exported .kgr
 into the same declaration-input model and analyzes it with user source. Include function kinds,
