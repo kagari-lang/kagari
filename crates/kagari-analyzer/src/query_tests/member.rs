@@ -178,15 +178,13 @@ fn struct_update_navigation_keeps_explicit_labels_and_base_references_separate()
         assert!(base.location.range.start < marker);
     }
     let facts = analysis.result().facts();
+    let sites =
+        crate::sites::SourceSites::build(&facts.lowered, &analysis.syntax(), &Default::default())
+            .unwrap();
     for (id, _) in facts.lowered.module.body.expressions() {
         if let Some(init) = facts.typed.type_table().struct_init(id) {
             assert_eq!(
-                facts
-                    .lowered
-                    .source_map
-                    .struct_field_spans(id)
-                    .unwrap()
-                    .len(),
+                sites.struct_field_spans(id).unwrap().len(),
                 init.fields.len()
             );
             assert_eq!(init.base_fields.len(), 1);

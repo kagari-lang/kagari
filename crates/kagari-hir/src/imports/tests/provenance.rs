@@ -190,12 +190,7 @@ fn recovered_import_leaves_preserve_names_and_physical_sites() {
         if text == "use ;" {
             assert_eq!(import.span, Span::new(4, 4));
         }
-        let sites = lowered.source_map.import_path(0);
-        assert_eq!(sites.len(), usize::from(!path.is_empty()));
-        if let [(_, span)] = sites {
-            assert_eq!(&text[span.start..span.end], "a");
-            assert_eq!(span.start, 4);
-        }
+
         let graph = ModuleGraph::build(
             [&lowered],
             &DefinitionContext::new().unwrap(),

@@ -5,12 +5,9 @@ use kagari_hir::{
         BindingOrigin, DirectiveResolution, ImportKind, NamespaceId, ResolvedTarget,
         bindings::LookupOutcome,
     },
-    lower::lower_module,
     resolver::table::NameResolution,
 };
-use kagari_source::{
-    diagnostic::DiagnosticKind, source::SourceFile, source_database::SourceDatabase,
-};
+use kagari_source::{diagnostic::DiagnosticKind, source_database::SourceDatabase};
 use kagari_types::declaration::names::NameNamespace;
 
 #[test]
@@ -37,6 +34,7 @@ fn grouped_directives_keep_leaf_root_ranges_and_explicit_aliases() {
         "{:?}",
         snapshot.file(root).unwrap().result().diagnostics()
     );
+    assert!(queries.navigation.borrow().is_empty());
     let imports = &snapshot.file(root).unwrap().result().facts().names.imports;
     assert_eq!(imports.directives.len(), 3);
     let [first, second, third] = imports.directives.as_slice() else {
@@ -83,7 +81,13 @@ fn grouped_directives_keep_leaf_root_ranges_and_explicit_aliases() {
             Some(BindingOrigin::NamedImport(_))
         ));
     }
-    let lowered = lower_module(&SourceFile::new("root", text));
+    let analysis = snapshot.file(root).unwrap();
+    let sites = crate::sites::SourceSites::build(
+        &analysis.result().facts().lowered,
+        &analysis.syntax(),
+        &Default::default(),
+    )
+    .unwrap();
     for (slot, tokens) in [
         vec!["pkg", "m", "nested", "value"],
         vec!["pkg", "m", "nested", "Data"],
@@ -92,7 +96,7 @@ fn grouped_directives_keep_leaf_root_ranges_and_explicit_aliases() {
     .into_iter()
     .enumerate()
     {
-        let sites = lowered.source_map.import_path(slot);
+        let sites = &sites.imports[slot];
         assert_eq!(sites.len(), tokens.len());
         for ((_, span), token) in sites.iter().zip(tokens) {
             assert_eq!(&text[span.start..span.end], token);
@@ -156,7 +160,13 @@ fn repeated_super_prefixes_keep_physical_sites_when_root_underflows() {
         }]
     );
     assert!(snapshot.check_program(file, &Default::default()).is_err());
-    let lowered = lower_module(&SourceFile::new("leaf", text));
+    let analysis = snapshot.file(file).unwrap();
+    let sites = crate::sites::SourceSites::build(
+        &analysis.result().facts().lowered,
+        &analysis.syntax(),
+        &Default::default(),
+    )
+    .unwrap();
     for (slot, expected) in [
         vec!["super", "super", "value"],
         vec!["super", "super", "middle", "leaf"],
@@ -165,7 +175,7 @@ fn repeated_super_prefixes_keep_physical_sites_when_root_underflows() {
     .into_iter()
     .enumerate()
     {
-        let sites = lowered.source_map.import_path(slot);
+        let sites = &sites.imports[slot];
         assert_eq!(sites.len(), expected.len());
         for (index, ((_, span), token)) in sites.iter().zip(expected).enumerate() {
             assert_eq!(&text[span.start..span.end], token);
@@ -209,12 +219,52 @@ fn repeated_super_prefixes_keep_physical_sites_when_root_underflows() {
 }
 
 #[test]
+fn recovered_grouped_imports_keep_prefix_sites_without_manufacturing_terminal_hits() {
+    let mut sources = SourceDatabase::default();
+    let tree = insert(&mut sources, "tree", "pub mod leaf;");
+    let leaf = insert(&mut sources, "tree::leaf", "pub fn value() {}");
+    let text = "// 中文😀\r\nuse pkg::tree::{leaf as , missing::};";
+    let root = insert(&mut sources, "root", text);
+    let snapshot = analyze(&sources);
+    let analysis = snapshot.file(root).unwrap();
+    let diagnostics = analysis.result().diagnostics();
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.kind == DiagnosticKind::ExpectedUseAlias)
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.kind == DiagnosticKind::ExpectedUseTree)
+    );
+    assert!(diagnostics.iter().any(
+        |d| matches!(&d.kind, DiagnosticKind::UnknownName { name } if name == "pkg::tree::missing")
+    ));
+    let queries = snapshot.queries();
+    for (marker, expected) in [("tree::{", tree), ("leaf as", leaf)] {
+        let hit = queries
+            .source_target_at(root, text.find(marker).unwrap())
+            .unwrap();
+        assert!(
+            matches!(hit.target, ResolvedTarget::Namespace(NamespaceId::Module(unit)) if unit.file == expected)
+        );
+    }
+    assert!(
+        queries
+            .source_targets_at(root, text.find("missing::").unwrap())
+            .is_empty()
+    );
+    assert!(snapshot.check_program(root, &Default::default()).is_err());
+}
+
+#[test]
 fn equal_glob_targets_keep_origins_and_absent_categories_release_fallback() {
     let mut sources = SourceDatabase::default();
     insert(&mut sources, "library", "pub fn value() -> i32 { 7 }");
     insert(&mut sources, "left", "pub use pkg::library::value;");
     insert(&mut sources, "right", "pub use pkg::library::value;");
-    let text = "use pkg::left::*; use pkg::right::*; fn main() -> i32 { value() }";
+    let text = "use pkg::left::*; use pkg::right::*; fn main() -> i32 { value() } fn shadow(value: i32) -> i32 { value }";
     let root = insert(&mut sources, "root", text);
     let snapshot = analyze(&sources);
     assert!(snapshot.check_program(root, &Default::default()).is_ok());
@@ -228,6 +278,12 @@ fn equal_glob_targets_keep_origins_and_absent_categories_release_fallback() {
             .filter(|origin| matches!(origin, BindingOrigin::GlobImport(_)))
             .count(),
         2
+    );
+    assert!(
+        snapshot
+            .queries()
+            .source_targets_at(root, text.rfind("value }").unwrap())
+            .is_empty()
     );
     let broken_text = "use pkg::left::missing as value; use pkg::right::*; use missing::Option; fn main() -> i32 { value() }";
     let broken = insert(&mut sources, "broken", broken_text);

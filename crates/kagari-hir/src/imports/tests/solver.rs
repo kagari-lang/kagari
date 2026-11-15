@@ -2,15 +2,19 @@
 use crate::{
     analysis::{AnalysisDatabase, error::AnalysisError},
     imports::{
-        ModuleGraph,
-        solver::{ImportSolveError, SolverLimits},
+        ModuleGraph, NamespaceId, SourceUnit,
+        resolve::{ResolutionInputs, resolve_imports},
+        solver::{ImportSolveError, Observation, SolverLimits},
         tests::insert,
     },
     lower::lower_module,
 };
-use kagari_common::cancellation::CancellationToken;
-use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use std::{sync::Arc, time::Instant};
+use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
+use kagari_source::{
+    diagnostic::DiagnosticKind,
+    source_database::{SourceDatabase, SourceLayer},
+};
+use std::{cell::RefCell, collections::HashSet, sync::Arc, time::Instant};
 
 #[test]
 fn failed_solves_preserve_published_snapshots_and_allow_recovery() {
@@ -104,6 +108,74 @@ fn failed_solves_preserve_published_snapshots_and_allow_recovery() {
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
     assert!(recovered.files().all(|file| file.diagnostics().is_empty()));
+}
+
+#[test]
+fn failed_relative_imports_observe_access_to_successful_prefixes() {
+    let mut sources = SourceDatabase::default();
+    let tree = insert(&mut sources, "tree", "pub mod middle;");
+    insert(&mut sources, "tree::middle", "pub mod leaf;");
+    let leaf = insert(
+        &mut sources,
+        "tree::middle::leaf",
+        "use super::super::super::super::missing;",
+    );
+    let input = sources.snapshot();
+    let lowered = input
+        .files()
+        .map(|source| lower_module(source))
+        .collect::<Vec<_>>();
+    let graph = ModuleGraph::build(
+        lowered.iter(),
+        &DefinitionContext::new().unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
+    let module = lowered
+        .iter()
+        .find(|module| module.source.id() == leaf)
+        .unwrap();
+    let parent = lowered
+        .iter()
+        .find(|module| module.source.id() == tree)
+        .unwrap();
+    let observations = RefCell::new(HashSet::new());
+    let cancel = CancellationToken::default();
+    let facts = resolve_imports(
+        module,
+        &ResolutionInputs {
+            base: &graph.catalog,
+            catalog: &graph.catalog,
+            sources: &lowered.iter().collect::<Vec<_>>(),
+            cancel: &cancel,
+            closed: &HashSet::new(),
+            observations: &observations,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        facts
+            .diagnostics
+            .iter()
+            .map(|diagnostic| &diagnostic.kind)
+            .collect::<Vec<_>>(),
+        [&DiagnosticKind::UnknownName {
+            name: "super::super::super::super::missing".into()
+        }],
+    );
+    assert!(facts.directives[0].resolution.targets().next().is_none());
+    // The full underflowing lookup reads only InputUniverse. The shorter `super`
+    // prefix must still watch the parent's access binding, even without editor hits.
+    assert_eq!(
+        observations.into_inner(),
+        HashSet::from([
+            Observation::InputUniverse,
+            Observation::Namespace(NamespaceId::Module(SourceUnit::of(
+                parent,
+                graph.catalog.definitions()
+            ))),
+        ])
+    );
 }
 
 #[test]

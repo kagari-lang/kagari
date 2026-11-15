@@ -1,4 +1,4 @@
-//! Allocation-aligned byte ranges and specialized navigation sites for lowered HIR.
+//! Allocation-aligned byte ranges and diagnostic/debug origins for lowered HIR.
 
 use crate::hir::{
     attribute::AttributeTarget,
@@ -31,9 +31,9 @@ use std::{collections::HashMap, mem};
 /// ```
 ///
 /// All spans use half-open byte offsets, not character or line indices. Synthetic
-/// nodes may have a default empty span. Full node ranges can include syntax trivia. Sparse maps record specialized navigation
-/// sites such as a terminal member name or path segment; absence does not imply a
-/// missing expression. Inline module analysis preserves physical source offsets.
+/// nodes may have a default empty span. Sparse maps retain authored declaration
+/// and initializer origins; editor reference sites are derived from syntax.
+/// Inline module analysis preserves physical source offsets.
 ///
 /// # Panics
 ///
@@ -72,32 +72,18 @@ pub struct SourceMap {
     block_spans: Vec<Span>,
     block_owners: Vec<HirOwner>,
     expr_spans: Vec<Span>,
-    /// Reference/member-name sites used by navigation and diagnostics.
-    expr_reference_spans: HashMap<ExprId, Span>,
-    /// Ordered joined-path prefixes and their physical segment sites, keyed by expression.
-    expr_paths: HashMap<ExprId, Vec<(String, Span)>>,
-    /// Written prefix-end counts and segment-token sites by flattened import slot.
-    /// Each end selects `Import.segments[..end]`; no alias or glob star is included.
-    import_paths: HashMap<usize, Vec<(usize, Span)>>,
-    /// Explicit constructor/type-owner sites, independent of the expression's body owner.
-    expr_owner_spans: HashMap<ExprId, Span>,
-    /// Constructor field-name sites in field order, retaining absent synthetic sites.
-    struct_field_spans: HashMap<ExprId, Vec<Option<Span>>>,
+
     expr_owners: Vec<HirOwner>,
     place_spans: Vec<Span>,
-    place_member_spans: HashMap<PlaceId, Span>,
+
     place_owners: Vec<HirOwner>,
     stmt_spans: Vec<Span>,
     stmt_owners: Vec<HirOwner>,
     pattern_spans: Vec<Span>,
-    pattern_reference_spans: HashMap<PatternId, Span>,
+
     pattern_owners: Vec<HirOwner>,
     type_spans: Vec<Span>,
-    type_name_spans: HashMap<TypeRefId, Span>,
-    /// Joined type-path prefixes and their physical segment sites.
-    type_paths: HashMap<TypeRefId, Vec<(String, Span)>>,
-    /// Terminal type/member sites, separate from the full type path.
-    type_terminal_spans: HashMap<TypeRefId, Span>,
+
     type_owners: Vec<HirOwner>,
 }
 
@@ -123,34 +109,6 @@ impl SourceMap {
             AttributeTarget::Item(item) => self.item_span(item),
             _ => self.attribute_target_spans[&target],
         }
-    }
-
-    pub(crate) fn insert_type_path(&mut self, id: TypeRefId, path: Vec<(String, Span)>) {
-        self.type_paths.insert(id, path);
-    }
-
-    pub fn type_path(&self, id: TypeRefId) -> &[(String, Span)] {
-        self.type_paths.get(&id).map_or(&[], Vec::as_slice)
-    }
-
-    pub(crate) fn insert_expr_path(&mut self, id: ExprId, path: Vec<(String, Span)>) {
-        self.expr_paths.insert(id, path);
-    }
-
-    pub(crate) fn expr_path(&self, id: ExprId) -> &[(String, Span)] {
-        self.expr_paths.get(&id).map_or(&[], Vec::as_slice)
-    }
-
-    /// Stores sites produced alongside a leaf's segments by import lowering.
-    /// Ends are nonzero and bounded by that leaf's written segment count; recovery
-    /// can produce a leaf with no sites. Shared group ancestors repeat per leaf.
-    pub(crate) fn insert_import_path(&mut self, slot: usize, path: Vec<(usize, Span)>) {
-        self.import_paths.insert(slot, path);
-    }
-
-    /// Temporary lowered import-prefix origins until analyzer extraction in HR07.
-    pub fn import_path(&self, slot: usize) -> &[(usize, Span)] {
-        self.import_paths.get(&slot).map_or(&[], Vec::as_slice)
     }
 
     pub(crate) fn push_type_alias(&mut self, span: Span) -> TypeAliasId {
@@ -247,33 +205,6 @@ impl SourceMap {
 
     pub(crate) fn type_spans(&self) -> &[Span] {
         &self.type_spans
-    }
-
-    pub(crate) fn insert_type_terminal(&mut self, id: TypeRefId, span: Span) {
-        self.type_terminal_spans.insert(id, span);
-    }
-
-    /// Returns the terminal associated-type member range, if recorded.
-    pub fn type_terminal_span(&self, id: TypeRefId) -> Option<Span> {
-        self.type_terminal_spans.get(&id).copied()
-    }
-
-    pub(crate) fn insert_pattern_reference(&mut self, id: PatternId, span: Span) {
-        self.pattern_reference_spans.insert(id, span);
-    }
-
-    /// Returns a referenced pattern path/name range, if recorded.
-    pub fn pattern_reference_span(&self, id: PatternId) -> Option<Span> {
-        self.pattern_reference_spans.get(&id).copied()
-    }
-
-    pub(crate) fn insert_type_name(&mut self, id: TypeRefId, span: Span) {
-        self.type_name_spans.insert(id, span);
-    }
-
-    /// Returns the type-name range, if lowering recorded a named type site.
-    pub fn type_name_span(&self, id: TypeRefId) -> Option<Span> {
-        self.type_name_spans.get(&id).copied()
     }
 
     pub(crate) fn insert_field(&mut self, id: FieldId, span: Span) {
@@ -417,47 +348,11 @@ impl SourceMap {
             .unwrap_or_else(|| self.item_span(item))
     }
 
-    pub(crate) fn insert_expr_reference(&mut self, id: ExprId, span: Span) {
-        self.expr_reference_spans.insert(id, span);
-    }
-
-    /// Returns the expression reference/member range, if recorded.
-    pub fn expr_reference_span(&self, id: ExprId) -> Option<Span> {
-        self.expr_reference_spans.get(&id).copied()
-    }
-
-    pub(crate) fn insert_expr_owner(&mut self, id: ExprId, span: Span) {
-        self.expr_owner_spans.insert(id, span);
-    }
-
-    /// Returns the explicit type/constructor-owner range, if recorded.
-    pub fn expr_owner_span(&self, id: ExprId) -> Option<Span> {
-        self.expr_owner_spans.get(&id).copied()
-    }
-
-    pub(crate) fn insert_struct_fields(&mut self, id: ExprId, spans: Vec<Option<Span>>) {
-        self.struct_field_spans.insert(id, spans);
-    }
-
-    /// Returns constructor field-name sites in field order; individual synthetic sites may be absent.
-    pub fn struct_field_spans(&self, id: ExprId) -> Option<&[Option<Span>]> {
-        self.struct_field_spans.get(&id).map(Vec::as_slice)
-    }
-
     pub(crate) fn push_place(&mut self, span: Span) -> PlaceId {
         let id = PlaceId::new(self.arena, self.owner, self.place_spans.len());
         self.place_spans.push(span);
         self.place_owners.push(self.owner);
         id
-    }
-
-    pub(crate) fn insert_place_member(&mut self, id: PlaceId, span: Span) {
-        self.place_member_spans.insert(id, span);
-    }
-
-    /// Returns the assigned member-name range, if recorded.
-    pub fn place_member_span(&self, id: PlaceId) -> Option<Span> {
-        self.place_member_spans.get(&id).copied()
     }
 
     pub(crate) fn push_stmt(&mut self, span: Span) -> StmtId {

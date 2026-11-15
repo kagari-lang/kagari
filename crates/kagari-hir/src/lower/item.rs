@@ -43,13 +43,6 @@ use kagari_common::span::Span;
 
 use smallvec::SmallVec;
 
-/// Accumulated use-tree prefix plus each prefix's physical source site.
-#[derive(Clone, Default)]
-struct ImportPath {
-    segments: Vec<String>,
-    sites: Vec<(usize, Span)>,
-}
-
 fn lower_visibility(visibility: AstVisibility) -> Visibility {
     match visibility {
         AstVisibility::Private => Visibility::Private,
@@ -208,13 +201,13 @@ impl Lowerer {
     /// Flattens a recursive use tree by extending a copied prefix for each child.
     ///
     /// For `use a::{b, c::d as e}`, leaves become `a::b`/`b` and `a::c::d`/`e`.
-    /// `base` contains written segments and their prefix-end/token sites. Only leaves
+    /// `base` contains written segments. Only leaves
     /// allocate imports; this traversal does not resolve names or generate namespace
     /// member imports. Recovery without a root tree yields no leaf.
     fn lower_use_tree(
         &mut self,
         visibility: Visibility,
-        base: Option<ImportPath>,
+        base: Option<Vec<String>>,
         tree: &Ast<'_, UseTree>,
         root_span: Span,
     ) {
@@ -222,8 +215,7 @@ impl Lowerer {
         if let Some(local) = tree.path() {
             for segment in local.segments() {
                 if let Some(name) = segment.text() {
-                    path.segments.push(name);
-                    path.sites.push((path.segments.len(), token_span(&segment)));
+                    path.push(name);
                 }
             }
         }
@@ -237,18 +229,17 @@ impl Lowerer {
         }
     }
 
-    /// Stores one leaf and its prefix sites; public members derive from resolved bindings.
+    /// Stores one leaf; public members derive from resolved bindings.
     fn lower_import(
         &mut self,
         visibility: Visibility,
-        path: ImportPath,
+        path: Vec<String>,
         tree: &Ast<'_, UseTree>,
         root_span: Span,
     ) {
         let explicit = tree.alias().and_then(|alias| alias.text());
         let glob = tree.is_glob();
-        self.source_map
-            .insert_import_path(self.module.imports.len(), path.sites);
+
         self.module.imports.push(Import {
             visibility,
             kind: if glob {
@@ -256,7 +247,7 @@ impl Lowerer {
             } else {
                 ImportLeaf::Named { alias: explicit }
             },
-            segments: path.segments,
+            segments: path,
             span: token_span(tree),
             root_span,
         });
@@ -662,9 +653,7 @@ impl Lowerer {
             }
         };
         let ty = self.alloc_type(context::token_span(trait_ref), TypeData { kind });
-        if let Some(name) = trait_ref.path().and_then(|path| path.segments().last()) {
-            self.source_map.insert_type_name(ty, token_span(&name));
-        }
+
         TraitRef { ty }
     }
 

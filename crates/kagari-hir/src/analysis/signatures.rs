@@ -46,6 +46,7 @@ use kagari_source::{
     source::SourceFile,
     source_database::SourceSnapshot,
 };
+use kagari_syntax::ast::module::ModuleSyntax;
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
@@ -67,6 +68,11 @@ impl FileSignatures {
     /// Borrows the exact lowering owning all signature HIR IDs and origins.
     pub fn lowered(&self) -> &LoweredModule {
         &self.prepared.lowered
+    }
+
+    /// Returns the matching retained syntax without preparing any body facts.
+    pub fn syntax(&self) -> ModuleSyntax {
+        self.declaration.syntax()
     }
 
     /// Borrows the source retained by the declaration stage.

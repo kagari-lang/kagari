@@ -2,7 +2,9 @@
 use crate::{
     file::{FileQueries, type_reference_target_at},
     navigation::NavigationIndex,
+    sites::SourceSites,
 };
+use kagari_common::cancellation::CancellationToken;
 use kagari_hir::{
     analysis::{AnalysisSnapshot, FileAnalysis},
     declarations::{Declaration, DeclarationId},
@@ -54,8 +56,14 @@ impl<'a> SnapshotQueries<'a> {
             return Some(declaration);
         }
         let facts = analysis.result().facts();
+        let sites = SourceSites::build(
+            &facts.lowered,
+            &analysis.syntax(),
+            &CancellationToken::default(),
+        )
+        .expect("uncancelled source sites");
         if let Some(Some(TypeTarget::AssociatedType(member))) =
-            type_reference_target_at(&facts.lowered, facts.typed.type_table(), offset)
+            type_reference_target_at(&facts.lowered, &sites, facts.typed.type_table(), offset)
         {
             return self
                 .analysis

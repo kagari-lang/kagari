@@ -1,9 +1,9 @@
-//! Exhaustive typed-syntax lowering and separate path/name/terminal navigation sites.
+//! Exhaustive typed-syntax lowering; source maps retain whole-node origins.
 
 use kagari_common::span::Span;
 use kagari_syntax::ast::{
     borrow::Ast,
-    misc::{GenericArgList, Name, Path, TuplePayload},
+    misc::{GenericArgList, TuplePayload},
     site::Required,
     ty::{QualifiedType, TypeSyntax},
     views::TypeView,
@@ -15,7 +15,7 @@ use crate::{
         ids::TypeRefId,
         ty::{TypeData, TypeKind},
     },
-    lower::context::{Lowerer, syntax_span, token_span},
+    lower::context::{Lowerer, syntax_span},
 };
 
 impl Lowerer {
@@ -38,7 +38,7 @@ impl Lowerer {
     }
 
     pub(crate) fn lower_type(&mut self, ty: &Ast<'_, TypeSyntax>) -> TypeRefId {
-        let (kind, path, terminal) = match ty.view() {
+        let kind = match ty.view() {
             TypeView::Grouped(grouped) => {
                 return grouped
                     .ty()
@@ -52,66 +52,49 @@ impl Lowerer {
                         )
                     });
             }
-            TypeView::Named(path) => (
-                TypeKind::Named(path.text().unwrap_or_default()),
-                Some(path),
-                None,
-            ),
+            TypeView::Named(path) => TypeKind::Named(path.text().unwrap_or_default()),
             TypeView::Applied(applied) => {
                 let arguments = applied.arguments();
-                let path = applied.path();
-                let kind = TypeKind::Generic {
-                    name: path.and_then(|path| path.text()).unwrap_or_default(),
+                TypeKind::Generic {
+                    name: applied
+                        .path()
+                        .and_then(|path| path.text())
+                        .unwrap_or_default(),
                     args: arguments.args().map(|ty| self.lower_type(&ty)).collect(),
                     bindings: self.lower_associated_bindings(&arguments),
                     callable_syntax: false,
                     positional_after_binding: arguments.positional_after_binding(),
-                };
-                (kind, path, None)
+                }
             }
-            TypeView::Never(_) => (TypeKind::Named("!".into()), None, None),
-            TypeView::Tuple(tuple) => (
-                TypeKind::Tuple(
-                    tuple
-                        .element_types()
-                        .map(|ty| self.lower_type(&ty))
-                        .collect::<SmallVec<[_; 4]>>(),
-                ),
-                None,
-                None,
+            TypeView::Never(_) => TypeKind::Named("!".into()),
+            TypeView::Tuple(tuple) => TypeKind::Tuple(
+                tuple
+                    .element_types()
+                    .map(|ty| self.lower_type(&ty))
+                    .collect::<SmallVec<[_; 4]>>(),
             ),
-            TypeView::Array(array) => (
-                TypeKind::Array(
-                    array
-                        .element_type()
-                        .map(|ty| self.lower_type(&ty))
-                        .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
-                ),
-                None,
-                None,
+            TypeView::Array(array) => TypeKind::Array(
+                array
+                    .element_type()
+                    .map(|ty| self.lower_type(&ty))
+                    .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
             ),
-            TypeView::Function(function) => (
-                TypeKind::Function {
-                    params: function.params().map(|ty| self.lower_type(&ty)).collect(),
-                    result: function
-                        .result()
-                        .map(|ty| self.lower_type(&ty))
-                        .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
-                },
-                None,
-                None,
-            ),
-            TypeView::Qualified(qualified) => {
-                (self.projection_kind(&qualified), None, qualified.member())
-            }
-            TypeView::Error(_) => (TypeKind::Named("<missing>".into()), None, None),
+            TypeView::Function(function) => TypeKind::Function {
+                params: function.params().map(|ty| self.lower_type(&ty)).collect(),
+                result: function
+                    .result()
+                    .map(|ty| self.lower_type(&ty))
+                    .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
+            },
+            TypeView::Qualified(qualified) => self.projection_kind(&qualified),
+            TypeView::Error(_) => TypeKind::Named("<missing>".into()),
         };
-        self.written_type(kind, syntax_span(ty), path, terminal)
+        self.alloc_type(syntax_span(ty), TypeData { kind })
     }
 
     pub(crate) fn lower_qualified_type(&mut self, qualified: &Ast<'_, QualifiedType>) -> TypeRefId {
         let kind = self.projection_kind(qualified);
-        self.written_type(kind, syntax_span(qualified), None, qualified.member())
+        self.alloc_type(syntax_span(qualified), TypeData { kind })
     }
 
     fn projection_kind(&mut self, qualified: &Ast<'_, QualifiedType>) -> TypeKind {
@@ -133,40 +116,6 @@ impl Lowerer {
                 .and_then(|name| name.text())
                 .unwrap_or_default(),
         }
-    }
-
-    fn written_type(
-        &mut self,
-        kind: TypeKind,
-        span: Span,
-        path: Option<Ast<'_, Path>>,
-        terminal: Option<Ast<'_, Name>>,
-    ) -> TypeRefId {
-        let id = self.alloc_type(span, TypeData { kind });
-        let mut prefix = String::new();
-        let mut sites = Vec::new();
-        if let Some(path) = path {
-            for segment in path.segments() {
-                if let Some(name) = segment.text() {
-                    if !prefix.is_empty() {
-                        prefix.push_str("::");
-                    }
-                    prefix.push_str(&name);
-                    sites.push((prefix.clone(), token_span(&segment)));
-                }
-            }
-        }
-        self.source_map.insert_type_path(id, sites);
-        if let Some(span) = path
-            .map(|path| token_span(&path))
-            .or_else(|| terminal.map(|name| token_span(&name)))
-        {
-            self.source_map.insert_type_name(id, span);
-        }
-        if let Some(name) = path.and_then(|path| path.segments().last()).or(terminal) {
-            self.source_map.insert_type_terminal(id, token_span(&name));
-        }
-        id
     }
 
     pub(crate) fn lower_associated_bindings(

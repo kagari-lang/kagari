@@ -176,6 +176,31 @@ fn cycles_are_reachable_without_invalidating_dependents() {
     );
     let solved = analyze(&seeded);
     solved.check_program(caller, &Default::default()).unwrap();
+    let queries = solved.queries();
+    let offset = "use pkg::dual_a::".len();
+    let hits = queries.source_targets_at(dual_caller, offset);
+    assert_eq!(hits.len(), 2);
+    assert!(queries.source_target_at(dual_caller, offset).is_none());
+    let types = hits
+        .iter()
+        .find(|hit| hit.namespace == NameNamespace::Type)
+        .unwrap();
+    let values = hits
+        .iter()
+        .find(|hit| hit.namespace == NameNamespace::Value)
+        .unwrap();
+    assert!(
+        matches!(&types.target, ResolvedTarget::Namespace(NamespaceId::Module(unit))
+        if solved.module_graph().catalog.definitions().module_identity(unit.module).unwrap() == &identity("a"))
+    );
+    assert!(matches!(&values.target, ResolvedTarget::Source(source)
+        if solved.module_graph().catalog.definitions().module_identity(source.unit.module).unwrap() == &identity("a")
+            && matches!(source.item, SourceItem::Function(_))));
+    for hit in &hits {
+        assert!(
+            matches!(hit.via.first(), Some(BindingOrigin::NamedImport(id)) if id.unit.file == dual_caller)
+        );
+    }
     assert!(
         solved
             .check_program(dual_caller, &Default::default())

@@ -124,14 +124,6 @@ impl Lowerer {
             }
         };
 
-        let id = self.alloc_pattern(span, PatternData { kind });
-        if let Some(path) = pattern.path() {
-            let name = path.name().or_else(|| path.path()?.segments().last());
-            if let Some(name) = name {
-                self.source_map
-                    .insert_pattern_reference(id, token_span(&name));
-            }
-        }
-        id
+        self.alloc_pattern(span, PatternData { kind })
     }
 }

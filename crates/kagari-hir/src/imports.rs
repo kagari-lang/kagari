@@ -362,8 +362,6 @@ pub struct NameEntry {
 /// Dependencies describe analysis/program relationships, not function-call edges.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModuleImportFacts {
-    /// Physical path-prefix sites and selected hits for import navigation.
-    pub(crate) path_hits: Vec<(FileSpan, catalog::LookupHit)>,
     /// One record per flattened use leaf, preserving source order.
     pub directives: Vec<ImportDirective>,
     /// Shared module-level binding table, including declarations and implicit bindings.
@@ -434,10 +432,3 @@ pub enum ModuleOrderError {
 
 #[cfg(test)]
 mod tests;
-
-impl ModuleImportFacts {
-    /// Temporary settled import-prefix provenance borrowed by analyzer until HR07.
-    pub fn path_hits(&self) -> &[(FileSpan, catalog::LookupHit)] {
-        &self.path_hits
-    }
-}

@@ -107,7 +107,9 @@ pub(super) struct SolvedImports {
     pub work: SolverWork,
 }
 
-/// Exact, bounded history; hash collisions cannot be mistaken for a repeated state.
+/// Exact, bounded semantic history; hash collisions cannot denote a repeated state.
+/// Scope candidates retain selected targets, support and provenance. Together with
+/// observations they determine lookup behavior; editor prefix hits are not state.
 #[derive(PartialEq, Eq)]
 struct Checkpoint {
     facts: Vec<Arc<ModuleImportFacts>>,

@@ -89,6 +89,7 @@ impl AnalyzerQueries for FunctionAnalysis {
 
 mod namespaces;
 mod scope;
+mod sites;
 
 #[cfg(test)]
 mod query_tests;

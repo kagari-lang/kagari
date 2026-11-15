@@ -3,7 +3,9 @@
 use crate::{
     declarations::DeclarationQueries,
     file::{member_receiver_type_in, type_at_in, type_reference_at},
+    sites::SourceSites,
 };
+use kagari_common::cancellation::CancellationToken;
 use kagari_hir::{
     analysis::{body::FunctionAnalysis, signatures::FileSignatures},
     declarations::Declaration,
@@ -27,8 +29,15 @@ impl<'a> SignatureQueries<'a> {
         DeclarationQueries::new(self.analysis.lowered(), self.analysis.declarations())
             .site_at(offset)
             .or_else(|| {
+                let sites = SourceSites::build(
+                    self.analysis.lowered(),
+                    &self.analysis.syntax(),
+                    &CancellationToken::default(),
+                )
+                .expect("uncancelled source sites");
                 type_reference_at(
                     self.analysis.lowered(),
+                    &sites,
                     self.analysis.signatures().facts().type_table(),
                     self.analysis.declarations(),
                     offset,

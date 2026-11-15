@@ -250,10 +250,11 @@ pub(super) fn resolve_imports(
                 .into_iter()
                 .map(|kind| Diagnostic::error(kind).with_span(directive.span.range)),
         );
-        // Prefix navigation is Type-only; a named terminal retains every category.
-        for (end, span) in module.source_map.import_path(slot) {
-            let prefix = path.get(..*end).expect("lowered import prefix end");
-            let terminal = *end == path.len();
+        // Prefix lookup observes namespaces even when the terminal fails (including
+        // relative-root underflow). Keep those watcher inputs, not navigation hits.
+        for end in 1..=path.len() {
+            let prefix = &path[..end];
+            let terminal = end == path.len();
             for &namespace in if terminal {
                 categories
             } else {
@@ -271,17 +272,7 @@ pub(super) fn resolve_imports(
                         },
                     )),
                 };
-                if let Some(mut hit) = catalog.absolute(&ctx, prefix, namespace, cancel)?.hit() {
-                    hit.via.insert(
-                        0,
-                        if matches!(directive.kind, ImportKind::Glob) {
-                            BindingOrigin::GlobImport(id.clone())
-                        } else {
-                            BindingOrigin::NamedImport(id.clone())
-                        },
-                    );
-                    result.path_hits.push((location(module, *span), hit));
-                }
+                catalog.absolute(&ctx, prefix, namespace, cancel)?;
             }
         }
         dependencies.extend(directive.direct_dependencies.iter().cloned());
@@ -470,12 +461,6 @@ fn diagnose_bindings(
             }
         }
     }
-    result.path_hits.retain(|(_, hit)| !hit.via.iter().any(|origin| {
-        let BindingOrigin::NamedImport(id) = origin else { return false; };
-        names.unit.as_ref() == Some(&id.unit) && result.directives.get(id.slot as usize).is_some_and(|directive| {
-            matches!(&directive.resolution, DirectiveResolution::Named(outcomes) if outcomes[hit.namespace] == LookupOutcome::Ambiguous)
-        })
-    }));
 }
 
 fn add_implicit(

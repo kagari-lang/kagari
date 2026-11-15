@@ -217,7 +217,6 @@ pub(crate) fn resolve_bodies(
     let mut resolver = BodyResolver::new(
         &names.items,
         &lowered.module,
-        &lowered.source_map,
         names.imports.clone(),
         names.catalog.clone(),
         cancel.clone(),

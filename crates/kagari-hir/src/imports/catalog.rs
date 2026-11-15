@@ -141,6 +141,12 @@ impl<'a> LookupContext<'a> {
         }
     }
 
+    /// Excludes one directive/category's derivations, as during semantic import selection.
+    pub fn excluding(mut self, directive: DirectiveId, namespace: NameNamespace) -> Self {
+        self.avoid = Some((directive, namespace));
+        self
+    }
+
     pub(crate) fn observe(&self, namespace: &NamespaceId) {
         if let Some(observations) = self.observations {
             observations
@@ -378,7 +384,10 @@ impl NamespaceCatalog {
         Ok(root)
     }
 
-    pub(crate) fn absolute(
+    /// Resolves a written absolute/relative import path using importer access rules.
+    /// The context can exclude the directive being resolved to prevent self-support.
+    /// Returns `Cancelled` without publishing partial lookup state.
+    pub fn absolute(
         &self,
         ctx: &LookupContext<'_>,
         path: &[String],

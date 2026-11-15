@@ -11,15 +11,10 @@ use crate::{
         pattern::PatternKind,
         writeability::Writeability,
     },
-    imports::{
-        ModuleImportFacts, NamespaceId, SourceDeclRef,
-        catalog::{LookupHit, NamespaceCatalog},
-    },
+    imports::{ModuleImportFacts, NamespaceId, SourceDeclRef, catalog::NamespaceCatalog},
     resolver::table::NameTable,
 };
 use std::{collections::HashMap, sync::Arc};
-
-use kagari_common::span::Span;
 
 /// One canonical lexical declaration in the matching lowering, including unused binders.
 #[derive(Debug, Clone)]
@@ -98,7 +93,6 @@ pub struct QualifiedMember {
 /// | --- | --- | --- |
 /// | `exprs` / `places` | expression/place ID -> `ResolvedName` | No recorded binding; literals and unresolved names need not have entries. |
 /// | `qualified_members` | expression ID -> owner + member spelling | Not a deferred qualified member. |
-/// | `lookup_hits` / `path_hits` | expression ID / byte site -> target + provenance | No successful namespace hit at that site. |
 /// | `pattern_variants` | pattern ID -> selected variant | A bare name may instead be a binding. |
 /// | `closure_captures` | closure expression ID -> captured bindings | Getter returns an empty slice. |
 ///
@@ -115,8 +109,6 @@ pub struct ResolvedNames {
     /// Qualified lexical identity -> authoritative binding metadata; no cursor history.
     bindings: HashMap<ResolvedName, Binding>,
     exprs: HashMap<ExprId, ResolvedName>,
-    pub(crate) lookup_hits: HashMap<ExprId, LookupHit>,
-    pub(crate) path_hits: Vec<(Span, LookupHit)>,
     places: HashMap<PlaceId, ResolvedName>,
     qualified_members: HashMap<ExprId, QualifiedMember>,
     pub(crate) pattern_variants: HashMap<PatternId, ResolvedName>,
@@ -124,16 +116,6 @@ pub struct ResolvedNames {
 }
 
 impl ResolvedNames {
-    /// Temporary settled expression-prefix provenance borrowed by analyzer until HR07.
-    pub fn path_hits(&self) -> &[(Span, LookupHit)] {
-        &self.path_hits
-    }
-
-    /// Borrows a recorded namespace hit with provenance, if resolution produced one.
-    pub fn lookup_hit(&self, id: ExprId) -> Option<&LookupHit> {
-        self.lookup_hits.get(&id)
-    }
-
     /// Classifies pattern structure using resolved bare-name variants; requires the matching body arena and is not full type validation.
     pub fn pattern_is_irrefutable(&self, body: &Body, id: PatternId) -> bool {
         match &body.pattern(id).kind {
@@ -165,8 +147,6 @@ impl ResolvedNames {
             items,
             bindings: HashMap::new(),
             exprs: HashMap::new(),
-            lookup_hits: HashMap::new(),
-            path_hits: Vec::new(),
             places: HashMap::new(),
             qualified_members: HashMap::new(),
             pattern_variants: HashMap::new(),

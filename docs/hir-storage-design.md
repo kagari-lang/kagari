@@ -337,6 +337,22 @@ tests covering captures, rebinding, stale identities, reuse and static closures.
 all-target checks/Clippy, structure, changed-file/fixture formatting and diff checks pass.
 Navigation provenance remains for HR07; no retention-policy change is included.
 
+HR07: analyzer now derives type/import/expression provenance and reference-token sites
+from retained syntax and settled semantic targets. HIR no longer constructs lookup_hits,
+path_hits, joined-prefix indexes or ten editor-only SourceMap fields. Semantic import-prefix
+observations and exact solver state remain; ResolvedTypeRef.target stays core. All 144
+analyzer cases pass, with focused import/solver/cancellation and two source-free compiler
+artifact tests passing. Structure, affected all-target checks/Clippy, changed-file formatting,
+diff and compile-route/dependency audits pass.
+
+A selected import-reuse test has a pre-existing ownership-assumption failure:
+`cargo test -p kagari-hir --lib imports::tests::types::body_edit_cannot_reuse_signatures_after_transitive_type_change -- --exact`.
+It expects signatures_reused after dropping the initial snapshot; weak lowering retention
+has correctly forced fresh checking since 10ef6a15c. Reproduced on original c96148ea4;
+retaining the first snapshot makes both original and current tests pass. No cache-policy
+change or unrelated baseline-test repair is included. This is distinct from a new semantic
+regression; full workspace acceptance remains open.
+
 On rustc 1.100.0, workspace fmt is blocked only by existing differences in untouched
 kagari-syntax/src/ast/tokens.rs; touched hir/ids.rs is formatted. Workspace Clippy still reports
 needless_range_loop at kagari-compiler/src/bytecode/placement.rs:110. SDK builds emit an unused

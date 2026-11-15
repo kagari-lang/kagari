@@ -12,7 +12,8 @@ use kagari_hir::{
     types::TypeId,
 };
 
-use crate::{declarations::DeclarationQueries, scope::ScopeIndex};
+use crate::{declarations::DeclarationQueries, scope::ScopeIndex, sites::SourceSites};
+use kagari_common::cancellation::CancellationToken;
 
 /// A visible lexical declaration paired with its checked type in this snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +48,12 @@ impl<'a> FileQueries<'a> {
     /// this snapshot's definition table and the owning shared type schema.
     pub fn field_at(&self, offset: usize) -> Option<DefinitionId> {
         let facts = self.analysis.result().facts();
+        let sites = SourceSites::build(
+            &facts.lowered,
+            &self.analysis.syntax(),
+            &CancellationToken::default(),
+        )
+        .expect("uncancelled source sites");
         let expressions = facts
             .lowered
             .module
@@ -57,7 +64,7 @@ impl<'a> FileQueries<'a> {
                     return None;
                 };
                 let field = facts.typed.type_table().expr_field(id)?;
-                let span = facts.lowered.source_map.expr_reference_span(id)?;
+                let span = sites.expr_reference_span(id)?;
                 (span.start <= offset && offset < span.end).then_some(*field)
             });
         let places = facts
@@ -70,7 +77,7 @@ impl<'a> FileQueries<'a> {
                     return None;
                 };
                 let field = facts.typed.type_table().place_field(id)?;
-                let span = facts.lowered.source_map.place_member_span(id)?;
+                let span = sites.place_member_span(id)?;
                 (span.start <= offset && offset < span.end).then_some(*field)
             });
         expressions.chain(places).next()
@@ -79,6 +86,12 @@ impl<'a> FileQueries<'a> {
     /// Finds an imported source function at a reference, checked call or import directive.
     pub fn source_function_at(&self, offset: usize) -> Option<&'a ImportedFunction> {
         let facts = self.analysis.result().facts();
+        let sites = SourceSites::build(
+            &facts.lowered,
+            &self.analysis.syntax(),
+            &CancellationToken::default(),
+        )
+        .expect("uncancelled source sites");
         facts
             .lowered
             .module
@@ -88,7 +101,7 @@ impl<'a> FileQueries<'a> {
                 let span = facts.lowered.source_map.expr_span(id);
                 let span = match &expr.kind {
                     ExprKind::Field { .. } | ExprKind::Name { .. } => {
-                        facts.lowered.source_map.expr_reference_span(id)?
+                        sites.expr_reference_span(id)?
                     }
                     _ => span,
                 };
@@ -117,7 +130,7 @@ impl<'a> FileQueries<'a> {
                         else {
                             return None;
                         };
-                        let span = facts.lowered.source_map.expr_reference_span(*callee)?;
+                        let span = sites.expr_reference_span(*callee)?;
                         (span.start <= offset && offset < span.end)
                             .then(|| facts.imported_functions.target(&function))
                             .flatten()
@@ -174,6 +187,12 @@ impl<'a> FileQueries<'a> {
         {
             return Some(&member.declaration);
         }
+        let sites = SourceSites::build(
+            &facts.lowered,
+            &self.analysis.syntax(),
+            &CancellationToken::default(),
+        )
+        .expect("uncancelled source sites");
         let declaration = |target: ResolvedName| {
             if let ResolvedName::Source(source) = &target
                 && let Some(item) = facts.imported_statics.get(source)
@@ -197,9 +216,7 @@ impl<'a> FileQueries<'a> {
                 let span = match &expr.kind {
                     ExprKind::Field { .. }
                     | ExprKind::Name { .. }
-                    | ExprKind::StructInit { .. } => {
-                        facts.lowered.source_map.expr_reference_span(id)?
-                    }
+                    | ExprKind::StructInit { .. } => sites.expr_reference_span(id)?,
                     _ => span,
                 };
                 let target = facts
@@ -262,7 +279,7 @@ impl<'a> FileQueries<'a> {
                     })
                 })?;
             let span = match &facts.lowered.module.place(id).kind {
-                PlaceKind::Field { .. } => facts.lowered.source_map.place_member_span(id)?,
+                PlaceKind::Field { .. } => sites.place_member_span(id)?,
                 _ => span,
             };
             Some((span, target))
@@ -277,7 +294,7 @@ impl<'a> FileQueries<'a> {
                     let ExprKind::StructInit { .. } = &expr.kind else {
                         return None;
                     };
-                    let spans = facts.lowered.source_map.struct_field_spans(id)?;
+                    let spans = sites.struct_field_spans(id)?;
                     let resolved = facts.typed.type_table().struct_init(id)?;
                     spans
                         .iter()
@@ -299,7 +316,7 @@ impl<'a> FileQueries<'a> {
                 let ExprKind::Name { .. } = &expr.kind else {
                     return None;
                 };
-                let span = facts.lowered.source_map.expr_owner_span(id)?;
+                let span = sites.expr_owner_span(id)?;
                 if !(span.start <= offset && offset < span.end) {
                     return None;
                 }
@@ -320,7 +337,7 @@ impl<'a> FileQueries<'a> {
                 let callee_span = facts.lowered.source_map.expr_span(*callee);
                 let callee_span = match &facts.lowered.module.expr(*callee).kind {
                     ExprKind::Field { .. } | ExprKind::Name { .. } => {
-                        facts.lowered.source_map.expr_reference_span(*callee)?
+                        sites.expr_reference_span(*callee)?
                     }
                     _ => callee_span,
                 };
@@ -343,7 +360,7 @@ impl<'a> FileQueries<'a> {
                 }
             });
         let patterns = facts.lowered.module.body.patterns().filter_map(|(id, _)| {
-            let span = facts.lowered.source_map.pattern_reference_span(id)?;
+            let span = sites.pattern_reference_span(id)?;
             let variant = facts.typed.type_table().pattern_variant(id)?;
             Some((span, &facts.aggregates.variant(variant)?.declaration))
         });
@@ -359,6 +376,7 @@ impl<'a> FileQueries<'a> {
             .or_else(|| {
                 type_reference_at(
                     &facts.lowered,
+                    &sites,
                     facts.typed.type_table(),
                     &facts.declarations,
                     offset,
@@ -396,11 +414,12 @@ impl<'a> FileQueries<'a> {
 /// from leaking into a missing nested type reference.
 pub(crate) fn type_reference_at<'a>(
     lowered: &LoweredModule,
+    sites: &SourceSites<'_>,
     table: &TypeTable,
     declarations: &'a Declarations,
     offset: usize,
 ) -> Option<Option<&'a Declaration>> {
-    type_reference_target_at(lowered, table, offset).map(|target| {
+    type_reference_target_at(lowered, sites, table, offset).map(|target| {
         target.and_then(|target| match target {
             TypeTarget::OpaqueType(id) => declarations.target(ResolvedName::OpaqueType(id)),
             TypeTarget::Source(id) => {
@@ -424,6 +443,7 @@ pub(crate) fn type_reference_at<'a>(
 
 pub(crate) fn type_reference_target_at(
     lowered: &LoweredModule,
+    sites: &SourceSites<'_>,
     table: &TypeTable,
     offset: usize,
 ) -> Option<Option<TypeTarget>> {
@@ -435,12 +455,13 @@ pub(crate) fn type_reference_target_at(
         .filter(|(_, span)| span.start <= offset && offset < span.end)
         .min_by_key(|(_, span)| span.end - span.start)?;
     let resolved = table.type_ref(type_id)?;
+
     let name_span = if matches!(resolved.target, Some(TypeTarget::AssociatedType(_)))
         || matches!(resolved.ty, TypeId::Host(_))
     {
-        lowered.source_map.type_terminal_span(type_id)
+        sites.type_terminal_span(type_id)
     } else {
-        lowered.source_map.type_name_span(type_id)
+        sites.type_name_span(type_id)
     };
     let target = name_span
         .filter(|span| span.start <= offset && offset < span.end)

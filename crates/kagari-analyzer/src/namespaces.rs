@@ -27,24 +27,9 @@ impl SnapshotQueries<'_> {
                 .expect("uncancelled navigation")
         });
         let sites = navigation
-            .type_path_hits()
+            .hits()
             .iter()
             .map(|(span, hit)| (*span, hit))
-            .chain(
-                facts
-                    .names
-                    .path_hits()
-                    .iter()
-                    .map(|(span, hit)| (*span, hit)),
-            )
-            .chain(
-                facts
-                    .names
-                    .imports
-                    .path_hits()
-                    .iter()
-                    .map(|(span, hit)| (span.range, hit)),
-            )
             .filter(|(span, _)| span.start <= offset && offset < span.end)
             .collect::<Vec<_>>();
         if let Some(length) = sites.iter().map(|(span, _)| span.end - span.start).min() {
@@ -67,30 +52,7 @@ impl SnapshotQueries<'_> {
             }
             return hits;
         }
-        if let Some((_, hit)) = facts
-            .lowered
-            .module
-            .body
-            .expressions()
-            .filter_map(|(id, _)| {
-                let span = facts
-                    .lowered
-                    .source_map
-                    .expr_reference_span(id)
-                    .unwrap_or_else(|| facts.lowered.source_map.expr_span(id));
-                (span.start <= offset && offset < span.end)
-                    .then(|| {
-                        facts
-                            .names
-                            .lookup_hit(id)
-                            .map(|hit| (span.end - span.start, hit))
-                    })
-                    .flatten()
-            })
-            .min_by_key(|(length, _)| *length)
-        {
-            return vec![NavigationTarget::from(hit)];
-        }
+
         let Some(directive) = facts
             .names
             .imports

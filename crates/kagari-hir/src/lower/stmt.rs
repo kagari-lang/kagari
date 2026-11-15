@@ -9,7 +9,7 @@ use crate::{
         stmt::{BlockData, StmtData, StmtKind},
         writeability::Writeability,
     },
-    lower::context::{Lowerer, lower_binary_op, syntax_span, token_span},
+    lower::context::{Lowerer, lower_binary_op, syntax_span},
 };
 use kagari_syntax::ast::{
     borrow::Ast,
@@ -184,7 +184,7 @@ impl Lowerer {
                     .receiver()
                     .map(|expr| self.lower_place(&expr))
                     .unwrap_or_else(|| self.synthetic_name_place("<missing>"));
-                let id = self.alloc_place(
+                self.alloc_place(
                     syntax_span(field),
                     PlaceData {
                         kind: PlaceKind::Field {
@@ -192,11 +192,7 @@ impl Lowerer {
                             name: field.name_text().unwrap_or_default(),
                         },
                     },
-                );
-                if let Some(name) = field.name() {
-                    self.source_map.insert_place_member(id, token_span(&name));
-                }
-                id
+                )
             }
             ExprView::IndexExpr(index_expr) => {
                 let base = index_expr

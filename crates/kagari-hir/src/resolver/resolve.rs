@@ -18,7 +18,6 @@ use crate::{
         resolved::{Binding, QualifiedMember, ResolvedName, ResolvedNames},
         table::{NameResolution, NameTable},
     },
-    source_map::SourceMap,
 };
 use kagari_types::declaration::names::NameNamespace;
 
@@ -45,7 +44,6 @@ pub(crate) struct BodyResolver<'a> {
     names: &'a NameTable,
     module: &'a Module,
     resolved: ResolvedNames,
-    source_map: &'a SourceMap,
     scopes: Vec<ActiveScope>,
     closures: Vec<(ExprId, HashSet<ResolvedName>, Vec<ResolvedName>)>,
     local_scopes: HashMap<FunctionId, Vec<ActiveScope>>,
@@ -55,7 +53,6 @@ impl<'a> BodyResolver<'a> {
     pub(crate) fn new(
         names: &'a Arc<NameTable>,
         module: &'a Module,
-        source_map: &'a SourceMap,
         imports: Arc<ModuleImportFacts>,
         catalog: Arc<NamespaceCatalog>,
         cancel: CancellationToken,
@@ -64,7 +61,6 @@ impl<'a> BodyResolver<'a> {
             cancel,
             names,
             module,
-            source_map,
             resolved: ResolvedNames::new(names.clone(), imports, catalog),
             scopes: Vec::new(),
             closures: Vec::new(),
@@ -211,38 +207,9 @@ impl<'a> BodyResolver<'a> {
         match &expr.kind {
             ExprKind::Missing => {}
             ExprKind::Name { name, .. } => {
-                for (prefix, span) in self.source_map.expr_path(expr_id) {
-                    let namespace = if prefix == name {
-                        NameNamespace::Value
-                    } else {
-                        NameNamespace::Type
-                    };
-                    if self.cancel.check().is_err() {
-                        return;
-                    }
-                    if let Some(resolved) = self.resolve_name(prefix, namespace)
-                        && let Some(hit) = self.resolved.catalog.resolve_name(
-                            self.names,
-                            prefix,
-                            namespace,
-                            &self.cancel,
-                        )
-                        && hit.target.resolved(self.names.unit.as_ref()) == resolved
-                    {
-                        self.resolved.path_hits.push((*span, hit));
-                    }
-                }
                 if let Some(resolved) = self.resolve_name(name, NameNamespace::Value) {
                     self.resolved.insert_expr(expr_id, resolved.clone());
-                    if let Some(hit) = self.resolved.catalog.resolve_name(
-                        self.names,
-                        name,
-                        NameNamespace::Value,
-                        &self.cancel,
-                    ) && hit.target.resolved(self.names.unit.as_ref()) == resolved
-                    {
-                        self.resolved.lookup_hits.insert(expr_id, hit);
-                    }
+
                     self.record_capture(resolved);
                 } else if let Some((owner, member)) = name.rsplit_once("::")
                     && let Some(owner) = self.resolve_name(owner, NameNamespace::Type)

@@ -1,4 +1,4 @@
-//! Expression transformations and source-site recording; parentheses do not allocate HIR nodes.
+//! Expression transformations and node origins; parentheses do not allocate HIR nodes.
 
 use crate::{
     hir::{
@@ -54,7 +54,7 @@ impl Lowerer {
         }
     }
 
-    /// Lowers one expression recursively and records its navigation sites.
+    /// Lowers one expression recursively and retains its node origin.
     ///
     /// Parentheses return the inner ID directly. Interpolation becomes string/format
     /// parts, constructor shorthand creates name expressions, and calls retain callee,
@@ -80,7 +80,7 @@ impl Lowerer {
                                 span.start = token_span(&base).start;
                             }
                             let bindings = self.lower_associated_bindings(&arguments);
-                            let id = self.alloc_type(
+                            self.alloc_type(
                                 span,
                                 TypeData {
                                     kind: TypeKind::Generic {
@@ -92,12 +92,7 @@ impl Lowerer {
                                             .positional_after_binding(),
                                     },
                                 },
-                            );
-                            if let Some(base) = path.path().and_then(|path| path.segments().last())
-                            {
-                                self.source_map.insert_type_name(id, token_span(&base));
-                            }
-                            id
+                            )
                         })
                     }),
             },
@@ -260,7 +255,7 @@ impl Lowerer {
                         span.start = syntax_span(&path).start;
                     }
                     let bindings = self.lower_associated_bindings(&arguments);
-                    let id = self.alloc_type(
+                    self.alloc_type(
                         span,
                         TypeData {
                             kind: TypeKind::Generic {
@@ -271,14 +266,7 @@ impl Lowerer {
                                 positional_after_binding: arguments.positional_after_binding(),
                             },
                         },
-                    );
-                    if let Some(base) = struct_expr
-                        .path()
-                        .and_then(|path| path.path()?.segments().last())
-                    {
-                        self.source_map.insert_type_name(id, token_span(&base));
-                    }
-                    id
+                    )
                 }),
                 path: struct_expr
                     .path()
@@ -297,7 +285,7 @@ impl Lowerer {
                                     return self.missing_expr();
                                 };
                                 let span = token_span(&name);
-                                let id = self.alloc_expr(
+                                self.alloc_expr(
                                     span,
                                     ExprData {
                                         kind: ExprKind::Name {
@@ -305,9 +293,7 @@ impl Lowerer {
                                             explicit_type: None,
                                         },
                                     },
-                                );
-                                self.source_map.insert_expr_reference(id, span);
-                                id
+                                )
                             }),
                     })
                     .collect::<SmallVec<[_; 4]>>(),
@@ -403,72 +389,6 @@ impl Lowerer {
             },
         };
 
-        let id = self.alloc_expr(syntax_span(expr), ExprData { kind });
-        match expr {
-            ExprView::FieldExpr(field) => {
-                if let Some(name) = field.name() {
-                    self.source_map.insert_expr_reference(id, token_span(&name));
-                }
-            }
-            ExprView::PathExpr(path) => {
-                let mut prefix = String::new();
-                let mut sites = Vec::new();
-                let segments = path
-                    .path()
-                    .map(|path| path.segments().collect::<Vec<_>>())
-                    .unwrap_or_default()
-                    .into_iter()
-                    .chain(path.name());
-                for segment in segments {
-                    if let Some(name) = segment.text() {
-                        if !prefix.is_empty() {
-                            prefix.push_str("::");
-                        }
-                        prefix.push_str(&name);
-                        sites.push((prefix.clone(), token_span(&segment)));
-                    }
-                }
-                self.source_map.insert_expr_path(id, sites);
-                let name = path
-                    .name()
-                    .or_else(|| path.path()?.segments().last())
-                    .or_else(|| path.qualified_type()?.member());
-                if let Some(name) = name {
-                    self.source_map.insert_expr_reference(id, token_span(&name));
-                }
-                if let Some(path_segments) = path.path() {
-                    let mut previous = None;
-                    let mut last = None;
-                    for segment in path_segments.segments() {
-                        previous = last;
-                        last = Some(segment);
-                    }
-                    let owner = if path.name().is_some() {
-                        last
-                    } else {
-                        previous
-                    };
-                    if let Some(owner) = owner {
-                        self.source_map.insert_expr_owner(id, token_span(&owner));
-                    }
-                }
-            }
-            ExprView::StructExpr(struct_expr) => {
-                if let Some(name) = struct_expr
-                    .path()
-                    .and_then(|path| path.name().or_else(|| path.path()?.segments().last()))
-                {
-                    self.source_map.insert_expr_reference(id, token_span(&name));
-                }
-                let spans = struct_expr
-                    .field_list()
-                    .fields()
-                    .map(|field| field.name().map(|name| token_span(&name)))
-                    .collect();
-                self.source_map.insert_struct_fields(id, spans);
-            }
-            _ => {}
-        }
-        id
+        self.alloc_expr(syntax_span(expr), ExprData { kind })
     }
 }
