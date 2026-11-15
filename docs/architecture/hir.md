@@ -101,6 +101,9 @@ Its name does not imply one allocation per function.
 Parameter identity is chosen from its owning function's retained list, not allocated by
 SourceMap. Two functions can each have parameter index zero; their complete IDs differ.
 Closure binders remain LocalId. Other body-node indices remain module-wide category slots.
+Param stores only its ID, name and type syntax. Resolver bindings and checked source
+signatures impose Val rather than reading configurable parameter writeability; object-field
+mutation remains distinct from rebinding the parameter.
 
 Cloning/reusing one lowering retains its arena identity; fresh lowering creates a new one.
 Here arena is an identity term: the graph still uses ordinary owned Vec/String storage,

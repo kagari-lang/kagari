@@ -83,7 +83,6 @@ struct Param {
     id: ParamId,
     name: String,
     ty: TypeRefId,
-    // Existing writeability.
 }
 
 // Parameter part of SourceMap; other categories retain their current layout.
@@ -95,6 +94,9 @@ struct Param {
   compatibility allocator remains in SourceMap.
 - Both free-function and method lowering follow this rule, including self and bodyless
   requirements. The position is in the retained HIR list, not an AST token/recovery slot.
+- Param carries identity/name/type syntax only, not a configurable writeability field.
+  Parameters cannot be rebound: resolver binding creation and checked source signatures
+  explicitly use Val. Generic binding, field and Host access policies are unchanged.
 - Closure parameters still use LocalId. Do not migrate local bindings/generic binders or
   other SourceMap allocators as part of this parameter slice.
 - Other IDs such as ExprId still address module-wide category vectors. Consistency means
@@ -199,6 +201,9 @@ Structure, changed-file formatting, HIR all-target Clippy and diff checks pass. 
 new fixtures pass kg fmt --check; the declaration-only fixture requires declaration parsing
 and the malformed-recovery witness preserves authored bytes. Direct traversal keeps using
 already-borrowed records; it does not redundantly resolve their IDs through Module.parameter.
+The Param.writeability follow-up passes 11 existing focused tests for rebinding rejection,
+mutable fields/indexes, lowering/method owners and body reuse. Its constant-field shape
+assertion was removed; semantic rejection and mutable-object behavior remain tested.
 
 HR02 local evidence: 49 selected tests pass (lowering/roles/Native/alias/unknown-attribute
 ranges/cancellation, lint and compiler/SDK integration). Existing scenarios assert exact target

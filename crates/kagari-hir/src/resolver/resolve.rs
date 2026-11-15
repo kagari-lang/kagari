@@ -81,7 +81,7 @@ impl<'a> BodyResolver<'a> {
     pub(crate) fn resolve_function(
         &mut self,
         function: FunctionId,
-        params: impl Iterator<Item = (&'a str, ParamId, Writeability)>,
+        params: impl Iterator<Item = (&'a str, ParamId)>,
         body: BlockId,
     ) {
         assert_eq!(
@@ -95,8 +95,8 @@ impl<'a> BodyResolver<'a> {
             self.source_map.function_span(function),
             BodyOwner::Function(function),
         );
-        for (name, id, writeability) in params {
-            self.bind_name(name, ResolvedName::Param(id), span.start, writeability);
+        for (name, id) in params {
+            self.bind_name(name, ResolvedName::Param(id), span.start, Writeability::Val);
         }
         self.resolve_block(body);
         self.pop_scope();

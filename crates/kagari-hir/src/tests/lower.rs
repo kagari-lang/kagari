@@ -392,10 +392,6 @@ fn lowers_items_into_hir_module() {
     );
     assert_eq!(lowered.module.enums[0].name, "Color");
     assert_eq!(lowered.module.functions[0].name, "main");
-    assert_eq!(
-        lowered.module.functions[0].params[0].writeability,
-        Writeability::Val
-    );
 }
 
 #[test]

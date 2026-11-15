@@ -58,7 +58,7 @@ pub enum FunctionImplementation {
 pub struct TypedParameter {
     /// Source parameter identity belonging to the same lowering.
     pub id: ParamId,
-    /// Declared parameter binding writeability.
+    /// Normalized binding policy; source parameters are always `Val`.
     pub writeability: Writeability,
     /// Diagnostic parameter name.
     pub name: String,

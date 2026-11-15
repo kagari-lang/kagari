@@ -3,7 +3,6 @@
 use crate::hir::{
     ids::{BlockId, FunctionId, ParamId, TypeRefId},
     item::behavior::{GenericParamBuffer, TraitBoundBuffer},
-    writeability::Writeability,
 };
 use kagari_types::visibility::Visibility;
 
@@ -15,7 +14,7 @@ use kagari_types::visibility::Visibility;
 ///     id: f, kind: User, is_async: false, visibility: Public, name: "echo",
 ///     generic_params: [GenericParam { id: g, name: "T", bounds: [partial_eq_ref] }],
 ///     bounds: [TraitBound { target: "T", target_ref: t_where, traits: [eq_ref] }],
-///     params: [Param { id: p, writeability: Val, name: "x", ty: t_param }],
+///     params: [Param { id: p, name: "x", ty: t_param }],
 ///     return_type: Some(t_result), body: Some(b),
 /// }
 /// t_where, t_param, t_result -> Body.type_ref -> TypeKind::Named("T")
@@ -98,24 +97,22 @@ pub enum FunctionKind {
 ///
 /// ```text
 /// fn add(x: i32) -> i32 { x + 1 }
-/// Param { id: p, writeability: Val, name: "x", ty: t }
+/// Param { id: p, name: "x", ty: t }
 /// t -> Body.type_ref(t) -> TypeKind::Named("i32")
 /// p -> SourceMap.param_span(p); resolved uses of x refer to Param(p)
 /// ```
 ///
 /// `id` is allocated, not derived from the spelling. Its index is the position in
 /// the owning function's retained `params` list; `Module.parameter(id)` checks the
-/// lowering, function owner and stored identity. Ordinary lowering sets
-/// `writeability: Val`; this does not make a shared object deeply immutable. For a
-/// method's `self`, `name` is "self" and lowering supplies its type syntax. Missing
-/// required annotations recover
-/// with a placeholder type rather than an inference-enabled `None`.
+/// lowering, function owner and stored identity. Parameters cannot be rebound;
+/// shared objects can still be mutated through their permitted fields/operations.
+/// For a method's `self`, `name` is "self" and lowering supplies its type syntax.
+/// Missing required annotations recover with a placeholder type rather than an
+/// inference-enabled `None`.
 #[derive(Debug, Clone)]
 pub struct Param {
     /// Arena/function-qualified identity whose index is its position in `Function.params`.
     pub id: ParamId,
-    /// Parameter binding writeability assigned by lowering.
-    pub writeability: Writeability,
     /// Source name, including `self` where applicable.
     pub name: String,
     /// Parameter type syntax; missing required types use a placeholder.

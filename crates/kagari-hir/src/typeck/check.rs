@@ -327,7 +327,7 @@ pub(crate) fn check_signatures(
             }
             params.push(TypedParameter {
                 id: param.id,
-                writeability: param.writeability,
+                writeability: Writeability::Val,
                 name: param_name,
                 ty: param_type,
             });

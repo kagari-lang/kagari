@@ -705,7 +705,9 @@ alias and lint consumers no longer identify targets by span; no universal node g
 automatic scope expansion is included. Other inline-identity work remains deferred.
 Checkpoint commits remain authorized. HR00 records the narrowed scope. HR01 now implements
 function-local parameter positions, explicit source registration, checked structural/typed
-lookup and signature remapping. Sixteen focused HIR, two compiler and two SDK tests pass;
+lookup and signature remapping. Param no longer stores constant writeability; resolver and
+checked source signatures impose Val. Eleven focused follow-up tests preserve rebinding
+rejection, mutable-object behavior, owner checks and reuse. Sixteen focused HIR, two compiler and two SDK tests pass;
 structure, changed-file formatting, HIR Clippy and diff checks pass. Workspace fmt still fails
 in untouched syntax tokens.rs, and workspace Clippy at compiler placement.rs:110. Touched
 hir/ids.rs is formatted. HR02's 49 selected HIR/lint/compiler/SDK tests pass, as do structure,

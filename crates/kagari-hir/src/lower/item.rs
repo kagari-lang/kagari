@@ -496,12 +496,7 @@ impl Lowerer {
                         .map(|name| token_span(&name))
                         .unwrap_or_else(|| syntax_span(&param)),
                 );
-                Param {
-                    id,
-                    writeability: Writeability::Val,
-                    name,
-                    ty,
-                }
+                Param { id, name, ty }
             })
             .collect::<Vec<_>>()
     }
@@ -540,7 +535,6 @@ impl Lowerer {
                 );
                 Param {
                     id: parameter,
-                    writeability: Writeability::Val,
                     name: param.name_text().unwrap_or_default(),
                     ty: param
                         .ty()
