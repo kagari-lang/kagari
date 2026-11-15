@@ -800,8 +800,10 @@ are weakly indexed; their expired bundles are rechecked. Native preparation stro
 validated adopted registration/source/parse and reconstructs fresh graph-local attachments
 without reparsing. Neither database caches nor database clones strongly retain HIR. Reuse
 requires a live exact old graph; retaining IDs/records alone cannot establish compatibility.
-With no retained result, the next standalone query rebuilds/checks graphs. These weak handles
-are transitional for the owned graph, not the pending external-arena session API.
+With no retained result, the next standalone query rebuilds/checks graphs. This is the current
+cache policy, not a requirement of HIR ownership. The external-arena/session migration was
+withdrawn; the [active cleanup](../hir-storage-design.md) preserves owned category tables and
+aligns record identity with storage without changing cache retention behavior.
 
 Physical parses have an owned cache independent of declaration/HIR results. Syntax
 preparation returns an owned logical-source manifest before lowering. Reuse requires

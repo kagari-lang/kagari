@@ -1,7 +1,8 @@
 # HIR Model Review Notes
 
-**Status:** the storage/attribute design is in HA00 implementation; the boundary proposals
-in this review remain deferred. No Native/tool-crate redesign or dependency change is activated.
+**Status:** HIR work is narrowed to responsibility/identity cleanup on current owned ID tables;
+the arena/reference migration is withdrawn. The boundary proposals below remain deferred.
+No Native/tool-crate redesign or dependency change is activated.
 **Baseline:** `main`, `43d55706a` (Runtime refactor merged in PR #61).
 **Working branch:** `design/hir-native-model`.
 [Roadmap](implementation-roadmap.md#hir-storage-and-attribute-refactor) owns activation;
@@ -9,9 +10,10 @@ in this review remain deferred. No Native/tool-crate redesign or dependency chan
 
 ## Selected storage and attribute scope
 
-[HIR storage design](hir-storage-design.md) owns the target graph, caller-owned arena and
-borrowed-result lifetimes, owner-local identity, collection naming, source sites and attributes.
-HA00 implementation has started; the boundary proposals below remain deferred.
+[HIR responsibility and identity cleanup](hir-storage-design.md) preserves current category
+storage and ID links. Align parameter identity with Function.params first; clarify source-map
+and attribute responsibilities without an arena, borrowed graph or universal owner table.
+The boundary proposals below remain deferred.
 
 ## Compiler and tooling boundary
 
@@ -41,11 +43,10 @@ syntax → HIR / shared semantic checks
 - Compilation still checks all bodies in the selected module/dependency closure. Sharing
   diagnostics does not require compilation to produce every editor index or final LSP message.
 - Tool indexes need explicit analysis-version, invalidation and HIR-retention contracts.
-  Crate separation/external arena ownership alone does not solve LSP reclamation. The storage
-  design selects module-lowering regions; safe cache/request handles and cross-version reuse
-  remain open. Do not feed edits into one unbounded project-wide Bump.
+  Crate separation alone does not solve LSP reclamation. Preserve the current owned module
+  model; tool retention/scheduling is separate from the scoped HIR identity cleanup.
 
-This separation is not part of the current storage/attribute cutover. Audit shared consumers
+This separation is not part of the current responsibility/identity cleanup. Audit shared consumers
 before moving data; a source location or semantic fact is not tool-only merely because LSP uses it.
 
 ## Deferred LoweredModule boundary
@@ -54,16 +55,17 @@ LoweredModule should describe structural HIR and origins, not library configurat
 checked contracts. Its physical snapshot shape follows the storage design. Optional source
 text/direct Rust authoring and the Native field redistribution below are not part of that cut.
 
-Module owns ordinary declarations and owner-local node/attribute indexes. Each function
-owns its implementation descriptor; each nominal type owns its representation descriptor.
+Module owns ordinary declarations in its category tables. Attribute targets use declaration
+identity without requiring a universal owner table. Each function owns its implementation
+descriptor; each nominal type owns its representation descriptor.
 HIR descriptors contain unresolved type references, not the checked Ty records below.
 Source and Rust authoring use the same declaration identities and resolution pipeline.
 
 | Current root data | Target owner |
 | --- | --- |
-| `source`, `module` | LoweredModule borrowing the external arena |
-| `source_map` | Owner-local source indexes |
-| `attributes`, attribute target matching | Owner-local attribute lists keyed by node identity |
+| `source`, `module` | Existing owned LoweredModule |
+| `source_map` | SourceMap keyed by structural identities, not their allocator |
+| `attributes`, attribute target matching | Typed target identities and attached attribute lists |
 | `native_functions`, `method_policies`, `native_types` | Function/member/type declarations; no parallel Native tables |
 | Dependencies, aliases, prelude, import namespaces | Common library/module input and resolution environment |
 | Registered declarations/traits, definition scope, foreign trait requirements | Common declaration/contract context and its checked library view |

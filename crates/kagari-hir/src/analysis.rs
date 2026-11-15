@@ -700,20 +700,19 @@ pub struct AnalysisDatabase {
     body_revision: Revision,
     /// Physical parses survive independently of declaration and HIR result owners.
     source_parse_cache: SourceParseCache,
-    /// Owned declaration/syntax records with transitional weak graph/query handles.
+    /// Owned declaration/syntax records with weak handles to live graphs/queries.
     declaration_cache: Option<DeclarationCache>,
     /// Owned signature records, without retaining their declaration graph views.
     signature_cache: Option<SignatureCache>,
     /// Live full-file queries only. Expired graph-bearing bundles are rechecked,
     /// never cloned into a second authoritative persistent facts representation.
-    /// These weak handles also move to sessions at the borrowed-HIR cutover.
     files: HashMap<FileId, Weak<FileAnalysis>>,
     latest_revision: Revision,
     /// Stable synthetic file IDs keyed by parent file and inline-module name.
     inline_ids: HashMap<(FileId, String), FileId>,
     native_modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
     native_sources: Option<Vec<DeclarationSource>>,
-    /// Owned prepared registrations/syntax; only weak transitional graph handles.
+    /// Owned prepared registrations/syntax with weak handles to live graphs.
     /// Invalidated by registration/source/parser-limit changes, not user revisions.
     native_files: OnceCell<NativeFiles>,
     /// Portable provider/settings identity, invalidated by every environment setter.

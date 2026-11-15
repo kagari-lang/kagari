@@ -690,28 +690,26 @@ performance improvement or exhaustive documentation coverage is claimed.
 
 ### HIR storage and attribute refactor
 
-[HIR storage design](hir-storage-design.md) owns the selected arena/reference, owner-local
-identity, collection naming and attribute scope. External arenas reclaim one module lowering
-at a time, not an entire persistent project. The user approved combining HA00's remaining
-cache/request ownership work with HA01's production graph/consumer cutover; the real graph
-is required to prove old A can release while unchanged B remains usable. Buildable
-sub-checkpoint commits continue; neither phase is complete. HA02 retains final acceptance.
-Phase commits remain authorized. Owned syntax preparation preserves exact published parses
-after semantic cancellation. Declaration/signature/body caches now strongly retain only owned
-records; full-file queries and graph handles are weakly indexed. Native preparation retains
-validated registration/source/parse and rebuilds graph-local attachments after graph expiry.
-Lifecycle tests release graphs while records and database clones survive, without clearing
-caches. Focused stage/reuse/Native/cancellation/regression tests pass. Scoped sessions, direct
-arena nodes and the real A1/A2/B1 proof remain pending; these preparatory checkpoints do not
-establish arena lifetime safety or a performance improvement.
-The plan records unchanged baseline workspace fmt/Clippy blockers; acceptance is not all-green.
-Concrete cache/borrow APIs remain HA00 work. No performance benefit is proven.
-[Native review notes](hir-model-review.md) remain deferred: declaration/Provider separation,
-prebuild timing and generic application preparation do not enter this storage cutover.
-[Compiler/tool boundary review](hir-model-review.md#compiler-and-tooling-boundary) records
-shared semantics plus a separate derived-tool layer. Tool-crate/features, full incremental
-parsing and LSP scheduling/retention policies remain deferred; basic independent region
-reclamation is an HA00 requirement. NC restoration keeps its existing owner.
+[HIR responsibility and identity cleanup](hir-storage-design.md) now preserves owned,
+ID-linked category tables and existing inline records. The user withdrew the external-arena,
+direct-reference and physical owner-table migration, not declared it complete. No new session,
+SnapshotId or node-level Arc model is required. Existing result/module sharing stays unchanged.
+
+HR00 records current data owners; HR01 fixes parameter identity: Function.params owns the
+records and parameter positions, while SourceMap registers their source sites instead of
+allocating module-wide parameter slots. Keep lowering/owner validation, semantic facts,
+edit remapping, Native bindings and checked compiler admission. HR02 reviews bounded inline
+identity/attribute attachment follow-ups; no universal node graph or automatic scope expansion.
+Checkpoint commits remain authorized. This scope revision changes docs/comments only; HR01
+is not implemented or validated yet.
+
+The implemented syntax/semantic-record and Native-preparation splits remain in place, including
+current weak graph/query indexes. No-live-graph queries still rebuild/check; cache retention
+policy is not being rewritten to serve the withdrawn arena design. The plan retains the
+existing workspace fmt/Clippy blockers and makes no performance or workspace-pass claim.
+[Native model](hir-model-review.md) and
+[compiler/tool separation](hir-model-review.md#compiler-and-tooling-boundary) remain deferred,
+as do incremental parsing and LSP scheduling. NC restoration keeps its existing owner.
 
 ## Compilation cancellation polling
 

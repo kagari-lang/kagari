@@ -64,11 +64,10 @@ below; the public Pages site has not been activated by this work.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
-- [HIR storage and attributes](hir-storage-design.md): selected module-lowering arenas,
-  external ownership, direct references, owner-local IDs and attributes. Remaining HA00 ownership
-  and HA01 graph migration proceed together. Persistent syntax, semantic records and Native
-  preparation no longer strongly retain HIR; scoped sessions and the real arena graph remain pending.
-  [Native model review](hir-model-review.md) remains deferred.
+- [HIR responsibilities and identity](hir-storage-design.md): preserve current owned category
+  tables and ID links; align record ownership, parameter positions and source metadata.
+  The arena/reference graph migration is withdrawn. Parameter cleanup is the first code slice;
+  existing cache behavior stays unchanged. [Native model review](hir-model-review.md) remains deferred.
 
 - [Runtime architecture](architecture/runtime.md), [call walkthrough](architecture/runtime/calls.md)
   and [reload walkthrough](architecture/runtime/reload.md): implemented exclusive

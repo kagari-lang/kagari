@@ -103,8 +103,8 @@ impl PreparedRegistration {
     }
 }
 
-/// Persistent owned inputs plus transitional weak handles to live owned graphs.
-/// At the borrowed-HIR cutover, these handles must move into analysis sessions.
+/// Persistent owned inputs plus weak handles to live owned graphs.
+/// Expired graphs are rebuilt from the retained inputs, never from old node-ID maps.
 #[derive(Debug, Clone)]
 pub(crate) struct NativeFiles {
     prepared: Vec<PreparedRegistration>,

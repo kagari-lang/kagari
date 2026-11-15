@@ -1,9 +1,9 @@
 //! Persistent semantic records contain owned facts, never a lowered HIR graph.
 //!
 //! HIR-local IDs are meaningful only with the exact lowering supplied by a live
-//! query. Weak graph/query handles in these caches are transitional for the owned
-//! graph: move them to scoped sessions at the borrowed-HIR cutover. They are not
-//! an arena lifetime or independent-region reclamation proof.
+//! query. Weak graph/query handles permit reuse while that graph remains alive;
+//! expired graphs require fresh lowering/checking. This retention policy does not
+//! require an arena or borrowed-session API.
 
 use crate::{
     AnalysisResult, DiagnosticBuffer,
