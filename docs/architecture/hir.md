@@ -1,8 +1,8 @@
 # Reading HIR Data and Analysis
 
 `kagari-hir` owns source meaning and recoverable semantic analysis. `kagari-analyzer`
-owns protocol-neutral editor queries; `kagari-lint` owns optional lint projections. HIR It
-contains more than the `hir/` node model: lowering, import/name resolution, type
+owns protocol-neutral editor queries; `kagari-lint` owns optional lint projections.
+HIR contains more than the `hir/` node model: lowering, import/name resolution, type
 checking and snapshot publication have separate owners. The
 [architecture overview](../architecture.md#compilation-pipeline) describes the
 compiler handoff. Detailed contracts and source-to-field diagrams live beside
@@ -15,14 +15,14 @@ the documentation conventions.
 | --- | --- |
 | Where do node IDs find their data? | [Storage and IDs](#storage-and-ids), then `hir::Body` and `SourceMap`. |
 | How does a source expression acquire a type and a selected call? | [One function through the tables](#one-function-through-the-tables), then `ModuleFacts` and `TypeTable`. |
-| Which work does an editor query trigger or reuse? | [Query work, reuse and publication](#query-work-reuse-and-publication), then `AnalysisDatabase` and `FunctionAnalysis`. |
+| Which work does an editor query trigger or reuse? | [Editor query views and indexes](#editor-query-views-and-indexes), then [semantic query reuse](#query-work-reuse-and-publication). |
 | What does the compiler receive? | [Checked handoff](#checked-handoff-and-registered-inputs), then the runnable `CheckedCompilation` rustdoc example. |
 | Why do definition references need visitors? | [Storage and IDs](#storage-and-ids): validation of scoped references and explicit import of reusable facts are different capabilities. |
 
 Build the navigable API guide with
-`cargo doc -p kagari-hir --no-deps --document-private-items`; start at
-`target/doc/kagari_hir/index.html`. The source links below point to the owners of
-each contract. The [performance record](../performance-baseline.md#hir-architecture-and-candidate-filtering-macos-2026-11-06)
+`cargo doc -p kagari-hir -p kagari-analyzer --no-deps --document-private-items`;
+start at `target/doc/kagari_hir/index.html` or `target/doc/kagari_analyzer/index.html`.
+The source links below point to each contract's owner. The [performance record](../performance-baseline.md#hir-architecture-and-candidate-filtering-macos-2026-11-06)
 keeps workloads, measurement boundaries and limitations separate from API guarantees.
 
 ## Module responsibilities
@@ -42,26 +42,19 @@ keeps workloads, measurement boundaries and limitations separate from API guaran
 | Compiler `source::lower::instances` | Applies generic arguments and selects implementation/ABI recipes. |
 | Compiler `source::lower` emission | Evaluates operands and commits effects in order, building MIR from those operations and recipes. |
 
-This is current placement, not a requirement that editor projections remain in HIR. The
-[compiler/tooling review](../hir-model-review.md#compiler-and-tooling-boundary) inventories
-semantic facts to retain, editor/lint projections to extract and mixed storage to split;
-Lint and editor query projections are extracted. HIR now publishes a canonical binding
-directory rather than lexical scope history; analyzer derives ScopeIndex and DeclarationSiteIndex
-on demand. HR07 removes remaining navigation provenance; cache policy remains unchanged.
-
-The analyzer library's `AnalyzerQueries::queries()` borrows a declaration, signature,
-selected-body, file or snapshot result without forcing a later semantic stage. `FileQueries`
-and `SnapshotQueries` own cursor selection; `NavigationIndex` is demand-built, not prepared
-by HIR publication. Calls, documentation and method presentation live beside these views.
-Analysis-producing stages remain `analysis::declarations`, `analysis::signatures` and
-`analysis::body`. Semantic method eligibility is shared through HIR `typeck::members`.
+HIR publishes semantic results without preparing editor scope histories, reference-token
+sites or path-hit collections. Compiler, SDK and HIR production targets do not depend on
+analyzer. The analyzer library owns cursor selection, calls, documentation and completion
+presentation; its binary owns protocol/document lifecycle. Lint owns private usage and
+attribute-policy projections, with no analyzer dependency. See
+[query views](#editor-query-views-and-indexes) for the concrete structures.
 
 Private tests live under their owning module's `tests/` or `tests.rs`, using
 ordinary Rust modules. Public semantic cases remain in the crate's `tests/`
 tree. Production directories no longer mix in flat sibling `*_tests.rs` files;
 this organization preserves access to private contracts without widening APIs.
 
-The body arena is still physically shared at module granularity. Logical body
+The body node tables are still physically shared at module granularity. Logical body
 views enforce owner boundaries; they do not promise per-function allocation or
 fine-grained incremental invalidation. Those are separate storage/query decisions.
 
@@ -97,10 +90,10 @@ reviewed inline capacities; ID checks and allocation behavior are unchanged.
 | Handle | Lookup and validity |
 | --- | --- |
 | `FunctionId`, `ConstId`, `StaticId`, other plain declaration IDs | Index the matching collection in the same module; no arena is carried. |
-| `ExprId`, `StmtId`, `BlockId`, `PlaceId`, `PatternId`, `TypeRefId` | Carry arena, owner and an allocation-wide index; `Body` checks arena/owner and indexes its vector. |
-| `ParamId` | Carries lowering/owner and a position in Function.params; Module.parameter checks the function and stored identity. SourceMap explicitly registers the complete ID's span. |
-| `LocalId` | Carries arena/owner and a source-map-wide index. Bindings live in patterns or closure parameters; semantic maps use the complete ID. |
-| `FieldId`, `VariantId` | Carry arena, enclosing struct/enum ID and member slot; look up the owner's nested member vector. |
+| `ExprId`, `StmtId`, `BlockId`, `PlaceId`, `PatternId`, `TypeRefId` | Carry `LoweringId`, owner and an allocation-wide index; `Body` checks lowering/owner and indexes its vector. |
+| `ParamId` | Carries lowering/owner and a position in `Function.params`; `Module::parameter` checks the function and stored identity. `SourceMap` explicitly registers the complete ID's span. |
+| `LocalId` | Carries lowering/owner and a source-map-wide index. Binding syntax lives in patterns or closure parameters; semantic maps use the complete ID. |
+| `FieldId`, `VariantId` | Carry lowering, enclosing struct/enum ID and member slot; look up the owner's nested member vector. |
 | `UseId` | Selects one authored declaration in Module.uses, including recovery with no import leaves. Its range selects Module.imports leaves without changing resolution. |
 | `AttributeTarget` | Item/member/use identity in the matching module. Methods name FunctionId; inline associated members name trait/impl plus category-list position. It is not a cross-lowering identity. |
 | `SourceDeclRef` | Carries a full `SourceUnit` plus a declaration handle for cross-module access. Do not index the importing module with it. |
@@ -115,15 +108,15 @@ Param stores only its ID, name and type syntax. Resolver bindings and checked so
 signatures impose Val rather than reading configurable parameter writeability; object-field
 mutation remains distinct from rebinding the parameter.
 
-Cloning/reusing one lowering retains its arena identity; fresh lowering creates a new one.
-Here arena is an identity term: the graph still uses ordinary owned Vec/String storage,
-not a bump allocator.
+Cloning/reusing one lowering retains its `LoweringId`; fresh lowering creates a new one.
+Existing `arena` fields/accessors name this identity, not a bump allocator. The graph uses
+ordinary owned `Vec`/`String` storage; no external-arena or borrowed-HIR redesign is involved.
 `SourceUnit` additionally records a context-owned module handle, source file and
 revision. Logical module identity is not the same as a physical filename. Even
 when file/revision/arena are identical, a handle from an independent context is
 foreign. Reusing a lowering in that context requires rebuilding its graph. See
-[source maps](../../crates/kagari-hir/src/source_map.rs) for byte ranges and
-specialized name/member/path sites; synthetic nodes may have empty ranges.
+[source maps](../../crates/kagari-hir/src/source_map.rs) for node/declaration byte ranges;
+analyzer derives reference-token/path sites separately. Synthetic nodes may have empty ranges.
 
 HIR types, declarations, signatures and checked-call facts use fixed `DefinitionId`
 fields. Their Rust models have no parameter selecting paths versus IDs. A
@@ -148,7 +141,7 @@ table as a module root. File, revision, arena and local declaration item stay
 unchanged. Import indexes remap their source-address keys together with their
 values; this does not transfer a namespace catalog or authorize cross-arena lookup.
 
-Whole analyzed/prepared/declaration bundles retain source arenas, name tables and
+Whole analyzed/prepared/declaration bundles retain source node tables, name tables and
 registration versions. They expose reference validation and editable scoped
 extraction, not arbitrary representation conversion or whole-bundle import. Their
 reusable constituent facts are the remapping boundary. Selected-body queries accept
@@ -224,9 +217,9 @@ source-order occurrences distinguishing identical spellings in separate blocks.
 These are compilation identities, not public or edit-stable paths. Function self
 IDs remain unchanged; their separate review must preserve row/source-map alignment.
 
-Resolution predeclares block functions, then retains declaration-time active scope
-snapshots. A selected local body resolves its ancestor chain without type-checking
-ancestors or unrelated bodies. Crossing a named function owner excludes enclosing
+Resolution predeclares block functions, then freezes declaration-time `ActiveScope`
+frames temporarily within the resolver. A selected local body resolves its ancestor chain
+without type-checking ancestors or unrelated bodies. Crossing a named function owner excludes enclosing
 value bindings; signatures use only the local's own generic context. Completion
 and navigation use the same lexical ownership. Changed-revision signature/body
 reuse is conservatively disabled for a logical module containing locals on either
@@ -578,7 +571,7 @@ Module.imports[1]: segments = ["super", "api", "ops"], Glob
 ```
 
 [Item lowering](../../crates/kagari-hir/src/lower/item.rs) copies accumulated
-segments and sites at group branches, preserving leaf order. Each leaf becomes
+segments at group branches, preserving leaf order. Each leaf becomes
 one directive identified by its `SourceUnit` and import slot. The alias is not a
 path segment: `local_name()` selects it, otherwise the named terminal; a glob has
 no local name and excludes `*` from its path. Glob expansion contributes bindings,
@@ -601,9 +594,9 @@ Keep three representations distinct:
   `api` re-export can target a declaration in `math`, not the written facade. See
   [the alias/glob example](#an-alias-through-a-public-glob).
 
-The lowering-local `ImportPath` accumulates `segments` and `sites: Vec<(usize,
-Span)>` together. [SourceMap](../../crates/kagari-hir/src/source_map.rs) stores the
-sites in `import_paths`, keyed by the same flattened import slot:
+Analyzer's [SourceSites](../../crates/kagari-analyzer/src/sites.rs) derives
+`imports: Vec<Vec<(usize, Span)>>` from the retained `UseTree` syntax, aligned with
+flattened import slots. HIR does not retain this reference-token index:
 
 | Site | Exclusive prefix end | Prefix selected from that leaf | Physical span |
 | --- | --- | --- | --- |
@@ -612,19 +605,22 @@ sites in `import_paths`, keyed by the same flattened import slot:
 | Named leaf's `sum` | 3 | `segments[..3]` = `["super", "api", "sum"]` | Original `sum` token, excluding `as add` |
 | Glob leaf's `ops` | 3 | `segments[..3]` = `["super", "api", "ops"]` | Original `ops` token, excluding `::*` |
 
-Every stored end is nonzero and bounded by the leaf's **written** segment count,
+Every derived end is nonzero and bounded by the leaf's **written** segment count,
 never the normalized component count. Each span covers only that physical segment,
 not the whole prefix. Shared group ancestors repeat per leaf; aliases and stars
 add no site. The leaf `span` includes alias syntax (`sum as add`); `root_span`
 covers the outer `super::api::{sum as add, ops::*}` tree, excluding `use` and `;`.
 Ranges remain source byte offsets, including UTF-8/CRLF and inline-module routing.
 
-[Import resolution](../../crates/kagari-hir/src/imports/resolve.rs) slices the written
-prefix for each site. Intermediate navigation uses Type; a named terminal retains
-all eligible Type/Value results, while a glob selects a Type namespace. Generated
-native imports retain their validated category restrictions. Queries select the
-most specific physical site; `source_targets_at` preserves categories and origins,
-and `source_target_at` does not choose between dual-category hits.
+[Import resolution](../../crates/kagari-hir/src/imports/resolve.rs) still visits written
+prefixes to record semantic namespace observations, including failed/pending lookups.
+Those observations drive watchers and convergence; they are not navigation hits.
+After settlement, analyzer [navigation](../../crates/kagari-analyzer/src/navigation.rs)
+uses the shared catalog lookup and checks terminal agreement with the selected directive.
+Intermediate navigation uses Type; a named terminal retains eligible Type/Value results,
+while a glob selects Type. Generated native imports retain their category restrictions.
+`SnapshotQueries::source_targets_at` preserves categories and origins at the most specific
+site; `source_target_at` does not choose between dual-category hits.
 
 Recovery retains only available syntax: no root tree means no leaf, and recovered
 empty leaves can have no sites. An empty unaliased path has `local_name() == None`;
@@ -756,6 +752,82 @@ entering it does not create another import directive. See
 [namespace lookup](../../crates/kagari-hir/src/imports/catalog.rs) and
 [body resolution](../../crates/kagari-hir/src/resolver/resolve.rs).
 
+## Editor query views and indexes
+
+Import `kagari_analyzer::AnalyzerQueries` and call `.queries()` on a retained semantic
+result. These are borrowing adapters, not analysis stages or HIR compatibility methods:
+
+| Semantic owner | Analyzer view | Available scope |
+| --- | --- | --- |
+| `FileDeclarations` / `DeclarationSnapshot` | `DeclarationFileQueries` / `DeclarationSnapshotQueries` | Declaration-site and documentation queries without signatures/bodies. |
+| `FileSignatures` | `SignatureQueries` | Checked signature types and definitions; no body checking. |
+| `FunctionAnalysis` | `FunctionQueries` | Types and receivers within the selected function only. |
+| `FileAnalysis` | `FileQueries` | Types, definitions, fields, visible bindings, signature help and completion presentation. |
+| `AnalysisSnapshot` | `SnapshotQueries` | Physical-to-inline routing, cross-file definitions, namespace navigation and documentation. |
+
+Opening a view does not check source or build an index. A query constructs the projections
+it needs; `SnapshotQueries` retains per-logical-file navigation indexes for that view's
+lifetime. File, staged and declaration-site queries build their temporary projections when
+needed, not a persistent shared IDE cache. Keep the semantic owner alive and never reuse
+an index with another lowering, definition context or source revision.
+
+```text
+HIR ResolvedNames
++-- bindings: HashMap<ResolvedName, Binding>
+|   `-- Binding { name, resolved, owner: BodyOwner, writeability }
++-- exprs / places / pattern_variants -> selected semantic identities
+`-- closure_captures -> canonical binding identities
+
+Analyzer projections over matching source + HIR + facts
++-- ScopeIndex -> structural scopes; entries borrow canonical Binding records
++-- DeclarationSiteIndex -> analysis-coordinate ranges + canonical declarations
++-- SourceSites -> CST reference/member/type/import token sites
+`-- NavigationIndex -> FileAnalysis borrow + Vec<(Span, LookupHit)>
+```
+
+The [binding directory](../../crates/kagari-hir/src/resolver/resolved.rs) includes unused
+and shadowed binders. `binding` reads by identity; `bindings` enumerates without promising
+order. Compiler/declaration/lint consumers use it without cursor lookup. Resolver
+[`ActiveScope`](../../crates/kagari-hir/src/resolver/resolve.rs) holds only the current
+name-to-identity map and owner; its stack and named-local declaration-time copies are
+work state discarded after resolution, not published editor history.
+
+For `val x = 1; val x = x + 1; x`, resolution selects the first `x` inside the second
+initializer and the second at the tail. Both declarations remain in the directory.
+Analyzer's [ScopeIndex](../../crates/kagari-analyzer/src/scope.rs) derives visibility starts
+and shadow order from structure and these identities; it does not resolve names again.
+Parent declaration prefixes are frozen for nested scopes/local functions, and crossing a
+named function excludes enclosing value bindings. The
+[declaration-site index](../../crates/kagari-analyzer/src/declarations.rs) selects in analysis
+coordinates, separately from a declaration's copied/native physical location.
+
+[SourceSites](../../crates/kagari-analyzer/src/sites.rs) recovers reference-token boundaries
+from the exact retained syntax and whole-node HIR origins, preserving UTF-8/CRLF and inline
+coordinates. [NavigationIndex](../../crates/kagari-analyzer/src/navigation.rs) derives type,
+expression and import prefixes after semantic settlement/remapping. Shared catalog lookups
+must agree with selected targets; a lexical shadow cannot acquire module provenance merely
+because the spelling matches. Type/Value categories and equal-target glob origins survive.
+Cancellation returns no partially built navigation index.
+
+HIR retains diagnostic/debug/declaration/static-initializer origins and semantic import
+observations; it does not construct editor lookup/path-hit vectors or joined-prefix indexes.
+`ResolvedTypeRef { ty, target: Option<ResolvedTypeTarget> }` remains semantic: aliases,
+generic/Self constraints and reload evidence need the selected declaration/binder independently
+of the resulting type. Moving cursor lookup does not remove that relation.
+
+Receiver/interface eligibility is shared through HIR
+[`typeck::members`](../../crates/kagari-hir/src/typeck/members.rs). Analyzer owns
+`VisibleBinding` and `CompletionCandidate` presentation, ordering and deduplication; checking
+retains its full argument/bound validation. Signature help and written documentation live in
+analyzer [calls](../../crates/kagari-analyzer/src/calls.rs) and
+[documentation](../../crates/kagari-analyzer/src/documentation.rs), not compiler call facts.
+The library does not imply new LSP capabilities, hover composition or references/rename support.
+
+This boundary follows [rust-analyzer's architecture at Rust 5f4effd57950](https://github.com/rust-lang/rust/blob/5f4effd57950/src/tools/rust-analyzer/docs/book/src/contributing/architecture.md):
+semantic facade, offset/presentation services and LSP transport have separate owners.
+Kagari does not adopt Salsa, arena lifetimes or that IDE-only frontend's execution assumptions;
+it also owns checked compiler/reload admission. No speedup is claimed.
+
 ## Query work, reuse and publication
 
 The [frontend benchmark guide](../frontend-benchmarks.md#hir-workloads-and-query-routes)
@@ -778,15 +850,16 @@ body(source, owner)  -> prepare_signatures -> selected function + constant prere
 snapshot(source)     -> prepare_signatures -> check/reuse ALL file bodies
                       -> publish AnalysisSnapshot + signatures
 
-snapshot.type_at / definition_at / completion queries -> read prepared facts
+result.queries().type_at / definition_at / completion -> analyzer reads facts + derives indexes
 snapshot.check_program(root) -> validate reachable checked source closure
 ```
 
 Read [declaration queries](../../crates/kagari-hir/src/analysis/declarations.rs),
 [signature queries](../../crates/kagari-hir/src/analysis/signatures.rs) and
 [selected body queries](../../crates/kagari-hir/src/analysis/body.rs) in that
-order. Declarations include parse/lowering and import resolution; signatures check
-type annotations and aggregate contracts; bodies add local bindings, expression
+order. Internal `PreparedSignatures` carries signature-stage preparation, not an editor
+session or public query view. Declarations include parse/lowering and import resolution;
+signatures check type annotations and aggregate contracts; bodies add local bindings, expression
 types and selected operations. Syntax errors can still leave useful facts and
 diagnostics. Cancellation is an error, checked before publishing completed results.
 Older requests do not replace newer published revision caches.
@@ -825,9 +898,9 @@ validated adopted registration/source/parse and reconstructs fresh graph-local a
 without reparsing. Neither database caches nor database clones strongly retain HIR. Reuse
 requires a live exact old graph; retaining IDs/records alone cannot establish compatibility.
 With no retained result, the next standalone query rebuilds/checks graphs. This is the current
-cache policy, not a requirement of HIR ownership. The external-arena/session migration was
-withdrawn; the [active cleanup](../hir-storage-design.md) preserves owned category tables and
-aligns record identity with storage without changing cache retention behavior.
+cache policy, not a requirement of HIR ownership. The completed responsibility/identity
+cleanup preserves owned category tables and this retention behavior. Further retention
+changes require a [separate workload-driven decision](../hir-model-review.md#cache-policy-is-separate).
 
 Physical parses have an owned cache independent of declaration/HIR results. Syntax
 preparation returns an owned logical-source manifest before lowering. Reuse requires
@@ -839,7 +912,7 @@ ID map plus copied limits. Neither source-preparation store uses RefCell.
 
 Inline modules share physical text, line indexing and one retained parse. Each
 logical source keeps a stable synthetic FileId and its own ModuleHandle, revision
-and lowering arena. [Source preparation](../../crates/kagari-hir/src/analysis/source_preparation.rs)
+and lowering identity. [Source preparation](../../crates/kagari-hir/src/analysis/source_preparation.rs)
 lowers attached ModuleBlock items directly; it neither masks text nor invokes the
 parser for a child. Position queries retain original UTF-8/CRLF offsets and route
 them to the corresponding logical analysis.
@@ -863,7 +936,7 @@ error belongs to another logical module. Program checks collect physical errors
 once per origin/revision and retain each module's semantic errors.
 
 Analysis pairs syntax locators with the exact retained parse; old locators never
-resolve against a newer revision. New physical revisions rebuild child arenas;
+resolve against a newer revision. New physical revisions rebuild child lowerings;
 sharing syntax does not weaken source-unit/context-prefix checks. Existing foreign
 namespace revision/arena checks can still force body rechecking after an inline
 edit, even when signature surfaces match. Finer invalidation remains separate.
@@ -871,7 +944,7 @@ edit, even when signature surfaces match. Finer invalidation remains separate.
 | Change | Actual reuse boundary |
 | --- | --- |
 | Unchanged source and dependencies | A file result can retain its `Arc` when revision/arena, imports, reachable namespaces, imported types/functions and aggregate facts match. Installed native declarations participate through these ordinary facts. |
-| Body-only edit | Changed source is lowered into a new arena. Signature reuse compares the source surface with eligible function bodies removed and remaps local IDs. Other bodies may reuse facts if environment tokens, diagnostics, body contents and source-map correspondence permit it. |
+| Body-only edit | Changed source receives fresh node tables and a lowering identity. Signature reuse compares the source surface with eligible function bodies removed and remaps local IDs. Other bodies may reuse facts if environment tokens, diagnostics, body contents and source-map correspondence permit it. |
 | Signature/export edit | Imports/namespaces and imported type/callable/aggregate contracts are compared again; failed reuse predicates force checking. This is not guaranteed minimal dependency invalidation. |
 | Registry/policy change | Native registration clears dependent caches; parse policy clears parse-dependent caches; body/constant limits clear body/file caches. Host replacement is checked through registry revisions during later reuse decisions. |
 
@@ -929,7 +1002,7 @@ instance planner -> selected native entry (no extra script frame)
 The implementing type receives no synthetic HIR function. Signature queries expose
 the method signature without claiming body validation; SDK preparation checks all
 generated bodies, including unused defaults. A retained snapshot keeps its proof
-and HIR arena together. Source-free linking validates the portable recipe without
+and HIR node tables together. Source-free linking validates the portable recipe without
 depending on this HIR table.
 
 
@@ -982,8 +1055,9 @@ authorizes compilation: `AnalysisSnapshot::check_program` retains the strict gat
 evidence for a static initializer. Invalid initializers cannot supply optional
 semantic facts merely because their source nodes were lowered successfully.
 
-`FileAnalysis::binding_usage` walks eligible resolved bindings, expressions, places
-and resolver-owned captures once, including both closures and async blocks.
+Lint's private [usage projection](../../crates/kagari-lint/src/usage.rs) walks eligible
+canonical bindings, expressions, places and resolver-owned captures, including closures
+and async blocks. It enumerates the binding directory, not an editor visibility index.
 Closure parameters retain their separate parameter classification. Shadowed
 bindings keep distinct declaration identities;
 member/index writes read the receiver without rebinding its slot, while direct and
@@ -997,8 +1071,9 @@ without defaults keep their member target, and grouped uses keep one authored ta
 SourceMap supplies full ranges by typed target, reusing ordinary item spans and storing
 additional member/use ranges only where needed.
 
-`FileAnalysis::scoped_attributes` exposes the typed fact, its declaration range and an
-optional logical child-module identity selected directly by ModuleId. An attribute on
+Lint's private [attribute projection](../../crates/kagari-lint/src/attributes.rs) pairs
+the typed fact with its declaration range and an optional logical child-module identity
+selected directly by `ModuleId`. An attribute on
 `mod child;` therefore identifies the same module as an external `child.kgr`, rather than
 relying on physical range containment. Inline child contents belong to their own analysis.
 The linter owns supported target kinds and argument/ID validation without rewalking AST;

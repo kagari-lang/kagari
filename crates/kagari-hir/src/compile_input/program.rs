@@ -324,7 +324,7 @@ impl<'a> CheckedModule<'a> {
         self.environment
     }
 
-    /// Borrows declaration metadata without exposing the shared body arena.
+    /// Borrows declaration metadata without exposing the shared body node tables.
     pub fn headers(&self) -> DeclarationHeaders<'a> {
         self.headers
     }
@@ -384,7 +384,7 @@ impl<'a> CheckedModule<'a> {
     /// Finds the admitted root body for a module-local declaration owner.
     ///
     /// Returns `None` for required/native declarations without a source body.
-    /// Use [`Self::body`] with the resulting key for arena-checked nested lookups.
+    /// Use [`Self::body`] with the resulting key for lowering-checked nested lookups.
     pub fn body_for(&self, owner: BodyOwner) -> Option<CheckedBodyInput<'a>> {
         self.bodies.get(&owner).copied()
     }
@@ -458,7 +458,7 @@ impl<'a> CheckedModule<'a> {
 ///
 /// Recovery analysis can still expose useful facts after errors, but cannot create
 /// this input. Node lookups through an admitted body reject IDs from foreign owners
-/// and arenas instead of interpreting their numeric slots in the current module.
+/// and lowerings instead of interpreting their numeric slots in the current module.
 pub struct CheckedCompilation<'a> {
     context: DefinitionContext,
     modules: Vec<CheckedModule<'a>>,

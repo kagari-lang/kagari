@@ -1,7 +1,7 @@
 //! Explicit traversal of the owning HIR records.
 
 use crate::{
-    AnalysisResult, AnalyzedModule, DeclaredAnalysis, PreparedAnalysis,
+    AnalysisResult, AnalyzedModule, DeclaredAnalysis, PreparedSignatures,
     analysis::records::{DeclarationRecord, SignatureRecord},
 };
 use kagari_common::{
@@ -35,7 +35,7 @@ impl DefinitionReferences for AnalyzedModule {
     }
 }
 
-impl DefinitionReferences for PreparedAnalysis {
+impl DefinitionReferences for PreparedSignatures {
     fn visit_definition_ids(
         &self,
         visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,

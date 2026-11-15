@@ -1,7 +1,7 @@
 //! Test-only comparisons of retained signature facts.
 
 use crate::{
-    hir::ids::{HirArenaId, ParamId},
+    hir::ids::{LoweringId, ParamId},
     tests::common::import_facts,
     typeck::ModuleSignatures,
 };
@@ -13,8 +13,8 @@ impl ModuleSignatures {
         definitions: &DefinitionTable,
         other: &Self,
         other_definitions: &DefinitionTable,
-        arena: HirArenaId,
-        other_arena: HirArenaId,
+        arena: LoweringId,
+        other_arena: LoweringId,
     ) {
         let context = DefinitionContext::new().unwrap();
         let left = import_facts(self, definitions, &context);

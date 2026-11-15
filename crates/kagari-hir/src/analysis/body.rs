@@ -49,8 +49,8 @@ mod tests;
 /// Retains the signature snapshot and file lowering that own all referenced HIR IDs.
 /// `names`, `declarations` and `typed` contain the selected analysis facts; they do not
 /// imply every function in the file was checked. Scoped definition IDs resolve through
-/// [`Self::definitions`]; types returned by position queries use that same retained
-/// definition scope, not portable identities.
+/// [`Self::definitions`]; checked types use that same retained definition scope,
+/// not portable identities. Analyzer views provide cursor selection separately.
 /// Unchanged body facts can be shared with a newer signature snapshot; the query's
 /// shared diagnostics and eligibility always use that requested signature context.
 ///

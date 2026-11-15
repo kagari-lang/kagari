@@ -1,7 +1,7 @@
 //! Test-only comparison after validating and normalizing local node identities.
 
 use crate::{
-    hir::ids::{ExprId, FieldId, HirArenaId, PlaceId},
+    hir::ids::{ExprId, FieldId, LoweringId, PlaceId},
     tests::common::import_facts,
     typeck::table::TypeTable,
 };
@@ -13,8 +13,8 @@ impl TypeTable {
         definitions: &DefinitionTable,
         other: &Self,
         other_definitions: &DefinitionTable,
-        arena: HirArenaId,
-        other_arena: HirArenaId,
+        arena: LoweringId,
+        other_arena: LoweringId,
     ) {
         let context = DefinitionContext::new().unwrap();
         let left = import_facts(self, definitions, &context);
@@ -23,7 +23,7 @@ impl TypeTable {
         let other = right.records();
         // Fresh analysis must have different local identities. Compare slot facts
         // only after checking every key/receiver belongs to its actual lowering.
-        fn normalized(table: &TypeTable, from: HirArenaId, to: HirArenaId) -> TypeTable {
+        fn normalized(table: &TypeTable, from: LoweringId, to: LoweringId) -> TypeTable {
             let mut result = table.clone();
             result.field_types = result
                 .field_types

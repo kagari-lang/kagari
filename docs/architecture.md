@@ -257,7 +257,8 @@ harness sharing production execution mechanics; they do not grant host entry acc
 | kagari-source | Source documents/revisions, immutable package scopes, diagnostics, literal grammar, line indices and navigation provenance |
 | kagari-syntax | Lexer, parser, CST and AST views |
 | kagari-package | Compilation-only manifests/workspaces, portable package identities, exact dependency graph/lock, virtual/filesystem source capture and atomic handoff to source analysis/SDK/CLI |
-| kagari-hir | Recoverable analysis, resolution, typing and tooling queries |
+| kagari-hir | Owned ID-linked HIR, recoverable resolution/typing and checked compiler admission |
+| kagari-lint | Optional rules and private binding-usage/attribute-policy projections |
 | kagari-abi | Physical value representations, helper ABI, native code descriptors and memory lifetime |
 | kagari-contract | Executable envelopes, checked call/layout/operation contracts, physical lowering and linked verification |
 | kagari-mir | Typed CFGs, verification, bounded analyses/passes and portable encoding |
@@ -268,7 +269,7 @@ harness sharing production execution mechanics; they do not grant host entry acc
 | kagari-runtime | Canonical Program/Runtime, interpreter/debugger, sessions/tasks, values, GC, Host/Native APIs and reload |
 | kagari | Source/MIR/backend preparation, artifacts and SDK composition; exact Runtime facade |
 | kagari-cli | Arguments, filesystem IO and presentation |
-| kagari-analyzer | Stdio LSP lifecycle, URI adaptation and document synchronization over source-owned text/identities |
+| kagari-analyzer | Protocol-neutral editor query library and demand-built indexes; stdio LSP lifecycle, URI adaptation and document synchronization |
 
 Runtime and bytecode have no production dependency on MIR, source/syntax/HIR or
 codegen. Types depends only on common among workspace crates. MIR depends on
@@ -448,8 +449,12 @@ source database / snapshots
   -> interpreter, or explicit native preparation/install/execute
 ```
 
-HIR owns source meaning and incomplete-source queries. MIR owns concrete typed
-operations, explicit CFG/effects/origins and checked execution facts. Compiler owns
+HIR owns source meaning and recoverable semantic facts. Analyzer borrows those facts for
+position-based editor queries; lint derives optional usage/policy projections. Compilation
+prepares neither editor scope histories nor path-hit indexes; the
+[HIR guide](architecture/hir.md#editor-query-views-and-indexes) owns their data structures.
+MIR owns concrete typed operations, explicit CFG/effects/origins and checked execution facts.
+Compiler owns
 lowering, not script execution. Backends consume the verified handoff without
 recovering semantics from bytecode or re-resolving syntax. Runtime owns shared
 execution services; the VM supplies the interpreter frame driver.
@@ -699,7 +704,9 @@ while these boundaries define continuing ownership.
 | `kagari-types` | Source-independent types, signatures, traits, generic/member constraints, module declarations/docs, semantic role metadata, offline host schemas, numeric semantics and declaration-level checks |
 | `kagari-source` | Source documents/revisions, line indices, diagnostics, literal grammar and navigation provenance |
 | `kagari-syntax` | Lexer, parser, CST and AST |
-| `kagari-hir` | Recoverable resolution, inference, trait selection, semantic checking and source queries; rendering explicit registered semantic declarations |
+| `kagari-hir` | Owned HIR, recoverable resolution/inference/trait selection, semantic facts and checked admission; rendering registered declarations |
+| `kagari-analyzer` | Borrowing editor queries and demand-built position/navigation indexes; separate LSP lifecycle |
+| `kagari-lint` | Optional rules, binding usage and attribute-policy projections |
 | `kagari-compiler` | Checked HIR to MIR lowering, bounded specialization, semantic-to-execution conversion, bytecode emission and backend link preparation |
 | `kagari-mir` | Lowered typed CFGs/instructions, analyses, passes, verification and portable MIR encoding |
 | `kagari-contract` | Executable call/native dependencies, logical slots/layouts, operations/effects, semantic-to-physical mapping, executable envelopes and shared linked verification |
@@ -1020,7 +1027,7 @@ caller without depending on Engine or stdlib.
 | `kagari-stdlib` | Bundled core/alloc/std module recipes, docs, prelude/re-export inventory, native bindings and owner-local library algorithms |
 | `kagari-runtime` | Generic native module builders, registration checks, linking, heap/host services and execution state |
 | `kagari` | Assemble and validate the engine's module set, supply declarations to analysis and install matching implementations in runtimes |
-| `kagari-hir` | Render registered declarations, analyze generated/user source, collect checked language roles and provide tooling queries |
+| `kagari-hir` | Render registered declarations, analyze generated/user source, collect checked language roles and publish semantic facts |
 
 `TraitDef` is a shared types model; a particular Add or List declaration is an
 instance owned by its library. Neither types nor contract constructs the standard
@@ -2394,7 +2401,15 @@ Ordinary reflection stays within declared metadata and member adapters.
 
 ### Language server foundation
 
-`kagari-analyzer` is a binary-only workspace product, launched over stdio with
+`kagari-analyzer` has a protocol-neutral query library and a separate stdio binary.
+The library's `AnalyzerQueries::queries()` borrows declaration, signature, selected-body,
+file and snapshot results; scope, declaration-site, reference-token and navigation indexes
+are demand-built over the matching semantic owner. Calls, documentation and completion
+presentation live here, while HIR shares semantic member eligibility. No HIR/compiler/SDK
+production dependency points back to analyzer. See the
+[query contract](architecture/hir.md#editor-query-views-and-indexes).
+
+The binary is launched over stdio with
 `cargo run --locked -p kagari-analyzer` or the built executable. Stdout contains
 only LSP frames; logs/errors use stderr. It advertises UTF-16 positions and
 open/close/full-text synchronization, not diagnostics, semantic IDE queries,
@@ -2403,9 +2418,9 @@ editor-grammar concern. The [editor guide](../editors/README.md) owns installati
 and validation scope; the [roadmap](implementation-roadmap.md#toolchain-distribution-and-modes)
 owns deferred IDE features and pending CI.
 
-The analyzer depends on source services and protocol/transport libraries, not on
-SDK/runtime execution. `server` drives transport; `session` owns lifecycle and
-capabilities; `protocol` validates URIs; `documents` tracks original URI, language
+The library depends on HIR/syntax/source semantics, not SDK/runtime execution;
+the binary owns protocol/transport and source document services. `server` drives transport;
+`session` owns lifecycle and capabilities; `protocol` validates URIs; `documents` tracks original URI, language
 ID and client version by source-owned FileId. Text, source revisions, overlays and
 retained snapshots remain in `kagari-source`. For example, opening an unsaved
 `untitled:Untitled-1` installs an overlay; a full change replaces its text without
@@ -2423,8 +2438,8 @@ opaque scheme-specific identity; source normalizes only the scheme's case.
 Single-letter prefixes are reserved for Windows drives, so analyzer rejects
 single-letter URI schemes explicitly. Source callers can use `./` to disambiguate
 URI-like relative paths. No project crawling, dependency loading or background
-analysis occurs. There is no second VFS, database, coordinate converter or IDE
-query implementation.
+analysis occurs. There is no second VFS, database or coordinate converter, and the
+library queries are not yet exposed as LSP features.
 
 ### Editor syntax adapters
 
@@ -2529,7 +2544,7 @@ to stdlib registration. ABI never resolves script types or owns those declaratio
 | Syntax-required trait declarations and role selection | Stdlib registration, types role identities and compiler semantics using ordinary parser/HIR |
 | Collection/standard-library traits, types, methods and Rust bodies | Explicit native library ownership; Rust declarations generate `.kgr` for compiler/LSP analysis |
 | Substitution and implementation proofs | Types performs semantic substitution/checks; contract validates linked executable proofs with bounds |
-| Source rendering, navigation and diagnostics | Source owns documents and provenance; HIR tooling owns rendering and queries; no executable dependency on generated text |
+| Source rendering, navigation and diagnostics | Source owns documents/provenance; HIR owns declaration rendering and semantic diagnostics; analyzer owns editor navigation; no executable dependency on generated text |
 
 ### Naming policy for the split
 

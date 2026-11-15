@@ -15,7 +15,7 @@ use kagari_hir::{
         bindings::LookupOutcome,
         catalog::{LookupContext, LookupHit, LookupResult},
     },
-    typeck::table::TypeTarget,
+    typeck::table::ResolvedTypeTarget,
 };
 use kagari_types::declaration::names::NameNamespace;
 
@@ -58,7 +58,7 @@ fn type_hits(
             continue;
         };
         let admitted = match (target, &hit.target) {
-            (TypeTarget::Source(expected), ResolvedTarget::Source(_)) => facts
+            (ResolvedTypeTarget::Source(expected), ResolvedTarget::Source(_)) => facts
                 .declarations
                 .target(hit.target.resolved(facts.names.items.source_unit()))
                 .or_else(|| {
@@ -69,25 +69,25 @@ fn type_hits(
                         .map(|ty| &ty.declaration)
                 })
                 .is_some_and(|declaration| declaration.id == DeclarationId::Definition(*expected)),
-            (TypeTarget::Struct(expected), ResolvedTarget::Source(source)) => {
+            (ResolvedTypeTarget::Struct(expected), ResolvedTarget::Source(source)) => {
                 matches!(source.item, SourceItem::Struct(actual) if actual == *expected)
                     && source
                         .unit
                         .matches(&facts.lowered, facts.names.catalog.definitions())
             }
-            (TypeTarget::Enum(expected), ResolvedTarget::Source(source)) => {
+            (ResolvedTypeTarget::Enum(expected), ResolvedTarget::Source(source)) => {
                 matches!(source.item, SourceItem::Enum(actual) if actual == *expected)
                     && source
                         .unit
                         .matches(&facts.lowered, facts.names.catalog.definitions())
             }
-            (TypeTarget::Trait(expected), ResolvedTarget::Source(source)) => {
+            (ResolvedTypeTarget::Trait(expected), ResolvedTarget::Source(source)) => {
                 matches!(source.item, SourceItem::Trait(actual) if actual == *expected)
                     && source
                         .unit
                         .matches(&facts.lowered, facts.names.catalog.definitions())
             }
-            (TypeTarget::OpaqueType(expected), ResolvedTarget::Source(source)) => {
+            (ResolvedTypeTarget::OpaqueType(expected), ResolvedTarget::Source(source)) => {
                 matches!(source.item, SourceItem::OpaqueType(actual) if actual == *expected)
                     && source
                         .unit

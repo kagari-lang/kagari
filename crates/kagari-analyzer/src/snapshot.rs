@@ -9,7 +9,7 @@ use kagari_hir::{
     analysis::{AnalysisSnapshot, FileAnalysis},
     declarations::{Declaration, DeclarationId},
     imports::{ResolvedTarget, SourceItem},
-    typeck::table::TypeTarget,
+    typeck::table::ResolvedTypeTarget,
 };
 use kagari_source::identity::FileId;
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
@@ -62,7 +62,7 @@ impl<'a> SnapshotQueries<'a> {
             &CancellationToken::default(),
         )
         .expect("uncancelled source sites");
-        if let Some(Some(TypeTarget::AssociatedType(member))) =
+        if let Some(Some(ResolvedTypeTarget::AssociatedType(member))) =
             type_reference_target_at(&facts.lowered, &sites, facts.typed.type_table(), offset)
         {
             return self

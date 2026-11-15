@@ -8,7 +8,7 @@ use kagari_hir::{
     imports::functions::ImportedFunction,
     lower::LoweredModule,
     resolver::resolved::ResolvedName,
-    typeck::table::{CallTarget, TypeTable, TypeTarget},
+    typeck::table::{CallTarget, ResolvedTypeTarget, TypeTable},
     types::TypeId,
 };
 
@@ -421,22 +421,22 @@ pub(crate) fn type_reference_at<'a>(
 ) -> Option<Option<&'a Declaration>> {
     type_reference_target_at(lowered, sites, table, offset).map(|target| {
         target.and_then(|target| match target {
-            TypeTarget::OpaqueType(id) => declarations.target(ResolvedName::OpaqueType(id)),
-            TypeTarget::Source(id) => {
-                declarations
-                    .get(&DeclarationId::Definition(id))
-                    .or_else(|| {
-                        declarations
-                            .imported_types()
-                            .by_declaration(&id)
-                            .map(|ty| &ty.declaration)
-                    })
+            ResolvedTypeTarget::OpaqueType(id) => declarations.target(ResolvedName::OpaqueType(id)),
+            ResolvedTypeTarget::Source(id) => declarations
+                .get(&DeclarationId::Definition(id))
+                .or_else(|| {
+                    declarations
+                        .imported_types()
+                        .by_declaration(&id)
+                        .map(|ty| &ty.declaration)
+                }),
+            ResolvedTypeTarget::Struct(id) => declarations.target(ResolvedName::Struct(id)),
+            ResolvedTypeTarget::Enum(id) => declarations.target(ResolvedName::Enum(id)),
+            ResolvedTypeTarget::Trait(id) => declarations.target(ResolvedName::Trait(id)),
+            ResolvedTypeTarget::Generic(id) => declarations.generic_parameter(id),
+            ResolvedTypeTarget::AssociatedType(id) => {
+                declarations.get(&DeclarationId::Definition(id))
             }
-            TypeTarget::Struct(id) => declarations.target(ResolvedName::Struct(id)),
-            TypeTarget::Enum(id) => declarations.target(ResolvedName::Enum(id)),
-            TypeTarget::Trait(id) => declarations.target(ResolvedName::Trait(id)),
-            TypeTarget::Generic(id) => declarations.generic_parameter(id),
-            TypeTarget::AssociatedType(id) => declarations.get(&DeclarationId::Definition(id)),
         })
     })
 }
@@ -446,7 +446,7 @@ pub(crate) fn type_reference_target_at(
     sites: &SourceSites<'_>,
     table: &TypeTable,
     offset: usize,
-) -> Option<Option<TypeTarget>> {
+) -> Option<Option<ResolvedTypeTarget>> {
     let (type_id, _) = lowered
         .module
         .body
@@ -456,7 +456,7 @@ pub(crate) fn type_reference_target_at(
         .min_by_key(|(_, span)| span.end - span.start)?;
     let resolved = table.type_ref(type_id)?;
 
-    let name_span = if matches!(resolved.target, Some(TypeTarget::AssociatedType(_)))
+    let name_span = if matches!(resolved.target, Some(ResolvedTypeTarget::AssociatedType(_)))
         || matches!(resolved.ty, TypeId::Host(_))
     {
         sites.type_terminal_span(type_id)

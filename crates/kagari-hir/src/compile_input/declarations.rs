@@ -1,4 +1,4 @@
-//! Declaration metadata and registered contracts without a source body arena.
+//! Declaration metadata and registered contracts without source body node storage.
 
 use crate::{
     aggregates::implementations::ImplementationSignature,
@@ -30,7 +30,7 @@ use std::{borrow::Cow, collections::BTreeMap};
 /// type reference again.
 ///
 /// Function/initializer headers retain their root IDs, but this view provides no
-/// arena in which to dereference them. Use the enclosing checked module's body
+/// node storage in which to dereference them. Use the enclosing checked module's body
 /// directory. Plain declaration IDs require this same module; these slices are
 /// metadata projections and cannot authorize a new compilation on their own.
 #[derive(Clone, Copy)]

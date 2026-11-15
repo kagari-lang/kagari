@@ -217,22 +217,17 @@ Do not introduce forwarding aliases or widen another module to compensate.
 ### Remaining file and test ownership work
 
 The original design's concern about facade responsibilities remains partly open.
-`lib.rs` still owns `PreparedAnalysis`/`DeclaredAnalysis`, cross-module signature
-validation, signature reuse decisions, declaration preparation and full-body
-orchestration. Signature queries call back into these root implementations.
-`analysis.rs` combines position/type/binding projections with database inputs,
-cache orchestration and snapshot publication. The attribute finding above is a
-concrete stage-policy consequence; these locations are not extra semantic bugs
-merely because the files are large.
+`lib.rs` still owns internal `PreparedSignatures`/`DeclaredAnalysis`, cross-module
+signature validation, signature reuse decisions, declaration preparation and full-body
+orchestration. Signature queries call back into these root implementations. The attribute
+finding above is a concrete stage-policy consequence; file size alone is not another bug.
 
-The focused `queries` owner now contains calls, methods, namespaces, documentation,
-attributes and usage, with their existing module-local tests. Analysis stage modules
-have dropped the `_queries` suffix. Remaining position/type/binding helpers in
-`analysis.rs` and the root stage orchestration still need responsibility-led review.
-Move the remaining responsibilities in finite closures: stage checking/policy to
-its producer, request/reuse/publication to analysis and tool projections to queries.
-Keep the crate facade for documented entrypoints. Follow the actual owners
-without mechanically creating every directory in the historical sketch.
+HR04–HR08 moved position queries, calls, methods, namespaces and documentation to the
+analyzer library, and usage/attribute projections to lint. HIR `analysis.rs` owns database
+inputs, reuse and snapshot publication, not cursor projections. Remaining stage orchestration
+needs a finite responsibility-led review: stage policy to its producer, request/reuse/publication
+to analysis, and the facade to entrypoints. Current ownership is in the
+[HIR guide](architecture/hir.md#module-responsibilities).
 
 Private tests largely use ordinary owner-local modules. Two concrete exceptions
 are [function completion](../crates/kagari-hir/src/analysis/tests/completion.rs) and
@@ -300,31 +295,19 @@ These follow-ups remain outside the completed local contract repairs from the
 [syntax](architecture/syntax.md) and [HIR](architecture/hir.md) architecture.
 The original review baseline was `76ef0798767920649152dbbe235a0ea70bf8e21c`.
 
-### Historical body-cache retention: confirmed mechanism, impact still to measure
+### Cache retention policy follow-up
 
-`AnalysisDatabase::body_cache` retains one `Arc<FunctionAnalysis>` per declaration.
-Each result owns a complete `SignatureSnapshot`, whose file map retains physical
-parses and lowerings. [Body cache publication](../crates/kagari-hir/src/analysis/body.rs)
-removes entries for deleted declarations but does not retire older revisions of
-still-existing functions until those functions are queried again.
+The historical whole-`FunctionAnalysis` body-cache retention finding is superseded.
+[Current caches](architecture/hir.md#query-work-reuse-and-publication) own reusable records
+but weakly reference graph/query contexts; they do not pin old HIR revisions without readers.
+Dropping the last matching graph forces fresh lowering/checking, even if semantic records
+remain cached. Explicitly retained results still own their exact source and validity context.
 
-A deterministic API probe used one file with four stable functions `a/b/c/d`.
-On each of four revisions it changed only a leading comment, queried a different
-function, saved a `Weak<FileSignatures>`, then dropped every caller-owned result
-and declaration snapshot. The number of live whole-file signature revisions grew
-1, 2, 3, 4. Dropping `SourceDatabase` left all four alive; dropping
-`AnalysisDatabase` released all of them. The weak-reference assertions passed.
-
-This is database-owned retention, not a permanent leak or invalid old snapshot.
-Its multiplier can grow with the number of distinct cached functions, retaining
-multiple old parse/HIR versions of the same file without an external reader.
-No RSS, allocation-byte total or realistic IDE peak was measured, so this is a
-cost follow-up rather than an established memory-exhaustion or correctness defect.
-
-Follow-up owner: selected-body cache ownership. Measure retained bytes and reuse
-value under editing before choosing a history/capacity policy or shared per-file
-reuse baseline. Preserve explicitly retained results, arena remapping and checked
-dependency inputs; reducing references must not weaken source identity checks.
+The separate [cache-policy review](hir-model-review.md#cache-policy-is-separate) owns any
+bounded strong-retention proposal. First specify a concrete warm-query workload, retained
+unit, eviction/invalidation and database-clone behavior; measure reuse value and retained
+bytes. Preserve fact/context separation and scoped-ID checks. HR04–HR08 changes no policy
+and establishes no memory or latency improvement.
 
 ### Ambiguous comma-separated comparison lookahead
 
@@ -494,7 +477,7 @@ not arbitrary rewritten source maps or edit history.
 
 The read side is wired into
 [declaration source lookup](../crates/kagari-hir/src/analysis/declarations.rs),
-[documentation queries](../crates/kagari-hir/src/queries/documentation.rs)
+[documentation queries](../crates/kagari-analyzer/src/documentation.rs)
 and [source collection](../crates/kagari-hir/src/source_inspection.rs).
 However, the inspected production paths do not populate the mapping. Ordinary
 sources start with an empty vector; inline modules clone it while independently

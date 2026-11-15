@@ -1,4 +1,4 @@
-//! Cache semantic facts by source content, remapping every arena ID on reuse.
+//! Cache semantic facts by source content, remapping lowering-local IDs on reuse.
 
 use crate::{
     hir::{
@@ -14,11 +14,11 @@ use kagari_source::diagnostic::Diagnostic;
 use kagari_syntax::{lexer, token::Token};
 use std::collections::HashSet;
 
-/// Prior body facts plus old/new text used to attempt arena-aware reuse.
+/// Prior body facts plus old/new text used to attempt lowering-aware reuse.
 ///
 /// The caller first checks imports, signatures and aggregate environments. Reuse
 /// then requires compatible surrounding declaration tokens, unchanged body text
-/// and a source-map correspondence. Local IDs are remapped into the new arena;
+/// and a source-map correspondence. Local IDs are remapped into the new lowering;
 /// old IDs cannot simply be copied. Failed correspondence falls back to checking.
 pub struct BodyReuse<'a> {
     /// Positive eligibility evidence retained before diagnostic truncation.

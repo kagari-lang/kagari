@@ -1,7 +1,7 @@
 //! Immutable import syntax, scope bindings and qualified namespace identities.
 use crate::{
     hir::ids::{
-        ConstId, EnumId, FunctionId, HirArenaId, ModuleId, OpaqueTypeId, StaticId, StructId,
+        ConstId, EnumId, FunctionId, LoweringId, ModuleId, OpaqueTypeId, StaticId, StructId,
         TraitId, TypeAliasId, VariantId,
     },
     imports::bindings::{LookupOutcome, PerNamespace},
@@ -37,8 +37,8 @@ pub mod types;
 /// Identity of one logical source module in one immutable lowering.
 ///
 /// `module` identifies a context-owned package/path root, `file` identifies the source-database entry,
-/// `revision` distinguishes its text version, and `arena` distinguishes the HIR
-/// allocation. Inline modules may share a physical origin while having distinct
+/// `revision` distinguishes its text version, and the historic `arena` field stores
+/// the lowering identity. Inline modules may share a physical origin while having distinct
 /// logical/source-unit identities. One unit is not the entire source program.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SourceUnit {
@@ -48,8 +48,8 @@ pub struct SourceUnit {
     pub file: FileId,
     /// Revision of the source used for this lowering.
     pub revision: Revision,
-    /// Identity of the node storage whose local IDs this unit qualifies.
-    pub arena: HirArenaId,
+    /// Identity of the lowering whose local IDs this unit qualifies.
+    pub arena: LoweringId,
 }
 
 impl SourceUnit {

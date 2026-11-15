@@ -14,15 +14,15 @@
 //! ```
 //!
 //! Parameter indices address positions in the owning `Function.params` list;
-//! local indices still address allocation-wide source-map slots. A [`HirArenaId`]
-//! is allocated by a checked process-wide counter. Fresh lowering receives a fresh
-//! arena; cloning/reusing the same lowering retains it. [`HirOwner`] partitions body
+//! local indices still address lowering-wide source-map slots. A [`LoweringId`]
+//! is assigned by a checked process-wide counter. Fresh lowering receives a fresh
+//! identity; cloning/reusing the same lowering retains it. [`HirOwner`] partitions body
 //! records logically; only parameter indices are relative to their function owner.
 //! It is distinct from an enclosing struct/enum owner in a member ID.
 //!
 //! The internal `Lowerer` allocates body nodes through the source map and appends
 //! matching body rows. Parameters instead register their chosen identity and span.
-//! Body/parameter access checks arena and owner before returning the record.
+//! Body/parameter access checks lowering identity and owner before returning the record.
 //! Plain declaration IDs lack those checks and require the matching module.
 //! Cross-module references use [`crate::imports::SourceDeclRef`] with its complete
 //! source unit; they must not index the importing module's vectors. These are not
@@ -42,14 +42,15 @@
 //! interchanged even if both contain zero. `index`/`slot` are generated metadata,
 //! never identifier spelling. Plain IDs compare only their local indices: two
 //! different modules' FunctionId(0) values can compare equal, so callers must carry
-//! module context. Qualified IDs compare/hash all fields. `arena` separates fresh
-//! lowerings, `owner` records allocation context, and `index` selects the matching
-//! category's storage slot (function-local for parameters, otherwise allocation-wide).
+//! module context. Qualified IDs compare/hash all fields. The historic `arena` field
+//! stores the lowering identity, not an allocator or memory address. `owner` records
+//! lowering context, and `index` selects the matching category's storage slot
+//! (function-local for parameters, otherwise lowering-wide).
 //! A FieldId/VariantId instead uses an enclosing declaration and a member-relative `slot`.
 //!
 //! `id_newtype` exposes an unchecked `new(usize)` using a u32 cast; allocation
 //! callers must bound it. `local_id_newtype` constructors are crate-private and
-//! check the usize-to-u32 conversion; Body/SourceMap accessors check arena and
+//! check the usize-to-u32 conversion; Body/SourceMap accessors check lowering identity and
 //! stored owner on lookup. An ID does not itself borrow or own its target.
 //! Rebuilding after inserting a declaration can shift plain IDs; neither macro
 //! supplies stable declaration identity across edits. These source-analysis
@@ -82,15 +83,16 @@ macro_rules! id_newtype {
 
 /// Identity of one immutable lowering, not a function slot or memory address.
 ///
-/// Lowering source containing `fn a() {} fn b() {}` assigns one arena A to both
+/// Lowering source containing `fn a() {} fn b() {}` assigns one identity A to both
 /// functions' body-node IDs and the shared Body/SourceMap. Lowering it again
-/// obtains another arena B; cloned/reused lowering retains A. A checked process-
-/// wide counter creates the value. It is allocation metadata with no source token
-/// and no guarantee of persistence across edits, processes or serialized programs.
+/// obtains another identity B; cloned/reused lowering retains A. A checked process-
+/// wide counter creates the value. The nodes use ordinary owned vectors, not an
+/// allocator arena. This identity has no source token and no guarantee of persistence
+/// across edits, processes or serialized programs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct HirArenaId(u64);
+pub struct LoweringId(u64);
 
-impl Default for HirArenaId {
+impl Default for LoweringId {
     fn default() -> Self {
         static NEXT_ARENA: AtomicU64 = AtomicU64::new(1);
         Self(
@@ -101,21 +103,21 @@ impl Default for HirArenaId {
     }
 }
 
-/// Generates an arena/owner-qualified index for body nodes or inline binding records.
+/// Generates a lowering/owner-qualified index for body nodes or inline binding records.
 /// The index addresses its category's storage: function-local for parameters,
-/// allocation-wide for body nodes and local binding source slots.
+/// lowering-wide for body nodes and local binding source slots.
 macro_rules! local_id_newtype {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub struct $name {
-            arena: HirArenaId,
+            arena: LoweringId,
             owner: HirOwner,
             index: u32,
         }
 
         impl $name {
-            pub(crate) fn new(arena: HirArenaId, owner: HirOwner, index: usize) -> Self {
+            pub(crate) fn new(arena: LoweringId, owner: HirOwner, index: usize) -> Self {
                 Self {
                     arena,
                     owner,
@@ -124,7 +126,7 @@ macro_rules! local_id_newtype {
             }
 
             /// Returns the identity of the lowering that allocated this handle.
-            pub fn arena(self) -> HirArenaId {
+            pub fn arena(self) -> LoweringId {
                 self.arena
             }
 
@@ -227,7 +229,7 @@ local_id_newtype!(
     ParamId
 );
 local_id_newtype!(
-    /// An arena/owner-qualified handle identifying a statement, pattern or closure binding and its source-map slot.
+    /// A lowering/owner-qualified handle identifying a statement, pattern or closure binding and its source-map slot.
     /// See the [identity families](crate::hir::ids) for allocation and lookup rules.
     LocalId
 );
@@ -251,32 +253,32 @@ id_newtype!(
     EnumId
 );
 local_id_newtype!(
-    /// An arena/owner-qualified handle identifying `Body.blocks`.
+    /// A lowering/owner-qualified handle identifying `Body.blocks`.
     /// See the [identity families](crate::hir::ids) for allocation and lookup rules.
     BlockId
 );
 local_id_newtype!(
-    /// An arena/owner-qualified handle identifying `Body.exprs`.
+    /// A lowering/owner-qualified handle identifying `Body.exprs`.
     /// See the [identity families](crate::hir::ids) for allocation and lookup rules.
     ExprId
 );
 local_id_newtype!(
-    /// An arena/owner-qualified handle identifying `Body.places`.
+    /// A lowering/owner-qualified handle identifying `Body.places`.
     /// See the [identity families](crate::hir::ids) for allocation and lookup rules.
     PlaceId
 );
 local_id_newtype!(
-    /// An arena/owner-qualified handle identifying `Body.stmts`.
+    /// A lowering/owner-qualified handle identifying `Body.stmts`.
     /// See the [identity families](crate::hir::ids) for allocation and lookup rules.
     StmtId
 );
 local_id_newtype!(
-    /// An arena/owner-qualified handle identifying `Body.patterns`.
+    /// A lowering/owner-qualified handle identifying `Body.patterns`.
     /// See the [identity families](crate::hir::ids) for allocation and lookup rules.
     PatternId
 );
 local_id_newtype!(
-    /// An arena/owner-qualified handle identifying `Body.types` (type syntax, not a resolved semantic type).
+    /// A lowering/owner-qualified handle identifying `Body.types` (type syntax, not a resolved semantic type).
     /// See the [identity families](crate::hir::ids) for allocation and lookup rules.
     TypeRefId
 );
@@ -307,20 +309,20 @@ impl BodySelection {
     }
 }
 
-/// Generates an arena-qualified member slot with a concrete struct/enum owner ID.
+/// Generates a lowering-qualified member slot with a concrete struct/enum owner ID.
 /// Unlike node indices, slot is relative to the enclosing declaration's member list.
 macro_rules! member_id {
     ($(#[$meta:meta])* $name:ident, $owner:ident) => {
         $(#[$meta])*
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub struct $name {
-            arena: HirArenaId,
+            arena: LoweringId,
             owner: $owner,
             slot: u32,
         }
 
         impl $name {
-            pub(crate) fn new(arena: HirArenaId, owner: $owner, slot: usize) -> Self {
+            pub(crate) fn new(arena: LoweringId, owner: $owner, slot: usize) -> Self {
                 Self {
                     arena,
                     owner,
@@ -329,7 +331,7 @@ macro_rules! member_id {
             }
 
             /// Returns the identity of the lowering that allocated this handle.
-            pub fn arena(self) -> HirArenaId {
+            pub fn arena(self) -> LoweringId {
                 self.arena
             }
 
@@ -347,13 +349,13 @@ macro_rules! member_id {
 }
 
 member_id!(
-    /// An arena-qualified struct field slot within its enclosing declaration.
+    /// A lowering-qualified struct field slot within its enclosing declaration.
     /// See the [identity families](crate::hir::ids) for member lookup.
     FieldId,
     StructId
 );
 member_id!(
-    /// An arena-qualified enum variant slot within its enclosing declaration.
+    /// A lowering-qualified enum variant slot within its enclosing declaration.
     /// See the [identity families](crate::hir::ids) for member lookup.
     VariantId,
     EnumId

@@ -2,7 +2,7 @@
 //! prepare checked constant prerequisites before projecting imported values.
 
 use crate::{
-    AnalysisResult, DiagnosticBuffer, PreparedAnalysis,
+    AnalysisResult, DiagnosticBuffer, PreparedSignatures,
     aggregates::AggregateCatalog,
     analysis::{
         AnalysisDatabase,
@@ -59,7 +59,7 @@ mod tests;
 #[derive(Debug, Clone)]
 pub struct FileSignatures {
     pub(super) declaration: Arc<FileDeclarations>,
-    pub(super) prepared: PreparedAnalysis,
+    pub(super) prepared: PreparedSignatures,
     /// Returns accumulated diagnostics through the signature stage, excluding function bodies.
     diagnostics: Arc<DiagnosticBuffer>,
 }
@@ -341,7 +341,7 @@ impl AnalysisDatabase {
                 .as_ref()
                 .and_then(|old| old.files.get(id));
             let previous = old.and_then(|old| {
-                Some(PreparedAnalysis {
+                Some(PreparedSignatures {
                     lowered: old.lowered.upgrade()?,
                     record: old.record.clone(),
                     signatures_reused: old.signatures_reused,

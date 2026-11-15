@@ -14,7 +14,7 @@ use crate::{
     typeck::{
         check::function_type_context,
         state::TypeCheckState,
-        table::{TypeTable, TypeTarget},
+        table::{ResolvedTypeTarget, TypeTable},
         ty,
         ty::{TypeContext, resolve_type_in},
     },
@@ -176,10 +176,10 @@ pub(super) fn resolve_owner_in(
             table
                 .type_ref(bound.target_ref)
                 .and_then(|reference| reference.target.clone()),
-            Some(TypeTarget::Generic(_))
+            Some(ResolvedTypeTarget::Generic(_))
         ) && !matches!(
             table.type_ref(bound.target_ref).map(|reference| (&reference.ty, reference.target.clone())),
-            Some((TypeId::SelfType(_), Some(TypeTarget::Trait(id)))) if Some(id) == context.self_type
+            Some((TypeId::SelfType(_), Some(ResolvedTypeTarget::Trait(id)))) if Some(id) == context.self_type
         ) && !(table
             .type_ref(bound.target_ref)
             .is_some_and(|reference| !reference.ty.is_unresolved())
@@ -263,7 +263,7 @@ pub(super) fn resolve_constraint(
         }
         _ => None,
     };
-    let reason = if matches!(&resolved.target, Some(TypeTarget::Source(id)) if context.declarations.imported_types().alias(id).is_some())
+    let reason = if matches!(&resolved.target, Some(ResolvedTypeTarget::Source(id)) if context.declarations.imported_types().alias(id).is_some())
     {
         Some("a type alias names a value type, not a trait bound")
     } else if applied && !matches!(resolved.ty, TypeId::Trait(_)) {

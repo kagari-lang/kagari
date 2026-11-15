@@ -1,167 +1,58 @@
 # HIR Model Review Notes
 
-**Status:** HIR work is narrowed to responsibility/identity cleanup on current owned ID tables;
-the arena/reference migration is withdrawn. HR04–HR08 compiler/tool separation is authorized.
-Native registration redesign and cache-retention changes remain deferred.
-**Baseline:** `main`, `43d55706a` (Runtime refactor merged in PR #61).
-**Working branch:** `design/hir-native-model`.
-[Roadmap](implementation-roadmap.md#hir-storage-and-attribute-refactor) owns activation;
-[current HIR](architecture/hir.md) and [Runtime](architecture/runtime.md) describe implemented behavior.
+**Status:** HR04–HR08 compiler/tool separation is implemented on owned, ID-linked HIR.
+Required acceptance remains open in the
+[roadmap](implementation-roadmap.md#hir-storage-and-attribute-refactor).
+The arena/reference migration is withdrawn, not completed. Native registration redesign,
+inline-identity review and cache-retention policy changes remain separate follow-ups.
+[Current HIR](architecture/hir.md) and [Runtime](architecture/runtime.md) own implemented contracts.
 
 ## Selected storage and attribute scope
 
-[HIR responsibility and identity cleanup](hir-storage-design.md) preserves current category
-storage and ID links. Parameters now address Function.params and Module owns typed attribute
-attachments, without an arena, borrowed graph or universal owner table. The compiler/tool
-boundary audit below guides the active HR04–HR08 migration; Native proposals remain deferred.
+`Module`/`Body` retain ordinary owned category tables and ID links. `Function.params` owns
+parameter positions; `Module` owns typed attribute attachments. `LoweringId` identifies one
+lowering, not an allocator. There is no borrowed graph, universal owner table or session cutover.
+See [storage and IDs](architecture/hir.md#storage-and-ids) for current data structures.
 
 ## Compiler and tooling boundary
 
-**Inventory at c96148ea4; HR04–HR08 migration authorized.** Keep compilation facts and semantic rules
-in kagari-hir; derive editor products outside it. This supersedes the earlier new tool-crate
-sketch: prefer the existing kagari-analyzer package, with a protocol-neutral library surface
-for protocol-neutral editor queries. Its binary continues to handle LSP lifecycle/document sync;
-compiler, SDK and HIR production targets must not depend on it.
-
-```text
-syntax + source + installed declarations
-                ↓
-kagari-hir: structural HIR + resolution/type facts + diagnostics + checked admission
-   ├─ kagari-compiler: CheckedCompilation → MIR / bytecode
-   ├─ kagari-lint: optional rules, usage summaries and attribute policy scopes
-   └─ kagari-analyzer: IDE queries + demand-built indexes
-                        └─ LSP messages, client versions and request lifecycle
-```
-
-### Retain in HIR
-
-| Current owner | Compilation/shared responsibility |
-| --- | --- |
-| hir/, lower/ | Owned declarations/bodies/type syntax, typed IDs, attributes and structural origins |
-| imports/, resolver/, declarations | Imports, namespaces, visibility, binding/definition identities and captures |
-| types/, typeck/, aggregates/, semantic/ | Inference/constraints, resolved types, fields/calls/conversions, constants, layouts/contracts and positive checking evidence |
-| analysis/ | Shared staged preparation/results, exact input validity, cancellation, signature/body checking and fact remapping; not LSP request state |
-| program/, compile_input/ | Fixed checked dependency closure and compiler admission of matching nodes/facts/environments |
-| source_map | Diagnostic/debug/reuse/admission origins; split navigation-derived fields, not the whole map |
-| source_inspection, update_source | Authored declaration extents, source-package capture and checked static-initializer reload evidence |
-
-Recovery and diagnostics remain core: bad source cannot confer compilation authority, but
-useful semantic facts may survive errors. AnalysisSnapshot/SourceSnapshot and cancellation
-are not LSP-only concepts. typeck/completion means control-flow completion, not code completion.
-
-### Move editor projections
-
-Paths below are under crates/kagari-hir/src; destinations are proposals, not existing APIs.
-
-| Current symbols | Proposed destination | Consumer evidence / seam |
-| --- | --- | --- |
-| FileAnalysis type_at, definition_at, field_at, source_function_at, member_receiver_type, visible_bindings; signature/body offset adapters | analyzer IDE queries | SDK examples/tests consume them; no compiler/lint production calls found. Keep node-keyed facts and identity lookup in HIR. |
-| AnalysisSnapshot analysis_at/definition_at and queries/namespaces | analyzer navigation | Physical offset → logical inline module → semantic target; preserve Type/Value namespaces, shadowing and import origins. |
-| queries/calls | analyzer signature help | Position selection and presented parameter names differ from compiler AppliedCallSignature, which stays core. |
-| queries/documentation | analyzer documentation | Markdown/written-signature composition; SDK/stdlib tests consume it. Registered docs and source origins stay with their owners. |
-| queries/methods | split semantic eligibility from analyzer completion | Completion ordering/deduplication/context selection moves; receiver substitution, trait/bound and visibility rules remain shared semantic operations. |
-| FileAnalysis.type_hits + analysis/type_targets::type_hits | demand-built analyzer NavigationIndex | Eagerly built in analysis.rs for every new full-file result; only namespace/navigation queries read it. Move construction, not just accessors. |
-
-Neither hover composition nor a complete references/rename index is implemented in the
-current analyzer. Do not describe future editor features as existing coverage. SDK/compiler
-must not acquire an LSP dependency; move editor examples/tests or use explicit adapters.
-
-### Split mixed storage before moving it
-
-| Current storage | Retain core | Derive outside HIR |
-| --- | --- | --- |
-| ResolvedNames scopes/binding_sites | Canonical binding identity/name/rebinding policy, captures and resolver work state needed by checking/emission | Persistent byte-offset visibility/shadow history for a ScopeIndex |
-| Declarations targets/identities/location/site_ranges | Definition/generic identities and authoritative source origins | DeclarationSiteIndex and cursor selection; preserve analysis coordinates versus copied/native physical locations |
-| ResolvedNames lookup_hits/path_hits; ModuleImportFacts.path_hits | Selected resolution, imports, dependency/support facts and diagnostics | Prefix navigation hits, built from settled semantic facts |
-| SourceMap type/expr/import prefix paths | Origins required for diagnostics, debug, admission and reload | Joined-prefix expansion and position indexes; review individual fields before removal |
-| TypeTable.type_refs / ResolvedTypeRef.target | **Keep resolved declaration targets.** Alias expansion, generic/Self constraints and reload evidence use them. | Position-to-TypeRef/target lookup, not the semantic relation itself |
-
-Import-prefix collection currently also records solver observations and participates in
-checkpoint equality. Separate navigation after import settlement without weakening watcher/
-convergence/cancellation behavior. This is not a safe field deletion. Likewise, scope history
-currently backs compiler binding lookup: first establish an identity-keyed binding directory,
-then extract editor visibility history. Do not move either complete subsystem blindly.
-
-### Move lint projections to lint, not LSP
-
-- queries/usage::binding_usage and BindingUsage feed kagari-lint rules.rs in production.
-  Lint owns read/write counts and unused/unnecessary-var projections; HIR retains selected
-  bindings, captures, writeability and positive body/static eligibility.
-- queries/attributes::ScopedAttribute/scoped_attributes feed kagari-lint policy.rs.
-  Lint owns lexical suppression/inheritance projection; Module.attributes and typed targets,
-  source ranges, language-role checks and Native attribute admission remain core.
-
-### Ownership sketch
-
-```text
-HIR semantic result                    IDE view (outside HIR)
-├─ matching source/HIR and definition scope  ├─ reference to / owner of that result
-├─ resolution/type/call/constraint facts     ├─ NavigationIndex / DeclarationSiteIndex
-├─ diagnostics and checking evidence        ├─ ScopeIndex
-└─ checked compiler projection              └─ completion/hover/docs/reference products
-```
-
-Raw facts are queried by node/declaration ID; editor services select a node from a cursor.
-For value.method(), HIR determines receiver type and eligible/selected methods. The analyzer
-selects the cursor context and presents candidates. LSP converts results to protocol objects.
-Start with demand-built/query-local indexes; cached indexes must retain exact semantic owners
-and validate provider/context/lowering inputs, not just file revision. No new VFS/line index:
-kagari-source already owns text, revisions, provenance and position conversion. Client document
-versions, request IDs, scheduling and stale-response policy belong to the analyzer session.
+The proposed retain/move/split inventory is implemented. The
+[architecture owner](architecture/hir.md#editor-query-views-and-indexes) documents `.queries()`
+views, canonical bindings, demand-built scope/site/navigation indexes and shared semantic
+member eligibility. HIR retains checked admission, `ResolvedTypeRef.target`, import solver
+observations and diagnostic/debug/reload origins. Lint projections are private to lint;
+compiler, SDK and HIR production targets do not depend on analyzer. No new LSP capability,
+references/rename index or scheduling model is implied.
 
 ### Cache policy is separate
 
-Keep owned parse preparation, distinct declaration/signature records and FunctionFacts versus
-query context. An unchanged body can share facts while a new invalid dependency changes its
-eligibility; returning an old whole query would be wrong. This remains true without arenas.
+Current caches retain owned declaration/signature/body records but only weak graph/query
+handles; full-file bundles are weakly indexed. Without a live matching graph, queries lower/check
+afresh. Native preparation retains validated registration/source/parse, not graph-local HIR.
+Body facts remain separate from query context: sharing a body cannot retain stale dependency
+validity or eligibility. See [cache ownership](architecture/hir.md#query-work-reuse-and-publication).
 
-Weak-only graph retention is current policy, **not a required semantic boundary**. It can force
-re-lowering/checking after callers drop results, including Native modules. Revisit bounded
-strong module/result caching independently: define retained units, invalidation/eviction and
-clone behavior first. Do not move semantic validity/remapping into LSP or blindly revert the
-record/context split. No cache-policy change or measured speedup is claimed by this review.
+A bounded strong-cache follow-up first needs a concrete warm-query/retained-result workload,
+retained unit, invalidation/eviction and clone contract, then measurements. It must preserve
+identity/remapping and fact/context separation. No policy change or speedup is part of HR04–HR08.
 
-### Naming candidates
+### Finite inline-identity follow-up
 
-| Current | Candidate / action | Reason |
-| --- | --- | --- |
-| HirArenaId | LoweringId | Identifies a lowering, not a memory allocator; changing/removing checks is separate. |
-| TypeTarget / target's navigation-only comment | ResolvedTypeTarget / semantic declaration-target wording | The relation participates in checking and reload, not just navigation. |
-| PreparedAnalysis | PreparedSignatures | Internal bundle is specifically the signature stage. |
-| FileAnalysis.type_hits | NavigationIndex.type_path_hits outside HIR | Names owner and purpose; remove eager core preparation. |
-| BindingInfo / MethodCompletion | VisibleBinding / CompletionCandidate in analyzer | Editor products, distinct from core binding/member facts. |
-| update_source | source_evidence, if renamed | Extracts authored/reload evidence; does not edit or publish source. |
+Audit generic parameters, local bindings and associated members only for concrete cases where
+an ID addresses a source-map slot instead of its authoritative record. The parameter repair
+does not authorize a uniform ID representation, physical per-owner storage or universal graph.
+Record a demonstrated mismatch and its consumers before activating another slice.
 
-Do not mechanically rename AnalysisDatabase/AnalysisSnapshot as LSP concepts. FileAnalysis
-actually represents logical modules, while AnalyzedModule already names its payload; settle
-that wrapper/payload boundary before considering ModuleAnalysis. BodySignatures normalization
-naming is optional, not necessary for the editor extraction. No broad rename is activated.
-
-### Implementation plan and preservation
-
-The existing [HIR plan](hir-storage-design.md#compilertool-implementation-plan) now owns
-active HR04–HR08: independent lint extraction, one coherent IDE API cutover, binding/scope
-separation, path/origin cleanup, then focused naming and final integration. The IDE query
-closure moves together because documentation/navigation/completion call shared offset helpers.
-Existing mixed metadata is a bounded intermediate input, removed by HR06/HR07; it is not a
-compatibility API or completed separation.
-
-Move editor assertions to their new owner; preserve mixed tests' semantic halves. Retain
-incomplete-source, copied/native origins, UTF-8/CRLF, inline routing, dual namespaces, equal-glob
-origins, cancellation, old snapshots, capture/eligibility, exact Native admission and source-free
-compiler/reload contracts. Actual validation is recorded in the active plan.
-HR04 lint extraction is implemented; cache-policy changes remain outside this migration.
-
-Mechanism reference: [rust-analyzer architecture at Rust 5f4effd57950](https://github.com/rust-lang/rust/blob/5f4effd57950/src/tools/rust-analyzer/docs/book/src/contributing/architecture.md)
-separates the resolved hir facade, IDE offset/label services and LSP transport. Adopt that
-responsibility distinction, not its ECS/Salsa/query framework or crate count. Unlike that
-IDE-only semantic frontend, Kagari must also preserve its checked compiler/reload handoff.
+`LoweringId`, `ResolvedTypeTarget` and internal `PreparedSignatures` name current roles;
+`VisibleBinding`/`CompletionCandidate` name analyzer products. `FileAnalysis`/`AnalyzedModule`,
+`BodySignatures` and `update_source` stay unchanged. Broader naming, incremental parsing,
+function-granularity reuse/reclamation and LSP scheduling require separate scope.
 
 ## Deferred LoweredModule boundary
 
-LoweredModule should describe structural HIR and origins, not library configuration or
-checked contracts. Its physical snapshot shape follows the storage design. Optional source
-text/direct Rust authoring and the Native field redistribution below are not part of that cut.
+This is a deferred proposal, not the implemented HR04–HR08 storage model. LoweredModule
+would describe structural HIR and origins, not library configuration or checked contracts.
+Optional source text/direct Rust authoring and the Native field redistribution below remain open.
 
 Module owns ordinary declarations in its category tables. Attribute targets use declaration
 identity without requiring a universal owner table. Each function owns its implementation

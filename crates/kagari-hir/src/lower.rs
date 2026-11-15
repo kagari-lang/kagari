@@ -71,7 +71,7 @@ pub struct LoweredModule {
     pub source: Arc<SourceFile>,
     /// Owned declaration collections and node storage.
     pub module: Module,
-    /// ID-aligned source positions sharing the module body's arena.
+    /// ID-aligned source positions sharing the module body's lowering identity.
     pub source_map: SourceMap,
     /// Whether this unit was imported from an installed native declaration module.
     pub(crate) registered_native_api: bool,
@@ -130,7 +130,7 @@ impl LoweredModule {
     }
 }
 
-/// Parses and lowers a source file using a fresh arena and default cancellation.
+/// Parses and lowers a source file using a fresh lowering identity and default cancellation.
 ///
 /// This convenience entrypoint returns structural HIR, not parse diagnostics or
 /// checked analysis. Use [`crate::analysis::AnalysisDatabase`] for the diagnostic
@@ -171,7 +171,7 @@ pub fn lower_module(source: &SourceFile) -> LoweredModule {
     lower_module_controlled(Arc::new(source.clone()), &syntax, &Default::default())
 }
 
-/// Lowers a logical AST view and its matching source into a fresh HIR/source-map arena.
+/// Lowers a logical AST view and its matching source into fresh owned HIR/source-map tables.
 ///
 /// The caller must pair the view with its retained source revision and keep parse
 /// diagnostics separately. Cancellation may leave partial structural HIR; callers

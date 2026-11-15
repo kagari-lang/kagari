@@ -12,7 +12,7 @@ use crate::{
     typeck::{
         constraints,
         state::TypeCheckState,
-        table::{ResolvedTypeRef, TypeTable, TypeTarget, match_implementation},
+        table::{ResolvedTypeRef, ResolvedTypeTarget, TypeTable, match_implementation},
         ty::{self, TypeContext, resolve_named_type, resolve_type_in},
     },
     types::{AssociatedTypeFamily, AssociatedTypeParameters, NominalType, TypeId},
@@ -533,7 +533,7 @@ fn owner_predicates<'a>(
 }
 
 fn projection_reference(ty: TypeId, member: DefinitionId) -> ResolvedTypeRef {
-    let target = (ty != TypeId::Error).then_some(TypeTarget::AssociatedType(member));
+    let target = (ty != TypeId::Error).then_some(ResolvedTypeTarget::AssociatedType(member));
     ResolvedTypeRef { ty, target }
 }
 

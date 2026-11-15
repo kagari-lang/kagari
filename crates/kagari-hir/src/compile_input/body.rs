@@ -6,7 +6,7 @@ use crate::{
     hir::{
         body::Body,
         expr::{ClosureParam, ExprData, ExprKind},
-        ids::{BlockId, BodyOwner, ExprId, HirArenaId, HirOwner, PatternId, PlaceId, StmtId},
+        ids::{BlockId, BodyOwner, ExprId, HirOwner, LoweringId, PatternId, PlaceId, StmtId},
         pattern::PatternData,
         place::PlaceData,
         stmt::{BlockData, StmtData},
@@ -28,13 +28,13 @@ use kagari_common::{
 /// Identity of a source body in one admitted module and lowering.
 ///
 /// The fields form a lookup key, not compilation authority. Fresh source lowering
-/// changes the arena even if the declaration keeps the same function slot.
+/// changes the lowering identity even if the declaration keeps the same function slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BodyKey {
     /// Checked semantic module identity, independent of source path spelling.
     pub module: ModuleHandle,
-    /// Lowering allocation that owns every node used by this body.
-    pub arena: HirArenaId,
+    /// Lowering identity that qualifies every node used by this body.
+    pub arena: LoweringId,
     /// Function or initializer declaration within that lowering.
     pub owner: BodyOwner,
     /// Nested closure/async expression within that owner, or `None` for its root.
@@ -58,7 +58,7 @@ pub enum BodyRoot {
 /// A callee's member syntax need not itself be a value operation. Elaboration
 /// validates the facts required by each operation, not every optional table row.
 ///
-/// IDs from another owner or arena return `None`, even inside the same module.
+/// IDs from another owner or lowering return `None`, even inside the same module.
 /// Construction is private to closure admission; recovery results cannot create
 /// this view. No method exposes the full analysis record or mutable type table.
 #[derive(Clone, Copy)]
@@ -131,7 +131,7 @@ impl<'a> CheckedBodyInput<'a> {
         self.environment
     }
 
-    fn owns(self, arena: HirArenaId, owner: HirOwner) -> bool {
+    fn owns(self, arena: LoweringId, owner: HirOwner) -> bool {
         arena == self.key.arena && owner == HirOwner::Body(self.key.owner)
     }
 
@@ -171,11 +171,11 @@ impl<'a> CheckedBodyInput<'a> {
         Some(self.origins.expr_span(id))
     }
 
-    /// Selects a nested callable root without allocating another source arena.
+    /// Selects a nested callable root within the existing lowered node storage.
     ///
     /// Closure captures can refer to enclosing bindings with the same allocation
     /// owner. The nested key identifies the callable, while traversal starts at
-    /// its own expression root and never enters another named function's arena.
+    /// its own expression root and never enters another named function's nodes.
     pub fn closure(self, id: ExprId) -> Option<Self> {
         let body = match &self.expression(id)?.kind {
             ExprKind::Closure { body, .. } | ExprKind::AsyncBlock { body } => *body,

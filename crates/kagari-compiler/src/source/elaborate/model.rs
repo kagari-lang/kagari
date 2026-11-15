@@ -396,7 +396,7 @@ pub struct CallableBody {
 }
 
 /// One expanded root and its structural descendants. Nested callable bodies are
-/// expanded separately, so retaining a closure does not duplicate its owner's arena.
+/// expanded separately, so retaining a closure does not duplicate its owner's node storage.
 /// No analysis snapshot, type table or syntax resolver survives in this result.
 #[derive(Debug)]
 pub struct CheckedBody {

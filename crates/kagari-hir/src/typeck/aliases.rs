@@ -16,7 +16,7 @@ use crate::{
     typeck::{
         GenericBounds, ModuleSignatures, applications, associated, check, constraints, interfaces,
         state::TypeCheckState,
-        table::{TypeTable, TypeTarget},
+        table::{ResolvedTypeTarget, TypeTable},
         ty::{TypeContext, resolve_type_in},
     },
     types::{TypeId, TypeSubstitution},
@@ -240,7 +240,7 @@ impl AliasValidation<'_> {
         if self.cancel.check().is_err() {
             return;
         }
-        let Some(TypeTarget::Source(id)) = self
+        let Some(ResolvedTypeTarget::Source(id)) = self
             .table
             .type_ref(reference)
             .and_then(|reference| reference.target.as_ref())

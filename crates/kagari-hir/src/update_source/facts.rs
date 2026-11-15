@@ -8,7 +8,9 @@ use crate::{
         ids::{ExprId, HirOwner},
     },
     resolver::resolved::ResolvedName,
-    typeck::table::{CallTarget, ResolvedCall, ResolvedInterfaceImplementation, TypeTarget},
+    typeck::table::{
+        CallTarget, ResolvedCall, ResolvedInterfaceImplementation, ResolvedTypeTarget,
+    },
     types::semantic::{lower_nominal_type, lower_type},
     update_source::{BodyBuilder, FactKind, SourceBudget, definition},
 };
@@ -420,13 +422,19 @@ pub(super) fn collect(
         }
         if let Some(fact) = table.type_ref(id) {
             let target = match &fact.target {
-                Some(TypeTarget::Source(id) | TypeTarget::AssociatedType(id)) => Some(*id),
-                Some(TypeTarget::Struct(id)) => {
+                Some(ResolvedTypeTarget::Source(id) | ResolvedTypeTarget::AssociatedType(id)) => {
+                    Some(*id)
+                }
+                Some(ResolvedTypeTarget::Struct(id)) => {
                     Some(definition(module, ResolvedName::Struct(*id))?)
                 }
-                Some(TypeTarget::Enum(id)) => Some(definition(module, ResolvedName::Enum(*id))?),
-                Some(TypeTarget::Trait(id)) => Some(definition(module, ResolvedName::Trait(*id))?),
-                Some(TypeTarget::OpaqueType(id)) => {
+                Some(ResolvedTypeTarget::Enum(id)) => {
+                    Some(definition(module, ResolvedName::Enum(*id))?)
+                }
+                Some(ResolvedTypeTarget::Trait(id)) => {
+                    Some(definition(module, ResolvedName::Trait(*id))?)
+                }
+                Some(ResolvedTypeTarget::OpaqueType(id)) => {
                     Some(definition(module, ResolvedName::OpaqueType(*id))?)
                 }
                 _ => None,

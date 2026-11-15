@@ -1,7 +1,7 @@
 //! Imported call contracts are projections of independently checked signatures.
 
 use crate::{
-    PreparedAnalysis,
+    PreparedSignatures,
     aggregates::AggregateCatalog,
     declarations::Declaration,
     imports::{SourceDeclRef, SourceItem},
@@ -56,11 +56,11 @@ impl ImportedFunctions {
 
 /// Borrowed prepared modules used to project checked signatures into importer environments.
 pub(crate) struct FunctionCatalog<'a> {
-    modules: HashMap<FileId, &'a PreparedAnalysis>,
+    modules: HashMap<FileId, &'a PreparedSignatures>,
 }
 
 impl<'a> FunctionCatalog<'a> {
-    pub(crate) fn new(modules: impl IntoIterator<Item = &'a PreparedAnalysis>) -> Self {
+    pub(crate) fn new(modules: impl IntoIterator<Item = &'a PreparedSignatures>) -> Self {
         Self {
             modules: modules
                 .into_iter()

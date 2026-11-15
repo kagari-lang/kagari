@@ -340,7 +340,8 @@ produce source diagnostics instead of disappearing during lowering.
 Native declaration inputs participate in analysis caching and body reuse.
 Snapshots retain their checked declarations, signatures, documentation and scoped
 definition IDs; a definition from another context cannot resolve by coincident index.
-FileAnalysis's source_function_at query returns the ordinary callable target at a
+Analyzer's `FileQueries::source_function_at`, opened with `file.queries()` after importing
+`kagari_analyzer::AnalyzerQueries`, returns the ordinary callable target at a
 free-function callee or import without executing code, including through source
 facades. Definition and member queries use the same checked declaration identities.
 Changing the catalog invalidates semantic reuse while unchanged source can reuse
@@ -1009,7 +1010,7 @@ later cannot retarget an existing version. Debug names are diagnostic text only.
 Source field reads select a unique declared nominal field chain. HIR owns the
 field identities, result types, root expression and selected contract; missing or
 ambiguous paths produce `KG_HOST_PATH_INVALID` while keeping known field facts
-available to tools. `FileAnalysis::field_at` selects the common field identity;
+available to tools. Analyzer's `FileQueries::field_at` selects the common field identity;
 resolve its type/access facts in the owning shared schema and its documentation
 in the declaring ModuleDecl's documentation map. External fields need not have a
 source declaration location. These recovery facts do not supply an executable

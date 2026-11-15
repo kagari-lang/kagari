@@ -3,7 +3,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    PreparedAnalysis,
+    PreparedSignatures,
     declarations::Declaration,
     identity_mapping::map_hash_entries,
     imports::{SourceDeclRef, SourceItem},
@@ -42,7 +42,7 @@ impl ImportedConstants {
     }
 
     pub(crate) fn bindings(
-        modules: &HashMap<FileId, &PreparedAnalysis>,
+        modules: &HashMap<FileId, &PreparedSignatures>,
         checked: &HashMap<FileId, Arc<CheckedConstants>>,
         names: &DeclarationNames,
         cancel: &CancellationToken,

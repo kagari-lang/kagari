@@ -459,8 +459,9 @@ in [architecture](architecture.md#language-server-foundation), and the
 [editor guide](../editors/README.md) owns installation and selected local validation.
 The complete editor-tooling CI job, full syntax-example inventory, clean Linux
 installation and broader editor/platform matrix remain pending CI. Windows local
-acceptance does not establish those results. Semantic IDE features, editor
-server-launch integration and marketplace publication remain deferred.
+acceptance does not establish those results. The protocol-neutral analyzer query library is
+implemented; exposing semantic IDE features over LSP, editor server-launch integration and
+marketplace publication remain deferred.
 
 Before the next actual-editor acceptance, reconcile the pre-existing single-quote
 oracle drift: `editors/tests/vscode-host/index.cjs` expects no apostrophe autoclose,
@@ -690,47 +691,49 @@ performance improvement or exhaustive documentation coverage is claimed.
 
 ### HIR storage and attribute refactor
 
-[HIR responsibility and identity cleanup](hir-storage-design.md) now preserves owned,
-ID-linked category tables and existing inline records. The user withdrew the external-arena,
-direct-reference and physical owner-table migration, not declared it complete. No new session,
-SnapshotId or node-level Arc model is required. Existing result/module sharing stays unchanged.
+HR00–HR08 implementation is complete; required acceptance remains open. The
+[HIR architecture](architecture/hir.md) owns current structures and contracts: owned ID-linked
+`Module`/`Body`, function-local parameters, typed attributes, canonical binding records,
+analyzer `.queries()` views and demand-built editor indexes, and private lint projections.
+`LoweringId`, `ResolvedTypeTarget` and internal `PreparedSignatures` clarify existing roles.
+The external-arena/direct-reference migration was withdrawn, not completed. Cache policy
+is unchanged: owned semantic records do not keep weakly indexed HIR graphs alive.
+The completed execution plan is removed; Git history retains its phase ledger.
 
-HR00 records current data owners; HR01 fixes parameter identity: Function.params owns the
-records and parameter positions, while SourceMap registers their source sites instead of
-allocating module-wide parameter slots. Keep lowering/owner validation, semantic facts,
-edit remapping, Native bindings and checked compiler admission. HR02 now attaches attributes
-to typed targets during lowering and stores them on Module. Authored uses have one identity
-across flattened leaves, and required associated members use owner/category slots. Role,
-alias and lint consumers no longer identify targets by span; no universal node graph or
-automatic scope expansion is included. Other inline-identity work remains deferred. HR03 removes the 21 plain Vec Buffer aliases
-throughout HIR, spelling storage explicitly without changing layout or adding wrappers.
-SmallVec capacity aliases remain; MIR/bytecode storage types are outside this cleanup.
-Checkpoint commits remain authorized. HR00 records the narrowed scope. HR01 now implements
-function-local parameter positions, explicit source registration, checked structural/typed
-lookup and signature remapping. Param no longer stores constant writeability; resolver and
-checked source signatures impose Val. Eleven focused follow-up tests preserve rebinding
-rejection, mutable-object behavior, owner checks and reuse. Sixteen focused HIR, two compiler and two SDK tests pass;
-structure, changed-file formatting, HIR Clippy and diff checks pass. Workspace fmt still fails
-in untouched syntax tokens.rs, and workspace Clippy at compiler placement.rs:110. Touched
-hir/ids.rs is formatted. HR02's 49 selected HIR/lint/compiler/SDK tests pass, as do structure,
-changed-file formatting, HIR/lint Clippy, fixture and diff checks. Full workspace tests/matrices
-remain CI-only; acceptance is not all-green.
+**Local evidence:** 144 analyzer library, 19 lint and four stdio tests pass.
+Focused HIR/compiler/source-free cases cover import settlement/cancellation, captures,
+rebinding, stale identities, reuse and checked artifact boundaries. Dependency/compile-route
+audits find no production HIR/compiler/SDK → analyzer edge or eager editor-index preparation.
+This samples the affected boundaries, not the full workspace/backend/platform matrix, and
+makes no speedup claim. HR08 additionally passes 52 selected identity/staged-analysis,
+compiler/admission and actual-native reload tests, affected all-target checks, SDK native-only
+library check, scoped Clippy, structure and changed-file formatting. A read-only review found
+no actionable introduced bug in the binding, scope, navigation or member-checking boundaries;
+its focused tests also pass. Strict private-item HIR/analyzer rustdoc, all four HIR
+doctests, final diff and documentation-link checks pass.
 
-The implemented syntax/semantic-record and Native-preparation splits remain in place, including
-current weak graph/query indexes. No-live-graph queries still rebuild/check; cache retention
-policy is not being rewritten to serve the withdrawn arena design. The plan retains the
-existing workspace fmt/Clippy blockers and makes no performance or workspace-pass claim.
-[Native model](hir-model-review.md) remains deferred.
-[Compiler/tool separation](hir-model-review.md#compiler-and-tooling-boundary) is authorized,
-with its consumer-backed retain/move/split inventory and active
-[HR04–HR08 implementation plan](hir-storage-design.md#compilertool-implementation-plan): lint
-projections → coherent analyzer-library/IDE API cutover → bindings/scopes → path/origin
-cleanup → focused naming/integration. Keep shared compilation facts/admission in HIR and
-remove temporary mixed-data access in its designated phase. Scope/import history needs a
-mixed-data split, not wholesale removal. HR04 moves usage/attribute-policy projections to
-lint; 27 selected tests and scoped checks pass. Continue HR05–HR08 with phased commits;
-cache retention stays unchanged. Incremental parsing/LSP scheduling remain deferred; NC restoration
-keeps its existing owner.
+**Outstanding acceptance:**
+
+- Baseline `imports::tests::types::body_edit_cannot_reuse_signatures_after_transitive_type_change`
+  fails at `crates/kagari-hir/src/imports/tests/types.rs:88`, expecting reuse after dropping
+  the initial snapshot. Since `10ef6a15c`, weak retention correctly forces fresh checking.
+  Reproduced on original `c96148ea4`; a temporary probe retaining the initial snapshot passes
+  on original/current code. No cache-policy change or baseline-test repair is included.
+  The HIR reuse-test owner must reconcile the lifetime assumption without weakening
+  transitive-type invalidation. Reproduce with
+  `cargo test -p kagari-hir --lib imports::tests::types::body_edit_cannot_reuse_signatures_after_transitive_type_change -- --exact`.
+- `cargo fmt --all -- --check` is blocked by untouched
+  `crates/kagari-syntax/src/ast/tokens.rs`; workspace all-target Clippy reports
+  `needless_range_loop` at `crates/kagari-compiler/src/bytecode/placement.rs:110`.
+  These remain syntax/compiler-owner follow-ups, not authorized unrelated repairs.
+  Both required commands were rerun after HR08 and fail only at these known findings;
+    required workspace acceptance is not green.
+- Exhaustive workspace tests and feature/backend/platform matrices remain CI-only and pending.
+
+**Separate deferred work:** [inline identities](hir-model-review.md#finite-inline-identity-follow-up),
+[cache retention](hir-model-review.md#cache-policy-is-separate),
+[Native model](hir-model-review.md#native-model), incremental parsing, finer body reuse/reclamation
+and LSP scheduling. NC restoration keeps its existing owner.
 
 ## Compilation cancellation polling
 
@@ -1861,8 +1864,8 @@ general flow/model migrations remain outside this repair.
 
 Full-workspace tests and the complete feature/backend/platform matrix remain
 CI-owned and unrun locally. The remaining
-[syntax/HIR follow-ups](review.md#syntax-and-hir-follow-ups), including historical
-selected-body cache retention and ambiguous comma-separated lookahead costs, and
+[syntax/HIR follow-ups](review.md#syntax-and-hir-follow-ups), including the separate
+cache-retention policy decision and ambiguous comma-separated lookahead costs, and
 SA11 remain outside these repairs.
 
 The authorized R15 -> R11 -> R12 repairs are implemented. The

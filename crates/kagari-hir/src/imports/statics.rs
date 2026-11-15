@@ -1,7 +1,7 @@
 //! Runtime static contracts projected from checked declaration signatures.
 
 use crate::{
-    PreparedAnalysis,
+    PreparedSignatures,
     declarations::Declaration,
     hir::writeability::Writeability,
     identity_mapping::map_hash_entries,
@@ -46,7 +46,7 @@ impl ImportedStatics {
     }
 
     pub(crate) fn bindings(
-        modules: &HashMap<FileId, &PreparedAnalysis>,
+        modules: &HashMap<FileId, &PreparedSignatures>,
         names: &DeclarationNames,
         cancel: &CancellationToken,
     ) -> Result<Self, Cancelled> {

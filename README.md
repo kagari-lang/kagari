@@ -64,13 +64,15 @@ The aim is to keep the scripting model ergonomic without giving up the host appl
 
 The repository is organized as a Rust workspace so that major responsibilities are separated:
 
-The [architecture](docs/architecture.md) describes the fifteen active crates;
+The [architecture](docs/architecture.md) describes the workspace crates;
 the [roadmap](docs/implementation-roadmap.md) records pending work.
 
 - `kagari-common`: portable identities, numeric semantics, limits and host schemas
 - `kagari-source`: source documents, revisions, diagnostics, literals and navigation provenance
 - `kagari-syntax`: lexer, parser, CST and AST views
-- `kagari-hir`: recoverable semantic analysis, resolution, typing and tool queries
+- `kagari-hir`: owned ID-linked HIR, recoverable resolution/typing and checked compiler admission
+- `kagari-analyzer`: protocol-neutral `.queries()` views and demand-built IDE indexes; separate stdio LSP lifecycle
+- `kagari-lint`: optional rules and private usage/attribute-policy projections
 - `kagari-abi`: physical representations, helper calls and native code ownership
 - `kagari-contract`: semantic declarations, checked calls/layouts and portable verification
 - `kagari-mir`: concrete CFGs, verification, analyses, passes and portable encoding

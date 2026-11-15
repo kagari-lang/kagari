@@ -4,8 +4,8 @@ use crate::identity_mapping::map_hash_entries;
 use crate::typeck::table::{
     CallTarget, ResolvedAssociatedConst, ResolvedCall, ResolvedEnumConstructor, ResolvedHostPath,
     ResolvedHostPlacePath, ResolvedInterfaceCoercion, ResolvedInterfaceImplementation,
-    ResolvedIteration, ResolvedStructInit, ResolvedTypeRef, TraitImplementation, TypeTable,
-    TypeTarget,
+    ResolvedIteration, ResolvedStructInit, ResolvedTypeRef, ResolvedTypeTarget,
+    TraitImplementation, TypeTable,
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -16,25 +16,27 @@ use kagari_common::{
     },
 };
 
-impl RemapDefinitions for TypeTarget {
+impl RemapDefinitions for ResolvedTypeTarget {
     fn remap_definitions(
         &self,
         mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
-            Self::OpaqueType(field0) => TypeTarget::OpaqueType(*(field0)),
-            Self::Source(field0) => TypeTarget::Source(mapper.reference(field0)?),
-            Self::AssociatedType(field0) => TypeTarget::AssociatedType(mapper.reference(field0)?),
-            Self::Struct(field0) => TypeTarget::Struct(*(field0)),
-            Self::Enum(field0) => TypeTarget::Enum(*(field0)),
-            Self::Trait(field0) => TypeTarget::Trait(*(field0)),
-            Self::Generic(field0) => TypeTarget::Generic(*(field0)),
+            Self::OpaqueType(field0) => ResolvedTypeTarget::OpaqueType(*(field0)),
+            Self::Source(field0) => ResolvedTypeTarget::Source(mapper.reference(field0)?),
+            Self::AssociatedType(field0) => {
+                ResolvedTypeTarget::AssociatedType(mapper.reference(field0)?)
+            }
+            Self::Struct(field0) => ResolvedTypeTarget::Struct(*(field0)),
+            Self::Enum(field0) => ResolvedTypeTarget::Enum(*(field0)),
+            Self::Trait(field0) => ResolvedTypeTarget::Trait(*(field0)),
+            Self::Generic(field0) => ResolvedTypeTarget::Generic(*(field0)),
         })
     }
 }
 
-impl DefinitionReferences for TypeTarget {
+impl DefinitionReferences for ResolvedTypeTarget {
     fn visit_definition_ids(
         &self,
         visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,

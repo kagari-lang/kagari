@@ -16,7 +16,7 @@ use crate::{
         aliases::ExpansionBudget,
         associated,
         state::TypeCheckState,
-        table::{ResolvedTypeRef, TypeTarget},
+        table::{ResolvedTypeRef, ResolvedTypeTarget},
     },
     types::{NominalType, TypeId},
 };
@@ -41,22 +41,22 @@ pub(super) struct TypeContext<'a> {
 }
 
 fn alias_target<'a>(
-    target: Option<&TypeTarget>,
+    target: Option<&ResolvedTypeTarget>,
     declarations: &'a Declarations,
 ) -> Option<&'a CanonicalAlias> {
-    let TypeTarget::Source(id) = target? else {
+    let ResolvedTypeTarget::Source(id) = target? else {
         return None;
     };
     declarations.imported_types().alias(id)
 }
 
 pub(super) fn native_type(
-    target: Option<TypeTarget>,
+    target: Option<ResolvedTypeTarget>,
     declarations: &Declarations,
 ) -> Option<NativeTypeKind> {
     match target? {
-        TypeTarget::OpaqueType(id) => declarations.native_type(id),
-        TypeTarget::Source(id) => declarations
+        ResolvedTypeTarget::OpaqueType(id) => declarations.native_type(id),
+        ResolvedTypeTarget::Source(id) => declarations
             .imported_types()
             .by_declaration(&id)?
             .native_type
@@ -82,13 +82,13 @@ fn resolve_named_reference(
             .rev()
             .find(|param| param.name == name)
         {
-            target = Some(TypeTarget::Generic(param.id));
+            target = Some(ResolvedTypeTarget::Generic(param.id));
             context
                 .declarations
                 .generic_type(param.id)
                 .map(TypeId::Generic)
         } else if name == "Self" && context.self_type.is_some() {
-            target = context.self_type.map(TypeTarget::Trait);
+            target = context.self_type.map(ResolvedTypeTarget::Trait);
             context
                 .declarations
                 .definition(ResolvedName::Trait(context.self_type?))
@@ -108,7 +108,7 @@ fn resolve_named_reference(
                         .imported_types()
                         .resolved(resolved.clone())
                     {
-                        target = Some(TypeTarget::Source(match &imported.declaration.id {
+                        target = Some(ResolvedTypeTarget::Source(match &imported.declaration.id {
                             DeclarationId::Definition(id) => *id,
                             _ => return None,
                         }));
@@ -121,7 +121,7 @@ fn resolve_named_reference(
                     }
                     let definition = *context.declarations.definition(resolved.clone())?;
                     if let ResolvedName::TypeAlias(_) = resolved {
-                        target = Some(TypeTarget::Source(definition));
+                        target = Some(ResolvedTypeTarget::Source(definition));
                         if !materialize_alias {
                             return Some(TypeId::Error);
                         }
@@ -142,11 +142,11 @@ fn resolve_named_reference(
                         .collect::<Vec<_>>();
                     Some(match resolved {
                         ResolvedName::OpaqueType(id) => {
-                            target = Some(TypeTarget::OpaqueType(id));
+                            target = Some(ResolvedTypeTarget::OpaqueType(id));
                             return context.declarations.native_type(id)?.apply(&arguments);
                         }
                         ResolvedName::Struct(id) => {
-                            target = Some(TypeTarget::Struct(id));
+                            target = Some(ResolvedTypeTarget::Struct(id));
                             TypeId::Struct(NominalType {
                                 associated_types: Default::default(),
                                 declaration: definition,
@@ -154,7 +154,7 @@ fn resolve_named_reference(
                             })
                         }
                         ResolvedName::Enum(id) => {
-                            target = Some(TypeTarget::Enum(id));
+                            target = Some(ResolvedTypeTarget::Enum(id));
                             TypeId::Enum(NominalType {
                                 associated_types: Default::default(),
                                 declaration: definition,
@@ -162,7 +162,7 @@ fn resolve_named_reference(
                             })
                         }
                         ResolvedName::Trait(id) => {
-                            target = Some(TypeTarget::Trait(id));
+                            target = Some(ResolvedTypeTarget::Trait(id));
                             TypeId::Trait(NominalType {
                                 associated_types: Default::default(),
                                 declaration: definition,
@@ -466,7 +466,7 @@ fn resolve_type_bounded(
                 cancel,
             );
             if resolved != TypeId::Error {
-                target = member_id.map(TypeTarget::AssociatedType);
+                target = member_id.map(ResolvedTypeTarget::AssociatedType);
             }
             resolved
         }

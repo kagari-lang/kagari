@@ -440,9 +440,9 @@ impl AnalysisDatabase {
 ///   definitions ----------------> scoped DefinitionId lookup table
 /// ```
 ///
-/// Created eagerly by [`AnalysisDatabase::snapshot`]. Position queries select the
-/// appropriate inline-module analysis when necessary and read existing facts;
-/// they do not execute scripts. [`Self::check_program`] validates a root's reachable
+/// Created eagerly by [`AnalysisDatabase::snapshot`] without editor indexes.
+/// Analyzer views select logical modules and derive cursor queries from these facts.
+/// Analysis does not execute scripts. [`Self::check_program`] validates a root's reachable
 /// closure for compiler handoff. Keeping a snapshot keeps its source and facts alive
 /// across later database edits.
 #[derive(Debug, Clone)]

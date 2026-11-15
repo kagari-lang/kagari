@@ -109,7 +109,7 @@ impl Surface {
 ///
 /// Returns None for changed declaration text, invalid/recovery ranges, unavailable
 /// correspondences or cancellation. Successful reuse rebuilds local type/source IDs
-/// against the new lowering; it does not copy old arena-qualified IDs unchanged.
+/// against the new lowering; it does not copy old lowering-qualified IDs unchanged.
 pub(crate) fn reuse_signatures(
     previous: &LoweredModule,
     previous_signatures: &AnalysisResult<ModuleSignatures>,
@@ -141,7 +141,7 @@ pub(crate) fn reuse_signatures(
         return None;
     }
     // Declaration order is unchanged. Body-local type annotations, however, may
-    // change both the lengths and indices of the shared type arena.
+    // change both the lengths and indices of the shared type-syntax tables.
     let mut old_types: HashMap<_, Vec<_>> = HashMap::new();
     for (index, span) in previous.source_map.type_spans().iter().enumerate() {
         cancel.check().ok()?;

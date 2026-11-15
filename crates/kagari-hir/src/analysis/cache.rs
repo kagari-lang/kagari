@@ -1,15 +1,15 @@
 //! Validate complete file and body inputs before retaining or remapping facts.
 use crate::{
-    AnalyzedModule, PreparedAnalysis,
+    AnalyzedModule, PreparedSignatures,
     analysis::{FileAnalysis, signatures::BodyEnvironment},
 };
 use kagari_common::cancellation::{CancellationToken, Cancelled};
 
 impl FileAnalysis {
-    /// Requires identical source revision/arena and semantic dependencies before sharing the whole file result.
+    /// Requires identical source revision/lowering and semantic dependencies before sharing the whole file result.
     pub(super) fn can_retain(
         &self,
-        prepared: &PreparedAnalysis,
+        prepared: &PreparedSignatures,
         previous: &AnalyzedModule,
         environment: &BodyEnvironment,
         cancel: &CancellationToken,
@@ -33,14 +33,14 @@ impl FileAnalysis {
         Ok(compatible)
     }
 
-    /// Checks semantic compatibility before attempting per-body remapping into a new arena.
+    /// Checks semantic compatibility before attempting per-body remapping into a new lowering.
     ///
     /// Allows changed source revisions, but requires matching module identity,
     /// import bindings, reachable namespaces, imported types/callables and aggregate contracts.
     /// The body reuse layer must still compare and remap individual body contents.
     pub(super) fn can_reuse_body(
         &self,
-        prepared: &PreparedAnalysis,
+        prepared: &PreparedSignatures,
         previous: &AnalyzedModule,
         environment: &BodyEnvironment,
         cancel: &CancellationToken,

@@ -60,6 +60,13 @@ still validates the receiving runtime's installed bindings before publication.
 
 ## Source snapshots
 
+Semantic analysis remains in `kagari-hir`; position-based editor queries are supplied by
+the separate `kagari-analyzer` library, not the SDK. Import `kagari_analyzer::AnalyzerQueries`
+and call `.queries()` on the retained declaration, signature, selected-body, file or snapshot
+result. For example, `file.queries().definition_at(offset)` borrows that file's facts without
+checking more source. See [query views and indexes](../architecture/hir.md#editor-query-views-and-indexes).
+Compiler/SDK production targets do not depend on analyzer; lint owns its own private projections.
+
 `FileAnalysis::signatures_reused()` and `FileSignatures::reused()` report whether
 their signature query reused earlier checked facts. Unchanged queries share the
 original result and its statistic. Body edits can reuse signatures even when body
@@ -105,7 +112,7 @@ per-file module names, named declarations and parse/declaration diagnostics.
 signature facts and signature diagnostics. Neither entry resolves body names,
 collects local bindings, checks bodies or evaluates constants. These queries are
 body-independent tools; their results cannot be passed to code generation.
-`FileSignatures::definition_at(byte_offset)` follows declaration sites and
+`SignatureQueries::definition_at(byte_offset)` follows declaration sites and
 checked signature type names, including imported source and shared external types.
 External type references select only the terminal name, including through aliases;
 qualifiers and separators have no type target. The declaration's scoped identity
@@ -123,7 +130,7 @@ recovery cannot introduce partial executable inputs. Retained handles keep their
 old facts across later edits. Lint policy is supplied to the separate linter,
 never to the SDK analysis environment.
 
-Semantic optional consumers use [HIR-owned eligibility and usage facts](../architecture/hir.md#optional-source-tool-facts).
+Optional semantic consumers use [HIR-owned eligibility and lint-owned usage projections](../architecture/hir.md#optional-source-tool-facts).
 The linter can report an unused binding in a healthy function alongside a required
 error in another function; neither partial facts nor diagnostic truncation can
 make the whole program check successfully. Source diagnostics use
@@ -144,9 +151,9 @@ Each successful query publishes its own cache, while cancelled queries and older
 source revisions cannot overwrite newer entries. Standalone function queries
 are available through `body(source, definition,
 cancel)`. This returns an immutable `FunctionAnalysis`, or `None` if the declaration
-has no body in that snapshot. Its type and receiver queries are restricted to the
-selected function, and its scope/declaration facts exclude neighboring local
-bindings. Raw local IDs belong to that result's lowering; retained binding handles
+has no body in that snapshot. Its analyzer `FunctionQueries` type/receiver view is restricted
+to the selected function, and its binding/declaration facts exclude neighboring local bindings.
+Raw local IDs belong to that result's lowering; retained binding handles
 cannot be resolved in a different analysis.
 
 Function queries resolve and check module constants as prerequisites, then only
@@ -164,10 +171,11 @@ Embedding diagnostic ranges contain file identity, document revision and byte
 range. Hosts must reject stale ranges before applying editor actions. UTF-8 and
 UTF-16 editor coordinates are checked conversions through the source line index.
 
-`FileAnalysis::definition_at(byte_offset)` follows resolved expression or assignment
-names to a declaration with a `FileSpan`. `visible_bindings(byte_offset)` returns
-typed declarations from the resolver's lexical scope facts, including match arm
-bindings and declaration-order shadowing. Neither query executes script or host code.
+`FileQueries::definition_at(byte_offset)` follows resolved expression or assignment
+names to a declaration with a `FileSpan`. `FileQueries::visible_bindings(byte_offset)`
+returns typed declarations from an analyzer-derived `ScopeIndex` over structure and canonical
+bindings, including match arm bindings and declaration-order shadowing. Neither query
+executes script or host code.
 Unresolved names have no navigation target; other functions remain queryable.
 Resolved trait method calls also navigate to their checked method declaration,
 including when argument checking reports an error. Field reads and assignment
@@ -179,7 +187,8 @@ field/const/local annotations and impl headers also provide type and definition
 queries. If a tuple or generic argument is unknown, later arguments still have
 their own facts and navigation targets. Builtin types have types but no source
 declaration target. User trait bounds and `where` targets also navigate through
-checked facts. Import paths still need dedicated navigation.
+checked facts. Import-prefix navigation uses `SnapshotQueries::source_targets_at`, preserving
+Type/Value categories and origins; `source_target_at` returns only a unique category/target.
 
 `TypeTable::call_resolution` owns each recognized call's target, optional receiver,
 and inferred type arguments in declaration parameter order. Arguments can refer
@@ -198,13 +207,15 @@ unknown fields remain explicit holes in an erroneous analysis. Field ABI generat
 uses checked types. Executable field layout/linking remains a separate boundary;
 the current bytecode field table still carries owner and field names.
 
-`TypeTable::type_ref` returns a checked type plus an optional declaration target.
+`TypeTable::type_ref` returns `ResolvedTypeRef`: a checked type plus an optional
+`ResolvedTypeTarget`. The target is semantic evidence for declaration/binder selection,
+not an editor index; alias checking, generic/Self constraints and reload evidence retain it.
 Generic parameter declarations are identified by owner and parameter position;
 renaming a parameter preserves this identity. Inherited parameters keep their
 trait/impl owner, and method parameters have their method owner. An implicit impl
 receiver uses the impl header's context even when a method shadows a generic name.
-Semantic Struct/Enum/Trait TypeId values currently carry the same DefinitionPath used by
-navigation. Generic TypeId equality and hashing use owner and parameter position;
+Semantic Struct/Enum/Trait `TypeId` values carry scoped `DefinitionId` identities;
+paths are explicit authoring/display projections. Generic TypeId equality and hashing use owner and parameter position;
 the retained parameter name is diagnostic metadata. Implicit Self has its own
 trait-owned type identity, distinct from an ordinary parameter named Self.
 Impl ABI types and interface validation
@@ -248,31 +259,31 @@ contracts and installed schemas before script execution. See
 [the shared registration contract](host-interop.md#type-registration) and the
 [private source-trait example](../../crates/kagari/examples/host_interfaces.rs).
 
-`FileAnalysis::field_at(offset)` returns the checked field identity for source and
+`FileQueries::field_at(offset)` returns the checked field identity for source and
 shared external fields in reads and assignment paths. Only the field name selects
 that identity; the receiver and `.` return `None`, including for a rejected write
 path. Resolve the identity through the snapshot's retained definition table and
 the owning schema. An external field need not have a source declaration location.
 This query reads checked offline facts and does not invoke a callback.
 
-`FileAnalysis::definition_at(offset)` applies the same name-only rule to checked
+`FileQueries::definition_at(offset)` applies the same name-only rule to checked
 source field reads, writes and method calls. A receiver position resolves its own
 binding; the `.` has no declaration target.
 
-`source_function_at` likewise limits a dotted callee to
+`FileQueries::source_function_at` likewise limits a dotted callee to
 its function name. A nested receiver call keeps its own declaration target.
 Qualified path expressions also navigate only on their final name: in
 `api::run()`, `run` can resolve to the imported function, while `api` and `::`
 do not resolve to that function. This applies to cross-file definition queries
 and enum-variant references. For `Event::Ready`, `Event` resolves to the enum
 declaration and `Ready` to the variant; `::` has no target. Reference-name
-ranges are captured from CST nodes
-during HIR lowering for paths and field reads; write-place member ranges are
-captured there as well. Queries do not infer them by scanning source text or
+ranges are derived on demand by analyzer `SourceSites` from the exact retained CST
+and matching whole-node HIR origins, including write-place members. Queries do not infer
+them by scanning source text or
 subtracting a name length from the whole expression range. Trailing trivia and
 non-ASCII comments therefore cannot move a target.
 
-Struct initializer type names and field labels use the same source-map rule.
+Struct initializer type names and field labels use the same retained-syntax site rule.
 The semantic table records each checked field identity in source order; a
 known label remains navigable when another initializer field or value is
 invalid. Unknown labels have no declaration target, and code generation still
@@ -288,11 +299,11 @@ Named declaration locations point to the identifier token. The HIR source map
 separately retains the complete item range for diagnostics and code lowering.
 The same token-boundary rule applies to local bindings and named members, so
 leading or trailing trivia does not become part of a declaration target.
-`FileAnalysis::definition_at` also resolves a declaration's own identifier,
+`FileQueries::definition_at` also resolves a declaration's own identifier,
 including named items, parameters, generic parameters and local bindings.
 Only explicitly recorded declaration sites participate; a synthetic module
 initializer or incomplete name cannot turn its wider source span into a target.
-`FileDeclarations::member_at` applies this rule to fields and enum variants
+`DeclarationFileQueries::member_at` applies this rule to fields and enum variants
 before body analysis; missing member names retain recovery facts but have no
 declaration-site target.
 
@@ -334,10 +345,11 @@ Parameters and locals additionally carry their owning body and an analysis insta
 identity. They must not be retained as bare arena indices across analyses.
 
 Raw HIR expression, block, statement, place, pattern, local, parameter and type
-reference IDs also carry an opaque `HirArenaId`. Their bare-index constructors are
+reference IDs also carry an opaque `LoweringId`. Their bare-index constructors are
 not public. Obtain them from the owning lowering; `index()` alone is not identity.
-An unchanged shared lowering retains its arena, while a newly constructed lowering
-has a distinct arena even when its source text/revision is identical. Semantic
+An unchanged shared lowering retains this identity, while fresh lowering has a distinct
+one even when source text/revision is identical. Existing `arena` fields/accessors refer to
+that identity, not an allocator. Semantic
 table lookups do not resolve foreign IDs. Low-level node and source-map access
 treats a foreign ID as a compiler invariant violation before indexing. Local IDs
 also carry `HirOwner`, distinguishing a function/constant `BodyOwner` from shared
@@ -350,7 +362,7 @@ Cache reuse explicitly rebases local IDs; arena IDs are not declaration identiti
 and do not enter executable artifacts. Analysis-scoped binding handles still carry
 their own body/analysis identity. HIR storage is shared at module granularity, while
 local IDs explicitly name the body that owns each node. `BodyOwner` is defined in
-`kagari_hir::hir` and is shared by lowering and semantic scopes.
+`kagari_hir::hir::ids` and is shared by lowering and semantic binding owners.
 
 `FieldId` and `VariantId` contain their lowering arena, owning struct/enum and
 declaration-order slot, exposed through `arena()`, `owner()` and `slot()`. They
@@ -358,16 +370,16 @@ cannot be constructed from public integers. Member lookup rejects foreign IDs;
 signature reuse remaps field type keys into the current arena. A variant's nominal
 declaration path contains its enum owner and a `Variant` name/occurrence segment,
 so reordering uniquely named variants changes slots without changing declaration
-identity. Source maps retain exact member-name ranges. `FileDeclarations::member_at`
-and `Declarations::member_at` query those declaration sites without analyzing bodies;
-`FileAnalysis::definition_at` returns the same declaration there.
+identity. Source maps retain exact member-name ranges. Analyzer's
+`DeclarationFileQueries::member_at` and `DeclarationQueries::member_at` select those sites
+without analyzing bodies; `FileQueries::definition_at` returns the same declaration there.
 Duplicate variant names retain separate identities and report
 `KG_RESOLVE_DUPLICATE_VARIANT` at the repeated name; erroneous declarations remain
 queryable, but cannot pass the checked-codegen boundary.
 
 Enum variants retain an ordered list of declaration-owned payload type references.
 Signature checking visits every payload annotation, preserving Error facts for
-unknown/missing types and usable facts for later members. `FileSignatures::type_at`
+unknown/missing types and usable facts for later members. `SignatureQueries::type_at`
 queries those annotations before body analysis. Full analysis retains their type
 declaration targets for navigation. The shared aggregate catalog includes nominal
 enum/variant signatures and payload types for reachable source dependencies;

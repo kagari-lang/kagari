@@ -3,7 +3,7 @@ use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_hir::{analysis::*, types::*};
 use kagari_hir::{
     hir::{ids::HirOwner, ty::TypeKind},
-    typeck::table::TypeTarget,
+    typeck::table::ResolvedTypeTarget,
 };
 use kagari_source::{
     diagnostic::DiagnosticKind,
@@ -53,7 +53,7 @@ fn impl_headers_keep_trait_targets_arguments_and_exact_source_positions() {
     let nominal = facts.typed.type_table().type_ref(valid.ty).unwrap();
     assert_eq!(
         nominal.target,
-        Some(TypeTarget::Trait(facts.lowered.module.traits[0].id))
+        Some(ResolvedTypeTarget::Trait(facts.lowered.module.traits[0].id))
     );
     assert!(facts.typed.type_table().constraint(valid.ty).is_some());
     let invalid = facts.typed.type_table().type_ref(applied.ty).unwrap();

@@ -28,7 +28,7 @@ use std::collections::HashMap;
 
 /// Declaration/binder identity selected for a source type reference, separate from its resulting type.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TypeTarget {
+pub enum ResolvedTypeTarget {
     /// Local native-backed type slot.
     OpaqueType(OpaqueTypeId),
     /// Canonical source type definition.
@@ -45,13 +45,14 @@ pub enum TypeTarget {
     Generic(GenericParamId),
 }
 
-/// A semantic type plus an optional navigable declaration/binder target.
+/// A semantic type plus the optional declaration/binder identity selected during resolution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedTypeRef {
     /// Resolved or recovered semantic type.
     pub ty: TypeId,
-    /// Navigation target; structural/intrinsic type forms may have no declaration target.
-    pub target: Option<TypeTarget>,
+    /// Semantic target used by alias, constraint and Native type checking, as well as navigation.
+    /// Structural/intrinsic type forms may have no declaration target.
+    pub target: Option<ResolvedTypeTarget>,
 }
 
 /// Selected callable category, distinct from the callee expression's name binding.
@@ -172,7 +173,7 @@ pub struct ResolvedIteration {
 ///
 /// Temporary inference holes and recursion guards belong to the private checking
 /// workspace and cannot be stored in this table. Semantic definition mapping does
-/// not remap HIR arenas; body and signature reuse use explicit source-map remappers
+/// not remap lowering-local IDs; body and signature reuse use explicit source-map remappers
 /// for local IDs.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TypeTable {

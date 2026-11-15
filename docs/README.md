@@ -64,16 +64,12 @@ below; the public Pages site has not been activated by this work.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
-- [HIR responsibilities and identity](hir-storage-design.md): preserve current owned category
-  tables and ID links; align record ownership, parameter positions and source metadata.
-  Function-local parameter identity and Module-owned, typed attribute attachment are implemented.
-  The arena/reference migration is withdrawn; cache behavior stays unchanged.
-  [Compiler/tooling boundary review](hir-model-review.md#compiler-and-tooling-boundary) records
-  the current retain/move/split and naming inventory. The
-  [HR04–HR08 plan](hir-storage-design.md#compilertool-implementation-plan) is active;
-  lint/editor projections and lexical/declaration indexes are extracted; path provenance
-    and focused naming remain in progress.
-  [Native model review](hir-model-review.md#native-model) remains deferred.
+- [HIR acceptance and follow-ups](implementation-roadmap.md#hir-storage-and-attribute-refactor):
+  HR00–HR08 implementation is complete on owned ID-linked tables; required acceptance remains
+  open. The [HIR guide](architecture/hir.md#editor-query-views-and-indexes) owns analyzer query
+  views, demand-built indexes and the compiler/lint boundary. The arena/reference migration
+  is withdrawn and cache policy is unchanged. [Review notes](hir-model-review.md) retain only
+  separate inline-identity/cache follow-ups and the deferred Native model.
 
 - [Runtime architecture](architecture/runtime.md), [call walkthrough](architecture/runtime/calls.md)
   and [reload walkthrough](architecture/runtime/reload.md): implemented exclusive

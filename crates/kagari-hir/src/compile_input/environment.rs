@@ -20,7 +20,7 @@ use std::collections::HashMap;
 /// Borrowed declaration environment of one admitted module.
 ///
 /// The fields share the checked snapshot's storage. This view exposes no body
-/// node arena, inference workspace, database callback or mutable fact table.
+/// node storage, inference workspace, database callback or mutable fact table.
 /// Generic binders and projections retain their definition scope; instance
 /// planning must use these same contracts when applying type arguments.
 #[derive(Clone, Copy)]

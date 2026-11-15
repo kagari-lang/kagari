@@ -3,9 +3,9 @@
 use crate::hir::{
     attribute::AttributeTarget,
     ids::{
-        BlockId, BodyOwner, ConstId, EnumId, ExprId, FieldId, FunctionId, GenericParamId,
-        HirArenaId, HirOwner, ImplId, LocalId, ModuleId, OpaqueTypeId, ParamId, PatternId, PlaceId,
-        StaticId, StmtId, StructId, TraitId, TraitMethodId, TypeAliasId, TypeRefId, VariantId,
+        BlockId, BodyOwner, ConstId, EnumId, ExprId, FieldId, FunctionId, GenericParamId, HirOwner,
+        ImplId, LocalId, LoweringId, ModuleId, OpaqueTypeId, ParamId, PatternId, PlaceId, StaticId,
+        StmtId, StructId, TraitId, TraitMethodId, TypeAliasId, TypeRefId, VariantId,
     },
     item::Item,
 };
@@ -38,12 +38,12 @@ use std::{collections::HashMap, mem};
 /// # Panics
 ///
 /// Dense range accessors panic for an invalid index; local-node accessors also check
-/// arena and owner. Required parameter/field/variant map lookups panic for an absent key.
-/// Plain declaration IDs do not carry an arena: callers must keep the matching map.
+/// lowering identity and owner. Required parameter/field/variant map lookups panic for an absent key.
+/// Plain declaration IDs do not carry a lowering identity: callers must keep the matching map.
 #[derive(Debug, Clone, Default)]
 pub struct SourceMap {
-    /// Arena identity shared with the matching HIR node storage.
-    arena: HirArenaId,
+    /// Lowering identity shared with the matching HIR node storage.
+    arena: LoweringId,
     /// Current allocation owner; restored when nested declaration lowering returns.
     owner: HirOwner,
     generic_param_spans: Vec<Span>,
@@ -187,8 +187,8 @@ impl SourceMap {
         LocalId::new(self.arena, self.local_owners[index], index)
     }
 
-    /// Returns the arena shared with the matching HIR node storage.
-    pub fn arena(&self) -> HirArenaId {
+    /// Returns the lowering identity shared with the matching HIR node storage.
+    pub fn arena(&self) -> LoweringId {
         self.arena
     }
 

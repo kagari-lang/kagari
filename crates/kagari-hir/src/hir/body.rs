@@ -1,8 +1,8 @@
-//! Owner-tagged node vectors and arena-checked access to a module's lowered bodies.
+//! Owner-tagged node vectors and lowering-checked access to a module's lowered bodies.
 
 use crate::hir::{
     expr::ExprData,
-    ids::{BlockId, ExprId, HirArenaId, HirOwner, LocalId, PatternId, PlaceId, StmtId, TypeRefId},
+    ids::{BlockId, ExprId, HirOwner, LocalId, LoweringId, PatternId, PlaceId, StmtId, TypeRefId},
     pattern::{PatternData, PatternKind},
     place::PlaceData,
     stmt::{BlockData, StmtData},
@@ -12,8 +12,9 @@ use crate::hir::{
 /// Node storage shared by all declarations and function/constant bodies in a module.
 ///
 /// The internal `Lowerer` appends a source-map entry and a node row at
-/// the same index. Each row carries its [`HirOwner`]; this is not a separate arena
-/// per function. Cloning preserves the arena identity and row order.
+/// the same index. Each row carries its [`HirOwner`]; storage uses ordinary owned
+/// vectors, not an allocator arena or separate per-function storage. Cloning preserves
+/// the lowering identity and row order.
 ///
 /// # Storage and lookup
 ///
@@ -44,23 +45,23 @@ use crate::hir::{
 /// declaration, pattern or closure records. ParamId indexes its owning function's
 /// parameter list; LocalId still addresses source-map slots and semantic binding maps.
 ///
-/// `arena` is synthesized once for the lowering and shared with SourceMap, not
+/// The historic `arena` field stores the lowering identity shared with SourceMap, not
 /// written in source. `HirOwner::Declaration` marks nodes outside function/constant
 /// construction; `Body(Function(f))` and `Body(Const(c))` mark those allocation
 /// contexts. `index` addresses the whole corresponding vector, not a per-owner
 /// list. Body::expressions reconstructs `(ExprId, &ExprData)` from these rows;
-/// payloads therefore need no self ID. New lowering creates a new arena; retaining
+/// payloads therefore need no self ID. New lowering creates a new identity; retaining
 /// a snapshot retains its matching rows and IDs rather than making IDs persistent.
 ///
 /// # Panics
 ///
-/// Node accessors panic for a foreign arena, wrong owner or out-of-range index.
+/// Node accessors panic for a foreign lowering, wrong owner or out-of-range index.
 /// These indicate mixed lowerings or invalid internal references, not user syntax
 /// errors. Retain the matching [`crate::lower::LoweredModule`] when retaining IDs.
 #[derive(Debug, Clone, Default)]
 pub struct Body {
-    /// Identity shared with the source map that allocated these rows.
-    pub(crate) arena: HirArenaId,
+    /// Lowering identity shared with the source map that assigned these row IDs.
+    pub(crate) arena: LoweringId,
     /// Block rows paired with their allocation owners.
     pub(crate) blocks: Vec<(HirOwner, BlockData)>,
     /// Statement rows paired with their allocation owners.
@@ -77,7 +78,7 @@ pub struct Body {
 
 impl Body {
     /// Returns the identity of this lowering, not a function or source revision.
-    pub fn arena(&self) -> HirArenaId {
+    pub fn arena(&self) -> LoweringId {
         self.arena
     }
 
@@ -97,7 +98,7 @@ impl Body {
             .map(|(index, (owner, place))| (PlaceId::new(self.arena, *owner, index), place))
     }
 
-    /// Visits type syntax in allocation order with matching arena/owner IDs.
+    /// Visits type syntax in allocation order with matching lowering/owner IDs.
     pub fn types(&self) -> impl Iterator<Item = (TypeRefId, &TypeData)> {
         self.types
             .iter()
@@ -105,7 +106,7 @@ impl Body {
             .map(|(index, (owner, ty))| (TypeRefId::new(self.arena, *owner, index), ty))
     }
 
-    /// Visits patterns in allocation order with matching arena/owner IDs.
+    /// Visits patterns in allocation order with matching lowering/owner IDs.
     pub fn patterns(&self) -> impl Iterator<Item = (PatternId, &PatternData)> {
         self.patterns
             .iter()

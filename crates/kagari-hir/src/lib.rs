@@ -3,7 +3,7 @@
 //! # Reading the data
 //!
 //! [`lower::LoweredModule`] owns structural HIR plus source ranges. [`hir::item::Module`]
-//! contains declarations and a shared [`hir::body::Body`] arena. Child nodes are
+//! contains declarations and shared [`hir::body::Body`] node tables. Child nodes are
 //! connected by typed IDs; [`resolver::resolved::ResolvedNames`] and
 //! [`typeck::table::TypeTable`] add independent name/type/call facts using those IDs.
 //! The [`hir::ids`] documentation explains where each handle is looked up.
@@ -257,13 +257,13 @@ impl CheckedAnalysis {
 /// diagnostic boundary separates reusable diagnostics from the suffix recomputed against
 /// completed aggregates; signature reuse must not preserve stale cross-module diagnostics.
 #[derive(Debug, Clone)]
-pub(crate) struct PreparedAnalysis {
+pub(crate) struct PreparedSignatures {
     signatures_reused: bool,
     lowered: Arc<lower::LoweredModule>,
     record: Arc<SignatureRecord>,
 }
 
-impl PreparedAnalysis {
+impl PreparedSignatures {
     /// Validates signature contracts that require all modules' aggregate declarations to exist.
     fn completed_signatures(
         &self,
@@ -359,9 +359,9 @@ impl DeclaredAnalysis {
     fn check_signatures(
         self,
         imported_types: ImportedTypes,
-        previous_analysis: Option<&PreparedAnalysis>,
+        previous_analysis: Option<&PreparedSignatures>,
         cancel: &CancellationToken,
-    ) -> Result<PreparedAnalysis, DefinitionMappingError> {
+    ) -> Result<PreparedSignatures, DefinitionMappingError> {
         let mut declarations = self.record.declarations.clone();
         declarations.imported_types = imported_types;
         declarations.publish_definitions(declarations.context().snapshot());
@@ -435,7 +435,7 @@ impl DeclaredAnalysis {
             cancel,
         )?;
         declarations.publish_definitions(definitions);
-        Ok(PreparedAnalysis {
+        Ok(PreparedSignatures {
             signatures_reused,
             lowered: self.lowered,
             record: Arc::new(SignatureRecord {
@@ -497,7 +497,7 @@ fn declare_analysis(
 }
 
 fn analyze_prepared(
-    prepared: PreparedAnalysis,
+    prepared: PreparedSignatures,
     const_limits: ConstLimits,
     environment: BodyEnvironment,
     reuse: Option<&BodyReuse<'_>>,
@@ -511,7 +511,7 @@ fn analyze_prepared(
         constants,
         aggregates,
     } = environment;
-    let PreparedAnalysis {
+    let PreparedSignatures {
         signatures_reused: _,
         lowered,
         record,
@@ -616,7 +616,7 @@ pub(crate) struct AnalysisPolicy {
 
 /// Resolves selected lexical bodies, checks/reuses their facts and merges staged diagnostics.
 pub(crate) fn analyze_parsed(
-    prepared: PreparedAnalysis,
+    prepared: PreparedSignatures,
     parsed: &ParsedModule,
     policy: AnalysisPolicy,
     environment: BodyEnvironment,
