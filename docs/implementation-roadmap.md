@@ -732,8 +732,11 @@ doctests, final diff and documentation-link checks pass.
 
 **Separate deferred work:** [inline identities](hir-model-review.md#finite-inline-identity-follow-up),
 [cache retention](hir-model-review.md#cache-policy-is-separate),
-[Native model](hir-model-review.md#native-model), incremental parsing, finer body reuse/reclamation
-and LSP scheduling. NC restoration keeps its existing owner.
+[Native model](native-model-design.md), incremental parsing, finer body reuse/reclamation
+and LSP scheduling. The Native proposal now covers common source/structured HIR entry, checked
+library contracts, separate Rust Providers and prebuilt/demanded preparation, replacing the
+attachment-only draft. Its implementation sequence is not activated. NC restoration keeps its
+existing owner.
 
 ## Compilation cancellation polling
 

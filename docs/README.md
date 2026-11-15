@@ -69,7 +69,10 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   open. The [HIR guide](architecture/hir.md#editor-query-views-and-indexes) owns analyzer query
   views, demand-built indexes and the compiler/lint boundary. The arena/reference migration
   is withdrawn and cache policy is unchanged. [Review notes](hir-model-review.md) retain only
-  separate inline-identity/cache follow-ups and the deferred Native model.
+  separate inline-identity/cache follow-ups.
+- [Native model proposal](native-model-design.md): source/typed declarations enter common HIR;
+  checked library contracts, Rust Provider bindings and runtime links have separate owners.
+  Replaces the attachment-only draft; implementation remains unstarted.
 
 - [Runtime architecture](architecture/runtime.md), [call walkthrough](architecture/runtime/calls.md)
   and [reload walkthrough](architecture/runtime/reload.md): implemented exclusive
