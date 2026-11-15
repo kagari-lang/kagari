@@ -57,9 +57,6 @@ pub enum ConstOwner {
     Impl(ImplId),
 }
 
-/// Ordered `Vec<ConstItem>` storage for the owning declaration records.
-pub type ConstBuffer = Vec<ConstItem>;
-
 /// A module-owned runtime cell declaration, not a compile-time constant.
 ///
 /// `pub static var count: i64 = seed();` produces a public `StaticItem` named
@@ -83,6 +80,3 @@ pub struct StaticItem {
     /// Runtime initializer expression, possibly a recovery placeholder.
     pub initializer: ExprId,
 }
-
-/// Ordered runtime cell declarations owned by a module.
-pub type StaticBuffer = Vec<StaticItem>;

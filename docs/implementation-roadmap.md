@@ -702,7 +702,9 @@ edit remapping, Native bindings and checked compiler admission. HR02 now attache
 to typed targets during lowering and stores them on Module. Authored uses have one identity
 across flattened leaves, and required associated members use owner/category slots. Role,
 alias and lint consumers no longer identify targets by span; no universal node graph or
-automatic scope expansion is included. Other inline-identity work remains deferred.
+automatic scope expansion is included. Other inline-identity work remains deferred. HR03 removes the 21 plain Vec Buffer aliases
+throughout HIR, spelling storage explicitly without changing layout or adding wrappers.
+SmallVec capacity aliases remain; MIR/bytecode storage types are outside this cleanup.
 Checkpoint commits remain authorized. HR00 records the narrowed scope. HR01 now implements
 function-local parameter positions, explicit source registration, checked structural/typed
 lookup and signature remapping. Param no longer stores constant writeability; resolver and

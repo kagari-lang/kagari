@@ -3,8 +3,8 @@
 **Status:** scope narrowed by user decision. Keep the current owned, ID-linked HIR and
 category tables. The external-arena/direct-reference HA00/HA01 migration is withdrawn,
 not completed. Its outstanding lifetime/session proofs are no longer acceptance requirements.
-HR00 is recorded; HR01 parameters and HR02 attribute attachment are implemented with focused
-validation, but required workspace checks remain blocked as noted below. [Roadmap](implementation-roadmap.md#hir-storage-and-attribute-refactor)
+HR00 is recorded; HR01 parameters, HR02 attribute attachment and HR03 plain-Vec alias cleanup
+are implemented with focused validation, but required workspace checks remain blocked below. [Roadmap](implementation-roadmap.md#hir-storage-and-attribute-refactor)
 owns activation.
 
 ## Model and responsibilities
@@ -161,8 +161,10 @@ unsupported lint policy targets, and no new parser syntax or attribute targets a
 - **Inline identities:** audit generic parameters, local bindings and associated members
   for the same record-versus-source-slot confusion. Record concrete cases here before
   expanding implementation; they are not automatically included in the parameter slice.
-- **Naming:** replace misleading Buffer aliases when their owning declarations are touched;
-  do not run a standalone renaming migration or add wrappers without invariants.
+- **Naming:** the user authorized uniform removal of the 21 plain Vec Buffer aliases in
+  kagari-hir. Fields now use Vec<T> directly; no compatibility aliases/new wrappers remain.
+  SmallVec aliases retain explicit inline-capacity policy. MIR/bytecode containers and
+  non-Vec diagnostic ownership aliases are outside this cleanup; storage is unchanged.
 - **Caches:** owned syntax/semantic records, weak graph/query indexes and split Native
   preparation are implemented. Leave their behavior unchanged in this cleanup. The old
   proposed session cutover is cancelled. Further retention-policy work needs a concrete
@@ -182,6 +184,7 @@ These replace the withdrawn arena phases; earlier implementation commits remain 
 | HR00: responsibilities | Recorded current owners, the parameter defect and finite scope; docs/comments only. |
 | HR01: parameters | Implemented function-local ParamId positions, explicit source registration, checked structural and typed lookup, and signature remapping. Focused checks pass; required workspace acceptance remains blocked below. |
 | HR02: attributes | Implemented Module-owned facts and typed attachment during lowering; migrate role/alias/lint consumers and preserve recovery, grouped uses and inheritance. Inline-identity review remains separate, not permission for a graph rewrite. |
+| HR03: container naming | Removed plain Vec Buffer aliases and their imports/use sites throughout HIR; retain actual storage policy and owner/ID invariants. No runtime/layout change or compatibility names. |
 
 HR01 should strengthen existing lowering, arena/owner-isolation, signature/body reuse and
 checked-input scenarios. Assert actual parameter records, types, owner/slot rejection and
@@ -212,6 +215,11 @@ grouped/empty uses, local functions and inline ownership. Variant syntax remains
 no new variant-parser matrix is claimed. Four ordinary fixtures pass kg fmt --check; malformed
 bytes remain unchanged. Structure, changed-file formatting, HIR/lint all-target Clippy and diff
 checks pass. No speedup is measured; ordinary declaration ranges are not duplicated.
+
+HR03 local evidence: HIR all-target check and ten existing focused tests (lowering and
+signature/edit reuse), structure, changed-file formatting, HIR all-target Clippy and diff
+checks pass. All 21 removed aliases have no remaining HIR references; no new tests or fixtures
+are justified for this mechanical type-spelling cleanup.
 
 On rustc 1.100.0, workspace fmt is blocked only by existing differences in untouched
 kagari-syntax/src/ast/tokens.rs; touched hir/ids.rs is formatted. Workspace Clippy still reports

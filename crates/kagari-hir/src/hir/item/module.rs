@@ -112,8 +112,3 @@ impl Import {
         }
     }
 }
-
-/// Ordered `Vec<ModuleDecl>` storage for the owning declaration records.
-pub type ModuleDeclBuffer = Vec<ModuleDecl>;
-/// Ordered `Vec<Import>` storage for the owning declaration records.
-pub type ImportBuffer = Vec<Import>;

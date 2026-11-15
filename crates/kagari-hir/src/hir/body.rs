@@ -198,10 +198,3 @@ impl Body {
         node
     }
 }
-
-/// Contiguous statement payloads, without the owner pairs used by `Body`.
-pub type StmtDataBuffer = Vec<StmtData>;
-/// Contiguous assignment-place payloads, without owner pairs.
-pub type PlaceDataBuffer = Vec<PlaceData>;
-/// Contiguous type-syntax payloads, without owner pairs.
-pub type TypeDataBuffer = Vec<TypeData>;

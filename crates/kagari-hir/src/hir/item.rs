@@ -10,12 +10,12 @@ use crate::hir::{
         TypeAliasId, TypeRefId, VariantId,
     },
     item::{
-        adt::{EnumBuffer, Field, OpaqueType, StructBuffer, Variant},
+        adt::{Enum, Field, OpaqueType, Struct, Variant},
         alias::TypeAlias,
-        behavior::{ImplBuffer, TraitBuffer},
-        function::{FunctionBuffer, FunctionKind, Param},
-        module::{ImportBuffer, ModuleDeclBuffer, UseDecl},
-        storage::{ConstBuffer, ConstItem, StaticBuffer, StaticItem},
+        behavior::{Impl, TraitDef},
+        function::{Function, FunctionKind, Param},
+        module::{Import, ModuleDecl, UseDecl},
+        storage::{ConstItem, StaticItem},
     },
     pattern::PatternData,
     place::PlaceData,
@@ -69,29 +69,29 @@ pub struct Module {
     /// Authored use declarations indexed by `UseId`, including recovery with no leaves.
     pub uses: Vec<UseDecl>,
     /// Top-level declaration handles in source order; import leaves are stored separately.
-    pub items: ItemBuffer,
+    pub items: Vec<Item>,
     /// Function declarations indexed by `FunctionId`, including trait/impl methods.
-    pub functions: FunctionBuffer,
+    pub functions: Vec<Function>,
     /// Constant declarations indexed by `ConstId`, including associated initializers.
-    pub consts: ConstBuffer,
+    pub consts: Vec<ConstItem>,
     /// Runtime static declarations indexed by `StaticId`.
-    pub statics: StaticBuffer,
+    pub statics: Vec<StaticItem>,
     /// Child module headers indexed by `ModuleId`; child analysis is separate.
-    pub modules: ModuleDeclBuffer,
+    pub modules: Vec<ModuleDecl>,
     /// Flattened named/glob use leaves, indexed by import slot.
-    pub imports: ImportBuffer,
+    pub imports: Vec<Import>,
     /// Struct declarations indexed by `StructId`.
-    pub structs: StructBuffer,
+    pub structs: Vec<Struct>,
     /// Native-backed type declarations indexed by `OpaqueTypeId`.
     pub opaque_types: Vec<OpaqueType>,
     /// Transparent script type declarations indexed by `TypeAliasId`.
     pub type_aliases: Vec<TypeAlias>,
     /// Enum declarations indexed by `EnumId`; variants are nested within them.
-    pub enums: EnumBuffer,
+    pub enums: Vec<Enum>,
     /// Trait declarations indexed by `TraitId`.
-    pub traits: TraitBuffer,
+    pub traits: Vec<TraitDef>,
     /// Implementation blocks indexed by `ImplId`.
-    pub impls: ImplBuffer,
+    pub impls: Vec<Impl>,
     /// Shared node storage for declaration types and all body owners.
     pub body: Body,
 }
@@ -236,6 +236,3 @@ pub enum Item {
     /// An entry in [`Module::impls`], indexed by the enclosed ID.
     Impl(ImplId),
 }
-
-/// Source-ordered declaration handles, excluding import leaves.
-pub type ItemBuffer = Vec<Item>;

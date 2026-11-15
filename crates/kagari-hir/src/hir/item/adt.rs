@@ -80,7 +80,7 @@ pub struct Struct {
     /// Generic binders in source order.
     pub generic_params: Vec<GenericParam>,
     /// Inline fields addressed by arena, struct owner and slot.
-    pub fields: FieldBuffer,
+    pub fields: Vec<Field>,
     /// Unpopulated impl links; inspect `Module.impls` and checked lookup facts instead.
     pub impls: Vec<ImplId>,
 }
@@ -146,7 +146,7 @@ pub struct Enum {
     /// Generic binders in source order.
     pub generic_params: Vec<GenericParam>,
     /// Inline variants addressed by arena, enum owner and slot.
-    pub variants: VariantBuffer,
+    pub variants: Vec<Variant>,
     /// Unpopulated impl links; inspect `Module.impls` and checked lookup facts instead.
     pub impls: Vec<ImplId>,
 }
@@ -174,12 +174,3 @@ pub struct Variant {
     /// Payload type syntax in positional order; empty for a unit variant.
     pub payload: Vec<TypeRefId>,
 }
-
-/// Ordered `Vec<Struct>` storage for the owning declaration records.
-pub type StructBuffer = Vec<Struct>;
-/// Ordered `Vec<Field>` storage for the owning declaration records.
-pub type FieldBuffer = Vec<Field>;
-/// Ordered `Vec<Enum>` storage for the owning declaration records.
-pub type EnumBuffer = Vec<Enum>;
-/// Ordered `Vec<Variant>` storage for the owning declaration records.
-pub type VariantBuffer = Vec<Variant>;

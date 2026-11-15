@@ -2,7 +2,7 @@
 
 use crate::hir::{
     ids::{BlockId, FunctionId, ParamId, TypeRefId},
-    item::behavior::{GenericParamBuffer, TraitBoundBuffer},
+    item::behavior::{GenericParam, TraitBound},
 };
 use kagari_types::visibility::Visibility;
 
@@ -57,11 +57,11 @@ pub struct Function {
     /// Declared name; may be empty in recovered syntax.
     pub name: String,
     /// Generic binders; method lowering can prepend inherited binders.
-    pub generic_params: GenericParamBuffer,
+    pub generic_params: Vec<GenericParam>,
     /// Where-clause requirements before trait/type resolution.
-    pub bounds: TraitBoundBuffer,
+    pub bounds: Vec<TraitBound>,
     /// Inline parameter records in call order.
-    pub params: ParamBuffer,
+    pub params: Vec<Param>,
     /// Explicit result type syntax, absent when omitted.
     pub return_type: Option<TypeRefId>,
     /// Absent for interface requirements and installed native declarations.
@@ -118,8 +118,3 @@ pub struct Param {
     /// Parameter type syntax; missing required types use a placeholder.
     pub ty: TypeRefId,
 }
-
-/// Ordered `Vec<Function>` storage for the owning declaration records.
-pub type FunctionBuffer = Vec<Function>;
-/// Ordered `Vec<Param>` storage for the owning declaration records.
-pub type ParamBuffer = Vec<Param>;

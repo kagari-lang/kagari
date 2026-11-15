@@ -82,7 +82,9 @@ These arrows describe owned fields except the explicitly shared `Arc`. A body
 node's child ID is a reference into a vector, not an owned subtree. `Body` is
 shared by the module's declaration syntax and multiple function, constant and
 static-initializer owners.
-Its name does not imply one allocation per function.
+Its name does not imply one allocation per function. Declaration/member collections use
+Vec<T> explicitly, without plain Vec Buffer aliases. SmallVec-based aliases still centralize
+reviewed inline capacities; ID checks and allocation behavior are unchanged.
 
 | Handle | Lookup and validity |
 | --- | --- |

@@ -46,11 +46,11 @@ pub struct TraitDef {
     /// Trait name.
     pub name: String,
     /// Declared generic binders.
-    pub generic_params: GenericParamBuffer,
+    pub generic_params: Vec<GenericParam>,
     /// Unresolved parent trait requirements.
-    pub supertraits: TraitRefBuffer,
+    pub supertraits: Vec<TraitRef>,
     /// Inline method surfaces pointing to function slots.
-    pub methods: TraitMethodBuffer,
+    pub methods: Vec<TraitMethod>,
     /// Associated type/family declarations.
     pub associated_types: Vec<AssociatedType>,
 }
@@ -125,9 +125,9 @@ pub struct AssociatedConst {
 #[derive(Debug, Clone)]
 pub struct AssociatedType {
     /// Member-level generic binders.
-    pub generic_params: GenericParamBuffer,
+    pub generic_params: Vec<GenericParam>,
     /// Where constraints on member binders.
-    pub parameter_bounds: TraitBoundBuffer,
+    pub parameter_bounds: Vec<TraitBound>,
     /// Associated member name.
     pub name: String,
     /// Synthetic type-syntax handle for the member-name site.
@@ -135,7 +135,7 @@ pub struct AssociatedType {
     /// Assigned type syntax; trait defaults can be retained but are currently rejected.
     pub ty: Option<TypeRefId>,
     /// Trait requirements on the associated output.
-    pub bounds: TraitRefBuffer,
+    pub bounds: Vec<TraitRef>,
 }
 
 /// An inline trait member linking to a function signature and optional default body.
@@ -202,15 +202,15 @@ pub struct Impl {
     /// Slot in `Module.impls`.
     pub id: ImplId,
     /// Implementation-level generic binders.
-    pub generic_params: GenericParamBuffer,
+    pub generic_params: Vec<GenericParam>,
     /// Implemented trait, absent for an inherent implementation.
     pub trait_ref: Option<TraitRef>,
     /// Target type syntax, possibly absent after recovery.
     pub for_type: Option<TypeRefId>,
     /// Implementation where-clause constraints.
-    pub bounds: TraitBoundBuffer,
+    pub bounds: Vec<TraitBound>,
     /// Inline names referring to method function slots.
-    pub methods: ImplMethodBuffer,
+    pub methods: Vec<ImplMethod>,
     /// Associated type/family definitions.
     pub associated_types: Vec<AssociatedType>,
 }
@@ -257,7 +257,7 @@ pub struct GenericParam {
     /// Binder name as written.
     pub name: String,
     /// Inline unresolved trait references.
-    pub bounds: TraitRefBuffer,
+    pub bounds: Vec<TraitRef>,
 }
 
 /// One where-clause predicate, with target syntax separate from trait requirements.
@@ -279,7 +279,7 @@ pub struct TraitBound {
     /// Type-syntax handle used to resolve the bound target.
     pub target_ref: TypeRefId,
     /// Required trait references in source order.
-    pub traits: TraitRefBuffer,
+    pub traits: Vec<TraitRef>,
 }
 
 /// A trait application encoded by one unresolved type-syntax handle.
@@ -303,18 +303,3 @@ pub struct TraitRef {
     /// Type-syntax handle encoding the trait application and associated bindings.
     pub ty: TypeRefId,
 }
-
-/// Ordered `Vec<TraitDef>` storage for the owning declaration records.
-pub type TraitBuffer = Vec<TraitDef>;
-/// Ordered `Vec<TraitMethod>` storage for the owning declaration records.
-pub type TraitMethodBuffer = Vec<TraitMethod>;
-/// Ordered `Vec<Impl>` storage for the owning declaration records.
-pub type ImplBuffer = Vec<Impl>;
-/// Ordered `Vec<ImplMethod>` storage for the owning declaration records.
-pub type ImplMethodBuffer = Vec<ImplMethod>;
-/// Ordered `Vec<GenericParam>` storage for the owning declaration records.
-pub type GenericParamBuffer = Vec<GenericParam>;
-/// Ordered `Vec<TraitBound>` storage for the owning declaration records.
-pub type TraitBoundBuffer = Vec<TraitBound>;
-/// Ordered `Vec<TraitRef>` storage for the owning declaration records.
-pub type TraitRefBuffer = Vec<TraitRef>;
