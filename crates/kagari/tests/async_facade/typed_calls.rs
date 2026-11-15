@@ -11,7 +11,10 @@ use kagari_compiler::{
     source::{program::lower_program_to_mir, source_package::build_source_package},
 };
 use kagari_contract::source::ExecutableOrigin;
-use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
+use kagari_hir::{
+    analysis::AnalysisDatabase, compile_input::program::CheckedCompilation,
+    native::render::declaration_source,
+};
 use kagari_runtime::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
@@ -54,12 +57,17 @@ fn prepare_typed_program(source: &str, providers: &[NativeModule]) -> Program {
         .set("typed-calls.kgr", source.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(
-        providers
-            .iter()
-            .map(|provider| Arc::new(provider.to_declaration()))
-            .collect(),
-    );
+    // Source observations require complete supplied declaration documents, not
+    // the default source-less structured registration route.
+    let modules = providers
+        .iter()
+        .map(|provider| Arc::new(provider.to_declaration()))
+        .collect::<Vec<_>>();
+    let declarations = modules
+        .iter()
+        .map(|module| declaration_source(module, &modules).unwrap())
+        .collect();
+    analysis.set_native_sources(modules, declarations).unwrap();
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();

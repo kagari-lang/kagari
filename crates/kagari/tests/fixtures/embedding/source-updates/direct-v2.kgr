@@ -1,0 +1,10 @@
+static var COUNT: i32 = 0;
+
+pub fn answer() -> i32 {
+    2
+}
+
+pub fn bump() -> i32 {
+    COUNT += 1;
+    COUNT
+}

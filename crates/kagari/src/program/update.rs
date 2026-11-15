@@ -8,6 +8,7 @@ use crate::{
     CompileResult, engine::source::compilation::Compilation as LoweredCompilation,
     error::EmbeddingError, program::Compilation, update::Update,
 };
+use kagari_bytecode::source_package::{SourcePackageError, VerifiedSourcePackage};
 use kagari_common::identity::{DefinitionPath, table::DefinitionId};
 use kagari_contract::source::{AuthoredDeclaration, AuthoredKind};
 use kagari_runtime::module::revision::ProgramRevision;
@@ -42,12 +43,10 @@ impl Compilation {
     /// Copy checked authored locators, including private functions and named locals.
     /// Diagnostic source attachment is sufficient for discovery; preparing edits
     /// additionally requires this product's immutable compilation inputs.
+    /// Returns a typed source-package error if the compilation has source-less
+    /// declarations, or `SourceNotRetained` if an artifact omitted its source text.
     pub fn source_declarations(&self) -> CompileResult<Vec<SourceEditTarget>> {
-        let package = self
-            .program
-            .bytecode()
-            .source_package()
-            .ok_or_else(|| source_error("source declaration metadata is unavailable"))?;
+        let package = self.exact_source_package()?;
         package
             .records()
             .declarations
@@ -72,13 +71,15 @@ impl Compilation {
     /// filesystem lookup. The result expects this exact base and carries cumulative
     /// historical demands. Cancellation/errors preserve the immutable base; no
     /// installation, initializer, callback or publication is touched.
+    /// File/add-document edits use retained inputs without requiring a complete
+    /// source package. Function splices require exact retained authored locations.
+    /// Artifact-loaded owners return `MissingCompilationContext`, even with source.
     pub fn prepare_update(&self, update: Update) -> CompileResult<Self> {
         prepare::validate_batch(&update)?;
-        let inputs = self.compilation.as_ref().ok_or_else(|| {
-            source_error(
-                "MissingCompilationContext: Program has no matching immutable compilation capsule",
-            )
-        })?;
+        let inputs = self
+            .compilation
+            .as_ref()
+            .ok_or(EmbeddingError::MissingCompilationContext)?;
         let checked = prepare::check_candidate(self, inputs, &update)?;
         let options = inputs.preparation_options(update.cancel.clone());
         let compilation = LoweredCompilation::lower_with_demands(
@@ -95,22 +96,28 @@ impl Compilation {
         Ok(candidate)
     }
 
+    fn exact_source_package(&self) -> CompileResult<&VerifiedSourcePackage> {
+        let bytecode = self.program.bytecode();
+        bytecode.source_package().ok_or_else(|| {
+            if bytecode.update_evidence().source_manifest.is_none() {
+                SourcePackageError::MissingManifest.into()
+            } else {
+                EmbeddingError::SourceNotRetained
+            }
+        })
+    }
+
     fn resolve_edit_target(&self, target: &SourceEditTarget) -> CompileResult<AuthoredDeclaration> {
         if target.base != self.program.bytecode().revision() {
             return Err(source_error(
                 "source edit target belongs to a different Program base",
             ));
         }
-        self.program
-            .bytecode()
-            .source_package()
-            .and_then(|package| {
-                package
-                    .records()
-                    .declarations
-                    .iter()
-                    .find(|record| record.declaration == target.declaration)
-            })
+        self.exact_source_package()?
+            .records()
+            .declarations
+            .iter()
+            .find(|record| record.declaration == target.declaration)
             .cloned()
             .ok_or_else(|| source_error("source edit target is absent from its base"))
     }

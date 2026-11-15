@@ -146,6 +146,7 @@ fn validate_operation(
     context: ApplicationContext<'_>,
     required: &NativeCallableRequirement,
     available: &GenericBounds,
+    self_identity: &TypeSubstitution,
     span: Span,
     diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
@@ -204,7 +205,7 @@ fn validate_operation(
             receiver: Some(&receiver),
         },
         &method_bounds,
-        &Default::default(),
+        self_identity,
         available,
         span,
         diagnostics,
@@ -213,7 +214,7 @@ fn validate_operation(
     applications::validate_requirements(
         context,
         &[(receiver, vec![interface])].into(),
-        &Default::default(),
+        self_identity,
         available,
         span,
         diagnostics,
@@ -319,6 +320,11 @@ pub(super) fn validate(
                     .and_then(|item| declarations.definition(ResolvedName::Trait(item.id)))
             })
             .flatten();
+        // Native body obligations must not use declaration applications' unbound-Self deferral.
+        let mut self_identity = TypeSubstitution::default();
+        if let Some(owner) = self_owner {
+            self_identity.insert_receiver(*owner, TypeId::SelfType(*owner));
+        }
         let mut available = signature.bounds.clone();
         if let Some(owner) = self_owner.and_then(|owner| catalog.trait_(owner)) {
             available
@@ -417,6 +423,7 @@ pub(super) fn validate(
                     },
                     required,
                     &available,
+                    &self_identity,
                     span,
                     diagnostics,
                     cancel,
@@ -444,7 +451,7 @@ pub(super) fn validate(
                         receiver: None,
                     },
                     &required,
-                    &Default::default(),
+                    &self_identity,
                     &available,
                     span,
                     diagnostics,

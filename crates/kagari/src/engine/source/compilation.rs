@@ -7,8 +7,10 @@ use crate::{
     error::{CompilationPhase, EmbeddingError},
 };
 use kagari_bytecode::{
-    artifact::KbcArtifact, native_input::PortableMir, program::verified::VerifiedBytecodeProgram,
-    source_package::VerifiedSourcePackage,
+    artifact::KbcArtifact,
+    native_input::PortableMir,
+    program::verified::VerifiedBytecodeProgram,
+    source_package::{SourcePackageError, VerifiedSourcePackage},
 };
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_compiler::{
@@ -34,7 +36,7 @@ pub(crate) struct Compilation {
     bytecode: VerifiedBytecodeProgram,
     mir: VerifiedMirProgram,
     inputs: Arc<CompilationInputs>,
-    source: VerifiedSourcePackage,
+    source: Option<VerifiedSourcePackage>,
 }
 
 impl Compilation {
@@ -106,17 +108,20 @@ impl Compilation {
                 EmbeddingError::bytecode_lowering(error)
             }
         })?;
-        let source =
-            build_source_package(&compilation, &bytecode, &options.cancel).map_err(|error| {
-                if options.cancel.check().is_err() {
-                    EmbeddingError::Cancelled
-                } else {
-                    EmbeddingError::Compilation {
-                        phase: CompilationPhase::BytecodeLowering,
-                        message: format!("exact source package: {error}"),
-                    }
-                }
-            })?;
+        // Structured declarations retain executable/update evidence, but cannot
+        // promise a complete authored source package for the compilation closure.
+        options
+            .cancel
+            .check()
+            .map_err(|_| EmbeddingError::Cancelled)?;
+        let source = bytecode
+            .program()
+            .update_evidence
+            .source_manifest
+            .as_ref()
+            .map(|_| build_source_package(&compilation, &bytecode, &options.cancel))
+            .transpose()
+            .map_err(EmbeddingError::from)?;
         Ok(Self {
             source,
             bytecode,
@@ -134,7 +139,7 @@ impl Compilation {
     ) -> (
         VerifiedBytecodeProgram,
         VerifiedMirProgram,
-        VerifiedSourcePackage,
+        Option<VerifiedSourcePackage>,
     ) {
         (self.bytecode, self.mir, self.source)
     }
@@ -143,6 +148,20 @@ impl Compilation {
         self,
         options: ArtifactOptions,
     ) -> CompileResult<DefinitionMetadata<BytecodeArtifact>> {
+        options
+            .lowering
+            .cancel
+            .check()
+            .map_err(|_| EmbeddingError::Cancelled)?;
+        let source = if options.retain_source {
+            Some(
+                self.source
+                    .ok_or(SourcePackageError::MissingManifest)
+                    .map_err(EmbeddingError::from)?,
+            )
+        } else {
+            None
+        };
         let mut build = options.build;
         build.portable_mir = match options.native_input {
             NativeInputExport::PortableMir => Some(PortableMir {
@@ -160,12 +179,8 @@ impl Compilation {
         };
         let artifact = KbcArtifact::from_verified(self.bytecode, build, &options.lowering.cancel)
             .and_then(|artifact| {
-                if options.retain_source {
-                    KbcArtifact::with_source_package(
-                        artifact,
-                        &self.source,
-                        &options.lowering.cancel,
-                    )
+                if let Some(source) = source {
+                    KbcArtifact::with_source_package(artifact, &source, &options.lowering.cancel)
                 } else {
                     Ok(artifact)
                 }

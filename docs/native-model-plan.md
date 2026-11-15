@@ -2,8 +2,8 @@
 
 **Status:** The user authorized unattended NM01–NM04 implementation and phase commits after
 scope review. NM01 implementation and its integrated frontend prerequisites are complete locally;
-NM02 editor/grammar acceptance is complete. NM03 final SDK/executable sampling and NM04
-documentation remain.
+NM02 editor/grammar acceptance and NM03 shared-analysis/SDK/executable sampling are complete
+locally. NM04 documentation consolidation and final review remain.
 Baseline: design/hir-native-model, c19a0ffbf.
 The [design](native-model-design.md) owns structures and semantics; this plan owns sequencing and
 acceptance. The [roadmap](implementation-roadmap.md#native-model-replacement) owns activation.
@@ -197,6 +197,34 @@ operation/result involving owner-qualified Self inherited generic-application de
 proving its trait obligation. The NM03 repair identity-binds Self for those proofs only; the focused
 negative/supertrait tests reproduce and then reject the invalid contracts. This does not change
 generic declaration application's intentional Self deferral. NM03 acceptance includes this repair.
+
+NM03 integration evidence:
+
+- SDK sessions (5), direct/source preparation (3), native update/preparation selection (34),
+  async typed-call source observations (5), compiler source-package cases (9) and bytecode
+  source-package cases (3) passed. The SDK session scenario now rebuilds Native declarations
+  under a zero parser-nesting budget and asserts absent parse/source surfaces before execution.
+- The first SDK artifact run exposed an unconditional exact-source-package build after the
+  compiler correctly omitted its manifest. SDK Compilation now retains an optional package;
+  ordinary preparation/export works without it, explicit retain_source/exact-splice requests
+  report typed MissingManifest, and whole-file updates still use retained immutable inputs.
+  Complete authored-source tests explicitly supply their documents and preserve forgery checks.
+- Regenerated feature_artifact and async feature products under target/; the separate frontend-
+  disabled artifact selection passed (3 selected tests), and source-free actual Cranelift
+  compilation/execution passed (1). Native-only SDK cargo check passed. No format/ABI bump.
+- Native generic identity and DTO/handle distinctions passed (2); synchronous Host reentry and
+  retained-closure-generation replacement passed (2); prior blocked Runtime scalar-target and
+  active-application lifetime scenarios passed (3). Contract tests (6) and complete external
+  equivalence/foundation/Host tests (9) pass with the Self-proof repair.
+- Required structure, workspace fmt, workspace all-target Clippy and diff gates passed.
+  The existing optional blake3 Cargo manifest warning remains non-fatal.
+- One deliberately sampled existing collection regression still fails:
+  cargo test -p kagari-stdlib --lib direct_native_imports_run_from_source_and_decoded_artifacts.
+  It reports UnknownTypeAnnotation Vec<i32>/UnknownName Vec::new before execution. This exact
+  failure predates NM and is already recorded by the [NC owner](native-collections-plan.md).
+  No substitute collection or weakened assertion was introduced. It is not green evidence for
+  Native import execution; source-free artifact and generic/Host samples cover this change's
+  executable handoff. Full workspace/exhaustive matrices remain CI-only.
 
 ### NM01 — unify Native HIR records and ownership
 
@@ -433,5 +461,5 @@ Do not repeat unchanged failures awaiting their owner or call them green. Resolv
 when touched, otherwise report the external acceptance blocker. No commit/push is authorized by
 scope review; when requested, use buildable Conventional Commit checkpoints and Plan-Phase: NMxx.
 The historical failures above have been rechecked and repaired as recorded in current execution
-evidence. NM01 and NM02 are locally complete; NM03 and NM04 acceptance remain pending. No Runtime redesign,
+evidence. NM01–NM03 are locally complete; NM04 documentation consolidation remains pending. No Runtime redesign,
 new binary format, field execution or speedup is claimed.

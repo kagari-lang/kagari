@@ -100,18 +100,21 @@ impl Compilation {
     ) -> CompileResult<Self> {
         let inputs = Arc::new(compilation.inputs().with_preparation(options));
         let (bytecode, mir, source) = compilation.into_parts();
-        let bytecode = VerifiedProgram::from_bytecode(bytecode)
-            .with_source_package(source, &options.lowering.cancel)
-            .map_err(|error| {
-                if error.kind() == RuntimeErrorKind::Cancelled {
-                    EmbeddingError::Cancelled
-                } else {
-                    EmbeddingError::Compilation {
-                        phase: CompilationPhase::BytecodeLowering,
-                        message: format!("source attachment: {error}"),
+        let mut bytecode = VerifiedProgram::from_bytecode(bytecode);
+        if let Some(source) = source {
+            bytecode = bytecode
+                .with_source_package(source, &options.lowering.cancel)
+                .map_err(|error| {
+                    if error.kind() == RuntimeErrorKind::Cancelled {
+                        EmbeddingError::Cancelled
+                    } else {
+                        EmbeddingError::Compilation {
+                            phase: CompilationPhase::BytecodeLowering,
+                            message: format!("source attachment: {error}"),
+                        }
                     }
-                }
-            })?;
+                })?;
+        }
         #[cfg(not(feature = "native"))]
         let _ = (mir, options);
         let program = Program::from_verified(bytecode, &options.lowering.cancel)

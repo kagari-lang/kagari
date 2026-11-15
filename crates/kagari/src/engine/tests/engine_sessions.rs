@@ -80,6 +80,16 @@ fn sessions_retain_exact_providers_without_inheriting_source_or_query_settings()
         max_nesting: 0,
         ..Default::default()
     });
+    // Rebuilding the installed declaration graph must not parse a rendered API.
+    // The zero nesting budget applies to Script text, not structured signatures.
+    let declarations = first
+        .declarations(Default::default(), &Default::default())
+        .unwrap();
+    let registered = declarations.files().collect::<Vec<_>>();
+    assert_eq!(registered.len(), 1);
+    assert!(registered[0].syntax().is_none());
+    assert!(registered[0].lowered().source_surface().is_none());
+    assert!(first.analysis.borrow().inputs().native_sources().is_none());
     for (engine, answer) in [(&first, 42), (&second, 99)] {
         let session = engine.new_session(Default::default());
         assert_eq!(session.source_snapshot().files().count(), 0);

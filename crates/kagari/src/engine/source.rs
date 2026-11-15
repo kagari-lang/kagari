@@ -137,6 +137,8 @@ impl Default for PreparationOptions {
 #[derive(Debug, Clone)]
 pub struct ArtifactOptions {
     /// Explicitly export the exact authored source package. Independent of debug/MIR options.
+    /// Returns `EmbeddingError::SourcePackage` when the checked closure includes
+    /// source-less structured declarations rather than complete supplied documents.
     pub retain_source: bool,
     pub build: ArtifactBuildOptions,
     pub lowering: MirLoweringOptions,

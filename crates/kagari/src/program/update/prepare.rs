@@ -95,13 +95,9 @@ pub(super) fn check_candidate(
     if captured.compiler_contract() != KAGARI_COMPILER_FINGERPRINT
         || captured.root() != &current.modules()[current.root().index()].identity
     {
-        return Err(source_error(
-            "MissingCompilationContext: capsule compiler/root does not match publication",
-        ));
+        return Err(EmbeddingError::MissingCompilationContext);
     }
-    let package = current
-        .source_package()
-        .ok_or_else(|| source_error("MissingCompilationContext: exact source package is absent"))?;
+
     let mut documents = BTreeMap::<FileId, DocumentEdits<'_>>::new();
     let mut additions = Vec::new();
     let mut names = HashSet::new();
@@ -113,6 +109,7 @@ pub(super) fn check_candidate(
             .map_err(|_| EmbeddingError::Cancelled)?;
         match edit {
             Edit::Function { target, definition } => {
+                let package = program.exact_source_package()?;
                 let record = match target {
                     FunctionUpdateTarget::Declaration(declaration) => {
                         program.resolve_edit_target(declaration)?

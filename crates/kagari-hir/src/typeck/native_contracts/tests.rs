@@ -447,12 +447,68 @@ fn native_trait_contracts_use_the_owning_self_bound() {
         }],
         concrete_result: None,
     };
+    let target = ExternalFunction::TraitMethod {
+        owner: "NativeRead".into(),
+        name: "defaulted".into(),
+    };
+    let diagnostics = fixture.diagnostics_at(target.clone(), contract.clone());
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+
+    let other = fixture.id(DefinitionKind::Trait, "Other");
+    let mut unrelated = contract;
+    unrelated.callable_requirements[0].interface = fixture.nominal(other, vec![]);
+    unrelated.callable_requirements[0].member = fixture.member(other, DefinitionKind::Method, "op");
+    let diagnostics = fixture.diagnostics_at(target.clone(), unrelated.clone());
+    assert!(
+        matches!(diagnostics.as_slice(), [DiagnosticKind::GenericBoundNotSatisfied { trait_name, .. }] if trait_name == "Other"),
+        "{diagnostics:?}"
+    );
+
+    let result = NativeContract {
+        callable_requirements: vec![],
+        concrete_result: Some(Ty::SelfType(owner)),
+    };
     let diagnostics = fixture.diagnostics_at(
         ExternalFunction::TraitMethod {
             owner: "NativeRead".into(),
+            name: "produce".into(),
+        },
+        result,
+    );
+    assert!(
+        matches!(diagnostics.as_slice(), [DiagnosticKind::GenericBoundNotSatisfied { trait_name, .. }] if trait_name == "Other"),
+        "{diagnostics:?}"
+    );
+
+    let mut method_bound = fixture.contract(fixture.receiver());
+    method_bound.callable_requirements[0].member =
+        fixture.member(fixture.read, DefinitionKind::Method, "bounded");
+    method_bound.callable_requirements[0].arguments = vec![Ty::SelfType(owner)];
+    let diagnostics = fixture.diagnostics_at(target, method_bound);
+    assert!(
+        matches!(diagnostics.as_slice(), [DiagnosticKind::GenericBoundNotSatisfied { trait_name, .. }] if trait_name == "Marker"),
+        "{diagnostics:?}"
+    );
+
+    let derived = fixture.id(DefinitionKind::Trait, "DerivedRead");
+    unrelated.callable_requirements[0].receiver = Ty::SelfType(derived);
+    let diagnostics = fixture.diagnostics_at(
+        ExternalFunction::TraitMethod {
+            owner: "DerivedRead".into(),
             name: "defaulted".into(),
         },
-        contract,
+        unrelated,
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let diagnostics = fixture.diagnostics_at(
+        ExternalFunction::TraitMethod {
+            owner: "DerivedRead".into(),
+            name: "produce".into(),
+        },
+        NativeContract {
+            callable_requirements: vec![],
+            concrete_result: Some(Ty::SelfType(derived)),
+        },
     );
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
 }

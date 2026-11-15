@@ -41,9 +41,19 @@ pub trait Family<K: Marker> {
     fn read(self) -> i32;
 }
 
+pub trait Other {
+    fn op(self) -> i32;
+}
+
 pub trait NativeRead<T: Marker> {
     fn read(self) -> i32;
     native fn defaulted(self) -> i32;
+    native fn produce(self) -> Other;
+}
+
+pub trait DerivedRead<T: Marker>: NativeRead<T> + Other {
+    native fn defaulted(self) -> i32;
+    native fn produce(self) -> Other;
 }
 
 pub trait Producer<K: Marker> {

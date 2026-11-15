@@ -1,9 +1,13 @@
 use crate::{
     context::ExecutionContext,
-    engine::{KagariEngine, source::PreparationOptions},
+    engine::{
+        KagariEngine,
+        source::{ArtifactOptions, PreparationOptions},
+    },
     error::EmbeddingError,
-    program::{Program, ProgramPreparationError},
+    program::{Compilation, Program, ProgramPreparationError},
 };
+use kagari_bytecode::source_package::SourcePackageError;
 use kagari_runtime::{Runtime as CoreRuntime, module::entry::ProgramEntry};
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
@@ -63,6 +67,65 @@ fn prepared_source_survives_session_disposal_and_independent_runtime_binding() {
             42
         );
     }
+}
+
+#[test]
+fn direct_compilation_exports_without_claiming_complete_authored_source() {
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let checked = engine
+        .compile_source(SourceFile::new(
+            "direct.kgr",
+            "pub fn answer() -> i32 { 42 }",
+        ))
+        .unwrap();
+    let prepared = engine.prepare(&checked, Default::default()).unwrap();
+    assert!(prepared.program().bytecode().source_package().is_none());
+    assert!(
+        prepared
+            .program()
+            .bytecode()
+            .update_evidence()
+            .source_manifest
+            .is_none()
+    );
+    assert!(matches!(
+        prepared.source_declarations(),
+        Err(EmbeddingError::SourcePackage {
+            error: SourcePackageError::MissingManifest
+        })
+    ));
+    let artifact = engine.emit_artifact(&checked, Default::default()).unwrap();
+    let loaded =
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    assert!(loaded.program().bytecode().source_package().is_none());
+    assert!(matches!(
+        loaded.source_declarations(),
+        Err(EmbeddingError::SourcePackage {
+            error: SourcePackageError::MissingManifest
+        })
+    ));
+    assert!(matches!(
+        engine.emit_artifact(
+            &checked,
+            ArtifactOptions {
+                retain_source: true,
+                ..Default::default()
+            }
+        ),
+        Err(EmbeddingError::SourcePackage {
+            error: SourcePackageError::MissingManifest
+        })
+    ));
+    let cancelled = ArtifactOptions {
+        retain_source: true,
+        ..Default::default()
+    };
+    cancelled.lowering.cancel.cancel();
+    assert!(matches!(
+        engine.emit_artifact(&checked, cancelled),
+        Err(EmbeddingError::Cancelled)
+    ));
 }
 
 #[test]

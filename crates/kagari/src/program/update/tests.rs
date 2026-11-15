@@ -4,10 +4,11 @@ use crate::{
         source::{ArtifactOptions, CheckedModule, PreparationOptions, analysis::SourceAnalysis},
     },
     error::EmbeddingError,
-    program::{Compilation, Program, update::SourceEditTarget},
+    program::{Compilation, update::SourceEditTarget},
     runtime::{ReloadOptions, Runtime},
     update::Update,
 };
+use kagari_bytecode::source_package::SourcePackageError;
 use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
 use kagari_contract::source::AuthoredKind;
 use kagari_hir::analysis::AnalysisDatabase;
@@ -457,8 +458,12 @@ fn artifact_source_is_opt_in_and_low_level_or_artifact_reload_never_reuses_old_c
     assert!(direct.program().bytecode().source_package().is_some());
     let stripped = engine.emit_artifact(&checked, Default::default()).unwrap();
     let stripped =
-        Program::from_artifact(stripped, &Default::default(), &Default::default()).unwrap();
-    assert!(stripped.bytecode().source_package().is_none());
+        Compilation::from_artifact(stripped, &Default::default(), &Default::default()).unwrap();
+    assert!(stripped.program().bytecode().source_package().is_none());
+    assert!(matches!(
+        stripped.source_declarations(),
+        Err(EmbeddingError::SourceNotRetained)
+    ));
     let artifact = engine
         .emit_artifact(
             &checked,
@@ -476,6 +481,13 @@ fn artifact_source_is_opt_in_and_low_level_or_artifact_reload_never_reuses_old_c
     )
     .unwrap();
     assert!(artifact.program().bytecode().source_package().is_some());
+    assert!(
+        artifact
+            .source_declarations()
+            .unwrap()
+            .iter()
+            .any(|target| target.name() == "answer")
+    );
     let mut runtime = engine.runtime(Default::default());
     let program = runtime
         .load_program(direct.program(), Default::default())
@@ -507,10 +519,10 @@ fn artifact_source_is_opt_in_and_low_level_or_artifact_reload_never_reuses_old_c
     );
     let mut update = Update::new();
     update.replace_function("answer", "pub fn answer() -> i32 { 2 }");
-    assert!(
-        matches!(artifact.prepare_update(update), Err(EmbeddingError::Source { message })
-        if message.contains("MissingCompilationContext"))
-    );
+    assert!(matches!(
+        artifact.prepare_update(update),
+        Err(EmbeddingError::MissingCompilationContext)
+    ));
     // Retaining old preparation explicitly cannot give it authority over a different current product.
     let mut update = Update::new();
     update.replace_function("answer", "pub fn answer() -> i32 { 2 }");
@@ -587,11 +599,14 @@ fn generic_alias_retargeting_compares_binders_bounds_and_results_without_instanc
 }
 
 #[test]
-fn standard_foundation_accepts_body_updates_and_advances_live_handles_and_source() {
+fn standard_foundation_accepts_file_updates_without_complete_source_and_preserves_state() {
     let engine = engine();
     let mut prepared = engine
         .compile(
-            SourceFile::new("app.kgr", "pub fn answer() -> i32 { 1 }"),
+            SourceFile::new(
+                "app.kgr",
+                include_str!("../../../tests/fixtures/embedding/source-updates/direct-v1.kgr"),
+            ),
             Default::default(),
         )
         .unwrap();
@@ -599,22 +614,40 @@ fn standard_foundation_accepts_body_updates_and_advances_live_handles_and_source
     let program = runtime
         .load_program(prepared.program(), Default::default())
         .unwrap();
-    let answer = declaration(&runtime, &program, "answer");
+    assert!(prepared.program().bytecode().source_package().is_none());
     let function = runtime
         .bind_function::<(), i32>(&program.root(), "answer")
         .unwrap();
-    let original = runtime.source_snapshot(&program).unwrap();
+    assert_eq!(runtime.call(&function, ()).unwrap(), 1);
+    assert_eq!(call(&mut runtime, &program, "bump"), 1);
     let token = runtime.publication_token(&program).unwrap();
+    let mut unsupported = Update::new();
+    unsupported.replace_function("answer", "pub fn answer() -> i32 { 2 }");
+    assert!(matches!(
+        prepared.prepare_update(unsupported),
+        Err(EmbeddingError::SourcePackage {
+            error: SourcePackageError::MissingManifest
+        })
+    ));
+    assert_eq!(runtime.publication_token(&program).unwrap(), token);
+    let next = include_str!("../../../tests/fixtures/embedding/source-updates/direct-v2.kgr");
+    let mut changed_initializer = Update::new();
+    changed_initializer.replace_file("app.kgr", next.replace("COUNT: i32 = 0", "COUNT: i32 = 10"));
+    assert!(matches!(
+        prepared.prepare_update(changed_initializer),
+        Err(EmbeddingError::ReloadValidation { code, message })
+            if code == "KG_RELOAD_UPDATE_EVIDENCE"
+                && message.contains("static initializer") && message.contains("COUNT")
+    ));
+    assert_eq!(runtime.publication_token(&program).unwrap(), token);
+    assert_eq!(runtime.call(&function, ()).unwrap(), 1);
     let mut update = Update::new();
-    update.replace_function("answer", "pub fn answer() -> i32 { 2 }");
+    update.replace_file("app.kgr", next);
     publish_update(&mut runtime, &program, &mut prepared, update).unwrap();
     assert_ne!(runtime.publication_token(&program).unwrap(), token);
-    assert!(text(&runtime, &program, &answer).contains("{ 2 }"));
-    assert!(
-        matches!(original.function(&answer), SourceQuery::Available(source) if source.text.contains("{ 1 }"))
-    );
+    assert!(prepared.program().bytecode().source_package().is_none());
     assert_eq!(runtime.call(&function, ()).unwrap(), 2);
-    assert_eq!(call(&mut runtime, &program, "answer"), 2);
+    assert_eq!(call(&mut runtime, &program, "bump"), 2);
 }
 
 #[test]

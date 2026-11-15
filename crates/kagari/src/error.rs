@@ -1,6 +1,10 @@
 //! SDK diagnostics and execution error mapping.
 use kagari_bytecode::artifact::ArtifactValidationError;
 #[cfg(feature = "source")]
+use kagari_bytecode::source_package::SourcePackageError;
+#[cfg(feature = "source")]
+use kagari_common::identity::mapping::DefinitionMappingError;
+#[cfg(feature = "source")]
 use kagari_compiler::{bytecode::BytecodeLoweringError, source::lower::MirLoweringError};
 use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
@@ -50,6 +54,17 @@ pub enum EmbeddingError {
     Source {
         message: String,
     },
+    /// Complete-source packaging failed, including closures with source-less declarations.
+    #[cfg(feature = "source")]
+    SourcePackage {
+        error: SourcePackageError,
+    },
+    /// The executable has a source manifest, but its exact source text was not retained.
+    #[cfg(feature = "source")]
+    SourceNotRetained,
+    /// Diagnostic source attachments cannot replace immutable compilation inputs.
+    #[cfg(feature = "source")]
+    MissingCompilationContext,
     Cancelled,
     #[cfg(feature = "source")]
     Diagnostics {
@@ -92,6 +107,12 @@ impl EmbeddingError {
             #[cfg(feature = "source")]
             Self::DeclarationCache { .. } => "KG_DECLARATION_CACHE".to_owned(),
             Self::Source { .. } => "KG_SOURCE_INPUT".to_owned(),
+            #[cfg(feature = "source")]
+            Self::SourcePackage { .. } => "KG_SOURCE_PACKAGE".to_owned(),
+            #[cfg(feature = "source")]
+            Self::SourceNotRetained => "KG_SOURCE_NOT_RETAINED".to_owned(),
+            #[cfg(feature = "source")]
+            Self::MissingCompilationContext => "KG_MISSING_COMPILATION_CONTEXT".to_owned(),
             Self::Cancelled => "KG_ANALYSIS_CANCELLED".to_owned(),
             #[cfg(feature = "source")]
             Self::Diagnostics { diagnostics } => diagnostics
@@ -150,6 +171,16 @@ impl EmbeddingError {
         Self::ReloadValidation {
             code: error.code().to_owned(),
             message: error.to_string(),
+        }
+    }
+}
+
+#[cfg(feature = "source")]
+impl From<SourcePackageError> for EmbeddingError {
+    fn from(error: SourcePackageError) -> Self {
+        match error {
+            SourcePackageError::Identity(DefinitionMappingError::Cancelled) => Self::Cancelled,
+            error => Self::SourcePackage { error },
         }
     }
 }
