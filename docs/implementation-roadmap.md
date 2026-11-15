@@ -728,15 +728,17 @@ doctests, final diff and documentation-link checks pass.
   These remain syntax/compiler-owner follow-ups, not authorized unrelated repairs.
   Both required commands were rerun after HR08 and fail only at these known findings;
     required workspace acceptance is not green.
+- NM00 additionally found kagari-runtime --lib cannot compile: module/tests/enum_declarations.rs
+  still calls documentation/module_documentation on HIR DeclarationSnapshot (E0599 at 107/112)
+  after query extraction. Fix the test's analyzer query consumer at this boundary; do not widen
+  HIR again. The three selected runtime Native cases were blocked before execution.
 - Exhaustive workspace tests and feature/backend/platform matrices remain CI-only and pending.
 
 **Separate deferred work:** [inline identities](hir-model-review.md#finite-inline-identity-follow-up),
 [cache retention](hir-model-review.md#cache-policy-is-separate),
-[Native model](native-model-design.md), incremental parsing, finer body reuse/reclamation
-and LSP scheduling. The Native proposal now covers common source/structured HIR entry, checked
-library contracts, separate Rust Providers and prebuilt/demanded preparation, replacing the
-attachment-only draft. Its implementation sequence is not activated. NC restoration keeps its
-existing owner.
+[Native model replacement](#native-model-replacement), incremental parsing, finer body
+reuse/reclamation and LSP scheduling. The Native queue below owns its NM execution plan;
+NC restoration keeps its existing owner.
 
 ## Compilation cancellation polling
 
@@ -1218,6 +1220,34 @@ remains separately queued. Registration now uses direct associations and one-sho
 preparation; it does not eliminate invocation-time value/ownership/generation checks
 or establish general zero-allocation execution or speedups. Collection storage,
 host facade redesign and VM/backend expansion remain independent work.
+
+## Native model replacement
+
+The [design](native-model-design.md) and [scoped execution plan](native-model-plan.md) now target
+Native HIR representation and declaration parsing/analysis only. User review withdraws the earlier
+unstarted whole-stack NM01–NM07 sequence. NM00 design work is authorized; current NM01–NM04
+implementation is unstarted and awaits approval.
+
+Compilation lowers Rust structured declarations directly; offline analyzer parses exported .kgr
+into the same declaration-input model and analyzes it with user source. Include function kinds,
+Native type fields, var/val and object-handle typing, methods/associated functions, ordinary trait
+impls and matching diagnostics/navigation. Adjust syntax/shared vocabulary/current consumers only
+where needed; no new Runtime field execution is implied by frontend field support.
+Ref/RefMut recognition and explicit target/Shared-or-Mutable records are included; new borrowing,
+projection, conversion, forwarding and execution features remain deferred.
+
+Registration/provider redesign, binary or generated-code prebuilding, MIR/shared-library products,
+build.rs/bootstrap, installation/caches, directory publication/watch, output/reflection extraction
+and new Ref/RefMut behavior are deferred. Retain those discussion results in the same design, not as
+current phase requirements. Preserve existing execution, reference and source-free safety.
+
+The historical NM00 baseline has sixteen passing selected HIR/stdlib/SDK/source-free tests;
+three Runtime tests are compile-blocked
+and the known dropped-snapshot reuse assertion fails. Structure/dependency checks and native-only
+SDK build pass; workspace fmt/Clippy still fail at their existing owners. A same-process stage-cost
+sample is recorded in the plan, not claimed as cold-process or Rust-callback performance.
+[HIR acceptance blockers](#hir-storage-and-attribute-refactor), NC restoration, general provider
+hot-swap, cache-retention policy and backend expansion remain at their separate owners.
 
 ## Numeric standard library
 

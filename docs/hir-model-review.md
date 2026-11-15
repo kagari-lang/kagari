@@ -57,21 +57,24 @@ belongs in the target LoweredModule. Current code still uses registration attach
 
 ## Native model
 
-The overall design now lives in [Native model: declarations, HIR and implementations](native-model-design.md).
-It supersedes both the earlier sketch here and the attachment-only draft; implementation remains
-unstarted. Keep one proposal owner, not two competing data models.
+The design lives in [Native model: declarations, HIR and implementations](native-model-design.md).
+User review narrows the [execution plan](native-model-plan.md) to Native HIR representation and
+external declaration parsing/analysis. Current NM01–NM04 implementation is unstarted and not
+approved; the earlier whole-stack sequence is withdrawn. Keep one model and execution plan.
 
-- HIR contains ordinary declarations with Required/Script/Native implementations and type/access
-  contracts; Rust callbacks remain outside it.
-- Common LibraryContracts separates checked declarations from script bodies and NativeProvider
-  bindings. The checked function's definition identity is its Rust binding key.
-- Default methods use ordinary script calls to Native helpers; no NativeDefault recipe.
-- Prebuilt fixed libraries and demanded linking address startup scale, not only attachment cost.
-- [Output/reflection APIs](native-model-design.md#library-apis-versus-compiler-intrinsics) belong
-  to libraries; Runtime keeps safe access primitives. Static field typing needs an explicit
-  replacement contract, while scalar arithmetic/constant rules remain compiler semantics.
+- Ordinary HIR declares Required/Script/Native functions, fields, methods/associated functions
+  and trait impls. Rust implementation code stays outside HIR; no general trait receiver loans.
+- Compilation consumes structured Rust declarations directly; analyzer parses exported .kgr into
+  the same unchecked input and uses common analysis with user source and exact navigation origins.
+- Native field names/types, var/val and ordinary child-object handles are frontend requirements.
+  New Rust field adapters/execution are deferred after scope narrowing, not implied by type checks.
+- Ref/RefMut recognition and target/access type records are included, but no new borrowing,
+  projection, adaptation, forwarding or execution features. Reuse builtin reference semantics.
+- Existing defaults, registration/binding, output/reflection, Ref/RefMut and executable validation
+  remain operational. No NativeDefault wire/execution replacement or prebuild producer is required.
+- The design retains future library/provider/build/cache and directory-refresh discussion as
+  explicitly deferred direction, not current acceptance.
 
-[Replacement and acceptance](native-model-design.md#7-replacement-boundaries-and-acceptance)
-preserve checked/source-free, GC/reentry, cancellation and reload contracts. Source syntax,
-structured origins, prebuilt artifacts and dynamic generic admission remain explicit
-[design decisions](native-model-design.md#8-remaining-design-decisions), not implemented guarantees.
+[Replacement boundaries](native-model-design.md#7-replacement-boundaries-and-acceptance) and
+[review limits](native-model-design.md#8-review-decisions-and-limits) preserve existing safety
+while preventing a HIR cleanup from silently becoming a whole Runtime migration.
