@@ -1,8 +1,11 @@
 use crate::{AnalyzerQueries, query_tests::test_analysis};
 use kagari_common::{identity::DefinitionKind, span::Span};
-use kagari_hir::declarations::DeclarationId;
 use kagari_hir::{analysis::*, types::*};
-use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_hir::{declarations::DeclarationId, resolver::resolved::ResolvedName};
+use kagari_source::{
+    diagnostic::DiagnosticKind,
+    source_database::{SourceDatabase, SourceLayer},
+};
 
 fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
     db.snapshot(sources.snapshot(), &Default::default())
@@ -151,6 +154,84 @@ fn scope_queries_and_navigation_share_resolver_shadowing_and_match_bindings() {
     assert_eq!(analysis.queries().definition_at(sibling).unwrap(), inner);
     assert_eq!(pattern.location.file, file);
     assert_eq!(pattern.location.revision, analysis.source().revision());
+}
+
+#[test]
+fn structural_scopes_preserve_binder_regions_and_noncapturing_shadow_blockers() {
+    let text = include_str!("../../tests/fixtures/scope-bindings.kgr");
+    let mut sources = SourceDatabase::default();
+    let id = sources
+        .set("scopes.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = snapshot(&mut test_analysis(), &sources);
+    let file = snapshot.file(id).unwrap();
+    let diagnostics = file.result().diagnostics();
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert!(
+        matches!(&diagnostics[0].kind, DiagnosticKind::UnknownName { name } if name == "helper")
+    );
+    let facts = file.result().facts();
+    let index = crate::scope::ScopeIndex::new(&facts.lowered, &facts.names);
+    // Every selected lexical expression must agree with the structural projection,
+    // including the for iterable, match guard, closure and hoisted local call.
+    for (expr, _) in facts.lowered.module.body.expressions() {
+        let Some(resolved) = facts.names.expr_resolution(expr) else {
+            continue;
+        };
+        let Some(canonical) = facts.names.binding(&resolved) else {
+            continue;
+        };
+        let offset = facts.lowered.source_map.expr_span(expr).start;
+        let visible = index.visible_bindings(offset);
+        let selected = visible
+            .iter()
+            .find(|binding| binding.name == canonical.name)
+            .unwrap();
+        assert!(
+            std::ptr::eq(*selected, canonical),
+            "{} at {offset}",
+            canonical.name
+        );
+    }
+    let before = index.visible_bindings(text.find("helper()\n    }").unwrap());
+    assert!(before.iter().any(
+        |binding| matches!(binding.resolved, ResolvedName::Function(_)) && binding.name == "helper"
+    ));
+    let after = index.visible_bindings(text.rfind("helper()\n    }").unwrap());
+    assert!(after.iter().all(|binding| binding.name != "helper"
+        && binding.name != "blocked"
+        && binding.name != "input"));
+    let tail = text.find("match input").unwrap();
+    let visible = index.visible_bindings(tail);
+    assert!(visible.iter().any(|binding| binding.name == "unused"));
+    for hidden in [
+        "argument",
+        "unused_inner",
+        "unused_iteration",
+        "branch",
+        "unused_branch",
+        "repeated",
+        "unused_loop",
+        "bound",
+    ] {
+        assert!(
+            visible.iter().all(|binding| binding.name != hidden),
+            "{hidden}"
+        );
+    }
+    // Unused binders have declaration sites despite having no selected references.
+    for name in [
+        "unused",
+        "unused_inner",
+        "unused_iteration",
+        "unused_branch",
+        "unused_loop",
+    ] {
+        let site = text.find(&format!("val {name} =")).unwrap() + 4;
+        let declaration = file.queries().definition_at(site).unwrap();
+        assert_eq!(declaration.name, name);
+        assert_eq!(declaration.location.range.start, site);
+    }
 }
 
 #[test]

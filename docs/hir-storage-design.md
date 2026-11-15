@@ -328,6 +328,15 @@ The normal dependency audit has no HIR/compiler/SDK → analyzer edge. Structure
 Clippy and diff checks pass. Existing scope/site/prefix metadata is temporary until HR06/HR07;
 this is not yet the completed removal of editor-only preparation.
 
+HR06: canonical Binding records now own identity, body owner, name and writeability;
+resolver frames are temporary. Compiler/declarations/lint use the directory, including unused
+and shadowed binders. Analyzer derives ScopeIndex and DeclarationSiteIndex from structure
+and canonical targets; HIR no longer publishes lexical history or declaration site_ranges.
+All 143 analyzer, 19 lint and four stdio tests pass, plus 41 selected HIR and four compiler
+tests covering captures, rebinding, stale identities, reuse and static closures. Affected
+all-target checks/Clippy, structure, changed-file/fixture formatting and diff checks pass.
+Navigation provenance remains for HR07; no retention-policy change is included.
+
 On rustc 1.100.0, workspace fmt is blocked only by existing differences in untouched
 kagari-syntax/src/ast/tokens.rs; touched hir/ids.rs is formatted. Workspace Clippy still reports
 needless_range_loop at kagari-compiler/src/bytecode/placement.rs:110. SDK builds emit an unused

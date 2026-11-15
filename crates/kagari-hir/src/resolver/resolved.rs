@@ -1,4 +1,4 @@
-//! Lexical scope history and node-keyed binding facts, separate from checked type/call facts.
+//! Canonical lexical bindings and node-keyed facts, separate from checked type/call facts.
 
 use crate::{
     builtin::BuiltinFunction,
@@ -21,30 +21,17 @@ use std::{collections::HashMap, sync::Arc};
 
 use kagari_common::span::Span;
 
-/// A local/parameter binding together with when it becomes visible in source.
+/// One canonical lexical declaration in the matching lowering, including unused binders.
 #[derive(Debug, Clone)]
-pub struct ScopeBinding {
+pub struct Binding {
     /// Unqualified local spelling.
     pub name: String,
-    /// Parameter/local identity selected by lexical resolution.
+    /// Parameter, local or named-local-function identity selected by lexical resolution.
     pub resolved: ResolvedName,
-    /// Inclusive byte offset from which the binding is visible within its scope.
-    pub visible_from: usize,
+    /// Semantic body containing the declaration (not the body of a named local function).
+    pub owner: BodyOwner,
     /// Declared rebinding policy; function names and pattern/closure parameters are immutable.
     pub writeability: Writeability,
-}
-
-/// A body-owned lexical region and its source-ordered bindings.
-#[derive(Debug, Clone)]
-pub struct LexicalScope {
-    /// Function or constant to which this region belongs.
-    pub owner: BodyOwner,
-    /// Half-open byte range used for position-based scope queries.
-    pub span: Span,
-    /// Index of the parent in `ResolvedNames.scopes`, or absent at a root scope.
-    pub parent: Option<usize>,
-    /// Binding history, retaining shadowed entries and visibility start offsets.
-    pub bindings: Vec<ScopeBinding>,
 }
 
 /// A bound local, qualified declaration, namespace or installed/builtin target.
@@ -102,7 +89,7 @@ pub struct QualifiedMember {
 
 /// Body resolution facts keyed by the matching lowering's node IDs.
 ///
-/// The internal `resolve_bodies` pass fills these maps and lexical scopes.
+/// The internal `resolve_bodies` pass fills these maps and the binding directory.
 /// The module table/catalog are shared; local declarations do not mutate module
 /// bindings. For `val y = x + 1; y`, the first name resolves to a parameter and the
 /// tail name to the binding's `LocalId`. `y` becomes visible after its initializer.
@@ -125,9 +112,8 @@ pub struct ResolvedNames {
     pub catalog: Arc<NamespaceCatalog>,
     /// The module's shared name table; separate from body lexical scopes.
     pub items: Arc<NameTable>,
-    pub(crate) scopes: Vec<LexicalScope>,
-    /// Capturable identity -> immutable scope/binding row in this lowering.
-    binding_sites: HashMap<ResolvedName, (usize, usize)>,
+    /// Qualified lexical identity -> authoritative binding metadata; no cursor history.
+    bindings: HashMap<ResolvedName, Binding>,
     exprs: HashMap<ExprId, ResolvedName>,
     pub(crate) lookup_hits: HashMap<ExprId, LookupHit>,
     pub(crate) path_hits: Vec<(Span, LookupHit)>,
@@ -177,8 +163,7 @@ impl ResolvedNames {
             imports,
             catalog,
             items,
-            scopes: Vec::new(),
-            binding_sites: HashMap::new(),
+            bindings: HashMap::new(),
             exprs: HashMap::new(),
             lookup_hits: HashMap::new(),
             path_hits: Vec::new(),
@@ -225,32 +210,22 @@ impl ResolvedNames {
         self.closure_captures.insert(id, captures);
     }
 
-    /// Borrows the original metadata for a selected local/parameter identity.
-    ///
-    /// The directory is populated alongside scope history, belongs to this
-    /// lowering and retains the first canonical declaration. It does not cache
-    /// visibility queries or resolve a spelling in the caller's current scope.
-    pub fn binding(&self, resolved: &ResolvedName) -> Option<&ScopeBinding> {
-        let (scope, row) = self.binding_sites.get(resolved)?;
-        self.scopes.get(*scope)?.bindings.get(*row)
+    /// Borrows canonical metadata without spelling lookup or a visibility index.
+    /// Qualified local/parameter handles reject foreign/stale lowerings. Like other
+    /// declaration reads, plain named-function slots require the matching module.
+    pub fn binding(&self, resolved: &ResolvedName) -> Option<&Binding> {
+        self.bindings.get(resolved)
     }
 
-    pub(crate) fn insert_scope_binding(&mut self, scope: usize, binding: ScopeBinding) -> usize {
-        let row = self.scopes[scope].bindings.len();
-        if matches!(
-            binding.resolved,
-            ResolvedName::Local(_) | ResolvedName::Param(_)
-        ) {
-            self.binding_sites
-                .entry(binding.resolved.clone())
-                .or_insert((scope, row));
-        }
-        self.scopes[scope].bindings.push(binding);
-        row
+    /// Enumerates all lexical declarations, including unused and shadowed bindings.
+    /// Order is unspecified; named local functions retain their declaring body owner.
+    pub fn bindings(&self) -> impl Iterator<Item = &Binding> {
+        self.bindings.values()
     }
 
-    /// Borrows all recorded lexical scopes; parent indices refer to this slice.
-    pub fn scopes(&self) -> &[LexicalScope] {
-        &self.scopes
+    pub(crate) fn insert_binding(&mut self, binding: Binding) {
+        self.bindings
+            .entry(binding.resolved.clone())
+            .or_insert(binding);
     }
 }

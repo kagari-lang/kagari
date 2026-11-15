@@ -428,6 +428,12 @@ fn body_reuse_remaps_types_and_refreshes_local_identity_after_neighbor_edit() {
     let parameter = lowered.module.functions[1].params[0].id;
     assert_eq!((old_parameter.index(), parameter.index()), (0, 0));
     assert_ne!(old_parameter, parameter);
+    let old_binding = ResolvedName::Param(old_parameter);
+    let new_binding = ResolvedName::Param(parameter);
+    assert!(second.names().binding(&old_binding).is_none());
+    assert!(fresh.names().binding(&new_binding).is_none());
+    assert_eq!(first.names().binding(&old_binding).unwrap().name, "value");
+    assert_eq!(second.names().binding(&new_binding).unwrap().name, "value");
     assert_eq!(lowered.module.parameter(parameter).name, "value");
     assert!(std::panic::catch_unwind(|| lowered.module.parameter(old_parameter)).is_err());
     let span = lowered.source_map.param_span(parameter);

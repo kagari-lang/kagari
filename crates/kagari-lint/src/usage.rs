@@ -53,30 +53,28 @@ pub(crate) fn binding_usage(
         _ => false,
     };
     let mut usage = HashMap::new();
-    for scope in facts.names.scopes() {
+    for binding in facts.names.bindings() {
         cancel.check()?;
-        if !eligible(HirOwner::Body(scope.owner)) {
+        if !eligible(HirOwner::Body(binding.owner)) {
             continue;
         }
-        for binding in &scope.bindings {
-            let kind = match binding.resolved {
-                ResolvedName::Local(_) => BindingKind::Local,
-                ResolvedName::Param(_) => BindingKind::Parameter,
-                _ => continue,
-            };
-            if let Some(declaration) = facts.declarations.target(binding.resolved.clone()) {
-                usage
-                    .entry(binding.resolved.clone())
-                    .or_insert_with(|| BindingUsage {
-                        declaration: declaration.clone(),
-                        kind,
-                        reads: 0,
-                        writes: 0,
-                        captured: false,
-                        mutable: false,
-                        initialized: true,
-                    });
-            }
+        let kind = match binding.resolved {
+            ResolvedName::Local(_) => BindingKind::Local,
+            ResolvedName::Param(_) => BindingKind::Parameter,
+            _ => continue,
+        };
+        if let Some(declaration) = facts.declarations.target(binding.resolved.clone()) {
+            usage
+                .entry(binding.resolved.clone())
+                .or_insert_with(|| BindingUsage {
+                    declaration: declaration.clone(),
+                    kind,
+                    reads: 0,
+                    writes: 0,
+                    captured: false,
+                    mutable: false,
+                    initialized: true,
+                });
         }
     }
     for (id, expression) in facts.lowered.module.body.expressions() {

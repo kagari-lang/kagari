@@ -71,7 +71,7 @@ impl<'a> CheckedBodyInput<'a> {
     ///
     /// Closures share their named owner's allocation so a capture may refer to an
     /// outer lexical scope. This lookup does not perform name resolution: the ID
-    /// is already selected, and the matching scope only supplies display/policy data.
+    /// is already selected, and the canonical directory supplies display/policy data.
     pub fn binding(self, id: BindingId) -> Option<BindingFacts<'a>> {
         let (ty, span) = match id {
             BindingId::Local(local) => (self.local_type(local)?, self.local_span(local)?),

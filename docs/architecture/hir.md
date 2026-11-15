@@ -45,8 +45,9 @@ keeps workloads, measurement boundaries and limitations separate from API guaran
 This is current placement, not a requirement that editor projections remain in HIR. The
 [compiler/tooling review](../hir-model-review.md#compiler-and-tooling-boundary) inventories
 semantic facts to retain, editor/lint projections to extract and mixed storage to split;
-HR04 extracts lint usage/attribute-policy projections. HR05–HR08 migrate editor queries
-and split mixed facts; cache policy remains unchanged.
+Lint and editor query projections are extracted. HIR now publishes a canonical binding
+directory rather than lexical scope history; analyzer derives ScopeIndex and DeclarationSiteIndex
+on demand. HR07 removes remaining navigation provenance; cache policy remains unchanged.
 
 The analyzer library's `AnalyzerQueries::queries()` borrows a declaration, signature,
 selected-body, file or snapshot result without forcing a later semantic stage. `FileQueries`

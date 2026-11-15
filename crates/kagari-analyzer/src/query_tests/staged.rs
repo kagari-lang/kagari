@@ -263,7 +263,8 @@ fn selected_local_function_reconstructs_static_ancestry_without_checking_parent(
         result.queries().type_at(text.find("helper()").unwrap()),
         Some(TypeId::Builtin(BuiltinType::I32))
     );
-    let visible = crate::scope::visible_bindings(result.names(), text.find("helper()").unwrap());
+    let visible = crate::scope::ScopeIndex::new(result.lowered(), result.names())
+        .visible_bindings(text.find("helper()").unwrap());
     assert!(visible.iter().any(|binding| binding.name == "helper"));
     assert!(
         visible

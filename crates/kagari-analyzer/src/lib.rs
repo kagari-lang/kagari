@@ -14,19 +14,16 @@ pub mod snapshot;
 pub mod staged;
 
 use crate::{
-    declarations::{DeclarationFileQueries, DeclarationQueries, DeclarationSnapshotQueries},
+    declarations::{DeclarationFileQueries, DeclarationSnapshotQueries},
     file::FileQueries,
     snapshot::SnapshotQueries,
     staged::{FunctionQueries, SignatureQueries},
 };
-use kagari_hir::{
-    analysis::{
-        AnalysisSnapshot, FileAnalysis,
-        body::FunctionAnalysis,
-        declarations::{DeclarationSnapshot, FileDeclarations},
-        signatures::FileSignatures,
-    },
-    declarations::Declarations,
+use kagari_hir::analysis::{
+    AnalysisSnapshot, FileAnalysis,
+    body::FunctionAnalysis,
+    declarations::{DeclarationSnapshot, FileDeclarations},
+    signatures::FileSignatures,
 };
 
 /// Opens a borrowing editor view without checking source or preparing an index.
@@ -55,14 +52,6 @@ impl AnalyzerQueries for AnalysisSnapshot {
 
     fn queries(&self) -> SnapshotQueries<'_> {
         SnapshotQueries::new(self)
-    }
-}
-
-impl AnalyzerQueries for Declarations {
-    type Queries<'a> = DeclarationQueries<'a>;
-
-    fn queries(&self) -> DeclarationQueries<'_> {
-        DeclarationQueries::new(self)
     }
 }
 

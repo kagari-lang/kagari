@@ -5,7 +5,10 @@ use kagari_types::declaration::names::NameNamespace;
 
 use crate::{
     analyze_source,
-    hir::{expr::ExprKind, pattern::PatternKind, stmt::StmtKind},
+    hir::{
+        expr::ExprKind, ids::BodyOwner, pattern::PatternKind, stmt::StmtKind,
+        writeability::Writeability,
+    },
     resolver::{collect::resolve_names, resolved::ResolvedName, table::NameResolution},
     tests::common,
     typeck::table::CallTarget,
@@ -41,7 +44,8 @@ fn standard_item_spellings_require_installed_declarations() {
 
 #[test]
 fn resolves_params_and_locals_in_function_body() {
-    let lowered = common::lower_ok("fn main(value: i32) -> i32 { val next: i32 = value; next }");
+    let text = include_str!("../../tests/fixtures/analysis/canonical_bindings.kgr");
+    let lowered = common::lower_ok(text);
     let resolved = resolve_names(&lowered)
         .unwrap()
         .into_checked()
@@ -72,6 +76,60 @@ fn resolves_params_and_locals_in_function_body() {
         resolved.expr_resolution(tail_expr),
         Some(ResolvedName::Local(let_local))
     );
+    let mut names = resolved
+        .bindings()
+        .map(|binding| binding.name.as_str())
+        .collect::<Vec<_>>();
+    names.sort_unstable();
+    assert_eq!(
+        names,
+        [
+            "callback", "helper", "next", "unused", "unused", "unused", "unused", "value"
+        ]
+    );
+    for binding in resolved.bindings() {
+        assert!(std::ptr::eq(
+            resolved.binding(&binding.resolved).unwrap(),
+            binding
+        ));
+        let mutable = matches!(binding.resolved, ResolvedName::Local(local)
+            if lowered.source_map.local_span(local).start == text.find("(unused, _)").unwrap() + 1);
+        assert_eq!(
+            binding.writeability,
+            if mutable {
+                Writeability::Var
+            } else {
+                Writeability::Val
+            }
+        );
+        let expected = if matches!(binding.resolved, ResolvedName::Param(id) if id == lowered.module.functions[1].params[0].id)
+        {
+            lowered.module.functions[1].id
+        } else {
+            function.id
+        };
+        assert_eq!(binding.owner, BodyOwner::Function(expected));
+    }
+    let closure = lowered
+        .module
+        .body
+        .expressions()
+        .find_map(|(id, expr)| matches!(expr.kind, ExprKind::Closure { .. }).then_some(id))
+        .unwrap();
+    assert_eq!(
+        resolved.closure_captures(closure),
+        [ResolvedName::Local(let_local)]
+    );
+    let foreign = common::lower_ok(text);
+    let foreign_names = resolve_names(&foreign).unwrap();
+    for binding in foreign_names.facts().bindings() {
+        if matches!(
+            binding.resolved,
+            ResolvedName::Local(_) | ResolvedName::Param(_)
+        ) {
+            assert!(resolved.binding(&binding.resolved).is_none());
+        }
+    }
 }
 
 #[test]

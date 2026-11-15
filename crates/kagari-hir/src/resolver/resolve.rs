@@ -15,32 +15,31 @@ use crate::{
     },
     imports::{ModuleImportFacts, SourceItem, catalog::NamespaceCatalog},
     resolver::{
-        resolved::{LexicalScope, QualifiedMember, ResolvedName, ResolvedNames, ScopeBinding},
+        resolved::{Binding, QualifiedMember, ResolvedName, ResolvedNames},
         table::{NameResolution, NameTable},
     },
     source_map::SourceMap,
 };
 use kagari_types::declaration::names::NameNamespace;
 
-use kagari_common::{cancellation::CancellationToken, span::Span};
+use kagari_common::cancellation::CancellationToken;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
 
-/// Active lexical frame: retained scope index plus each spelling's latest binding index.
+/// Disposable semantic frame; snapshots freeze named-local-function environments.
 #[derive(Clone)]
 struct ActiveScope {
-    id: usize,
-    latest: HashMap<String, usize>,
+    owner: BodyOwner,
+    latest: HashMap<String, ResolvedName>,
 }
 
 /// Mutable lexical traversal state for one lowering and shared module inputs.
 ///
-/// `scopes` is an active stack pointing into the retained scope history in `resolved`.
-/// `latest` implements current shadowing; the retained history supports byte-offset
-/// queries. Closure frames accumulate captured bindings, and owner assertions prevent
-/// cross-function node traversal.
+/// `scopes` implements current shadowing and is discarded after resolution.
+/// Closure frames accumulate captured bindings, and owner assertions prevent
+/// cross-function node traversal. No source-coordinate scope history is published.
 pub(crate) struct BodyResolver<'a> {
     cancel: CancellationToken,
     names: &'a NameTable,
@@ -90,13 +89,9 @@ impl<'a> BodyResolver<'a> {
             "function body owner mismatch"
         );
         self.scopes = self.local_scopes.remove(&function).unwrap_or_default();
-        let span = self.source_map.block_span(body);
-        self.push_scope(
-            self.source_map.function_span(function),
-            BodyOwner::Function(function),
-        );
+        self.push_scope(BodyOwner::Function(function));
         for (name, id) in params {
-            self.bind_name(name, ResolvedName::Param(id), span.start, Writeability::Val);
+            self.bind_name(name, ResolvedName::Param(id), Writeability::Val);
         }
         self.resolve_block(body);
         self.pop_scope();
@@ -110,7 +105,7 @@ impl<'a> BodyResolver<'a> {
             HirOwner::Body(owner),
             "initializer body owner mismatch"
         );
-        self.push_scope(self.source_map.expr_span(expr), owner);
+        self.push_scope(owner);
         self.resolve_expr(expr);
         self.pop_scope();
     }
@@ -118,7 +113,7 @@ impl<'a> BodyResolver<'a> {
     fn resolve_block(&mut self, block_id: BlockId) {
         self.assert_current_owner(block_id.owner());
         let block = self.module.block(block_id);
-        self.push_child_scope(self.source_map.block_span(block_id));
+        self.push_child_scope();
         for stmt in &block.statements {
             if self.cancel.check().is_err() {
                 break;
@@ -128,7 +123,6 @@ impl<'a> BodyResolver<'a> {
                 self.bind_name(
                     &function.name,
                     ResolvedName::Function(id),
-                    self.source_map.block_span(block_id).start,
                     Writeability::Val,
                 );
             }
@@ -160,10 +154,10 @@ impl<'a> BodyResolver<'a> {
             } => {
                 self.resolve_expr(*initializer);
                 self.resolve_pattern_variants(*pattern, false);
-                let start = self.source_map.stmt_span(stmt_id).end;
+
                 for (local, name) in self.module.body.pattern_bindings(*pattern) {
                     if !name.is_empty() && name != "<missing>" {
-                        self.bind_name(name, ResolvedName::Local(local), start, *writeability);
+                        self.bind_name(name, ResolvedName::Local(local), *writeability);
                     }
                 }
             }
@@ -179,8 +173,8 @@ impl<'a> BodyResolver<'a> {
             StmtKind::While { condition, body } => {
                 self.resolve_expr(condition.value());
                 if let Condition::Binding { pattern, .. } = condition {
-                    self.push_child_scope(self.source_map.block_span(*body));
-                    self.bind_pattern(*pattern, self.source_map.block_span(*body).start);
+                    self.push_child_scope();
+                    self.bind_pattern(*pattern);
                 }
                 self.resolve_block(*body);
                 if matches!(condition, Condition::Binding { .. }) {
@@ -194,8 +188,8 @@ impl<'a> BodyResolver<'a> {
                 body,
             } => {
                 self.resolve_expr(*iterable);
-                self.push_child_scope(self.source_map.stmt_span(stmt_id));
-                self.bind_pattern(*pattern, self.source_map.stmt_span(stmt_id).start);
+                self.push_child_scope();
+                self.bind_pattern(*pattern);
                 self.resolve_block(*body);
                 self.pop_scope();
             }
@@ -299,8 +293,8 @@ impl<'a> BodyResolver<'a> {
             } => {
                 self.resolve_expr(condition.value());
                 if let Condition::Binding { pattern, .. } = condition {
-                    self.push_child_scope(self.source_map.block_span(*then_branch));
-                    self.bind_pattern(*pattern, self.source_map.block_span(*then_branch).start);
+                    self.push_child_scope();
+                    self.bind_pattern(*pattern);
                 }
                 self.resolve_block(*then_branch);
                 if matches!(condition, Condition::Binding { .. }) {
@@ -314,9 +308,8 @@ impl<'a> BodyResolver<'a> {
                 self.resolve_expr(*scrutinee);
                 for arm in arms {
                     self.assert_current_owner(arm.pattern.owner());
-                    let span = self.source_map.expr_span(arm.expr);
-                    self.push_child_scope(span);
-                    self.bind_pattern(arm.pattern, span.start);
+                    self.push_child_scope();
+                    self.bind_pattern(arm.pattern);
                     if let Some(guard) = arm.guard {
                         self.resolve_expr(guard);
                     }
@@ -352,20 +345,14 @@ impl<'a> BodyResolver<'a> {
         let outer = self
             .scopes
             .iter()
-            .flat_map(|scope| {
-                self.resolved.scopes[scope.id]
-                    .bindings
-                    .iter()
-                    .map(|binding| binding.resolved.clone())
-            })
+            .flat_map(|scope| scope.latest.values().cloned())
             .collect();
         self.closures.push((expr_id, outer, Vec::new()));
-        self.push_child_scope(self.source_map.expr_span(expr_id));
+        self.push_child_scope();
         for param in params {
             self.bind_name(
                 &param.name,
                 ResolvedName::Local(param.local),
-                self.source_map.expr_span(body).start,
                 Writeability::Val,
             );
         }
@@ -375,9 +362,9 @@ impl<'a> BodyResolver<'a> {
         self.resolved.insert_closure_captures(expr_id, captures);
     }
 
-    fn bind_pattern(&mut self, pattern: PatternId, start: usize) {
+    fn bind_pattern(&mut self, pattern: PatternId) {
         self.resolve_pattern_variants(pattern, true);
-        self.bind_pattern_locals(pattern, start);
+        self.bind_pattern_locals(pattern);
     }
 
     fn resolve_pattern_variants(&mut self, pattern: PatternId, bare_variants: bool) {
@@ -419,11 +406,11 @@ impl<'a> BodyResolver<'a> {
         }
     }
 
-    fn bind_pattern_locals(&mut self, pattern: PatternId, start: usize) {
+    fn bind_pattern_locals(&mut self, pattern: PatternId) {
         match &self.module.pattern(pattern).kind {
             PatternKind::Or(alternatives) => {
                 if let Some(first) = alternatives.first() {
-                    self.bind_pattern_locals(*first, start);
+                    self.bind_pattern_locals(*first);
                 }
             }
             PatternKind::Name { name, local } if !name.is_empty() && name != "<missing>" => {
@@ -432,24 +419,24 @@ impl<'a> BodyResolver<'a> {
                 }
                 let name = name.clone();
                 let local = *local;
-                self.bind_name(&name, ResolvedName::Local(local), start, Writeability::Val);
+                self.bind_name(&name, ResolvedName::Local(local), Writeability::Val);
             }
             PatternKind::Tuple(elements) => {
                 let elements = elements.clone();
                 for element in elements {
-                    self.bind_pattern_locals(element, start);
+                    self.bind_pattern_locals(element);
                 }
             }
             PatternKind::Struct { fields, .. } => {
                 let fields = fields.clone();
                 for field in fields {
-                    self.bind_pattern_locals(field.pattern, start);
+                    self.bind_pattern_locals(field.pattern);
                 }
             }
             PatternKind::EnumVariant { fields, .. } => {
                 let fields = fields.clone();
                 for field in fields {
-                    self.bind_pattern_locals(field, start);
+                    self.bind_pattern_locals(field);
                 }
             }
             _ => {}
@@ -493,9 +480,8 @@ impl<'a> BodyResolver<'a> {
             .rev()
             .filter(|_| namespace == NameNamespace::Value)
         {
-            if let Some(index) = scope.latest.get(name) {
-                let resolved = &self.resolved.scopes[scope.id].bindings[*index].resolved;
-                let owner = self.resolved.scopes[self.scopes.last().expect("active body").id].owner;
+            if let Some(resolved) = scope.latest.get(name) {
+                let owner = self.scopes.last().expect("active body").owner;
                 let accessible = match resolved {
                     ResolvedName::Local(id) => id.owner() == HirOwner::Body(owner),
                     ResolvedName::Param(id) => id.owner() == HirOwner::Body(owner),
@@ -531,14 +517,8 @@ impl<'a> BodyResolver<'a> {
         None
     }
 
-    /// Records a parameter/local binding and its visibility start, retaining shadowed history.
-    fn bind_name(
-        &mut self,
-        name: &str,
-        resolved: ResolvedName,
-        visible_from: usize,
-        writeability: Writeability,
-    ) {
+    /// Publishes one canonical binding and updates the disposable lexical frame.
+    fn bind_name(&mut self, name: &str, resolved: ResolvedName, writeability: Writeability) {
         match resolved {
             ResolvedName::Param(id) => self.assert_current_owner(id.owner()),
             ResolvedName::Local(id) => self.assert_current_owner(id.owner()),
@@ -546,37 +526,26 @@ impl<'a> BodyResolver<'a> {
             _ => unreachable!("only lexical declarations enter a body scope"),
         }
         if let Some(scope) = self.scopes.last_mut() {
-            let row = self.resolved.insert_scope_binding(
-                scope.id,
-                ScopeBinding {
-                    name: name.to_owned(),
-                    resolved,
-                    visible_from,
-                    writeability,
-                },
-            );
-            scope.latest.insert(name.to_owned(), row);
+            self.resolved.insert_binding(Binding {
+                name: name.to_owned(),
+                resolved: resolved.clone(),
+                owner: scope.owner,
+                writeability,
+            });
+            scope.latest.insert(name.to_owned(), resolved);
         }
     }
 
-    fn push_scope(&mut self, span: Span, owner: BodyOwner) {
-        let id = self.resolved.scopes.len();
-        self.resolved.scopes.push(LexicalScope {
-            owner,
-            span,
-            parent: self.scopes.last().map(|scope| scope.id),
-            bindings: Vec::new(),
-        });
+    fn push_scope(&mut self, owner: BodyOwner) {
         self.scopes.push(ActiveScope {
-            id,
+            owner,
             latest: HashMap::new(),
         });
     }
 
-    fn push_child_scope(&mut self, span: Span) {
-        let owner =
-            self.resolved.scopes[self.scopes.last().expect("body owns its scopes").id].owner;
-        self.push_scope(span, owner);
+    fn push_child_scope(&mut self) {
+        let owner = self.scopes.last().expect("body owns its scopes").owner;
+        self.push_scope(owner);
     }
 
     fn pop_scope(&mut self) {
@@ -584,8 +553,7 @@ impl<'a> BodyResolver<'a> {
     }
 
     fn assert_current_owner(&self, owner: HirOwner) {
-        let current =
-            self.resolved.scopes[self.scopes.last().expect("body owns its nodes").id].owner;
+        let current = self.scopes.last().expect("body owns its nodes").owner;
         assert_eq!(
             owner,
             HirOwner::Body(current),

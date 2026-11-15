@@ -1,0 +1,9 @@
+fn main(value: i32, unused: i32) -> i32 {
+    val next: i32 = value;
+    var (unused, _) = (1, 2);
+    val callback = |unused: i32| next;
+    fn helper(unused: i32) -> i32 {
+        42
+    }
+    next
+}

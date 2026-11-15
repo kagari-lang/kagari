@@ -12,7 +12,7 @@ use kagari_hir::{
     types::TypeId,
 };
 
-use crate::{declarations::DeclarationQueries, scope};
+use crate::{declarations::DeclarationQueries, scope::ScopeIndex};
 
 /// A visible lexical declaration paired with its checked type in this snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -157,7 +157,9 @@ impl<'a> FileQueries<'a> {
     /// Finds a declaration site or the declaration selected by a checked source reference.
     pub fn definition_at(&self, offset: usize) -> Option<&'a Declaration> {
         let facts = self.analysis.result().facts();
-        if let Some(declaration) = DeclarationQueries::new(&facts.declarations).site_at(offset) {
+        if let Some(declaration) =
+            DeclarationQueries::new(&facts.lowered, &facts.declarations).site_at(offset)
+        {
             return Some(declaration);
         }
         if let Some(member) = facts
@@ -368,7 +370,8 @@ impl<'a> FileQueries<'a> {
     /// Collects visible lexical bindings and their checked types at a source byte offset.
     pub fn visible_bindings(&self, offset: usize) -> Vec<VisibleBinding> {
         let facts = self.analysis.result().facts();
-        scope::visible_bindings(&facts.names, offset)
+        ScopeIndex::new(&facts.lowered, &facts.names)
+            .visible_bindings(offset)
             .into_iter()
             .filter_map(|binding| {
                 let declaration = facts.declarations.target(binding.resolved.clone())?.clone();

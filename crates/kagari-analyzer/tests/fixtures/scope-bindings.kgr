@@ -1,0 +1,32 @@
+fn outer<I: Iterable<Item = i32>>(values: I, input: i32) -> i32 {
+    fn helper() -> i32 {
+        42
+    }
+    val blocked = 1;
+    fn before() -> i32 {
+        helper()
+    }
+    val helper = 2;
+    fn after() -> i32 {
+        helper()
+    }
+    val unused = 3;
+    val callback = |argument: i32| {
+        val unused_inner = argument;
+        input + argument
+    };
+    for values in values {
+        val unused_iteration = values;
+    }
+    if val branch = input {
+        val unused_branch = branch;
+    }
+    while val repeated = input {
+        val unused_loop = repeated;
+        break;
+    }
+    match input {
+        bound if bound > 0 => callback(bound),
+        _ => input,
+    }
+}

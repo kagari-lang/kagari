@@ -101,8 +101,6 @@ pub struct Declaration {
 /// `collect_named` registers headers/members directly in the shared definition
 /// context before signatures are checked. `with_bindings` adds parameters and locals
 /// under those existing body identities. Publication retains the matching prefix.
-/// Internal site ranges
-/// use analysis coordinates, which can differ from authoritative copied-source sites.
 /// Import lookup tables are shared inputs, not copied into every declaration.
 #[derive(Debug, Clone)]
 pub struct Declarations {
@@ -122,8 +120,6 @@ pub struct Declarations {
     targets: HashMap<DeclarationKey, Declaration>,
     /// Reverse identity lookup; binding keys include analysis identity.
     identities: HashMap<DeclarationId, DeclarationKey>,
-    /// Declaration-site bytes in analysis coordinates, separate from navigation origins.
-    site_ranges: HashMap<DeclarationKey, Span>,
     /// Local implementation slots to semantic definition identities.
     impl_identities: HashMap<ImplId, DefinitionId>,
     native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
@@ -167,7 +163,6 @@ impl Declarations {
             context: context.clone(),
             targets: HashMap::new(),
             identities: HashMap::new(),
-            site_ranges: HashMap::new(),
             impl_identities: HashMap::new(),
             native_types: lowered.native_types.clone(),
         }
@@ -212,7 +207,6 @@ impl Declarations {
                 kind,
                 &item.name,
                 map.item_declaration_span(Item::Function(item.id)),
-                map.item_name_span(Item::Function(item.id)).is_some(),
             )?;
             builder.generic_params(&owner, &item.generic_params, map);
         }
@@ -229,7 +223,6 @@ impl Declarations {
                 DefinitionKind::Const,
                 &item.name,
                 map.item_declaration_span(Item::Const(item.id)),
-                map.item_name_span(Item::Const(item.id)).is_some(),
             )?;
         }
         for item in &module.statics {
@@ -242,7 +235,6 @@ impl Declarations {
                 DefinitionKind::Static,
                 &item.name,
                 map.item_declaration_span(Item::Static(item.id)),
-                map.item_name_span(Item::Static(item.id)).is_some(),
             )?;
         }
         for item in &module.modules {
@@ -255,7 +247,6 @@ impl Declarations {
                 DefinitionKind::Module,
                 &item.name,
                 map.item_declaration_span(Item::Module(item.id)),
-                map.item_name_span(Item::Module(item.id)).is_some(),
             )?;
         }
         for item in &module.type_aliases {
@@ -268,7 +259,6 @@ impl Declarations {
                 DefinitionKind::TypeAlias,
                 &item.name,
                 map.item_declaration_span(Item::TypeAlias(item.id)),
-                map.item_name_span(Item::TypeAlias(item.id)).is_some(),
             )?;
             builder.generic_params(&owner, &item.generic_params, map);
         }
@@ -289,7 +279,6 @@ impl Declarations {
                 },
                 &item.name,
                 map.item_declaration_span(Item::OpaqueType(item.id)),
-                map.item_name_span(Item::OpaqueType(item.id)).is_some(),
             )?;
             builder.generic_params(&owner, &item.generic_params, map);
         }
@@ -303,7 +292,6 @@ impl Declarations {
                 DefinitionKind::Struct,
                 &item.name,
                 map.item_declaration_span(Item::Struct(item.id)),
-                map.item_name_span(Item::Struct(item.id)).is_some(),
             )?;
             builder.generic_params(&owner, &item.generic_params, map);
             for field in &item.fields {
@@ -316,7 +304,6 @@ impl Declarations {
                     DeclarationId::Definition(id),
                     &field.name,
                     map.field_span(field.id),
-                    !field.name.is_empty(),
                 );
             }
         }
@@ -330,7 +317,6 @@ impl Declarations {
                 DefinitionKind::Enum,
                 &item.name,
                 map.item_declaration_span(Item::Enum(item.id)),
-                map.item_name_span(Item::Enum(item.id)).is_some(),
             )?;
             builder.generic_params(&owner, &item.generic_params, map);
             for variant in &item.variants {
@@ -343,7 +329,6 @@ impl Declarations {
                     DeclarationId::Definition(id),
                     &variant.name,
                     map.variant_span(variant.id),
-                    !variant.name.is_empty(),
                 );
             }
         }
@@ -357,7 +342,6 @@ impl Declarations {
                 DefinitionKind::Trait,
                 &item.name,
                 map.item_declaration_span(Item::Trait(item.id)),
-                map.item_name_span(Item::Trait(item.id)).is_some(),
             )?;
             builder.generic_params(&owner, &item.generic_params, map);
             for method in &item.methods {
@@ -370,8 +354,6 @@ impl Declarations {
                     DefinitionKind::Method,
                     &method.name,
                     map.item_declaration_span(Item::Function(method.function)),
-                    map.item_name_span(Item::Function(method.function))
-                        .is_some(),
                 )?;
                 let function = module
                     .functions
@@ -398,8 +380,6 @@ impl Declarations {
                     DefinitionKind::Method,
                     &method.name,
                     map.item_declaration_span(Item::Function(method.function)),
-                    map.item_name_span(Item::Function(method.function))
-                        .is_some(),
                 )?;
                 let function = module
                     .functions
@@ -435,7 +415,6 @@ impl Declarations {
                     DeclarationId::Definition(id),
                     &member.name,
                     map.type_span(member.name_ref),
-                    !member.name.is_empty(),
                 );
                 if let Some(initializer) = member.initializer {
                     // Header and initializer share identity; reverse lookup retains the
@@ -445,7 +424,6 @@ impl Declarations {
                         DeclarationId::Definition(id),
                         &member.name,
                         map.item_declaration_span(Item::Const(initializer)),
-                        !member.name.is_empty(),
                     );
                 }
             }
@@ -474,7 +452,6 @@ impl Declarations {
                 DefinitionKind::Function,
                 &function.name,
                 map.item_declaration_span(Item::Function(function.id)),
-                map.item_name_span(Item::Function(function.id)).is_some(),
             )?;
             builder.generic_params(&owner, &function.generic_params, map);
         }
@@ -507,7 +484,6 @@ impl Declarations {
                     DeclarationId::Definition(id),
                     &member.name,
                     map.type_span(member.name_ref),
-                    !member.name.is_empty(),
                 );
                 builder.generic_params(&id, &member.generic_params, map);
             }
@@ -545,11 +521,11 @@ impl Declarations {
             result: self,
             occurrences: HashMap::new(),
         };
-        for scope in names.scopes() {
+        for binding in names.bindings() {
             if cancel.check().is_err() {
                 break;
             }
-            let owner = match scope.owner {
+            let owner = match binding.owner {
                 BodyOwner::Function(id) => ResolvedName::Function(id),
                 BodyOwner::Const(id) => ResolvedName::Const(id),
                 BodyOwner::Static(id) => ResolvedName::Static(id),
@@ -558,28 +534,22 @@ impl Declarations {
             else {
                 unreachable!("body owner is a definition")
             };
-            for binding in &scope.bindings {
-                if cancel.check().is_err() {
-                    break;
-                }
-                let range = match binding.resolved.clone() {
-                    ResolvedName::Param(id) => map.param_span(id),
-                    ResolvedName::Local(id) => map.local_span(id),
-                    ResolvedName::Function(_) => continue,
-                    _ => unreachable!("scope binds parameters, locals and local functions"),
-                };
-                builder.insert(
-                    binding.resolved.clone(),
-                    DeclarationId::Binding(BindingId {
-                        analysis,
-                        body,
-                        slot: binding.resolved.clone(),
-                    }),
-                    &binding.name,
-                    range,
-                    !binding.name.is_empty() && !binding.name.starts_with('<'),
-                );
-            }
+            let range = match binding.resolved.clone() {
+                ResolvedName::Param(id) => map.param_span(id),
+                ResolvedName::Local(id) => map.local_span(id),
+                ResolvedName::Function(_) => continue,
+                _ => unreachable!("directory binds parameters, locals and local functions"),
+            };
+            builder.insert(
+                binding.resolved.clone(),
+                DeclarationId::Binding(BindingId {
+                    analysis,
+                    body,
+                    slot: binding.resolved.clone(),
+                }),
+                &binding.name,
+                range,
+            );
         }
         builder.result
     }
@@ -612,7 +582,6 @@ impl Builder<'_> {
                 },
                 &param.name,
                 map.generic_param_span(param.id),
-                !param.name.is_empty(),
             );
             position += 1;
         }
@@ -648,10 +617,9 @@ impl Builder<'_> {
         kind: DefinitionKind,
         name: &str,
         range: Span,
-        site: bool,
     ) -> Result<DefinitionId, DefinitionMappingError> {
         let id = self.identity(parent, kind, name)?;
-        self.insert(key, DeclarationId::Definition(id), name, range, site);
+        self.insert(key, DeclarationId::Definition(id), name, range);
         Ok(id)
     }
 
@@ -661,12 +629,9 @@ impl Builder<'_> {
         id: DeclarationId,
         name: &str,
         range: Span,
-        site: bool,
     ) {
         let key = key.into();
-        if site {
-            self.result.site_ranges.insert(key.clone(), range);
-        }
+
         self.result.identities.insert(id.clone(), key.clone());
         self.result.targets.insert(
             key,
@@ -745,35 +710,18 @@ impl Declarations {
     }
 
     /// Borrow an associated type header by its retained source type-name handle.
-    pub(crate) fn associated_type(&self, name: TypeRefId) -> Option<&Declaration> {
+    pub fn associated_type(&self, name: TypeRefId) -> Option<&Declaration> {
         self.targets.get(&DeclarationKey::AssociatedType(name))
     }
 
     /// Borrow an associated constant header, including a required member without an initializer.
-    pub(crate) fn associated_const(&self, name: TypeRefId) -> Option<&Declaration> {
+    pub fn associated_const(&self, name: TypeRefId) -> Option<&Declaration> {
         self.targets.get(&DeclarationKey::AssociatedConst(name))
     }
 
     /// Finds a local enum variant declaration by its arena/owner/slot ID.
     pub fn variant(&self, id: VariantId) -> Option<&Declaration> {
         self.targets.get(&DeclarationKey::Variant(id))
-    }
-
-    /// Temporary analysis-coordinate declaration sites for HR06/HR07 extraction.
-    ///
-    /// Each entry borrows this table's canonical declaration and marks member sites.
-    /// Copied/native physical locations remain on the declaration itself.
-    pub fn sites(&self) -> impl Iterator<Item = (Span, &Declaration, bool)> {
-        self.site_ranges.iter().filter_map(|(key, range)| {
-            let member = matches!(
-                key,
-                DeclarationKey::Field(_)
-                    | DeclarationKey::Variant(_)
-                    | DeclarationKey::AssociatedType(_)
-                    | DeclarationKey::AssociatedConst(_)
-            );
-            Some((*range, self.targets.get(key)?, member))
-        })
     }
 
     /// Borrows canonical foreign type/variant declaration projections.

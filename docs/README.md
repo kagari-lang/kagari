@@ -71,7 +71,8 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   [Compiler/tooling boundary review](hir-model-review.md#compiler-and-tooling-boundary) records
   the current retain/move/split and naming inventory. The
   [HR04–HR08 plan](hir-storage-design.md#compilertool-implementation-plan) is active;
-  lint projections are extracted, followed by editor queries and mixed-fact separation.
+  lint/editor projections and lexical/declaration indexes are extracted; path provenance
+    and focused naming remain in progress.
   [Native model review](hir-model-review.md#native-model) remains deferred.
 
 - [Runtime architecture](architecture/runtime.md), [call walkthrough](architecture/runtime/calls.md)

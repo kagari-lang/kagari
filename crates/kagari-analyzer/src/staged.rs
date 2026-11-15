@@ -7,7 +7,6 @@ use crate::{
 use kagari_hir::{
     analysis::{body::FunctionAnalysis, signatures::FileSignatures},
     declarations::Declaration,
-    hir::ids::BodyOwner,
     types::TypeId,
 };
 
@@ -25,7 +24,7 @@ impl<'a> SignatureQueries<'a> {
 
     /// Checked signature names and declaration sites only.
     pub fn definition_at(&self, offset: usize) -> Option<&'a Declaration> {
-        DeclarationQueries::new(self.analysis.declarations())
+        DeclarationQueries::new(self.analysis.lowered(), self.analysis.declarations())
             .site_at(offset)
             .or_else(|| {
                 type_reference_at(
@@ -60,13 +59,18 @@ impl<'a> FunctionQueries<'a> {
         Self { analysis }
     }
 
-    // Temporary scope history reader until HR06 derives routing from structure.
     fn contains(&self, offset: usize) -> bool {
-        self.analysis.names().scopes().iter().any(|scope| {
-            scope.owner == BodyOwner::Function(self.analysis.function())
-                && scope.span.start <= offset
-                && offset <= scope.span.end
-        })
+        let lowered = self.analysis.lowered();
+        let function = &lowered.module.functions[self.analysis.function().index()];
+        assert_eq!(
+            function.id,
+            self.analysis.function(),
+            "selected function owner mismatch"
+        );
+        function.body.is_some() && {
+            let span = lowered.source_map.function_span(function.id);
+            span.start <= offset && offset <= span.end
+        }
     }
 
     /// Returns checked types only inside the selected function's lexical extent.

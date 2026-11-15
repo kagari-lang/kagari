@@ -11,6 +11,7 @@ use crate::{
     declarations::{Declaration, DeclarationId, Declarations},
     declare_analysis,
     imports::{ModuleGraph, SourceUnit},
+    lower::LoweredModule,
     native::{adoption, api::preparation::NativeFiles},
     resolver::resolved::DeclarationNames,
 };
@@ -48,6 +49,11 @@ impl FileDeclarations {
     /// Returns a typed AST view of the retained parse.
     pub fn syntax(&self) -> ModuleSyntax {
         self.parsed.syntax()
+    }
+
+    /// Borrows the structural lowering and origins matching these declarations.
+    pub fn lowered(&self) -> &LoweredModule {
+        &self.declared.lowered
     }
 
     /// Named declarations, members and generic parameters; no local bindings.

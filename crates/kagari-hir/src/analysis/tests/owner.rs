@@ -94,15 +94,17 @@ fn lowering_records_owners_for_interleaved_functions_and_constants() {
     for (expr, _) in module.body.expressions() {
         assert_ne!(expr.owner(), HirOwner::Declaration);
     }
-    for scope in facts.names.scopes() {
-        for binding in &scope.bindings {
-            let owner = match binding.resolved {
-                ResolvedName::Param(id) => id.owner(),
-                ResolvedName::Local(id) => id.owner(),
-                _ => panic!("body binding"),
-            };
-            assert_eq!(owner, HirOwner::Body(scope.owner));
-        }
+    for binding in facts.names.bindings() {
+        let owner = match binding.resolved {
+            ResolvedName::Param(id) => id.owner(),
+            ResolvedName::Local(id) => id.owner(),
+            _ => panic!("body binding"),
+        };
+        assert_eq!(owner, HirOwner::Body(binding.owner));
+        assert!(std::ptr::eq(
+            facts.names.binding(&binding.resolved).unwrap(),
+            binding
+        ));
     }
 }
 
@@ -152,7 +154,7 @@ fn implicit_receiver_shares_declaration_type_without_losing_method_ownership() {
     }));
     // Synthetic/missing source ranges do not decide ownership.
     let names = resolve_names(&lowered).unwrap();
-    assert!(!names.facts().scopes().is_empty());
+    assert!(names.facts().bindings().next().is_some());
 }
 
 #[test]
