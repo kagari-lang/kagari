@@ -286,9 +286,13 @@ bounds. The [iteration owner](../crates/kagari-stdlib/src/foundation/iteration.r
 demonstrates explicit checked requirements without privileged container storage.
 
 `define_trait_default` accepts a complete `MethodDefinition` or a
-`DefaultDefinition` with explicit template arguments and proof facts. Runtime's shared default lowerer supplies template
-binders and associated-output substitution; do not author a second template
-lowerer. `TraitOverride::requires`, `produces` and `documentation` attach
+`DefaultDefinition` with explicit helper type arguments and proof facts. Runtime's
+[shared default lowerer](../crates/kagari-runtime/src/native/builder/default_lowering.rs)
+supplies the private Native helper's binders and associated-output substitution;
+the trait method is Script and its complete ordinary call expression is retained in
+`ModuleDecl.script_bodies`. There is no executable default-application recipe or
+special HIR forwarding-call table. Do not author a second helper lowerer.
+`TraitOverride::requires`, `produces` and `documentation` attach
 implementation-specific facts/prose without redefining the trait signature.
 The real impl/member binders are substituted before existing proofs run. See the
 [iteration owner](../crates/kagari-stdlib/src/foundation/iteration.rs) for concrete
@@ -349,29 +353,50 @@ charge does not grant arbitrary editing. See the
 
 ## Analysis and declaration presentation
 
-Registration is the authority for installed bindings, independently of how a tool
-presents declarations. The current analysis choices are:
+Runtime registration supplies actual Rust bindings independently of how a tool
+presents declarations. HIR consumes only binding-free static facts under the same
+rules for each input representation. The current analysis choices are:
 
 - `AnalysisDatabase::set_native_modules`: owned `ModuleDecl` records lower directly
   into common HIR, then undergo ordinary resolution and checking. Declaration-to-HIR
   identity correspondence is constructed with the nodes, not recovered from text.
 - `set_native_sources`: explicitly supplied complete views are parsed and checked
-  against their paired registrations before Native metadata attaches. This remains
+  against their paired registrations before static contracts attach. This remains
   the source-backed navigation route, not the default compilation requirement.
 - `set_external_modules`: offline `ExternalModule` source is parsed alongside
   project source. Scoped sidecars supply static constructor, Host schema/path,
-  foundation/conversion trait, exceptional method-policy and ordered Native
-  operation/concrete-result facts absent from syntax. Successful analysis grants
-  no installed bindings, executable admission or Runtime installation authority.
+  conversion relationship, exceptional method-policy, enum failure/import namespace
+  and ordered Native operation/concrete-result facts absent from syntax. Common
+  role/constructor checks do not require a duplicate trait catalog or origin privilege.
+  Complete checked programs can enter compilation through this route; linking still
+  requires matching demanded implementations, and unsupported operations reject.
 
 The [declaration-input contract](spec/standard-declarations.md#declaration-analysis-inputs)
 includes explicit `native fn ...;` / `native type ...;` / field-bearing Native type
 syntax, field typing and the sidecar inventory. Ordinary Script definitions and
 defaults must remain complete, including embedded source: signatures or placeholder
-bodies are not substitutes. Registered NativeDefault forwarding stays checked
-Script HIR with separate binding evidence. Native field support is frontend typing,
-not a new Runtime field adapter. Ref/RefMut retain explicit target/access recognition
-without adding borrowing, projections, conversions or forwarding.
+bodies are not substitutes. Structured expression bodies and parsed blocks use
+ordinary resolution, body checking and generic instance planning; module-qualified
+helper references cannot be captured by parameters. Genuine Native defaults remain
+external implementation declarations. Portable origins and instruction-checked body
+records establish internal materialization provenance, not semantic authentication.
+[Runtime Script authentication](../crates/kagari-runtime/src/native/registry/scripts.rs)
+compares the actual bytecode call/value trace against the independently installed
+canonical ScriptExpr and function contract, applying binders and normalizing associated
+outputs through the checked impl. Final Script library methods without that canonical
+expression fail closed; origins, matching signatures or artifact-supplied digests do
+not authorize them. See [checked contracts](spec/standard-declarations.md#checked-executable-contracts).
+Native field support is frontend typing, not a new Runtime field adapter. Ref/RefMut
+retain their special target/access, no-escape and scoped-borrow restrictions; ordinary
+storable wrappers and new reference operations remain deferred.
+
+[ImportEnvironment](../crates/kagari-hir/src/imports/environment.rs) separately supplies
+package aliases, dependencies and selected preludes, with producer/package defaults
+normalized before graph construction. Explicit aliases determine package selection;
+dependencies do not grant private access, and coherence uses actual defining owners.
+Explicit scopes are retained by immutable analysis inputs for replay and participate
+in semantic cache/fingerprint invalidation. Runtime `NativeBinding` values and Rust
+storage/access adapters remain valid implementation-side objects, never HIR authority.
 
 Source-enabled engines use the direct route unless the host sets
 `builder.declaration_cache(path)` before `build()`. The SDK still renders

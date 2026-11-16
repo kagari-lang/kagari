@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     declarations::DeclarationId, hir::item::function::FunctionImplementation as HirImplementation,
-    native::NativeBinding, semantic::signatures::FunctionImplementation, tests::test_analysis,
+    semantic::signatures::FunctionImplementation, tests::test_analysis,
     typeck::signature_reuse::reuse_signatures,
 };
 use kagari_common::identity::{ModuleIdentity, PackageId};
@@ -18,7 +18,7 @@ fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> SignatureSnapsh
 }
 
 #[test]
-fn reused_signatures_cannot_transfer_installed_native_implementation_authority() {
+fn reused_signatures_require_equal_native_static_contracts() {
     let mut sources = SourceDatabase::default();
     sources
         .set("root.kgr", "fn main() {}".into(), SourceLayer::Base)
@@ -38,10 +38,7 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
             .functions()
             .iter()
             .any(|function| {
-                matches!(
-                    function.implementation,
-                    FunctionImplementation::Native(NativeBinding::Entry(_))
-                )
+                matches!(function.implementation, FunctionImplementation::Native(_))
             })
     );
     let prepared = &file.prepared;
@@ -54,18 +51,6 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
             &Default::default()
         )
         .is_some()
-    );
-    let mut changed = original.as_ref().clone();
-    changed.native_functions.clear();
-    assert_eq!(changed.source.text(), original.source.text());
-    assert!(
-        reuse_signatures(
-            original,
-            &prepared.record.signatures,
-            &changed,
-            &Default::default()
-        )
-        .is_none()
     );
     let mut changed = original.as_ref().clone();
     let native = changed
@@ -89,28 +74,6 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
         .is_none()
     );
     changed.module.functions[native].implementation = HirImplementation::Required;
-    assert!(
-        reuse_signatures(
-            original,
-            &prepared.record.signatures,
-            &changed,
-            &Default::default()
-        )
-        .is_none()
-    );
-    let mut changed = original.as_ref().clone();
-    changed.external_api = true;
-    assert!(
-        reuse_signatures(
-            original,
-            &prepared.record.signatures,
-            &changed,
-            &Default::default()
-        )
-        .is_none()
-    );
-    let mut changed = original.as_ref().clone();
-    changed.registered_native_api = false;
     assert!(
         reuse_signatures(
             original,
@@ -415,9 +378,16 @@ fn cached_signature_bounds_survive_body_edits_and_bound_changes_invalidate_calls
                 .prepared
                 .lowered
                 .module
-                .body
+                .nodes
                 .arena(),
-            fresh.file(id).unwrap().prepared.lowered.module.body.arena(),
+            fresh
+                .file(id)
+                .unwrap()
+                .prepared
+                .lowered
+                .module
+                .nodes
+                .arena(),
         );
 }
 
@@ -515,9 +485,16 @@ fn signature_cache_reuses_and_rebases_without_any_complete_analysis() {
                 .prepared
                 .lowered
                 .module
-                .body
+                .nodes
                 .arena(),
-            fresh.file(id).unwrap().prepared.lowered.module.body.arena(),
+            fresh
+                .file(id)
+                .unwrap()
+                .prepared
+                .lowered
+                .module
+                .nodes
+                .arena(),
         );
     assert_eq!(
         second.file(id).unwrap().diagnostics(),
@@ -597,7 +574,7 @@ fn signature_records_preserve_checked_context_without_retaining_graphs() {
         .values()
         .map(|file| Arc::downgrade(&file.prepared.lowered))
         .collect::<Vec<_>>();
-    let arena = file.prepared.lowered.module.body.arena();
+    let arena = file.prepared.lowered.module.nodes.arena();
     let old_query = Arc::downgrade(file);
 
     // Full-file results can supply the old graph without retaining stage views.
@@ -649,7 +626,7 @@ fn signature_records_preserve_checked_context_without_retaining_graphs() {
     let file = rebuilt.file(id).unwrap();
     assert!(!file.reused());
     assert!(!Arc::ptr_eq(&record, &file.prepared.record));
-    assert_ne!(file.prepared.lowered.module.body.arena(), arena);
+    assert_ne!(file.prepared.lowered.module.nodes.arena(), arena);
 
     assert!(file.diagnostics().is_empty(), "{:?}", file.diagnostics());
     assert!(graphs.iter().all(|graph| graph.upgrade().is_none()));

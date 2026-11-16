@@ -1,0 +1,10 @@
+use api::Read;
+
+fn main() -> i32 {
+    val value: Read<Item = bool> = 1;
+    if value.item::<i32>(true, 7) && !value.item::<i64>(false, 8_i64) {
+        value.read::<i32>(20) + value.read::<i64>(22_i64)
+    } else {
+        0
+    }
+}

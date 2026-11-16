@@ -89,6 +89,11 @@ impl RemapDefinitions for ModuleDecl {
                 (value).remap_definitions(mapper)
             })?,
             functions: map_sequence(&self.functions, |value| (value).remap_definitions(mapper))?,
+            script_bodies: self
+                .script_bodies
+                .iter()
+                .map(|(id, body)| Ok((mapper.reference(id)?, body.remap_definitions(mapper)?)))
+                .collect::<Result<_, DefinitionMappingError>>()?,
             private_functions: map_set(
                 self.private_functions.len(),
                 self.private_functions
@@ -149,6 +154,10 @@ impl DefinitionReferences for ModuleDecl {
         }
         for value0 in &self.functions {
             (value0).visit_definition_ids(visit, cancel)?;
+        }
+        for (id, body) in &self.script_bodies {
+            visit(id)?;
+            body.visit_definition_ids(visit, cancel)?;
         }
         for value0 in &self.private_functions {
             check_cancel(cancel)?;

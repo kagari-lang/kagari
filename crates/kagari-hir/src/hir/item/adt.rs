@@ -5,7 +5,12 @@ use crate::hir::{
     item::behavior::{GenericParam, TraitBound, TraitRef},
     writeability::Writeability,
 };
-use kagari_types::visibility::Visibility;
+use kagari_common::identity::table::DefinitionId;
+use kagari_types::{
+    declaration::{TypeDeclaration, TypeDef, path::HostPathDeclaration},
+    visibility::Visibility,
+};
+use std::sync::Arc;
 
 /// A Native nominal interface, independent of its installed storage representation.
 ///
@@ -19,7 +24,7 @@ use kagari_types::visibility::Visibility;
 /// }
 /// n -> Module.native_types[n.index()]
 /// f = FieldId { arena, owner: FieldOwner::NativeType(n), slot: 0 }
-/// t / each TraitRef.ty -> Body.type_ref -> field / trait application syntax
+/// t / each TraitRef.ty -> HirNodes.type_ref -> field / trait application syntax
 /// ```
 ///
 /// Fields use ordinary visibility, type and var/val checking, not Rust layout or
@@ -33,6 +38,8 @@ use kagari_types::visibility::Visibility;
 pub struct NativeTypeDeclaration {
     /// Slot in `Module.native_types`.
     pub id: NativeTypeId,
+    /// Address-free Host schema and caller-visible path capabilities, if this is a Host declaration.
+    pub host: Option<HostContract>,
     /// Declared visibility.
     pub visibility: Visibility,
     /// Declared nominal type name.
@@ -60,7 +67,7 @@ pub struct NativeTypeDeclaration {
 /// x_field = Field { id: x, visibility: Public, writeability: Var, name: "x", ty: t }
 /// x = FieldId { arena, owner: FieldOwner::Struct(s), slot: 0 }
 /// Module.field(x) -> Module.structs[s.index()].fields[0]
-/// t -> Body.type_ref -> Named("T")
+/// t -> HirNodes.type_ref -> Named("T")
 /// label_field has slot 1, Private visibility, Val writeability and String type syntax
 /// ```
 ///
@@ -92,7 +99,7 @@ pub struct Struct {
 /// struct Point { pub var x: i32 }
 /// Field { id: f, visibility: Public, writeability: Var, name: "x", ty: t }
 /// f = FieldId { arena, owner: FieldOwner::Struct(point_id), slot: 0 }
-/// t -> Body.type_ref -> Named("i32")
+/// t -> HirNodes.type_ref -> Named("i32")
 /// f -> Module.field(f); SourceMap.field_span(f) records the name site
 /// ```
 ///
@@ -128,7 +135,7 @@ pub struct Field {
 /// }
 /// some_id = VariantId { arena, owner: e, slot: 1 }
 /// Module.variant(some_id) -> enums[e.index()].variants[1]
-/// t -> Body.type_ref -> Named("T")
+/// t -> HirNodes.type_ref -> Named("T")
 /// ```
 ///
 /// `e` is an allocated declaration slot; variant IDs carry their enum owner and
@@ -159,7 +166,7 @@ pub struct Enum {
 /// Idle -> Variant { id: idle_id, name: "Idle", payload: [] }
 /// Pair -> Variant { id: pair_id, name: "Pair", payload: [i32_type, string_type] }
 /// pair_id = VariantId { arena, owner: event_id, slot: 1 }
-/// each payload ID -> Body.type_ref -> declared type syntax
+/// each payload ID -> HirNodes.type_ref -> declared type syntax
 /// ```
 ///
 /// `name` and payload type order come from source; `id` is allocated from the
@@ -168,10 +175,21 @@ pub struct Enum {
 /// `Event::Pair(x, _)` in a match is an EnumVariant pattern.
 #[derive(Debug, Clone)]
 pub struct Variant {
+    /// Whether construction starts the declared failure-origin behavior.
+    pub reports_failure: bool,
     /// Arena/enum/slot identity used by `Module::variant`.
     pub id: VariantId,
     /// Variant name within its enum.
     pub name: String,
     /// Payload type syntax in positional order; empty for a unit variant.
     pub payload: Vec<TypeRefId>,
+}
+
+/// Static Host schema/path closure. Contains no Rust layout, binding or storage classification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostContract {
+    pub declaration: DefinitionId,
+    pub definition: Arc<TypeDef>,
+    pub paths: Arc<[HostPathDeclaration]>,
+    pub schemas: Arc<[TypeDeclaration]>,
 }

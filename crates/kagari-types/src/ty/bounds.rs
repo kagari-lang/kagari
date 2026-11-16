@@ -19,9 +19,12 @@ impl GenericBound {
         let mut merged = BTreeMap::<Ty, BTreeSet<NominalTy>>::new();
         for bound in bounds {
             bound.ty.canonical_cmp(&bound.ty, definitions, cancel)?;
-            let constraints = merged.entry(bound.ty).or_default();
-            for constraint in bound.constraints {
+            let constraints = merged.entry(bound.ty.clone()).or_default();
+            for mut constraint in bound.constraints {
                 cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+                let original = Ty::Trait(constraint.clone());
+                original.canonical_cmp(&original, definitions, cancel)?;
+                constraint.remove_identity_outputs(&bound.ty);
                 constraints.insert(constraint);
             }
         }
@@ -48,6 +51,38 @@ impl GenericBound {
 }
 
 impl NominalTy {
+    /// Remove tautologies such as `Item = <R as I>::Item` for receiver R.
+    /// Other equalities, including recursive expansions, remain unchanged.
+    pub fn remove_identity_outputs(&mut self, receiver: &Ty) {
+        let identities = self
+            .associated_types
+            .iter()
+            .filter_map(|(member, ty)| {
+                let Ty::Projection {
+                    receiver: owner,
+                    interface,
+                    member: output,
+                    arguments: own,
+                } = ty
+                else {
+                    return None;
+                };
+                (owner.as_ref() == receiver
+                    && interface.declaration == self.declaration
+                    && interface.arguments == self.arguments
+                    && output == member
+                    && own.is_empty()
+                    && interface
+                        .associated_types
+                        .iter()
+                        .all(|(id, value)| self.associated_types.get(id) == Some(value)))
+                .then_some(*member)
+            })
+            .collect::<BTreeSet<_>>();
+        self.associated_types
+            .retain(|member, _| !identities.contains(member));
+    }
+
     /// Deduplicate constraints and order them by exact identity in the supplied scope.
     /// Associated outputs and ordinary generic bounds share this normalization.
     /// Foreign identities, bounded type-shape violations and cancellation return an error.

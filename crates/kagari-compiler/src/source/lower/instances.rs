@@ -38,6 +38,7 @@ use kagari_hir::{
 use kagari_mir::{ids::InstanceId, passes::PassOptions};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{
+    declaration::NativeDeclaration,
     language::Protocol,
     ty::{GenericParam, NominalTy, Ty},
 };
@@ -56,12 +57,10 @@ mod calls;
 mod coercions;
 mod constants;
 mod constructions;
-mod defaults;
 mod interface_coercions;
 mod locals;
 pub(crate) mod methods;
 mod native;
-mod native_application;
 mod native_methods;
 mod operation_dependencies;
 mod requests;
@@ -248,6 +247,7 @@ pub(super) struct InstancePlanner<'a> {
     pub bridge_identities: &'a mut BridgeIdentities,
     pub catalog: &'a AggregateCatalog,
     modules: &'a HashMap<ModuleHandle, &'a CheckedModule<'a>>,
+    native_declarations: &'a HashMap<DefinitionId, NativeDeclaration>,
     pub options: &'a MirLoweringOptions,
     pub instances: Vec<Instance>,
     pub static_slots: Vec<StaticDescriptor<InstanceId>>,
@@ -342,6 +342,7 @@ impl<'a> InstancePlanner<'a> {
             context: inputs.context,
             catalog: inputs.catalog,
             modules: &inputs.modules_by_handle,
+            native_declarations: &inputs.native_declarations,
             module,
             options,
             instances: state.instances,

@@ -30,7 +30,7 @@ impl FileQueries<'_> {
         let (_, id) = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .filter_map(|(id, expression)| {
                 if !matches!(expression.kind, ExprKind::Call { .. }) {

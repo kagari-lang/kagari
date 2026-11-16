@@ -3,7 +3,7 @@ use crate::module::{BytecodeModule, CallableTarget};
 use kagari_common::cancellation::CancellationToken;
 use kagari_contract::types::{ConcreteFunctionIdentity, PublicItem, proofs::ProofCatalog};
 use kagari_types::{
-    callable::{CallableImplementation, Signature},
+    callable::Signature,
     declaration::verify::types_in_scope,
     ty::{
         Ty,
@@ -143,43 +143,18 @@ pub(super) fn valid(
                     .map(|ty| entry.apply(ty, cancel))
                     .collect::<Result<_, _>>()?,
             };
-            if let CallableImplementation::NativeDefault(application) = &method.implementation {
-                let CallableTarget::Native(import) = slot.target else {
-                    return Ok(false);
-                };
-                let application = application.apply(&applied, cancel)?;
-                let Some(resolved) = catalog.resolve_native_default_in(
-                    &application,
-                    &scope,
-                    &assumptions,
-                    cancel,
-                )?
-                else {
-                    return Ok(false);
-                };
-                if resolved.instance != target
-                    || resolved.implementation
-                        != CallableImplementation::Native(
-                            module.native_imports[import.index()].binding,
-                        )
-                    || resolved.signature != actual
-                {
-                    return Ok(false);
-                }
-            } else {
-                let expected_arguments: Vec<_> = table
-                    .arguments
-                    .iter()
-                    .cloned()
-                    .chain(method.generic_params.iter().map(|p| p.as_type()))
-                    .collect();
-                let mut actual_arguments = target.arguments;
-                if matches!(slot.target, CallableTarget::Script(_)) {
-                    actual_arguments.extend(slot.arguments.iter().cloned());
-                }
-                if actual_arguments != expected_arguments {
-                    return Ok(false);
-                }
+            let expected_arguments: Vec<_> = table
+                .arguments
+                .iter()
+                .cloned()
+                .chain(method.generic_params.iter().map(|p| p.as_type()))
+                .collect();
+            let mut actual_arguments = target.arguments;
+            if matches!(slot.target, CallableTarget::Script(_)) {
+                actual_arguments.extend(slot.arguments.iter().cloned());
+            }
+            if actual_arguments != expected_arguments {
+                return Ok(false);
             }
         }
     }

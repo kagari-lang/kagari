@@ -120,7 +120,6 @@ impl RemapDefinitions for FunctionImplementation {
                 FunctionImplementation::Native((field0).remap_definitions(mapper)?)
             }
             Self::Required => FunctionImplementation::Required,
-            Self::NativeDeclaration => FunctionImplementation::NativeDeclaration,
         })
     }
 }
@@ -133,11 +132,10 @@ impl DefinitionReferences for FunctionImplementation {
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         match self {
-            Self::Script | Self::NativeDeclaration => {}
             Self::Native(field0) => {
                 (field0).visit_definition_ids(visit, cancel)?;
             }
-            Self::Required => {}
+            Self::Required | Self::Script => {}
         }
         Ok(())
     }

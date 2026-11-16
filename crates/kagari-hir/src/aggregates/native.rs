@@ -1,5 +1,6 @@
-//! Installed implementation selection uses checked source contracts and provenance.
+//! Declared implementation selection uses checked contracts and bounded proofs.
 
+use crate::types::semantic::lower_type;
 use crate::{
     aggregates::{
         AggregateCatalog, implementations::ImplementationSearchLimits,
@@ -8,23 +9,37 @@ use crate::{
     typeck::{GenericBounds, table::match_implementation},
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_common::identity::table::DefinitionTable;
+use kagari_common::identity::{ModuleIdentity, table::DefinitionTable};
+use kagari_types::declaration::native::NativeTypeConstructor;
+use kagari_types::declaration::ownership::ReceiverOwners;
 
 #[cfg(test)]
 mod tests;
 
 impl AggregateCatalog {
-    /// Match the installed declaration without discharging its bounds. Recursive
+    /// Resolves defining ownership from actual declarations, never input origin.
+    pub(crate) fn receiver_owner(
+        &self,
+        definitions: &DefinitionTable,
+        receiver: &TypeId,
+    ) -> Option<ModuleIdentity> {
+        let owners = ReceiverOwners::from_constructors(self.native_types().filter_map(|item| {
+            let constructor = NativeTypeConstructor::from_definition(item.id, definitions)?;
+            let module = definitions.resolve(item.id).ok()?.module();
+            Some((module, constructor))
+        }))
+        .ok()?;
+        owners.owner(&lower_type(receiver), definitions)
+    }
+
+    /// Match the declared receiver without discharging its bounds. Recursive
     /// searches use this projection while retaining their own search budget.
-    pub(crate) fn engine_implementation_pattern(
+    pub(crate) fn declared_implementation_pattern(
         &self,
         interface: &NominalType,
         receiver: &TypeId,
     ) -> Option<(&ImplementationSignature, TypeSubstitution)> {
         let mut candidates = self.implementations().filter_map(|implementation| {
-            if !implementation.engine_owned {
-                return None;
-            }
             let substitution = match_implementation(
                 &implementation.trait_type,
                 interface,
@@ -32,7 +47,7 @@ impl AggregateCatalog {
                 receiver,
                 &implementation.generic_params,
             )?;
-            if !implementation.accepts_native_receiver(receiver, &substitution) {
+            if !implementation.accepts_receiver(receiver, &substitution) {
                 return None;
             }
             Some((implementation, substitution))
@@ -41,9 +56,9 @@ impl AggregateCatalog {
         candidates.next().is_none().then_some(selected)
     }
 
-    /// Native dispatch requires both installed provenance and a unique checked
+    /// Selection requires a unique checked
     /// implementation whose obligations hold in the current generic context.
-    pub(crate) fn engine_implementation(
+    pub(crate) fn declared_implementation(
         &self,
         definitions: &DefinitionTable,
         interface: &NominalType,
@@ -51,7 +66,7 @@ impl AggregateCatalog {
         bounds: &GenericBounds,
     ) -> Option<(&ImplementationSignature, TypeSubstitution)> {
         let (implementation, substitution) =
-            self.engine_implementation_pattern(interface, receiver)?;
+            self.declared_implementation_pattern(interface, receiver)?;
         let (selected, _) = self
             .concrete_interface_implementation(
                 definitions,
@@ -70,9 +85,9 @@ impl AggregateCatalog {
 }
 
 impl ImplementationSignature {
-    /// Match the exact registered receiver, including its concrete host access
+    /// Match the exact declared receiver, including its concrete host access
     /// descriptor. Readonly receivers have distinct read/iteration declarations.
-    pub(super) fn accepts_native_receiver(
+    pub(super) fn accepts_receiver(
         &self,
         receiver: &TypeId,
         substitution: &TypeSubstitution,

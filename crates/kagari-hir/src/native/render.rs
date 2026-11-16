@@ -9,11 +9,12 @@ use kagari_common::{
     span::Span,
 };
 use kagari_types::{
-    callable::{CallableImplementation, NativeDefaultApplication},
+    callable::CallableImplementation,
     declaration::{
         FnDecl, TypeDefKind,
         module::{DeclarationError, ModuleDecl},
         native::NativeTypeConstructor,
+        script::ScriptExpr,
     },
     language::{Protocol, role::LangRole},
     scalar::BuiltinType,
@@ -743,8 +744,17 @@ impl Renderer<'_> {
                 .push_str(&self.module.type_spelling(&function.return_type)?);
         }
         let bounds = self.bounds(&function.bounds)?;
-        if let CallableImplementation::NativeDefault(application) = &function.implementation {
-            self.default_body(application, function)?;
+        if let Some(body) = self.module.script_bodies.get(&id) {
+            self.text.push_str(
+                " {
+        ",
+            );
+            self.script_expr(body)?;
+            self.text.push_str(
+                "
+    }
+",
+            );
         } else {
             self.text.push_str(";\n");
         }
@@ -756,43 +766,51 @@ impl Renderer<'_> {
         Ok(())
     }
 
-    /// Renders the registration recipe as a real, ordinarily checked tail call.
-    fn default_body(
-        &mut self,
-        application: &NativeDefaultApplication,
-        function: &FnDecl,
-    ) -> Result<(), DeclarationError> {
-        let target = self.module.view(application.declaration)?;
-        let path = target
-            .segments()
-            .map(|part| part.name)
-            .collect::<Vec<_>>()
-            .join("::");
-        let path = if target.module() == &self.module.identity {
-            path
-        } else {
-            format!("{}::{path}", self.module.module_path(target.module()))
-        };
-        self.text.push_str(" {\n        ");
-        self.text.push_str(&path);
-        if !application.arguments.is_empty() {
-            self.text.push_str("::<");
-            for (index, argument) in application.arguments.iter().enumerate() {
-                if index != 0 {
-                    self.text.push_str(", ");
+    fn script_expr(&mut self, expression: &ScriptExpr) -> Result<(), DeclarationError> {
+        match expression {
+            ScriptExpr::Name(name) => self.text.push_str(name),
+            ScriptExpr::Definition(id) => {
+                let target = self.module.view(*id)?;
+                let path = target
+                    .segments()
+                    .map(|part| part.name)
+                    .collect::<Vec<_>>()
+                    .join("::");
+                if target.module() != &self.module.identity {
+                    self.text
+                        .push_str(&self.module.module_path(target.module()));
+                    self.text.push_str("::");
+                } else {
+                    self.text.push_str("self::");
                 }
-                self.text.push_str(&self.module.type_spelling(argument)?);
+                self.text.push_str(&path);
             }
-            self.text.push('>');
-        }
-        self.text.push('(');
-        for (index, parameter) in function.params.iter().enumerate() {
-            if index != 0 {
-                self.text.push_str(", ");
+            ScriptExpr::Call {
+                callee,
+                type_arguments,
+                arguments,
+            } => {
+                self.script_expr(callee)?;
+                if !type_arguments.is_empty() {
+                    self.text.push_str("::<");
+                    for (index, ty) in type_arguments.iter().enumerate() {
+                        if index != 0 {
+                            self.text.push_str(", ");
+                        }
+                        self.text.push_str(&self.module.type_spelling(ty)?);
+                    }
+                    self.text.push('>');
+                }
+                self.text.push('(');
+                for (index, argument) in arguments.iter().enumerate() {
+                    if index != 0 {
+                        self.text.push_str(", ");
+                    }
+                    self.script_expr(argument)?;
+                }
+                self.text.push(')');
             }
-            self.text.push_str(&parameter.name);
         }
-        self.text.push_str(")\n    }\n");
         Ok(())
     }
 

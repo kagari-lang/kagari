@@ -8,7 +8,6 @@ use kagari_common::{
     identity::{DefinitionKind, table::DefinitionId},
 };
 use kagari_types::{
-    callable::CallableImplementation,
     declaration::path::HostPathSegmentDeclaration,
     declaration::{FnDecl, NativeDeclaration, TypeDef, TypeDefKind, module::ModuleDecl},
     ty::{
@@ -135,13 +134,6 @@ impl References {
             .chain(iter::once(&function.return_type))
         {
             self.ty(ty)?;
-        }
-        if let CallableImplementation::NativeDefault(application) = &function.implementation {
-            self.pending
-                .push(Reference::Template(application.declaration));
-            for argument in &application.arguments {
-                self.ty(argument)?;
-            }
         }
         Ok(())
     }

@@ -1,7 +1,7 @@
 //! Nominal wire applications and callable implementation selectors.
 use crate::{
     callable::CallableImplementation,
-    declaration::{conversion::ConversionAdapter, wire::signature::NativeDefaultApplicationRecord},
+    declaration::conversion::ConversionAdapter,
     decode_limits,
     ty::{NominalTy, wire::WireType},
 };
@@ -84,7 +84,6 @@ enum CallableImplementationKind {
     Required,
     Script,
     Native(PortableDefinitionRef),
-    NativeDefault(NativeDefaultApplicationRecord),
 }
 
 impl CallableImplementationRecord {
@@ -100,11 +99,6 @@ impl CallableImplementationRecord {
             CallableImplementation::Native(id) => {
                 CallableImplementationKind::Native(encoding.reference(*id)?)
             }
-            CallableImplementation::NativeDefault(value) => {
-                CallableImplementationKind::NativeDefault(NativeDefaultApplicationRecord::encode(
-                    value, encoding, cancel,
-                )?)
-            }
         }))
     }
 
@@ -119,9 +113,6 @@ impl CallableImplementationRecord {
             CallableImplementationKind::Script => CallableImplementation::Script,
             CallableImplementationKind::Native(id) => {
                 CallableImplementation::Native(decoding.resolve(id)?)
-            }
-            CallableImplementationKind::NativeDefault(value) => {
-                CallableImplementation::NativeDefault(value.decode(decoding, cancel)?)
             }
         })
     }

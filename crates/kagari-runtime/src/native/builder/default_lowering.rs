@@ -8,9 +8,10 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    callable::{CallableImplementation, NativeDefaultApplication, Signature},
+    callable::{CallableImplementation, Signature},
     declaration::{
         FnDecl, TraitDef, module::DeclarationError, requirement::NativeCallableRequirement,
+        script::ScriptExpr,
     },
     ty::{
         GenericBound, GenericParam, NominalTy, Ty,
@@ -46,12 +47,12 @@ pub struct DefaultTemplateSpec<'a> {
 
 /// A complete semantic default ready for staged declaration publication.
 ///
-/// The application retains authored arguments, while every template contract uses
+/// The ordinary call body retains authored arguments, while every helper contract uses
 /// the private function's binders. This value contains no prepared Rust binding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoweredDefault {
     pub template: FnDecl,
-    pub application: NativeDefaultApplication,
+    pub body: ScriptExpr,
     pub requirements: Vec<NativeCallableRequirement>,
     pub concrete_result: Option<Ty>,
 }
@@ -231,9 +232,15 @@ pub fn lower_default(
         .map_err(|_| transform_error(TypeTransformError::Cancelled))?;
     Ok(LoweredDefault {
         template,
-        application: NativeDefaultApplication {
-            declaration: spec.template,
-            arguments: spec.arguments.to_vec(),
+        body: ScriptExpr::Call {
+            callee: Box::new(ScriptExpr::Definition(spec.template)),
+            type_arguments: spec.arguments.to_vec(),
+            arguments: spec
+                .method
+                .params
+                .iter()
+                .map(|parameter| ScriptExpr::Name(parameter.name.clone()))
+                .collect(),
         },
         requirements,
         concrete_result,

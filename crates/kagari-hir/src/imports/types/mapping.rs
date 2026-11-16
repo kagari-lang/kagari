@@ -66,8 +66,12 @@ impl RemapDefinitions for ImportedType {
         Ok(ImportedType {
             native_type: self
                 .native_type
+                .map(|constructor| constructor.remap_definitions(mapper))
+                .transpose()?,
+            host: self
+                .host
                 .as_ref()
-                .map(|value| (value).remap_definitions(mapper))
+                .map(|host| host.remap_definitions(mapper))
                 .transpose()?,
             associated_arities: self.associated_arities.clone(),
             id: self.id.remap_definitions(mapper)?,
@@ -92,7 +96,7 @@ impl DefinitionReferences for ImportedType {
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         self.id.visit_definition_ids(visit, cancel)?;
-        if let Some(value0) = self.native_type.as_ref() {
+        if let Some(value0) = self.host.as_ref() {
             (value0).visit_definition_ids(visit, cancel)?;
         }
         self.declaration.visit_definition_ids(visit, cancel)?;

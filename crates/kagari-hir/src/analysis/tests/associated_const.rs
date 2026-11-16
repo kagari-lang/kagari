@@ -57,7 +57,7 @@ fn classify(value: char) -> char {
     let arms = facts
         .lowered
         .module
-        .body
+        .nodes
         .expressions()
         .find_map(|(_, expr)| {
             if let ExprKind::Match { arms, .. } = &expr.kind {
@@ -155,7 +155,7 @@ fn arrays() {
             .any(|value| value == &byte(65))
     );
     let mut arrays = Vec::new();
-    for (id, expr) in facts.lowered.module.body.expressions() {
+    for (id, expr) in facts.lowered.module.nodes.expressions() {
         if let ExprKind::Array {
             elements,
             element_type,

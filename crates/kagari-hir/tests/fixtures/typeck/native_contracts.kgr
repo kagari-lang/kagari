@@ -67,3 +67,11 @@ pub native fn projected<T: Producer<Good>>();
 pub native fn check<T: Marker + Family<Good>>();
 
 pub native fn produce<T: Marker>() -> Read<Item = Good>;
+
+pub native fn plain(value: i32) -> i32;
+
+pub native fn scalar<T>(value: i32) -> i32;
+
+impl<T> Native<T> {
+    pub native fn scalar(value: i32) -> i32;
+}

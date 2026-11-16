@@ -300,7 +300,7 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
         facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .find_map(|(id, _)| facts.typed.type_table().host_path(id).cloned())
             .unwrap()
@@ -428,7 +428,7 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
         .facts()
         .lowered
         .module
-        .body
+        .nodes
         .places()
         .map(|(id, _)| id)
         .find(|id| old_table.host_place_path(*id).is_some())
@@ -453,7 +453,7 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
         .facts()
         .lowered
         .module
-        .body
+        .nodes
         .places()
         .map(|(id, _)| id)
         .find(|id| table.host_place_path(*id).is_some())
@@ -554,14 +554,14 @@ fn mixed_field_chains_resolve_the_complete_host_suffix() {
     let reads: Vec<_> = facts
         .lowered
         .module
-        .body
+        .nodes
         .expressions()
         .filter_map(|(id, _)| facts.typed.type_table().host_path(id))
         .collect();
     let writes: Vec<_> = facts
         .lowered
         .module
-        .body
+        .nodes
         .places()
         .filter_map(|(id, _)| facts.typed.type_table().host_place_path(id))
         .collect();

@@ -94,7 +94,7 @@ fn runtime_static_initializers_have_distinct_owners_and_ordinary_inference() {
         );
     }
     let captures: Vec<_> = module
-        .body
+        .nodes
         .expressions()
         .filter(|(_, expression)| matches!(expression.kind, ExprKind::Closure { .. }))
         .map(|(id, _)| facts.names.closure_captures(id))

@@ -3,7 +3,7 @@
 //! # Reading the data
 //!
 //! [`lower::LoweredModule`] owns structural HIR plus source ranges. [`hir::item::Module`]
-//! contains declarations and shared [`hir::body::Body`] node tables. Child nodes are
+//! contains declarations and shared [`hir::nodes::HirNodes`] node tables. Child nodes are
 //! connected by typed IDs; [`resolver::resolved::ResolvedNames`] and
 //! [`typeck::table::TypeTable`] add independent name/type/call facts using those IDs.
 //! The [`hir::ids`] documentation explains where each handle is looked up.
@@ -280,8 +280,6 @@ impl PreparedSignatures {
         language_items::validate_shapes(
             &self.record.declarations,
             aggregates,
-            &self.lowered.registered_traits,
-            &self.lowered.external_traits,
             &mut diagnostics,
             cancel,
         );
@@ -403,7 +401,7 @@ impl DeclaredAnalysis {
                 }
                 if old.lowered.source.revision() == self.lowered.source.revision()
                     && old.lowered.source.module_identity() == self.lowered.source.module_identity()
-                    && old.lowered.module.body.arena() == self.lowered.module.body.arena()
+                    && old.lowered.module.nodes.arena() == self.lowered.module.nodes.arena()
                 {
                     Ok(Some(old.record.signatures.clone()))
                 } else {
@@ -590,7 +588,7 @@ fn analyze_prepared(
 /// let source = SourceFile::new("add.kgr", "fn add(x: i32) -> i32 { val y = x + 1; y }");
 /// let analysis = analyze_source(&source, kagari_stdlib::catalog::shared().unwrap()).unwrap();
 /// let facts = analysis.facts();
-/// let (sum, _) = facts.lowered.module.body.expressions()
+/// let (sum, _) = facts.lowered.module.nodes.expressions()
 ///     .find(|(_, expr)| matches!(expr.kind, ExprKind::Binary { .. })).unwrap();
 /// assert_eq!(facts.typed.type_table().expr_type(sum), Some(TypeId::Builtin(BuiltinType::I32)));
 /// assert!(analysis.into_codegen().is_ok());
@@ -638,14 +636,6 @@ pub(crate) fn analyze_parsed(
         .map(|parsed| parsed.shared_diagnostics())
         .unwrap_or_default();
     for attribute in &analyzed.facts.lowered.module.attributes {
-        if analyzed
-            .facts
-            .lowered
-            .native_attributes
-            .contains(&(attribute.span.start, attribute.span.end))
-        {
-            continue;
-        }
         let kind = match attribute.name.as_str() {
             "meta" | "lang" => continue,
             "reflect" | "requires" | "profile" => DiagnosticKind::UnsupportedAttribute {

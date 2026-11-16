@@ -123,7 +123,8 @@ impl HostCallPolicy {
     }
 }
 
-pub(crate) fn function_policy_valid(function: &FnDecl, table: &DefinitionTable) -> bool {
+/// Validate caller-visible Host passing and effects against a declared signature.
+pub fn function_policy_valid(function: &FnDecl, table: &DefinitionTable) -> bool {
     if let Some(policy) = &function.host_policy {
         return policy.valid_for(function, table);
     }

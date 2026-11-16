@@ -1,6 +1,10 @@
 //! Validate registrations and prepare concrete entries/callables before execution.
 
 mod dependencies;
+mod matching;
+mod scripts;
+#[cfg(test)]
+mod tests;
 use crate::{
     error::RuntimeError,
     host::HostPathAdapter,
@@ -81,8 +85,10 @@ impl BindingRegistration {
 pub(crate) struct NativeRegistry {
     pub(crate) metadata: MetadataSnapshot,
     entries: DefinitionMap<Arc<BindingRegistration>>,
+    declaration_bindings: DefinitionMap<DefinitionId>,
     pub(crate) storage: DefinitionMap<NativeStorage>,
     pub(crate) catalog: DeclarationCatalog,
+    scripts: DefinitionMap<scripts::InstalledScript>,
     pub(crate) path_bindings: DefinitionMap<Vec<HostPathAdapter>>,
     pub(crate) trait_references: DefinitionMap<BTreeMap<DefinitionId, TraitDef>>,
     // Only declarations published by providers, never their foreign requirements.
@@ -95,8 +101,10 @@ impl Default for NativeRegistry {
         let context = catalog.types.context().clone();
         Self {
             metadata: MetadataSnapshot::default(),
+            scripts: DefinitionMap::new(context.clone()),
             owned_traits: HashSet::new(),
             entries: DefinitionMap::new(context.clone()),
+            declaration_bindings: DefinitionMap::new(context.clone()),
             storage: DefinitionMap::new(context.clone()),
             trait_references: DefinitionMap::new(context.clone()),
             path_bindings: DefinitionMap::new(context),
@@ -139,29 +147,19 @@ impl NativeRegistry {
     pub(crate) fn validate_installed_contracts(
         &self,
         module: &BytecodeModule,
+        program: &VerifiedProgram,
         admission: &DefinitionAdmission,
     ) -> NativeResult<()> {
         let definitions = self.catalog.definitions();
-        let trait_references =
-            admission.runtime(&module.trait_references, &CancellationToken::default())?;
-        let expected = definitions
+        if let Some(expected) = definitions
             .lookup_root(&module.identity)
-            .and_then(|root| self.trait_references.get_id(root));
-        // Every installed module has a registry entry, including an empty set.
-        // Source-owned modules instead carry requirements proved against their
-        // verified executable dependency closure; they are not native contracts.
-        if let Some(expected) = expected
-            && (expected.len() != trait_references.len()
-                || trait_references
-                    .iter()
-                    .any(|reference| expected.get(&reference.declaration) != Some(&reference.abi)))
+            .and_then(|root| self.trait_references.get_id(root))
         {
-            return Err(RuntimeError::module_validation(
-                "source trait references differ from their installed module contracts",
-            ));
+            dependencies::validate_expected_traits(expected, program, admission)?;
         }
         dependencies::validate_installed_traits(&self.catalog, module, admission)?;
         dependencies::validate_installed_values(&self.catalog, module, admission)?;
+        self.validate_scripts(module, program, admission)?;
         for declaration in &module.native_declarations {
             let declaration = admission.runtime(declaration, &CancellationToken::default())?;
             let CallableImplementation::Native(binding) = declaration.function.implementation
@@ -171,9 +169,15 @@ impl NativeRegistry {
                 ));
             };
             if self
-                .entries
-                .get_id(binding)
-                .is_none_or(|entry| !entry.declarations.contains(&declaration))
+                .declaration_bindings
+                .get_id(declaration.declaration)
+                .or_else(|| self.declaration_bindings.get_id(binding))
+                .and_then(|entry| self.entries.get_id(*entry))
+                .is_none_or(|entry| {
+                    !entry.declarations.iter().any(|expected| {
+                        matching::installed(expected, &declaration, program, admission)
+                    })
+                })
             {
                 return Err(RuntimeError::module_validation(
                     "native declaration differs from its installed contract",
@@ -234,6 +238,10 @@ impl NativeRegistry {
         for declaration in declarations {
             if declaration.function.implementation != CallableImplementation::Native(id)
                 || !seen.insert(&declaration.declaration)
+                || self
+                    .declaration_bindings
+                    .get_id(declaration.declaration)
+                    .is_some()
             {
                 return Err(invalid());
             }
@@ -258,6 +266,11 @@ impl NativeRegistry {
         for declaration in declarations {
             catalog.insert_declaration(declaration.clone())?;
         }
+        for declaration in declarations {
+            self.declaration_bindings
+                .insert_id(declaration.declaration, id)
+                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        }
         self.entries
             .insert_id(id, registration)
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
@@ -272,9 +285,17 @@ impl NativeRegistry {
         admission: &DefinitionAdmission,
         validated: &mut DependencyValidation,
     ) -> NativeResult<Arc<LinkedNativeFunction>> {
+        let declaration_id = admission.runtime_id(import.instance.declaration)?;
         let entry = self
-            .entries
-            .get_id(admission.runtime_id(import.binding)?)
+            .declaration_bindings
+            .get_id(declaration_id)
+            .or_else(|| {
+                admission
+                    .runtime_id(import.binding)
+                    .ok()
+                    .and_then(|binding| self.declaration_bindings.get_id(binding))
+            })
+            .and_then(|binding| self.entries.get_id(*binding))
             .ok_or_else(|| RuntimeError::module_validation("native binding is not installed"))?;
         validated.validate(&entry.required_catalog, program, admission)?;
         let declaration = program
@@ -298,7 +319,9 @@ impl NativeRegistry {
         let registered_declaration =
             admission.runtime(declaration, &CancellationToken::default())?;
         if !import.structurally_valid(program.definitions())
-            || !entry.declarations.contains(&registered_declaration)
+            || !entry.declarations.iter().any(|expected| {
+                matching::installed(expected, &registered_declaration, program, admission)
+            })
             || declaration.function.implementation != CallableImplementation::Native(import.binding)
         {
             return Err(RuntimeError::module_validation(
@@ -348,9 +371,7 @@ impl NativeRegistry {
                                 && import.signature == callable.signature
                         })
                         .map(|slot| CallableTarget::Native(NativeImportId::new(slot))),
-                    CallableImplementation::Required | CallableImplementation::NativeDefault(_) => {
-                        None
-                    }
+                    CallableImplementation::Required => None,
                 }
                 .ok_or_else(|| RuntimeError::module_validation("native callable target"))?;
                 Ok(LinkedOperation::Ready(LinkedCallable {

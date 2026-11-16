@@ -3,7 +3,6 @@
 //! referenced arity and members without an implicit standard-library catalog.
 
 use crate::{
-    callable::CallableImplementation,
     declaration::{FnDecl, TraitDef, TypeDefKind, native::NativeStorageLayout},
     ty::{
         GenericBound, NominalTy, Ty,
@@ -197,9 +196,6 @@ where
                 .any(|p| !p.ty.reference_position_valid())
         {
             return Err(TypeTransformError::InvalidContract);
-        }
-        if let CallableImplementation::NativeDefault(application) = &function.implementation {
-            self.types(&application.arguments)?;
         }
         self.bounds(&function.bounds)?;
         self.types(function.params.iter().map(|p| &p.ty))?;

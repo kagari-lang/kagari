@@ -94,15 +94,15 @@ fn body_edits_rebase_payload_references_and_match_fresh_facts() {
     );
     let independent_facts = authoring_independent.records().facts();
     assert_ne!(
-        new_facts.lowered.module.body.arena(),
-        independent_facts.lowered.module.body.arena()
+        new_facts.lowered.module.nodes.arena(),
+        independent_facts.lowered.module.nodes.arena()
     );
     new_facts.typed.type_table.assert_same_source_facts(
         authoring_new_facts.definitions(),
         &independent_facts.typed.type_table,
         authoring_independent.definitions(),
-        new_facts.lowered.module.body.arena(),
-        independent_facts.lowered.module.body.arena(),
+        new_facts.lowered.module.nodes.arena(),
+        independent_facts.lowered.module.nodes.arena(),
     );
     let independent_aggregates = import_facts(
         &independent_facts.aggregates,

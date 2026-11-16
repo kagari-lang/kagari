@@ -1,7 +1,6 @@
 //! Select source paths from checked module records without inspecting host storage.
 use crate::{
     declarations::Declarations,
-    native::NativeTypeKind,
     types::{TypeId, semantic::raise_type},
 };
 use kagari_common::identity::{
@@ -66,17 +65,10 @@ impl Declarations {
         root: DefinitionId,
         steps: &[SourcePathStep],
     ) -> Result<(HostPathDeclaration, HostPathContract), &'static str> {
-        let Some((paths, schemas)) = self.native_types().find_map(|kind| match kind {
-            NativeTypeKind::Host {
-                declaration,
-                paths,
-                schemas,
-                ..
-            } if *declaration == root => Some((paths, schemas)),
-            _ => None,
-        }) else {
+        let Some(host) = self.host_types().find(|host| host.declaration == root) else {
             return Err("path has no declared host contract");
         };
+        let (paths, schemas) = (&host.paths, &host.schemas);
         let declaration = select(paths, self.definitions(), root, steps)?;
         let contract = declaration
             .contract(schemas, self.definitions())

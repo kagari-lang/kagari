@@ -61,9 +61,6 @@ pub fn lint(
         let Some(file) = snapshot.file(node.file) else {
             continue;
         };
-        if file.result().facts().lowered.is_registered_native_api() {
-            continue;
-        }
         scopes.extend(policy::scopes(file, &mut diagnostics, cancel)?);
         rules::collect(file, &mut findings, cancel)?;
     }

@@ -368,6 +368,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         associated_types: Default::default(),
     };
     let make_table = || InterfaceTable {
+        method_origins: Vec::new(),
         name: "Read".into(),
         associated_type_families: Vec::new(),
         associated_consts: Vec::new(),
@@ -384,7 +385,8 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &implemented,
         &trait_instance,
         &make_table(),
-        &cancel
+        &cancel,
+        &context.snapshot()
     ));
     declared.implementation = CallableImplementation::Script;
     declared.method_policy.override_allowed = false;
@@ -393,7 +395,8 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &implemented,
         &trait_instance,
         &make_table(),
-        &cancel
+        &cancel,
+        &context.snapshot()
     ));
     declared.method_policy.override_allowed = true;
     assert!(same_method_contract(
@@ -401,7 +404,8 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &implemented,
         &trait_instance,
         &make_table(),
-        &cancel
+        &cancel,
+        &context.snapshot()
     ));
     declared.implementation = CallableImplementation::Required;
     let original_param = implemented.params[0].ty.clone();
@@ -414,7 +418,8 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &implemented,
         &trait_instance,
         &make_table(),
-        &cancel
+        &cancel,
+        &context.snapshot()
     ));
     implemented.params[0].ty = original_param;
     declared.bounds.push(GenericBound {
@@ -440,7 +445,8 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &implemented,
         &trait_instance,
         &make_table(),
-        &cancel
+        &cancel,
+        &context.snapshot()
     ));
     implemented.bounds[0].constraints.clear();
     assert!(!same_method_contract(
@@ -448,7 +454,8 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &implemented,
         &trait_instance,
         &make_table(),
-        &cancel
+        &cancel,
+        &context.snapshot()
     ));
     let marker = owner(&context, &module, DefinitionKind::Trait, "Marker");
     let applied = |parameter_owner| NominalTy {
@@ -466,7 +473,8 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &implemented,
         &trait_instance,
         &make_table(),
-        &cancel
+        &cancel,
+        &context.snapshot()
     ));
     let instance = &mut implemented.bounds[0].constraints[0];
     instance.arguments[0] = Ty::Array(Box::new(Ty::Builtin(BuiltinType::Bool)));
@@ -475,7 +483,8 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &implemented,
         &trait_instance,
         &make_table(),
-        &cancel
+        &cancel,
+        &context.snapshot()
     ));
 }
 
@@ -527,6 +536,7 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
         associated_types: BTreeMap::new(),
     };
     let table = InterfaceTable {
+        method_origins: Vec::new(),
         name: "Read".into(),
         declaration: owner(&context, &module, DefinitionKind::Impl, ""),
         generic_params: vec![],
@@ -539,6 +549,7 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
         bridge: None,
     };
     let dependency = InterfaceTable {
+        method_origins: Vec::new(),
         trait_type: Ty::Trait(NominalTy {
             associated_types: [(member, receiver.clone())].into(),
             ..dependency_view
@@ -551,7 +562,8 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
         &implemented,
         &view,
         &table,
-        &cancel
+        &cancel,
+        &context.snapshot()
     ));
     let normalize = |ty: &Ty| {
         normalize_projections(
@@ -583,8 +595,11 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
         &view,
         &table,
         &normalize,
-        false,
-        &cancel
+        MethodMatchContext {
+            defer_projection: false,
+            cancel: &cancel,
+            definitions: &context.snapshot()
+        }
     ));
     implemented.return_type = receiver;
     assert!(method_contract_matches(
@@ -593,8 +608,11 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
         &view,
         &table,
         &normalize,
-        false,
-        &cancel
+        MethodMatchContext {
+            defer_projection: false,
+            cancel: &cancel,
+            definitions: &context.snapshot()
+        }
     ));
     cancel.cancel();
     assert!(!method_contract_matches(
@@ -603,7 +621,10 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
         &view,
         &table,
         &normalize,
-        false,
-        &cancel
+        MethodMatchContext {
+            defer_projection: false,
+            cancel: &cancel,
+            definitions: &context.snapshot()
+        }
     ));
 }

@@ -2,11 +2,10 @@
 
 use crate::source::{
     lower::abi::{abi_parameters, abi_type, checked_bounds},
-    types::lower_native_kind,
+    types::native_representation,
 };
 use kagari_hir::{
-    compile_input::program::CheckedModule, hir::item::Item, native::NativeTypeKind,
-    resolver::resolved::ResolvedName,
+    compile_input::program::CheckedModule, hir::item::Item, resolver::resolved::ResolvedName,
 };
 use kagari_types::{
     declaration::{FieldDef, TypeDeclaration, TypeDef, TypeDefKind, VariantDef},
@@ -90,17 +89,12 @@ pub(super) fn lower(module: &CheckedModule<'_>, item: Item) -> (Visibility, Type
             let signature = catalog
                 .native_type(&declaration)
                 .expect("admitted native type contract");
-            let representation = signature
-                .representation
-                .as_ref()
-                .expect("admitted installed Native representation");
-            let definition = if let NativeTypeKind::Host { definition, .. } = representation {
-                // Installed host fields and policies belong to the registration contract.
-                definition.as_ref().clone()
+            let definition = if let Some(host) = &signature.host {
+                host.definition.as_ref().clone()
             } else {
                 TypeDef {
                     name: item.name.clone(),
-                    kind: lower_native_kind(representation.clone()),
+                    kind: native_representation(declaration, definitions),
                     generic_params: abi_parameters(&signature.generic_params),
                     bounds: checked_bounds(catalog, definitions, &signature.bounds),
                     fields: Vec::new(),

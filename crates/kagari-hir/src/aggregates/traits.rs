@@ -3,9 +3,9 @@
 use crate::{
     aggregates::{AggregateCatalog, implementations::ImplementationSearchError},
     declarations::{Declaration, DeclarationId, Declarations},
+    hir::item::function::NativeContract,
     hir::writeability::Writeability,
     lower::LoweredModule,
-    native::NativeBinding,
     resolver::resolved::ResolvedName,
     semantic::signatures::FunctionImplementation,
     typeck::{GenericBounds, ModuleSignatures},
@@ -71,9 +71,7 @@ pub enum MethodDefault {
     /// Default body belongs to the method's source function.
     Script,
     /// Default implementation comes from an installed native binding.
-    Native(NativeBinding),
-    /// An external default declaration with no executable binding.
-    NativeDeclaration,
+    Native(NativeContract),
 }
 
 impl MethodSignature {
@@ -237,15 +235,11 @@ impl AggregateCatalog {
                         }
                         FunctionImplementation::Script => Some(MethodDefault::Script),
                         FunctionImplementation::Required => None,
-                        FunctionImplementation::NativeDeclaration => {
-                            Some(MethodDefault::NativeDeclaration)
-                        }
                     },
-                    policy: lowered
-                        .method_policies
-                        .get(&method.function)
-                        .copied()
-                        .unwrap_or_default(),
+                    policy: MethodPolicy {
+                        override_allowed: method.override_allowed,
+                        receiver_access: None,
+                    },
                     id: *method_id,
                     owner: *id,
                     slot,
@@ -260,7 +254,7 @@ impl AggregateCatalog {
             self.traits.insert(
                 *id,
                 Arc::new(TraitSignature {
-                    conversion_adapter: lowered.native_trait_adapters.get(&item.id).cloned(),
+                    conversion_adapter: item.conversion_adapter.clone(),
                     associated_type_parameters: item
                         .associated_types
                         .iter()

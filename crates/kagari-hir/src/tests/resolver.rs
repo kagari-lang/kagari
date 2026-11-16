@@ -65,7 +65,7 @@ fn resolves_params_and_locals_in_function_body() {
             initializer,
             ..
         } => (
-            lowered.module.body.pattern_bindings(*pattern)[0].0,
+            lowered.module.nodes.pattern_bindings(*pattern)[0].0,
             *initializer,
         ),
         other => panic!("unexpected stmt kind: {other:?}"),
@@ -117,7 +117,7 @@ fn resolves_params_and_locals_in_function_body() {
     }
     let closure = lowered
         .module
-        .body
+        .nodes
         .expressions()
         .find_map(|(id, expr)| matches!(expr.kind, ExprKind::Closure { .. }).then_some(id))
         .unwrap();

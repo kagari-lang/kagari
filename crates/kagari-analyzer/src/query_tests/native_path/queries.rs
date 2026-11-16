@@ -6,8 +6,7 @@ use crate::{
 // External methods and nominal queries use the same common declaration owner.
 
 use kagari_hir::{
-    declarations::DeclarationId, hir::expr::ExprKind, native::NativeBinding,
-    semantic::signatures::FunctionImplementation,
+    declarations::DeclarationId, hir::expr::ExprKind, semantic::signatures::FunctionImplementation,
 };
 
 #[test]
@@ -38,11 +37,10 @@ fn host_methods_keep_checked_receiver_targets_and_offline_documentation() {
         );
         let offset = text.find("add(").unwrap();
         let target = file.queries().source_function_at(offset).unwrap();
-        let FunctionImplementation::Native(NativeBinding::Entry(binding)) =
-            target.signature.implementation
-        else {
+        let FunctionImplementation::Native(_) = target.signature.implementation else {
             panic!("checked native member");
         };
+        let binding = target.declaration;
         let mapping = context
             .import(file.definitions(), [target.declaration, binding])
             .unwrap();
@@ -63,13 +61,17 @@ fn host_methods_keep_checked_receiver_targets_and_offline_documentation() {
         let contract = provider
             .result()
             .facts()
-            .lowered
-            .registered_native_declarations()
+            .typed
+            .signatures()
+            .functions()
             .iter()
-            .find(|contract| contract.declaration == binding)
+            .find(|function| function.name == "add")
             .unwrap();
+        let FunctionImplementation::Native(contract) = &contract.implementation else {
+            panic!("checked Native contract");
+        };
         assert_eq!(
-            contract.function.host_policy.as_ref().unwrap().passing[0],
+            contract.host_policy.as_ref().unwrap().passing[0],
             HostPassingStyle::SharedBorrow
         );
         assert_eq!(
@@ -343,7 +345,7 @@ fn erroneous_host_calls_retain_return_types_and_member_facts() {
         let call_type = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .find_map(|(id, expr)| {
                 matches!(expr.kind, ExprKind::Call { .. })

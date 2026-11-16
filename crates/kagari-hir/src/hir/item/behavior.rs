@@ -3,7 +3,7 @@
 use crate::hir::ids::{
     ConstId, FunctionId, GenericParamId, ImplId, TraitId, TraitMethodId, TypeRefId,
 };
-use kagari_types::visibility::Visibility;
+use kagari_types::{declaration::conversion::ConversionAdapter, visibility::Visibility};
 
 /// A trait's inline member declarations, generic inputs and parent requirements.
 ///
@@ -19,7 +19,7 @@ use kagari_types::visibility::Visibility;
 ///     supertraits: [TraitRef { ty: parent_type }],
 ///     associated_consts: [limit], associated_types: [item], methods: [read],
 /// }
-/// parent_type -> Body.type_ref -> Named("Parent")
+/// parent_type -> HirNodes.type_ref -> Named("Parent")
 /// limit / item -> inline AssociatedConst / AssociatedType, explained below
 /// read -> inline TraitMethod { has_default: false, function: f, ... }
 /// f -> Module.functions[f.index()] -> Function { kind: TraitMethod, implementation: Required, ... }
@@ -37,6 +37,8 @@ use kagari_types::visibility::Visibility;
 /// member contracts; this record alone does not establish an implementation.
 #[derive(Debug, Clone)]
 pub struct TraitDef {
+    /// Static conversion relationship, independent of any Rust implementation.
+    pub conversion_adapter: Option<ConversionAdapter>,
     /// Associated constant signatures and optional defaults.
     pub associated_consts: Vec<AssociatedConst>,
     /// Slot in `Module.traits`.
@@ -60,10 +62,10 @@ pub struct TraitDef {
 /// ```text
 /// trait Limit { const VALUE: i32 = 10; }
 /// AssociatedConst { name: "VALUE", name_ref: n, ty: t, initializer: Some(c) }
-/// n -> Body.type_ref -> Named("VALUE")  // synthetic NAME site, not the value type
-/// t -> Body.type_ref -> Named("i32")
+/// n -> HirNodes.type_ref -> Named("VALUE")  // synthetic NAME site, not the value type
+/// t -> HirNodes.type_ref -> Named("i32")
 /// c -> Module.constant(c) -> ConstItem { owner: Some(Trait(limit)), initializer: e, ... }
-/// e -> Body.expr -> Literal { kind: Number, text: "10" }
+/// e -> HirNodes.expr -> Literal { kind: Number, text: "10" }
 /// ```
 ///
 /// The member is inline in `TraitDef.associated_consts` or `Impl.associated_consts`.
@@ -94,12 +96,12 @@ pub struct AssociatedConst {
 /// | --- | --- | --- |
 /// | `name` | "Item" | "Item" |
 /// | `name_ref` | Synthetic type node at the declaration's Item name | Same, at the definition's name |
-/// | `ty` | `None`: implementation must supply the type | `Some(t)`, with `Body.type_ref(t) = Named("i32")` |
+/// | `ty` | `None`: implementation must supply the type | `Some(t)`, with `HirNodes.type_ref(t) = Named("i32")` |
 /// | `bounds` | `[TraitRef { ty: display_type }]` | Empty in this example |
 /// | `generic_params` | Empty | Empty |
 /// | `parameter_bounds` | Empty | Empty |
 ///
-/// `display_type` points to `Named("Display")` in `Body.types`. `name_ref` points
+/// `display_type` points to `Named("Display")` in `HirNodes.types`. `name_ref` points
 /// to a synthesized `Named("Item")`, used for declaration association and source
 /// diagnostics; it is not the assigned type or a resolved projection.
 ///
@@ -154,6 +156,8 @@ pub struct AssociatedType {
 /// function row. Trait checking and method lookup consume this link.
 #[derive(Debug, Clone)]
 pub struct TraitMethod {
+    /// Required methods must permit implementation; defaults may prohibit overrides.
+    pub override_allowed: bool,
     /// Whether syntax supplied a default method body.
     pub has_default: bool,
     /// Source-map-wide trait-method identity, not the method's local ordinal.
@@ -179,8 +183,8 @@ pub struct TraitMethod {
 ///     associated_consts: [limit], associated_types: [item],
 ///     methods: [ImplMethod { name: "read", function: f }],
 /// }
-/// reader_type -> Body.type_ref -> Named("Reader")
-/// box_type -> Body.type_ref -> Generic { name: "Box", args: [T_type], ... }
+/// reader_type -> HirNodes.type_ref -> Named("Reader")
+/// box_type -> HirNodes.type_ref -> Generic { name: "Box", args: [T_type], ... }
 /// f -> Module.functions[f.index()] -> Function { kind: ImplMethod, implementation: Script(b), ... }
 /// ```
 ///
@@ -240,8 +244,8 @@ pub struct ImplMethod {
 /// ```text
 /// fn consume<T: Display + Copy>(x: T) {}
 /// GenericParam { id: g, name: "T", bounds: [display_ref, copy_ref] }
-/// display_ref.ty -> Body.type_ref -> Named("Display")
-/// copy_ref.ty -> Body.type_ref -> Named("Copy")
+/// display_ref.ty -> HirNodes.type_ref -> Named("Display")
+/// copy_ref.ty -> HirNodes.type_ref -> Named("Copy")
 /// g -> SourceMap.generic_param_span(g)
 /// ```
 ///
@@ -265,7 +269,7 @@ pub struct GenericParam {
 /// ```text
 /// where T: Display + Copy
 /// TraitBound { target: "T", target_ref: t, traits: [display_ref, copy_ref] }
-/// t -> Body.type_ref -> Named("T")
+/// t -> HirNodes.type_ref -> Named("T")
 /// ```
 ///
 /// `target` is a diagnostic spelling; `target_ref` is the complete syntax used by
@@ -287,7 +291,7 @@ pub struct TraitBound {
 /// ```text
 /// Reader<i32, Item = String>
 /// TraitRef { ty: t }
-/// Body.type_ref(t) -> Generic {
+/// HirNodes.type_ref(t) -> Generic {
 ///     name: "Reader", args: [i32_type], bindings: [("Item", string_type)],
 ///     positional_after_binding: false, callable_syntax: false,
 /// }

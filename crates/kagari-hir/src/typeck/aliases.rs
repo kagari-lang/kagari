@@ -222,7 +222,7 @@ impl AliasValidation<'_> {
         bounds: &GenericBounds,
         diagnostics: &mut DiagnosticBuffer,
     ) {
-        for index in 0..self.lowered.module.body.types.len() {
+        for index in 0..self.lowered.module.nodes.types.len() {
             let reference = self.lowered.source_map.type_id(index);
             if !select(reference) {
                 continue;
@@ -353,7 +353,7 @@ impl AliasValidation<'_> {
                 self.cancel,
             );
         }
-        for index in 0..self.lowered.module.body.types.len() {
+        for index in 0..self.lowered.module.nodes.types.len() {
             let reference = self.lowered.source_map.type_id(index);
             if self.cancel.check().is_err() {
                 return;

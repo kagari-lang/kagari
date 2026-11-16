@@ -216,6 +216,7 @@ impl InstancePlanner<'_> {
                                 member: operation.id,
                                 arguments: vec![],
                             };
+                            let required = self.normalize_callable_requirement(required)?;
                             if !requirements.contains(&required) {
                                 requirements.push(required);
                             }
@@ -275,7 +276,7 @@ impl InstancePlanner<'_> {
             .flatten()
             .ok_or(MirLoweringError::MissingBinding("shared method owner"))?;
         let conditional = self
-            .registered_native_declaration(declaration)
+            .native_declaration(declaration)
             .zip(self.catalog.implementation_signature(&owner))
             .is_some_and(|(native, implementation)| {
                 let outer =
@@ -307,7 +308,7 @@ impl InstancePlanner<'_> {
             .collect::<Vec<_>>();
         let arguments = canonical.as_slice();
         if self
-            .registered_native_declaration(declaration)
+            .native_declaration(declaration)
             .is_some_and(|declaration| {
                 declaration.function.generic_params.len() > arguments.len()
                     && declaration
@@ -434,10 +435,18 @@ impl Instance {
             .iter()
             .map(|(ty, targets)| {
                 (
-                    ty.instantiate(&self.substitution),
+                    catalog.normalize_type(definitions, &ty.instantiate(&self.substitution)),
                     targets
                         .iter()
-                        .map(|interface| interface.instantiate(&self.substitution))
+                        .map(|interface| {
+                            let TypeId::Trait(interface) = catalog.normalize_type(
+                                definitions,
+                                &TypeId::Trait(interface.instantiate(&self.substitution)),
+                            ) else {
+                                unreachable!("checked trait bound")
+                            };
+                            interface
+                        })
                         .collect(),
                 )
             })

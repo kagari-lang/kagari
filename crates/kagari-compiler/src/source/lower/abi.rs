@@ -12,7 +12,8 @@ mod type_definitions;
 use crate::source::lower::statics::static_contract;
 use kagari_common::identity::table::DefinitionTable;
 use kagari_contract::types::{
-    InterfaceTable, ModuleContract, PublicItem, TraitContract, inherent::InherentTable,
+    InterfaceTable, ModuleContract, PublicItem, inherent::InherentTable, materialization,
+    named::FunctionOrigin,
 };
 use kagari_hir::{
     aggregates::{AggregateCatalog, traits::MethodDefault},
@@ -22,17 +23,16 @@ use kagari_hir::{
         behavior::Impl,
         function::{Function, FunctionKind},
     },
-    native::NativeBinding,
     resolver::resolved::ResolvedName,
     semantic::signatures::FunctionImplementation,
     typeck::{GenericBounds, scalar::ScalarValue},
     types::{
         GenericParameterType, NominalType, TypeId,
-        semantic::{lower_nominal_type, lower_type, raise_type},
+        semantic::{lower_nominal_type, lower_type},
     },
 };
 use kagari_types::{
-    callable::{CallableImplementation, NativeDefaultApplication},
+    callable::{CallableImplementation, MethodPolicy},
     declaration::{AssociatedTypeFamily, ConstDef, FnDecl, NativeDeclaration, Param},
     scalar::IntegerType,
     ty::{GenericBound, GenericParam, NominalTy, Ty},
@@ -120,7 +120,7 @@ pub(crate) fn collect_module_abi(module: &CheckedModule<'_>) -> ModuleContract {
         let input = module
             .implementation(header.id)
             .expect("admitted implementation");
-        let Some(interface) = input.interface else {
+        let Some(_) = input.interface else {
             let methods = header
                 .methods
                 .iter()
@@ -150,108 +150,75 @@ pub(crate) fn collect_module_abi(module: &CheckedModule<'_>) -> ModuleContract {
             }
             continue;
         };
-        let signature = catalog
-            .implementation_signature(&input.declaration)
-            .expect("admitted trait implementation");
-        let trait_type = TypeId::Trait(interface.clone());
-        public_items.push(PublicItem::InterfaceTable(Box::new(InterfaceTable {
-            associated_type_families: signature
-                .associated_type_families
-                .iter()
-                .map(|(id, family)| AssociatedTypeFamily {
-                    declaration: *id,
-                    generic_params: abi_parameters(&family.inputs.parameters),
-                    bounds: checked_bounds(catalog, definitions, &family.inputs.bounds),
-                    value: abi_type(module, &family.value),
-                })
-                .collect(),
-            associated_consts: header
-                .associated_consts
-                .iter()
-                .map(|member| {
-                    let constant = environment
-                        .local_constant(member.initializer.expect("impl initializer"))
-                        .expect("admitted constant");
-                    ConstDef {
-                        name: member.name.clone(),
-                        ty: lower_type(constant.ty),
-                        value: const_abi_value(constant.value, definitions),
-                    }
-                })
-                .collect(),
-            bridge: None,
-            declaration: input.declaration,
-            name: format!(
-                "{} as {}",
-                input.receiver.display_name(definitions),
-                trait_type.display_name(definitions)
-            ),
-            generic_params: abi_parameters(&input.generic_params),
-            bounds: checked_bounds(catalog, definitions, &input.bounds),
-            trait_type: lower_type(
-                &trait_type.map_children(|ty| catalog.canonical_value_type(definitions, ty)),
-            ),
-            for_type: abi_type(module, input.receiver),
-            methods: implementation_methods_abi(module, header),
-        })));
+        public_items.push(PublicItem::InterfaceTable(Box::new(implementation_table(
+            module, header,
+        ))));
     }
-    let native_declarations = headers
-        .functions
-        .iter()
-        .filter_map(|function| {
-            let typed = environment.signatures().function(function.id)?;
-            if !matches!(
-                typed.implementation,
-                FunctionImplementation::Native(NativeBinding::Entry(_))
-            ) {
-                return None;
-            }
-            let declaration = environment.definition(ResolvedName::Function(function.id))?;
-            if let Some(registered) = module.registration().and_then(|records| {
-                records
-                    .callables
-                    .iter()
-                    .find(|item| item.declaration == declaration)
-            }) {
-                // Installed templates retain their original projections and selected requirements.
-                return Some(registered.clone());
-            }
-            let mut function = function_abi(module, function)?;
-            function.generic_params = abi_parameters(&typed.generic_params);
-            Some(NativeDeclaration {
-                concrete_result: None,
-                callable_requirements: vec![],
-                declaration,
-                function,
-            })
-        })
-        .collect();
-    let mut trait_references = module
-        .registration()
-        .into_iter()
-        .flat_map(|registration| {
-            registration
-                .source_traits
-                .iter()
-                .map(|(declaration, abi)| TraitContract {
-                    declaration: *declaration,
-                    abi: abi.clone(),
-                })
-        })
-        .collect::<Vec<_>>();
-    trait_references.sort_by(|left, right| {
-        definitions
-            .compare(left.declaration, right.declaration)
-            .expect("checked source trait identities")
-    });
+
+    let native_declarations = native_declarations(module).collect();
     ModuleContract {
         named_declarations: named::collect(module),
         function_origins: Vec::new(),
-        trait_references,
+        trait_references: Vec::new(),
         native_declarations,
         public_items,
         private_types,
         trait_contracts,
+    }
+}
+
+fn implementation_table(module: &CheckedModule<'_>, header: &Impl) -> InterfaceTable {
+    let environment = module.environment();
+    let definitions = environment.definitions();
+    let catalog = environment.aggregates();
+    let input = module
+        .implementation(header.id)
+        .expect("checked implementation");
+    let interface = input.interface.expect("checked trait implementation");
+    let signature = catalog
+        .implementation_signature(&input.declaration)
+        .expect("admitted trait implementation");
+    let trait_type = TypeId::Trait(interface.clone());
+    InterfaceTable {
+        method_origins: implementation_origins(module, header),
+        associated_type_families: signature
+            .associated_type_families
+            .iter()
+            .map(|(id, family)| AssociatedTypeFamily {
+                declaration: *id,
+                generic_params: abi_parameters(&family.inputs.parameters),
+                bounds: checked_bounds(catalog, definitions, &family.inputs.bounds),
+                value: abi_type(module, &family.value),
+            })
+            .collect(),
+        associated_consts: header
+            .associated_consts
+            .iter()
+            .map(|member| {
+                let constant = environment
+                    .local_constant(member.initializer.expect("impl initializer"))
+                    .expect("admitted constant");
+                ConstDef {
+                    name: member.name.clone(),
+                    ty: lower_type(constant.ty),
+                    value: const_abi_value(constant.value, definitions),
+                }
+            })
+            .collect(),
+        bridge: None,
+        declaration: input.declaration,
+        name: format!(
+            "{} as {}",
+            input.receiver.display_name(definitions),
+            trait_type.display_name(definitions)
+        ),
+        generic_params: abi_parameters(&input.generic_params),
+        bounds: checked_bounds(catalog, definitions, &input.bounds),
+        trait_type: lower_type(
+            &trait_type.map_children(|ty| catalog.canonical_value_type(definitions, ty)),
+        ),
+        for_type: abi_type(module, input.receiver),
+        methods: implementation_methods_abi(module, header),
     }
 }
 
@@ -360,25 +327,18 @@ fn implementation_methods_abi(module: &CheckedModule<'_>, item: &Impl) -> Vec<Fn
             })
             .collect();
         result.push(FnDecl {
-            host_policy: None,
-            method_policy: method.policy,
+            host_policy: match &method.default {
+                Some(MethodDefault::Native(contract)) => contract.host_policy.clone(),
+                _ => None,
+            },
+            method_policy: MethodPolicy {
+                override_allowed: true,
+                ..method.policy
+            },
             name: method.name.clone(),
             implementation: match method.default.clone().expect("selected default method") {
-                MethodDefault::NativeDeclaration => {
-                    unreachable!("offline module passed compiler admission")
-                }
                 MethodDefault::Script => CallableImplementation::Script,
-                MethodDefault::Native(NativeBinding::Default(application)) => {
-                    CallableImplementation::NativeDefault(NativeDefaultApplication {
-                        declaration: application.declaration,
-                        arguments: application
-                            .arguments
-                            .iter()
-                            .map(|ty| normalize(&raise_type(ty)))
-                            .collect(),
-                    })
-                }
-                MethodDefault::Native(binding) => native_implementation_abi(binding),
+                MethodDefault::Native(_) => CallableImplementation::Native(method.id),
             },
             generic_params: method_params
                 .iter()
@@ -409,38 +369,28 @@ fn function_abi(module: &CheckedModule<'_>, function: &Function) -> Option<FnDec
     let typed = environment.signatures().function(function.id)?;
     let declaration = environment.definition(ResolvedName::Function(function.id))?;
     Some(FnDecl {
-        host_policy: module
-            .registration()
-            .and_then(|registration| {
-                registration
-                    .callables
-                    .iter()
-                    .find(|record| record.declaration == declaration)
-            })
-            .and_then(|record| record.function.host_policy.clone()),
+        host_policy: match &typed.implementation {
+            FunctionImplementation::Native(contract) => contract.host_policy.clone(),
+            _ => None,
+        },
         method_policy: environment
             .aggregates()
             .trait_method(&declaration)
-            .map_or_else(Default::default, |method| method.policy),
+            .map_or_else(
+                || MethodPolicy {
+                    receiver_access: match &typed.implementation {
+                        FunctionImplementation::Native(contract) => contract.receiver_access,
+                        _ => None,
+                    },
+                    ..Default::default()
+                },
+                |method| method.policy,
+            ),
         name: typed.name.clone(),
         implementation: match typed.implementation.clone() {
-            FunctionImplementation::NativeDeclaration => {
-                unreachable!("offline module passed compiler admission")
-            }
             FunctionImplementation::Required => CallableImplementation::Required,
             FunctionImplementation::Script => CallableImplementation::Script,
-            FunctionImplementation::Native(NativeBinding::Default(_)) => {
-                let call = module.native_default(function.id)?;
-                CallableImplementation::NativeDefault(NativeDefaultApplication {
-                    declaration: call.declaration,
-                    arguments: call
-                        .arguments
-                        .iter()
-                        .map(|ty| abi_type(module, ty))
-                        .collect(),
-                })
-            }
-            FunctionImplementation::Native(binding) => native_implementation_abi(binding),
+            FunctionImplementation::Native(_) => CallableImplementation::Native(declaration),
         },
         generic_params: abi_parameters(&typed.generic_params),
         bounds: checked_bounds(
@@ -461,13 +411,116 @@ fn function_abi(module: &CheckedModule<'_>, function: &Function) -> Option<FnDec
     })
 }
 
-fn native_implementation_abi(binding: NativeBinding) -> CallableImplementation {
-    match binding {
-        NativeBinding::Default(_) => {
-            unreachable!("native defaults require forwarding-call emission")
+/// Executable templates are projections of checked declarations, never installed records.
+fn declared_native_functions<'a>(
+    module: &'a CheckedModule<'_>,
+) -> impl Iterator<Item = NativeDeclaration> + 'a {
+    module.headers().functions.iter().filter_map(|function| {
+        let typed = module.environment().signatures().function(function.id)?;
+        let FunctionImplementation::Native(contract) = &typed.implementation else {
+            return None;
+        };
+        let declaration = module
+            .environment()
+            .definition(ResolvedName::Function(function.id))?;
+        let mut function = function_abi(module, function)?;
+        function.method_policy.receiver_access = contract.receiver_access;
+        Some(NativeDeclaration {
+            declaration,
+            function,
+            concrete_result: contract.concrete_result.clone(),
+            callable_requirements: contract.callable_requirements.clone(),
+        })
+    })
+}
+
+/// Retain ordinary applied Native declarations beside inherited Script materializations.
+pub(crate) fn native_declarations<'a>(
+    module: &'a CheckedModule<'_>,
+) -> impl Iterator<Item = NativeDeclaration> + 'a {
+    let mut result = declared_native_functions(module).collect::<Vec<_>>();
+    let environment = module.environment();
+    for header in module.headers().implementations {
+        let implementation = module.implementation(header.id).expect("checked impl");
+        let Some(_) = implementation.interface else {
+            continue;
+        };
+        let table = implementation_table(module, header);
+        for origin in &table.method_origins {
+            let method = environment
+                .aggregates()
+                .trait_method(&origin.authored)
+                .expect("checked method");
+            let Some(MethodDefault::Native(contract)) = &method.default else {
+                continue;
+            };
+            let source = NativeDeclaration {
+                declaration: method.id,
+                function: FnDecl {
+                    name: method.name.clone(),
+                    implementation: CallableImplementation::Native(method.id),
+                    host_policy: contract.host_policy.clone(),
+                    method_policy: method.policy,
+                    generic_params: abi_parameters(&method.generic_params),
+                    bounds: checked_bounds(
+                        environment.aggregates(),
+                        environment.definitions(),
+                        &method.bounds,
+                    ),
+                    params: method
+                        .params
+                        .iter()
+                        .map(|param| Param {
+                            name: param.name.clone(),
+                            mutable: param.writeability.is_var(),
+                            ty: abi_type(module, &param.ty),
+                        })
+                        .collect(),
+                    return_type: abi_type(module, &method.return_type),
+                },
+                concrete_result: contract.concrete_result.clone(),
+                callable_requirements: contract.callable_requirements.clone(),
+            };
+            result.push(
+                materialization::native(
+                    &source,
+                    &table,
+                    origin,
+                    environment.definitions(),
+                    &Default::default(),
+                )
+                .expect("checked Native materialization"),
+            );
         }
-        NativeBinding::Entry(binding) => CallableImplementation::Native(binding),
     }
+    result.into_iter()
+}
+
+fn implementation_origins(module: &CheckedModule<'_>, header: &Impl) -> Vec<FunctionOrigin> {
+    let environment = module.environment();
+    let signature = environment
+        .aggregates()
+        .implementation_signature(
+            environment
+                .declarations()
+                .impl_identity(header.id)
+                .expect("checked impl identity"),
+        )
+        .expect("checked impl");
+    environment
+        .aggregates()
+        .implementation_methods(environment.definitions(), signature)
+        .into_iter()
+        .filter_map(|placement| {
+            environment
+                .aggregates()
+                .default_method(environment.definitions(), &placement)
+                .map(|(_, method)| FunctionOrigin {
+                    placement,
+                    authored: method.id,
+                })
+        })
+        .collect()
 }
 
 fn abi_type(module: &CheckedModule<'_>, ty: &TypeId) -> Ty {
@@ -488,22 +541,6 @@ fn inherent_method_abi(
     outer: &[GenericParameterType],
     bounds: &GenericBounds,
 ) -> Option<FnDecl> {
-    let identity = module
-        .environment()
-        .definition(ResolvedName::Function(function.id))?;
-    if let Some(registered) = module.registration().and_then(|registration| {
-        registration
-            .callables
-            .iter()
-            .find(|declaration| declaration.declaration == identity)
-    }) {
-        let mut method = registered.function.clone();
-        let inherited = abi_parameters(outer);
-        method
-            .generic_params
-            .retain(|parameter| !inherited.contains(parameter));
-        return Some(method);
-    }
     method_abi(module, function, outer, bounds)
 }
 

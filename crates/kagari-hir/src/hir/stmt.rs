@@ -12,18 +12,18 @@ use smallvec::SmallVec;
 /// ```text
 /// { val y: i32 = x + 1; y }
 /// BlockData { statements: [s], tail_expr: Some(e) }
-/// s -> Body.stmt -> StmtData { kind: Binding { pattern: p, writeability: Val,
+/// s -> HirNodes.stmt -> StmtData { kind: Binding { pattern: p, writeability: Val,
 ///      ty: Some(t), initializer: sum } }
-/// p -> Body.pattern -> Name { name: "y", local: l }
-/// t -> Body.type_ref -> Named("i32")
-/// sum -> Body.expr -> Binary { lhs: x_expr, op: Add, rhs: one }
-/// e -> Body.expr -> Name { name: "y", explicit_type: None }
+/// p -> HirNodes.pattern -> Name { name: "y", local: l }
+/// t -> HirNodes.type_ref -> Named("i32")
+/// sum -> HirNodes.expr -> Binary { lhs: x_expr, op: Add, rhs: one }
+/// e -> HirNodes.expr -> Name { name: "y", explicit_type: None }
 /// ```
 ///
 /// A tail has no terminating semicolon and is excluded from `statements`.
 /// `{ y; }` instead has one Expr statement and `tail_expr: None`; `{}` has an
 /// empty statement list and no tail. These absences are legal, not Missing nodes.
-/// Block lowering creates the row in Body.blocks; resolution/checking follow its
+/// Block lowering creates the row in HirNodes.blocks; resolution/checking follow its
 /// IDs in source order. An if/loop statement or function body stores a BlockId;
 /// a block used as a value is additionally wrapped by ExprKind::Block.
 #[derive(Debug, Clone)]
@@ -34,11 +34,11 @@ pub struct BlockData {
     pub tail_expr: Option<ExprId>,
 }
 
-/// A statement row in Body.stmts; its only payload field is `kind`.
+/// A statement row in HirNodes.stmts; its only payload field is `kind`.
 ///
 /// `var n = 1;` becomes `StmtData { kind: Binding { pattern: p, writeability: Var,
 /// ty: None, initializer: one } }`, where p is `Name { name: "n", local: l }`.
-/// The owning block stores its StmtId; Body::stmt performs qualified lookup.
+/// The owning block stores its StmtId; HirNodes::stmt performs qualified lookup.
 /// Local identity/type/source facts are
 /// separate from this row; see StmtKind for every source-to-payload form.
 #[derive(Debug, Clone)]
@@ -63,16 +63,16 @@ pub struct StmtData {
 /// | `loop { work(); }` in statement position | `Loop { body: block }` |
 /// | `for (x, y) in pairs { work(x); }` | `For { pattern: tuple_pattern, iterable: pairs_expr, body: block }` |
 /// | `break;` / `break n;` / `continue;` | `Break` / `BreakValue(n_expr)` / `Continue` |
-/// | `work();` | `Expr(call)`; the Call itself lives in Body.exprs |
+/// | `work();` | `Expr(call)`; the Call itself lives in HirNodes.exprs |
 /// | `fn inner() {}` | `Function(f)`; f indexes Module.functions with a separate body owner |
 ///
 /// Binding names and allocated local IDs live in the pattern's Name leaves;
 /// wildcard leaves allocate no local. The annotation describes the whole value,
 /// and outer writeability applies to every canonical leaf. Missing initializers
 /// recover as ExprKind::Missing, not uninitialized declarations. Mutation
-/// targets enter Body.places, retaining the writable path once rather than
-/// desugaring `+=` to a duplicated target read. Body.patterns owns declaration/for
-/// patterns, and Body.blocks owns loop blocks. Binding while conditions use Condition::Binding.
+/// targets enter HirNodes.places, retaining the writable path once rather than
+/// desugaring `+=` to a duplicated target read. HirNodes.patterns owns declaration/for
+/// patterns, and HirNodes.blocks owns loop blocks. Binding while conditions use Condition::Binding.
 ///
 /// `if ...` and bare blocks in statement position are Expr statements wrapping
 /// ExprKind::If/Block; there are no separate If/Block statement variants. A final

@@ -124,7 +124,7 @@ impl<'a> ScopeIndex<'a> {
     }
 
     fn pattern(&mut self, scope: usize, pattern: PatternId, start: usize) {
-        for (local, _) in self.lowered.module.body.pattern_bindings(pattern) {
+        for (local, _) in self.lowered.module.nodes.pattern_bindings(pattern) {
             self.binding(scope, ResolvedName::Local(local), start);
         }
     }

@@ -387,9 +387,10 @@ Notes:
   The initializer is checked even when unused and runs lazily on executing access,
   not during import or publication. `val` restricts rebinding, not object aliases.
 - attributes provide the extensibility point for features such as reflection and tooling annotations
-- `#[lang = "role"]` binds a reserved language role only in the installed core
-  trait source. HIR rejects unknown, duplicate, missing, malformed or unauthorized
-  bindings and checks the declaration's visibility, binders, parents and members.
+- `#[lang = "role"]` binds a reserved language role only on the canonical owning
+  module's trait declaration. Common HIR checking rejects unknown, duplicate,
+  missing, malformed or wrongly owned roles and independently checks visibility,
+  binders, parents and required member shapes; installed Rust bindings are irrelevant.
 - Only outer `#[...]` attributes are supported. The legacy `@...` form and
   inner `#![...]` attributes are rejected. This syntax does not introduce macros.
 - an intended future use is `#[reflect]`
@@ -546,10 +547,12 @@ trait method without a body remains Required; an ordinary function or default
 with a body remains Script. Native type fields reuse ordinary field syntax,
 including visibility, `val`/`var`, attributes and generic type references.
 `Ref<T>` and `RefMut<T>` use ordinary path/application syntax, not special parser
-rules. Source/export provenance governs semantic admission in HIR; recognizing
-these forms does not authorize handwritten Native declarations or install Rust
-implementations. The AST stores Native types as `NativeTypeDef`, not an opaque
-alias or an associated type.
+rules. Structured, external and ordinary project inputs use the same static checks;
+`native` declares an external implementation without requiring it to be bound during
+analysis or compilation. Execution still requires supported executable operations
+and matching implementations at linking. Syntax alone installs no Rust callback or
+storage/field adapter. The AST stores Native types as `NativeTypeDef`, not an opaque
+alias or an associated type. Existing scoped-reference restrictions are unchanged.
 
 ### Modules and Imports
 
@@ -577,10 +580,11 @@ Notes:
 - `mod name;` declares a module through external loading rules defined elsewhere.
 - `mod name { ... }` declares an inline module body.
 - `use` supports aliasing, globs, and grouped import trees.
-- Installed `core`, `alloc`, and `std` modules can be accessed by full paths
-  without a `use` declaration, such as `std::vec::Vec<i32>` or
-  `core::hash::Hash`. A local package root or explicit namespace alias takes
-  precedence. The implicit prelude comes from the installed declaration package.
+- Supplied `core`, `alloc`, and `std` declarations can be accessed by paths selected
+  by the analysis import environment, such as `core::hash::Hash`, without a `use`.
+  Explicit package aliases determine their targets before dependency-derived package
+  spellings. The environment also selects the implicit prelude; selection is not
+  a privilege attached to registered source, and conflicting preludes are diagnosed.
   The explicit `std::prelude` inventory is defined in [builtins](builtins.md#namespaces-and-prelude).
   Standard modules, native functions, traits and enum variants follow ordinary
   resolution, visibility and shadowing in independent Type and Value spaces. A local
@@ -588,8 +592,8 @@ Notes:
   space; ambiguous explicit imports remain errors. Named imports bind both available
   categories. Path prefixes select Type; terminals use their syntactic category.
   See [modules](modules.md) for the category table and conflict rules.
-  Declaration parsing and installed native attributes do not grant user source
-  code engine binding authority; see [standard declarations](standard-declarations.md).
+  Declaration parsing and static sidecars do not grant code engine binding authority;
+  see [standard declarations](standard-declarations.md).
 - An inline body creates a child module under the declaring module identity.
   Its public declarations can be reached through qualified paths; child source
   ranges retain their position in the physical file.

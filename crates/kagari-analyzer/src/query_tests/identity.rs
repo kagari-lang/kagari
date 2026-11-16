@@ -182,7 +182,7 @@ fn structural_scopes_preserve_binder_regions_and_noncapturing_shadow_blockers() 
     let index = crate::scope::ScopeIndex::new(&facts.lowered, &facts.names);
     // Every selected lexical expression must agree with the structural projection,
     // including the for iterable, match guard, closure and hoisted local call.
-    for (expr, _) in facts.lowered.module.body.expressions() {
+    for (expr, _) in facts.lowered.module.nodes.expressions() {
         let Some(resolved) = facts.names.expr_resolution(expr) else {
             continue;
         };

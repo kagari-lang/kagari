@@ -7,8 +7,7 @@ use kagari_contract::{
     types::{PublicItem, inherent::native_signatures_match, named::verify as named_verify, verify},
 };
 use kagari_hir::{
-    aggregates::traits::MethodDefault, analysis::AnalysisDatabase,
-    native::NativeBinding as HirNativeBinding, typeck::scalar::ScalarValue,
+    aggregates::traits::MethodDefault, analysis::AnalysisDatabase, typeck::scalar::ScalarValue,
 };
 use kagari_mir::instruction::Constant;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
@@ -258,17 +257,9 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
             for (slot, method) in source.methods.iter().enumerate() {
                 assert_eq!(record.methods[slot].name, method.name);
                 let expected = match &method.default {
-                    Some(MethodDefault::NativeDeclaration) => {
-                        panic!("offline declaration passed compiler admission")
-                    }
                     None => CallableImplementation::Required,
                     Some(MethodDefault::Script) => CallableImplementation::Script,
-                    Some(MethodDefault::Native(HirNativeBinding::Entry(binding))) => {
-                        CallableImplementation::Native(*binding)
-                    }
-                    Some(MethodDefault::Native(HirNativeBinding::Default(application))) => {
-                        CallableImplementation::NativeDefault(application.clone())
-                    }
+                    Some(MethodDefault::Native(_)) => CallableImplementation::Native(method.id),
                 };
                 assert_eq!(record.methods[slot].implementation, expected);
                 assert_eq!(record.methods[slot].method_policy, method.policy);

@@ -5,7 +5,6 @@ use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId};
 use kagari_hir::{
     declarations::DeclarationId,
     hir::{expr::ExprKind, stmt::StmtKind},
-    native::NativeBinding,
     semantic::signatures::FunctionImplementation,
     typeck::table::CallTarget,
     types::TypeId,
@@ -67,7 +66,7 @@ fn native_generic_scalar_calls_keep_their_exact_declared_types() {
             );
             assert!(matches!(
                 imported.signature.implementation,
-                FunctionImplementation::Native(NativeBinding::Entry(_))
+                FunctionImplementation::Native(_)
             ));
             assert_eq!(
                 call.type_arguments.as_slice(),
@@ -120,7 +119,7 @@ fn main() -> i32 {
     let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
     let facts = authoring_facts.records().facts();
     let mut seen = Vec::new();
-    for (id, expression) in facts.lowered.module.body.expressions() {
+    for (id, expression) in facts.lowered.module.nodes.expressions() {
         let ExprKind::Call { callee, .. } = &expression.kind else {
             continue;
         };
@@ -130,16 +129,7 @@ fn main() -> i32 {
         };
         let expected = match name {
             "identity" => FunctionImplementation::Script,
-            "bound" | "echo" => FunctionImplementation::Native(NativeBinding::Entry(
-                native_fixture::module()
-                    .records()
-                    .definition(
-                        DefinitionKind::Function,
-                        if name == "bound" { "choose" } else { "echo" },
-                        facts.declarations.definitions(),
-                    )
-                    .unwrap(),
-            )),
+            "bound" | "echo" => FunctionImplementation::Native(Default::default()),
             _ => continue,
         };
         let call = facts.typed.type_table().call_resolution(id).unwrap();
@@ -278,7 +268,7 @@ fn call_signature_queries_keep_declared_types_for_invalid_source_trait_and_host_
     let authoring_facts = file.to_unverified(&Default::default()).unwrap();
     let facts = authoring_facts.records().facts();
     let mut checked = 0;
-    for (site, expression) in facts.lowered.module.body.expressions() {
+    for (site, expression) in facts.lowered.module.nodes.expressions() {
         let ExprKind::Call { callee, .. } = &expression.kind else {
             continue;
         };

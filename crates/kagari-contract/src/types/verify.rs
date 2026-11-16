@@ -164,7 +164,8 @@ pub fn validate(
                                 && names.insert(&member.name)
                                 && scalar_const_valid(&member.ty, &member.value)
                         })
-                    }) && bounds_valid(&table.bounds, &params, cancel, definitions)
+                    }) && table.method_origins.len() <= table.methods.len()
+                        && bounds_valid(&table.bounds, &params, cancel, definitions)
                         && families_valid(table, &params, cancel, definitions)
                         && (table.bridge.is_none() || bridge_shape_valid(table, definitions))
                         && matches!(table.trait_type, Ty::Trait(_))
@@ -418,11 +419,19 @@ pub fn interface_contract_matches(
             .filter(|member| member.generic_params.is_empty())
             .all(|member| instance.associated_types.contains_key(&member.declaration))
         && required_methods_present(table, interface)
+        && method_origins_valid(table, interface, definitions)
         && table.methods.iter().all(|method| {
             cancel.check().is_ok()
                 && interface.methods.iter().any(|declared| {
                     declared.name == method.name
-                        && same_method_contract(declared, method, instance, table, cancel)
+                        && same_method_contract(
+                            declared,
+                            method,
+                            instance,
+                            table,
+                            cancel,
+                            definitions,
+                        )
                         && matched.insert(&declared.name)
                 })
         })
@@ -553,12 +562,43 @@ pub fn interface_families_match(
     })
 }
 
+fn method_origins_valid(
+    table: &InterfaceTable,
+    interface: &TraitDef,
+    definitions: &DefinitionTable,
+) -> bool {
+    let Ty::Trait(instance) = &table.trait_type else {
+        return false;
+    };
+    let mut seen = HashSet::new();
+    table.method_origins.iter().all(|origin| {
+        let Ok(view) = definitions.resolve(origin.placement) else {
+            return false;
+        };
+        let Some(name) = view.last() else {
+            return false;
+        };
+        seen.insert(origin.placement)
+            && name.kind == DefinitionKind::Method
+            && name.occurrence == 0
+            && definitions.parent(origin.placement) == Ok(Some(table.declaration))
+            && definitions.lookup_child(instance.declaration, DefinitionKind::Method, name.name, 0)
+                == Some(origin.authored)
+            && interface.methods.iter().any(|method| {
+                method.name == name.name
+                    && !matches!(method.implementation, CallableImplementation::Required)
+            })
+            && table.methods.iter().any(|method| method.name == name.name)
+    })
+}
+
 fn same_method_contract(
     declared: &FnDecl,
     implemented: &FnDecl,
     instance: &NominalTy,
     table: &InterfaceTable,
     cancel: &CancellationToken,
+    definitions: &DefinitionTable,
 ) -> bool {
     if declared.generic_params.len() != implemented.generic_params.len()
         || declared.params.len() != implemented.params.len()
@@ -595,8 +635,11 @@ fn same_method_contract(
         instance,
         table,
         &normalize,
-        true,
-        cancel,
+        MethodMatchContext {
+            defer_projection: true,
+            cancel,
+            definitions,
+        },
     )
 }
 
@@ -605,11 +648,13 @@ pub fn interface_methods_match(
     interface: &TraitDef,
     normalize: &impl Fn(&Ty) -> Result<Ty, TypeTransformError>,
     cancel: &CancellationToken,
+    definitions: &DefinitionTable,
 ) -> bool {
     let Ty::Trait(instance) = &table.trait_type else {
         return false;
     };
     required_methods_present(table, interface)
+        && method_origins_valid(table, interface, definitions)
         && table.methods.iter().all(|implemented| {
             interface
                 .methods
@@ -622,11 +667,20 @@ pub fn interface_methods_match(
                         instance,
                         table,
                         normalize,
-                        false,
-                        cancel,
+                        MethodMatchContext {
+                            defer_projection: false,
+                            cancel,
+                            definitions,
+                        },
                     )
                 })
         })
+}
+
+struct MethodMatchContext<'a> {
+    defer_projection: bool,
+    cancel: &'a CancellationToken,
+    definitions: &'a DefinitionTable,
 }
 
 fn method_contract_matches(
@@ -635,9 +689,13 @@ fn method_contract_matches(
     instance: &NominalTy,
     table: &InterfaceTable,
     normalize: &impl Fn(&Ty) -> Result<Ty, TypeTransformError>,
-    defer_projection: bool,
-    cancel: &CancellationToken,
+    context: MethodMatchContext<'_>,
 ) -> bool {
+    let MethodMatchContext {
+        defer_projection,
+        cancel,
+        definitions,
+    } = context;
     if matches!(implemented.implementation, CallableImplementation::Required)
         || declared.generic_params.len() != implemented.generic_params.len()
         || declared.params.len() != implemented.params.len()
@@ -661,31 +719,33 @@ fn method_contract_matches(
         normalize(&ty)
     };
     let actual = |ty: &Ty| normalize(ty);
-    let inherited_default = match (&declared.implementation, &implemented.implementation) {
-        (
-            CallableImplementation::NativeDefault(declared),
-            CallableImplementation::NativeDefault(implemented),
-        ) => {
-            declared.declaration == implemented.declaration
-                && declared.arguments.len() == implemented.arguments.len()
-                && declared.arguments.iter().zip(&implemented.arguments).all(
-                    |(declared, implemented)| {
-                        expected(declared).is_ok_and(|declared| {
-                            actual(implemented).is_ok_and(|implemented| {
-                                declared == implemented
-                                    || defer_projection
-                                        && (declared.contains_projection()
-                                            || implemented.contains_projection())
-                            })
-                        })
-                    },
-                )
+    if !declared.method_policy.override_allowed {
+        if declared.implementation != implemented.implementation {
+            return false;
         }
-        (_, CallableImplementation::NativeDefault(_)) => false,
-        _ => declared.method_policy.override_allowed,
-    };
-    if !inherited_default {
-        return false;
+        let Some(authored) = definitions.lookup_child(
+            instance.declaration,
+            DefinitionKind::Method,
+            &declared.name,
+            0,
+        ) else {
+            return false;
+        };
+        let Some(placement) = definitions.lookup_child(
+            table.declaration,
+            DefinitionKind::Method,
+            &implemented.name,
+            0,
+        ) else {
+            return false;
+        };
+        if !table
+            .method_origins
+            .iter()
+            .any(|origin| origin.placement == placement && origin.authored == authored)
+        {
+            return false;
+        }
     }
     let signatures = iter::once(expected(&declared.return_type))
         .chain(iter::once(actual(&implemented.return_type)))

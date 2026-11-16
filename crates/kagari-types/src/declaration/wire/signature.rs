@@ -1,6 +1,6 @@
 //! Fixed wire signatures and binder records.
 use crate::{
-    callable::{MethodPolicy, NativeDefaultApplication},
+    callable::MethodPolicy,
     declaration::{
         FnDecl, Param,
         host::HostCallPolicy,
@@ -94,52 +94,6 @@ impl GenericBoundRecord {
             ty: self.ty.decode(decoding, cancel)?,
             constraints: self
                 .constraints
-                .into_iter()
-                .map(|value| value.decode(decoding, cancel))
-                .collect::<Result<_, _>>()?,
-        })
-    }
-}
-
-/// Codec record for the scoped NativeDefaultApplication declaration; identity fields are file-local references.
-#[derive(Serialize, Deserialize)]
-pub(super) struct NativeDefaultApplicationRecord {
-    declaration: PortableDefinitionRef,
-    #[serde(deserialize_with = "decode_limits::nested")]
-    arguments: Vec<WireType>,
-}
-
-impl NativeDefaultApplicationRecord {
-    /// Encode using the enclosing artifact's canonical identity table.
-    /// Returns reference, cancellation or bounded type-shape errors.
-    pub fn encode(
-        value: &NativeDefaultApplication,
-        encoding: &DefinitionEncoding,
-        cancel: &CancellationToken,
-    ) -> Result<Self, DefinitionMappingError> {
-        check_cancel(cancel)?;
-        Ok(Self {
-            declaration: encoding.reference(value.declaration)?,
-            arguments: value
-                .arguments
-                .iter()
-                .map(|value| WireType::encode(value, encoding, cancel))
-                .collect::<Result<_, _>>()?,
-        })
-    }
-
-    /// Resolve into the matching table's scope, without semantic verification evidence.
-    /// Returns reference, cancellation or bounded type-shape errors.
-    pub fn decode(
-        self,
-        decoding: &DefinitionDecoding,
-        cancel: &CancellationToken,
-    ) -> Result<NativeDefaultApplication, DefinitionMappingError> {
-        check_cancel(cancel)?;
-        Ok(NativeDefaultApplication {
-            declaration: decoding.resolve(self.declaration)?,
-            arguments: self
-                .arguments
                 .into_iter()
                 .map(|value| value.decode(decoding, cancel))
                 .collect::<Result<_, _>>()?,

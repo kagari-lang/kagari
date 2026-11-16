@@ -6,7 +6,6 @@
 mod callables;
 mod composition;
 mod construction;
-pub mod defaults;
 pub mod implementation;
 mod normalize;
 mod ownership;
@@ -17,9 +16,12 @@ mod structural;
 
 use crate::{
     layout::EnumLayout,
-    types::proofs::{
-        implementation::Implementation,
-        resources::{ProofModule, Record, ScopedMap, ScopedRecords},
+    types::{
+        materialization,
+        proofs::{
+            implementation::Implementation,
+            resources::{ProofModule, Record, ScopedMap, ScopedRecords},
+        },
     },
 };
 use kagari_common::{
@@ -318,6 +320,24 @@ impl<'a> ProofCatalog<'a> {
     }
 
     fn validate_linked(&self, cancel: &CancellationToken) -> Result<(), TypeTransformError> {
+        for implementation in self.implementations.iter() {
+            let Implementation::Interface(table) = implementation else {
+                continue;
+            };
+            for origin in &table.method_origins {
+                let Some(actual) = self.native_declaration(origin.placement) else {
+                    continue;
+                };
+                let source = self
+                    .native_declaration(origin.authored)
+                    .ok_or(TypeTransformError::InvalidContract)?;
+                let expected =
+                    materialization::native(source, table, origin, &self.definitions, cancel)?;
+                if expected != *actual {
+                    return Err(TypeTransformError::InvalidContract);
+                }
+            }
+        }
         for template in self.native_declarations.values() {
             for required in &template.callable_requirements {
                 if !self.callable_requirement_valid(required)
@@ -331,9 +351,6 @@ impl<'a> ProofCatalog<'a> {
                     return Err(TypeTransformError::InvalidContract);
                 }
             }
-        }
-        if !self.native_defaults_valid(cancel)? {
-            return Err(TypeTransformError::InvalidContract);
         }
         Ok(())
     }

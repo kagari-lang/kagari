@@ -305,10 +305,15 @@ fn authored_and_sealed_tokens_execute_the_actual_selected_default_call() {
         let snapshot = assembly.declarations();
         counts.assert(0, 0, 0, 0);
         let default = &snapshot.modules()[0].records().traits[0].methods[1];
-        let CallableImplementation::NativeDefault(application) = &default.implementation else {
-            panic!("default must be lowered")
+        assert_eq!(default.implementation, CallableImplementation::Script);
+        let module = &snapshot.modules()[0];
+        let method = module.records().script_bodies.values().next().unwrap();
+        let kagari_types::declaration::script::ScriptExpr::Call { callee, .. } = method else {
+            panic!("ordinary default call")
         };
-        let template = application.declaration;
+        let kagari_types::declaration::script::ScriptExpr::Definition(template) = **callee else {
+            panic!("declared helper")
+        };
         let definitions = snapshot.modules()[0].definitions();
         let modules = assembly.into_modules().unwrap();
         counts.assert(1, 1, 0, 0);
@@ -387,3 +392,5 @@ fn foreign_requirement_owners_are_rejected_before_default_execution() {
         assert_eq!(snapshot.modules().len(), 1);
     }
 }
+
+mod regressions;

@@ -80,29 +80,6 @@ impl ForeignInterfaces<'_> {
             .aggregates()
             .implementation_methods(definitions, signature)
         {
-            if let Some(ResolvedName::Function(function)) = owner
-                .environment()
-                .declarations()
-                .definition_target(&method)
-                && owner
-                    .environment()
-                    .signatures()
-                    .functions()
-                    .iter()
-                    .any(|typed| {
-                        typed.id == function
-                            && matches!(typed.implementation, FunctionImplementation::Native(_))
-                    })
-                && !owner.registration().is_some_and(|registration| {
-                    registration
-                        .callables
-                        .iter()
-                        .any(|declaration| declaration.declaration == method)
-                })
-            {
-                // Legacy engine/host adapters retain their existing lowering.
-                continue;
-            }
             if owner
                 .environment()
                 .aggregates()

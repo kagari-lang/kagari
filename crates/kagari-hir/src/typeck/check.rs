@@ -15,7 +15,6 @@ use crate::{
         writeability::Writeability,
     },
     lower::LoweredModule,
-    native::NativeBinding,
     resolver::resolved::{ResolvedName, ResolvedNames},
     semantic::body::ModuleFacts,
     semantic::signatures::{
@@ -28,7 +27,6 @@ use crate::{
         body::BodyChecker,
         check::{
             constants::{ConstValidationInputs, validate_const_initializers},
-            native_defaults::NativeDefaultCheck,
             trait_surface::validate_trait_surface,
         },
         completion,
@@ -52,7 +50,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 mod constants;
-mod native_defaults;
 mod statics;
 mod trait_surface;
 
@@ -281,28 +278,10 @@ pub(crate) fn check_signatures(
 
     for function in &lowered.module.functions {
         cancel.check()?;
-        let implementation = match (
-            &function.implementation,
-            lowered.native_functions.get(&function.id),
-        ) {
-            (HirImplementation::Native(_), Some(binding @ NativeBinding::Entry(_)))
-            | (HirImplementation::Script(_), Some(binding @ NativeBinding::Default(_))) => {
-                FunctionImplementation::Native(binding.clone())
-            }
-            (HirImplementation::Native(_), None) if !lowered.registered_native_api => {
-                FunctionImplementation::NativeDeclaration
-            }
-            (HirImplementation::Script(_), None) => FunctionImplementation::Script,
-            (HirImplementation::Required, None) => FunctionImplementation::Required,
-            _ => {
-                diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::UnsupportedSyntax {
-                        feature: "function implementation and installed native binding disagree",
-                    })
-                    .with_span(lowered.source_map.function_span(function.id)),
-                );
-                FunctionImplementation::Required
-            }
+        let implementation = match &function.implementation {
+            HirImplementation::Native(contract) => FunctionImplementation::Native(contract.clone()),
+            HirImplementation::Script(_) => FunctionImplementation::Script,
+            HirImplementation::Required => FunctionImplementation::Required,
         };
         let mut params: TypedParameterBuffer = SmallVec::new();
         let context = function_type_context(&lowered.module, function, declarations);
@@ -910,47 +889,6 @@ pub(crate) fn check_bodies_controlled(
             }
         }
 
-        let defaults = NativeDefaultCheck {
-            lowered,
-            names,
-            declarations,
-            imports: imported_functions,
-            aggregates,
-        };
-        for function in &lowered.module.functions {
-            // Recovery facts never authorize direct native lowering. In particular,
-            // a matching call signature does not prove its generic obligations.
-            if diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.severity == Severity::Error)
-            {
-                break;
-            }
-            if !selection.includes(function.id) || cancel.check().is_err() {
-                continue;
-            }
-            let Some(NativeBinding::Default(application)) =
-                lowered.native_functions.get(&function.id)
-            else {
-                continue;
-            };
-            let Some(signature) = body_signatures.function(function.id) else {
-                continue;
-            };
-            if let Some(site) =
-                defaults.forwarding_call(function, signature, application, &type_table)
-            {
-                type_table.native_default_calls.insert(function.id, site);
-            } else {
-                diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::InvalidNativeSignature {
-                        function: function.name.clone(),
-                        binding: "checked native default forwarding body".into(),
-                    })
-                    .with_span(lowered.source_map.function_span(function.id)),
-                );
-            }
-        }
         cancel.check()?;
         Ok(AnalysisResult {
             facts: ModuleFacts {

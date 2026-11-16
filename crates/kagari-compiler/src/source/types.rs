@@ -1,23 +1,34 @@
 //! Encode checked source types at the compiler boundary.
+use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use kagari_contract::numeric::NumericOperation;
-use kagari_hir::{hir::expr::ops::BinaryOp, native::NativeTypeKind};
+use kagari_hir::hir::expr::ops::BinaryOp;
 use kagari_types::{
-    declaration::{TypeDefKind, native::NativeTypeConstructor},
+    declaration::{
+        TypeDefKind,
+        native::{NativeStorageLayout, NativeTypeConstructor, language_type},
+    },
     integer::IntegerOp,
     scalar::BuiltinType,
 };
 
-pub(crate) fn lower_native_kind(kind: NativeTypeKind) -> TypeDefKind {
-    match kind {
-        NativeTypeKind::Host { definition, .. } => definition.kind,
-        NativeTypeKind::Reference(access) => {
-            TypeDefKind::Native(NativeTypeConstructor::Reference(access))
-        }
-        NativeTypeKind::Storage { layout, .. } => TypeDefKind::NativeStorage(layout),
-        NativeTypeKind::String => TypeDefKind::Native(NativeTypeConstructor::String),
-
-        NativeTypeKind::Range(kind) => TypeDefKind::Native(NativeTypeConstructor::Range(kind)),
+/// The compiler owns executable representation; HIR carries no storage classification.
+pub(crate) fn native_representation(
+    id: DefinitionId,
+    definitions: &DefinitionTable,
+) -> TypeDefKind {
+    if let Some(constructor) = NativeTypeConstructor::from_definition(id, definitions) {
+        return TypeDefKind::Native(constructor);
     }
+    let layout = if language_type(id, definitions, "kagari-core", "future", "Future") {
+        NativeStorageLayout::Future
+    } else if language_type(id, definitions, "kagari-core", "task", "Task") {
+        NativeStorageLayout::Task
+    } else if language_type(id, definitions, "kagari-core", "task", "TaskScope") {
+        NativeStorageLayout::TaskScope
+    } else {
+        NativeStorageLayout::Opaque
+    };
+    TypeDefKind::NativeStorage(layout)
 }
 
 pub(crate) fn lower_numeric_operation(

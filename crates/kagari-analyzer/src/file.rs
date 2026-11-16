@@ -58,7 +58,7 @@ impl<'a> FileQueries<'a> {
         let expressions = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .filter_map(|(id, expr)| {
                 let ExprKind::Field { .. } = &expr.kind else {
@@ -71,7 +71,7 @@ impl<'a> FileQueries<'a> {
         let places = facts
             .lowered
             .module
-            .body
+            .nodes
             .places()
             .filter_map(|(id, place)| {
                 let PlaceKind::Field { .. } = &place.kind else {
@@ -97,7 +97,7 @@ impl<'a> FileQueries<'a> {
         facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .filter_map(|(id, expr)| {
                 let span = facts.lowered.source_map.expr_span(id);
@@ -121,7 +121,7 @@ impl<'a> FileQueries<'a> {
                 facts
                     .lowered
                     .module
-                    .body
+                    .nodes
                     .expressions()
                     .filter_map(|(id, expr)| {
                         let ExprKind::Call { callee, .. } = &expr.kind else {
@@ -219,7 +219,7 @@ impl<'a> FileQueries<'a> {
         let expressions = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .filter_map(|(id, expr)| {
                 let span = facts.lowered.source_map.expr_span(id);
@@ -274,7 +274,7 @@ impl<'a> FileQueries<'a> {
                     })?;
                 Some((span, target))
             });
-        let places = facts.lowered.module.body.places().filter_map(|(id, _)| {
+        let places = facts.lowered.module.nodes.places().filter_map(|(id, _)| {
             let span = facts.lowered.source_map.place_span(id);
             let target = facts
                 .names
@@ -298,7 +298,7 @@ impl<'a> FileQueries<'a> {
             facts
                 .lowered
                 .module
-                .body
+                .nodes
                 .expressions()
                 .filter_map(|(id, expr)| {
                     let ExprKind::StructInit { .. } = &expr.kind else {
@@ -320,7 +320,7 @@ impl<'a> FileQueries<'a> {
         let enum_owners = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .filter_map(|(id, expr)| {
                 let ExprKind::Name { .. } = &expr.kind else {
@@ -337,7 +337,7 @@ impl<'a> FileQueries<'a> {
         let calls = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .filter_map(|(id, expr)| {
                 let ExprKind::Call { callee, .. } = &expr.kind else {
@@ -369,7 +369,7 @@ impl<'a> FileQueries<'a> {
                     _ => None,
                 }
             });
-        let patterns = facts.lowered.module.body.patterns().filter_map(|(id, _)| {
+        let patterns = facts.lowered.module.nodes.patterns().filter_map(|(id, _)| {
             let span = sites.pattern_reference_span(id)?;
             let variant = facts.typed.type_table().pattern_variant(id)?;
             Some((span, &facts.aggregates.variant(variant)?.declaration))
@@ -462,7 +462,7 @@ pub(crate) fn type_reference_target_at(
 ) -> Option<Option<ResolvedTypeTarget>> {
     let (type_id, _) = lowered
         .module
-        .body
+        .nodes
         .types()
         .map(|(id, _)| (id, lowered.source_map.type_span(id)))
         .filter(|(_, span)| span.start <= offset && offset < span.end)
@@ -487,13 +487,13 @@ pub(crate) fn type_at_in(
     table: &TypeTable,
     offset: usize,
 ) -> Option<TypeId> {
-    let expressions = lowered.module.body.expressions().filter_map(|(id, _)| {
+    let expressions = lowered.module.nodes.expressions().filter_map(|(id, _)| {
         let span = lowered.source_map.expr_span(id);
         (span.start <= offset && offset < span.end)
             .then(|| table.expr_type(id).map(|ty| (span.end - span.start, ty)))
             .flatten()
     });
-    let types = lowered.module.body.types().filter_map(|(id, _)| {
+    let types = lowered.module.nodes.types().filter_map(|(id, _)| {
         let span = lowered.source_map.type_span(id);
         if !(span.start <= offset && offset < span.end) {
             return None;
@@ -502,7 +502,7 @@ pub(crate) fn type_at_in(
             .type_ref(id)
             .map(|resolved| (span.end - span.start, resolved.ty.clone()))
     });
-    let places = lowered.module.body.places().filter_map(|(id, _)| {
+    let places = lowered.module.nodes.places().filter_map(|(id, _)| {
         let span = lowered.source_map.place_span(id);
         (span.start <= offset && offset < span.end)
             .then(|| table.place_type(id).map(|ty| (span.end - span.start, ty)))
@@ -520,7 +520,7 @@ pub(crate) fn member_receiver_type_in(
     table: &TypeTable,
     offset: usize,
 ) -> Option<TypeId> {
-    let expressions = lowered.module.body.expressions().filter_map(|(id, expr)| {
+    let expressions = lowered.module.nodes.expressions().filter_map(|(id, expr)| {
         let ExprKind::Field { receiver, .. } = &expr.kind else {
             return None;
         };
@@ -533,7 +533,7 @@ pub(crate) fn member_receiver_type_in(
             None
         }
     });
-    let places = lowered.module.body.places().filter_map(|(id, place)| {
+    let places = lowered.module.nodes.places().filter_map(|(id, place)| {
         let PlaceKind::Field { base, .. } = &place.kind else {
             return None;
         };

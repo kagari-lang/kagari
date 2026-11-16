@@ -20,7 +20,7 @@ impl DefinitionReferences for LoweredModule {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        for (_, ty) in self.module.body.types.iter() {
+        for (_, ty) in self.module.nodes.types.iter() {
             check_cancel(cancel)?;
             if let TypeKind::Definition { declaration, .. } = &ty.kind {
                 visit(declaration)?;
@@ -35,27 +35,15 @@ impl DefinitionReferences for LoweredModule {
             check_cancel(cancel)?;
             visit(declaration)?;
         }
-        for (id, value) in self
-            .registered_traits
-            .iter()
-            .chain(&self.native_trait_references)
-            .chain(&self.external_traits)
-        {
-            check_cancel(cancel)?;
-            visit(id)?;
-            value.visit_definition_ids(visit, cancel)?;
+        for item in &self.module.native_types {
+            if let Some(host) = &item.host {
+                host.visit_definition_ids(visit, cancel)?;
+            }
         }
-        for value in &self.registered_declarations {
-            value.visit_definition_ids(visit, cancel)?;
-        }
-        for value in self.native_types.values() {
-            value.visit_definition_ids(visit, cancel)?;
-        }
-        for value in self.native_functions.values() {
-            value.visit_definition_ids(visit, cancel)?;
-        }
-        for value in self.native_trait_adapters.values() {
-            value.visit_definition_ids(visit, cancel)?;
+        for item in &self.module.traits {
+            if let Some(relationship) = &item.conversion_adapter {
+                relationship.visit_definition_ids(visit, cancel)?;
+            }
         }
         Ok(())
     }

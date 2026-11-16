@@ -122,6 +122,6 @@ pub(super) fn target_valid(
                 && &import.binding == binding
                 && import.signature == call.signature
         }),
-        CallableImplementation::Required | CallableImplementation::NativeDefault(_) => false,
+        CallableImplementation::Required => false,
     }
 }

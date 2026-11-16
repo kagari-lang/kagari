@@ -9,8 +9,8 @@ use crate::{
         },
     },
     declarations::Declarations,
+    language::types::payload_reference_eligible,
     lower::LoweredModule,
-    native::NativeTypeKind,
     typeck::{
         GenericBounds, ModuleSignatures,
         aliases::{self, AliasValidation},
@@ -24,9 +24,7 @@ use kagari_common::{
     cancellation::CancellationToken, identity::table::DefinitionTable, span::Span,
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::{
-    declaration::native::NativeStorageLayout, language::Protocol, range::RangeKind,
-};
+use kagari_types::{language::Protocol, range::RangeKind};
 
 /// Checked declaration sources and their retained identity scope for application validation.
 pub(super) struct ApplicationContext<'a> {
@@ -117,13 +115,7 @@ fn validate_shape(
                         .map(|contract| contract.generic_params.len()),
                     TypeId::NativeObject(_) => catalog
                         .native_type(&instance.declaration)
-                        .filter(|contract| match &contract.representation {
-                            None => true,
-                            Some(NativeTypeKind::Storage { layout, .. }) => {
-                                layout.valid_parameters(instance.arguments.len())
-                            }
-                            _ => false,
-                        })
+                        .filter(|contract| contract.host.is_none())
                         .map(|contract| contract.generic_params.len()),
                     _ => unreachable!(),
                 }
@@ -163,8 +155,7 @@ fn validate_shape(
             }
             TypeId::Host(id) => {
                 if !catalog.native_type(id).is_some_and(|contract| {
-                    contract.generic_params.is_empty()
-                        && matches!(contract.representation, Some(NativeTypeKind::Host { .. }))
+                    contract.generic_params.is_empty() && contract.host.is_some()
                 }) {
                     return Err("host type is missing its declared Host representation");
                 }
@@ -449,15 +440,7 @@ fn validate_inner(
         match ty {
             TypeId::Reference { target, .. } => {
                 if let TypeId::NativeObject(nominal) = target.as_ref()
-                    && !catalog.native_type(&nominal.declaration).is_some_and(|ty| {
-                        matches!(
-                            ty.representation,
-                            Some(NativeTypeKind::Storage {
-                                layout: NativeStorageLayout::Opaque,
-                                ..
-                            })
-                        )
-                    })
+                    && !payload_reference_eligible(nominal.declaration, definitions)
                 {
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::InvalidReference {

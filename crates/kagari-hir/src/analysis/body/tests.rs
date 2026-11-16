@@ -274,7 +274,7 @@ fn selected_body_cache_refreshes_shared_signature_context() {
     let old_expr = rebuilt
         .lowered()
         .module
-        .body
+        .nodes
         .expressions()
         .find(|(expr, _)| rebuilt.type_table().expr_type(*expr).is_some())
         .unwrap()
@@ -313,7 +313,7 @@ fn selected_body_cache_refreshes_shared_signature_context() {
     // to a new lowering. Rebuild from source rather than reviving that context.
     let rebuilt = query(&mut db, &sources, &good);
     assert!(!Arc::ptr_eq(&rebuilt.facts, &cached.facts));
-    assert_ne!(rebuilt.lowered().module.body.arena(), old_expr.arena());
+    assert_ne!(rebuilt.lowered().module.nodes.arena(), old_expr.arena());
     assert!(rebuilt.type_table().expr_type(old_expr).is_none());
     assert!(root_lowering.upgrade().is_none());
     assert!(cached.file.upgrade().is_none());
@@ -367,7 +367,7 @@ fn single_function_query_does_not_check_or_bind_its_neighbors() {
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     assert!(!complete.file(id).unwrap().result().diagnostics().is_empty());
-    for (expr, _) in result.lowered().module.body.expressions() {
+    for (expr, _) in result.lowered().module.nodes.expressions() {
         if let Some(ty) = result.type_table().expr_type(expr) {
             assert_eq!(
                 Some(ty),
@@ -419,8 +419,8 @@ fn body_reuse_remaps_types_and_refreshes_local_identity_after_neighbor_edit() {
         second.definitions(),
         fresh.type_table(),
         fresh.definitions(),
-        second.lowered().module.body.arena(),
-        fresh.lowered().module.body.arena(),
+        second.lowered().module.nodes.arena(),
+        fresh.lowered().module.nodes.arena(),
     );
     assert_eq!(second.diagnostics(), fresh.diagnostics());
     let old_parameter = first.lowered().module.functions[1].params[0].id;
@@ -534,8 +534,8 @@ fn imported_signature_changes_invalidate_a_cached_function_body() {
         second.definitions(),
         fresh.type_table(),
         fresh.definitions(),
-        second.lowered().module.body.arena(),
-        fresh.lowered().module.body.arena(),
+        second.lowered().module.nodes.arena(),
+        fresh.lowered().module.nodes.arena(),
     );
     assert_eq!(second.diagnostics(), fresh.diagnostics());
 }
@@ -607,8 +607,8 @@ fn same_named_impl_bodies_reuse_their_own_facts() {
             result.definitions(),
             fresh.type_table(),
             fresh.definitions(),
-            result.lowered().module.body.arena(),
-            fresh.lowered().module.body.arena(),
+            result.lowered().module.nodes.arena(),
+            fresh.lowered().module.nodes.arena(),
         );
         assert_eq!(result.diagnostics(), fresh.diagnostics());
     }

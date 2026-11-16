@@ -166,32 +166,11 @@ pub(super) fn resolve_owner_in(
             return;
         }
         resolve_type_in(&lowered.module, bound.target_ref, context, table, cancel);
-        // Registered predicates already have checked ABI binders. They may name
-        // fixed receivers; defaults/applications still prove their obligations.
-        let registered_predicate = lowered.registered_native_api
-            && table
-                .type_ref(bound.target_ref)
-                .is_some_and(|reference| !reference.ty.is_unresolved());
-        if !matches!(
-            table
-                .type_ref(bound.target_ref)
-                .and_then(|reference| reference.target.clone()),
-            Some(ResolvedTypeTarget::Generic(_))
-        ) && !matches!(
-            table.type_ref(bound.target_ref).map(|reference| (&reference.ty, reference.target.clone())),
-            Some((TypeId::SelfType(_), Some(ResolvedTypeTarget::Trait(id)))) if Some(id) == context.self_type
-        ) && !(table
+        // Fixed and applied receivers are ordinary predicates too. Resolving a
+        // predicate does not establish its obligation; application checking does.
+        if table
             .type_ref(bound.target_ref)
-            .is_some_and(|reference| !reference.ty.is_unresolved())
-            && match &lowered.module.type_ref(bound.target_ref).kind {
-                TypeKind::Projection { .. } => true,
-                TypeKind::Named(name) => name.split_once("::").is_some_and(|(base, _)| {
-                    generics.iter().any(|param| param.name == base)
-                        || base == "Self" && context.self_type.is_some()
-                }),
-                _ => false,
-            })
-            && !registered_predicate
+            .is_none_or(|reference| reference.ty.is_unresolved())
         {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidBoundTarget {

@@ -576,7 +576,7 @@ fn trait_parameter_context_keeps_targets_through_invalid_payloads() {
             analysis.diagnostics()
         );
         let facts = analysis.facts();
-        assert!(facts.lowered.module.body.expressions().any(|(id, _)| {
+        assert!(facts.lowered.module.nodes.expressions().any(|(id, _)| {
             facts
                 .typed
                 .type_table

@@ -1,9 +1,9 @@
-use std::hash::{Hash};
+use std::hash::{ Hash };
 // Requires the offline declarations and runtime bindings in the host_interfaces
 // embedding example. Importing declarations does not invoke host callbacks.
-use demo::{Counter, make};
+use demo::{ Counter, make };
 
-trait Reader {
+pub trait Reader {
     type Item: Eq + Hash;
     fn read(self, amount: i32) -> Self::Item;
 }
@@ -12,17 +12,23 @@ fn read<R: Reader<Item = i32>>(value: R) -> R::Item {
     val eraser: EraseReader = 0;
     eraser.erase(value).read(20)
 }
-
 // A dynamic generic method forwards the installed host implementation as evidence.
 trait EraseReader {
-    fn erase<R: Reader<Item = i32>>(self, value: R) -> Reader<Item = i32> { value }
+    fn erase<R: Reader<Item = i32>>(self, value: R) -> Reader<Item = i32> {
+        value
+    }
 }
+
 impl EraseReader for i32 {}
 
 fn projected(value: Counter) -> <Counter as Reader>::Item {
     value.read(0)
 }
 
-pub fn boxed() -> Reader<Item = i32> { make() }
+pub fn boxed() -> Reader<Item = i32> {
+    make()
+}
 
-fn main() -> i32 { read(make()) + boxed().read(22) }
+fn main() -> i32 {
+    read(make()) + boxed().read(22)
+}

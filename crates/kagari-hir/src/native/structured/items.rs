@@ -3,7 +3,9 @@ use super::StructuredLowerer;
 use crate::hir::{
     attribute::{AttributeFact, AttributeForm, AttributeTarget, AttributeValue},
     expr::{ExprData, ExprKind},
-    ids::{BodyOwner, FieldId, FieldOwner, FunctionId, HirOwner, ParamId, TypeRefId, VariantId},
+    ids::{
+        BodyOwner, ExprId, FieldId, FieldOwner, FunctionId, HirOwner, ParamId, TypeRefId, VariantId,
+    },
     item::{
         Item,
         adt::{Enum, Field, NativeTypeDeclaration, Struct, Variant},
@@ -22,10 +24,12 @@ use kagari_common::{
     span::Span,
 };
 use kagari_types::{
-    callable::{CallableImplementation, NativeDefaultApplication},
+    callable::CallableImplementation,
     declaration::{
         FnDecl, TypeDef, TypeDefKind,
         module::{DeclarationError, ModuleDecl},
+        names::NameNamespace,
+        script::ScriptExpr,
     },
     language::{Protocol, role::LangRole},
     visibility::Visibility,
@@ -34,7 +38,7 @@ use kagari_types::{
 impl StructuredLowerer<'_> {
     pub(super) fn module(&mut self) -> Result<(), DeclarationError> {
         for (name, target) in &self.declaration.exports {
-            self.import(*target, Some(name.name.clone()))?;
+            self.import(*target, Some(name.name.clone()), Some(name.namespace))?;
         }
         for ty in &self.declaration.types {
             self.type_definition(ty)?;
@@ -61,12 +65,13 @@ impl StructuredLowerer<'_> {
                 )?;
                 self.lowerer.source_map.set_structured_origin(owner);
                 methods.push(TraitMethod {
+                    override_allowed: method.method_policy.override_allowed,
                     id: self.lowerer.source_map.push_trait_method(Span::default()),
                     name: method.name.clone(),
                     function,
                     has_default: matches!(
                         method.implementation,
-                        CallableImplementation::NativeDefault(_) | CallableImplementation::Script
+                        CallableImplementation::Native(_) | CallableImplementation::Script
                     ),
                 });
             }
@@ -95,6 +100,7 @@ impl StructuredLowerer<'_> {
             self.lowerer.source_map.set_structured_origin(declaration);
             let supertraits = self.constraints(&contract.supertraits)?;
             self.lowerer.module.traits.push(TraitDef {
+                conversion_adapter: contract.conversion_adapter.clone(),
                 id,
                 name: contract.name.clone(),
                 visibility: Visibility::Public,
@@ -213,6 +219,7 @@ impl StructuredLowerer<'_> {
         &mut self,
         declaration: DefinitionId,
         alias: Option<String>,
+        namespace: Option<NameNamespace>,
     ) -> Result<(), DeclarationError> {
         let view = self
             .definitions
@@ -224,6 +231,7 @@ impl StructuredLowerer<'_> {
             self.path(declaration)?
         };
         self.lowerer.module.imports.push(Import {
+            namespace,
             kind: ImportLeaf::Named { alias },
             visibility: Visibility::Public,
             segments: path.split("::").map(str::to_owned).collect(),
@@ -274,12 +282,13 @@ impl StructuredLowerer<'_> {
                         .map(|ty| self.ty(ty))
                         .collect::<Result<_, _>>()?;
                     variants.push(Variant {
+                        reports_failure: variant.reports_failure,
                         id: member,
                         name: variant.name.clone(),
                         payload,
                     });
                     if self.declaration.variant_exports.contains(&ty.name) {
-                        self.import(owner, None)?;
+                        self.import(owner, None, None)?;
                     }
                 }
                 self.lowerer.module.enums.push(Enum {
@@ -301,6 +310,7 @@ impl StructuredLowerer<'_> {
                     .module
                     .native_types
                     .push(NativeTypeDeclaration {
+                        host: None,
                         id,
                         visibility: Visibility::Public,
                         name: ty.name.clone(),
@@ -356,9 +366,6 @@ impl StructuredLowerer<'_> {
         inherited: &[GenericParam],
         receiver: Option<TypeRefId>,
     ) -> Result<FunctionId, DeclarationError> {
-        if function.implementation == CallableImplementation::Script {
-            return Err(DeclarationError("Script registration requires complete supplied source; a signature cannot stand in for its body".into()));
-        }
         self.lowerer.source_map.set_structured_origin(declaration);
         let id = self.lowerer.reserve_function(Span::default());
         assert!(
@@ -404,14 +411,28 @@ impl StructuredLowerer<'_> {
         let return_type = Some(self.ty(&function.return_type)?);
         let bounds = self.bounds(&function.bounds)?;
         let implementation = match &function.implementation {
-            CallableImplementation::NativeDefault(application) => {
-                self.default_body(application, function)?
+            CallableImplementation::Script => {
+                let expression = self
+                    .declaration
+                    .script_bodies
+                    .get(&declaration)
+                    .ok_or_else(|| {
+                        DeclarationError("Script registration requires a complete body".into())
+                    })?;
+                let tail = self.script_expr(expression)?;
+                let block = self.lowerer.alloc_block(
+                    Span::default(),
+                    BlockData {
+                        statements: Default::default(),
+                        tail_expr: Some(tail),
+                    },
+                );
+                FunctionImplementation::Script(block)
             }
             // The installed contract is attached by exact allocation correspondence.
             CallableImplementation::Native(_) | CallableImplementation::Required => {
                 FunctionImplementation::Required
             }
-            CallableImplementation::Script => unreachable!(),
         };
         self.lowerer.finish_function(Function {
             id,
@@ -435,64 +456,51 @@ impl StructuredLowerer<'_> {
         Ok(id)
     }
 
-    fn default_body(
-        &mut self,
-        application: &NativeDefaultApplication,
-        function: &FnDecl,
-    ) -> Result<FunctionImplementation, DeclarationError> {
-        let name = self.path(application.declaration)?;
-        let callee = self.lowerer.alloc_expr(
-            Span::default(),
-            ExprData {
-                kind: ExprKind::Name {
-                    name,
-                    explicit_type: None,
-                },
+    fn script_expr(&mut self, expression: &ScriptExpr) -> Result<ExprId, DeclarationError> {
+        let kind = match expression {
+            ScriptExpr::Name(name) => ExprKind::Name {
+                name: name.clone(),
+                explicit_type: None,
             },
-        );
-        let type_args = if application.arguments.is_empty() {
-            None
-        } else {
-            Some(
-                application
-                    .arguments
+            ScriptExpr::Definition(id) => ExprKind::Name {
+                name: {
+                    let path = self.path(*id)?;
+                    if self
+                        .definitions
+                        .resolve(*id)
+                        .map_err(|error| DeclarationError(error.to_string()))?
+                        .module()
+                        == &self.declaration.identity
+                    {
+                        format!("self::{path}")
+                    } else {
+                        path
+                    }
+                },
+                explicit_type: None,
+            },
+            ScriptExpr::Call {
+                callee,
+                type_arguments,
+                arguments,
+            } => ExprKind::Call {
+                callee: self.script_expr(callee)?,
+                args: arguments
                     .iter()
-                    .map(|ty| self.ty(ty))
+                    .map(|argument| self.script_expr(argument))
                     .collect::<Result<_, _>>()?,
-            )
-        };
-        let args = function
-            .params
-            .iter()
-            .map(|parameter| {
-                self.lowerer.alloc_expr(
-                    Span::default(),
-                    ExprData {
-                        kind: ExprKind::Name {
-                            name: parameter.name.clone(),
-                            explicit_type: None,
-                        },
-                    },
-                )
-            })
-            .collect();
-        let call = self.lowerer.alloc_expr(
-            Span::default(),
-            ExprData {
-                kind: ExprKind::Call {
-                    callee,
-                    args,
-                    type_args,
+                type_args: if type_arguments.is_empty() {
+                    None
+                } else {
+                    Some(
+                        type_arguments
+                            .iter()
+                            .map(|ty| self.ty(ty))
+                            .collect::<Result<_, _>>()?,
+                    )
                 },
             },
-        );
-        let block = self.lowerer.alloc_block(
-            Span::default(),
-            BlockData {
-                statements: Default::default(),
-                tail_expr: Some(call),
-            },
-        );
-        Ok(FunctionImplementation::Script(block))
+        };
+        Ok(self.lowerer.alloc_expr(Span::default(), ExprData { kind }))
     }
 }

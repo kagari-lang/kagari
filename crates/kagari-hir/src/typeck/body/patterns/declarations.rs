@@ -20,7 +20,7 @@ impl BodyChecker<'_> {
         self.check_pattern(pattern, expected, env);
         if !self
             .names
-            .pattern_is_irrefutable(&self.lowered.module.body, pattern)
+            .pattern_is_irrefutable(&self.lowered.module.nodes, pattern)
         {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
@@ -31,7 +31,7 @@ impl BodyChecker<'_> {
             );
         }
         let mut names = HashSet::new();
-        for (local, name) in self.lowered.module.body.pattern_bindings(pattern) {
+        for (local, name) in self.lowered.module.nodes.pattern_bindings(pattern) {
             if !names.insert(name) {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::PatternTypeMismatch {

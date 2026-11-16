@@ -123,6 +123,7 @@ impl RemapDefinitions for InterfaceTable {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(InterfaceTable {
+            method_origins: self.method_origins.remap_definitions(mapper)?,
             associated_type_families: map_sequence(&self.associated_type_families, |value| {
                 (value).remap_definitions(mapper)
             })?,
@@ -150,6 +151,7 @@ impl DefinitionReferences for InterfaceTable {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
+        self.method_origins.visit_definition_ids(visit, cancel)?;
         for value0 in &self.associated_type_families {
             (value0).visit_definition_ids(visit, cancel)?;
         }

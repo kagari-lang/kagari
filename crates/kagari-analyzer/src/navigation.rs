@@ -37,7 +37,7 @@ fn type_hits(
     cancel: &CancellationToken,
 ) -> Result<Vec<(Span, LookupHit)>, Cancelled> {
     let mut hits = Vec::new();
-    for (id, reference) in facts.lowered.module.body.types() {
+    for (id, reference) in facts.lowered.module.nodes.types() {
         cancel.check()?;
         let (TypeKind::Named(name) | TypeKind::Generic { name, .. }) = &reference.kind else {
             continue;
@@ -121,7 +121,7 @@ fn expression_hits(
     cancel: &CancellationToken,
 ) -> Result<(), Cancelled> {
     let names = &facts.names;
-    for (id, expr) in facts.lowered.module.body.expressions() {
+    for (id, expr) in facts.lowered.module.nodes.expressions() {
         cancel.check()?;
         let ExprKind::Name { name, .. } = &expr.kind else {
             continue;

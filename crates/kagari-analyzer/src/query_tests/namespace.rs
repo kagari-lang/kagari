@@ -90,7 +90,7 @@ fn imported_constant_aliases_publish_checked_values_and_original_identity() {
         let (id, _) = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .find(|(_, expr)| matches!(&expr.kind, ExprKind::Name { name, .. } if name == "code"))
             .unwrap();
@@ -145,7 +145,7 @@ fn imported_constant_edits_invalidate_value_facts_without_retargeting_aliases() 
     let (id, _) = old_facts
         .lowered
         .module
-        .body
+        .nodes
         .expressions()
         .find(|(_, expr)| matches!(&expr.kind, ExprKind::Name { name, .. } if name == "code"))
         .unwrap();
@@ -246,7 +246,7 @@ fn qualified_standard_source_and_host_calls_use_type_prefixes() {
         let names = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .filter(|(_, expr)| matches!(&expr.kind, ExprKind::Name { name, .. } if name.contains("::")))
             .collect::<Vec<_>>();
@@ -257,7 +257,7 @@ fn qualified_standard_source_and_host_calls_use_type_prefixes() {
         let calls = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .filter(|(_, expr)| matches!(expr.kind, ExprKind::Call { .. }))
             .collect::<Vec<_>>();
@@ -407,7 +407,7 @@ fn absent_imports_release_categories_and_ambiguous_imports_block_fallback() {
         for (id, expr) in facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .filter(|_| expected.is_some())
         {
@@ -479,7 +479,7 @@ fn local_bindings_can_shadow_ambiguous_module_names() {
     let (id, _) = facts
         .lowered
         .module
-        .body
+        .nodes
         .expressions()
         .find(|(_, expr)| matches!(&expr.kind, ExprKind::Name { name, .. } if name == "clash"))
         .unwrap();

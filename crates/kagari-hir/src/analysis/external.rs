@@ -12,7 +12,6 @@ use crate::{
     },
     hir::item::function::{Function, FunctionImplementation, FunctionKind, NativeContract},
     lower::LoweredModule,
-    native::NativeTypeKind,
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -22,12 +21,11 @@ use kagari_common::{
     },
 };
 use kagari_source::{identity::FileId, source::SourceFile, source_database::SourceSnapshot};
+use kagari_types::declaration::names::NameNamespace;
 use kagari_types::{
     callable::MethodPolicy,
     declaration::{
-        TraitDef,
-        module::DeclarationError,
-        native::{NativeStorageLayout, NativeTypeConstructor},
+        conversion::ConversionAdapter, module::DeclarationError, native::NativeTypeConstructor,
     },
 };
 use std::{
@@ -38,6 +36,7 @@ use std::{
 pub(super) mod contracts;
 pub mod evidence;
 pub(super) mod evidence_fingerprint;
+mod members;
 
 #[cfg(test)]
 mod equivalence;
@@ -62,16 +61,17 @@ pub struct ExternalModule {
     /// Explicit library dependency identities; source still resolves every reference
     /// and checks visibility against the actual supplied declaration owner.
     pub dependencies: BTreeSet<ModuleIdentity>,
+    /// Enum/variant selectors carrying failure-origin semantics absent from syntax.
+    pub enum_failures: BTreeSet<(String, String)>,
+    /// Exact named-import path/alias selectors with an explicit namespace category.
+    pub import_namespaces: BTreeMap<(Vec<String>, Option<String>), NameNamespace>,
     /// Constructors are keyed by the exact local Native type declaration, not by
     /// use-site spelling. A user type named `Ref` or `String` is not a builtin.
     pub types: BTreeMap<String, ExternalType>,
     /// Host category requires a complete scoped schema/path closure, not a nominal fallback.
     pub hosts: BTreeMap<String, Arc<DefinitionMetadata<evidence::ExternalHost>>>,
-    /// Static foundation/conversion trait shapes, checked against parsed declarations.
-    /// Ordinary traits need no sidecar; their complete source owns static semantics.
-    pub traits: BTreeMap<String, Arc<DefinitionMetadata<TraitDef>>>,
-    /// Requests canonical foundation roles; requires explicit matching trait evidence.
-    pub language_foundation: bool,
+    /// Scoped static conversion relationships; source owns the actual trait shape.
+    pub conversions: BTreeMap<String, Arc<DefinitionMetadata<ConversionAdapter>>>,
     /// Only exceptional receiver/override policies need sidecar entries.
     pub methods: BTreeMap<ExternalFunction, MethodPolicy>,
     /// Ordered static operations and concrete interface results. IDs are scoped by
@@ -87,10 +87,11 @@ impl ExternalModule {
             package_alias: None,
             prelude: false,
             dependencies: BTreeSet::new(),
+            enum_failures: BTreeSet::new(),
+            import_namespaces: BTreeMap::new(),
             types: BTreeMap::new(),
             hosts: BTreeMap::new(),
-            traits: BTreeMap::new(),
-            language_foundation: false,
+            conversions: BTreeMap::new(),
             methods: BTreeMap::new(),
             contracts: BTreeMap::new(),
         }
@@ -129,44 +130,29 @@ impl ExternalModule {
                     DeclarationError(format!("ambiguous external constructor {name}")).into(),
                 );
             }
-            let representation = match kind {
-                ExternalType::Constructor(NativeTypeConstructor::Reference(access)) => {
-                    NativeTypeKind::Reference(*access)
-                }
-                ExternalType::Constructor(NativeTypeConstructor::String) => NativeTypeKind::String,
-                ExternalType::Constructor(NativeTypeConstructor::Range(kind)) => {
-                    NativeTypeKind::Range(*kind)
-                }
-                ExternalType::Host => self.host_kind(name, lowered, definitions, cancel)?,
-                ExternalType::Storage(layout) => {
-                    if !layout.valid_parameters(item.generic_params.len()) {
-                        return Err(DeclarationError(format!(
-                            "invalid external storage arity for {name}"
-                        ))
-                        .into());
-                    }
-                    let root = definitions
-                        .intern_root(lowered.source.module_identity())
-                        .map_err(DefinitionMappingError::from)?;
-                    let declaration = definitions
-                        .intern_child(root, DefinitionKind::AssociatedType, name, 0)
-                        .map_err(DefinitionMappingError::from)?;
-                    NativeTypeKind::Storage {
-                        declaration,
-                        arity: item.generic_params.len(),
-                        layout: *layout,
-                    }
-                }
+            let item_id = item.id;
+            let host = if matches!(kind, ExternalType::Host) {
+                Some(self.host_kind(name, lowered, definitions, cancel)?)
+            } else {
+                None
             };
-            if representation.arity() != item.generic_params.len()
-                || matches!(kind, ExternalType::Constructor(_)) && !item.fields.is_empty()
-            {
-                return Err(DeclarationError(format!(
-                    "invalid external constructor shape for {name}"
-                ))
-                .into());
+            if let ExternalType::Constructor(constructor) = kind {
+                let root = definitions
+                    .intern_root(lowered.source.module_identity())
+                    .map_err(DefinitionMappingError::from)?;
+                let id = definitions
+                    .intern_child(root, DefinitionKind::AssociatedType, name, 0)
+                    .map_err(DefinitionMappingError::from)?;
+                if NativeTypeConstructor::from_definition(id, &definitions.snapshot())
+                    != Some(*constructor)
+                {
+                    return Err(DeclarationError(format!(
+                        "invalid external constructor shape for {name}"
+                    ))
+                    .into());
+                }
             }
-            lowered.native_types.insert(item.id, representation);
+            lowered.module.native_types[item_id.index()].host = host;
         }
         Ok(())
     }
@@ -210,7 +196,17 @@ impl ExternalModule {
                 ))
                 .into());
             }
-            lowered.method_policies.insert(function.id, *policy);
+            let id = function.id;
+            if let FunctionImplementation::Native(contract) =
+                &mut lowered.module.functions[id.index()].implementation
+            {
+                contract.receiver_access = policy.receiver_access;
+            }
+            for item in &mut lowered.module.traits {
+                if let Some(method) = item.methods.iter_mut().find(|method| method.function == id) {
+                    method.override_allowed = policy.override_allowed;
+                }
+            }
         }
         Ok(())
     }
@@ -221,7 +217,6 @@ impl ExternalModule {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExternalType {
     Constructor(NativeTypeConstructor),
-    Storage(NativeStorageLayout),
     Host,
 }
 
@@ -302,19 +297,16 @@ impl AnalysisDatabase {
                 }
                 // Previous declaration records are reusable only under these same
                 // immutable inputs; every environment setter invalidates their cache.
-                if !prepared.lowered.external_api {
+                {
                     let lowered = Arc::make_mut(&mut prepared.lowered);
-                    lowered.external_api = true;
-                    lowered.native_package_alias = input.package_alias.clone();
-                    lowered.native_dependencies = input.dependencies.iter().cloned().collect();
                     // Inline modules retain library admission and real source ownership,
                     // but do not inherit root-owned constructor/member metadata.
                     if id == input.source.id() {
-                        lowered.native_prelude = input.prelude;
+                        input.attach_members(lowered, cancel)?;
                         input.attach_types(lowered, &self.definitions, cancel)?;
                         input.attach_traits(lowered, &self.definitions, cancel)?;
-                        input.attach_methods(lowered, cancel)?;
                         input.attach_contracts(lowered, &self.definitions, cancel)?;
+                        input.attach_methods(lowered, cancel)?;
                     }
                 }
                 files.insert(id, (prepared.parsed, prepared.lowered));

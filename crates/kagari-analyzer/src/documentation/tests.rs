@@ -5,7 +5,7 @@ use kagari_common::identity::{
 };
 use kagari_hir::{
     declarations::{DeclarationId, DeclarationOrigin},
-    native::{NativeBinding, render::declaration_source},
+    native::render::declaration_source,
     semantic::signatures::FunctionImplementation,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer, normalize_source_name};
@@ -456,12 +456,10 @@ fn native_view_locations_are_snapshot_owned_and_do_not_select_binding_identity()
         );
         snapshot.check_program(root, &Default::default()).unwrap();
         let target = file.queries().source_function_at(offset).unwrap();
-        let FunctionImplementation::Native(NativeBinding::Entry(binding)) =
-            target.signature.implementation
-        else {
+        let FunctionImplementation::Native(_) = target.signature.implementation else {
             panic!("registered native entry")
         };
-        assert_eq!(binding, target.declaration);
+        let binding = target.declaration;
         assert_eq!(
             file.definitions().resolve(binding).unwrap().module(),
             &identity

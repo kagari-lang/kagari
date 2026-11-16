@@ -37,7 +37,7 @@ fn struct_update_fields_keep_explicit_order_and_omitted_declaration_order() {
         let (id, _) = checked
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .find(|(_, expr)| matches!(expr.kind, ExprKind::StructInit { base: Some(_), .. }))
             .unwrap();
@@ -86,7 +86,7 @@ fn struct_update_context_links_fields_bases_and_factory_receivers() {
             analysis.diagnostics()
         );
         let checked = analysis.into_codegen().expect("bounded contextual update");
-        for (id, _) in checked.lowered.module.body.expressions() {
+        for (id, _) in checked.lowered.module.nodes.expressions() {
             if let Some(call) = checked.typed.type_table.call_resolution(id)
                 && matches!(call.target, CallTarget::TraitMethod { .. })
                 && call.receiver.is_none()
@@ -208,7 +208,7 @@ fn struct_update_completion_uses_only_normally_produced_operands() {
         );
         if valid {
             let facts = analysis.facts();
-            for (id, expr) in facts.lowered.module.body.expressions() {
+            for (id, expr) in facts.lowered.module.nodes.expressions() {
                 if matches!(expr.kind, ExprKind::StructInit { base: Some(_), .. }) {
                     assert!(facts.typed.type_table.expr_type(id).unwrap().is_never());
                 }
@@ -229,7 +229,7 @@ fn struct_update_missing_base_preserves_the_written_marker_and_other_errors() {
     let base = facts
         .lowered
         .module
-        .body
+        .nodes
         .expressions()
         .find_map(|(_, expr)| match expr.kind {
             ExprKind::StructInit {

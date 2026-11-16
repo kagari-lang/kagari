@@ -31,6 +31,7 @@ use kagari_mir::{
     verify::{MirVerificationError, MirVerificationErrorKind, VerifiedMirModule},
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_types::declaration::NativeDeclaration;
 use std::collections::HashMap;
 
 mod abi;
@@ -122,6 +123,7 @@ pub(crate) struct ModuleLoweringInputs<'a> {
     modules_by_handle: HashMap<ModuleHandle, &'a CheckedModule<'a>>,
     catalog: &'a AggregateCatalog,
     context: &'a DefinitionContext,
+    native_declarations: HashMap<DefinitionId, NativeDeclaration>,
 }
 
 impl<'a> ModuleLoweringInputs<'a> {
@@ -136,7 +138,13 @@ impl<'a> ModuleLoweringInputs<'a> {
             .expect("checked root module")
             .environment()
             .aggregates();
+        let native_declarations = modules
+            .iter()
+            .flat_map(abi::native_declarations)
+            .map(|item| (item.declaration, item))
+            .collect();
         Self {
+            native_declarations,
             compilation,
             modules,
             modules_by_handle,

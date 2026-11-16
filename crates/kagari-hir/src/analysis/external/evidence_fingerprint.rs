@@ -10,12 +10,9 @@ use kagari_common::{
     },
 };
 use kagari_types::declaration::{
-    TraitDef,
+    conversion::ConversionAdapter,
     module::DeclarationError,
-    wire::{
-        declarations::{TraitDefRecord, TypeDeclarationRecord},
-        path::PathDeclarationRecord,
-    },
+    wire::{declarations::TypeDeclarationRecord, path::PathDeclarationRecord},
 };
 use serde::Serialize;
 
@@ -43,13 +40,26 @@ fn bytes(value: &impl Serialize) -> Result<Vec<u8>, AnalysisError> {
     })
 }
 
-pub(in crate::analysis) fn trait_bytes(
-    metadata: &DefinitionMetadata<TraitDef>,
+pub(in crate::analysis) fn conversion_bytes(
+    metadata: &DefinitionMetadata<ConversionAdapter>,
     cancel: &CancellationToken,
 ) -> Result<Vec<u8>, AnalysisError> {
     let encoding = encoding(metadata, cancel)?;
-    let record = TraitDefRecord::encode(metadata.records(), &encoding, cancel)?;
-    bytes(&(encoding.table, record))
+    let mut references = Vec::new();
+    metadata.records().visit_definition_ids(
+        &mut |id| {
+            references.push(encoding.reference(*id)?);
+            Ok(())
+        },
+        cancel,
+    )?;
+    let shape = match metadata.records() {
+        ConversionAdapter::Reverse { error, result, .. } => {
+            (0u8, error.is_some(), result.is_some())
+        }
+        ConversionAdapter::Forward { .. } => (1u8, false, false),
+    };
+    bytes(&(encoding.table, shape, references))
 }
 
 pub(in crate::analysis) fn host_bytes(

@@ -1,11 +1,13 @@
 //! Protocol-independent immutable source analysis. Queries never execute code.
 
+mod environment;
 pub mod external;
 mod input_fingerprint;
 pub mod inputs;
 pub(crate) mod records;
 pub(crate) mod source_preparation;
 
+use crate::imports::environment::ImportEnvironment;
 #[cfg(test)]
 use crate::tests::cancellation::{Checkpoint, checkpoint};
 
@@ -167,6 +169,7 @@ pub struct AnalysisDatabase {
     latest_revision: Revision,
     /// Stable synthetic file IDs keyed by parent file and inline-module name.
     inline_ids: HashMap<(FileId, String), FileId>,
+    import_environment: ImportEnvironment,
     native_modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
     native_sources: Option<Vec<DeclarationSource>>,
     external_modules: Vec<external::ExternalModule>,
@@ -208,6 +211,7 @@ impl AnalysisDatabase {
             files: HashMap::new(),
             latest_revision: Revision::default(),
             inline_ids: HashMap::new(),
+            import_environment: Default::default(),
             native_modules: vec![],
             native_sources: None,
             external_modules: vec![],

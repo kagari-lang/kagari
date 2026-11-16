@@ -190,7 +190,7 @@ fn exact_type_applications_check_visibility_arity_kind_and_foreign_scope() {
         let function = &lowered.module.functions[0];
         let reference = function.params[0].ty;
         let argument = function.params[1].ty;
-        lowered.module.body.types[reference.index()].1.kind = TypeKind::Definition {
+        lowered.module.nodes.types[reference.index()].1.kind = TypeKind::Definition {
             declaration,
             exposure: exposure.cloned(),
             // Deliberately not a resolvable spelling: the ID selects the target.
@@ -288,7 +288,7 @@ fn exact_type_applications_check_visibility_arity_kind_and_foreign_scope() {
     let mut lowered = native.result().facts.lowered.as_ref().clone();
     let reference = lowered.module.functions[0].params[0].ty;
     let TypeKind::Definition { exposure, .. } =
-        &mut lowered.module.body.types[reference.index()].1.kind
+        &mut lowered.module.nodes.types[reference.index()].1.kind
     else {
         panic!("expected structured application");
     };
@@ -351,7 +351,7 @@ fn exact_type_applications_check_visibility_arity_kind_and_foreign_scope() {
     );
     let mut lowered = native.result().facts.lowered.as_ref().clone();
     let TypeKind::Definition { exposure, .. } =
-        &mut lowered.module.body.types[reference.index()].1.kind
+        &mut lowered.module.nodes.types[reference.index()].1.kind
     else {
         panic!("expected structured application");
     };

@@ -5,14 +5,11 @@ use kagari_bytecode::{
     instruction::NativeImportId,
     module::{CallableTarget, InterfaceMethodSlot, InterfaceTableRecord},
 };
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{DefinitionKind, DefinitionPathSegment, table::DefinitionId},
-};
+use kagari_common::identity::{DefinitionKind, DefinitionPathSegment, table::DefinitionId};
 use kagari_contract::{
     ids::FunctionRef,
     native_import::NativeImport,
-    types::{ConcreteFunctionIdentity, PublicItem, proofs::ProofCatalog},
+    types::{ConcreteFunctionIdentity, PublicItem},
 };
 use kagari_mir::instruction::ConstructionTarget as MirConstruction;
 use kagari_mir::{
@@ -110,8 +107,6 @@ pub(super) fn collect_interface_tables(
     ir: &VerifiedMirModule,
     program: Option<&VerifiedMirProgram>,
     imports: &mut Vec<NativeImport>,
-    catalog: Option<&ProofCatalog<'_>>,
-    cancel: &CancellationToken,
 ) -> Result<Vec<InterfaceTableRecord>, BytecodeLoweringError> {
     interface_instances(ir, program)
         .into_iter()
@@ -158,7 +153,7 @@ pub(super) fn collect_interface_tables(
                 };
                 let declaration = child(ir, abi.declaration, &segment)?;
                 let member = child(ir, interface.declaration, &segment)?;
-                let mut entry_arguments: Vec<_> = if shared_receiver {
+                let entry_arguments: Vec<_> = if shared_receiver {
                     instance
                         .arguments
                         .iter()
@@ -168,10 +163,7 @@ pub(super) fn collect_interface_tables(
                 } else {
                     method.generic_params.iter().map(|p| p.as_type()).collect()
                 };
-                if matches!(
-                    method.implementation,
-                    CallableImplementation::Native(_) | CallableImplementation::NativeDefault(_)
-                ) {
+                if matches!(method.implementation, CallableImplementation::Native(_)) {
                     if !method.generic_params.is_empty()
                         && method
                             .params
@@ -180,84 +172,33 @@ pub(super) fn collect_interface_tables(
                     {
                         continue;
                     }
-                    let target = if matches!(
-                        method.implementation,
-                        CallableImplementation::NativeDefault(_)
-                    ) {
-                        let applied = abi
-                            .instantiate(&instance.arguments, &abi.generic_params, ir.definitions())
-                            .ok_or(BytecodeLoweringError::InvalidNativeInterface)?;
-                        let applied = applied
-                            .methods
-                            .iter()
-                            .find(|candidate| candidate.name == method.name)
-                            .ok_or(BytecodeLoweringError::InvalidNativeInterface)?;
-                        let CallableImplementation::NativeDefault(application) =
-                            &applied.implementation
-                        else {
-                            unreachable!("applied default");
-                        };
-                        let mut assumptions = abi
-                            .instantiate(&instance.arguments, &abi.generic_params, ir.definitions())
-                            .ok_or(BytecodeLoweringError::InvalidNativeInterface)?
-                            .bounds;
-                        assumptions.extend(applied.bounds.clone());
-                        let scope = abi
-                            .generic_params
-                            .iter()
-                            .chain(&applied.generic_params)
-                            .cloned()
-                            .collect::<Vec<_>>();
-                        let mut instance = catalog
-                            .expect("default catalog")
-                            .resolve_native_default_in(application, &scope, &assumptions, cancel)
-                            .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)?
-                            .ok_or(BytecodeLoweringError::InvalidNativeInterface)?
-                            .instance;
-                        if !instance.arguments.is_empty() {
-                            entry_arguments = instance.arguments.clone();
-                            instance.arguments = (0..instance.arguments.len())
-                                .map(|position| {
+                    let target = ConcreteFunctionIdentity {
+                        arguments: if shared_receiver {
+                            entry_arguments
+                                .iter()
+                                .enumerate()
+                                .map(|(position, _)| {
                                     GenericParam {
-                                        owner: instance.declaration,
+                                        owner: declaration,
                                         position,
                                     }
                                     .as_type()
                                 })
-                                .collect();
+                                .collect()
                         } else {
-                            entry_arguments.clear();
-                        }
-                        instance
-                    } else {
-                        ConcreteFunctionIdentity {
-                            arguments: if shared_receiver {
-                                entry_arguments
-                                    .iter()
-                                    .enumerate()
-                                    .map(|(position, _)| {
-                                        GenericParam {
-                                            owner: declaration,
-                                            position,
-                                        }
-                                        .as_type()
-                                    })
-                                    .collect()
-                            } else {
-                                instance
-                                    .arguments
-                                    .iter()
-                                    .cloned()
-                                    .chain(
-                                        method
-                                            .generic_params
-                                            .iter()
-                                            .map(|parameter| parameter.as_type()),
-                                    )
-                                    .collect()
-                            },
-                            declaration,
-                        }
+                            instance
+                                .arguments
+                                .iter()
+                                .cloned()
+                                .chain(
+                                    method
+                                        .generic_params
+                                        .iter()
+                                        .map(|parameter| parameter.as_type()),
+                                )
+                                .collect()
+                        },
+                        declaration,
                     };
                     let contract = ir
                         .native_targets

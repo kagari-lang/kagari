@@ -68,6 +68,7 @@ mod tests {
         let custom = id(&context, DefinitionKind::Trait, "CustomSet");
         let interface = applied(custom, vec![integer.clone()]);
         let mut table = InterfaceTable {
+            method_origins: Vec::new(),
             declaration: parameter.owner,
             name: "Set".into(),
             generic_params: vec![parameter.clone()],
@@ -122,6 +123,7 @@ mod tests {
             .intern_child(interface_id, DefinitionKind::AssociatedType, "Item", 0)
             .unwrap();
         let table = InterfaceTable {
+            method_origins: Vec::new(),
             declaration: implementation,
             name: "Read".into(),
             generic_params: vec![parameter.clone()],

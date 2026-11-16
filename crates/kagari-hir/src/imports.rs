@@ -27,6 +27,7 @@ mod builder;
 mod cache;
 pub mod catalog;
 pub mod constants;
+pub mod environment;
 pub mod functions;
 mod mapping;
 mod resolve;
@@ -61,7 +62,7 @@ impl SourceUnit {
                 .expect("registered source module"),
             file: lowered.source.id(),
             revision: lowered.source.revision(),
-            arena: lowered.module.body.arena(),
+            arena: lowered.module.nodes.arena(),
         }
     }
 
@@ -70,7 +71,7 @@ impl SourceUnit {
         definitions.lookup_module(lowered.source.module_identity()) == Some(self.module)
             && self.file == lowered.source.id()
             && self.revision == lowered.source.revision()
-            && self.arena == lowered.module.body.arena()
+            && self.arena == lowered.module.nodes.arena()
     }
 }
 

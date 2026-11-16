@@ -194,12 +194,9 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
                     .functions()
                     .iter()
                     .find(|function| {
-                        function.implementation
-                            == FunctionImplementation::Native(NativeBinding::Entry(binding_id(
-                                snapshot.definitions(),
-                                owner,
-                                binding,
-                            )))
+                        source.declarations().definition(ResolvedName::Function(function.id))
+                            == Some(&binding_id(snapshot.definitions(), owner, binding))
+                            && matches!(function.implementation, FunctionImplementation::Native(_))
                     })
             })
             .expect("checked native function signature")
@@ -212,14 +209,7 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
     }
     assert_eq!(map_get.params.len(), 2);
     for (owner, binding) in [("collections", "insert"), ("vec", "push"), ("iter", "next")] {
-        assert_eq!(
-            signature(owner, binding).implementation,
-            FunctionImplementation::Native(NativeBinding::Entry(binding_id(
-                snapshot.definitions(),
-                owner,
-                binding
-            )))
-        );
+        assert!(matches!(signature(owner, binding).implementation, FunctionImplementation::Native(_)));
     }
     let set = facts
         .aggregates

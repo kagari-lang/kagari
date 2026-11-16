@@ -725,7 +725,7 @@ fn terminating_callees_retain_explicit_call_facts_and_independent_errors() {
         );
         if valid {
             let facts = analysis.facts();
-            assert!(facts.lowered.module.body.expressions().any(|(id, _)| {
+            assert!(facts.lowered.module.nodes.expressions().any(|(id, _)| {
                 facts
                     .typed
                     .type_table
@@ -770,7 +770,7 @@ fn terminating_callee_facts_rebase_with_unchanged_body_reuse() {
     for snapshot in [&old, &new] {
         let facts = snapshot.file(root).unwrap().result().facts();
         let mut found = false;
-        for (id, expr) in facts.lowered.module.body.expressions() {
+        for (id, expr) in facts.lowered.module.nodes.expressions() {
             if let ExprKind::Call { callee, .. } = expr.kind {
                 let call = facts.typed.type_table.call_resolution(id).unwrap();
                 assert_eq!(call.target, CallTarget::TerminatingCallee);

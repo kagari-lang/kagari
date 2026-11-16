@@ -237,9 +237,7 @@ impl<'a> Resolution<'a> {
                     .get(&(&call.instance, *binding, &call.signature))
                     .expect("verified selected owner-native entry"),
             ),
-            CallableImplementation::Script
-            | CallableImplementation::Required
-            | CallableImplementation::NativeDefault(_) => None,
+            CallableImplementation::Script | CallableImplementation::Required => None,
         }
     }
 

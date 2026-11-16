@@ -3,11 +3,11 @@
 use crate::{
     builtin::BuiltinFunction,
     hir::{
-        body::Body,
         ids::{
             BodyOwner, ConstId, EnumId, ExprId, FunctionId, LocalId, ModuleId, NativeTypeId,
             ParamId, PatternId, PlaceId, StaticId, StructId, TraitId, TypeAliasId,
         },
+        nodes::HirNodes,
         pattern::PatternKind,
         writeability::Writeability,
     },
@@ -117,7 +117,7 @@ pub struct ResolvedNames {
 
 impl ResolvedNames {
     /// Classifies pattern structure using resolved bare-name variants; requires the matching body arena and is not full type validation.
-    pub fn pattern_is_irrefutable(&self, body: &Body, id: PatternId) -> bool {
+    pub fn pattern_is_irrefutable(&self, body: &HirNodes, id: PatternId) -> bool {
         match &body.pattern(id).kind {
             PatternKind::Wildcard => true,
             PatternKind::Name { .. } => !self.pattern_variants.contains_key(&id),

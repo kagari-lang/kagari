@@ -81,7 +81,7 @@ fn indexing_partial_composites_preserves_the_selected_member() {
         let ty = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .filter(|(_, expr)| matches!(expr.kind, ExprKind::Index { .. }))
             .max_by_key(|(id, _)| {
@@ -165,7 +165,7 @@ fn failed_call_inference_substitutes_error_without_leaking_callee_binders() {
         let call = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .find_map(|(id, expr)| matches!(expr.kind, ExprKind::Call { .. }).then_some(id))
             .unwrap();
@@ -176,7 +176,7 @@ fn failed_call_inference_substitutes_error_without_leaking_callee_binders() {
         let field = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .find_map(|(id, expr)| matches!(expr.kind, ExprKind::Field { .. }).then_some(id))
             .unwrap();
@@ -198,7 +198,7 @@ fn partial_call_inference_preserves_known_and_caller_owned_arguments() {
     let calls: Vec<_> = facts
         .lowered
         .module
-        .body
+        .nodes
         .expressions()
         .filter(|(_, expr)| matches!(expr.kind, ExprKind::Call { .. }))
         .map(|(id, _)| facts.typed.type_table.expr_type(id).unwrap())
@@ -233,7 +233,7 @@ fn inference_uses_valid_members_of_partially_erroneous_arguments() {
         let result = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .find_map(|(id, expr)| {
                 matches!(expr.kind, ExprKind::Call { .. })
@@ -266,7 +266,7 @@ fn incomplete_whole_type_does_not_poison_later_inference() {
     let result = facts
         .lowered
         .module
-        .body
+        .nodes
         .expressions()
         .find_map(|(id, expr)| {
             matches!(expr.kind, ExprKind::Call { .. })
@@ -302,7 +302,7 @@ fn repeated_generic_arguments_merge_partial_types_without_hiding_conflicts() {
         let result = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .find_map(|(id, expr)| {
                 matches!(expr.kind, ExprKind::Call { .. })
@@ -399,7 +399,7 @@ fn generic_templates_construct_and_project_distinct_instances() {
     let instances = facts
         .lowered
         .module
-        .body
+        .nodes
         .expressions()
         .filter(|(_, expr)| matches!(expr.kind, ExprKind::StructInit { .. }))
         .map(|(id, _)| facts.typed.type_table.expr_type(id).unwrap())
@@ -522,7 +522,7 @@ fn failed_generic_inference_retains_known_members_inside_each_type_argument() {
         let ty = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .find_map(|(id, expression)| {
                 matches!(&expression.kind, ExprKind::Name { name, .. } if name == "item")

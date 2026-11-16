@@ -5,7 +5,7 @@ use crate::hir::{
     ids::{LocalId, PatternId},
 };
 
-/// A pattern row in Body.patterns, addressed by PatternId, with `kind` as payload.
+/// A pattern row in HirNodes.patterns, addressed by PatternId, with `kind` as payload.
 ///
 /// ```text
 /// match pair { (x, _) => x }
@@ -40,7 +40,7 @@ pub struct PatternData {
 /// | `Choice::Some(x)` | `EnumVariant { path: "Choice::Some", fields: [x_pattern] }` |
 /// | `Choice::None` | `EnumVariant { path: "Choice::None", fields: [] }` |
 ///
-/// Or/Tuple/variant child IDs enter Body.patterns; struct fields are inline
+/// Or/Tuple/variant child IDs enter HirNodes.patterns; struct fields are inline
 /// records linking to subpatterns. Range endpoints are inline PatternBound values,
 /// not ExprIds, and `..` sets `inclusive: false`. Bare names receive provisional
 /// LocalIds: outside ordinary declarations, a visible unit variant can later
@@ -114,8 +114,8 @@ pub enum PatternBound {
 /// Point { x: n, y }
 /// PatternField { name: "x", pattern: n_pattern }
 /// PatternField { name: "y", pattern: y_pattern }
-/// n_pattern -> Body.pattern -> Name { name: "n", local: n_local }
-/// y_pattern -> Body.pattern -> Name { name: "y", local: y_local } // synthesized shorthand
+/// n_pattern -> HirNodes.pattern -> Name { name: "n", local: n_local }
+/// y_pattern -> HirNodes.pattern -> Name { name: "y", local: y_local } // synthesized shorthand
 /// ```
 ///
 /// `name` selects the matched object's field; the nested pattern can bind a

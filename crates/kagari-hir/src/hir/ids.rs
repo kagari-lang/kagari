@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! SourceMap::push_function -> FunctionId -> Module.functions[id.index()]
-//! SourceMap::push_expr     -> ExprId    -> Body.expr(id) -> exprs[id.index()]
+//! SourceMap::push_expr     -> ExprId    -> HirNodes.expr(id) -> exprs[id.index()]
 //! Lowerer parameter slot   -> ParamId   -> Module.parameter(id) -> Function.params[id.index()]
 //! SourceMap::push_local    -> LocalId   -> binding record / semantic table by id
 //! FieldId                 -> Module.field(id)
@@ -253,32 +253,32 @@ id_newtype!(
     EnumId
 );
 local_id_newtype!(
-    /// A lowering/owner-qualified handle identifying `Body.blocks`.
+    /// A lowering/owner-qualified handle identifying `HirNodes.blocks`.
     /// See the [identity families](crate::hir::ids) for allocation and lookup rules.
     BlockId
 );
 local_id_newtype!(
-    /// A lowering/owner-qualified handle identifying `Body.exprs`.
+    /// A lowering/owner-qualified handle identifying `HirNodes.exprs`.
     /// See the [identity families](crate::hir::ids) for allocation and lookup rules.
     ExprId
 );
 local_id_newtype!(
-    /// A lowering/owner-qualified handle identifying `Body.places`.
+    /// A lowering/owner-qualified handle identifying `HirNodes.places`.
     /// See the [identity families](crate::hir::ids) for allocation and lookup rules.
     PlaceId
 );
 local_id_newtype!(
-    /// A lowering/owner-qualified handle identifying `Body.stmts`.
+    /// A lowering/owner-qualified handle identifying `HirNodes.stmts`.
     /// See the [identity families](crate::hir::ids) for allocation and lookup rules.
     StmtId
 );
 local_id_newtype!(
-    /// A lowering/owner-qualified handle identifying `Body.patterns`.
+    /// A lowering/owner-qualified handle identifying `HirNodes.patterns`.
     /// See the [identity families](crate::hir::ids) for allocation and lookup rules.
     PatternId
 );
 local_id_newtype!(
-    /// A lowering/owner-qualified handle identifying `Body.types` (type syntax, not a resolved semantic type).
+    /// A lowering/owner-qualified handle identifying `HirNodes.types` (type syntax, not a resolved semantic type).
     /// See the [identity families](crate::hir::ids) for allocation and lookup rules.
     TypeRefId
 );

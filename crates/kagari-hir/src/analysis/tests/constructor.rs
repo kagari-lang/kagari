@@ -45,7 +45,7 @@ fn struct_update_facts_remap_rebase_and_invalidate_with_their_base_and_fields() 
     let old_init = body
         .lowered()
         .module
-        .body
+        .nodes
         .expressions()
         .find(|(_, expr)| matches!(expr.kind, ExprKind::StructInit { .. }))
         .unwrap()
@@ -83,8 +83,8 @@ fn struct_update_facts_remap_rebase_and_invalidate_with_their_base_and_fields() 
         reused.definitions(),
         fresh.type_table(),
         fresh.definitions(),
-        reused.lowered().module.body.arena(),
-        fresh.lowered().module.body.arena(),
+        reused.lowered().module.nodes.arena(),
+        fresh.lowered().module.nodes.arena(),
     );
     for text in [
         changed.replace("..base", "..other"),
@@ -111,7 +111,7 @@ fn struct_update_facts_remap_rebase_and_invalidate_with_their_base_and_fields() 
         .to_unverified(&Default::default())
         .unwrap();
     let facts = authoring.records().facts();
-    for (id, _) in facts.lowered.module.body.expressions() {
+    for (id, _) in facts.lowered.module.nodes.expressions() {
         if let Some(target) = facts.typed.type_table.struct_init(id) {
             let field = facts.aggregates.field(&target.base_fields[0]).unwrap();
             assert_eq!(field.name, "flag");
@@ -162,7 +162,7 @@ fn independent_body_queries_rebase_constructor_targets_and_invalidate_payload_ch
     let old_expr = body
         .lowered()
         .module
-        .body
+        .nodes
         .expressions()
         .find(|(id, e)| {
             matches!(e.kind, ExprKind::Call { .. })
@@ -200,8 +200,8 @@ fn independent_body_queries_rebase_constructor_targets_and_invalidate_payload_ch
         reused.definitions(),
         fresh.type_table(),
         fresh.definitions(),
-        reused.lowered().module.body.arena(),
-        fresh.lowered().module.body.arena(),
+        reused.lowered().module.nodes.arena(),
+        fresh.lowered().module.nodes.arena(),
     );
     sources
         .set(

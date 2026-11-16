@@ -13,7 +13,7 @@ the documentation conventions.
 
 | Reader's question | Start here |
 | --- | --- |
-| Where do node IDs find their data? | [Storage and IDs](#storage-and-ids), then `hir::Body` and `SourceMap`. |
+| Where do node IDs find their data? | [Storage and IDs](#storage-and-ids), then `hir::HirNodes` and `SourceMap`. |
 | How does a source expression acquire a type and a selected call? | [One function through the tables](#one-function-through-the-tables), then `ModuleFacts` and `TypeTable`. |
 | Which work does an editor query trigger or reuse? | [Editor query views and indexes](#editor-query-views-and-indexes), then [semantic query reuse](#query-work-reuse-and-publication). |
 | What does the compiler receive? | [Checked handoff](#checked-handoff-and-registered-inputs), then the runnable `CheckedCompilation` rustdoc example. |
@@ -62,7 +62,7 @@ fine-grained incremental invalidation. Those are separate storage/query decision
 
 Start with [LoweredModule](../../crates/kagari-hir/src/lower.rs),
 [Module](../../crates/kagari-hir/src/hir/item.rs),
-[Body](../../crates/kagari-hir/src/hir/body.rs) and
+[HirNodes](../../crates/kagari-hir/src/hir/nodes.rs) and
 [the ID families](../../crates/kagari-hir/src/hir/ids.rs).
 
 ```text
@@ -72,7 +72,7 @@ LoweredModule
 |   +-- functions, consts, statics, structs, enums, traits, impls, ...
 |   +-- attributes: Vec<AttributeFact> -> typed declaration/member targets
 |   +-- uses: Vec<UseDecl> -> authored identities and contiguous import-leaf ranges
-|   `-- body: Body
+|   `-- nodes: HirNodes
 |       +-- exprs:    Vec<(HirOwner, ExprData)>
 |       +-- stmts:    Vec<(HirOwner, StmtData)>
 |       `-- blocks, places, patterns, types: analogous owner-tagged vectors
@@ -80,17 +80,17 @@ LoweredModule
 ```
 
 These arrows describe owned fields except the explicitly shared `Arc`. A body
-node's child ID is a reference into a vector, not an owned subtree. `Body` is
+node's child ID is a reference into a vector, not an owned subtree. `HirNodes` is
 shared by the module's declaration syntax and multiple function, constant and
-static-initializer owners.
-Its name does not imply one allocation per function. Declaration/member collections use
-Vec<T> explicitly, without plain Vec Buffer aliases. SmallVec-based aliases still centralize
+static-initializer owners. `Module.nodes` is module-wide storage, not one callable's
+implementation body; `BodyOwner`, `BodyRoot` and `CheckedBodyInput` still name semantic
+bodies. Declaration/member collections use Vec<T> explicitly, without plain Vec Buffer aliases. SmallVec-based aliases still centralize
 reviewed inline capacities; ID checks and allocation behavior are unchanged.
 
 | Handle | Lookup and validity |
 | --- | --- |
 | `FunctionId`, `ConstId`, `StaticId`, other plain declaration IDs | Index the matching collection in the same module; no arena is carried. |
-| `ExprId`, `StmtId`, `BlockId`, `PlaceId`, `PatternId`, `TypeRefId` | Carry `LoweringId`, owner and an allocation-wide index; `Body` checks lowering/owner and indexes its vector. |
+| `ExprId`, `StmtId`, `BlockId`, `PlaceId`, `PatternId`, `TypeRefId` | Carry `LoweringId`, owner and an allocation-wide index; `HirNodes` checks lowering/owner and indexes its vector. |
 | `ParamId` | Carries lowering/owner and a position in `Function.params`; `Module::parameter` checks the function and stored identity. `SourceMap` explicitly registers the complete ID's span. |
 | `LocalId` | Carries lowering/owner and a source-map-wide index. Binding syntax lives in patterns or closure parameters; semantic maps use the complete ID. |
 | `FieldId`, `VariantId` | Carry lowering, enclosing declaration owner and member slot; fields belong to a struct or Native type, variants to an enum. Look up the owner's nested member vector. |
@@ -124,7 +124,7 @@ ranges on structured nodes do not authorize navigation or debug source spans.
 HIR types, declarations, signatures and checked-call facts use fixed `DefinitionId`
 fields. Their Rust models have no parameter selecting paths versus IDs. A
 `DefinitionReferences` visitor covers semantic definition references, including binding
-body owners and attached Native/Host inputs. `DefinitionMetadata::checked` validates
+body owners and static Native/Host contracts. `DefinitionMetadata::checked` validates
 those references against an immutable prefix; it does not validate language meaning.
 Resolution inputs retain their own immutable namespace catalog. Metadata
 publication checks their local unit/catalog agreement and visits module roots and
@@ -145,7 +145,7 @@ unchanged. Import indexes remap their source-address keys together with their
 values; this does not transfer a namespace catalog or authorize cross-arena lookup.
 
 Whole analyzed/prepared/declaration bundles retain source node tables, name tables and
-registration versions. They expose reference validation and editable scoped
+semantic input versions. They expose reference validation and editable scoped
 extraction, not arbitrary representation conversion or whole-bundle import. Their
 reusable constituent facts are the remapping boundary. Selected-body queries accept
 scoped IDs and use the analysis context for cache keys; callers with an external
@@ -166,8 +166,8 @@ Module.statics[s] = StaticItem {
     ty: Some(t), initializer: e
 }
 Module.items contains Item::Static(s)
-t -> Body.type_ref -> Named("i32")
-e -> Body.expr -> Call to the resolved seed function
+t -> HirNodes.type_ref -> Named("i32")
+e -> HirNodes.expr -> Call to the resolved seed function
 owner(t) = owner(e) = HirOwner::Body(BodyOwner::Static(s))
 SourceMap.static_span(s) -> declaration site
 ```
@@ -272,7 +272,7 @@ The complete mappings are beside their owners:
 | Which names bind in a pattern, and what does shorthand synthesize? | [PatternKind / PatternField / PatternBound](../../crates/kagari-hir/src/hir/pattern.rs): all pattern forms, nested IDs and provisional bindings. |
 | How do generic arguments, associated equalities and projections occupy type fields? | [TypeKind](../../crates/kagari-hir/src/hir/ty.rs): every type form, callable normalization, grouping and invalid argument-order retention. |
 | Are literals, operators or `val`/`var` already runtime facts? | [Literals](../../crates/kagari-hir/src/hir/expr/literal.rs), [operators](../../crates/kagari-hir/src/hir/expr/ops.rs) and [writeability](../../crates/kagari-hir/src/hir/writeability.rs): spelling/category/policy versus later checked behavior. |
-| Who allocates IDs, and can their numerical values change? | [IDs](../../crates/kagari-hir/src/hir/ids.rs) and [Body](../../crates/kagari-hir/src/hir/body.rs): full ID fields, row lookup, validity and fresh-lowering boundaries. |
+| Who allocates IDs, and can their numerical values change? | [IDs](../../crates/kagari-hir/src/hir/ids.rs) and [HirNodes](../../crates/kagari-hir/src/hir/nodes.rs): full ID fields, row lookup, validity and fresh-lowering boundaries. |
 
 For a concrete associated-member comparison:
 
@@ -335,16 +335,17 @@ Expr(result) = Name { name: "y", ... }
 ```
 
 `Function.implementation` distinguishes `Required`, `Script(BlockId)` and
-`Native(NativeContract)`. Native contracts retain ordered callable requirements and
-the concrete result descriptor, using the existing scoped declaration vocabulary;
-they do not contain Rust adapters, host-call policy or binding authority.
-`TypedFunction` remains a separate checked signature. Installed native entries and
-method policies retain their existing boundary evidence. A registered NativeDefault
-keeps its generated `Script` forwarding block in HIR and its installed default binding
-in the checked signature; compilation still requires a checked forwarding call.
+`Native(NativeContract)`. Native contracts retain ordered callable requirements,
+the concrete result descriptor and caller-visible Host/receiver-access policies,
+using the existing scoped declaration vocabulary. They contain no Rust callback,
+entry selector, storage adapter or implementation authority. `TypedFunction` remains
+a separate checked signature with the same Required/Script/Native distinction;
+Native means externally implemented, not already bound. Script defaults retain real
+blocks and ordinary checked calls, including calls to declared Native helpers.
 
 The lowerer allocates source-map slots and node rows together under owner
-`Body(Function(f))`. `p` and `l` are identities, not indices into `Body.exprs`.
+`HirOwner::Body(BodyOwner::Function(f))`. `p` and `l` are identities, not indices into
+`HirNodes.exprs`.
 The tail expression is separate from the statement list. Parentheses disappear
 as wrappers; constructor shorthand and interpolation can create HIR nodes that
 are not in one-to-one correspondence with AST nodes.
@@ -445,9 +446,10 @@ body arena. The aggregate catalog remains the owner of field, variant, trait and
 associated-member types. Alias templates stay in the declaration environment;
 local constants expose their checked type and evaluated scalar together. Empty
 inherent impls retain receiver/binder/bound facts independently of method bodies.
-Native defaults require an admitted forwarding application. Its target, type
-arguments and applied signature remain separate from the exact installed callable
-and host policies, which retain their registration definition scope.
+Native static requirements remain on the checked callable contract. Script defaults
+use ordinary admitted body roots and call facts; there is no parallel registration
+catalog or dedicated default-call table in `CheckedModule`. Implementation entries
+and Rust adapters belong to composition/linking, not this handoff.
 
 Elaboration also queries [normal completion](../../crates/kagari-hir/src/compile_input/body/flow.rs)
 through the checker's existing work-stack algorithm. For `(loop {})?`, only the
@@ -538,7 +540,7 @@ names always bind; other pattern contexts retain their constructor policy. The
 shared checker records nominal field identities and leaf types, checks access and
 completeness recursively, and requires conservative declaration irrefutability.
 The whole annotation contextualizes the initializer rather than converting leaves.
-Usage/navigation consume those same leaf identities; `Body::pattern_bindings`
+Usage/navigation consume those same leaf identities; `HirNodes::pattern_bindings`
 selects canonical declaration leaves, with the first alternative representing an
 Or pattern's consistent binding set.
 
@@ -960,7 +962,7 @@ edit, even when signature surfaces match. Finer invalidation remains separate.
 | Unchanged source and dependencies | A file result can retain its `Arc` when revision/arena, imports, reachable namespaces, imported types/functions and aggregate facts match. Installed native declarations participate through these ordinary facts. |
 | Body-only edit | Changed source receives fresh node tables and a lowering identity. Signature reuse compares the source surface with eligible function bodies removed and remaps local IDs. Other bodies may reuse facts if environment tokens, diagnostics, body contents and source-map correspondence permit it. |
 | Signature/export edit | Imports/namespaces and imported type/callable/aggregate contracts are compared again; failed reuse predicates force checking. This is not guaranteed minimal dependency invalidation. |
-| Registry/policy change | Native registration clears dependent caches; parse policy clears parse-dependent caches; body/constant limits clear body/file caches. Host replacement is checked through registry revisions during later reuse decisions. |
+| Semantic input/policy change | Replacing declarations, external sidecars or explicit import scopes invalidates dependent semantic caches and the environment fingerprint. Parse policy clears parse-dependent caches; body/constant limits clear body/file caches. Runtime binding replacement is validated at its own installation boundary. |
 
 [File cache predicates](../../crates/kagari-hir/src/analysis/cache.rs),
 [signature remapping](../../crates/kagari-hir/src/typeck/signature_reuse.rs) and
@@ -998,7 +1000,7 @@ the parser. [PreparedRegistration](../../crates/kagari-hir/src/native/api/prepar
 retains owned inputs and only weak handles to live lowerings; rebuilding an expired
 graph allocates fresh node tables rather than reusing old graph-local maps.
 Explicit `set_native_sources` instead checks supplied complete documents against
-registration, parses/lowers them and attaches the corresponding installed facts.
+registration, parses/lowers them and attaches the corresponding static contracts.
 Rendering is an optional presentation mechanism, not mandatory declaration authority.
 
 ### Callable and type ownership
@@ -1008,14 +1010,15 @@ three structural forms: `Required`, `Script(BlockId)` and `Native(NativeContract
 A required trait member is not a Native stub. Native free functions, receiver methods
 and associated functions use ordinary `Function` records and trait/impl ownership;
 parameters, generic binders, bounds and result syntax stay on those records.
-`NativeContract` retains ordered operation requirements and an optional concrete
-result using scoped `NativeCallableRequirement`/`Ty` records. Shared recursive checking
-validates category, arity, binder scope, bounds, associated-member ownership and
-concrete-result conformance; an exact ID is not prechecked semantic success.
-Rust callbacks, storage implementations and Host call policy remain outside HIR.
-[Checked signatures](../../crates/kagari-hir/src/semantic/signatures.rs) separately
-distinguish `NativeDeclaration` from `Native(NativeBinding)`: an offline signature
-has no installed binding. This distinction does not add a fourth structural HIR form.
+`NativeContract` retains ordered operation requirements, an optional concrete
+result and caller-visible Host/receiver-access policy using scoped declaration
+records. Shared recursive checking validates category, arity, binder scope, bounds,
+associated-member ownership and concrete-result conformance; an exact ID is not
+prechecked semantic success. Rust callbacks, entry selectors, storage implementations
+and internal adapter loans remain outside HIR. [Checked signatures](../../crates/kagari-hir/src/semantic/signatures.rs)
+have one Native kind regardless of input representation or implementation availability.
+Trait override policy belongs to the trait member; conversion relationships belong
+to the actual trait, and failure-origin flags belong to enum variants.
 
 Structured `TypeKind::Definition` inputs retain a requested
 [DefinitionExposure](../../crates/kagari-hir/src/hir/ty.rs), and resolution records
@@ -1033,49 +1036,66 @@ These frontend facts supply no Rust offsets or field adapters. Unsupported Nativ
 field execution remains rejected by executable lowering/admission; existing checked
 Host path routes remain distinct. Declaring a field does not enable a new Runtime route.
 
-Builtin interpretation is separate from nominal Native classification. Explicit
-constructor metadata recognizes String, Range and `Ref<T>`/`RefMut<T>` by declaration
-identity, not spelling. Reference types retain the target and `Shared`/`Mutable`
-access. Existing target eligibility and boundary restrictions remain; recognition
-adds no borrowing, projection, implicit conversion or method forwarding.
+Builtin interpretation belongs to the [language/type owner](../../crates/kagari-hir/src/language/types.rs),
+not a mixed registration/storage classification. Exact canonical constructor
+identities select String, Range and the existing `Ref<T>`/`RefMut<T>` semantics.
+[Common declaration preparation](../../crates/kagari-hir/src/analysis/declarations.rs)
+checks constructor arity, fields and Host-category conflicts even without a sidecar.
+Reference types still retain their target and `Shared`/`Mutable` access. Existing
+no-escape, target-eligibility and scoped-borrow restrictions remain; ordinary storable
+reference wrappers and new reference operations are not implemented by this boundary.
 
 ### Offline source and scoped static sidecars
 
 [ExternalModule](../../crates/kagari-hir/src/analysis/external.rs), supplied through
 `set_external_modules`, owns a real `.kgr` source with its semantic module identity,
-optional alias/prelude and explicit dependencies. One grammar parses ordinary and
-Native syntax; input admission, not a parser mode, controls where Native declarations
-are legal. Complete Script definitions, including default bodies, remain Script even
-when authored in Rust or distributed beside Native signatures. A signature cannot
-replace an unavailable Script body; direct registration requires complete supplied
-source for Script implementations it cannot construct.
+optional alias/prelude and explicit dependencies. One grammar and common semantic
+rules admit Native declarations without looking up an implementation. Complete Script
+definitions, including default bodies, remain Script even when authored in Rust or
+distributed beside Native signatures. Structured `ModuleDecl.script_bodies` retains
+ordinary [ScriptExpr](../../crates/kagari-types/src/declaration/script.rs) expression
+bodies (names, declaration references and calls with explicit type/value arguments);
+complete parsed source supports ordinary blocks. Missing bodies are errors, not stubs.
+Module-qualified declaration references prevent parameters from capturing helper calls.
 
 Source owns declarations, fields, bounds and bodies. The sidecars encode only static
 facts absent from syntax:
 
-- `ExternalType` identifies constructors or storage interpretation; mixed registered/
-  external inputs validate constructor shape/arity and require a unique defining
-  module for each builtin constructor. A same-named user type gains no builtin
-  interpretation.
-- Scoped `TraitDef` evidence describes actual foundation role shapes and conversion
-  adapters. `language_foundation` requests role admission, but identity, origin,
-  uniqueness, completeness and parsed member-shape checks still apply. Ordinary traits
-  need no sidecar; a copied `#[lang]` attribute is not sufficient.
+- `ExternalType` selects a checked canonical constructor or Host category; ordinary
+  nominal Native types need no storage-layout sidecar. A same-named user type gains
+  no builtin interpretation.
+- Scoped conversion relationships attach to actual traits. Reserved language roles
+  require canonical owning identities, visibility, uniqueness, completeness and an
+  [independent required-shape check](../../crates/kagari-hir/src/language/items/shapes.rs),
+  not a producer-supplied copy of a trait or a foundation-admission flag. Conversion
+  validation rejects additional supertraits/bounds unsupported by intrinsic derivation.
 - [ExternalHost](../../crates/kagari-hir/src/analysis/external/evidence.rs) carries an
   explicit Host root and complete schema/path closure. It preserves Host identity,
   field/path access and existing async/reference restrictions instead of treating
   Host values as ordinary owning Native objects. Parsed fields must match the schema;
   shared schemas must agree across the mixed scope.
 - Exceptional method policies and scoped `NativeContract` records preserve receiver/
-  override restrictions, ordered operations and concrete results. Definition scopes
-  are explicitly imported before attachment; sidecar IDs are not ambient authority.
+  override restrictions, ordered operations and concrete results. Enum failure flags
+  and namespace-qualified import selectors attach to the actual variants/import leaves.
+  Definition scopes are explicitly imported before attachment; sidecar IDs are not
+  ambient authority.
 
-These inputs can analyze actual foundation arithmetic, iteration, conversion and
-Host paths without an execution registry. They supply neither `NativeBinding`,
-installed trait authority nor engine-owned implementations. Successful offline
-analysis does not authorize compiler admission or Runtime installation; the checked
-compiler handoff explicitly rejects offline declaration modules. The caller supplies
-the inputs: this API does not discover, publish or watch an export directory.
+[ImportEnvironment and ModuleScope](../../crates/kagari-hir/src/imports/environment.rs)
+carry package aliases, explicit dependency edges and selected preludes separately
+from lowered nodes. [Input normalization](../../crates/kagari-hir/src/analysis/environment.rs)
+combines explicit scopes with producer/package defaults before graph construction;
+explicit aliases take precedence over dependency-derived package spellings. Dependencies
+grant reachability, never private member access. Selected preludes contribute accessible
+implicit bindings; multiple selections conflict. Coherence uses actual defining
+identities, not registration/external origin privileges. Immutable
+[AnalysisInputs](../../crates/kagari-hir/src/analysis/inputs.rs) captures explicit scopes
+for replay; scopes and non-syntactic contracts participate in invalidation/fingerprints.
+
+These inputs support common analysis and checked compiler admission without an
+execution registry. Successful analysis alone is not a checked complete program;
+compilation still requires complete error-free facts and supported executable
+operations. Linking separately requires matching demanded implementations. The caller
+supplies the inputs: this API does not discover, publish or watch an export directory.
 
 ### Origins and the same call through each input path
 
@@ -1124,27 +1144,49 @@ registrations, optional checked source views and offline declarations. Follow
 [validated language roles](../../crates/kagari-hir/src/language/items.rs) and
 [builtin bridges](../../crates/kagari-hir/src/builtin.rs) for the implementation.
 The runnable semantic examples install `kagari_stdlib::catalog::shared()` explicitly,
-as required by the current foundation contract. Shared schema and installed binding
-facts stay at their explicit declaration/registration boundaries; source text alone
-cannot manufacture them.
+as required by the current foundation contract. Shared Host schemas are static inputs;
+Runtime bindings are separate implementation inputs. Native syntax supplies neither
+Rust callbacks nor storage/access adapters.
 
-Registered native defaults follow an additional checked path:
+Ordinary Script defaults follow the same body/call path as other functions:
 
 ```text
-NativeDefaultApplication recipe -> Script trait method with a forwarding tail call
-FunctionId -> body BlockId -> tail ExprId -> ordinary ResolvedCall
-TypeTable.native_default_call(FunctionId) -> that call after recipe/bound validation
-CheckedModule.native_default_call(FunctionId) -> admitted NativeDefaultCall
-instance planner -> selected native entry (no extra script frame)
+ModuleDecl.script_bodies or complete source -> Script(BlockId)
+FunctionId -> BlockId -> ordinary expressions and checked ResolvedCall facts
+CheckedBodyInput -> ordinary generic instance planning -> executable body/calls
 ```
 
-The implementing type receives no synthetic HIR function. Signature queries expose
-the method signature without claiming body validation. Direct lowering constructs the
-forwarding nodes without parsing text; an explicit source view retains the corresponding
-real forwarding body. SDK preparation checks the closed source-independent providers,
-including unused defaults; source-dependent providers are checked with the user's source.
-A retained snapshot keeps its proof and HIR node tables together. Source-free linking
-validates the portable recipe without depending on this HIR table.
+The implementing type receives no synthetic HIR function. Compiler materialization
+applies trait, receiver, method and associated-output arguments to the selected
+trait-owned body. Required members remain required; genuine Native defaults remain
+Native declarations with separate implementation requirements. Signature queries
+expose contracts without claiming body validation. SDK preparation checks closed
+source-independent providers, including unused defaults; source-dependent providers
+are checked with the user's source. Retained snapshots keep checked facts and node
+tables together.
+
+Interface tables retain `method_origins` linking an impl-owned placement to its
+canonical authored trait member. [Contract verification](../../crates/kagari-contract/src/types/verify.rs)
+checks that relationship and final override policy; [body materialization validation](../../crates/kagari-contract/src/types/materialization.rs)
+checks emitted Script identities against portable source/body records already validated
+against instructions by [bytecode program verification](../../crates/kagari-bytecode/src/program.rs).
+These establish internal consistency and materialization provenance, not installed
+library semantics: an artifact can change a body and its carried evidence together.
+The records require neither a physical source file nor a complete authored-source manifest.
+
+[Runtime Script authentication](../../crates/kagari-runtime/src/native/registry/scripts.rs)
+uses the independently installed canonical ScriptExpr and function contract as its
+authority. It compares actual bytecode callee identities, ordered calls, argument/value
+flow, applied types/signatures and returned value with that expression. Trait, receiver
+and method binders are applied, and associated projections/families normalize through
+the checked applied impl's outputs; unrelated projections remain symbolic and invalid/
+cyclic transforms reject. Final Script library methods without an installed canonical
+expression fail closed. Origins, matching Script signatures and product-supplied
+digests are not substitutes. Authentication is limited to the current ScriptExpr
+grammar; unsupported trace instructions/effects reject, without source analysis or
+trait selection. Native materializations instead apply ordinary Native declaration
+contracts and match installed implementations at linking. Neither path restores a
+dedicated default recipe or forwarding-call table.
 
 Executable compilation does not require complete authored source. If any module lacks
 `source_surface()`, the compiler omits the complete source manifest rather than treating

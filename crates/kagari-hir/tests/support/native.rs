@@ -5,11 +5,12 @@ use kagari_common::identity::{
 use kagari_contract::language::primitive;
 use kagari_stdlib::{catalog as foundation_catalog, identity as library, namespaces};
 use kagari_types::{
-    callable::{CallableImplementation, MethodPolicy, NativeDefaultApplication},
+    callable::{CallableImplementation, MethodPolicy},
     declaration::{
         FnDecl, Param, TraitDef,
         host::{HostCallPolicy, HostPassingStyle},
         module::ModuleDecl,
+        script::ScriptExpr,
     },
     language::{self, Protocol},
     scalar::BuiltinType,
@@ -110,10 +111,18 @@ pub(crate) fn module() -> Arc<DefinitionMetadata<ModuleDecl>> {
         method.params[0].name = "self".into();
         method.params[0].ty = Ty::SelfType(owner);
         method.method_policy.override_allowed = overridable;
-        method.implementation = CallableImplementation::NativeDefault(NativeDefaultApplication {
-            declaration: template,
-            arguments: vec![Ty::SelfType(owner)],
-        });
+        method.implementation = CallableImplementation::Script;
+        let method_id = context
+            .intern_child(owner, DefinitionKind::Method, name, 0)
+            .unwrap();
+        module.script_bodies.insert(
+            method_id,
+            ScriptExpr::Call {
+                callee: Box::new(ScriptExpr::Definition(template)),
+                type_arguments: vec![Ty::SelfType(owner)],
+                arguments: vec![ScriptExpr::Name("self".into())],
+            },
+        );
         module.private_functions.insert(template);
         module.documentation.insert(
             context

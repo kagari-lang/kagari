@@ -760,7 +760,7 @@ fn dependency_diagnostics_and_function_targets_belong_to_the_checked_snapshot() 
     let target = &facts
         .lowered
         .module
-        .body
+        .nodes
         .expressions()
         .find_map(|(id, _)| {
             facts

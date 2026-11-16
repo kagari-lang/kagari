@@ -327,9 +327,9 @@ fn reserve(
         binding.resolution = LookupOutcome::Pending;
         if let Some(name) = import.local_name().and_then(LocalName::new) {
             for namespace in NameNamespace::ALL {
-                if module
-                    .native_import_namespaces
-                    .get(&slot)
+                if import
+                    .namespace
+                    .as_ref()
                     .is_none_or(|selected| *selected == namespace)
                 {
                     names.add(namespace, name.clone(), binding.clone());

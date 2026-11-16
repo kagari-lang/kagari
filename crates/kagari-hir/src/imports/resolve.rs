@@ -68,12 +68,11 @@ pub(super) fn resolve_imports(
     };
     let mut names = (*base.namespaces[&NamespaceId::Module(unit.clone())].names).clone();
     let mut result = ModuleImportFacts::default();
-    let mut dependencies = BTreeSet::from_iter(module.native_dependencies.iter().map(|id| {
-        catalog
-            .definitions
-            .lookup_module(id)
-            .expect("registered dependency")
-    }));
+    let mut dependencies = catalog
+        .module_dependencies
+        .get(&unit.module)
+        .cloned()
+        .unwrap_or_default();
     for (slot, import) in module.module.imports.iter().enumerate() {
         cancel.check()?;
         let id = DirectiveId {
@@ -104,14 +103,13 @@ pub(super) fn resolve_imports(
         };
         let path = &directive.segments;
         catalog.path_dependencies(&unit.module, path, &mut directive.direct_dependencies);
-        let categories: &[NameNamespace] =
-            if let Some(namespace) = module.native_import_namespaces.get(&slot) {
-                slice::from_ref(namespace)
-            } else if matches!(import.kind, ImportLeaf::Glob) {
-                &[NameNamespace::Type]
-            } else {
-                &NameNamespace::ALL
-            };
+        let categories: &[NameNamespace] = if let Some(namespace) = import.namespace.as_ref() {
+            slice::from_ref(namespace)
+        } else if matches!(import.kind, ImportLeaf::Glob) {
+            &[NameNamespace::Type]
+        } else {
+            &NameNamespace::ALL
+        };
         for &namespace in categories {
             let lookup_context = LookupContext {
                 importer: &unit.module,
@@ -477,72 +475,73 @@ fn add_implicit(
         unit,
         cancel,
     } = context;
-    for source in sources.iter().filter(|source| source.is_library_api()) {
-        let installed = SourceUnit::of(source, &catalog.definitions);
-        if !module.is_library_api() {
-            dependencies.insert(installed.module);
-        }
-        let alias = source
-            .native_package_alias
-            .as_deref()
-            .unwrap_or(&catalog.identity(installed.module).package.0);
-        if let Some(name) = LocalName::new(alias) {
-            let root = catalog
-                .definitions
-                .lookup_module_path(&catalog.identity(installed.module).package, &[])
-                .expect("registered package");
+    let scope = catalog.environment.scope(module.source.module_identity());
+    if let Some(scope) = scope {
+        for (alias, package) in &scope.packages.dependencies {
+            let Some(name) = LocalName::new(alias) else {
+                continue;
+            };
+            let Some(root) = catalog.definitions.lookup_module_path(package, &[]) else {
+                continue;
+            };
             let ns = match catalog.modules.get(&root).map(Vec::as_slice) {
                 Some([unit]) => NamespaceId::Module(unit.clone()),
                 _ => NamespaceId::InstalledPrefix(root),
             };
-            let candidate = candidate(
-                unit,
-                Some(ResolvedTarget::Namespace(ns)),
-                BindingOrigin::Package(catalog.identity(installed.module).package.clone()),
-                Visibility::Private,
-                None,
+            names.add(
+                NameNamespace::Type,
+                name,
+                candidate(
+                    unit,
+                    Some(ResolvedTarget::Namespace(ns)),
+                    BindingOrigin::Package(package.clone()),
+                    Visibility::Private,
+                    None,
+                ),
             );
-            if !names.entries.entry(name.clone()).or_default()[NameNamespace::Type]
-                .implicit
-                .contains(&candidate)
-            {
-                names.add(NameNamespace::Type, name, candidate);
-            }
         }
-    }
-    if !module.is_library_api() {
-        let preludes = sources
-            .iter()
-            .filter(|source| source.native_prelude)
-            .collect::<Vec<_>>();
-        if let [prelude] = preludes.as_slice() {
-            let ns = NamespaceId::Module(SourceUnit::of(prelude, &catalog.definitions));
-            ctx.observe(&ns);
-            for name in catalog.namespaces[&ns].names.entries.keys() {
-                for namespace in NameNamespace::ALL {
-                    if let Some(hit) = catalog
-                        .lookup_member(ctx, &ns, name.as_str(), namespace, cancel)?
-                        .hit()
-                    {
-                        let mut binding = candidate(
-                            unit,
-                            Some(hit.target),
-                            BindingOrigin::Prelude(ns.clone()),
-                            Visibility::Private,
-                            None,
-                        );
-                        binding.support = hit.support;
-                        names.add(namespace, name.clone(), binding);
-                    }
-                }
-            }
-        } else if preludes.len() > 1 {
+        if scope.preludes.len() > 1 {
             result.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::DuplicateDeclaration {
-                    name: "installed prelude".into(),
+                    name: "selected prelude".into(),
                 })
                 .with_span(Span::default()),
             );
+        } else if let Some(prelude) = scope.preludes.first() {
+            if let Some(source) = sources
+                .iter()
+                .find(|source| source.source.module_identity() == prelude)
+            {
+                let prelude = SourceUnit::of(source, &catalog.definitions);
+                dependencies.insert(prelude.module);
+                let ns = NamespaceId::Module(prelude);
+                ctx.observe(&ns);
+                for name in catalog.namespaces[&ns].names.entries.keys() {
+                    for namespace in NameNamespace::ALL {
+                        if let Some(hit) = catalog
+                            .lookup_member(ctx, &ns, name.as_str(), namespace, cancel)?
+                            .hit()
+                        {
+                            let mut binding = candidate(
+                                unit,
+                                Some(hit.target),
+                                BindingOrigin::Prelude(ns.clone()),
+                                Visibility::Private,
+                                None,
+                            );
+                            binding.support = hit.support;
+                            names.add(namespace, name.clone(), binding);
+                        }
+                    }
+                }
+            } else {
+                result.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::UnknownName {
+                        name: prelude.to_string(),
+                    })
+                    .with_span(Span::default()),
+                );
+            }
         }
     }
     Ok(())

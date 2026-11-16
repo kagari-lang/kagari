@@ -3,15 +3,14 @@
 use crate::{
     DiagnosticBuffer,
     analysis::{error::AnalysisError, external::ExternalModule},
+    hir::item::adt::HostContract,
     lower::LoweredModule,
-    native::NativeTypeKind,
     typeck::ModuleSignatures,
     types::semantic::lower_type,
 };
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind,
         map::DefinitionContext,
         mapping::{DefinitionMapper, DefinitionMappingError},
         scoped::{DefinitionReferences, RemapDefinitions},
@@ -65,7 +64,7 @@ impl ExternalModule {
         lowered: &LoweredModule,
         definitions: &DefinitionContext,
         cancel: &CancellationToken,
-    ) -> Result<NativeTypeKind, AnalysisError> {
+    ) -> Result<HostContract, AnalysisError> {
         let metadata = self.hosts.get(name).ok_or_else(|| {
             DeclarationError(format!(
                 "external Host {name} requires schema/path metadata"
@@ -112,7 +111,7 @@ impl ExternalModule {
                 return Err(DeclarationError("invalid external Host path contract".into()).into());
             }
         }
-        Ok(NativeTypeKind::Host {
+        Ok(HostContract {
             declaration: root.declaration,
             definition: Arc::new(root.definition.clone()),
             paths: host.paths.clone().into(),
@@ -126,10 +125,7 @@ impl ExternalModule {
         definitions: &DefinitionContext,
         cancel: &CancellationToken,
     ) -> Result<(), AnalysisError> {
-        let root = definitions
-            .intern_root(lowered.source.module_identity())
-            .map_err(DefinitionMappingError::from)?;
-        for (name, metadata) in &self.traits {
+        for (name, metadata) in &self.conversions {
             cancel.check()?;
             let mut matching = lowered
                 .module
@@ -142,30 +138,11 @@ impl ExternalModule {
             if matching.next().is_some() {
                 return Err(DeclarationError(format!("ambiguous external trait {name}")).into());
             }
-            let scope = metadata.definitions();
-            let owner = scope
-                .lookup_root(lowered.source.module_identity())
-                .and_then(|root| scope.lookup_child(root, DefinitionKind::Trait, name, 0));
-            if !owner
-                .is_some_and(|owner| verify::trait_valid(metadata.records(), owner, cancel, scope))
-            {
-                return Err(
-                    DeclarationError(format!("invalid external trait evidence {name}")).into(),
-                );
-            }
+            let item_id = item.id;
             let imported = metadata.import_into(definitions, cancel)?;
-            let contract = imported.records();
-            let id = definitions
-                .intern_child(root, DefinitionKind::Trait, name, 0)
-                .map_err(DefinitionMappingError::from)?;
-            if let Some(adapter) = &contract.conversion_adapter {
-                lowered
-                    .native_trait_adapters
-                    .insert(item.id, adapter.clone());
-            }
-            lowered.external_traits.insert(id, imported.into_records());
+            lowered.module.traits[item_id.index()].conversion_adapter =
+                Some(imported.into_records());
         }
-        lowered.language_foundation = self.language_foundation;
         Ok(())
     }
 }
@@ -178,15 +155,11 @@ pub(crate) fn validate_host_surfaces(
     diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {
-    if !lowered.external_api {
-        return;
-    }
     for item in &lowered.module.native_types {
         if cancel.check().is_err() {
             return;
         }
-        let Some(NativeTypeKind::Host { definition, .. }) = lowered.native_types.get(&item.id)
-        else {
+        let Some(HostContract { definition, .. }) = &item.host else {
             continue;
         };
         let valid = item.fields.len() == definition.fields.len()
@@ -224,10 +197,10 @@ pub(in crate::analysis) fn validate_schema_closure<'a>(
 ) -> Result<(), AnalysisError> {
     let mut schemas = BTreeMap::new();
     for module in modules {
-        for kind in module.native_types.values() {
-            if let NativeTypeKind::Host {
+        for item in &module.module.native_types {
+            if let Some(HostContract {
                 schemas: closure, ..
-            } = kind
+            }) = &item.host
             {
                 for schema in closure.iter() {
                     cancel.check()?;

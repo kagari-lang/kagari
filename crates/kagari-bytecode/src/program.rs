@@ -17,7 +17,10 @@ use kagari_contract::{
     exports::ProgramExports,
     host::external::bindings_match as external_bindings_match,
     layout, types as abi,
-    types::{InterfaceBridge, PublicItem, named::correspondence::validate_inventory, verify},
+    types::{
+        InterfaceBridge, PublicItem, materialization, named::correspondence::validate_inventory,
+        verify,
+    },
     updates::{UpdateEvidence, limits::UpdateError},
 };
 use kagari_types::{declaration::TypeDefKind, language::Protocol, ty::Ty};
@@ -413,6 +416,30 @@ fn verify_graph_inner(
             BytecodeVerificationError::Cancelled
         } else {
             BytecodeVerificationError::UpdateEvidence(cause)
+        }
+    })?;
+    materialization::script_bodies(
+        program
+            .modules
+            .iter()
+            .flat_map(|module| &module.public_items)
+            .filter_map(|item| match item {
+                PublicItem::InterfaceTable(table) => Some(table.as_ref()),
+                _ => None,
+            }),
+        program
+            .modules
+            .iter()
+            .flat_map(|module| &module.functions)
+            .filter_map(|function| function.identity.as_ref()),
+        &program.update_evidence.sources,
+        cancel,
+    )
+    .map_err(|_| {
+        if cancel.check().is_err() {
+            BytecodeVerificationError::Cancelled
+        } else {
+            BytecodeVerificationError::InvalidProgramGraph
         }
     })?;
     Ok(ProgramVerification {

@@ -11,6 +11,7 @@ pub mod native;
 pub mod ownership;
 pub mod path;
 pub mod requirement;
+pub mod script;
 pub mod verify;
 
 #[doc(hidden)]

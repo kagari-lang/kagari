@@ -1,7 +1,6 @@
-//! Plan selected native methods and defaults using their admitted registration contracts.
+//! Plan selected Native methods and defaults using their checked declaration contracts.
 use crate::source::lower::{
     MirLoweringError,
-    abi::checked_bounds,
     instances::{
         InstancePlanner,
         methods::{MethodOperation, MethodPlan},
@@ -11,12 +10,11 @@ use kagari_common::{identity::table::DefinitionId, span::Span};
 use kagari_contract::{native_import::NativeImport, types::ConcreteFunctionIdentity};
 use kagari_hir::{
     aggregates::traits::MethodDefault,
-    native::NativeBinding,
-    semantic::signatures::FunctionImplementation,
+    callable::AppliedCallSignature,
     types::{NominalType, TypeId, TypeSubstitution as HirSubstitution, semantic::raise_type},
 };
 use kagari_mir::instruction::CallTarget;
-use kagari_types::{callable::Signature, ty::substitution::TypeSubstitution};
+use kagari_types::callable::Signature;
 
 impl InstancePlanner<'_> {
     fn native_method_call(
@@ -59,81 +57,33 @@ impl InstancePlanner<'_> {
         declaration: &DefinitionId,
         arguments: &[TypeId],
         receiver: &TypeId,
-        result: &TypeId,
+        signature: &AppliedCallSignature,
         span: Span,
     ) -> Result<MethodPlan, MirLoweringError> {
-        let function = self
-            .native_function(declaration)
-            .ok_or(MirLoweringError::MissingBinding(
-                "selected native entry declaration",
-            ))?
-            .clone();
-        let FunctionImplementation::Native(NativeBinding::Entry(binding)) =
-            &function.implementation
-        else {
-            return Err(MirLoweringError::MissingBinding(
-                "selected native entry implementation",
-            ));
-        };
-        let substitution: HirSubstitution = function
-            .generic_params
-            .iter()
-            .cloned()
-            .zip(arguments.iter().cloned())
-            .collect();
-        let mut params = function
-            .params
-            .iter()
-            .map(|p| {
-                self.catalog
-                    .normalize_type(&self.definitions(), &p.ty.instantiate(&substitution))
-            })
-            .collect::<Vec<_>>();
-        if function
-            .params
-            .first()
-            .is_some_and(|param| param.name == "self")
-            && let Some(first) = params.first_mut()
+        let import = self.native_target_import(declaration, arguments, span)?;
+        let has_receiver = self
+            .native_declaration(declaration)
+            .and_then(|declaration| declaration.function.params.first())
+            .is_some_and(|parameter| parameter.name == "self");
+        if import.signature.result != self.encode_type(&signature.return_type)
+            || import.signature.params
+                != signature
+                    .params
+                    .iter()
+                    .map(|parameter| self.encode_type(parameter))
+                    .collect::<Vec<_>>()
+            || (has_receiver
+                && import
+                    .signature
+                    .params
+                    .first()
+                    .is_none_or(|param| *param != self.encode_type(receiver)))
         {
-            *first = receiver.clone();
+            return Err(MirLoweringError::MissingBinding(
+                "applied Native method signature",
+            ));
         }
-        let mut bindings = TypeSubstitution::default();
-        let applied_arguments = arguments
-            .iter()
-            .map(|ty| self.encode_type(ty))
-            .collect::<Vec<_>>();
-        for (param, argument) in function.generic_params.iter().zip(&applied_arguments) {
-            bindings.bind(&param.owner, param.position, argument);
-        }
-        let bounds = self
-            .registered_native_declaration(declaration)
-            .map(|registered| registered.function.bounds.clone())
-            .unwrap_or_else(|| checked_bounds(self.catalog, &self.definitions(), &function.bounds));
-        let requirements = bindings
-            .apply_bounds(&bounds, &self.definitions(), &self.options.cancel)
-            .map_err(|_| MirLoweringError::MissingBinding("native method bounds"))?;
-        self.native_method_call(
-            NativeImport {
-                receiver_access: self
-                    .registered_native_declaration(declaration)
-                    .and_then(|registered| registered.function.method_policy.receiver_access),
-                result_adapter: None,
-                generic: None,
-                callables: vec![],
-                instance: ConcreteFunctionIdentity {
-                    declaration: *declaration,
-                    arguments: applied_arguments,
-                },
-                binding: *binding,
-                signature: Signature {
-                    params: params.iter().map(|ty| self.encode_type(ty)).collect(),
-                    result: self.encode_type(result),
-                },
-                requirements,
-            },
-            result,
-            span,
-        )
+        self.native_method_call(import, &signature.return_type, span)
     }
 
     pub(super) fn native_default_plan(
@@ -151,18 +101,7 @@ impl InstancePlanner<'_> {
                 "selected native entry default",
             ))?
             .clone();
-        if matches!(
-            signature.default,
-            Some(MethodDefault::Native(NativeBinding::Default(_)))
-        ) {
-            let import =
-                self.native_default_import(receiver, interface, method, arguments, span)?;
-            let result = self
-                .catalog
-                .normalize_type(&self.definitions(), &raise_type(&import.signature.result));
-            return self.native_method_call(import, &result, span);
-        }
-        let Some(MethodDefault::Native(NativeBinding::Entry(binding))) = &signature.default else {
+        let Some(MethodDefault::Native(_)) = &signature.default else {
             return Err(MirLoweringError::MissingBinding(
                 "native entry default implementation",
             ));
@@ -203,7 +142,7 @@ impl InstancePlanner<'_> {
                     declaration: *method,
                     arguments: arguments.iter().map(|ty| self.encode_type(ty)).collect(),
                 },
-                binding: *binding,
+                binding: *method,
                 signature: Signature {
                     params: params.iter().map(|ty| self.encode_type(ty)).collect(),
                     result: self.encode_type(&result),

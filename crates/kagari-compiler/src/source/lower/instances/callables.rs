@@ -17,9 +17,7 @@ use kagari_contract::{
     types::ConcreteFunctionIdentity,
 };
 use kagari_hir::{
-    aggregates::{implementations::ImplementationSearchLimits, traits::MethodDefault},
-    native::NativeBinding,
-    semantic::signatures::FunctionImplementation,
+    aggregates::implementations::ImplementationSearchLimits,
     types::{
         TypeId, TypeSubstitution as HirSubstitution,
         semantic::{raise_nominal_type, raise_type},
@@ -33,16 +31,11 @@ use kagari_types::{
 };
 
 impl InstancePlanner<'_> {
-    pub(crate) fn registered_native_declaration(
+    pub(crate) fn native_declaration(
         &self,
         declaration: &DefinitionId,
     ) -> Option<&NativeDeclaration> {
-        self.modules
-            .get(&self.module_handle(*declaration))?
-            .registration()?
-            .callables
-            .iter()
-            .find(|item| &item.declaration == declaration)
+        self.native_declarations.get(declaration)
     }
 
     pub(crate) fn native_callables(
@@ -51,12 +44,12 @@ impl InstancePlanner<'_> {
         span: Span,
     ) -> Result<Vec<OperationWitness>, MirLoweringError> {
         import.result_adapter = self.native_result_adapter(import, span)?;
-        let Some(declaration) = self
-            .registered_native_declaration(&import.instance.declaration)
+        let declaration = self
+            .native_declaration(&import.instance.declaration)
             .cloned()
-        else {
-            return Ok(vec![]);
-        };
+            .ok_or(MirLoweringError::MissingBinding(
+                "checked Native operation contract",
+            ))?;
         let invalid = || MirLoweringError::MissingBinding("checked native callable requirement");
         let mut bindings = TypeSubstitution::default();
         for (param, argument) in declaration
@@ -210,7 +203,7 @@ impl InstancePlanner<'_> {
         method.generic_params.len() > contract.generic_params.len()
     }
 
-    fn normalize_callable_requirement(
+    pub(super) fn normalize_callable_requirement(
         &self,
         mut required: NativeCallableRequirement,
     ) -> Result<NativeCallableRequirement, MirLoweringError> {
@@ -261,6 +254,9 @@ impl InstancePlanner<'_> {
         }
         required.receiver = self.encode_type(&receiver);
         required.interface = self.encode_nominal(&interface);
+        required
+            .interface
+            .remove_identity_outputs(&required.receiver);
         required.arguments = required
             .arguments
             .iter()
@@ -301,42 +297,6 @@ impl InstancePlanner<'_> {
                 )
                 .map_err(|_| invalid())?;
             let Some((implementation, arguments)) = implementation else {
-                if self
-                    .catalog
-                    .trait_method(&required.member)
-                    .is_some_and(|method| {
-                        matches!(
-                            method.default,
-                            Some(MethodDefault::Native(NativeBinding::Default(_)))
-                        )
-                    })
-                {
-                    let import = self.native_default_import(
-                        &receiver,
-                        &interface,
-                        &required.member,
-                        &required
-                            .arguments
-                            .iter()
-                            .map(raise_type)
-                            .collect::<Vec<_>>(),
-                        span,
-                    )?;
-                    let target = self
-                        .registered_native_declaration(&import.instance.declaration)
-                        .ok_or_else(invalid)?;
-                    let implementation = target.function.implementation.clone();
-                    self.record_layout_root(&receiver, &Default::default(), span)?;
-                    selected.push(NativeCallableApplication {
-                        origin: NativeCallableOrigin::Implementation,
-                        requirement: required,
-                        instance: import.instance,
-                        implementation,
-                        signature: import.signature,
-                        effects: EffectSet::native_call(),
-                    });
-                    continue;
-                }
                 let application = self
                     .catalog
                     .implicit_protocol_application(
@@ -383,45 +343,9 @@ impl InstancePlanner<'_> {
                 .catalog
                 .trait_(&interface.declaration)
                 .ok_or_else(invalid)?;
-            let default = if !contract.methods.contains_key(&required.member)
-                && matches!(
-                    signature.default,
-                    Some(MethodDefault::Native(NativeBinding::Default(_)))
-                ) {
-                Some(
-                    self.native_default_import(
-                        &receiver,
-                        &interface,
-                        &required.member,
-                        &required
-                            .arguments
-                            .iter()
-                            .map(raise_type)
-                            .collect::<Vec<_>>(),
-                        span,
-                    )?,
-                )
-            } else {
-                None
-            };
-            let target = contract
-                .methods
-                .get(&required.member)
-                .cloned()
-                .or_else(|| default.as_ref().map(|import| import.instance.declaration))
-                .or_else(|| {
-                    if signature.default != Some(MethodDefault::Script) {
-                        return None;
-                    }
-                    let definitions = self.definitions();
-                    let member = definitions.resolve(required.member).ok()?.last()?;
-                    definitions.lookup_child(
-                        implementation,
-                        member.kind,
-                        member.name,
-                        member.occurrence,
-                    )
-                })
+            let target = self
+                .catalog
+                .implementation_method_target(&self.definitions(), contract, &required.member)
                 .ok_or_else(invalid)?;
             let own = &signature.generic_params[trait_.generic_params.len()..];
             if own.len() != required.arguments.len() {
@@ -456,33 +380,16 @@ impl InstancePlanner<'_> {
                     .collect(),
                 result: normalize(&signature.return_type),
             };
-            let kind = if let Some(function) = self.native_function(&target) {
-                let FunctionImplementation::Native(NativeBinding::Entry(binding)) =
-                    &function.implementation
-                else {
-                    return Err(invalid());
-                };
-                CallableImplementation::Native(*binding)
+            let kind = if let Some(declaration) = self.native_declaration(&target) {
+                declaration.function.implementation.clone()
             } else {
                 CallableImplementation::Script
             };
-            let instance_arguments = if let Some(import) = &default {
-                if import.signature != applied {
-                    return Err(invalid());
-                }
-                import
-                    .instance
-                    .arguments
-                    .iter()
-                    .map(raise_type)
-                    .collect::<Vec<_>>()
-            } else {
-                arguments
-                    .iter()
-                    .cloned()
-                    .chain(required.arguments.iter().map(raise_type))
-                    .collect::<Vec<_>>()
-            };
+            let instance_arguments = arguments
+                .iter()
+                .cloned()
+                .chain(required.arguments.iter().map(raise_type))
+                .collect::<Vec<_>>();
             self.record_interface(&implementation, &arguments, span)?;
             self.record_layout_root(&receiver, &Default::default(), span)?;
             if kind == CallableImplementation::Script

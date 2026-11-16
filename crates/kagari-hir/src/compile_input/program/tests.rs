@@ -1,7 +1,8 @@
 use super::*;
 use crate::{
     compile_input::body::{BodyRoot, bindings::BindingId},
-    hir::ids::{HirOwner, ParamId},
+    hir::ids::{FunctionId, HirOwner, ParamId},
+    resolver::resolved::ResolvedName,
     tests::test_analysis,
     types::TypeId,
 };
@@ -57,7 +58,6 @@ fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
         .local_constant(headers.constants[0].id)
         .unwrap();
     assert_eq!(constant.ty, &TypeId::Builtin(BuiltinType::I32));
-    assert!(module.registration().is_none());
     let header = &headers.implementations[0];
     assert!(header.methods.is_empty());
     let implementation = module.implementation(header.id).unwrap();
@@ -301,23 +301,14 @@ fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
         .modules()
         .iter()
         .find_map(|module| {
-            module.headers().functions.iter().find_map(|function| {
-                module
-                    .native_default(function.id)
-                    .map(|call| (module, function.id, call))
-            })
+            module
+                .headers()
+                .functions
+                .iter()
+                .find(|function| function.implementation.script_body().is_some())
+                .map(|function| (module, function.id))
         })
-        .expect("foundation supplies checked default recipes");
-    assert!(native.0.registration().is_some());
-    assert!(
-        native
-            .0
-            .environment()
-            .definitions()
-            .resolve(native.2.declaration)
-            .is_ok()
-    );
-    assert!(!native.2.signature.return_type.is_unresolved());
+        .expect("foundation supplies ordinary Script default bodies");
     let source = program
         .modules()
         .iter()
@@ -341,28 +332,7 @@ fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
             &mut SourceBudget::new(&Default::default())
         ),
         Err(AdmissionError::InvalidModule(
-            "function implementation and checked binding disagree"
-        ))
-    ));
-    let mut missing = source
-        .to_unverified(&Default::default())
-        .unwrap()
-        .into_records();
-    missing
-        .typed
-        .type_table
-        .native_default_calls
-        .remove(&native.1);
-    let missing =
-        CheckedAnalysis::adopt_scoped(&missing, source.definitions(), &Default::default()).unwrap();
-    assert!(matches!(
-        CheckedModule::admit(
-            &missing,
-            &Default::default(),
-            &mut SourceBudget::new(&Default::default())
-        ),
-        Err(AdmissionError::InvalidModule(
-            "native default has no checked forwarding call"
+            "function implementation and checked contract disagree"
         ))
     ));
     let cancelled = CancellationToken::default();

@@ -142,6 +142,7 @@ pub fn interface_value_with(
                         methods: vec![],
                     }),
                     PublicItem::InterfaceTable(Box::new(InterfaceTable {
+                        method_origins: Vec::new(),
                         associated_type_families: Vec::new(),
                         associated_consts: Vec::new(),
                         bridge: None,

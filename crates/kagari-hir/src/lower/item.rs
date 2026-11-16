@@ -149,6 +149,7 @@ impl Lowerer {
                 .insert_item_name(Item::NativeType(id), token_span(&name));
         }
         NativeTypeDeclaration {
+            host: None,
             id,
             visibility: lower_visibility(declaration.visibility()),
             name: declaration.name_text().unwrap_or_default(),
@@ -244,6 +245,7 @@ impl Lowerer {
         let glob = tree.is_glob();
 
         self.module.imports.push(Import {
+            namespace: None,
             visibility,
             kind: if glob {
                 ImportLeaf::Glob
@@ -272,6 +274,7 @@ impl Lowerer {
             .map(|method| self.lower_trait_method(&method, &generic_params))
             .collect::<Vec<_>>();
         TraitDef {
+            conversion_adapter: None,
             associated_consts: trait_def
                 .associated_consts()
                 .enumerate()
@@ -388,6 +391,7 @@ impl Lowerer {
         let function_id = function.id;
         self.finish_function(function);
         TraitMethod {
+            override_allowed: true,
             has_default: method.is_native() || method.body().is_some(),
             id,
             name: method.name_text().unwrap_or_default(),
@@ -875,6 +879,7 @@ impl Lowerer {
                                 .unwrap_or_else(|| syntax_span(&variant)),
                         );
                         Variant {
+                            reports_failure: false,
                             id: variant_id,
                             name: variant.name_text().unwrap_or_default(),
                             payload: variant

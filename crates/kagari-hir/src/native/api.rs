@@ -7,19 +7,21 @@ use crate::{
         ids::FunctionId,
         item::{
             Item,
+            adt::HostContract,
             function::{FunctionImplementation, NativeContract},
+            module::ImportLeaf,
         },
         ty::TypeKind,
     },
     lower::{LoweredModule, lower_module_controlled},
     native::{
-        NativeBinding, NativeTypeKind,
         api::preparation::PreparedRegistration,
         paths::module_path,
         render::DeclarationSource,
         structured::{self, RegistrationMap},
     },
 };
+use kagari_common::identity::ModuleIdentity;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -41,10 +43,9 @@ use kagari_types::{
     declaration::{
         FnDecl, TypeDeclaration, TypeDefKind,
         module::{DeclarationError, ModuleDecl},
-        native::NativeTypeConstructor,
     },
-    language,
 };
+use std::collections::BTreeSet;
 use std::{collections::HashSet, sync::Arc};
 
 /// Attaches trusted registration facts to a fresh lowering, never to a copied ID map.
@@ -64,31 +65,29 @@ fn attach(
     } else {
         structured::lower(metadata, providers, prepared.source.clone(), cancel)?
     };
-    lowered.registered_native_api = true;
-    lowered.native_definitions = Some(definitions.clone());
-    lowered.language_foundation = language::is_language_module(&definition.identity);
-    lowered.native_package_alias = definition.package_alias.clone();
-    lowered.native_prelude = definition.prelude;
-    lowered.native_trait_references = definition.trait_references.clone();
-    // Both constructors allocate authored aliases first in this ordered traversal.
-    // Namespace categories belong to registration, not to an inferred source spelling.
-    lowered.native_import_namespaces = definition
-        .exports
-        .keys()
-        .enumerate()
-        .map(|(slot, name)| (slot, name.namespace))
-        .collect();
-    lowered.registered_traits = definition
-        .traits
-        .iter()
-        .map(|contract| {
-            Ok((
-                definition.definition(DefinitionKind::Trait, &contract.name, definitions)?,
-                contract.clone(),
-            ))
-        })
-        .collect::<Result<_, DeclarationError>>()?;
-    lowered.registered_declarations = definition.native_declarations(definitions)?;
+    if prepared.parsed().is_some() {
+        for (name, target) in &definition.exports {
+            let target = definitions
+                .resolve(*target)
+                .map_err(|error| DeclarationError(error.to_string()))?;
+            let mut segments = module_path(
+                target.module(),
+                providers.iter().map(|provider| provider.records()),
+            )
+            .split("::")
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+            segments.extend(target.segments().map(|part| part.name.to_owned()));
+            let mut matching = lowered.module.imports.iter_mut().filter(|import| import.segments == segments && matches!(&import.kind, ImportLeaf::Named { alias: Some(alias) } if alias == &name.name));
+            let import = matching
+                .next()
+                .ok_or_else(|| DeclarationError(format!("missing export {}", name.name)))?;
+            if matching.next().is_some() {
+                return Err(DeclarationError(format!("ambiguous export {}", name.name)));
+            }
+            import.namespace = Some(name.namespace);
+        }
+    }
     attach_types(
         definition,
         definitions,
@@ -97,7 +96,6 @@ fn attach(
         &mut lowered,
     )?;
     attach_functions(definition, definitions, &correspondence, &mut lowered)?;
-    attach_dependencies(metadata, providers, &mut lowered, cancel)?;
     Ok(lowered)
 }
 
@@ -118,6 +116,13 @@ fn validate_view(
                 if definition.functions.iter().any(|registered| {
                     registered.name == function.name_text().unwrap_or_default()
                         && registered.implementation == CallableImplementation::Script
+                        && !definition
+                            .definition(
+                                DefinitionKind::Function,
+                                &registered.name,
+                                &expected.definitions,
+                            )
+                            .is_ok_and(|id| definition.script_bodies.contains_key(&id))
                 }) {
                     let body = function.body().ok_or_else(|| {
                         DeclarationError(
@@ -133,10 +138,21 @@ fn validate_view(
                     .iter()
                     .find(|registered| registered.name == contract.name_text().unwrap_or_default())
                 {
+                    let owner = definition.definition(
+                        DefinitionKind::Trait,
+                        &registered.name,
+                        &expected.definitions,
+                    )?;
                     for method in contract.methods() {
                         if registered.methods.iter().any(|registered| {
                             registered.name == method.name_text().unwrap_or_default()
                                 && registered.implementation == CallableImplementation::Script
+                                && !ModuleDecl::method_id(
+                                    owner,
+                                    &registered.name,
+                                    &expected.definitions,
+                                )
+                                .is_ok_and(|id| definition.script_bodies.contains_key(&id))
                         }) {
                             let body = method.body().ok_or_else(|| {
                                 DeclarationError(
@@ -150,10 +166,18 @@ fn validate_view(
             }
             ItemView::ImplBlock(implementation) => {
                 if let Some(registered) = definition.implementations.get(implementation_index) {
+                    let owner = definition
+                        .implementation_id(implementation_index, &expected.definitions)?;
                     for method in implementation.methods() {
                         if registered.methods.iter().any(|registered| {
                             registered.name == method.name_text().unwrap_or_default()
                                 && registered.implementation == CallableImplementation::Script
+                                && !ModuleDecl::method_id(
+                                    owner,
+                                    &registered.name,
+                                    &expected.definitions,
+                                )
+                                .is_ok_and(|id| definition.script_bodies.contains_key(&id))
                         }) {
                             let body = method.body().ok_or_else(|| {
                                 DeclarationError(
@@ -245,63 +269,33 @@ fn attach_types(
             continue;
         }
         if let Item::Enum(id) = item {
-            let item = &lowered.module.enums[id.index()];
+            let item = &mut lowered.module.enums[id.index()];
             if item.variants.len() != ty.variants.len() {
                 return Err(DeclarationError("registered enum inventory differs".into()));
             }
-            for (member, variant) in item.variants.iter().zip(&ty.variants) {
-                if variant.reports_failure {
-                    lowered.registered_enum_failures.insert(member.id);
-                }
+            for (member, variant) in item.variants.iter_mut().zip(&ty.variants) {
+                member.reports_failure = variant.reports_failure;
             }
             continue;
         }
-        let kind = match ty.kind {
-            TypeDefKind::Host(_) => NativeTypeKind::Host {
-                definition: Arc::new(ty.clone()),
-                declaration: definition.definition(
-                    DefinitionKind::Struct,
-                    &ty.name,
-                    definitions,
-                )?,
-                paths: definition
-                    .paths
-                    .iter()
-                    .filter(|path| {
-                        definitions
-                            .resolve(path.root)
-                            .ok()
-                            .and_then(|view| view.last())
-                            .is_some_and(|leaf| leaf.name == ty.name)
-                    })
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .into(),
-                schemas: schemas.clone(),
-            },
-            TypeDefKind::NativeStorage(layout) => NativeTypeKind::Storage {
-                declaration: definition.definition(
-                    DefinitionKind::AssociatedType,
-                    &ty.name,
-                    definitions,
-                )?,
-                arity: ty.generic_params.len(),
-                layout,
-            },
-            TypeDefKind::Native(constructor) => match constructor {
-                NativeTypeConstructor::Reference(access) => NativeTypeKind::Reference(access),
-                NativeTypeConstructor::String => NativeTypeKind::String,
-
-                NativeTypeConstructor::Range(kind) => NativeTypeKind::Range(kind),
-            },
-            _ => return Err(DeclarationError("missing native representation".into())),
-        };
+        let host = matches!(ty.kind, TypeDefKind::Host(_)).then(|| HostContract {
+            declaration,
+            definition: Arc::new(ty.clone()),
+            paths: definition
+                .paths
+                .iter()
+                .filter(|path| path.root == declaration)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into(),
+            schemas: schemas.clone(),
+        });
         let Item::NativeType(id) = item else {
             return Err(DeclarationError(
                 "registered native type kind differs".into(),
             ));
         };
-        lowered.native_types.insert(id, kind);
+        lowered.module.native_types[id.index()].host = host;
     }
     Ok(())
 }
@@ -319,7 +313,7 @@ fn attach_functions(
             return Err(DeclarationError("registered trait kind differs".into()));
         };
         if let Some(adapter) = &contract.conversion_adapter {
-            lowered.native_trait_adapters.insert(id, adapter.clone());
+            lowered.module.traits[id.index()].conversion_adapter = Some(adapter.clone());
         }
     }
     let functions =
@@ -358,55 +352,50 @@ fn attach_functions(
         let Item::Function(id) = correspondence.item(declaration)? else {
             return Err(DeclarationError("registered function kind differs".into()));
         };
-        attach_binding(definition, lowered, id, declaration, function);
+        attach_contract(definition, lowered, id, declaration, function);
     }
     Ok(())
 }
 
-fn attach_binding(
+fn attach_contract(
     definition: &ModuleDecl,
     lowered: &mut LoweredModule,
     id: FunctionId,
     declaration: DefinitionId,
     function: &FnDecl,
 ) {
-    match &function.implementation {
-        CallableImplementation::Native(binding) => {
-            lowered.module.functions[id.index()].implementation =
-                FunctionImplementation::Native(NativeContract {
-                    callable_requirements: definition
-                        .callable_requirements
-                        .get(&declaration)
-                        .cloned()
-                        .unwrap_or_default(),
-                    concrete_result: definition.concrete_results.get(&declaration).cloned(),
-                });
-            lowered
-                .native_functions
-                .insert(id, NativeBinding::Entry(*binding));
-        }
-        CallableImplementation::NativeDefault(application) => {
-            lowered
-                .native_functions
-                .insert(id, NativeBinding::Default(application.clone()));
-        }
-        _ => {}
+    if let CallableImplementation::Native(_) = &function.implementation {
+        lowered.module.functions[id.index()].implementation =
+            FunctionImplementation::Native(NativeContract {
+                host_policy: function.host_policy.clone(),
+                receiver_access: function.method_policy.receiver_access,
+                callable_requirements: definition
+                    .callable_requirements
+                    .get(&declaration)
+                    .cloned()
+                    .unwrap_or_default(),
+                concrete_result: definition.concrete_results.get(&declaration).cloned(),
+            });
     }
-    lowered.method_policies.insert(id, function.method_policy);
+    for item in &mut lowered.module.traits {
+        if let Some(method) = item.methods.iter_mut().find(|method| method.function == id) {
+            method.override_allowed = function.method_policy.override_allowed;
+        }
+    }
 }
 
-fn attach_dependencies(
+pub(crate) fn dependencies(
     metadata: &DefinitionMetadata<ModuleDecl>,
     providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
-    lowered: &mut LoweredModule,
+    lowered: &LoweredModule,
     cancel: &CancellationToken,
-) -> Result<(), DeclarationError> {
+) -> Result<BTreeSet<ModuleIdentity>, DeclarationError> {
     let definition = metadata.records();
     let definitions = metadata.definitions();
     let mut imports = HashSet::new();
     let referenced: HashSet<_> = lowered
         .module
-        .body
+        .nodes
         .types
         .iter()
         .filter_map(|(_, ty)| match &ty.kind {
@@ -467,13 +456,12 @@ fn attach_dependencies(
             cancel,
         )
         .map_err(|error| DeclarationError(error.to_string()))?;
-    lowered.native_dependencies = definition
+    Ok(definition
         .dependencies
         .iter()
         .cloned()
         .chain(imports)
-        .collect();
-    Ok(())
+        .collect())
 }
 
 #[cfg(test)]

@@ -25,6 +25,7 @@ pub mod applications;
 pub mod identity;
 pub mod inherent;
 pub mod matching;
+pub mod materialization;
 pub mod named;
 pub mod proofs;
 pub mod verify;
@@ -121,6 +122,8 @@ pub enum InterfaceBridge {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InterfaceTable {
+    /// Canonical authored methods supplying omitted implementation members.
+    pub method_origins: Vec<named::FunctionOrigin>,
     pub associated_type_families: Vec<AssociatedTypeFamily>,
     pub associated_consts: Vec<ConstDef>,
     pub bridge: Option<InterfaceBridge>,
@@ -165,7 +168,7 @@ impl InterfaceTable {
                     host_policy: method.host_policy.clone(),
                     method_policy: method.method_policy,
                     name: method.name.clone(),
-                    implementation: method.implementation.apply(&substitution, &cancel).ok()?,
+                    implementation: method.implementation.clone(),
                     generic_params: method
                         .generic_params
                         .iter()
@@ -191,6 +194,7 @@ impl InterfaceTable {
             })
             .collect::<Option<Vec<_>>>()?;
         Some(Self {
+            method_origins: self.method_origins.clone(),
             associated_type_families: self
                 .associated_type_families
                 .iter()

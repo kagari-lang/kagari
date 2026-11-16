@@ -151,7 +151,7 @@ impl<'a> BodyResolver<'a> {
                 self.resolve_expr(*initializer);
                 self.resolve_pattern_variants(*pattern, false);
 
-                for (local, name) in self.module.body.pattern_bindings(*pattern) {
+                for (local, name) in self.module.nodes.pattern_bindings(*pattern) {
                     if !name.is_empty() && name != "<missing>" {
                         self.bind_name(name, ResolvedName::Local(local), *writeability);
                     }

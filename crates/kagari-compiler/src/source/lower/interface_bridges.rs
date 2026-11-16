@@ -288,6 +288,7 @@ impl InterfaceBridges {
         }
         abi.public_items
             .push(PublicItem::InterfaceTable(Box::new(InterfaceTable {
+                method_origins: Vec::new(),
                 associated_type_families: Vec::new(),
                 associated_consts: Vec::new(),
                 bridge: Some(InterfaceBridge::Intrinsic),

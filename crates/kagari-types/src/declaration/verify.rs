@@ -496,13 +496,6 @@ pub fn function_valid(
         CallableImplementation::Required => parent_kind == Some(DefinitionKind::Trait),
         CallableImplementation::Script => true,
         CallableImplementation::Native(id) => callable_identity_valid(*id, table),
-        CallableImplementation::NativeDefault(application) => {
-            matches!(
-                parent_kind,
-                Some(DefinitionKind::Trait | DefinitionKind::Impl)
-            ) && callable_identity_valid(application.declaration, table)
-                && application.arguments.len() <= 4096
-        }
     };
     if !receiver_access_valid(function)
         || !parameter_names_valid(function)
@@ -515,12 +508,7 @@ pub fn function_valid(
             .iter()
             .any(|p| !p.ty.reference_position_valid())
         || !implementation_valid
-        || (!function.method_policy.override_allowed
-            && !matches!(
-                function.implementation,
-                CallableImplementation::NativeDefault(_)
-            )
-            && parent_kind != Some(DefinitionKind::Trait))
+        || (!function.method_policy.override_allowed && parent_kind != Some(DefinitionKind::Trait))
     {
         return false;
     }
@@ -532,13 +520,6 @@ pub fn function_valid(
                 .map(|param| &param.ty)
                 .chain(iter::once(&function.return_type))
                 .all(|ty| type_valid(ty, &params, self_owner, cancel, table))
-            && match &function.implementation {
-                CallableImplementation::NativeDefault(application) => application
-                    .arguments
-                    .iter()
-                    .all(|argument| type_valid(argument, &params, self_owner, cancel, table)),
-                _ => true,
-            }
     })
 }
 

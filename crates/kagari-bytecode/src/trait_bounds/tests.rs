@@ -40,6 +40,7 @@ fn record(name: &str) -> TraitDef {
 
 fn table(context: &DefinitionContext, name: &str, interface: NominalTy) -> InterfaceTable {
     InterfaceTable {
+        method_origins: Vec::new(),
         declaration: id(context, DefinitionKind::Impl, name),
         name: name.into(),
         generic_params: vec![],

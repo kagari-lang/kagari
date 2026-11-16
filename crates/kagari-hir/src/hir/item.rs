@@ -2,7 +2,6 @@
 
 use crate::hir::{
     attribute::AttributeFact,
-    body::Body,
     expr::ExprData,
     ids::{
         BlockId, BodyOwner, ConstId, EnumId, ExprId, FieldId, FieldOwner, FunctionId, HirOwner,
@@ -17,6 +16,7 @@ use crate::hir::{
         module::{Import, ModuleDecl, UseDecl},
         storage::{ConstItem, StaticItem},
     },
+    nodes::HirNodes,
     pattern::PatternData,
     place::PlaceData,
     stmt::{BlockData, StmtData},
@@ -42,10 +42,10 @@ pub mod storage;
 ///     functions: [main_function], consts: [limit_constant], structs: [point_struct],
 ///     imports: [Import { segments: ["pkg", "math", "sum"], kind: Named { alias: None }, ... }],
 ///     modules: [], native_types: [], enums: [], traits: [], impls: [],
-///     body: Body { types, exprs, blocks, ... },
+///     nodes: HirNodes { types, exprs, blocks, ... },
 /// }
 /// f -> functions[f.index()]; s -> structs[s.index()]; c -> constant(c)
-/// main_function.implementation -> Script(BlockId) -> body.block -> statements/tail ExprId
+/// main_function.implementation -> Script(BlockId) -> nodes.block -> statements/tail ExprId
 /// ```
 ///
 /// Rows/indices above are illustrative and abbreviated where marked. `items`
@@ -55,8 +55,8 @@ pub mod storage;
 /// Trait/impl methods also allocate function rows and associated constant defaults
 /// allocate constant rows, but do not add top-level Item entries for those members.
 ///
-/// `body` owns declaration type syntax and all function/constant nodes together;
-/// it is not one Body per function. Child module rows are headers, with their
+/// `nodes` owns declaration type syntax and all function/constant nodes together;
+/// it is not one HirNodes per function. Child module rows are headers, with their
 /// contents analyzed in separate modules. LoweredModule pairs this record with
 /// source and SourceMap. Resolution/typing consume it and publish separate facts;
 /// allocation does not establish source validity. Resolved scope/export candidates
@@ -93,7 +93,7 @@ pub struct Module {
     /// Implementation blocks indexed by `ImplId`.
     pub impls: Vec<Impl>,
     /// Shared node storage for declaration types and all body owners.
-    pub body: Body,
+    pub nodes: HirNodes,
 }
 
 impl Module {
@@ -133,7 +133,7 @@ impl Module {
     /// Panics for a foreign lowering, a non-function owner, an absent function/parameter
     /// slot, or a stored identity that does not match the requested ID.
     pub fn parameter(&self, id: ParamId) -> &Param {
-        assert_eq!(id.arena(), self.body.arena(), "foreign HIR parameter");
+        assert_eq!(id.arena(), self.nodes.arena(), "foreign HIR parameter");
         let HirOwner::Body(BodyOwner::Function(owner)) = id.owner() else {
             panic!("HIR parameter requires a function owner");
         };
@@ -150,7 +150,7 @@ impl Module {
     ///
     /// Panics for a foreign arena or out-of-range owner/slot.
     pub fn variant(&self, id: VariantId) -> &Variant {
-        assert_eq!(id.arena(), self.body.arena(), "foreign HIR variant");
+        assert_eq!(id.arena(), self.nodes.arena(), "foreign HIR variant");
         &self.enums[id.owner().index()].variants[id.slot()]
     }
 
@@ -160,7 +160,7 @@ impl Module {
     ///
     /// Panics for a foreign arena or out-of-range owner/slot.
     pub fn field(&self, id: FieldId) -> &Field {
-        assert_eq!(id.arena(), self.body.arena(), "foreign HIR field");
+        assert_eq!(id.arena(), self.nodes.arena(), "foreign HIR field");
         let fields = match id.owner() {
             FieldOwner::Struct(owner) => {
                 let declaration = &self.structs[owner.index()];
@@ -178,34 +178,34 @@ impl Module {
         field
     }
 
-    /// Borrows node data through [`Body::block`], including its arena/owner checks.
+    /// Borrows node data through [`HirNodes::block`], including its arena/owner checks.
     pub fn block(&self, id: BlockId) -> &BlockData {
-        self.body.block(id)
+        self.nodes.block(id)
     }
 
-    /// Borrows node data through [`Body::stmt`], including its arena/owner checks.
+    /// Borrows node data through [`HirNodes::stmt`], including its arena/owner checks.
     pub fn stmt(&self, id: StmtId) -> &StmtData {
-        self.body.stmt(id)
+        self.nodes.stmt(id)
     }
 
-    /// Borrows node data through [`Body::expr`], including its arena/owner checks.
+    /// Borrows node data through [`HirNodes::expr`], including its arena/owner checks.
     pub fn expr(&self, id: ExprId) -> &ExprData {
-        self.body.expr(id)
+        self.nodes.expr(id)
     }
 
-    /// Borrows node data through [`Body::place`], including its arena/owner checks.
+    /// Borrows node data through [`HirNodes::place`], including its arena/owner checks.
     pub fn place(&self, id: PlaceId) -> &PlaceData {
-        self.body.place(id)
+        self.nodes.place(id)
     }
 
-    /// Borrows node data through [`Body::pattern`], including its arena/owner checks.
+    /// Borrows node data through [`HirNodes::pattern`], including its arena/owner checks.
     pub fn pattern(&self, id: PatternId) -> &PatternData {
-        self.body.pattern(id)
+        self.nodes.pattern(id)
     }
 
-    /// Borrows node data through [`Body::type_ref`], including its arena/owner checks.
+    /// Borrows node data through [`HirNodes::type_ref`], including its arena/owner checks.
     pub fn type_ref(&self, id: TypeRefId) -> &TypeData {
-        self.body.type_ref(id)
+        self.nodes.type_ref(id)
     }
 }
 

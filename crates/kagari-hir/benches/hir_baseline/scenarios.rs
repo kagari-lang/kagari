@@ -178,7 +178,7 @@ pub fn verify_edit(
             let (expr_id, expr) = facts
                 .lowered
                 .module
-                .body
+                .nodes
                 .expressions()
                 .find(|(expr_id, _)| {
                     let span = facts.lowered.source_map.expr_span(*expr_id);

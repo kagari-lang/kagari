@@ -115,6 +115,7 @@ impl Fixture {
         let mut interface = nominal(view);
         interface.associated_types.insert(output, applied.as_type());
         let selected = InterfaceTable {
+            method_origins: Vec::new(),
             declaration: selected_id,
             name: "ViewForTuple".into(),
             generic_params: vec![applied.clone()],
@@ -130,6 +131,7 @@ impl Fixture {
             bridge: None,
         };
         let leaf = InterfaceTable {
+            method_origins: Vec::new(),
             declaration: leaf_id,
             name: "ReadForI32".into(),
             generic_params: vec![],

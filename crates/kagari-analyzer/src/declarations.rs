@@ -138,7 +138,7 @@ impl<'a> DeclarationSiteIndex<'a> {
         }
         // Canonical targets exclude variant names, alternate-pattern leaves and
         // unavailable bodies; structural traversal does not reclassify any binder.
-        for (_, pattern) in module.body.patterns() {
+        for (_, pattern) in module.nodes.patterns() {
             if let PatternKind::Name { local, .. } = pattern.kind {
                 index.insert(
                     map.local_span(local),
@@ -147,7 +147,7 @@ impl<'a> DeclarationSiteIndex<'a> {
                 );
             }
         }
-        for (_, expr) in module.body.expressions() {
+        for (_, expr) in module.nodes.expressions() {
             if let ExprKind::Closure { params, .. } = &expr.kind {
                 for param in params {
                     index.insert(

@@ -2,17 +2,21 @@
 use crate::{
     error::RuntimeError,
     module::{VerifiedProgram, admission::DefinitionAdmission},
-    native::catalog::DeclarationCatalog,
+    native::{catalog::DeclarationCatalog, registry::matching},
 };
 use kagari_bytecode::module::BytecodeModule;
-use kagari_common::identity::{DefinitionKind, table::DefinitionId};
+use kagari_common::identity::{
+    DefinitionKind,
+    table::{DefinitionId, DefinitionTable},
+};
 use kagari_contract::types::{InterfaceTable, PublicItem, inherent::InherentTable, trait_contract};
 use kagari_types::{
-    declaration::{TypeDefKind, module::ImplDecl},
+    declaration::{TraitDef, TypeDefKind, module::ImplDecl},
     language,
     language::Protocol,
     ty::Ty,
 };
+use std::collections::BTreeMap;
 
 /// Registered value/external schemas remain exact even without callable imports.
 pub(super) fn validate_installed_values(
@@ -74,7 +78,9 @@ pub(super) fn validate_installed_traits(
         });
         let registered = id.and_then(|id| installed.traits.get_id(id));
         if (registered.is_some() || reserved || contract.conversion_adapter.is_some())
-            && registered != Some(contract)
+            && !registered.is_some_and(|expected| {
+                id.is_some_and(|id| matching::trait_contract(id, expected, contract, &definitions))
+            })
         {
             return Err(RuntimeError::module_validation(
                 "reserved or native trait differs from its installed contract",
@@ -90,7 +96,14 @@ pub(super) fn validate_installed_traits(
         if (registered.is_some()
             || Protocol::from_definition(&contract.declaration, &definitions).is_some()
             || contract.abi.conversion_adapter.is_some())
-            && registered != Some(&contract.abi)
+            && !registered.is_some_and(|expected| {
+                matching::trait_contract(
+                    contract.declaration,
+                    expected,
+                    &contract.abi,
+                    &definitions,
+                )
+            })
         {
             return Err(RuntimeError::module_validation(
                 "private reserved or native trait lacks an installed contract",
@@ -110,12 +123,45 @@ pub(super) fn validate_installed_traits(
                 })?;
             if !public_items
                 .iter()
-                .any(|item| matches!(item, PublicItem::Trait(actual) if actual == expected))
+                .any(|item| matches!(item, PublicItem::Trait(actual) if protocol.definition(&definitions).is_some_and(|id| matching::trait_contract(id, expected, actual, &definitions))))
             {
                 return Err(RuntimeError::module_validation(
                     "language foundation is missing a required role",
                 ));
             }
+        }
+    }
+    Ok(())
+}
+
+/// Expected source traits are implementation obligations checked against actual owners,
+/// never a copied compiler catalog or a runtime trait solver.
+pub(super) fn validate_expected_traits(
+    expected: &BTreeMap<DefinitionId, TraitDef>,
+    program: &VerifiedProgram,
+    admission: &DefinitionAdmission,
+) -> Result<(), RuntimeError> {
+    for (id, required) in expected {
+        let product_id = admission
+            .product_id(*id)
+            .ok_or_else(|| RuntimeError::module_validation("expected source trait is absent"))?;
+        let found = program.modules().iter().any(|module| {
+            trait_contract(
+                &module.identity,
+                &module.public_items,
+                &module.trait_contracts,
+                &product_id,
+                program.definitions(),
+            )
+            .and_then(|actual| admission.runtime(actual, &Default::default()).ok())
+            .is_some_and(|actual| {
+                matching::trait_contract(*id, required, &actual, admission.target())
+            })
+        });
+        if !found {
+            return Err(RuntimeError::module_validation(
+                "expected source trait differs from its actual owner",
+            ));
         }
     }
     Ok(())
@@ -166,7 +212,9 @@ pub(super) fn validate(
                     admission
                         .runtime(actual, &Default::default())
                         .as_ref()
-                        .is_ok_and(|actual| actual == expected)
+                        .is_ok_and(|actual| {
+                            matching::trait_contract(id, expected, actual, &definitions)
+                        })
                 })
         }) {
             return Err(RuntimeError::module_validation(format!(
@@ -188,7 +236,7 @@ pub(super) fn validate(
                     admission
                         .runtime(declaration, &Default::default())
                         .as_ref()
-                        .is_ok_and(|actual| actual == expected)
+                        .is_ok_and(|actual| matching::declaration(expected, actual, &definitions))
                 })
         }) {
             return Err(RuntimeError::module_validation(
@@ -212,7 +260,9 @@ pub(super) fn validate(
                     admission
                         .runtime(actual.as_ref(), &Default::default())
                         .as_ref()
-                        .is_ok_and(|actual| implementation_matches(&id, expected, actual))
+                        .is_ok_and(|actual| {
+                            implementation_matches(&id, expected, actual, &definitions)
+                        })
                 }
                 PublicItem::InherentTable(actual)
                     if admission.runtime_id(actual.declaration).ok() == Some(id) =>
@@ -220,7 +270,7 @@ pub(super) fn validate(
                     admission
                         .runtime(actual.as_ref(), &Default::default())
                         .as_ref()
-                        .is_ok_and(|actual| inherent_matches(id, expected, actual))
+                        .is_ok_and(|actual| inherent_matches(id, expected, actual, &definitions))
                 }
                 _ => false,
             })
@@ -233,7 +283,12 @@ pub(super) fn validate(
     Ok(())
 }
 
-fn implementation_matches(id: &DefinitionId, expected: &ImplDecl, actual: &InterfaceTable) -> bool {
+fn implementation_matches(
+    id: &DefinitionId,
+    expected: &ImplDecl,
+    actual: &InterfaceTable,
+    definitions: &DefinitionTable,
+) -> bool {
     // The compiler materializes omitted defaults on its real executable table.
     // Match the registered header and every explicit native method; defaults are
     // independently checked against the exact carried trait/template contracts.
@@ -250,11 +305,17 @@ fn implementation_matches(id: &DefinitionId, expected: &ImplDecl, actual: &Inter
             method
                 .generic_params
                 .retain(|parameter| !expected.generic_params.contains(parameter));
-            actual.methods.contains(&method)
+            matching::method(*id, &method, definitions)
+                .is_some_and(|expected| actual.methods.contains(&expected))
         })
 }
 
-fn inherent_matches(id: DefinitionId, expected: &ImplDecl, actual: &InherentTable) -> bool {
+fn inherent_matches(
+    id: DefinitionId,
+    expected: &ImplDecl,
+    actual: &InherentTable,
+    definitions: &DefinitionTable,
+) -> bool {
     expected.trait_type.is_none()
         && actual.declaration == id
         && actual.generic_params == expected.generic_params
@@ -265,7 +326,8 @@ fn inherent_matches(id: DefinitionId, expected: &ImplDecl, actual: &InherentTabl
             method
                 .generic_params
                 .retain(|parameter| !expected.generic_params.contains(parameter));
-            actual.methods.contains(&method)
+            matching::method(id, &method, definitions)
+                .is_some_and(|expected| actual.methods.contains(&expected))
         })
 }
 

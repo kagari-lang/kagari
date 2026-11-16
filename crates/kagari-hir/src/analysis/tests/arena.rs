@@ -20,11 +20,11 @@ fn identical_local_slots_from_different_lowerings_cannot_resolve() {
     let left = snapshot.file(left_id).unwrap().result().facts();
     let right = snapshot.file(right_id).unwrap().result().facts();
     assert_ne!(
-        left.lowered.module.body.arena(),
-        right.lowered.module.body.arena()
+        left.lowered.module.nodes.arena(),
+        right.lowered.module.nodes.arena()
     );
     assert_eq!(
-        left.lowered.module.body.arena(),
+        left.lowered.module.nodes.arena(),
         left.lowered.source_map.arena()
     );
     let a = &left.lowered.module.functions[0];
@@ -52,7 +52,7 @@ fn identical_local_slots_from_different_lowerings_cannot_resolve() {
             .target(ResolvedName::Param(a.params[0].id))
             .is_none()
     );
-    for (expr, _) in left.lowered.module.body.expressions() {
+    for (expr, _) in left.lowered.module.nodes.expressions() {
         assert!(right.typed.type_table.expr_type(expr).is_none());
         assert!(right.names.expr_resolution(expr).is_none());
     }
@@ -82,8 +82,8 @@ fn identical_local_slots_from_different_lowerings_cannot_resolve() {
     else {
         panic!("binding");
     };
-    let left_local = left.lowered.module.body.pattern_bindings(left_pattern)[0].0;
-    let right_local = right.lowered.module.body.pattern_bindings(right_pattern)[0].0;
+    let left_local = left.lowered.module.nodes.pattern_bindings(left_pattern)[0].0;
+    let right_local = right.lowered.module.nodes.pattern_bindings(right_pattern)[0].0;
     assert_eq!(left_pattern.index(), right_pattern.index());
     assert_ne!(left_pattern, right_pattern);
     assert_eq!(left_local.index(), right_local.index());
@@ -102,7 +102,7 @@ fn identical_local_slots_from_different_lowerings_cannot_resolve() {
     );
     assert!(std::panic::catch_unwind(|| right.lowered.module.stmt(left_stmt)).is_err());
     assert!(
-        std::panic::catch_unwind(|| right.lowered.module.body.pattern_bindings(left_pattern))
+        std::panic::catch_unwind(|| right.lowered.module.nodes.pattern_bindings(left_pattern))
             .is_err()
     );
 }
@@ -122,7 +122,7 @@ fn edits_retire_local_ids_while_unchanged_queries_share_the_lowering() {
     let old_expr = old_facts
         .lowered
         .module
-        .body
+        .nodes
         .expressions()
         .find(|(expr, _)| old_facts.typed.type_table.expr_type(*expr).is_some())
         .unwrap()
@@ -132,7 +132,7 @@ fn edits_retire_local_ids_while_unchanged_queries_share_the_lowering() {
         .unwrap();
     let edited = analyze(&mut db, &sources);
     let new = edited.file(id).unwrap().result().facts();
-    assert_ne!(old_expr.arena(), new.lowered.module.body.arena());
+    assert_ne!(old_expr.arena(), new.lowered.module.nodes.arena());
     assert!(new.typed.type_table.expr_type(old_expr).is_none());
     assert!(old_facts.typed.type_table.expr_type(old_expr).is_some());
     let old_parameter = old_facts.lowered.module.functions[0].params[0].id;
@@ -161,7 +161,7 @@ fn interleaved_query_revisions_rebase_even_identical_source_revisions() {
         .facts()
         .lowered
         .module
-        .body
+        .nodes
         .arena();
     sources
         .set(
@@ -177,7 +177,7 @@ fn interleaved_query_revisions_rebase_even_identical_source_revisions() {
     // original revision. Reconstructing that revision must not copy its old IDs.
     let reconstructed = db.snapshot(old_source, &Default::default()).unwrap();
     let file = reconstructed.file(id).unwrap();
-    let arena = file.result().facts().lowered.module.body.arena();
+    let arena = file.result().facts().lowered.module.nodes.arena();
     assert_ne!(old_arena, arena);
     assert!(
         file.result().diagnostics().is_empty(),
@@ -215,7 +215,7 @@ fn interleaved_query_revisions_rebase_even_identical_source_revisions() {
                 .facts()
                 .lowered
                 .module
-                .body
+                .nodes
                 .arena(),
             fresh
                 .file(id)
@@ -224,7 +224,7 @@ fn interleaved_query_revisions_rebase_even_identical_source_revisions() {
                 .facts()
                 .lowered
                 .module
-                .body
+                .nodes
                 .arena(),
         );
     assert!(Arc::ptr_eq(

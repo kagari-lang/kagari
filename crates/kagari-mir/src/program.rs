@@ -27,6 +27,7 @@ use kagari_common::{
         scoped::DefinitionReferences, table::DefinitionTable,
     },
 };
+use kagari_contract::types::materialization;
 use kagari_contract::{
     contracts,
     exports::{
@@ -851,6 +852,31 @@ pub fn verify_program(
                 ProgramErrorKind::Cancelled
             } else {
                 ProgramErrorKind::Updates(cause)
+            },
+        )
+    })?;
+    materialization::script_bodies(
+        modules
+            .iter()
+            .flat_map(|module| &module.abi.public_items)
+            .filter_map(|item| match item {
+                PublicItem::InterfaceTable(table) => Some(table.as_ref()),
+                _ => None,
+            }),
+        modules
+            .iter()
+            .flat_map(|module| &module.functions)
+            .map(|function| &function.instance),
+        &update_evidence.sources,
+        cancel,
+    )
+    .map_err(|_| {
+        error(
+            &root,
+            if cancel.check().is_err() {
+                ProgramErrorKind::Cancelled
+            } else {
+                ProgramErrorKind::InvalidGraph
             },
         )
     })?;

@@ -322,6 +322,7 @@ fn update_evidence_default_selection_has_impl_identity_and_trait_source() {
             conversion_adapter: None,
         }),
         PublicItem::InterfaceTable(Box::new(InterfaceTable {
+            method_origins: Vec::new(),
             declaration: implementation,
             name: "Answer for i32".into(),
             bridge: None,
@@ -438,6 +439,7 @@ fn bridge_classification_requires_its_local_table_method_and_exact_body() {
         .abi
         .public_items
         .push(PublicItem::InterfaceTable(Box::new(InterfaceTable {
+            method_origins: Vec::new(),
             declaration: implementation,
             name: "bridge".into(),
             bridge: Some(InterfaceBridge::Intrinsic),
@@ -570,6 +572,7 @@ fn selected_construction_preserves_supplied_proof_and_checks_it_at_admission() {
         PublicItem::Trait(read_contract),
         PublicItem::Trait(contract("View")),
         PublicItem::InterfaceTable(Box::new(InterfaceTable {
+            method_origins: Vec::new(),
             declaration: selected,
             name: "View for tuple".into(),
             bridge: None,

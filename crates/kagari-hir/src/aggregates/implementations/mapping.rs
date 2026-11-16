@@ -20,9 +20,6 @@ impl RemapDefinitions for ImplementationSignature {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ImplementationSignature {
-            engine_owned: self.engine_owned,
-            external_type_owned: self.external_type_owned,
-            external_conversion_owned: self.external_conversion_owned,
             associated_type_families: map_entries(
                 self.associated_type_families.len(),
                 self.associated_type_families.iter().map(|(key, value)| {

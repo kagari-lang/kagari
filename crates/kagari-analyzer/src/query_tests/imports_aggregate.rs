@@ -44,7 +44,7 @@ fn imported_struct_initializers_and_nested_mutations_use_nominal_fields() {
         assert_eq!(field.source_location().unwrap().file, models);
         assert_eq!(field.name, "number");
     }
-    for (id, _) in file.result().facts().lowered.module.body.expressions() {
+    for (id, _) in file.result().facts().lowered.module.nodes.expressions() {
         if let Some(init) = file.result().facts().typed.type_table().struct_init(id) {
             assert_eq!(
                 file.definitions()

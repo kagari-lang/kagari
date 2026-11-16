@@ -213,7 +213,6 @@ pub struct TypeTable {
     places: HashMap<PlaceId, TypeId>,
     calls: HashMap<ExprId, ResolvedCall>,
     /// Generated methods whose checked tail call proves the registered default recipe.
-    pub(crate) native_default_calls: HashMap<FunctionId, ExprId>,
     scalars: HashMap<ExprId, ScalarValue>,
     pattern_scalars: HashMap<PatternId, ScalarValue>,
     pattern_ranges: HashMap<PatternId, (ScalarValue, ScalarValue)>,
@@ -612,11 +611,6 @@ impl TypeTable {
                 ));
             }
         }
-        for (function, site) in &old.native_default_calls {
-            if let Some(mapped) = expr_ids.get(site) {
-                self.native_default_calls.insert(*function, *mapped);
-            }
-        }
         self.calls.extend(calls);
         self.host_place_paths.extend(host_place_paths);
         self.host_paths.extend(host_paths);
@@ -905,16 +899,6 @@ mod mapping;
 pub mod propagation;
 
 impl TypeTable {
-    /// Returns the checked forwarding call for a generated native default method.
-    /// Signature-only or unsuccessful body analysis has no entry.
-    pub fn native_default_call(&self, function: FunctionId) -> Option<ResolvedCall> {
-        self.native_default_call_ref(function).cloned()
-    }
-
-    pub(crate) fn native_default_call_ref(&self, function: FunctionId) -> Option<&ResolvedCall> {
-        self.calls.get(self.native_default_calls.get(&function)?)
-    }
-
     /// Returns the recorded selected iterator interfaces and element type, or `None` when no such fact was recorded.
     pub fn iteration(&self, id: ExprId) -> Option<&ResolvedIteration> {
         self.iterations.get(&id)

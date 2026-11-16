@@ -1,32 +1,45 @@
 //! Header-time role collection. Roles identify ordinary traits, not a second trait model.
+mod shapes;
 #[cfg(test)]
 mod tests;
+use crate::aggregates::traits::TraitSignature;
 use crate::{
     DiagnosticBuffer,
     aggregates::AggregateCatalog,
-    aggregates::traits::MethodDefault,
     declarations::{DeclarationId, Declarations},
     hir::{
         attribute::{AttributeForm, AttributeTarget, AttributeValue},
         item::Item,
     },
     lower::LoweredModule,
-    native::NativeBinding,
     resolver::resolved::ResolvedName,
     types::semantic::{lower_nominal_type, lower_type},
 };
-use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId, span::Span};
+use kagari_common::{
+    cancellation::{CancellationToken, Cancelled},
+    identity::table::{DefinitionId, DefinitionTable},
+    span::Span,
+};
 use kagari_source::{
     diagnostic::{Diagnostic, DiagnosticKind},
     literal::decode_string_literal,
 };
 use kagari_types::{
-    callable::CallableImplementation, declaration::TraitDef, language, language::role::LangRole,
-    ty::GenericBound, visibility::Visibility,
+    callable::CallableImplementation,
+    declaration::{
+        AssociatedTypeDef, FnDecl, Param, TraitDef, conversion::ConversionAdapter,
+        names::NameNamespace,
+    },
+    language::{self, role::LangRole},
+    ty::{GenericBound, GenericParam},
+    visibility::Visibility,
 };
-use std::collections::{BTreeMap, btree_map::Entry};
+use std::{
+    collections::{BTreeMap, btree_map::Entry},
+    iter,
+};
 
-/// Collects canonical `#[lang]` identities from an explicitly admitted foundation.
+/// Collects canonical `#[lang]` identities from actual declarations.
 pub(crate) fn collect(
     lowered: &LoweredModule,
     declarations: &Declarations,
@@ -60,12 +73,10 @@ pub(crate) fn collect(
             report(&name, "unknown reserved role", attribute.span);
             continue;
         };
-        if !lowered.language_foundation
-            || lowered.source.module_identity() != &language::identity(role.protocol()).module
-        {
+        if lowered.source.module_identity() != &language::identity(role.protocol()).module {
             report(
                 &name,
-                "only admitted language foundation source may declare roles",
+                "language roles require their canonical owning module",
                 attribute.span,
             );
             continue;
@@ -102,7 +113,7 @@ pub(crate) fn collect(
             Entry::Occupied(_) => report(&name, "duplicate role", attribute.span),
         }
     }
-    if lowered.language_foundation {
+    if language::is_language_module(lowered.source.module_identity()) {
         for role in LangRole::ALL.into_iter().filter(|role| {
             language::identity(role.protocol()).module == *lowered.source.module_identity()
         }) {
@@ -114,141 +125,164 @@ pub(crate) fn collect(
     items
 }
 
-/// Compare foundation and static conversion shapes before role-dependent bodies.
-/// Offline defaults remain either complete checked Script bodies or unbound Native
-/// declarations; neither supplies the installed recipe's execution authority.
+/// Check language-required shapes against their semantic requirements, not a copy
+/// supplied by the producer. Static conversion relationships use the shared verifier.
 pub(crate) fn validate_shapes(
     declarations: &Declarations,
     aggregates: &AggregateCatalog,
-    expected: &BTreeMap<DefinitionId, TraitDef>,
-    external: &BTreeMap<DefinitionId, TraitDef>,
     diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {
-    let mut contracts = declarations
-        .language_items
-        .iter()
-        .map(|(role, id)| {
-            (
-                role.name(),
-                id,
-                expected.get(id).or_else(|| external.get(id)),
-                external.contains_key(id),
-            )
-        })
-        .collect::<Vec<_>>();
-    contracts.extend(
-        external
-            .iter()
-            .filter(|(id, _)| !declarations.language_items.values().any(|role| role == *id))
-            .map(|(id, contract)| (contract.name.as_str(), id, Some(contract), true)),
-    );
-    for (name, id, expected, offline) in contracts {
-        let Some(expected) = expected else {
+    for (role, id) in &declarations.language_items {
+        if cancel.check().is_err() {
+            return;
+        }
+        if !aggregates.trait_(id).is_some_and(|actual| {
+            shapes::valid(actual, role.protocol(), declarations.definitions())
+        }) {
             diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidLanguageRole {
-                role: name.into(),
-                reason: "missing static language declaration evidence".into(),
-            }));
-            continue;
-        };
-        let owner_generic_count = expected.generic_params.len();
-        let valid = aggregates.trait_(id).is_some_and(|actual| {
-            actual.conversion_adapter == expected.conversion_adapter
-                && actual.generic_params.len() == expected.generic_params.len()
-                && actual.bounds.values().all(Vec::is_empty)
-                && expected.bounds.is_empty()
-                && actual.associated_consts.is_empty()
-                && expected.associated_consts.is_empty()
-                && actual.associated_type_parameters.is_empty()
-                && expected.associated_types.iter().all(|member| {
-                    member.generic_params.is_empty() && member.parameter_bounds.is_empty()
-                })
-                && actual
-                    .supertraits
-                    .iter()
-                    .map(lower_nominal_type)
-                    .collect::<Vec<_>>()
-                    == expected.supertraits
-                && actual.associated_types.len() == expected.associated_types.len()
-                && expected.associated_types.iter().all(|member| {
-                    actual
-                        .associated_types
-                        .get(&member.declaration)
-                        .is_some_and(|bounds| {
-                            bounds.iter().map(lower_nominal_type).collect::<Vec<_>>()
-                                == member.bounds
-                        })
-                })
-                && actual.methods.len() == expected.methods.len()
-                && actual
-                    .methods
-                    .iter()
-                    .zip(&expected.methods)
-                    .all(|(actual, expected)| {
-                        actual.name == expected.name
-                            && match &expected.implementation {
-                                CallableImplementation::NativeDefault(_) if offline => {
-                                    matches!(
-                                        actual.default,
-                                        Some(
-                                            MethodDefault::NativeDeclaration
-                                                | MethodDefault::Script
-                                        )
-                                    )
-                                }
-                                CallableImplementation::Native(_) if offline => {
-                                    actual.default == Some(MethodDefault::NativeDeclaration)
-                                }
-                                CallableImplementation::Script if offline => {
-                                    actual.default == Some(MethodDefault::Script)
-                                }
-                                CallableImplementation::NativeDefault(application) => {
-                                    actual.default
-                                        == Some(MethodDefault::Native(NativeBinding::Default(
-                                            application.clone(),
-                                        )))
-                                }
-                                CallableImplementation::Required => actual.default.is_none(),
-                                _ => false,
-                            }
-                            && actual.policy == expected.method_policy
-                            && actual.generic_params.len()
-                                == expected.generic_params.len() + owner_generic_count
-                            && {
-                                let bounds = actual
-                                    .bounds
-                                    .iter()
-                                    .filter(|(_, bounds)| !bounds.is_empty())
-                                    .map(|(ty, bounds)| {
-                                        let constraints =
-                                            bounds.iter().map(lower_nominal_type).collect();
-                                        GenericBound {
-                                            ty: lower_type(ty),
-                                            constraints,
-                                        }
-                                    })
-                                    .collect::<Vec<_>>();
-                                GenericBound::normalize(bounds, declarations.definitions(), cancel)
-                                    .is_ok_and(|bounds| bounds == expected.bounds)
-                            }
-                            && actual.params.len() == expected.params.len()
-                            && actual.params.iter().zip(&expected.params).all(
-                                |(actual, expected)| {
-                                    actual.name == expected.name
-                                        && actual.writeability.is_var() == expected.mutable
-                                        && !actual.ty.is_unresolved()
-                                        && lower_type(&actual.ty) == expected.ty
-                                },
-                            )
-                            && !actual.return_type.is_unresolved()
-                            && lower_type(&actual.return_type) == expected.return_type
-                    })
-        });
-        if !valid {
-            diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidLanguageRole {
-                role: name.into(),
-                reason: "declaration binders, parents or member shapes differ from the static language contract".into(),
+                role: role.name().into(),
+                reason: "declaration binders, parents or member shapes differ from language requirements".into(),
             }));
         }
     }
+    for actual in aggregates.traits().filter(|actual| {
+        actual.conversion_adapter.is_some()
+            && matches!(
+                declarations.definition_target(&actual.id),
+                Some(ResolvedName::Trait(_))
+            )
+    }) {
+        if cancel.check().is_err() {
+            return;
+        }
+        let exposed = match conversion_exposed(actual, declarations, cancel) {
+            Ok(exposed) => exposed,
+            Err(_) => return,
+        };
+        if !exposed
+            || !conversion_valid(actual, declarations.definitions())
+            || !shapes::conversion_targets_valid(actual, aggregates)
+        {
+            diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidLanguageRole {
+                role: format!("{:?}", actual.id),
+                reason: "invalid static conversion relationship".into(),
+            }));
+        }
+    }
+}
+
+fn conversion_exposed(
+    actual: &TraitSignature,
+    declarations: &Declarations,
+    cancel: &CancellationToken,
+) -> Result<bool, Cancelled> {
+    let targets = match &actual.conversion_adapter {
+        Some(ConversionAdapter::Reverse { origin, result, .. }) => iter::once(origin)
+            .chain(result.iter())
+            .copied()
+            .collect::<Vec<_>>(),
+        Some(ConversionAdapter::Forward { result, .. }) => vec![*result],
+        None => return Ok(true),
+    };
+    for target in targets {
+        if declarations
+            .resolve_definition_exposure(target, NameNamespace::Type, None, cancel)?
+            .is_none()
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn conversion_valid(actual: &TraitSignature, definitions: &DefinitionTable) -> bool {
+    // Intrinsic derivation currently proves only the forward conversion. It cannot
+    // discharge additional obligations on the reverse receiver or its method.
+    if !actual.associated_consts.is_empty()
+        || !actual.associated_type_parameters.is_empty()
+        || !actual.supertraits.is_empty()
+        || actual.bounds.values().any(|bounds| !bounds.is_empty())
+        || actual
+            .methods
+            .iter()
+            .any(|method| method.bounds.values().any(|bounds| !bounds.is_empty()))
+    {
+        return false;
+    }
+    // A temporary projection of the actual checked declaration lets the portable
+    // verifier own conversion rules too; no expected trait catalog is retained.
+    let record = TraitDef {
+        associated_consts: vec![],
+        name: String::new(),
+        supertraits: actual.supertraits.iter().map(lower_nominal_type).collect(),
+        bounds: actual
+            .bounds
+            .iter()
+            .map(|(ty, constraints)| GenericBound {
+                ty: lower_type(ty),
+                constraints: constraints.iter().map(lower_nominal_type).collect(),
+            })
+            .collect(),
+        generic_params: actual
+            .generic_params
+            .iter()
+            .map(|parameter| GenericParam {
+                owner: parameter.owner,
+                position: parameter.position,
+            })
+            .collect(),
+        methods: actual
+            .methods
+            .iter()
+            .map(|method| FnDecl {
+                host_policy: None,
+                method_policy: method.policy,
+                name: method.name.clone(),
+                implementation: CallableImplementation::Required,
+                generic_params: method
+                    .generic_params
+                    .iter()
+                    .filter(|parameter| parameter.owner == method.id)
+                    .map(|parameter| GenericParam {
+                        owner: parameter.owner,
+                        position: parameter.position,
+                    })
+                    .collect(),
+                bounds: method
+                    .bounds
+                    .iter()
+                    .map(|(ty, constraints)| GenericBound {
+                        ty: lower_type(ty),
+                        constraints: constraints.iter().map(lower_nominal_type).collect(),
+                    })
+                    .collect(),
+                params: method
+                    .params
+                    .iter()
+                    .map(|parameter| Param {
+                        name: parameter.name.clone(),
+                        ty: lower_type(&parameter.ty),
+                        mutable: parameter.writeability.is_var(),
+                    })
+                    .collect(),
+                return_type: lower_type(&method.return_type),
+            })
+            .collect(),
+        associated_types: actual
+            .associated_types
+            .iter()
+            .map(|(id, bounds)| AssociatedTypeDef {
+                declaration: *id,
+                generic_params: vec![],
+                parameter_bounds: vec![],
+                bounds: bounds.iter().map(lower_nominal_type).collect(),
+            })
+            .collect(),
+        conversion_adapter: actual.conversion_adapter.clone(),
+    };
+    actual
+        .conversion_adapter
+        .as_ref()
+        .is_some_and(|relationship| relationship.valid_in(&actual.id, &record, definitions))
 }

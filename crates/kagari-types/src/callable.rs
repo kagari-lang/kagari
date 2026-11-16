@@ -1,13 +1,7 @@
 //! Callable implementation selectors with scoped definition identities. Signatures belong to the
 //! declarations lowered from HIR; these identities never reconstruct a signature.
-use crate::{
-    reference::ReferenceAccess,
-    ty::{
-        Ty,
-        substitution::{TypeSubstitution, TypeTransformError},
-    },
-};
-use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
+use crate::{reference::ReferenceAccess, ty::Ty};
+use kagari_common::identity::table::DefinitionId;
 use serde::{Deserialize, Serialize};
 
 /// Declaration policy is independent of the implementation's provider or entry.
@@ -36,52 +30,6 @@ pub enum CallableImplementation {
     Required,
     Script,
     Native(DefinitionId),
-    /// A trait default applies an ordinary registered function template. Its
-    /// arguments belong to the enclosing trait/method binder, including Self.
-    NativeDefault(NativeDefaultApplication),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct NativeDefaultApplication {
-    pub declaration: DefinitionId,
-    pub arguments: Vec<Ty>,
-}
-
-impl NativeDefaultApplication {
-    pub fn apply(
-        &self,
-        substitution: &TypeSubstitution<'_>,
-        cancel: &CancellationToken,
-    ) -> Result<Self, TypeTransformError> {
-        cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-        if self.arguments.len() > 4096 {
-            return Err(TypeTransformError::LimitExceeded);
-        }
-        Ok(Self {
-            declaration: self.declaration,
-            arguments: self
-                .arguments
-                .iter()
-                .map(|argument| substitution.apply(argument, cancel))
-                .collect::<Result<_, _>>()?,
-        })
-    }
-}
-
-impl CallableImplementation {
-    pub fn apply(
-        &self,
-        substitution: &TypeSubstitution<'_>,
-        cancel: &CancellationToken,
-    ) -> Result<Self, TypeTransformError> {
-        cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-        Ok(match self {
-            Self::NativeDefault(application) => {
-                Self::NativeDefault(application.apply(substitution, cancel)?)
-            }
-            _ => self.clone(),
-        })
-    }
 }
 
 mod mapping;

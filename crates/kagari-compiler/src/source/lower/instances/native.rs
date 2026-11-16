@@ -20,8 +20,8 @@ impl InstancePlanner<'_> {
         arguments: &[TypeId],
         span: Span,
     ) -> Result<bool, MirLoweringError> {
-        let Some(declared) = self.registered_native_declaration(declaration).cloned() else {
-            return self.prepare_default_target(declaration, arguments, span);
+        let Some(declared) = self.native_declaration(declaration).cloned() else {
+            return Ok(false);
         };
         let invalid = || MirLoweringError::MissingBinding("checked native method instance");
         // All declared parameters must be supplied, either concretely or by a
@@ -68,9 +68,11 @@ impl InstancePlanner<'_> {
         arguments: &[TypeId],
         span: Span,
     ) -> Result<NativeImport, MirLoweringError> {
-        let declared = self.registered_native_declaration(declaration).ok_or(
-            MirLoweringError::MissingBinding("registered native template"),
-        )?;
+        let declared =
+            self.native_declaration(declaration)
+                .ok_or(MirLoweringError::MissingBinding(
+                    "registered native template",
+                ))?;
         if declared.function.generic_params.len() != arguments.len() {
             return Err(MirLoweringError::MissingBinding(
                 "native template arguments",
@@ -220,7 +222,7 @@ impl InstancePlanner<'_> {
                     .len()
                     .checked_sub(contract.generic_params.len())
                     .ok_or_else(invalid)?
-        } else if let Some(native) = self.registered_native_declaration(&owner) {
+        } else if let Some(native) = self.native_declaration(&owner) {
             native.function.generic_params.len()
         } else if let Some(module) = self.modules.get(&self.module_handle(owner))
             && let Some(ResolvedName::Function(id)) = module

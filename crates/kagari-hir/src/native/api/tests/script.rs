@@ -2,7 +2,7 @@
 
 use crate::{
     hir::{expr::ExprKind, item::function::FunctionImplementation},
-    native::{NativeBinding, api::preparation::PreparedRegistration, render::DeclarationSource},
+    native::{api::preparation::PreparedRegistration, render::DeclarationSource},
     resolver::collect::resolve_names,
     tests::common::check_module,
 };
@@ -154,7 +154,7 @@ fn embedded_script_definitions_keep_bodies_fields_and_native_binding_separate() 
             .attach(&Default::default())
             .unwrap_err()
             .0
-            .contains("requires complete supplied source")
+            .contains("requires a complete body")
     );
     let prepared = PreparedRegistration::new(
         metadata,
@@ -208,10 +208,14 @@ fn embedded_script_definitions_keep_bodies_fields_and_native_binding_separate() 
             .kind,
         ExprKind::Field { .. }
     ));
-    assert_eq!(lowered.registered_native_declarations().len(), 1);
-    assert_eq!(lowered.native_functions.len(), 1);
-    let (native, binding) = lowered.native_functions.iter().next().unwrap();
-    assert!(matches!(binding, NativeBinding::Entry(_)));
+    let natives = lowered
+        .module
+        .functions
+        .iter()
+        .filter(|function| matches!(function.implementation, FunctionImplementation::Native(_)))
+        .collect::<Vec<_>>();
+    assert_eq!(natives.len(), 1);
+    let native = natives[0].id;
     assert!(matches!(
         lowered.module.functions[native.index()].implementation,
         FunctionImplementation::Native(_)

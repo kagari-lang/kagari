@@ -1,13 +1,13 @@
 //! Snapshot-owned, unfiltered namespaces. Targets never carry member tables.
 pub(crate) mod definitions;
+use crate::imports::environment::ImportEnvironment;
 #[cfg(test)]
 use crate::tests::cancellation::{Checkpoint, checkpoint};
 
 use crate::{
     imports::{
         BindingCandidate, BindingOrigin, DirectiveId, NamespaceId, ResolvedTarget, SourceDeclRef,
-        SourceItem, SourceUnit, bindings::LookupOutcome, cache::same_name_tables,
-        solver::Observation,
+        SourceUnit, bindings::LookupOutcome, cache::same_name_tables, solver::Observation,
     },
     native::paths::source_package_alias,
     resolver::table::NameTable,
@@ -15,7 +15,7 @@ use crate::{
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{
-        DefinitionKind, DefinitionPath, ModuleIdentity, PackageId,
+        ModuleIdentity, PackageId,
         map::DefinitionContext,
         table::{DefinitionTable, module::ModuleHandle},
     },
@@ -61,14 +61,10 @@ pub struct NamespaceCatalog {
     pub(crate) modules: BTreeMap<ModuleHandle, Vec<SourceUnit>>,
     /// Namespace identity to owner, shared name table and glob policy.
     pub(crate) namespaces: HashMap<NamespaceId, NamespaceTable>,
-    /// Installed package aliases; multiple package targets make an alias ambiguous.
-    pub(crate) installed_aliases: BTreeMap<String, BTreeSet<PackageId>>,
     /// Canonical dependency modules retained by checked native declarations.
     /// These resolve only for that native importer, never as global source aliases.
-    pub(crate) native_dependencies: BTreeMap<ModuleHandle, BTreeSet<ModuleHandle>>,
-    /// Trusted declaration references admit only their canonical trait target.
-    /// Ordinary source importers receive no additional visibility.
-    pub(crate) native_trait_references: BTreeMap<ModuleHandle, BTreeSet<DefinitionPath>>,
+    pub(crate) module_dependencies: BTreeMap<ModuleHandle, BTreeSet<ModuleHandle>>,
+    pub(crate) environment: ImportEnvironment,
     pub(crate) packages: PackageEnvironment,
 }
 
@@ -170,9 +166,8 @@ impl NamespaceCatalog {
             packages,
             modules: BTreeMap::new(),
             namespaces: HashMap::new(),
-            installed_aliases: BTreeMap::new(),
-            native_dependencies: BTreeMap::new(),
-            native_trait_references: BTreeMap::new(),
+            module_dependencies: BTreeMap::new(),
+            environment: Default::default(),
         }
     }
 
@@ -273,10 +268,7 @@ impl NamespaceCatalog {
         }
         let admitted = candidates
             .iter()
-            .filter(|c| {
-                self.allows(c.visibility, c.owner, *ctx.importer)
-                    || self.referenced_trait(ctx, ns, name, c)
-            })
+            .filter(|c| self.allows(c.visibility, c.owner, *ctx.importer))
             .cloned()
             .collect::<Vec<_>>();
         if admitted.is_empty() {
@@ -611,9 +603,9 @@ impl NamespaceCatalog {
         cancel: &CancellationToken,
     ) -> Result<(), Cancelled> {
         let dependencies = self
-            .packages
-            .scope(&self.identity(*ctx.importer).package)
-            .map(|scope| &scope.dependencies);
+            .environment
+            .scope(self.identity(*ctx.importer))
+            .map(|scope| &scope.packages.dependencies);
         for (identity, units) in &self.modules {
             cancel.check()?;
             let portable = self.identity(*identity);
@@ -621,8 +613,8 @@ impl NamespaceCatalog {
             let direct = dependencies.is_some_and(|aliases| {
                 aliases.values().any(|package| package == &portable.package)
             });
-            let native = self.native_exposure_root(ctx.importer, identity);
-            if (own || native || (direct && portable.path.is_empty()))
+            let explicit = self.dependency_exposure_root(ctx.importer, identity);
+            if (own || explicit || (direct && portable.path.is_empty()))
                 && units.len() == 1
                 && self.module_accessible(ctx, identity, cancel)?
             {
@@ -799,46 +791,13 @@ impl NamespaceCatalog {
                 }
             }
         }
-        Ok(self.installed_aliases == other.installed_aliases
-            && self.native_dependencies == other.native_dependencies
-            && self.native_trait_references == other.native_trait_references
+        Ok(self.module_dependencies == other.module_dependencies
+            && self.environment == other.environment
             && self.packages == other.packages)
     }
 }
 
 impl NamespaceCatalog {
-    fn referenced_trait(
-        &self,
-        ctx: &LookupContext<'_>,
-        namespace: &NamespaceId,
-        name: &str,
-        candidate: &BindingCandidate,
-    ) -> bool {
-        let (NamespaceId::Module(unit), BindingOrigin::Declaration(source)) =
-            (namespace, &candidate.origin)
-        else {
-            return false;
-        };
-        let LookupOutcome::Resolved(ResolvedTarget::Source(target)) = &candidate.resolution else {
-            return false;
-        };
-        if source.unit != *unit || !matches!(source.item, SourceItem::Trait(_)) || target != source
-        {
-            return false;
-        }
-        self.native_trait_references
-            .get(ctx.importer)
-            .is_some_and(|references| {
-                references.iter().any(|reference| {
-                    self.definitions.lookup_module(&reference.module) == Some(unit.module)
-                        && reference.path.len() == 1
-                        && reference.path[0].kind == DefinitionKind::Trait
-                        && reference.path[0].occurrence == 0
-                        && reference.path[0].name == name
-                })
-            })
-    }
-
     fn package_path(
         &self,
         importer: &ModuleHandle,
@@ -874,10 +833,17 @@ impl NamespaceCatalog {
 
     fn package_targets(&self, importer: &ModuleHandle, name: &str) -> BTreeSet<PackageId> {
         let importer_identity = self.identity(*importer);
+        if let Some(target) = self
+            .environment
+            .scope(importer_identity)
+            .and_then(|scope| scope.packages.dependencies.get(name))
+        {
+            return [target.clone()].into();
+        }
         if name == importer_identity.package.0 {
             return [importer_identity.package.clone()].into();
         }
-        if let Some(dependencies) = self.native_dependencies.get(importer) {
+        if let Some(dependencies) = self.module_dependencies.get(importer) {
             let targets = dependencies
                 .iter()
                 .filter(|dependency| {
@@ -891,17 +857,8 @@ impl NamespaceCatalog {
                 return targets;
             }
         }
-        if let Some(target) = self
-            .packages
-            .scope(&importer_identity.package)
-            .and_then(|scope| scope.dependencies.get(name))
-        {
-            return [target.clone()].into();
-        }
-        self.installed_aliases
-            .get(name)
-            .cloned()
-            .unwrap_or_default()
+
+        BTreeSet::new()
     }
 
     /// Syntactic facade/module edges survive even when a terminal name is missing.

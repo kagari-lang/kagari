@@ -32,7 +32,7 @@ fn unresolved_body_holes_preserve_neighbor_facts_without_leaking_variables() {
         Some(TypeId::Builtin(BuiltinType::U8))
     );
     let mut retained_tuple = false;
-    for (id, _) in facts.lowered.module.body.expressions() {
+    for (id, _) in facts.lowered.module.nodes.expressions() {
         if let Some(ty) = facts.typed.type_table.expr_type(id) {
             ty.substitute_once(|member| {
                 assert!(!matches!(member, TypeId::Inference(_)), "{ty:?}");

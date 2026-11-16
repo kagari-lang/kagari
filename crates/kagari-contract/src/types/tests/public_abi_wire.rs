@@ -10,7 +10,7 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    callable::{CallableImplementation, MethodPolicy, NativeDefaultApplication},
+    callable::{CallableImplementation, MethodPolicy},
     declaration::{
         AssociatedConstDef, AssociatedTypeDef, AssociatedTypeFamily, ConstDef, FieldDef, FnDecl,
         Param, TraitDef, TypeDef, TypeDefKind, VariantDef, conversion::ConversionAdapter,
@@ -105,10 +105,7 @@ fn items(context: &DefinitionContext, reverse: bool) -> Vec<PublicItem> {
         host_policy: None,
         method_policy: Default::default(),
         name: "read".into(),
-        implementation: CallableImplementation::NativeDefault(NativeDefaultApplication {
-            declaration: ids["factory"],
-            arguments: vec![Ty::Trait(nominal.clone())],
-        }),
+        implementation: CallableImplementation::Native(ids["factory"]),
         generic_params: vec![parameter.clone()],
         bounds: vec![bound.clone()],
         params: vec![Param {
@@ -179,6 +176,7 @@ fn items(context: &DefinitionContext, reverse: bool) -> Vec<PublicItem> {
         }),
         PublicItem::Trait(trait_def),
         PublicItem::InterfaceTable(Box::new(InterfaceTable {
+            method_origins: Vec::new(),
             associated_type_families: vec![AssociatedTypeFamily {
                 declaration: item,
                 generic_params: vec![],
@@ -237,7 +235,7 @@ fn public_abi_records_roundtrip_independent_scopes_and_preserve_binding_pairs() 
     let reordered = items(&independent, true);
     let cancel = CancellationToken::default();
     // Reference-free constants may use any empty file table. Exercise a record
-    // with an actual NativeDefault/binder reference at this scope boundary.
+    // with an actual Native/binder reference at this scope boundary.
     let foreign = independent.snapshot().encode([]).unwrap();
     assert!(PublicItemRecord::encode(&values[0], &foreign, &cancel).is_err());
     for (item, other) in values.iter().zip(&reordered) {
@@ -272,10 +270,8 @@ fn public_abi_reader_bounds_declarations_before_reading_elements() {
         "read",
     );
     let generics = codec().serialize(&(&header, 0u32, u64::MAX)).unwrap();
-    // The same reader owns NativeDefault arguments: implementation tag 3,
-    // file-local declaration reference, then the oversized argument count.
-    let default_arguments = codec().serialize(&(&header, 3u32, 0u32, 4097u64)).unwrap();
-    for bytes in [generics, default_arguments] {
+    {
+        let bytes = generics;
         let error = match codec().deserialize::<PublicItemRecord>(&bytes) {
             Ok(_) => panic!("accepted an unbounded signature vector"),
             Err(error) => error,

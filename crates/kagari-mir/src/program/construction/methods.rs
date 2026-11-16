@@ -108,20 +108,6 @@ pub fn construction_methods(
                     continue;
                 };
                 let selected = match &method.implementation {
-                    CallableImplementation::NativeDefault(application) => module
-                        .native_targets
-                        .iter()
-                        .find(|target| target.instance.declaration == application.declaration)
-                        .map(|target| {
-                            (
-                                target.instance.clone(),
-                                if target.generic.is_some() {
-                                    application.arguments.clone()
-                                } else {
-                                    vec![]
-                                },
-                            )
-                        }),
                     CallableImplementation::Native(_) => {
                         let shared_receiver = !instance.arguments.is_empty()
                             && method.bounds.iter().any(|bound| {

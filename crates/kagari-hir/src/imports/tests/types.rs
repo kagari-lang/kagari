@@ -111,7 +111,7 @@ fn body_edit_cannot_reuse_signatures_after_transitive_type_change() {
         file.definitions(),
         fresh.file(root).unwrap().signatures().as_ref().facts(),
         fresh.file(root).unwrap().definitions(),
-        file.result().facts().lowered.module.body.arena(),
+        file.result().facts().lowered.module.nodes.arena(),
         fresh
             .file(root)
             .unwrap()
@@ -119,7 +119,7 @@ fn body_edit_cannot_reuse_signatures_after_transitive_type_change() {
             .facts()
             .lowered
             .module
-            .body
+            .nodes
             .arena(),
     );
     assert_eq!(

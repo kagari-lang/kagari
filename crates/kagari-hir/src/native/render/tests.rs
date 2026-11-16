@@ -60,10 +60,7 @@ fn native_views_preserve_canonical_text_and_scoped_navigation() {
                 (
                     function.name.clone(),
                     matches!(function.implementation, CallableImplementation::Native(_)),
-                    matches!(
-                        function.implementation,
-                        CallableImplementation::NativeDefault(_)
-                    ),
+                    matches!(function.implementation, CallableImplementation::Script),
                 )
             })
             .collect::<Vec<_>>();
@@ -71,7 +68,7 @@ fn native_views_preserve_canonical_text_and_scoped_navigation() {
         expected.sort();
         assert_eq!(
             actual, expected,
-            "NativeDefault must retain its Script forwarding body"
+            "Script definitions must retain their ordinary bodies"
         );
         let sites = |source: &DeclarationSource| {
             source

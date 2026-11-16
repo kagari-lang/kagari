@@ -1,4 +1,5 @@
 //! Mutable fixed-point preparation; immutable publication contains no pending edges.
+use crate::imports::environment::{ImportEnvironment, ModuleScope};
 use crate::{
     hir::{item::function::FunctionKind, ty::TypeKind},
     imports::{
@@ -54,6 +55,24 @@ impl ModuleGraph {
         cancel: &CancellationToken,
         limits: Option<SolverLimits>,
     ) -> Result<Self, ImportSolveError> {
+        Self::build_with_environment(
+            sources,
+            definitions,
+            packages,
+            &Default::default(),
+            cancel,
+            limits,
+        )
+    }
+
+    pub(crate) fn build_with_environment<'a>(
+        sources: impl IntoIterator<Item = &'a LoweredModule>,
+        definitions: &DefinitionContext,
+        packages: &PackageEnvironment,
+        environment: &ImportEnvironment,
+        cancel: &CancellationToken,
+        limits: Option<SolverLimits>,
+    ) -> Result<Self, ImportSolveError> {
         let mut sources = sources.into_iter().collect::<Vec<_>>();
         sources.sort_by(|a, b| {
             a.source
@@ -63,15 +82,32 @@ impl ModuleGraph {
         });
         for module in &sources {
             cancel.check()?;
-            for identity in
-                iter::once(module.source.module_identity()).chain(&module.native_dependencies)
-            {
+            for identity in iter::once(module.source.module_identity()).chain(
+                environment
+                    .scope(module.source.module_identity())
+                    .into_iter()
+                    .flat_map(|scope| &scope.dependencies),
+            ) {
                 definitions
                     .intern_module(identity)
                     .map_err(ImportSolveError::Identity)?;
             }
         }
         let mut base = NamespaceCatalog::new(definitions.snapshot(), packages.clone());
+        base.environment = environment.clone();
+        for module in &sources {
+            let identity = module.source.module_identity();
+            base.environment
+                .modules
+                .entry(identity.clone())
+                .or_insert_with(|| ModuleScope {
+                    packages: packages
+                        .scope(&identity.package)
+                        .cloned()
+                        .unwrap_or_default(),
+                    ..Default::default()
+                });
+        }
         for module in &sources {
             cancel.check()?;
             let unit = SourceUnit::of(module, &base.definitions);
@@ -79,52 +115,21 @@ impl ModuleGraph {
                 .entry(unit.module)
                 .or_default()
                 .push(unit.clone());
-            if module.is_library_api() {
-                let package = &module.source.module_identity().package;
-                base.native_dependencies.insert(
-                    unit.module,
-                    module
-                        .native_dependencies
-                        .iter()
-                        .map(|id| {
-                            base.definitions
-                                .lookup_module(id)
-                                .expect("registered dependency")
-                        })
-                        .collect(),
-                );
-                base.native_trait_references.insert(
-                    unit.module,
-                    module
-                        .native_trait_references
-                        .keys()
-                        .map(|id| {
-                            module
-                                .native_definitions
-                                .as_ref()
-                                .and_then(|definitions| definitions.resolve(*id).ok())
-                                .map(|view| view.to_path())
-                                .ok_or_else(|| {
-                                    ImportSolveError::Packages(
-                                        "invalid checked source trait reference".into(),
-                                    )
-                                })
-                        })
-                        .collect::<Result<_, _>>()?,
-                );
-                for alias in module
-                    .native_package_alias
-                    .iter()
-                    .chain(iter::once(&package.0))
-                {
-                    base.installed_aliases
-                        .entry(alias.clone())
-                        .or_default()
-                        .insert(package.clone());
-                }
-            }
+            base.module_dependencies.insert(
+                unit.module,
+                environment
+                    .scope(module.source.module_identity())
+                    .into_iter()
+                    .flat_map(|scope| &scope.dependencies)
+                    .map(|id| {
+                        base.definitions
+                            .lookup_module(id)
+                            .expect("explicit module dependency")
+                    })
+                    .collect(),
+            );
         }
-        for (package, scope) in packages.scopes() {
+        for package in packages.scopes().keys() {
             if !base
                 .definitions
                 .lookup_module_path(package, &[])
@@ -135,27 +140,11 @@ impl ModuleGraph {
                     package.0
                 )));
             }
-            if scope
-                .dependencies
-                .keys()
-                .any(|alias| base.installed_aliases.contains_key(alias))
-            {
-                return Err(ImportSolveError::Packages(
-                    "source dependency alias conflicts with installed provider".into(),
-                ));
-            }
-            if sources.iter().any(|source| {
-                source.is_library_api() && &source.source.module_identity().package == package
-            }) {
-                return Err(ImportSolveError::Packages(
-                    "source package collides with installed provider".into(),
-                ));
-            }
         }
         for module in &sources {
             add_declarations(&mut base, module, cancel)?;
         }
-        add_installed_prefixes(&mut base, &sources, cancel)?;
+        add_package_prefixes(&mut base, &sources, cancel)?;
         let SolvedImports {
             catalog,
             facts: resolved,
@@ -592,17 +581,16 @@ fn add_declarations(
     Ok(())
 }
 
-fn add_installed_prefixes(
+fn add_package_prefixes(
     catalog: &mut NamespaceCatalog,
     sources: &[&LoweredModule],
     cancel: &CancellationToken,
 ) -> Result<(), Cancelled> {
-    let native_units = sources
+    let package_units = sources
         .iter()
-        .filter(|module| module.is_library_api())
         .map(|module| SourceUnit::of(module, &catalog.definitions))
         .collect::<HashSet<_>>();
-    for module in sources.iter().filter(|m| m.is_library_api()) {
+    for module in sources {
         let unit = SourceUnit::of(module, &catalog.definitions);
         let portable = module.source.module_identity();
         for len in 0..portable.path.len() {
@@ -612,7 +600,7 @@ fn add_installed_prefixes(
                 .lookup_module_path(&portable.package, &portable.path[..len])
                 .expect("registered prefix");
             let namespace = match catalog.modules.get(&identity).map(Vec::as_slice) {
-                Some([parent]) if native_units.contains(parent) => {
+                Some([parent]) if package_units.contains(parent) => {
                     NamespaceId::Module(parent.clone())
                 }
                 Some(_) => continue,

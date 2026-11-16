@@ -28,7 +28,7 @@ fn native_collection_constructors_infer_items_through_source_aliases() {
         facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .find_map(|(id, expression)| {
                 let ExprKind::Call { callee, .. } = &expression.kind else {
@@ -225,7 +225,7 @@ fn erroneous_applications_rebase_signature_targets_and_repair_without_stale_erro
                 .typed
                 .type_table,
             fresh.file(id).unwrap().definitions(),
-            file.result().facts().lowered.module.body.arena(),
+            file.result().facts().lowered.module.nodes.arena(),
             fresh
                 .file(id)
                 .unwrap()
@@ -233,7 +233,7 @@ fn erroneous_applications_rebase_signature_targets_and_repair_without_stale_erro
                 .facts()
                 .lowered
                 .module
-                .body
+                .nodes
                 .arena(),
         );
     sources

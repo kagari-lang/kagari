@@ -18,7 +18,7 @@ impl FileAnalysis {
         let old = self.result.records().facts();
         let names = &prepared.record.names.facts;
         let compatible = self.source.revision() == prepared.lowered.source.revision()
-            && old.lowered.module.body.arena() == prepared.lowered.module.body.arena()
+            && old.lowered.module.nodes.arena() == prepared.lowered.module.nodes.arena()
             && old.names.imports == names.imports
             && old
                 .names

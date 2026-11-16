@@ -72,6 +72,7 @@ impl SharedFixture {
             .intern_child(implementation_id, DefinitionKind::Method, "read", 0)
             .unwrap();
         let implementation = InterfaceTable {
+            method_origins: Vec::new(),
             declaration: implementation_id,
             name: "ReadForI32".into(),
             bridge: None,

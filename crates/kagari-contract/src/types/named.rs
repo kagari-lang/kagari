@@ -29,9 +29,9 @@ pub struct NamedDeclaration {
     pub contract: NamedContract,
 }
 
-/// An imported named local's executable placement, separate from its authored ID.
-/// Both IDs are explicit portable references. The linked verifier checks the
-/// authored local declaration and the placed body's instantiated signature.
+/// An executable placement linked to its canonical authored declaration.
+/// Both IDs are explicit portable references. Named-local origins and inherited
+/// method materializations are validated by their respective semantic owners.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionOrigin {
     pub placement: DefinitionId,

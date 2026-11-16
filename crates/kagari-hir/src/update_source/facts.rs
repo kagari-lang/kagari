@@ -347,7 +347,7 @@ pub(super) fn collect(
     builders: &mut [BodyBuilder],
     budget: &mut SourceBudget<'_>,
 ) -> Result<(), DefinitionMappingError> {
-    let hir = &module.lowered.module.body;
+    let hir = &module.lowered.module.nodes;
     let table = &module.typed.type_table;
     let map = &module.lowered.source_map;
     for (id, expression) in hir.expressions() {

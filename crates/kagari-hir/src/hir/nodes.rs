@@ -22,8 +22,8 @@ use crate::hir::{
 ///
 /// ```text
 /// Module.functions[f] -> Function { implementation: Script(b), ... }
-/// Body.blocks[b.index] -> (Body(Function(f)), BlockData { tail_expr: Some(e2), ... })
-/// Body.exprs
+/// HirNodes.blocks[b.index] -> (Body(Function(f)), BlockData { tail_expr: Some(e2), ... })
+/// HirNodes.exprs
 /// +-- e0.index -> (Body(Function(f)), Name { name: "x", ... })
 /// +-- e1.index -> (Body(Function(f)), Literal(...))
 /// `-- e2.index -> (Body(Function(f)), Binary { lhs: e0, op: Add, rhs: e1 })
@@ -34,7 +34,7 @@ use crate::hir::{
 ///
 /// Name resolution, semantic types and source spans are separate tables keyed by
 /// these IDs. Parameters are held by functions and local bindings by pattern
-/// leaves or closure parameters; neither has its own vector in `Body`.
+/// leaves or closure parameters; neither has its own vector in `HirNodes`.
 ///
 /// For the example above, `blocks` contains the function's block, `exprs` contains
 /// both operand occurrences and the addition, `types` contains the parameter and
@@ -49,7 +49,7 @@ use crate::hir::{
 /// written in source. `HirOwner::Declaration` marks nodes outside function/constant
 /// construction; `Body(Function(f))` and `Body(Const(c))` mark those allocation
 /// contexts. `index` addresses the whole corresponding vector, not a per-owner
-/// list. Body::expressions reconstructs `(ExprId, &ExprData)` from these rows;
+/// list. HirNodes::expressions reconstructs `(ExprId, &ExprData)` from these rows;
 /// payloads therefore need no self ID. New lowering creates a new identity; retaining
 /// a snapshot retains its matching rows and IDs rather than making IDs persistent.
 ///
@@ -59,7 +59,7 @@ use crate::hir::{
 /// These indicate mixed lowerings or invalid internal references, not user syntax
 /// errors. Retain the matching [`crate::lower::LoweredModule`] when retaining IDs.
 #[derive(Debug, Clone, Default)]
-pub struct Body {
+pub struct HirNodes {
     /// Lowering identity shared with the source map that assigned these row IDs.
     pub(crate) arena: LoweringId,
     /// Block rows paired with their allocation owners.
@@ -76,7 +76,7 @@ pub struct Body {
     pub(crate) types: Vec<(HirOwner, TypeData)>,
 }
 
-impl Body {
+impl HirNodes {
     /// Returns the identity of this lowering, not a function or source revision.
     pub fn arena(&self) -> LoweringId {
         self.arena

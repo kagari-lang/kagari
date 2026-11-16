@@ -31,11 +31,18 @@ pub(crate) fn expanded_bounds<'a>(
                     .constraints
                     .iter()
                     .map(|interface| copier.apply_nominal(interface, cancel))
+                    .map(|result| {
+                        result.map(|mut interface| {
+                            interface.remove_identity_outputs(&bound.ty);
+                            interface
+                        })
+                    })
                     .collect::<Result<_, _>>()?,
             })
         })
         .collect::<Result<Vec<_>, TypeTransformError>>()?;
-    for bound in bounds {
+    let declared = expanded.clone();
+    for bound in &declared {
         for interface in &bound.constraints {
             for interface in inheritance::trait_closure(interface, &bound.ty, cancel, lookup)? {
                 let contract =

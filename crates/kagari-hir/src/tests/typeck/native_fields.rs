@@ -27,8 +27,13 @@ fn native_fields_share_ownership_types_and_assignment_rules_without_storage_auth
     let file = snapshot.file(id).unwrap();
     let facts = file.result().facts();
     let lowered = &facts.lowered;
-    assert!(lowered.is_external_api());
-    assert!(lowered.native_types.is_empty());
+    assert!(
+        lowered
+            .module
+            .native_types
+            .iter()
+            .all(|item| item.host.is_none())
+    );
     let cell = &lowered.module.native_types[0];
     let field = &cell.fields[0];
     assert_eq!(field.id.owner(), FieldOwner::NativeType(cell.id));
@@ -99,7 +104,7 @@ fn native_fields_share_ownership_types_and_assignment_rules_without_storage_auth
         .definition(ResolvedName::NativeType(cell.id))
         .unwrap();
     let signature = catalog.native_type(owner).unwrap();
-    assert!(signature.representation.is_none());
+    assert!(signature.host.is_none());
     assert_eq!(signature.fields.len(), 3);
     let checked_field = &signature.fields[0];
     assert_eq!(catalog.field(&checked_field.id), Some(checked_field));

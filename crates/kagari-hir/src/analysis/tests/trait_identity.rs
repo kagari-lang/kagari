@@ -38,7 +38,7 @@ fn cached_body_queries_rebase_receivers_without_changing_nominal_method_targets(
     let old_call = original
         .lowered()
         .module
-        .body
+        .nodes
         .expressions()
         .find_map(|(expr, _)| {
             original
@@ -64,7 +64,7 @@ fn cached_body_queries_rebase_receivers_without_changing_nominal_method_targets(
     let new_call = reused
         .lowered()
         .module
-        .body
+        .nodes
         .expressions()
         .find_map(|(id, _)| {
             reused
@@ -98,7 +98,7 @@ fn cached_body_queries_rebase_receivers_without_changing_nominal_method_targets(
         reused.definitions(),
         fresh.type_table(),
         fresh.definitions(),
-        reused.lowered().module.body.arena(),
-        fresh.lowered().module.body.arena(),
+        reused.lowered().module.nodes.arena(),
+        fresh.lowered().module.nodes.arena(),
     );
 }

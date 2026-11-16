@@ -145,6 +145,14 @@ impl SharedCall {
         .iter()
         .map(|required| normalize_requirement(required, catalog, cancel))
         .collect::<Result<Vec<_>, _>>()?;
+        let required = required
+            .into_iter()
+            .fold(Vec::new(), |mut unique, required| {
+                if !unique.contains(&required) {
+                    unique.push(required);
+                }
+                unique
+            });
         if required.len() != self.operations.len()
             || required.iter().any(|required| {
                 self.operations

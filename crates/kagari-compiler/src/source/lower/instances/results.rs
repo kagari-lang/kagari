@@ -18,10 +18,11 @@ impl InstancePlanner<'_> {
         import: &NativeImport,
         span: Span,
     ) -> Result<Option<NativeResultAdapter>, MirLoweringError> {
-        let Some(declaration) = self.registered_native_declaration(&import.instance.declaration)
-        else {
-            return Ok(None);
-        };
+        let declaration = self
+            .native_declaration(&import.instance.declaration)
+            .ok_or(MirLoweringError::MissingBinding(
+                "checked Native result contract",
+            ))?;
         let Some(receiver) = &declaration.concrete_result else {
             return Ok(None);
         };

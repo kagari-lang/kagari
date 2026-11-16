@@ -15,8 +15,8 @@ fn assert_fresh(file: &FileAnalysis, sources: &SourceDatabase) {
         file.definitions(),
         fresh.signatures().as_ref().facts(),
         fresh.definitions(),
-        file.result().facts().lowered.module.body.arena(),
-        fresh.result().facts().lowered.module.body.arena(),
+        file.result().facts().lowered.module.nodes.arena(),
+        fresh.result().facts().lowered.module.nodes.arena(),
     );
     assert_eq!(
         file.signatures().diagnostics(),

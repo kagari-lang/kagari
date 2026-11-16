@@ -15,11 +15,11 @@ pub mod ops;
 use kagari_types::scalar::BuiltinType;
 use smallvec::SmallVec;
 
-/// One expression payload in Body.exprs, addressed by a qualified ExprId.
+/// One expression payload in HirNodes.exprs, addressed by a qualified ExprId.
 ///
 /// ```text
 /// x + 1
-/// e -> Body.expr(e) -> ExprData { kind: Binary { lhs: x_id, op: Add, rhs: one_id } }
+/// e -> HirNodes.expr(e) -> ExprData { kind: Binary { lhs: x_id, op: Add, rhs: one_id } }
 /// x_id -> ExprData { kind: Name { name: "x", explicit_type: None } }
 /// one_id -> ExprData { kind: Literal(Literal { kind: Number, text: "1" }) }
 /// ```
@@ -29,7 +29,7 @@ use smallvec::SmallVec;
 /// [`ResolvedNames`](crate::resolver::resolved::ResolvedNames) and
 /// [`TypeTable`](crate::typeck::table::TypeTable) supply binding/type/call facts.
 /// Expression lowering builds the rows and child links before checking. See
-/// [`ExprKind`] for source shapes, and [`Body`](crate::hir::body::Body) for checked
+/// [`ExprKind`] for source shapes, and [`Body`](crate::hir::nodes::HirNodes) for checked
 /// lookup and physical storage.
 #[derive(Debug, Clone)]
 pub struct ExprData {
@@ -41,7 +41,7 @@ pub struct ExprData {
 ///
 /// In these source-to-field mappings, `e_x` denotes the ExprId of source `x`,
 /// `t_i32` denotes its TypeRefId, and `b` denotes a BlockId. IDs are symbolic;
-/// use [`Body`](crate::hir::body::Body)'s `expr`, `type_ref`, `block` and `pattern`
+/// use [`Body`](crate::hir::nodes::HirNodes)'s `expr`, `type_ref`, `block` and `pattern`
 /// accessors to follow the appropriate link. These
 /// are context-dependent source fragments, not claims of successful type checking.
 ///
@@ -310,9 +310,9 @@ pub enum ExprKind {
 /// if ready { work(); } -> Condition::Expr(e_ready)
 /// if val Some(x) = value { use_value(x); }
 /// -> Condition::Binding { pattern: p, initializer: e_value }
-/// p -> Body.pattern -> EnumVariant { path: "Some", fields: [p_x] }
+/// p -> HirNodes.pattern -> EnumVariant { path: "Some", fields: [p_x] }
 /// p_x -> Name { name: "x", local: l }
-/// e_value -> Body.expr -> Name { name: "value", explicit_type: None }
+/// e_value -> HirNodes.expr -> Name { name: "value", explicit_type: None }
 /// ```
 ///
 /// The Condition itself has no ID/vector. Expr holds the tested expression;
@@ -347,9 +347,9 @@ impl Condition {
 /// ```text
 /// Some(x) if x > 0 => x
 /// MatchArm { pattern: p_some, guard: Some(e_positive), expr: e_x }
-/// p_some -> Body.pattern -> EnumVariant { path: "Some", fields: [p_x] }
-/// e_positive -> Body.expr -> Binary { lhs: e_guard_x, op: Gt, rhs: e_0 }
-/// e_x -> Body.expr -> Name { name: "x", explicit_type: None }
+/// p_some -> HirNodes.pattern -> EnumVariant { path: "Some", fields: [p_x] }
+/// e_positive -> HirNodes.expr -> Binary { lhs: e_guard_x, op: Gt, rhs: e_0 }
+/// e_x -> HirNodes.expr -> Name { name: "x", explicit_type: None }
 /// ```
 ///
 /// A plain `_ => 0` has a Wildcard pattern, `guard: None` and a literal body.
@@ -384,7 +384,7 @@ pub struct FieldInit {
 /// An inline closure binder, using LocalId rather than a function ParamId.
 ///
 /// `|x: i32| x + 1` gives ClosureParam { name: "x", local: l, ty: Some(t) },
-/// where t enters Body.types as Named("i32") and l keys local binding/type facts.
+/// where t enters HirNodes.types as Named("i32") and l keys local binding/type facts.
 /// With contextual `fn(i32) -> i32` typing, `|x| x + 1` stores `ty: None`.
 /// The ID is allocated; the name/annotation are source syntax. Closure resolution
 /// distinguishes parameter bindings from later-discovered captured outer locals.

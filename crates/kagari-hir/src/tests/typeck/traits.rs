@@ -142,7 +142,7 @@ fn contextual_trait_static_calls_require_proven_bounds_and_preserve_ambiguity() 
             analysis.diagnostics()
         );
         let facts = analysis.facts();
-        for (call, expression) in facts.lowered.module.body.expressions() {
+        for (call, expression) in facts.lowered.module.nodes.expressions() {
             if matches!(expression.kind, ExprKind::Call { .. }) {
                 assert!(facts.typed.type_table.call_resolution(call).is_none());
                 assert!(facts.typed.type_table.protocol_receiver(call).is_none());
@@ -197,7 +197,7 @@ fn contextual_trait_static_calls_recovery_and_never_do_not_prove_a_receiver() {
             &diagnostic.kind, DiagnosticKind::CannotInferGenericArgument { parameter, .. } if parameter == "Self"
         )), "{:?}", analysis.diagnostics());
         let facts = analysis.facts();
-        for (call, expression) in facts.lowered.module.body.expressions() {
+        for (call, expression) in facts.lowered.module.nodes.expressions() {
             if matches!(expression.kind, ExprKind::Call { .. }) {
                 assert!(facts.typed.type_table.call_resolution(call).is_none());
                 assert!(facts.typed.type_table.protocol_receiver(call).is_none());

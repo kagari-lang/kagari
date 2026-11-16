@@ -312,6 +312,7 @@ fn indexes_preserve_owner_native_signature_canonical_table_and_local_layout_sele
     owner
         .public_items
         .push(PublicItem::InterfaceTable(Box::new(InterfaceTable {
+            method_origins: Vec::new(),
             associated_type_families: vec![],
             associated_consts: vec![],
             bridge: None,

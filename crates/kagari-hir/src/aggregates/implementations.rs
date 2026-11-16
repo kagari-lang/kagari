@@ -9,9 +9,8 @@ use crate::{
         traits::{MethodDefault, MethodSignature},
     },
     declarations::Declarations,
-    language::{semantics as traits, semantics::ProtocolSemantics, types::external_receiver_owned},
+    language::{semantics as traits, semantics::ProtocolSemantics},
     lower::LoweredModule,
-    native::NativeBinding,
     resolver::resolved::ResolvedName,
     typeck::{
         GenericBounds, ModuleSignatures, associated, check::possibly_overlapping_impls,
@@ -113,13 +112,6 @@ impl<'a> SearchBudget<'a> {
 /// A generic implementation pattern and the members selected when it applies.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImplementationSignature {
-    /// Derived from the retained installation object, never a source identity.
-    pub(crate) engine_owned: bool,
-    /// Offline declarations may belong to a builtin receiver's defining module.
-    /// This is static coherence evidence, not installed native dispatch authority.
-    pub(crate) external_type_owned: bool,
-    /// A conversion may instead belong to its source argument's defining module.
-    pub(crate) external_conversion_owned: bool,
     /// Associated member definition to parameterized output implementation.
     pub associated_type_families: BTreeMap<DefinitionId, AssociatedTypeFamily>,
     /// Canonical semantic definition identity used as the catalog key.
@@ -184,10 +176,15 @@ impl AggregateCatalog {
             {
                 return Some("host conversion implementations are not supported");
             }
-            let owned=iter::once(&implementation.for_type).chain(&implementation.trait_type.arguments).any(|ty| {
-                matches!(ty, TypeId::NativeObject(n) | TypeId::Struct(n) | TypeId::Enum(n) if definitions.resolve(n.declaration).expect("scoped nominal type").module()==definitions.resolve(implementation.id).expect("scoped implementation").module())
-            });
-            return (!owned && !implementation.engine_owned && !implementation.external_type_owned && !implementation.external_conversion_owned).then_some("a conversion must belong to the defining module of its nominal source or destination");
+            let module = definitions
+                .resolve(implementation.id)
+                .expect("scoped implementation");
+            let owned = iter::once(&implementation.for_type)
+                .chain(&implementation.trait_type.arguments)
+                .any(|ty| self.receiver_owner(definitions, ty).as_ref() == Some(module.module()));
+            return (!owned).then_some(
+                "a conversion must belong to the defining module of its source or destination",
+            );
         }
         let protocol = protocol?;
         if protocol.iteration() {
@@ -206,29 +203,17 @@ impl AggregateCatalog {
         if protocol.host_implementable() {
             return None;
         }
-        match &implementation.for_type {
-            TypeId::NativeObject(nominal)
-            | TypeId::Struct(nominal)
-            | TypeId::Enum(nominal)
-            | TypeId::Trait(nominal) => {
-                if definitions
-                    .resolve(nominal.declaration)
-                    .expect("scoped nominal type")
-                    .module()
-                    != definitions
-                        .resolve(implementation.id)
-                        .expect("scoped implementation")
-                        .module()
-                {
-                    return Some(
-                        "standard protocol implementations must belong to the type's defining module",
-                    );
-                }
-            }
-            _ if !implementation.engine_owned && !implementation.external_type_owned => {
-                return Some("language protocol implementations require a declared nominal type");
-            }
-            _ => {}
+        let module = definitions
+            .resolve(implementation.id)
+            .expect("scoped implementation");
+        if self
+            .receiver_owner(definitions, &implementation.for_type)
+            .as_ref()
+            != Some(module.module())
+        {
+            return Some(
+                "standard protocol implementations must belong to the type's defining module",
+            );
         }
         if !protocol.equality_protocol() {
             return None;
@@ -574,7 +559,7 @@ impl AggregateCatalog {
 
     pub(crate) fn add_implementations(
         &mut self,
-        lowered: &LoweredModule,
+        _lowered: &LoweredModule,
         declarations: &Declarations,
         signatures: &ModuleSignatures,
         cancel: &CancellationToken,
@@ -595,16 +580,6 @@ impl AggregateCatalog {
             self.implementations.insert(
                 *id,
                 Arc::new(ImplementationSignature {
-                    engine_owned: lowered.registered_native_api,
-                    external_type_owned: external_receiver_owned(
-                        lowered,
-                        for_type,
-                        declarations.definitions(),
-                    ),
-                    external_conversion_owned: trait_type
-                        .arguments
-                        .iter()
-                        .any(|ty| external_receiver_owned(lowered, ty, declarations.definitions())),
                     associated_type_families: signatures
                         .type_table()
                         .associated_type_families
@@ -638,7 +613,7 @@ impl AggregateCatalog {
         Ok(())
     }
 
-    /// Finds a unique matching method and implementation arguments, including script defaults.
+    /// Finds a unique matching method and implementation arguments, including ordinary defaults.
     /// `definitions` must retain the catalog's scope and its registered implementation members.
     /// Returns `None` for no matching method or ambiguity.
     ///
@@ -675,16 +650,9 @@ impl AggregateCatalog {
             else {
                 continue;
             };
-            let Some(target) = implementation.methods.get(method).cloned().or_else(|| {
-                self.trait_method(method)
-                    .filter(|method| {
-                        matches!(
-                            method.default,
-                            Some(MethodDefault::Script | MethodDefault::NativeDeclaration)
-                        )
-                    })
-                    .map(|_| implementation_member(definitions, implementation.id, *method))
-            }) else {
+            let Some(target) =
+                self.implementation_method_target(definitions, implementation, method)
+            else {
                 continue;
             };
             if selected.is_some() {
@@ -695,8 +663,30 @@ impl AggregateCatalog {
         Ok(selected)
     }
 
-    /// An omitted method has the same impl-owned identity as an explicit method;
-    /// its script body or symbolic native application remains owned by the trait module.
+    /// Select an explicit method or the ordinary impl-owned placement of its default.
+    /// Script and Native defaults use the same selection and applied impl environment.
+    pub fn implementation_method_target(
+        &self,
+        definitions: &DefinitionTable,
+        implementation: &ImplementationSignature,
+        method: &DefinitionId,
+    ) -> Option<DefinitionId> {
+        let signature = self.trait_method(method)?;
+        if signature.owner != implementation.trait_type.declaration {
+            return None;
+        }
+        implementation.methods.get(method).copied().or_else(|| {
+            matches!(
+                signature.default,
+                Some(MethodDefault::Script | MethodDefault::Native(_))
+            )
+            .then(|| implementation_member(definitions, implementation.id, *method))
+        })
+    }
+
+    /// An omitted method has an impl-owned materialization identity. Its canonical
+    /// Script body or Native declaration is `method.id` in the returned pair;
+    /// consumers must apply the implementation environment before selecting code.
     /// Foreign or absent targets in `definitions` do not select a default.
     pub fn default_method(
         &self,
@@ -719,11 +709,7 @@ impl AggregateCatalog {
             })?;
         (matches!(
             method.default,
-            Some(
-                MethodDefault::Script
-                    | MethodDefault::NativeDeclaration
-                    | MethodDefault::Native(NativeBinding::Default(_))
-            )
+            Some(MethodDefault::Script | MethodDefault::Native(_))
         ) && !implementation.methods.contains_key(&method.id))
         .then_some((implementation, method))
     }
@@ -739,17 +725,7 @@ impl AggregateCatalog {
             .into_iter()
             .flat_map(|contract| &contract.methods)
             .filter_map(|method| {
-                implementation.methods.get(&method.id).cloned().or_else(|| {
-                    (matches!(
-                        method.default,
-                        Some(
-                            MethodDefault::Script
-                                | MethodDefault::NativeDeclaration
-                                | MethodDefault::Native(NativeBinding::Default(_))
-                        )
-                    ))
-                    .then(|| implementation_member(definitions, implementation.id, method.id))
-                })
+                self.implementation_method_target(definitions, implementation, &method.id)
             })
             .collect()
     }
@@ -890,8 +866,10 @@ impl AggregateCatalog {
         ) else {
             return Ok(None);
         };
-        if (implementation.engine_owned || implementation.external_type_owned)
-            && !implementation.accepts_native_receiver(&receiver, &matched)
+        if self.canonical_value_type(
+            budget.definitions,
+            &implementation.for_type.instantiate(&matched),
+        ) != receiver
         {
             return Ok(None);
         }

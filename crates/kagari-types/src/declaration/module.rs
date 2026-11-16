@@ -1,4 +1,5 @@
 //! Authoritative native API declarations shared by compilation, installation and tooling.
+use crate::declaration::script::ScriptExpr;
 use crate::{
     callable::CallableImplementation,
     declaration::path::HostPathDeclaration,
@@ -53,7 +54,7 @@ pub struct ImplDecl {
 /// The initial API supports native storage, traits, generic impls and free functions;
 /// Free functions retain ordinary checked trait bounds and associated projections.
 /// Impl and inherent-method bounds use the same checked declaration model.
-/// Registered default applications retain their explicit native template mappings.
+/// Script defaults retain ordinary expression bodies and calls to declared helpers.
 /// Method binders retain their own identities; associated type families remain deferred.
 #[derive(Debug, Clone)]
 pub struct ModuleDecl {
@@ -79,6 +80,8 @@ pub struct ModuleDecl {
     pub trait_references: BTreeMap<DefinitionId, TraitDef>,
     pub implementations: Vec<ImplDecl>,
     pub functions: Vec<FnDecl>,
+    /// Complete ordinary expression bodies for structured Script definitions.
+    pub script_bodies: BTreeMap<DefinitionId, ScriptExpr>,
     /// Registered templates remain addressable by identity without public exports.
     pub private_functions: BTreeSet<DefinitionId>,
     /// Full Markdown overview of this installed module.
@@ -105,6 +108,7 @@ impl ModuleDecl {
             trait_references: BTreeMap::new(),
             implementations: vec![],
             functions: vec![],
+            script_bodies: BTreeMap::new(),
             private_functions: BTreeSet::new(),
             module_documentation: String::new(),
             documentation: BTreeMap::new(),
@@ -155,6 +159,40 @@ impl ModuleDecl {
                     .cloned()
                     .unwrap_or_default(),
             });
+        }
+        for contract in &self.traits {
+            let owner = self.definition(DefinitionKind::Trait, &contract.name, definitions)?;
+            for function in &contract.methods {
+                if !matches!(function.implementation, CallableImplementation::Native(_)) {
+                    continue;
+                }
+                let id = Self::method_id(owner, &function.name, definitions)?;
+                let mut function = function.clone();
+                function.generic_params = contract
+                    .generic_params
+                    .iter()
+                    .cloned()
+                    .chain(function.generic_params)
+                    .collect();
+                function.bounds = GenericBound::normalize(
+                    contract.bounds.iter().chain(&function.bounds).cloned(),
+                    definitions,
+                    &CancellationToken::default(),
+                )
+                .map_err(|error| {
+                    DeclarationError(format!("invalid Native trait bounds: {error:?}"))
+                })?;
+                result.push(NativeDeclaration {
+                    declaration: id,
+                    function,
+                    concrete_result: self.concrete_results.get(&id).cloned(),
+                    callable_requirements: self
+                        .callable_requirements
+                        .get(&id)
+                        .cloned()
+                        .unwrap_or_default(),
+                });
+            }
         }
         for (index, implementation) in self.implementations.iter().enumerate() {
             let owner = self.implementation_id(index, definitions)?;
@@ -215,6 +253,38 @@ impl ModuleDecl {
         let cancel = CancellationToken::default();
         self.visit_definition_ids(&mut |id| Ok(definitions.resolve(*id).map(|_| ())?), &cancel)
             .map_err(|error| DeclarationError(format!("invalid native identities: {error}")))?;
+        let mut scripts = BTreeSet::new();
+        for function in &self.functions {
+            if function.implementation == CallableImplementation::Script {
+                scripts.insert(self.definition(
+                    DefinitionKind::Function,
+                    &function.name,
+                    definitions,
+                )?);
+            }
+        }
+        for contract in &self.traits {
+            let owner = self.definition(DefinitionKind::Trait, &contract.name, definitions)?;
+            for method in &contract.methods {
+                if method.implementation == CallableImplementation::Script {
+                    scripts.insert(Self::method_id(owner, &method.name, definitions)?);
+                }
+            }
+        }
+        for (index, implementation) in self.implementations.iter().enumerate() {
+            let owner = self.implementation_id(index, definitions)?;
+            for method in &implementation.methods {
+                if method.implementation == CallableImplementation::Script {
+                    scripts.insert(Self::method_id(owner, &method.name, definitions)?);
+                }
+            }
+        }
+        for (owner, body) in &self.script_bodies {
+            if !scripts.contains(owner) {
+                return Err(fail());
+            }
+            body.validate_shape(&cancel).map_err(|_| fail())?;
+        }
         let mut paths = HashSet::new();
         for path in &self.paths {
             if !paths.insert(path)
@@ -283,7 +353,7 @@ impl ModuleDecl {
                             method.implementation,
                             CallableImplementation::Required
                                 | CallableImplementation::Script
-                                | CallableImplementation::NativeDefault(_)
+                                | CallableImplementation::Native(_)
                         )
                 })
             {

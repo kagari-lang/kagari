@@ -30,7 +30,7 @@ fn native_and_script_variants_share_checked_constructor_and_pattern_facts() {
     let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
     let facts = authoring_facts.records().facts();
     let mut checked = 0;
-    for (id, expression) in facts.lowered.module.body.expressions() {
+    for (id, expression) in facts.lowered.module.nodes.expressions() {
         let ExprKind::Call { callee, .. } = &expression.kind else {
             continue;
         };
@@ -71,7 +71,7 @@ fn native_and_script_variants_share_checked_constructor_and_pattern_facts() {
         let pattern = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .find_map(|(_, expression)| {
                 let ExprKind::Match { arms, .. } = &expression.kind else {
@@ -156,7 +156,7 @@ fn explicit_variant_imports_shadow_prelude_in_calls_patterns_and_navigation() {
         );
     }
     let mut matches = 0;
-    for (_, expression) in facts.lowered.module.body.expressions() {
+    for (_, expression) in facts.lowered.module.nodes.expressions() {
         let ExprKind::Match { arms, .. } = &expression.kind else {
             continue;
         };
@@ -171,7 +171,7 @@ fn explicit_variant_imports_shadow_prelude_in_calls_patterns_and_navigation() {
             assert!(
                 !facts
                     .names
-                    .pattern_is_irrefutable(&facts.lowered.module.body, arm.pattern)
+                    .pattern_is_irrefutable(&facts.lowered.module.nodes, arm.pattern)
             );
             matches += 1;
         }
@@ -367,7 +367,7 @@ fn constructors_retain_nominal_targets_through_argument_errors() {
     let targets = facts
         .lowered
         .module
-        .body
+        .nodes
         .expressions()
         .filter_map(|(id, expr)| {
             matches!(expr.kind, ExprKind::Call { .. })
@@ -466,7 +466,7 @@ fn struct_update_base_reads_are_resolved_and_captured() {
     let closure = facts
         .lowered
         .module
-        .body
+        .nodes
         .expressions()
         .find(|(_, expr)| matches!(expr.kind, ExprKind::Closure { .. }))
         .unwrap()
@@ -522,7 +522,7 @@ fn independent_body_queries_rebase_constructor_targets_and_invalidate_payload_ch
     let old_expr = body
         .lowered()
         .module
-        .body
+        .nodes
         .expressions()
         .find(|(id, e)| {
             matches!(e.kind, ExprKind::Call { .. })

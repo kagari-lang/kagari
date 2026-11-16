@@ -89,7 +89,7 @@ impl Runtime {
         validated: &mut DependencyValidation,
     ) -> Result<LinkedHostBindings, RuntimeError> {
         self.native_entries
-            .validate_installed_contracts(module, admission)?;
+            .validate_installed_contracts(module, program, admission)?;
         let mut bindings = self.host.link_module(module, &self.types, admission)?;
         bindings.native = module
             .native_imports

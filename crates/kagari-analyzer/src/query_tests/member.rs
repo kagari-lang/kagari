@@ -181,7 +181,7 @@ fn struct_update_navigation_keeps_explicit_labels_and_base_references_separate()
     let sites =
         crate::sites::SourceSites::build(&facts.lowered, &analysis.syntax(), &Default::default())
             .unwrap();
-    for (id, _) in facts.lowered.module.body.expressions() {
+    for (id, _) in facts.lowered.module.nodes.expressions() {
         if let Some(init) = facts.typed.type_table().struct_init(id) {
             assert_eq!(
                 sites.struct_field_spans(id).unwrap().len(),

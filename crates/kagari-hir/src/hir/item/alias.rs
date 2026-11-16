@@ -13,7 +13,7 @@ use kagari_types::visibility::Visibility;
 /// TypeAlias { id: a, visibility: Public, name: "Values",
 ///             generic_params: [T], bounds: [], target: Some(t) }
 /// a -> Module.type_aliases[a.index()]
-/// t -> Body.type_ref -> Array(element) -> Named("T")
+/// t -> HirNodes.type_ref -> Array(element) -> Named("T")
 /// ```
 ///
 /// The ID supports navigation and generic binder ownership only. Checked types

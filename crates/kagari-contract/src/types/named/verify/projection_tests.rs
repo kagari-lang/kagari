@@ -71,6 +71,7 @@ fn applied_named_projection_requires_the_callers_linked_proof() {
         .associated_types
         .insert(output, Ty::Builtin(BuiltinType::I32));
     let implementation = InterfaceTable {
+        method_origins: Vec::new(),
         declaration: selected,
         name: "Read for i32".into(),
         generic_params: vec![],

@@ -192,7 +192,7 @@ fn matching_local_slots_from_other_modules_never_match_trait_contracts() {
         let method = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .find_map(|(id, _)| match table.call_resolution(id)?.target {
                 CallTarget::TraitMethod { method, .. } => Some(method),

@@ -114,16 +114,16 @@ impl NamespaceCatalog {
             .hit())
     }
 
-    /// Registration's exact dependency also admits its exposed ancestors as lookup
+    /// An explicit module dependency also admits its exposed ancestors as lookup
     /// roots. Public re-exports there may expose a target whose defining module is
     /// private; access is still checked on the selected route, not the hidden path.
-    pub(super) fn native_exposure_root(
+    pub(super) fn dependency_exposure_root(
         &self,
         importer: &ModuleHandle,
         module: &ModuleHandle,
     ) -> bool {
         let exposed = self.identity(*module);
-        self.native_dependencies
+        self.module_dependencies
             .get(importer)
             .is_some_and(|dependencies| {
                 dependencies.iter().any(|dependency| {
@@ -137,17 +137,14 @@ impl NamespaceCatalog {
         let importer = self.identity(*ctx.importer);
         let exposed = self.identity(module);
         importer.package == exposed.package
-            || self.native_exposure_root(ctx.importer, &module)
-            || self.packages.scope(&importer.package).is_some_and(|scope| {
+            || self.dependency_exposure_root(ctx.importer, &module)
+            || self.environment.scope(importer).is_some_and(|scope| {
                 scope
+                    .packages
                     .dependencies
                     .values()
                     .any(|package| package == &exposed.package)
             })
-            || self
-                .installed_aliases
-                .values()
-                .any(|packages| packages.contains(&exposed.package))
     }
 
     /// Discover only from the same package roots used by type projection and

@@ -3,10 +3,10 @@
 
 use crate::{
     hir::{
-        body::Body,
         expr::{ExprKind, MatchArm, ops::BinaryOp},
         ids::{BlockId, ExprId, PlaceId, StmtId},
         item::Module,
+        nodes::HirNodes,
         place::PlaceKind,
         stmt::StmtKind,
     },
@@ -54,7 +54,7 @@ pub(super) fn block_can_complete(
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
     Ok(Completion {
-        nodes: &module.body,
+        nodes: &module.nodes,
         names,
         types,
         cancel,
@@ -64,7 +64,7 @@ pub(super) fn block_can_complete(
 }
 
 struct Completion<'a> {
-    nodes: &'a Body,
+    nodes: &'a HirNodes,
     names: &'a ResolvedNames,
     types: &'a TypeTable,
     cancel: &'a CancellationToken,
@@ -79,7 +79,7 @@ pub(super) fn place_can_complete(
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
     Ok(Completion {
-        nodes: &module.body,
+        nodes: &module.nodes,
         names,
         types,
         cancel,
@@ -97,7 +97,7 @@ pub(super) fn expr_can_complete(
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
     Ok(Completion {
-        nodes: &module.body,
+        nodes: &module.nodes,
         names,
         types,
         cancel,
@@ -114,7 +114,7 @@ pub(super) fn match_arm_can_complete(
     arm: &MatchArm,
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
-    CompletionCache::new(&module.body, names, types).query(Node::arm(arm), cancel)
+    CompletionCache::new(&module.nodes, names, types).query(Node::arm(arm), cancel)
 }
 
 /// Returns whether pattern failure or a normally completing guard can reach another arm.
@@ -125,11 +125,11 @@ pub(super) fn match_arm_can_continue(
     arm: &MatchArm,
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
-    CompletionCache::new(&module.body, names, types).match_arm_can_continue(arm, cancel)
+    CompletionCache::new(&module.nodes, names, types).match_arm_can_continue(arm, cancel)
 }
 
 fn arm_can_continue(
-    nodes: &Body,
+    nodes: &HirNodes,
     names: &ResolvedNames,
     arm: &MatchArm,
     guard_completes: bool,
@@ -140,14 +140,14 @@ fn arm_can_continue(
 /// Memoized completion facts for queries against one immutable body input.
 /// It is owned by a short-lived elaboration, not published or shared across revisions.
 pub(crate) struct CompletionCache<'a> {
-    nodes: &'a Body,
+    nodes: &'a HirNodes,
     names: &'a ResolvedNames,
     types: &'a TypeTable,
     facts: HashMap<Node, Exits>,
 }
 
 impl<'a> CompletionCache<'a> {
-    pub(crate) fn new(nodes: &'a Body, names: &'a ResolvedNames, types: &'a TypeTable) -> Self {
+    pub(crate) fn new(nodes: &'a HirNodes, names: &'a ResolvedNames, types: &'a TypeTable) -> Self {
         Self {
             nodes,
             names,
@@ -638,8 +638,8 @@ mod tests {
                     },
                     1 => ExprKind::Tuple(smallvec::smallvec![expr]),
                     _ => {
-                        let block = BlockId::new(arena, owner, module.body.blocks.len());
-                        module.body.blocks.push((
+                        let block = BlockId::new(arena, owner, module.nodes.blocks.len());
+                        module.nodes.blocks.push((
                             owner,
                             BlockData {
                                 statements: Default::default(),
@@ -649,8 +649,8 @@ mod tests {
                         ExprKind::Block(block)
                     }
                 };
-                expr = ExprId::new(arena, owner, module.body.exprs.len());
-                module.body.exprs.push((owner, ExprData { kind }));
+                expr = ExprId::new(arena, owner, module.nodes.exprs.len());
+                module.nodes.exprs.push((owner, ExprData { kind }));
             }
             let token = CancellationToken::default();
             assert_eq!(
@@ -658,8 +658,8 @@ mod tests {
                 Ok(expected)
             );
 
-            let mut place = PlaceId::new(arena, owner, module.body.places.len());
-            module.body.places.push((
+            let mut place = PlaceId::new(arena, owner, module.nodes.places.len());
+            module.nodes.places.push((
                 owner,
                 PlaceData {
                     kind: PlaceKind::Expr(expr),
@@ -667,8 +667,8 @@ mod tests {
             ));
             for _ in 0..20_000 {
                 let base = place;
-                place = PlaceId::new(arena, owner, module.body.places.len());
-                module.body.places.push((
+                place = PlaceId::new(arena, owner, module.nodes.places.len());
+                module.nodes.places.push((
                     owner,
                     PlaceData {
                         kind: PlaceKind::Field {
@@ -682,7 +682,7 @@ mod tests {
                 Completion {
                     names: &names,
                     types: &TypeTable::default(),
-                    nodes: &module.body,
+                    nodes: &module.nodes,
                     cancel: &token
                 }
                 .run(Task::Visit(Node::Place(place)))
@@ -720,7 +720,7 @@ mod tests {
         let result = Completion {
             names: &names,
             types: &TypeTable::default(),
-            nodes: &lowered.module.body,
+            nodes: &lowered.module.nodes,
             cancel: &token,
         }
         .sequence(Exits::NORMAL, expressions)
@@ -751,8 +751,8 @@ mod tests {
         // require 2^48 leaf visits, despite only 49 expression nodes.
         for _ in 0..48 {
             let previous = expr;
-            expr = ExprId::new(arena, owner, module.body.exprs.len());
-            module.body.exprs.push((
+            expr = ExprId::new(arena, owner, module.nodes.exprs.len());
+            module.nodes.exprs.push((
                 owner,
                 ExprData {
                     kind: ExprKind::Tuple(smallvec::smallvec![previous, previous]),
@@ -765,23 +765,23 @@ mod tests {
             Ok(true)
         );
 
-        let breaking = StmtId::new(arena, owner, module.body.stmts.len());
-        module.body.stmts.push((
+        let breaking = StmtId::new(arena, owner, module.nodes.stmts.len());
+        module.nodes.stmts.push((
             owner,
             StmtData {
                 kind: StmtKind::Break,
             },
         ));
-        let body = BlockId::new(arena, owner, module.body.blocks.len());
-        module.body.blocks.push((
+        let body = BlockId::new(arena, owner, module.nodes.blocks.len());
+        module.nodes.blocks.push((
             owner,
             BlockData {
                 statements: smallvec::smallvec![breaking],
                 tail_expr: None,
             },
         ));
-        let looping = StmtId::new(arena, owner, module.body.stmts.len());
-        module.body.stmts.push((
+        let looping = StmtId::new(arena, owner, module.nodes.stmts.len());
+        module.nodes.stmts.push((
             owner,
             StmtData {
                 kind: StmtKind::Loop { body },
@@ -793,7 +793,7 @@ mod tests {
         let exits = Completion {
             names: &names,
             types: &TypeTable::default(),
-            nodes: &module.body,
+            nodes: &module.nodes,
             cancel: &token,
         }
         .run(Task::Walk {
@@ -843,7 +843,7 @@ mod tests {
         );
         // Cached success cannot bypass cancellation on a later immutable-input query.
         let types = TypeTable::default();
-        let mut cache = CompletionCache::new(&lowered.module.body, &names, &types);
+        let mut cache = CompletionCache::new(&lowered.module.nodes, &names, &types);
         let live = CancellationToken::default();
         assert_eq!(cache.expression(expr, &live), Ok(true));
         assert_eq!(cache.expression(expr, &token), Err(Cancelled));
@@ -875,7 +875,7 @@ mod tests {
         let result = Completion {
             names: &names,
             types: &TypeTable::default(),
-            nodes: &lowered.module.body,
+            nodes: &lowered.module.nodes,
             cancel: &token,
         }
         .sequence(Exits::NORMAL, expressions);

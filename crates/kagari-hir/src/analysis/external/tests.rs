@@ -41,7 +41,16 @@ fn input(text: &str) -> ExternalModule {
 
 fn analyze(input: ExternalModule, text: &str) -> (AnalysisDatabase, AnalysisSnapshot, FileId) {
     let mut db = AnalysisDatabase::new("/project").unwrap();
-    db.set_external_modules(vec![input]);
+    let mut inputs = if input
+        .dependencies
+        .contains(&kagari_stdlib::namespaces::module("core", "host"))
+    {
+        super::foundation::exported(&kagari_stdlib::catalog::shared().unwrap())
+    } else {
+        Vec::new()
+    };
+    inputs.push(input);
+    db.set_external_modules(inputs);
     let source = Arc::new(SourceFile::new("/project/main.kgr", text));
     let id = source.id();
     let snapshot = db
@@ -74,9 +83,6 @@ fn external_source_preserves_fields_members_and_complete_script_definitions_with
     let file = snapshot.file(library_source.id()).unwrap();
     assert!(file.syntax().is_some());
     let facts = file.result().facts();
-    assert!(facts.lowered.is_external_api());
-    assert!(!facts.lowered.is_registered_native_api());
-    assert!(facts.lowered.native_functions.is_empty());
     let counter = &facts.lowered.module.native_types[0];
     assert_eq!(counter.fields.len(), 3);
     assert_eq!(counter.fields[0].writeability, Writeability::Var);
@@ -125,7 +131,7 @@ fn external_source_preserves_fields_members_and_complete_script_definitions_with
             .function(native.id)
             .unwrap()
             .implementation,
-        CheckedImplementation::NativeDeclaration
+        CheckedImplementation::Native(Default::default())
     );
     let span = facts.lowered.source_map.function_span(native.id);
     assert!(library_source.text()[span.start..span.end].contains("native fn new"));
@@ -133,7 +139,7 @@ fn external_source_preserves_fields_members_and_complete_script_definitions_with
     assert!(matches!(
         CheckedCompilation::from_program(&program, &Default::default()),
         Err(AdmissionError::InvalidModule(
-            "offline declarations cannot authorize compilation"
+            "Native interface fields have no executable adapters"
         ))
     ));
 
@@ -157,7 +163,7 @@ fn external_source_preserves_fields_members_and_complete_script_definitions_with
 }
 
 #[test]
-fn ordinary_native_syntax_is_parsed_but_semantically_rejected() {
+fn ordinary_native_syntax_is_checked_without_installed_bindings() {
     let source = Arc::new(SourceFile::new("ordinary.kgr", LIBRARY));
     let mut db = AnalysisDatabase::new("/project").unwrap();
     let snapshot = db
@@ -168,27 +174,30 @@ fn ordinary_native_syntax_is_parsed_but_semantically_rejected() {
         .unwrap();
     let file = snapshot.file(source.id()).unwrap();
     assert!(file.parsed.physical_diagnostics().is_empty());
-    let errors = file
-        .result()
-        .diagnostics()
-        .iter()
-        .filter(|diagnostic| {
-            matches!(
-                diagnostic.kind,
-                DiagnosticKind::UnsupportedSyntax {
-                    feature: "native declarations in ordinary source"
-                }
-            )
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(errors.len(), 6);
-    for diagnostic in errors {
-        assert!(source.span(diagnostic.span.unwrap()).is_some());
-    }
+    assert!(
+        file.result().diagnostics().is_empty(),
+        "{:?}",
+        file.result().diagnostics()
+    );
+    let facts = file.result().facts();
+    assert_eq!(facts.lowered.module.native_types.len(), 1);
+    assert_eq!(
+        facts
+            .typed
+            .signatures()
+            .functions()
+            .iter()
+            .filter(|function| matches!(
+                function.implementation,
+                crate::semantic::signatures::FunctionImplementation::Native(_)
+            ))
+            .count(),
+        5
+    );
     assert!(
         snapshot
             .check_program(source.id(), &Default::default())
-            .is_err()
+            .is_ok()
     );
 }
 
@@ -248,29 +257,11 @@ fn external_native_fields_and_calls_enforce_mutability_visibility_bounds_and_ari
 
 fn constructors() -> ExternalModule {
     let mut module = input(CONSTRUCTORS);
-    module.types = [
-        (
-            "Ref".into(),
-            ExternalType::Constructor(NativeTypeConstructor::Reference(ReferenceAccess::Shared)),
-        ),
-        (
-            "RefMut".into(),
-            ExternalType::Constructor(NativeTypeConstructor::Reference(ReferenceAccess::Mutable)),
-        ),
-        (
-            "String".into(),
-            ExternalType::Constructor(NativeTypeConstructor::String),
-        ),
-        (
-            "Range".into(),
-            ExternalType::Constructor(NativeTypeConstructor::Range(RangeKind::Exclusive)),
-        ),
-        (
-            "Target".into(),
-            ExternalType::Storage(NativeStorageLayout::Opaque),
-        ),
-    ]
-    .into();
+    module.dependencies.extend([
+        kagari_stdlib::namespaces::module("core", "host"),
+        kagari_stdlib::namespaces::module("core", "ops"),
+        kagari_stdlib::namespaces::module("alloc", "string"),
+    ]);
     for (name, access) in [
         ("shared", ReferenceAccess::Shared),
         ("mutable", ReferenceAccess::Mutable),
@@ -297,7 +288,9 @@ fn external_constructor_metadata_recognizes_identity_without_spelling_or_runtime
     let (_, snapshot, root) = analyze(library, client);
     assert_clean(&snapshot);
     let mut direct = AnalysisDatabase::new("/project").unwrap();
-    direct.set_native_modules(vec![super::equivalence::constructor_registration()]);
+    let mut providers = kagari_stdlib::catalog::shared().unwrap().to_vec();
+    providers.push(super::equivalence::constructor_registration());
+    direct.set_native_modules(providers);
     let direct_snapshot = direct
         .snapshot(snapshot.physical_sources().clone(), &Default::default())
         .unwrap();
@@ -375,7 +368,10 @@ fn external_constructor_metadata_recognizes_identity_without_spelling_or_runtime
         )
     );
     assert_eq!(range.params[0].ty, range.return_type);
-    let (_, nominal, _) = analyze(input(CONSTRUCTORS), "");
+    let (_, nominal, _) = analyze(
+        input("pub native type String; pub native fn text(value: String) -> String;"),
+        "",
+    );
     let nominal = nominal
         .files()
         .find(|file| file.source().module_identity().package.0 == "api")
@@ -418,7 +414,9 @@ fn references_preserve_target_eligibility_and_storage_return_restrictions() {
         path: vec![],
     });
     let mut db = AnalysisDatabase::new("/project").unwrap();
-    db.set_external_modules(vec![constructors(), invalid_input]);
+    let mut inputs = super::foundation::exported(&kagari_stdlib::catalog::shared().unwrap());
+    inputs.extend([constructors(), invalid_input]);
+    db.set_external_modules(inputs);
     let snapshot = db
         .snapshot(SourceSnapshot::default(), &Default::default())
         .unwrap();
@@ -477,7 +475,9 @@ fn missing_dependencies_and_invalid_external_metadata_are_not_admitted() {
         db.snapshot(SourceSnapshot::single_file(library.source.clone()), &Default::default()),
         Err(AnalysisError::NativeApi(error)) if error.0.contains("source conflicts")
     ));
-    db.set_native_modules(vec![super::equivalence::constructor_registration()]);
+    let mut providers = kagari_stdlib::catalog::shared().unwrap().to_vec();
+    providers.push(super::equivalence::constructor_registration());
+    db.set_native_modules(providers);
     assert!(matches!(
         db.snapshot(SourceSnapshot::default(), &Default::default()),
         Err(AnalysisError::NativeApi(error)) if error.0.contains("conflicts with installed")
@@ -513,20 +513,14 @@ fn missing_dependencies_and_invalid_external_metadata_are_not_admitted() {
         }
         owner_inputs.push(owner);
     }
-    // The existing invariant permits aliases inside one owner, never a second owner.
+    // An arbitrary module cannot grant constructor identity, even for a local alias.
     db.set_external_modules(vec![owner_inputs[0].clone()]);
     assert!(
-        db.declarations(SourceSnapshot::default(), &Default::default())
-            .is_ok()
+        matches!(db.declarations(SourceSnapshot::default(), &Default::default()), Err(AnalysisError::NativeApi(error)) if error.0.contains("invalid external constructor shape"))
     );
-    db.set_external_modules(owner_inputs.clone());
+    db.set_external_modules(owner_inputs);
     assert!(
-        matches!(db.declarations(SourceSnapshot::default(), &Default::default()), Err(AnalysisError::NativeApi(error)) if error.0.contains("multiple defining modules"))
-    );
-    db.set_external_modules(vec![owner_inputs.remove(0)]);
-    db.set_native_modules(vec![super::equivalence::constructor_registration()]);
-    assert!(
-        matches!(db.declarations(SourceSnapshot::default(), &Default::default()), Err(AnalysisError::NativeApi(error)) if error.0.contains("multiple defining modules"))
+        matches!(db.declarations(SourceSnapshot::default(), &Default::default()), Err(AnalysisError::NativeApi(error)) if error.0.contains("invalid external constructor shape"))
     );
     db.set_native_modules(vec![]);
     let mut malformed = library;
@@ -540,6 +534,78 @@ fn missing_dependencies_and_invalid_external_metadata_are_not_admitted() {
         Err(AnalysisError::NativeApi(_))
     ));
     assert!(db.declaration_cache.is_none());
+    // Constructor identity itself imposes shape, even when no sidecar is supplied.
+    for (package, module, name, constructor, valid, wrong_arity, fields) in [
+        (
+            "alloc",
+            "string",
+            "String",
+            NativeTypeConstructor::String,
+            "pub native type String;",
+            "pub native type String<T>;",
+            "pub native type String { pub val value: i32 }",
+        ),
+        (
+            "core",
+            "ops",
+            "Range",
+            NativeTypeConstructor::Range(RangeKind::Exclusive),
+            "pub native type Range<T>;",
+            "pub native type Range;",
+            "pub native type Range<T> { pub val value: i32 }",
+        ),
+        (
+            "core",
+            "ops",
+            "RangeFull",
+            NativeTypeConstructor::Range(RangeKind::Full),
+            "pub native type RangeFull;",
+            "pub native type RangeFull<T>;",
+            "pub native type RangeFull { pub val value: i32 }",
+        ),
+        (
+            "core",
+            "host",
+            "Ref",
+            NativeTypeConstructor::Reference(ReferenceAccess::Shared),
+            "pub native type Ref<T>;",
+            "pub native type Ref;",
+            "pub native type Ref<T> { pub val value: i32 }",
+        ),
+    ] {
+        for (text, accepted) in [(valid, true), (wrong_arity, false), (fields, false)] {
+            let mut sources = SourceDatabase::new("/constructor-shapes").unwrap();
+            sources
+                .bind_module(
+                    "constructor.kgr",
+                    kagari_stdlib::namespaces::module(package, module),
+                )
+                .unwrap();
+            let id = sources
+                .set("constructor.kgr", text.into(), SourceLayer::Base)
+                .unwrap();
+            let declaration = ExternalModule::new(sources.snapshot().file(id).unwrap().clone());
+            for sidecar in [false, true] {
+                let mut declaration = declaration.clone();
+                if sidecar {
+                    declaration
+                        .types
+                        .insert(name.into(), ExternalType::Constructor(constructor));
+                }
+                db.set_external_modules(vec![declaration]);
+                let result = db.declarations(SourceSnapshot::default(), &Default::default());
+                if accepted {
+                    assert!(result.is_ok(), "{text}, sidecar={sidecar}: {result:?}");
+                } else {
+                    assert!(
+                        matches!(result, Err(AnalysisError::NativeApi(ref error)) if error.0.contains("invalid language constructor declaration shape")),
+                        "{text}, sidecar={sidecar}: {result:?}"
+                    );
+                }
+            }
+        }
+    }
+
     let locked = MethodPolicy {
         override_allowed: false,
         ..Default::default()

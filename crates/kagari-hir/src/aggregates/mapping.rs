@@ -158,8 +158,8 @@ impl RemapDefinitions for NativeTypeSignature {
                 }),
             )?,
             declaration: self.declaration.remap_definitions(mapper)?,
-            representation: self
-                .representation
+            host: self
+                .host
                 .as_ref()
                 .map(|value| value.remap_definitions(mapper))
                 .transpose()?,
@@ -186,7 +186,7 @@ impl DefinitionReferences for NativeTypeSignature {
             }
         }
         self.declaration.visit_definition_ids(visit, cancel)?;
-        if let Some(representation) = &self.representation {
+        if let Some(representation) = &self.host {
             representation.visit_definition_ids(visit, cancel)?;
         }
         for field in &self.fields {

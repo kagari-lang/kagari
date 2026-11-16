@@ -235,24 +235,17 @@ fn generated_files_docs_and_navigation_share_the_checked_snapshot() {
         .iter()
         .find(|method| method.name == "sorted")
         .unwrap();
-    let CallableImplementation::NativeDefault(application) = &sorted.implementation else {
-        panic!("List::sorted must retain its native default body")
-    };
-    assert_eq!(application.arguments.len(), 3);
-    assert!(
-        owner
-            .records()
-            .private_functions
-            .contains(&application.declaration)
-    );
-    let template = owner
-        .definitions()
-        .resolve(application.declaration)
-        .unwrap();
+    assert_eq!(sorted.implementation, CallableImplementation::Script);
+    let trait_id = owner.records().definition(kagari_common::identity::DefinitionKind::Trait, "List", owner.definitions()).unwrap();
+    let method_id = kagari_types::declaration::module::ModuleDecl::method_id(trait_id, "sorted", owner.definitions()).unwrap();
+    let kagari_types::declaration::script::ScriptExpr::Call { callee, type_arguments, .. } = &owner.records().script_bodies[&method_id] else { panic!("ordinary Script call") };
+    assert_eq!(type_arguments.len(), 3);
+    let kagari_types::declaration::script::ScriptExpr::Definition(template) = **callee else { panic!("declared Native helper") };
+    assert!(owner.records().private_functions.contains(&template));
+    let template = owner.definitions().resolve(template).unwrap();
     assert_eq!(template.module(), &owner.records().identity);
     let name = template.last().unwrap().name;
-    let forwarding =
-        format!("{name}::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self)");
+    let forwarding = format!("{name}::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self)");
     assert!(
         collections.text.contains(&forwarding),
         "{}",

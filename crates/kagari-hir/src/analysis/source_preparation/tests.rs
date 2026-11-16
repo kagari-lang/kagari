@@ -132,8 +132,8 @@ fn inline_views_share_the_parse_and_rebase_retained_queries() {
     assert_eq!(next.result().facts().typed.checked_bodies, 2);
     assert_eq!(next.result().facts().typed.reused_bodies, 0);
     assert_ne!(
-        child.result().facts().lowered.module.body.arena(),
-        next.result().facts().lowered.module.body.arena()
+        child.result().facts().lowered.module.nodes.arena(),
+        next.result().facts().lowered.module.nodes.arena()
     );
 
     let old_parse = first_declarations

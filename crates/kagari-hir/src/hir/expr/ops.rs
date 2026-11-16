@@ -3,7 +3,7 @@
 /// Source unary operator tags used by ExprKind::Prefix.
 ///
 /// `-x` maps to Prefix { op: Neg, expr: x_id }; `!ready` maps to
-/// Prefix { op: Not, expr: ready_id }. Operand IDs enter Body.exprs; the tag
+/// Prefix { op: Not, expr: ready_id }. Operand IDs enter HirNodes.exprs; the tag
 /// records spelling and does not select a checked numeric/boolean instruction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrefixOp {

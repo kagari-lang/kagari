@@ -37,7 +37,7 @@ fn helper_targets_survive_invalid_arguments_without_reinterpreting_names() {
         let (callee, _) = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .find(|(_, expr)| matches!(&expr.kind, ExprKind::Name { name: n, .. } if n == name))
             .unwrap();
@@ -48,7 +48,7 @@ fn helper_targets_survive_invalid_arguments_without_reinterpreting_names() {
         let (call, _) = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .find(|(_, expr)| matches!(expr.kind, ExprKind::Call { .. }))
             .unwrap();
@@ -90,7 +90,7 @@ fn declarations_and_lexical_bindings_shadow_every_helper() {
         let (call, _) = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .find(|(_, expr)| matches!(expr.kind, ExprKind::Call { .. }))
             .unwrap();
@@ -122,7 +122,7 @@ fn declarations_and_lexical_bindings_shadow_every_helper() {
         let (callee, _) = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .find(|(_, expr)| matches!(expr.kind, ExprKind::Name { .. }))
             .unwrap();
@@ -157,7 +157,7 @@ fn invalid_values_and_type_only_names_are_rejected_without_losing_neighbor_targe
         let (value, _) = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .find(|(_, expr)| matches!(&expr.kind, ExprKind::Name { name: n, .. } if n == name))
             .unwrap();

@@ -1,5 +1,6 @@
 //! Immutable declaration-only inputs for an independent analysis session.
 
+use crate::imports::environment::ImportEnvironment;
 use crate::{
     analysis::{AnalysisDatabase, external::ExternalModule},
     native::render::DeclarationSource,
@@ -19,6 +20,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub struct AnalysisInputs {
     source_root: String,
+    import_environment: ImportEnvironment,
     native_modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
     native_sources: Option<Vec<DeclarationSource>>,
     external_modules: Vec<ExternalModule>,
@@ -32,6 +34,7 @@ impl AnalysisDatabase {
     pub fn inputs(&self) -> Arc<AnalysisInputs> {
         Arc::new(AnalysisInputs {
             source_root: self.source_root.clone(),
+            import_environment: self.import_environment.clone(),
             native_modules: self.native_modules.clone(),
             native_sources: self.native_sources.clone(),
             external_modules: self.external_modules.clone(),
@@ -46,6 +49,7 @@ impl AnalysisInputs {
     /// Creates an empty analysis session without IO or provider registration.
     pub fn database(&self) -> Result<AnalysisDatabase, String> {
         let mut database = AnalysisDatabase::new(&self.source_root)?;
+        database.import_environment = self.import_environment.clone();
         database.native_modules = self.native_modules.clone();
         database.native_sources = self.native_sources.clone();
         database.external_modules = self.external_modules.clone();
@@ -53,6 +57,11 @@ impl AnalysisInputs {
         database.parse_limits = self.parse_limits;
         database.max_semantic_diagnostics = self.max_semantic_diagnostics;
         Ok(database)
+    }
+
+    /// Explicit import scopes captured with this immutable analysis environment.
+    pub fn import_environment(&self) -> &ImportEnvironment {
+        &self.import_environment
     }
 
     pub fn source_root(&self) -> &str {
@@ -88,12 +97,15 @@ impl AnalysisInputs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::imports::environment::ModuleScope;
     use crate::{native::render::declaration_source, tests::native_fixture::function_module};
     use kagari_common::{
         cancellation::CancellationToken,
         identity::{ModuleIdentity, PackageId},
     };
-    use kagari_source::{source::SourceFile, source_database::SourceSnapshot};
+    use kagari_source::{
+        package::PackageScope, source::SourceFile, source_database::SourceSnapshot,
+    };
     use kagari_stdlib::catalog as foundation_catalog;
     use kagari_types::{scalar::BuiltinType, ty::Ty};
 
@@ -141,6 +153,25 @@ mod tests {
                 "main.kgr",
                 "fn main() -> i32 { host::number() }",
             ));
+            let import_environment = ImportEnvironment {
+                modules: [(
+                    source.module_identity().clone(),
+                    ModuleScope {
+                        packages: PackageScope {
+                            dependencies: [("host".into(), PackageId("host".into()))].into(),
+                            selection: "explicit-test".into(),
+                        },
+                        dependencies: providers
+                            .iter()
+                            .map(|provider| provider.records().identity.clone())
+                            .collect(),
+                        preludes: Default::default(),
+                    },
+                )]
+                .into(),
+            };
+            database.set_import_environment(import_environment.clone());
+
             let sources = SourceSnapshot::single_file(source.clone());
             let snapshot = database.snapshot(sources.clone(), &cancel).unwrap();
             snapshot.check_program(source.id(), &cancel).unwrap();
@@ -151,10 +182,12 @@ mod tests {
             database.set_parse_limits(Default::default());
             database.set_max_semantic_diagnostics(1);
             drop(database);
+            assert_eq!(inputs.import_environment(), &import_environment);
             assert_eq!(inputs.const_limits(), const_limits);
             assert_eq!(inputs.parse_limits(), parse_limits);
             assert_eq!(inputs.max_semantic_diagnostics(), 23);
             assert_eq!(inputs.source_root(), "/capsule");
+
             assert!(Arc::ptr_eq(
                 inputs.native_modules().last().unwrap(),
                 &provider

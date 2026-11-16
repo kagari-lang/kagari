@@ -7,11 +7,12 @@ use kagari_common::{cancellation::CancellationToken, identity::table::Definition
 use kagari_contract::{
     callable::witness::OperationWitness,
     types::{
+        PublicItem,
         applications::{
             validate_declarations, validate_function, validate_layouts, validate_slots,
             validate_types,
         },
-        named::origins,
+        named::{NamedContract, origins},
         proofs::ProofCatalog,
         type_contract,
     },
@@ -44,6 +45,29 @@ pub(super) fn validate(
                 .find(|record| record.declaration == id)
         },
     )?;
+    // A selected inherited body cannot also be an authored implementation override.
+    for table in module.public_items.iter().filter_map(|item| match item {
+        PublicItem::InterfaceTable(table) => Some(table),
+        _ => None,
+    }) {
+        for origin in &table.method_origins {
+            if closure
+                .iter()
+                .flat_map(|owner| &owner.named_declarations)
+                .any(|record| record.declaration == origin.placement)
+            {
+                return Err(TypeTransformError::InvalidContract);
+            }
+            let authored = closure
+                .iter()
+                .flat_map(|owner| &owner.named_declarations)
+                .find(|record| record.declaration == origin.authored)
+                .ok_or(TypeTransformError::InvalidContract)?;
+            if !matches!(authored.contract, NamedContract::Function(_)) {
+                return Err(TypeTransformError::InvalidContract);
+            }
+        }
+    }
     let validator = ApplicationValidator::new(
         cancel,
         |id| contract(id, closure, definitions),

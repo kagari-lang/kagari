@@ -47,7 +47,7 @@ fn associated_constant_targets_survive_cached_body_rebasing_and_revision_changes
     let id = old
         .lowered()
         .module
-        .body
+        .nodes
         .expressions()
         .find(|(id, _)| old.type_table().associated_const(*id).is_some())
         .unwrap()
@@ -66,7 +66,7 @@ fn associated_constant_targets_survive_cached_body_rebasing_and_revision_changes
         reused
             .lowered()
             .module
-            .body
+            .nodes
             .expressions()
             .any(|(id, _)| reused.type_table().associated_const(id).is_some())
     );

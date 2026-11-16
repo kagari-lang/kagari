@@ -115,6 +115,7 @@ impl Fixture {
                         },
                     }],
                     public_items: vec![PublicItem::InterfaceTable(Box::new(InterfaceTable {
+                        method_origins: Vec::new(),
                         associated_type_families: vec![],
                         associated_consts: vec![],
                         bridge: None,

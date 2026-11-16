@@ -6,7 +6,7 @@ use crate::disassembly::{
 };
 use kagari_contract::{callable::witness::OperationWitness, types::ConcreteFunctionIdentity};
 use kagari_types::{
-    callable::{CallableImplementation, NativeDefaultApplication, Signature},
+    callable::{CallableImplementation, Signature},
     declaration::requirement::NativeCallableRequirement,
     reference::ReferenceAccess,
     ty::{GenericBound, GenericParam, NominalTy, Ty},
@@ -90,17 +90,6 @@ pub(super) fn implementation(
         CallableImplementation::Script => "script".into(),
         CallableImplementation::Native(binding) => {
             format!("native {}", context.definition(*binding))
-        }
-        CallableImplementation::NativeDefault(application) => {
-            let NativeDefaultApplication {
-                declaration,
-                arguments: types,
-            } = application;
-            format!(
-                "native_default {} arguments={}",
-                context.definition(*declaration),
-                arguments(context, types)
-            )
         }
     }
 }

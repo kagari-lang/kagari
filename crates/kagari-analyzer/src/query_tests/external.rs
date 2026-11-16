@@ -80,7 +80,7 @@ fn offline_native_queries_retain_real_declarations_and_complete_script_origins()
     let new = queries.source_function_at(new_offset).unwrap();
     assert_eq!(
         new.signature.implementation,
-        FunctionImplementation::NativeDeclaration
+        FunctionImplementation::Native(Default::default())
     );
     assert_eq!(new.site.source_location().unwrap().file, library);
     let docs = snapshot

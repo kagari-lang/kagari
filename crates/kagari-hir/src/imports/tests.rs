@@ -1,7 +1,6 @@
 use super::*;
 use crate::{
-    analysis::{AnalysisSnapshot, error::AnalysisError},
-    imports::solver::ImportSolveError,
+    analysis::{AnalysisDatabase, AnalysisSnapshot, error::AnalysisError},
     lower::lower_module,
     tests::{native_fixture::function_module, test_analysis},
 };
@@ -475,7 +474,7 @@ fn diamond_has_deterministic_reachable_order() {
 }
 
 #[test]
-fn source_host_and_module_item_ambiguities_are_rejected() {
+fn duplicate_source_and_structured_module_owners_are_rejected() {
     let mut db = SourceDatabase::default();
     insert(&mut db, "api", "pub fn child() -> i32 { 1 }");
     insert(&mut db, "api::child", "");
@@ -489,34 +488,38 @@ fn source_host_and_module_item_ambiguities_are_rejected() {
     );
     let mut modules = foundation_catalog::shared().unwrap();
     modules.push(module);
-    // A function and child module can share a spelling in distinct namespaces.
-    // Installing a second owner makes the module and its child path ambiguous;
-    // reusing the database must invalidate the previously valid import facts.
-    for (providers, expected) in [
-        (foundation_catalog::shared().unwrap(), vec![]),
-        (modules, vec!["pkg::api", "pkg::api::child"]),
-    ] {
-        analysis.set_native_modules(providers);
-        let snapshot = analysis
-            .snapshot(db.snapshot(), &Default::default())
-            .unwrap();
-        let paths = snapshot
+    // Distinct type/value namespace spellings are valid in the original snapshot.
+    let snapshot = analysis
+        .snapshot(db.snapshot(), &Default::default())
+        .unwrap();
+    assert!(
+        snapshot
             .file(root)
             .unwrap()
             .result()
             .diagnostics()
-            .iter()
-            .filter_map(|diagnostic| match &diagnostic.kind {
-                DiagnosticKind::AmbiguousImport { path } => Some(path.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(paths, expected);
-    }
+            .is_empty()
+    );
+    analysis.set_native_modules(modules);
+    let error = analysis
+        .snapshot(db.snapshot(), &Default::default())
+        .unwrap_err();
+    assert!(
+        matches!(error, AnalysisError::NativeApi(error) if error.0.contains("source conflicts with library declaration input"))
+    );
+    // Failed replacement cannot change the retained successful import graph.
+    assert!(
+        snapshot
+            .file(root)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .is_empty()
+    );
 }
 
 #[test]
-fn declared_source_aliases_cannot_shadow_installed_native_packages() {
+fn declared_source_aliases_cannot_conflict_with_supplied_package_bindings() {
     let mut db = SourceDatabase::default();
     let modules = ["app", "library"].map(|name| CapturedSource {
         key: format!("mem://{name}"),
@@ -548,8 +551,86 @@ fn declared_source_aliases_cannot_shadow_installed_native_packages() {
         .snapshot(source, &Default::default())
         .unwrap_err();
     assert!(
-        matches!(error, AnalysisError::Imports(ImportSolveError::Packages(message)) if message.contains("installed provider"))
+        matches!(error, AnalysisError::NativeApi(error) if error.0.contains("conflicting package binding std"))
     );
+
+    // A module dependency retains reachability, not authority over an explicit alias.
+    let mut sources = SourceDatabase::new("/aliases").unwrap();
+    let mut root = None;
+    for (package, text) in [
+        ("left", "pub fn value() -> i32 { 1 }"),
+        ("right", "pub fn value() -> i32 { 2 }"),
+        (
+            "app",
+            "use left::value as imported; fn main() -> i32 { imported() } fn qualified() -> i32 { left::value() }",
+        ),
+    ] {
+        let identity = ModuleIdentity {
+            package: PackageId(package.into()),
+            path: vec![],
+        };
+        sources.bind_module(package, identity).unwrap();
+        let id = sources
+            .set(package, text.into(), SourceLayer::Base)
+            .unwrap();
+        if package == "app" {
+            root = Some(id);
+        }
+    }
+    let root = root.unwrap();
+    let mut analysis = AnalysisDatabase::new("/aliases").unwrap();
+    analysis.set_import_environment(environment::ImportEnvironment {
+        modules: [(
+            sources
+                .snapshot()
+                .file(root)
+                .unwrap()
+                .module_identity()
+                .clone(),
+            environment::ModuleScope {
+                packages: PackageScope {
+                    dependencies: [("left".into(), PackageId("right".into()))].into(),
+                    ..Default::default()
+                },
+                dependencies: ["left", "right"]
+                    .map(|name| ModuleIdentity {
+                        package: PackageId(name.into()),
+                        path: vec![],
+                    })
+                    .into(),
+                preludes: Default::default(),
+            },
+        )]
+        .into(),
+    });
+    let snapshot = analysis
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    snapshot.check_program(root, &Default::default()).unwrap();
+    let file = snapshot.file(root).unwrap();
+    let facts = file.result().facts();
+    let calls = facts
+        .lowered
+        .module
+        .nodes
+        .expressions()
+        .filter_map(|(id, _)| facts.typed.type_table().call_resolution(id))
+        .collect::<Vec<_>>();
+    assert_eq!(calls.len(), 2);
+    for call in calls {
+        let crate::typeck::table::CallTarget::SourceFunction(target) = call.target else {
+            panic!("source function call")
+        };
+        assert_eq!(
+            file.definitions()
+                .resolve(target)
+                .unwrap()
+                .module()
+                .package
+                .0,
+            "right"
+        );
+    }
 }
 
 #[test]
@@ -693,17 +774,10 @@ fn cycles_are_reachable_without_invalidating_dependents() {
     assert_eq!(forward.catalog.modules, reverse.catalog.modules);
     assert_eq!(forward.catalog.namespaces, reverse.catalog.namespaces);
     assert_eq!(forward.catalog.packages, reverse.catalog.packages);
+    assert_eq!(forward.catalog.environment, reverse.catalog.environment);
     assert_eq!(
-        forward.catalog.installed_aliases,
-        reverse.catalog.installed_aliases
-    );
-    assert_eq!(
-        forward.catalog.native_dependencies,
-        reverse.catalog.native_dependencies
-    );
-    assert_eq!(
-        forward.catalog.native_trait_references,
-        reverse.catalog.native_trait_references
+        forward.catalog.module_dependencies,
+        reverse.catalog.module_dependencies
     );
 
     assert_eq!(forward.source_facts, reverse.source_facts);

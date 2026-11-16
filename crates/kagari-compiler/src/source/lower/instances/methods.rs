@@ -19,7 +19,6 @@ use kagari_hir::{
     callable::AppliedCallSignature,
     hir::expr::ops::BinaryOp as HirBinaryOp,
     language::semantics as traits,
-    native::NativeBinding,
     typeck::GenericBounds,
     types::{NominalType, TypeId, TypeSubstitution},
 };
@@ -183,10 +182,8 @@ impl InstancePlanner<'_> {
             .iter()
             .map(|param| instantiate(&param.ty))
             .collect::<Vec<_>>();
-        if matches!(receiver, TypeId::Generic(_))
-            || ((native_default.is_none()
-                || matches!(native_default, Some(NativeBinding::Default(_))))
-                && parents.contains(&interface))
+        if matches!(receiver, TypeId::Generic(_) | TypeId::Trait(_))
+            || (native_default.is_none() && parents.contains(&interface))
         {
             let evidence = self.method_evidence(method, &interface, &receiver, arguments, span)?;
             let normalizations =
@@ -238,8 +235,7 @@ impl InstancePlanner<'_> {
             }
         }
         let implementation = self.implementation_method(method, &interface, &receiver, bounds)?;
-        if !matches!(native_default, Some(NativeBinding::Default(_)))
-            && let Some(protocol) = protocol
+        if let Some(protocol) = protocol
             && protocol.equality_protocol()
             && !matches!(receiver, TypeId::Trait(_) | TypeId::Generic(_))
             && implementation.is_none()
@@ -280,12 +276,15 @@ impl InstancePlanner<'_> {
         }
         if let Some((declaration, mut implementation_arguments)) = implementation {
             implementation_arguments.extend_from_slice(arguments);
-            if self.native_function(&declaration).is_some() {
+            if self.native_declaration(&declaration).is_some() {
                 return self.native_implementation_plan(
                     &declaration,
                     &implementation_arguments,
                     &receiver,
-                    &result,
+                    &AppliedCallSignature {
+                        params,
+                        return_type: result,
+                    },
                     span,
                 );
             }

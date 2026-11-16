@@ -142,6 +142,7 @@ fn methodless_construction_requires_exact_selected_or_forwarded_evidence() {
         .intern_child(root, DefinitionKind::Impl, "MarkerForI32", 0)
         .unwrap();
     let table = InterfaceTable {
+        method_origins: Vec::new(),
         declaration,
         name: "MarkerForI32".into(),
         generic_params: vec![],
@@ -362,6 +363,27 @@ fn construction_capabilities_include_parents_and_immediate_associated_bounds() {
         },
         interface: fixture.interface()
     }));
+    let mut identity = bounds[0].constraints[0].clone();
+    identity.associated_types.insert(
+        member,
+        Ty::Projection {
+            receiver: Box::new(fixture.parameter.as_type()),
+            interface: Box::new(bounds[0].constraints[0].clone()),
+            member,
+            arguments: vec![],
+        },
+    );
+    bounds[0].constraints[0] = identity;
+    assert_eq!(
+        required_constructions(
+            &bounds,
+            slice::from_ref(&fixture.parameter),
+            &catalog,
+            &cancel
+        )
+        .unwrap(),
+        requirements
+    );
     bounds.reverse();
     assert_eq!(
         required_constructions(

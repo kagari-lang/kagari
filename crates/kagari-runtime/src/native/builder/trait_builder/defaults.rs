@@ -87,12 +87,24 @@ impl TraitBuilder<'_> {
             lowered.push((index, default, binding.clone()));
         }
         for (index, default, binding) in lowered {
-            let id = default.application.declaration;
+            let id = match default.template.implementation {
+                CallableImplementation::Native(id) => id,
+                _ => unreachable!("lowered helper is Native"),
+            };
+            let method_id = ModuleDecl::method_id(
+                self.id,
+                &self.declaration.methods[index].name,
+                &self.module.providers.definitions(),
+            )
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+            self.module
+                .declaration
+                .script_bodies
+                .insert(method_id, default.body);
             if let Some(ty) = default.concrete_result {
                 self.module.declaration.concrete_results.insert(id, ty);
             }
-            self.declaration.methods[index].implementation =
-                CallableImplementation::NativeDefault(default.application);
+            self.declaration.methods[index].implementation = CallableImplementation::Script;
             self.module.declaration.functions.push(default.template);
             self.module.declaration.private_functions.insert(id);
             self.module

@@ -184,7 +184,7 @@ fn type_alias_composite_retention_is_bounded_across_siblings() {
         let facts = result.facts();
         let table = facts.signatures.facts().type_table();
         let mut retained = 0;
-        for (index, (_, reference)) in facts.lowered.module.body.types.iter().enumerate() {
+        for (index, (_, reference)) in facts.lowered.module.nodes.types.iter().enumerate() {
             if matches!(&reference.kind, TypeKind::Named(name) if name == "Big") {
                 let resolved = table
                     .type_ref(facts.lowered.source_map.type_id(index))
@@ -311,16 +311,7 @@ fn type_alias_rejects_native_only_attributes() {
             "{:?}",
             parsed.diagnostics()
         );
-        let mut lowered = lower_module_controlled(source, &parsed.module(), &cancel);
-        // Even an attribute allowlisted by registration cannot give an alias
-        // native storage identity. Exercise signature validation independently
-        // of the stricter native source/registration correspondence gate.
-        lowered.registered_native_api = true;
-        for attribute in &lowered.module.attributes {
-            lowered
-                .native_attributes
-                .insert((attribute.span.start, attribute.span.end));
-        }
+        let lowered = lower_module_controlled(source, &parsed.module(), &cancel);
         let lowered = Arc::new(lowered);
         let context = DefinitionContext::new().unwrap();
         let graph = ModuleGraph::build([lowered.as_ref()], &context, &cancel).unwrap();

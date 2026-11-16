@@ -2,7 +2,6 @@
 
 use crate::{
     aggregates::implementations::ImplementationSignature,
-    callable::AppliedCallSignature,
     compile_input::program::AdmissionError,
     declarations::Declarations,
     hir::item::{
@@ -17,9 +16,8 @@ use crate::{
     typeck::{GenericBounds, constraints, scalar::ScalarValue, table::TypeTable},
     types::{GenericParameterType, NominalType, TypeId},
 };
-use kagari_common::identity::table::{DefinitionId, DefinitionTable};
-use kagari_types::declaration::{NativeDeclaration, TraitDef as RegisteredTrait};
-use std::{borrow::Cow, collections::BTreeMap};
+use kagari_common::identity::table::DefinitionId;
+use std::borrow::Cow;
 
 /// Borrowed source declaration metadata in one admitted module.
 ///
@@ -102,38 +100,6 @@ impl<'a> DeclarationHeaders<'a> {
                 .is_some_and(|row| row.id == id),
         }
     }
-}
-
-/// Exact installed declaration authority in its retained definition scope.
-///
-/// These records can retain projections and native passing policies that a
-/// normalized source signature does not. They are borrowed from installation,
-/// never reconstructed from a generated source spelling. Ordinary source modules
-/// have no registration view.
-#[derive(Clone, Copy)]
-pub struct RegisteredDeclarations<'a> {
-    /// Scope in which every identity in the following records is valid.
-    pub definitions: &'a DefinitionTable,
-    /// Installed callable and native template declarations.
-    pub callables: &'a [NativeDeclaration],
-    /// Exact foreign source trait requirements retained by installation.
-    pub source_traits: &'a BTreeMap<DefinitionId, RegisteredTrait>,
-}
-
-/// Selected forwarding application proved by a generated native default body.
-///
-/// The target is canonical; arguments can still contain the default's binders.
-/// Instance planning substitutes them under the declaring trait's environment.
-/// This is a declaration recipe, not an executed call or a substitute for the
-/// registered target's host policy.
-#[derive(Clone, Copy)]
-pub struct NativeDefaultCall<'a> {
-    /// Selected native template or source callable declaration.
-    pub declaration: DefinitionId,
-    /// Applied type arguments in the selected target's binder order.
-    pub arguments: &'a [TypeId],
-    /// Checked parameter/result types of the forwarding application.
-    pub signature: &'a AppliedCallSignature,
 }
 
 /// The type and evaluated value of one local scalar constant.

@@ -1,5 +1,6 @@
 //! Checked nominal contracts shared by local and imported member access.
 
+use crate::hir::item::function::FunctionImplementation as HirImplementation;
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{
@@ -11,11 +12,11 @@ use kagari_common::{
 use crate::{
     aggregates::{implementations::ImplementationSignature, traits::TraitSignature},
     declarations::{Declaration, DeclarationId, Declarations},
+    hir::item::adt::HostContract,
     hir::{item::adt::Field, writeability::Writeability},
     imports::{ModuleGraph, SourceDeclRef, SourceItem, SourceUnit},
     language::semantics as builtin_traits,
     lower::LoweredModule,
-    native::NativeTypeKind,
     resolver::resolved::ResolvedName,
     semantic::signatures::TypedFunction,
     typeck::{GenericBounds, ModuleSignatures},
@@ -104,7 +105,7 @@ pub struct NativeTypeSignature {
     /// Semantic identity and authoritative source navigation site.
     pub declaration: Declaration,
     /// Static storage/type interpretation; independent of source spelling and not binding proof.
-    pub representation: Option<NativeTypeKind>,
+    pub host: Option<HostContract>,
     /// Declared interface fields; these do not grant executable adapters.
     pub fields: Vec<FieldSignature>,
 }
@@ -227,7 +228,6 @@ impl AggregateCatalog {
             let DeclarationId::Definition(id) = &declaration.id else {
                 continue;
             };
-            let representation = declarations.native_type(item.id);
             let fields =
                 self.collect_fields(&item.fields, *id, declarations, signatures, cancel)?;
             self.native_types.insert(
@@ -240,7 +240,7 @@ impl AggregateCatalog {
                         .expect("checked native type constraints")
                         .clone(),
                     declaration: declaration.clone(),
-                    representation,
+                    host: item.host.clone(),
                     fields,
                 }),
             );
@@ -300,7 +300,7 @@ impl AggregateCatalog {
                 }
                 self.variants.insert(*variant_id, (*id, variants.len()));
                 variants.push(VariantSignature {
-                    reports_failure: lowered.registered_enum_failures.contains(&variant.id),
+                    reports_failure: variant.reports_failure,
                     id: *variant_id,
                     owner: *id,
                     slot: variant.id.slot(),
@@ -391,10 +391,12 @@ impl AggregateCatalog {
                 self.inherent_methods.insert(
                     *declaration,
                     Arc::new(InherentMethodSignature {
-                        receiver_access: lowered
-                            .method_policies
-                            .get(&method.function)
-                            .and_then(|policy| policy.receiver_access),
+                        receiver_access: match &lowered.module.functions[method.function.index()]
+                            .implementation
+                        {
+                            HirImplementation::Native(contract) => contract.receiver_access,
+                            _ => None,
+                        },
                         id: SourceDeclRef {
                             unit: SourceUnit::of(lowered, declarations.definitions()),
                             item: SourceItem::Function(method.function),

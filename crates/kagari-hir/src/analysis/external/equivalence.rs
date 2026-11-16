@@ -1,6 +1,6 @@
 //! Independent structured descriptors and fixed parsed text exercise one checker.
 
-use super::{ExternalFunction, ExternalModule, ExternalType};
+use super::{ExternalFunction, ExternalModule};
 use crate::{
     analysis::{AnalysisDatabase, AnalysisSnapshot, FileAnalysis, error::AnalysisError},
     compile_input::program::{AdmissionError, CheckedCompilation},
@@ -23,7 +23,8 @@ use kagari_types::{
     declaration::{
         AssociatedTypeDef, FieldDef, FnDecl, Param, TraitDef, TypeDef, TypeDefKind,
         module::{ImplDecl, ModuleDecl},
-        native::{NativeStorageLayout, NativeTypeConstructor},
+        names::{ExportName, NameNamespace},
+        native::NativeStorageLayout,
         requirement::NativeCallableRequirement,
     },
     range::RangeKind,
@@ -322,47 +323,37 @@ pub(super) fn constructor_registration() -> Arc<DefinitionMetadata<ModuleDecl>> 
     let context = DefinitionContext::new().unwrap();
     let root = context.intern_root(&identity("api")).unwrap();
     let mut module = ModuleDecl::new(identity("api"));
-    for (name, kind, arity) in [
-        (
-            "Ref",
-            TypeDefKind::Native(NativeTypeConstructor::Reference(ReferenceAccess::Shared)),
-            1,
-        ),
-        (
-            "RefMut",
-            TypeDefKind::Native(NativeTypeConstructor::Reference(ReferenceAccess::Mutable)),
-            1,
-        ),
-        (
-            "String",
-            TypeDefKind::Native(NativeTypeConstructor::String),
-            0,
-        ),
-        (
-            "Range",
-            TypeDefKind::Native(NativeTypeConstructor::Range(RangeKind::Exclusive)),
-            1,
-        ),
-        (
-            "Target",
-            TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
-            0,
-        ),
+    let providers = kagari_stdlib::catalog::shared().unwrap();
+    let providers =
+        crate::native::adoption::adopt(&providers, &context, &Default::default()).unwrap();
+    for (name, package, path) in [
+        ("Ref", "core", "host"),
+        ("RefMut", "core", "host"),
+        ("String", "alloc", "string"),
+        ("Range", "core", "ops"),
     ] {
-        let owner = context
-            .intern_child(root, kind.definition_kind(), name, 0)
+        let identity = kagari_stdlib::namespaces::module(package, path);
+        let provider = providers
+            .iter()
+            .find(|provider| provider.records().identity == identity)
             .unwrap();
-        module.types.push(TypeDef {
-            name: name.into(),
-            kind,
-            generic_params: (0..arity)
-                .map(|position| GenericParam { owner, position })
-                .collect(),
-            bounds: vec![],
-            fields: vec![],
-            variants: vec![],
-        });
+        let target = provider
+            .records()
+            .definition(DefinitionKind::AssociatedType, name, provider.definitions())
+            .unwrap();
+        module.dependencies.insert(identity);
+        module
+            .exports
+            .insert(ExportName::new(NameNamespace::Type, name), target);
     }
+    module.types.push(TypeDef {
+        name: "Target".into(),
+        kind: TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
+        generic_params: vec![],
+        bounds: vec![],
+        fields: vec![],
+        variants: vec![],
+    });
     let target = context
         .intern_child(root, DefinitionKind::AssociatedType, "Target", 0)
         .unwrap();
@@ -477,10 +468,6 @@ fn structured_and_offline_apis_share_fields_calls_traits_and_diagnostic_rules() 
         .unwrap();
     let mut external = ExternalModule::new(exports.snapshot().file(api).unwrap().clone());
     external.dependencies.insert(identity("support"));
-    external.types.insert(
-        "Counter".into(),
-        ExternalType::Storage(NativeStorageLayout::Opaque),
-    );
     let mut direct = AnalysisDatabase::new("/project").unwrap();
     let registered = registration();
     for name in ["bounded", "produce"] {
@@ -489,6 +476,8 @@ fn structured_and_offline_apis_share_fields_calls_traits_and_diagnostic_rules() 
             .definition(DefinitionKind::Function, name, registered.definitions())
             .unwrap();
         let contract = NativeContract {
+            host_policy: None,
+            receiver_access: None,
             callable_requirements: registered
                 .records()
                 .callable_requirements
@@ -556,7 +545,7 @@ fn structured_and_offline_apis_share_fields_calls_traits_and_diagnostic_rules() 
             facts
                 .lowered
                 .module
-                .body
+                .nodes
                 .expressions()
                 .map(|(id, expression)| {
                     let span = facts.lowered.source_map.expr_span(id);

@@ -13,8 +13,8 @@ use kagari_types::visibility::Visibility;
 /// ConstItem { owner: None, id: c, visibility: Public, name: "LIMIT",
 ///             ty: Some(t), initializer: e }
 /// c -> Module.constant(c); SourceMap.const_span(c)
-/// t -> Body.type_ref -> Named("i32")
-/// e -> Body.expr -> Literal { kind: Number, text: "10" }
+/// t -> HirNodes.type_ref -> Named("i32")
+/// e -> HirNodes.expr -> Literal { kind: Number, text: "10" }
 /// initializer nodes carry HirOwner::Body(BodyOwner::Const(c))
 /// ```
 ///

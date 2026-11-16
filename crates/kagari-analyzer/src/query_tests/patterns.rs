@@ -145,7 +145,7 @@ fn declaration_pattern_canonical_leaf_order_uses_the_first_alternative() {
     let StmtKind::Binding { pattern, .. } = module.stmt(block.statements[0]).kind else {
         panic!("declaration");
     };
-    let bindings = module.body.pattern_bindings(pattern);
+    let bindings = module.nodes.pattern_bindings(pattern);
     assert_eq!(
         bindings.iter().map(|(_, name)| *name).collect::<Vec<_>>(),
         ["second", "first", "last"]

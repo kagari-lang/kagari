@@ -1,120 +1,42 @@
-//! Explicit traversal of the owning HIR records.
-
-use crate::native::{NativeBinding, NativeTypeKind};
+//! Scoped identity traversal of address-free Host declaration contracts.
+use crate::hir::item::adt::HostContract;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        mapping::{DefinitionMapper, DefinitionMappingError, check_cancel},
+        mapping::{DefinitionMapper, DefinitionMappingError},
         scoped::{DefinitionReferences, RemapDefinitions},
         table::DefinitionId,
     },
 };
-
 use std::sync::Arc;
 
-impl RemapDefinitions for NativeBinding {
+impl RemapDefinitions for HostContract {
     fn remap_definitions(
         &self,
         mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
-        mapper.check()?;
-        Ok(match self {
-            Self::Entry(field0) => NativeBinding::Entry(mapper.reference(field0)?),
-            Self::Default(field0) => NativeBinding::Default((field0).remap_definitions(mapper)?),
+        Ok(Self {
+            declaration: mapper.reference(&self.declaration)?,
+            definition: Arc::new(self.definition.remap_definitions(mapper)?),
+            paths: self.paths.to_vec().remap_definitions(mapper)?.into(),
+            schemas: self.schemas.to_vec().remap_definitions(mapper)?.into(),
         })
     }
 }
 
-impl DefinitionReferences for NativeBinding {
+impl DefinitionReferences for HostContract {
     fn visit_definition_ids(
         &self,
         visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
-        check_cancel(cancel)?;
-        match self {
-            Self::Entry(field0) => {
-                check_cancel(cancel)?;
-                visit(field0)?;
-            }
-            Self::Default(field0) => {
-                (field0).visit_definition_ids(visit, cancel)?;
-            }
+        visit(&self.declaration)?;
+        self.definition.visit_definition_ids(visit, cancel)?;
+        for path in self.paths.iter() {
+            path.visit_definition_ids(visit, cancel)?;
         }
-        Ok(())
-    }
-}
-
-impl RemapDefinitions for NativeTypeKind {
-    fn remap_definitions(
-        &self,
-        mapper: &mut DefinitionMapper<'_>,
-    ) -> Result<Self, DefinitionMappingError> {
-        mapper.check()?;
-        Ok(match self {
-            Self::Host {
-                declaration,
-                definition,
-                paths,
-                schemas,
-            } => NativeTypeKind::Host {
-                declaration: mapper.reference(declaration)?,
-                definition: Arc::new(definition.remap_definitions(mapper)?),
-                paths: paths.to_vec().remap_definitions(mapper)?.into(),
-                schemas: schemas.to_vec().remap_definitions(mapper)?.into(),
-            },
-            Self::Storage {
-                declaration,
-                arity,
-                layout,
-            } => NativeTypeKind::Storage {
-                declaration: mapper.reference(declaration)?,
-                arity: *(arity),
-                layout: *(layout),
-            },
-            Self::String => NativeTypeKind::String,
-            Self::Reference(access) => NativeTypeKind::Reference(*access),
-
-            Self::Range(field0) => NativeTypeKind::Range(*(field0)),
-        })
-    }
-}
-
-impl DefinitionReferences for NativeTypeKind {
-    fn visit_definition_ids(
-        &self,
-        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
-        cancel: &CancellationToken,
-    ) -> Result<(), DefinitionMappingError> {
-        check_cancel(cancel)?;
-        match self {
-            Self::Host {
-                declaration,
-                definition,
-                paths,
-                schemas,
-            } => {
-                visit(declaration)?;
-                definition.visit_definition_ids(visit, cancel)?;
-                for path in paths.iter() {
-                    path.visit_definition_ids(visit, cancel)?;
-                }
-                for schema in schemas.iter() {
-                    schema.visit_definition_ids(visit, cancel)?;
-                }
-            }
-            Self::Storage {
-                declaration,
-                arity: _,
-                layout: _,
-            } => {
-                check_cancel(cancel)?;
-                visit(declaration)?;
-            }
-            Self::String => {}
-            Self::Reference(_) => {}
-
-            Self::Range(_) => {}
+        for schema in self.schemas.iter() {
+            schema.visit_definition_ids(visit, cancel)?;
         }
         Ok(())
     }

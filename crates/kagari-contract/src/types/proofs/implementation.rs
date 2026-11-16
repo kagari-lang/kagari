@@ -161,7 +161,7 @@ impl<'a> Implementation<'a> {
                 };
                 if !matches!(
                     method.implementation,
-                    CallableImplementation::NativeDefault(_)
+                    CallableImplementation::Script | CallableImplementation::Native(_)
                 ) {
                     return Ok(None);
                 }
@@ -189,14 +189,6 @@ impl<'a> Implementation<'a> {
         }
         method.return_type = apply(&method.return_type)?;
         method.bounds = bindings.apply_bounds(&method.bounds, definitions, cancel)?;
-        method.implementation = method.implementation.apply(bindings, cancel)?;
-        if let CallableImplementation::NativeDefault(application) = &mut method.implementation {
-            application.arguments = application
-                .arguments
-                .iter()
-                .map(apply)
-                .collect::<Result<_, _>>()?;
-        }
         Ok(Some(method))
     }
 }

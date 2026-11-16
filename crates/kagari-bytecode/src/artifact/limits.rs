@@ -21,7 +21,6 @@ use kagari_contract::{
     types::{PublicItem, named::NamedContract},
 };
 use kagari_types::{
-    callable::CallableImplementation,
     declaration::{
         AssociatedTypeDef, FnDecl, TypeDef, path::HostPathSegmentDeclaration,
         requirement::NativeCallableRequirement,
@@ -47,7 +46,6 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                     && add(value.bounds.len())
                     && add(value.params.len())
                     && add_abi_bounds(&value.bounds, &mut add)
-                    && add_function_contract(value, &mut add)
             }
             NamedContract::Constant(_) => true,
             NamedContract::Alias(value) => {
@@ -88,7 +86,6 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
             || !add(function.bounds.len())
             || !add_abi_bounds(&function.bounds, &mut add)
             || !add(function.params.len())
-            || !add_function_contract(function, &mut add)
             || !add(declaration.callable_requirements.len())
             || !declaration
                 .callable_requirements
@@ -241,7 +238,6 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                     && add(item.bounds.len())
                     && add_abi_bounds(&item.bounds, &mut add)
                     && add(item.params.len())
-                    && add_function_contract(item, &mut add)
             }
             PublicItem::Const(_) | PublicItem::Static(_) => true,
             PublicItem::Type(item) => add_type_definition(item, &mut add),
@@ -265,7 +261,6 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                             && add(method.bounds.len())
                             && add_abi_bounds(&method.bounds, &mut add)
                             && add(method.params.len())
-                            && add_function_contract(method, &mut add)
                     })
             }
             PublicItem::InherentTable(item) => {
@@ -278,11 +273,11 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                             && add(method.bounds.len())
                             && add_abi_bounds(&method.bounds, &mut add)
                             && add(method.params.len())
-                            && add_function_contract(method, &mut add)
                     })
             }
             PublicItem::InterfaceTable(item) => {
-                if !add(item.associated_type_families.len())
+                if !add(item.method_origins.len())
+                    || !add(item.associated_type_families.len())
                     || !item.associated_type_families.iter().all(|family| {
                         add(family.generic_params.len())
                             && add(family.bounds.len())
@@ -301,7 +296,6 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                             && add(method.bounds.len())
                             && add_abi_bounds(&method.bounds, &mut add)
                             && add(method.params.len())
-                            && add_function_contract(method, &mut add)
                     })
             }
         };
@@ -336,7 +330,6 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                     && add(method.bounds.len())
                     && add_abi_bounds(&method.bounds, &mut add)
                     && add(method.params.len())
-                    && add_function_contract(method, &mut add)
             })
         {
             return false;
@@ -352,13 +345,6 @@ fn add_callable_requirement(
     add(required.arguments.len())
         && add(required.interface.arguments.len())
         && add(required.interface.associated_types.len())
-}
-
-fn add_function_contract(function: &FnDecl, add: &mut impl FnMut(usize) -> bool) -> bool {
-    match &function.implementation {
-        CallableImplementation::NativeDefault(application) => add(application.arguments.len()),
-        _ => true,
-    }
 }
 
 pub(super) fn add_abi_bounds(bounds: &[GenericBound], add: &mut impl FnMut(usize) -> bool) -> bool {

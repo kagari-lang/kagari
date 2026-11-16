@@ -1,0 +1,9 @@
+use api::Make;
+
+fn through_bound<T: Make>() -> i32 {
+    T::make(true)
+}
+
+fn main() -> i32 {
+    i32::make(true) + through_bound::<i32>()
+}

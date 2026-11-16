@@ -18,7 +18,7 @@ use kagari_contract::{
     types::ConcreteFunctionIdentity,
 };
 use kagari_types::{
-    callable::{CallableImplementation, NativeDefaultApplication, Signature},
+    callable::{CallableImplementation, Signature},
     declaration::requirement::NativeCallableRequirement,
     reference::ReferenceAccess,
     ty::Ty,
@@ -71,18 +71,6 @@ fn implementation(
         CallableImplementation::Script => write!(writer, "script"),
         CallableImplementation::Native(binding) => {
             write!(writer, "native {}", context.definition(*binding))
-        }
-        CallableImplementation::NativeDefault(application) => {
-            let NativeDefaultApplication {
-                declaration,
-                arguments,
-            } = application;
-            write!(
-                writer,
-                "native_default {} arguments=",
-                context.definition(*declaration)
-            )?;
-            types(writer, context, arguments)
         }
     }
 }
@@ -250,7 +238,7 @@ pub(in crate::disassembly) fn witness(
                     let (owner, slot) = resolution.native(application).expect("native witness");
                     write!(writer, "@{owner}:native#{slot}")?;
                 }
-                CallableImplementation::Required | CallableImplementation::NativeDefault(_) => {
+                CallableImplementation::Required => {
                     unreachable!("verified witnesses have executable targets")
                 }
             }

@@ -4,7 +4,10 @@
 use crate::declaration::TypeDef;
 use crate::range::RangeKind;
 use crate::reference::ReferenceAccess;
-use kagari_common::identity::DefinitionKind;
+use kagari_common::identity::{
+    DefinitionKind,
+    table::{DefinitionId, DefinitionTable},
+};
 use serde::{Deserialize, Serialize};
 
 /// Portable storage capabilities contain parameter positions, never Rust types,
@@ -39,7 +42,55 @@ pub enum NativeTypeConstructor {
     Reference(ReferenceAccess),
 }
 
+/// Tests exact language ownership, including declaration kind and occurrence.
+pub fn language_type(
+    id: DefinitionId,
+    definitions: &DefinitionTable,
+    package: &str,
+    module: &str,
+    name: &str,
+) -> bool {
+    definitions.resolve(id).is_ok_and(|view| {
+        view.module().package.0 == package
+            && view.module().path == [module]
+            && view.segments().count() == 1
+            && view.last().is_some_and(|part| {
+                part.kind == DefinitionKind::AssociatedType
+                    && part.name == name
+                    && part.occurrence == 0
+            })
+    })
+}
+
 impl NativeTypeConstructor {
+    /// Language constructors have fixed declaration owners, independent of registration.
+    pub fn from_definition(id: DefinitionId, definitions: &DefinitionTable) -> Option<Self> {
+        if language_type(id, definitions, "kagari-alloc", "string", "String") {
+            return Some(Self::String);
+        }
+        for (name, kind) in [
+            ("Range", RangeKind::Exclusive),
+            ("RangeInclusive", RangeKind::Inclusive),
+            ("RangeFrom", RangeKind::From),
+            ("RangeTo", RangeKind::To),
+            ("RangeToInclusive", RangeKind::ToInclusive),
+            ("RangeFull", RangeKind::Full),
+        ] {
+            if language_type(id, definitions, "kagari-core", "ops", name) {
+                return Some(Self::Range(kind));
+            }
+        }
+        for (name, access) in [
+            ("Ref", ReferenceAccess::Shared),
+            ("RefMut", ReferenceAccess::Mutable),
+        ] {
+            if language_type(id, definitions, "kagari-core", "host", name) {
+                return Some(Self::Reference(access));
+            }
+        }
+        None
+    }
+
     pub fn arity(self) -> usize {
         match self {
             Self::String | Self::Range(RangeKind::Full) => 0,

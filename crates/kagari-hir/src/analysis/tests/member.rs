@@ -58,8 +58,8 @@ fn signature_reuse_rebases_field_keys_into_the_current_arena() {
         authoring_new_facts.definitions(),
         &fresh.typed.type_table,
         authoring_fresh.definitions(),
-        new_facts.lowered.module.body.arena(),
-        fresh.lowered.module.body.arena(),
+        new_facts.lowered.module.nodes.arena(),
+        fresh.lowered.module.nodes.arena(),
     );
 }
 

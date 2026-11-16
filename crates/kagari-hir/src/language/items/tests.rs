@@ -49,12 +49,6 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
             let parsed = parse(&source, ParseOptions::default(), &cancel).unwrap();
             assert!(parsed.diagnostics().is_empty());
             let mut lowered = lower::lower_module_controlled(source, &parsed.module(), &cancel);
-            lowered.language_foundation = original.language_foundation;
-            lowered.registered_native_api = original.registered_native_api;
-            lowered.native_package_alias = original.native_package_alias.clone();
-            lowered.native_import_namespaces = original.native_import_namespaces.clone();
-            lowered.native_prelude = original.native_prelude;
-            lowered.registered_traits = original.registered_traits.clone();
             lowered
                 .module
                 .imports
@@ -62,7 +56,35 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
             Arc::new(lowered)
         })
         .collect::<Vec<_>>();
-    let graph = ModuleGraph::build(lowered.iter().map(Arc::as_ref), &context, &cancel).unwrap();
+    let environment = crate::imports::environment::ImportEnvironment {
+        modules: modules
+            .iter()
+            .map(|module| {
+                let input = module.records();
+                let mut scope = crate::imports::environment::ModuleScope::default();
+                for provider in modules.iter().map(|module| module.records()) {
+                    scope.packages.dependencies.insert(
+                        provider
+                            .package_alias
+                            .clone()
+                            .unwrap_or_else(|| provider.identity.package.0.clone()),
+                        provider.identity.package.clone(),
+                    );
+                }
+                scope.dependencies = input.dependencies.clone();
+                (input.identity.clone(), scope)
+            })
+            .collect(),
+    };
+    let graph = ModuleGraph::build_with_environment(
+        lowered.iter().map(Arc::as_ref),
+        &context,
+        &Default::default(),
+        &environment,
+        &cancel,
+        None,
+    )
+    .unwrap();
     let declared = lowered
         .into_iter()
         .map(|lowered| {
@@ -114,8 +136,6 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
         validate_shapes(
             &module.record.declarations,
             &aggregates,
-            &module.lowered.registered_traits,
-            &module.lowered.external_traits,
             &mut diagnostics,
             &cancel,
         );
@@ -192,7 +212,7 @@ fn incorrect_role_visibility_binders_parents_and_members_are_rejected() {
 }
 
 #[test]
-fn copied_module_identity_does_not_authorize_application_roles() {
+fn canonical_module_identity_still_requires_the_complete_role_set() {
     let mut sources = SourceDatabase::default();
     let uri = "memory://counterfeit.kgr";
     sources
@@ -212,7 +232,7 @@ fn copied_module_identity_does_not_authorize_application_roles() {
         &Default::default(),
     )
     .unwrap();
-    assert!(declared.record.names.diagnostics.iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidLanguageRole { reason, .. } if reason.contains("only admitted"))));
+    assert!(declared.record.names.diagnostics.iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidLanguageRole { reason, .. } if reason.contains("missing required role"))));
 }
 
 #[test]

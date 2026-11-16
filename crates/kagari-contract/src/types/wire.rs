@@ -2,7 +2,10 @@
 use crate::{
     decode_limits,
     statics::wire::StaticContractRecord,
-    types::{InterfaceBridge, InterfaceTable, PublicItem, inherent::InherentTable},
+    types::{
+        InterfaceBridge, InterfaceTable, PublicItem, inherent::InherentTable,
+        named::wire::FunctionOriginRecord,
+    },
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -103,6 +106,8 @@ impl PublicItemRecord {
 #[derive(Serialize, Deserialize)]
 struct InterfaceTableRecord {
     #[serde(deserialize_with = "decode_limits::nested")]
+    method_origins: Vec<FunctionOriginRecord>,
+    #[serde(deserialize_with = "decode_limits::nested")]
     associated_type_families: Vec<AssociatedTypeFamilyRecord>,
     #[serde(deserialize_with = "decode_limits::nested")]
     associated_consts: Vec<ConstDefRecord>,
@@ -129,6 +134,11 @@ impl InterfaceTableRecord {
     ) -> Result<Self, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(Self {
+            method_origins: value
+                .method_origins
+                .iter()
+                .map(|origin| FunctionOriginRecord::encode(origin, encoding, cancel))
+                .collect::<Result<_, _>>()?,
             associated_type_families: value
                 .associated_type_families
                 .iter()
@@ -171,6 +181,11 @@ impl InterfaceTableRecord {
     ) -> Result<InterfaceTable, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(InterfaceTable {
+            method_origins: self
+                .method_origins
+                .into_iter()
+                .map(|origin| origin.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
             associated_type_families: self
                 .associated_type_families
                 .into_iter()

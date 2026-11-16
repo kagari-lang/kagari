@@ -80,5 +80,8 @@ pub(in crate::analysis) fn fingerprint(
     }
     let result = encode(&contract.concrete_result.iter().cloned().collect::<Vec<_>>())?;
     cancel.check()?;
-    Ok(format!("{parts:?}:{result}"))
+    Ok(format!(
+        "{:?}:{:?}:{parts:?}:{result}",
+        contract.receiver_access, contract.host_policy
+    ))
 }

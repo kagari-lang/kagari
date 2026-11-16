@@ -17,12 +17,12 @@ pub struct DefinitionExposure {
     pub path: Vec<String>,
 }
 
-/// One unresolved type-syntax row in Body.types, addressed by TypeRefId.
+/// One unresolved type-syntax row in HirNodes.types, addressed by TypeRefId.
 ///
 /// ```text
 /// val value: Pair<i32, String> = ...;
 /// binding.ty = Some(t)
-/// Body.type_ref(t) -> TypeData { kind: Generic {
+/// HirNodes.type_ref(t) -> TypeData { kind: Generic {
 ///     name: "Pair", args: [int_type, string_type], bindings: [],
 ///     positional_after_binding: false, callable_syntax: false,
 /// } }
@@ -45,7 +45,7 @@ pub struct TypeData {
 /// Source spelling or an exact structured declaration, with unchecked child applications.
 /// Exact references skip spelling selection, not visibility, eligibility, arity or bounds.
 ///
-/// Symbolic child IDs below enter Body.types through Body::type_ref; quoted names
+/// Symbolic child IDs below enter HirNodes.types through HirNodes::type_ref; quoted names
 /// are actual strings. Examples are syntax fragments, not standalone programs.
 ///
 /// | Source type | Stored kind (all fields shown) |

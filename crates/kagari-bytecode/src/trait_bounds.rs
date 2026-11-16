@@ -494,6 +494,7 @@ fn linked_bounds_match(
                 record,
                 &|ty| catalog.normalize(ty, cancel),
                 cancel,
+                definitions,
             )
         {
             return Ok(false);

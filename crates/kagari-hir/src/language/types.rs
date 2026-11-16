@@ -1,50 +1,30 @@
 //! Frontend interpretation of language constructors and nominal Native interfaces.
 
-use crate::{
-    lower::LoweredModule,
-    native::NativeTypeKind,
-    types::{NominalType, TypeId, semantic::lower_type},
+use crate::types::{NominalType, TypeId};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        mapping::{DefinitionMapper, DefinitionMappingError},
+        scoped::{DefinitionReferences, RemapDefinitions},
+        table::{DefinitionId, DefinitionTable},
+    },
 };
-use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use kagari_types::{
-    declaration::{native::NativeTypeConstructor, ownership::ReceiverOwners},
+    declaration::native::{NativeTypeConstructor, language_type},
     range::RangeKind,
     reference::ReferenceAccess,
     scalar::BuiltinType,
 };
 
-pub(crate) fn builtin_constructor(kind: &NativeTypeKind) -> Option<NativeTypeConstructor> {
-    Some(match kind {
-        NativeTypeKind::String => NativeTypeConstructor::String,
-        NativeTypeKind::Range(kind) => NativeTypeConstructor::Range(*kind),
-        NativeTypeKind::Reference(access) => NativeTypeConstructor::Reference(*access),
-        NativeTypeKind::Host { .. } | NativeTypeKind::Storage { .. } => return None,
-    })
-}
-
-/// Static receiver ownership does not imply installed dispatch or callable authority.
-/// Constructor bindings have already passed mixed-environment uniqueness checks.
-pub(crate) fn external_receiver_owned(
-    lowered: &LoweredModule,
-    ty: &TypeId,
-    definitions: &DefinitionTable,
-) -> bool {
-    if !lowered.external_api {
-        return false;
-    }
-    let module = lowered.source.module_identity();
-    let owners = ReceiverOwners::from_constructors(
-        lowered
-            .native_types
-            .values()
-            .filter_map(|kind| builtin_constructor(kind).map(|constructor| (module, constructor))),
-    )
-    .expect("one module cannot have conflicting constructor owners");
-    owners.owner(&lower_type(ty), definitions).as_ref() == Some(module)
+pub(crate) fn payload_reference_eligible(id: DefinitionId, definitions: &DefinitionTable) -> bool {
+    !language_type(id, definitions, "kagari-core", "future", "Future")
+        && !language_type(id, definitions, "kagari-core", "task", "Task")
+        && !language_type(id, definitions, "kagari-core", "task", "TaskScope")
+        && NativeTypeConstructor::from_definition(id, definitions).is_none()
 }
 
 /// Checked constructor identity, independent of registration storage/layout policy.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TypeConstructor {
     Native {
         declaration: DefinitionId,
@@ -57,19 +37,20 @@ pub(crate) enum TypeConstructor {
 }
 
 impl TypeConstructor {
-    /// Interprets a validated installed correspondence, never an identifier spelling.
-    pub(crate) fn registered(kind: &NativeTypeKind) -> Self {
-        match kind {
-            NativeTypeKind::Host { declaration, .. } => Self::Host(*declaration),
-            NativeTypeKind::Storage {
-                declaration, arity, ..
-            } => Self::Native {
-                declaration: *declaration,
-                arity: *arity,
-            },
-            NativeTypeKind::String => Self::String,
-            NativeTypeKind::Range(kind) => Self::Range(*kind),
-            NativeTypeKind::Reference(access) => Self::Reference(*access),
+    pub(crate) fn declaration(
+        declaration: DefinitionId,
+        arity: usize,
+        host: bool,
+        definitions: &DefinitionTable,
+    ) -> Self {
+        if host {
+            return Self::Host(declaration);
+        }
+        match NativeTypeConstructor::from_definition(declaration, definitions) {
+            Some(NativeTypeConstructor::String) => Self::String,
+            Some(NativeTypeConstructor::Range(kind)) => Self::Range(kind),
+            Some(NativeTypeConstructor::Reference(access)) => Self::Reference(access),
+            None => Self::Native { declaration, arity },
         }
     }
 
@@ -105,5 +86,39 @@ impl TypeConstructor {
                 access,
             },
         })
+    }
+}
+
+impl RemapDefinitions for TypeConstructor {
+    fn remap_definitions(
+        &self,
+        mapper: &mut DefinitionMapper<'_>,
+    ) -> Result<Self, DefinitionMappingError> {
+        mapper.check()?;
+        Ok(match self {
+            Self::Native { declaration, arity } => Self::Native {
+                declaration: mapper.reference(declaration)?,
+                arity: *arity,
+            },
+            Self::Host(id) => Self::Host(mapper.reference(id)?),
+            _ => *self,
+        })
+    }
+}
+
+impl DefinitionReferences for TypeConstructor {
+    fn visit_definition_ids(
+        &self,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
+        cancel: &CancellationToken,
+    ) -> Result<(), DefinitionMappingError> {
+        cancel
+            .check()
+            .map_err(|_| DefinitionMappingError::Cancelled)?;
+        match self {
+            Self::Native { declaration, .. } | Self::Host(declaration) => visit(declaration)?,
+            _ => {}
+        }
+        Ok(())
     }
 }

@@ -4,7 +4,10 @@ use crate::{
     DiagnosticBuffer,
     aggregates::{AggregateCatalog, implementations::ImplementationSearchError},
     declarations::{DeclarationId, Declarations},
-    hir::item::function::{FunctionImplementation, FunctionKind},
+    hir::item::{
+        Item,
+        function::{FunctionImplementation, FunctionKind},
+    },
     lower::LoweredModule,
     resolver::resolved::ResolvedName,
     typeck::{
@@ -23,10 +26,12 @@ use kagari_common::{
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{
+    callable::{CallableImplementation, MethodPolicy},
     declaration::{
-        names::NameNamespace, requirement::NativeCallableRequirement, verify::type_valid,
+        FnDecl, Param, host::function_policy_valid, names::NameNamespace,
+        native::NativeTypeConstructor, requirement::NativeCallableRequirement, verify::type_valid,
     },
-    ty::Ty,
+    ty::{GenericParam, Ty},
 };
 use std::collections::HashSet;
 
@@ -268,6 +273,40 @@ pub(super) fn validate(
     cancel: &CancellationToken,
 ) {
     let definitions = declarations.definitions();
+    for item in &lowered.module.native_types {
+        let Some(id) = declarations.definition(ResolvedName::NativeType(item.id)) else {
+            continue;
+        };
+        if let Some(constructor) = NativeTypeConstructor::from_definition(*id, definitions)
+            && (item.host.is_some()
+                || constructor.arity() != item.generic_params.len()
+                || !item.fields.is_empty())
+        {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidNativeSignature {
+                    function: item.name.clone(),
+                    binding: "invalid language constructor declaration shape".into(),
+                })
+                .with_span(lowered.source_map.item_span(Item::NativeType(item.id))),
+            );
+        }
+    }
+    for method in lowered.module.traits.iter().flat_map(|item| &item.methods) {
+        if !method.override_allowed
+            && matches!(
+                lowered.module.functions[method.function.index()].implementation,
+                FunctionImplementation::Required
+            )
+        {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidNativeSignature {
+                    function: method.name.clone(),
+                    binding: "required methods must permit implementation".into(),
+                })
+                .with_span(lowered.source_map.function_span(method.function)),
+            );
+        }
+    }
     for function in &lowered.module.functions {
         if cancel.check().is_err() {
             return;
@@ -279,13 +318,14 @@ pub(super) fn validate(
         else {
             continue;
         };
-        if let Some(policy) = lowered.method_policies.get(&function.id)
-            && policy.receiver_access.is_some()
-            && !signature.params.first().is_some_and(|param| {
-                param.name == "self"
-                    && !param.ty.is_unresolved()
-                    && lower_type(&param.ty).reference_target_valid()
-            })
+        if let FunctionImplementation::Native(contract) = &function.implementation
+            && contract.receiver_access.is_some()
+            && (function.kind != FunctionKind::ImplMethod
+                || !signature.params.first().is_some_and(|param| {
+                    param.name == "self"
+                        && !param.ty.is_unresolved()
+                        && lower_type(&param.ty).reference_target_valid()
+                }))
         {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidNativeSignature {
@@ -298,6 +338,54 @@ pub(super) fn validate(
         let FunctionImplementation::Native(contract) = &function.implementation else {
             continue;
         };
+        if signature.return_type.is_unresolved()
+            || signature
+                .params
+                .iter()
+                .any(|param| param.ty.is_unresolved())
+        {
+            continue;
+        }
+        let declaration = declarations
+            .definition(ResolvedName::Function(function.id))
+            .expect("checked function identity");
+        let policy_surface = FnDecl {
+            name: signature.name.clone(),
+            implementation: CallableImplementation::Native(*declaration),
+            host_policy: contract.host_policy.clone(),
+            method_policy: MethodPolicy {
+                receiver_access: contract.receiver_access,
+                ..Default::default()
+            },
+            generic_params: signature
+                .generic_params
+                .iter()
+                .map(|parameter| GenericParam {
+                    owner: parameter.owner,
+                    position: parameter.position,
+                })
+                .collect(),
+            bounds: Vec::new(),
+            params: signature
+                .params
+                .iter()
+                .map(|param| Param {
+                    name: param.name.clone(),
+                    ty: lower_type(&param.ty),
+                    mutable: param.writeability.is_var(),
+                })
+                .collect(),
+            return_type: lower_type(&signature.return_type),
+        };
+        if !function_policy_valid(&policy_surface, definitions) {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidNativeSignature {
+                    function: function.name.clone(),
+                    binding: "invalid Host passing or effect policy".into(),
+                })
+                .with_span(lowered.source_map.function_span(function.id)),
+            );
+        }
         if contract.callable_requirements.is_empty() && contract.concrete_result.is_none() {
             continue;
         }

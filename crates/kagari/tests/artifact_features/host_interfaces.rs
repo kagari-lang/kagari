@@ -127,14 +127,16 @@ fn host_associated_types_and_dynamic_interfaces_share_the_host_call_boundary() {
 #[test]
 fn host_child_interfaces_upcast_through_precompiled_parent_bridges() {
     let mut config = common::Config {
-        source: SOURCE.replace("pub fn boxed() -> Reader<Item = i32>", "trait Child: Reader<Item = i32> {}\npub fn boxed() -> Child")
-            .replace("fn main() -> i32 { read(make()) + boxed().read(22) }", "fn main() -> i32 { val child = boxed(); val parent: Reader<Item = i32> = child; parent.read(20) + child.read(22) }"),
+        source: SOURCE.replace("pub fn boxed() -> Reader<Item = i32>", "pub trait Child: Reader<Item = i32> {}\npub fn boxed() -> Child")
+            .replace("fn main() -> i32 {
+    read(make()) + boxed().read(22)
+}", "fn main() -> i32 { val child = boxed(); val parent: Reader<Item = i32> = child; parent.read(20) + child.read(22) }"),
         child: true,
         ..Default::default()
     };
     config
         .trait_source
-        .push_str("\ntrait Child: Reader<Item = i32> {}");
+        .push_str("\npub trait Child: Reader<Item = i32> {}");
     let fixture = common::Fixture::new(config, |_, args| Ok(args[1]));
     let artifact = BytecodeArtifact::from_bytes(
         &fixture
@@ -255,7 +257,9 @@ fn invalid_host_associated_schemas_and_dispatch_targets_are_rejected() {
 #[test]
 fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
     let source = SOURCE.replace(
-        "pub fn boxed() -> Reader<Item = i32> { make() }",
+        "pub fn boxed() -> Reader<Item = i32> {
+    make()
+}",
         "pub fn boxed() -> Reader<Item = i32> { val eraser: EraseReader = 0; eraser.erase(make()) }",
     );
     let fixture = common::Fixture::new(
@@ -398,7 +402,7 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
 
 #[test]
 fn host_associated_outputs_are_checked_against_trait_bounds_without_calls() {
-    let source = "trait Describe<T> { fn number(self) -> i32; } trait Reader { type Item: Describe<Self>; } use demo::Counter; fn accept(value: Counter) {} fn main() -> i32 { 42 }";
+    let source = "pub trait Describe<T> { fn number(self) -> i32; } pub trait Reader { type Item: Describe<Self>; } use demo::Counter; fn accept(value: Counter) {} fn main() -> i32 { 42 }";
     let contract = common::source_contract(source.split(" use demo").next().unwrap(), None);
     let source_identity = contract.records().program.modules
         [contract.records().program.root.index()]

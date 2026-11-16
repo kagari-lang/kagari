@@ -5,7 +5,7 @@ use super::{
 };
 use crate::{
     analysis::{AnalysisDatabase, FileAnalysis},
-    compile_input::program::{AdmissionError, CheckedCompilation},
+    compile_input::program::CheckedCompilation,
     hir::item::function::NativeContract,
     native::{adoption, render::declaration_source},
     typeck::table::CallTarget,
@@ -21,7 +21,7 @@ use kagari_source::{
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy},
     declaration::{FnDecl, TypeDeclaration, TypeDefKind, module::ModuleDecl},
-    language::{self, Protocol, role::LangRole},
+    language::{Protocol, role::LangRole},
     ty::identity::PortableTypes,
 };
 use std::sync::Arc;
@@ -48,11 +48,17 @@ pub(super) fn exported(providers: &[Arc<DefinitionMetadata<ModuleDecl>>]) -> Vec
             input.package_alias = declaration.package_alias.clone();
             input.dependencies = declaration.dependencies.clone();
             input.prelude = declaration.prelude;
-            input.language_foundation = language::is_language_module(&declaration.identity);
             for ty in &declaration.types {
+                for variant in &ty.variants {
+                    if variant.reports_failure {
+                        input
+                            .enum_failures
+                            .insert((ty.name.clone(), variant.name.clone()));
+                    }
+                }
                 let kind = match ty.kind {
                     TypeDefKind::Native(constructor) => ExternalType::Constructor(constructor),
-                    TypeDefKind::NativeStorage(layout) => ExternalType::Storage(layout),
+                    TypeDefKind::NativeStorage(_) => continue,
                     TypeDefKind::Host(_) => {
                         let root = declaration
                             .definition(DefinitionKind::Struct, &ty.name, provider.definitions())
@@ -103,17 +109,21 @@ pub(super) fn exported(providers: &[Arc<DefinitionMetadata<ModuleDecl>>]) -> Vec
                 input.types.insert(ty.name.clone(), kind);
             }
             for trait_ in &declaration.traits {
-                input.traits.insert(
-                    trait_.name.clone(),
-                    Arc::new(
-                        DefinitionMetadata::checked(
-                            provider.definitions().clone(),
-                            trait_.clone(),
-                            &Default::default(),
-                        )
-                        .unwrap(),
-                    ),
-                );
+                if let Some(relationship) = &trait_.conversion_adapter {
+                    input.conversions.insert(
+                        trait_.name.clone(),
+                        Arc::new(
+                            DefinitionMetadata::checked(
+                                provider.definitions().clone(),
+                                relationship.clone(),
+                                &Default::default(),
+                            )
+                            .unwrap(),
+                        ),
+                    );
+                }
+            }
+            for trait_ in &declaration.traits {
                 let owner = declaration
                     .definition(DefinitionKind::Trait, &trait_.name, provider.definitions())
                     .unwrap();
@@ -182,6 +192,8 @@ fn member(
     if matches!(function.implementation, CallableImplementation::Native(_)) {
         let declaration = provider.records();
         let contract = NativeContract {
+            host_policy: function.host_policy.clone(),
+            receiver_access: function.method_policy.receiver_access,
             callable_requirements: declaration
                 .callable_requirements
                 .get(&id)
@@ -235,25 +247,27 @@ fn actual_foundation_exports_admit_roles_arithmetic_iteration_and_conversion_wit
         .sum::<usize>();
     assert_eq!(roles, LangRole::ALL.len());
     assert!(snapshot.inputs().native_modules().is_empty());
-    for file in snapshot
-        .files()
-        .filter(|file| file.result().facts().lowered.is_external_api())
-    {
-        let lowered = &file.result().facts().lowered;
-        assert!(!lowered.registered_native_api);
-        assert!(lowered.native_functions.is_empty());
-        assert!(lowered.registered_traits.is_empty());
-    }
-    assert!(
-        snapshot
-            .file(root)
-            .unwrap()
+    for file in [direct.file(root).unwrap(), snapshot.file(root).unwrap()] {
+        let result = file
+            .definitions()
+            .lookup(&kagari_types::language::binding::result_declaration())
+            .unwrap();
+        let result = file
             .result()
             .facts()
             .aggregates
-            .implementations()
-            .all(|implementation| !implementation.engine_owned)
-    );
+            .enumerations()
+            .find(|item| item.id == result)
+            .unwrap();
+        assert_eq!(
+            result
+                .variants
+                .iter()
+                .map(|variant| (variant.name.as_str(), variant.reports_failure))
+                .collect::<Vec<_>>(),
+            [("Ok", false), ("Err", true)]
+        );
+    }
     let semantics = |file: &FileAnalysis| {
         let facts = file.result().facts();
         let table = facts.typed.type_table();
@@ -273,7 +287,7 @@ fn actual_foundation_exports_admit_roles_arithmetic_iteration_and_conversion_wit
             .facts()
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .map(|(id, _)| {
                 let call = table.call_resolution(id).map(|call| {
@@ -327,7 +341,7 @@ fn actual_foundation_exports_admit_roles_arithmetic_iteration_and_conversion_wit
     let iteration = facts
         .lowered
         .module
-        .body
+        .nodes
         .expressions()
         .find_map(|(id, _)| facts.typed.type_table().iteration(id))
         .unwrap();
@@ -354,19 +368,31 @@ fn actual_foundation_exports_admit_roles_arithmetic_iteration_and_conversion_wit
             .unwrap()
     );
 
+    fn change_export(input: &mut ExternalModule, change: impl FnOnce(&str) -> String) {
+        let mut sources = SourceDatabase::new("/altered").unwrap();
+        sources
+            .bind_module(input.source.name(), input.source.module_identity().clone())
+            .unwrap();
+        let id = sources
+            .set(
+                input.source.name(),
+                change(input.source.text()),
+                SourceLayer::Base,
+            )
+            .unwrap();
+        input.source = sources.snapshot().file(id).unwrap().clone();
+    }
     let mut altered = exports.clone();
     let owner = altered
         .iter_mut()
-        .find(|input| input.traits.contains_key("Add"))
+        .find(|input| input.source.text().contains("pub trait Add<"))
         .unwrap();
-    let metadata = owner.traits.get_mut("Add").unwrap();
-    let mut record = metadata.records().clone();
-    record.methods[0].return_type =
-        kagari_types::ty::Ty::Builtin(kagari_types::scalar::BuiltinType::I64);
-    *metadata = Arc::new(
-        DefinitionMetadata::checked(metadata.definitions().clone(), record, &Default::default())
-            .unwrap(),
-    );
+    change_export(owner, |text| {
+        let method = text.find("fn add(").unwrap();
+        let result = method + text[method..].find(" -> ").unwrap();
+        let end = result + text[result..].find(';').unwrap();
+        format!("{} -> i64{}", &text[..result], &text[end..])
+    });
     offline.set_external_modules(altered);
     assert_ne!(
         fingerprint,
@@ -378,23 +404,88 @@ fn actual_foundation_exports_admit_roles_arithmetic_iteration_and_conversion_wit
         .snapshot(sources.clone(), &Default::default())
         .unwrap();
     assert!(rejected.files().flat_map(|file| file.result().diagnostics()).any(|diagnostic| matches!(&diagnostic.kind, kagari_source::diagnostic::DiagnosticKind::InvalidLanguageRole { role, reason } if role == "add" && reason.contains("member shapes"))));
+    // Deriving Into from From must not invent receiver or method obligations.
+    for (from, to) in [
+        ("pub trait Into<T> {", "pub trait Into<T>: Marker {"),
+        ("pub trait Into<T> {", "pub trait Into<T: Marker> {"),
+        (
+            "fn into(self) -> T;",
+            "fn into(self) -> T where Self: Marker;",
+        ),
+    ] {
+        let mut constrained = exports.clone();
+        let owner = constrained
+            .iter_mut()
+            .find(|input| input.conversions.contains_key("Into"))
+            .unwrap();
+        change_export(owner, |text| {
+            assert!(text.contains(from), "missing conversion witness {from}");
+            format!("pub trait Marker {{}}\n{}", text.replace(from, to))
+        });
+        let id = owner.source.id();
+        offline.set_external_modules(constrained);
+        let rejected = offline
+            .snapshot(sources.clone(), &Default::default())
+            .unwrap();
+        let diagnostics = rejected.file(id).unwrap().result().diagnostics();
+        assert!(diagnostics.iter().any(|diagnostic| matches!(&diagnostic.kind, kagari_source::diagnostic::DiagnosticKind::InvalidLanguageRole { reason, .. } if reason == "invalid static conversion relationship")), "{from}: {diagnostics:?}");
+        assert!(
+            !diagnostics.iter().any(|diagnostic| matches!(
+                diagnostic.kind,
+                kagari_source::diagnostic::DiagnosticKind::UnknownTrait { .. }
+            )),
+            "{diagnostics:?}"
+        );
+        assert!(rejected.check_program(root, &Default::default()).is_err());
+    }
+
+    // A valid identity-table entry is not a supplied forward trait declaration.
+    let mut unbacked = exports.clone();
+    let owner = unbacked
+        .iter_mut()
+        .find(|input| input.conversions.contains_key("Into"))
+        .unwrap();
+    let metadata = owner.conversions.get_mut("Into").unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let imported = metadata.import_into(&context, &Default::default()).unwrap();
+    let mut relationship = imported.into_records();
+    let kagari_types::declaration::conversion::ConversionAdapter::Reverse {
+        origin, method, ..
+    } = &mut relationship
+    else {
+        panic!("reverse conversion")
+    };
+    let forward_root = context
+        .intern_root(&kagari_stdlib::namespaces::module("core", "convert"))
+        .unwrap();
+    *origin = context
+        .intern_child(forward_root, DefinitionKind::Trait, "MissingFrom", 0)
+        .unwrap();
+    *method = context
+        .intern_child(*origin, DefinitionKind::Method, "from", 0)
+        .unwrap();
+    *metadata = Arc::new(
+        DefinitionMetadata::checked(context.snapshot(), relationship, &Default::default()).unwrap(),
+    );
+    offline.set_external_modules(unbacked);
+    let rejected = offline
+        .snapshot(sources.clone(), &Default::default())
+        .unwrap();
+    assert!(rejected.files().flat_map(|file| file.result().diagnostics()).any(|diagnostic| matches!(&diagnostic.kind, kagari_source::diagnostic::DiagnosticKind::InvalidLanguageRole { reason, .. } if reason == "invalid static conversion relationship")));
 
     let mut incomplete = exports;
     let owner = incomplete
         .iter_mut()
-        .find(|input| input.traits.contains_key("Add"))
+        .find(|input| input.source.text().contains("pub trait Add<"))
         .unwrap();
-    owner.traits.remove("Add");
+    change_export(owner, |text| {
+        text.replace("#[lang = \"add\"]", "#[meta = \"add\"]")
+    });
     offline.set_external_modules(incomplete);
     let rejected = offline.snapshot(sources, &Default::default()).unwrap();
-    assert!(rejected.files().flat_map(|file| file.result().diagnostics()).any(|diagnostic| matches!(&diagnostic.kind, kagari_source::diagnostic::DiagnosticKind::InvalidLanguageRole { role, reason } if role == "add" && reason.contains("missing static"))));
+    assert!(rejected.files().flat_map(|file| file.result().diagnostics()).any(|diagnostic| matches!(&diagnostic.kind, kagari_source::diagnostic::DiagnosticKind::InvalidLanguageRole { role, reason } if role == "add" && reason.contains("missing required"))));
     assert_clean(&snapshot);
     assert_clean(&direct);
     let program = snapshot.check_program(root, &Default::default()).unwrap();
-    assert!(matches!(
-        CheckedCompilation::from_program(&program, &Default::default()),
-        Err(AdmissionError::InvalidModule(
-            "offline declarations cannot authorize compilation"
-        ))
-    ));
+    CheckedCompilation::from_program(&program, &Default::default()).unwrap();
 }

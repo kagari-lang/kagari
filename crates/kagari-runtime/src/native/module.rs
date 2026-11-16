@@ -320,6 +320,7 @@ impl NativeModule {
             .records()
             .collect_definitions(registry.catalog.types.context())
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        registry.install_scripts(referenced.records())?;
         let owner = definitions
             .lookup_root(&referenced.records().identity)
             .expect("collected native module root");

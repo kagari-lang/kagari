@@ -57,6 +57,7 @@ pub fn normalize_requirement(
             }
         }
     }
+    interface.remove_identity_outputs(&receiver);
     Ok(NativeCallableRequirement {
         receiver,
         interface,

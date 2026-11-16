@@ -105,7 +105,7 @@ mod tests {
         let catalog = &authoring_catalog.records().facts().aggregates;
         let interface = Protocol::Iterator.nominal(definitions).unwrap();
         let (implementation, arguments) = catalog
-            .engine_implementation(definitions, &interface, &receiver, &Default::default())
+            .declared_implementation(definitions, &interface, &receiver, &Default::default())
             .unwrap();
         let member = definitions
             .lookup_child(
@@ -135,7 +135,7 @@ mod tests {
         );
         assert!(
             catalog
-                .engine_implementation(definitions, &interface, &item_type, &Default::default())
+                .declared_implementation(definitions, &interface, &item_type, &Default::default())
                 .is_none()
         );
 

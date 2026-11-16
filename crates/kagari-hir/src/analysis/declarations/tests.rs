@@ -1,10 +1,7 @@
 use super::*;
 use crate::{
-    analysis::AnalysisSnapshot,
-    declarations::DeclarationId,
-    native::{NativeBinding, NativeTypeKind, render::declaration_source},
-    resolver::resolved::ResolvedName,
-    tests::test_analysis,
+    analysis::AnalysisSnapshot, declarations::DeclarationId, native::render::declaration_source,
+    resolver::resolved::ResolvedName, tests::test_analysis,
 };
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::{
@@ -48,8 +45,15 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
     let id = file.source().id();
     let source = file.declared.lowered.source.clone();
     let location = file.syntax().unwrap().location();
-    let arena = file.declared.lowered.module.body.arena();
-    let method_count = file.declared.lowered.method_policies.len();
+    let arena = file.declared.lowered.module.nodes.arena();
+    let method_count = file
+        .declared
+        .lowered
+        .module
+        .traits
+        .iter()
+        .map(|item| item.methods.len())
+        .sum::<usize>();
     assert!(method_count > 0);
     let old_type = file.declared.lowered.module.functions[0].params[0].ty;
     let old_parameter = file.declared.lowered.module.functions[0].params[0].id;
@@ -85,12 +89,21 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
     assert!(location.resolve(file.parsed.physical().unwrap()).is_some());
     assert!(Arc::ptr_eq(&source, &file.declared.lowered.source));
     let lowered = &file.declared.lowered;
-    assert_ne!(lowered.module.body.arena(), arena);
-    assert!(lowered.registered_native_api && lowered.language_foundation);
-    assert!(!lowered.registered_traits.is_empty());
-    assert_eq!(lowered.method_policies.len(), method_count);
+    assert_ne!(lowered.module.nodes.arena(), arena);
+    assert_eq!(
+        lowered
+            .module
+            .traits
+            .iter()
+            .map(|item| item.methods.len())
+            .sum::<usize>(),
+        method_count
+    );
     for method in &lowered.module.traits[0].methods {
-        assert!(lowered.method_policies.contains_key(&method.function));
+        assert_eq!(
+            lowered.module.functions[method.function.index()].name,
+            method.name
+        );
     }
     assert_ne!(lowered.module.functions[0].params[0].ty, old_type);
     assert!(std::panic::catch_unwind(|| lowered.module.parameter(old_parameter)).is_err());
@@ -112,10 +125,8 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
         .iter()
         .find(|item| item.name == "MapIterator")
         .unwrap();
-    assert!(matches!(
-        lowered.native_types.get(&adapter.id),
-        Some(NativeTypeKind::Storage { arity: 2, .. })
-    ));
+    assert_eq!(adapter.generic_params.len(), 2);
+    assert!(adapter.host.is_none());
     let iterable = lowered
         .module
         .traits
@@ -128,15 +139,17 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
         .find(|item| item.name == "map")
         .unwrap();
     assert!(map.has_default);
-    assert!(matches!(
-        lowered.native_functions.get(&map.function),
-        Some(NativeBinding::Default(_))
-    ));
+    assert!(
+        lowered.module.functions[map.function.index()]
+            .implementation
+            .script_body()
+            .is_some()
+    );
     assert!(!lowered.module.impls.is_empty());
     for method in lowered.module.impls.iter().flat_map(|item| &item.methods) {
         assert!(matches!(
-            lowered.native_functions.get(&method.function),
-            Some(NativeBinding::Entry(_))
+            lowered.module.functions[method.function.index()].implementation,
+            crate::hir::item::function::FunctionImplementation::Native(_)
         ));
     }
 
@@ -502,7 +515,7 @@ fn declaration_records_outlive_queries_without_owning_the_lowering() {
         .clone();
     let record = file.declared.record.clone();
     let lowered = file.declared.lowered.clone();
-    let arena = lowered.module.body.arena();
+    let arena = lowered.module.nodes.arena();
     let query_handle = Arc::downgrade(file);
     let graph_handle = Arc::downgrade(&lowered);
     let fork = db.clone();
@@ -537,7 +550,7 @@ fn declaration_records_outlive_queries_without_owning_the_lowering() {
     // The owned IDs survive as evidence, not as permission to reuse a dead graph.
     let third = query(&mut db, &sources);
     let file = third.file(id).unwrap();
-    assert_ne!(file.declared.lowered.module.body.arena(), arena);
+    assert_ne!(file.declared.lowered.module.nodes.arena(), arena);
     assert!(!Arc::ptr_eq(&record, &file.declared.record));
     assert_eq!(third.declaration(&declaration.id), Some(&declaration));
     assert!(graph_handle.upgrade().is_none());

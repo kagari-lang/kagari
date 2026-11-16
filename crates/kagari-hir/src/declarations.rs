@@ -5,6 +5,7 @@ use kagari_types::{
 };
 
 use crate::{
+    hir::item::adt::HostContract,
     hir::{
         ids::{
             BodyOwner, FieldId, GenericParamId, HirOwner, ImplId, NativeTypeId, TypeRefId,
@@ -21,8 +22,8 @@ use crate::{
         },
         types::ImportedTypes,
     },
+    language::types::TypeConstructor,
     lower::LoweredModule,
-    native::NativeTypeKind,
     resolver::{
         resolved::{DeclarationNames, ResolvedName, ResolvedNames},
         table::NameTable,
@@ -160,7 +161,7 @@ pub struct Declarations {
     identities: HashMap<DeclarationId, DeclarationKey>,
     /// Local implementation slots to semantic definition identities.
     impl_identities: HashMap<ImplId, DefinitionId>,
-    native_types: HashMap<NativeTypeId, NativeTypeKind>,
+    host_types: HashMap<NativeTypeId, HostContract>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -231,7 +232,12 @@ impl Declarations {
             targets: HashMap::new(),
             identities: HashMap::new(),
             impl_identities: HashMap::new(),
-            native_types: lowered.native_types.clone(),
+            host_types: lowered
+                .module
+                .native_types
+                .iter()
+                .filter_map(|item| item.host.clone().map(|host| (item.id, host)))
+                .collect(),
         }
     }
 
@@ -337,10 +343,7 @@ impl Declarations {
             let owner = builder.definition(
                 ResolvedName::NativeType(item.id),
                 root,
-                if matches!(
-                    lowered.native_types.get(&item.id),
-                    Some(NativeTypeKind::Host { .. })
-                ) {
+                if item.host.is_some() {
                     DefinitionKind::Struct
                 } else {
                     DefinitionKind::AssociatedType
@@ -748,31 +751,31 @@ impl Declarations {
         &self.definitions
     }
 
-    /// Iterates installed local and imported representations without name lookup.
-    pub(crate) fn native_types(&self) -> impl Iterator<Item = &NativeTypeKind> {
-        self.native_types
+    pub(crate) fn host_types(&self) -> impl Iterator<Item = &HostContract> {
+        self.host_types
             .values()
-            .chain(self.imported_types.native_types())
+            .chain(self.imported_types.host_types())
     }
 
-    /// Clones the installed representation for a local opaque type, if registered.
-    pub fn native_type(&self, id: NativeTypeId) -> Option<NativeTypeKind> {
-        self.native_types.get(&id).cloned()
+    pub(crate) fn native_type(&self, id: NativeTypeId) -> Option<TypeConstructor> {
+        let declaration = *self.definition(ResolvedName::NativeType(id))?;
+        Some(TypeConstructor::declaration(
+            declaration,
+            self.parameters_of(&declaration).len(),
+            self.host_types.contains_key(&id),
+            &self.definitions,
+        ))
     }
 
-    /// Borrows the checked external schema for a local or imported nominal identity.
-    /// This is declaration metadata, not a Rust layout or a GC object definition.
     pub fn external_type(&self, id: DefinitionId) -> Option<&TypeDef> {
-        self.native_types().find_map(|kind| match kind {
-            NativeTypeKind::Host {
-                declaration,
-                definition,
-                ..
-            } if *declaration == id => Some(definition.as_ref()),
-            NativeTypeKind::Host { schemas, .. } => schemas
-                .iter()
-                .find_map(|schema| (schema.declaration == id).then_some(&schema.definition)),
-            _ => None,
+        self.host_types().find_map(|host| {
+            if host.declaration == id {
+                Some(host.definition.as_ref())
+            } else {
+                host.schemas
+                    .iter()
+                    .find_map(|schema| (schema.declaration == id).then_some(&schema.definition))
+            }
         })
     }
 

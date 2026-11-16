@@ -1,10 +1,10 @@
-pub native type Ref<T>;
+pub use core::host::Ref;
 
-pub native type RefMut<T>;
+pub use core::host::RefMut;
 
-pub native type String;
+pub use alloc::string::String;
 
-pub native type Range<T>;
+pub use core::ops::Range;
 
 pub native type Target;
 

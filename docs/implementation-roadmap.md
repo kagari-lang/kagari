@@ -1207,54 +1207,73 @@ host facade redesign and VM/backend expansion remain independent work.
 
 ## Native model replacement
 
-**Architecture acceptance is reopened; remediation is outstanding.** NM01–NM04 delivered working
-frontend paths but retained registration-dependent semantic state, duplicate contracts, NativeDefault
-recipes and NativeTypeKind. The user clarified that LSP and execution preparation differ only in
-input format: both must produce the same binding-free HIR/checking results; Native binding belongs
-to linking. Prior passing tests do not establish that boundary.
+**Phases 1–3 are implemented; complete acceptance remains open.** The authorized scope was common
+core-input ownership, ordinary defaults and binding-free HIR with its compiler/linking consumers.
+The [Native boundary contracts](native-model-design.md#9-frontend-and-linking-boundary-remediation),
+[HIR inputs/origins](architecture/hir.md#native-declaration-inputs-and-origins),
+[Native declarations](spec/standard-declarations.md#declaration-analysis-inputs) and
+[embedding](spec/embedding-api.md) describe the resulting owners. Completed implementation steps
+are not a second pending queue.
 
-The [Native boundary remediation inventory](native-model-design.md#9-frontend-and-linking-boundary-remediation)
-is the single corrective-work list. It specifies removal, semantic-owner migration, linking-owner
-migration and acceptance; no corrective code has been implemented by recording it. The historical
-NM execution plan remains retired and its commits/measurements remain in Git. Existing implementation
-surfaces are documented in [HIR inputs/origins](architecture/hir.md#native-declaration-inputs-and-origins),
-[Native declarations](spec/standard-declarations.md#declaration-analysis-inputs),
-[syntax](spec/syntax.md#native-declarations) and [embedding](spec/embedding-api.md); conflicting
-registration-authority wording must be updated with the remediation, not treated as its target.
+LoweredModule retains source/module/source_map; Module.nodes uses HirNodes. Explicit common import
+scopes and declaration-owned contracts replace attachment maps and input-origin privileges.
+Native signatures have one static kind without installed entries. Real Script expressions/default
+bodies replace dedicated default recipes; compiler ABI/templates derive from checked facts.
+Runtime independently matches demanded implementations and authenticates installed structured
+Script bodies, including final defaults, against actual executable behavior. Portable origins and
+instruction certificates alone establish consistency, not independent library semantics. Runtime
+retains real bindings; no Runtime-to-HIR edge or Runtime trait solver was introduced.
 
-Direct ModuleDecl lowering records identities during construction; explicitly supplied exported
-source plus scoped static sidecars reaches common checking, but the current registered/external
-split still changes signature kinds, impl/bound rules and compiler admission. Functions
-retain Required/Script/Native, Native fields share owner-qualified field records and var/val rules,
-and Ref/RefMut retain exact targets/access without new operations. Optional parses and canonical
-structured origins do not invent source locations or complete implementation-source manifests.
-Default SDK preparation uses direct inputs; explicit materialized views retain checked navigation.
+**Local validation:** structure checking, workspace formatting, workspace all-target Clippy with
+`-D warnings`, fixture formatting and diff checks pass. Selected owner-level tests pass for common
+imports/alias precedence, captured/replayed environments, independent language/conversion shapes,
+canonical constructors without sidecars, Host policy binders, structured/parsed equivalence,
+checked admission, generic ABI/default selection, exact helper selection under parameter shadowing,
+Native direct/interface/callable-requirement and associated-method execution, final-default forgery
+rejection, portable round trips, linking, SDK Host/interfaces/results and analyzer/lint consumers.
+These selections cover changed mechanisms and direct downstream consumers, not every combination.
+IDE `build_project` repeatedly timed out at the MCP context server; Cargo test builds and Clippy
+completed. The existing optional unused blake3 manifest warning remains, not a Clippy failure.
 
-**Historical NM local evidence (not remediation acceptance):** focused HIR native/contract/external
-equivalence (including actual foundation, Host paths, constructor conflicts and selected public
-exposures), analyzer queries, compiler exact
-source/source-free fields, SDK preparation/update/session and Runtime declaration/scalar/lifetime
-selections pass. SDK source-free artifacts run in a separate frontend-disabled build; actual
-source-free Cranelift execution and native-only SDK checking pass. Generic identity, DTO/handle
-semantics, synchronous Host reentry and retained-closure reload samples pass. Syntax/formatter tests,
-generated editor assets, Tree-sitter/Zed/TextMate/shared checks and required structure, workspace
-fmt, workspace all-target Clippy and diff gates pass. The existing optional blake3 Cargo manifest
-warning remains; it is not a Clippy failure. Complete workspace tests, exhaustive backend/feature/
-platform and actual-editor/WASM-host matrices remain CI-only/unrun locally.
+**Known baseline failures:** `cargo test -p kagari-stdlib --lib native_boundary -- --nocapture`
+reports **120 passed / 35 failed**. An isolated pre-change baseline at
+`0cbeb0d636553a5e3505db8d90de87de1519e518` reported 117 passed / 38 failed; the current failure-name
+set is a subset, with no new failing names. Three enum lifecycle/bound tests now pass. This is not
+an all-green suite or proof that the other failures are harmless. Representative existing failures:
 
-The NM00 syntax-spacing, placement lint, Runtime documentation-consumer and dropped-weak-snapshot
-reuse-test blockers are repaired without changing cache retention. The unchanged collection import
-sample still fails before execution on missing Vec; its exact reproduction and restoration remain
-with [NC](native-collections-plan.md), not a Native frontend regression or passing execution sample.
+- Collection-dependent scenarios fail before execution on `UnknownName { name: "Vec::from" }`,
+  `Vec::new` or `UnknownTypeAnnotation { type_name: "Vec<i32>" }`; missing collection declarations
+  remain owned by [NC](native-collections-plan.md). Reproduce the interface-result case with
+  `cargo test -p kagari-stdlib --lib interface_method_results_use_existing_native_and_inherited_adapters`.
+- Enum admission still fails the expected foreign-layout rejection assertion in
+  `enum_factories_preserve_nominal_identity_payloads_and_empty_unit_distinction`.
+- Managed payload/accounting scenarios retain baseline value mismatches, for example
+  `managed_construction_and_replacement_require_every_checked_field` reports 10 versus 7,
+  and `applied_native_handles_preserve_the_supplied_nominal_layout_scope` reports 8 versus 6.
+  Their enum and managed-storage/accounting test owners must diagnose these independently; no
+  assertions were weakened and this migration does not claim their underlying causes are fixed.
+
+The 35 failures remain acceptance follow-up here; temporary baseline logs are not documentation
+inputs. Complete workspace tests and exhaustive feature/backend/platform, frontend-disabled SDK,
+actual-editor/WASM-host and backend matrices remain CI-only and have not been rerun for this change.
+Earlier NM evidence applies only to unchanged code, not to this implementation's unrun matrices.
 
 **Deferred:** [the existing design](native-model-design.md#4-checked-libraries-and-rust-providers)
 retains registration/provider products, prebuild binary versus generated-code representation,
 standalone MIR/shared libraries, HOST/TARGET producer/bootstrap, preparation/link caches and
-export-sidecar encoding/directory publication/refresh. New Native field adapters, Ref operations,
-output/reflection extraction and broader LSP scheduling require separate scope. Removing HIR
-binding state, NativeDefault recipes and mixed NativeTypeKind is current corrective scope, not
-conditional on those deferred products. No Runtime-to-HIR dependency, routine format/ABI bump or
-general provider installation redesign is implied.
+export-sidecar encoding/directory publication/refresh. New Native field adapters, the reference
+migration, output/reflection extraction and broader LSP scheduling are outside these three phases.
+Unpublished affected products are disposable; no compatibility reader, routine format/ABI bump or
+general provider installation redesign was added.
+
+The selected [reference-wrapper design](native-model-design.md#ref--refmut-ordinary-wrappers-and-explicit-access-methods)
+keeps T's canonical fields unchanged and uses ordinary nominal Ref<T>/RefMut<T>, explicit access
+methods and as_ref(), not trait wrappers or automatic Deref. Managed and Host-backed access share
+one declaration surface with Runtime-owned backing/retention; saved handles may expire and actual
+access checks validity. [The coupled reference follow-up](native-model-design.md#g-replace-reference-special-cases-with-ordinary-wrappers)
+records the required frontend/value/contract/Runtime replacement and tests. It intentionally replaces
+static no-escape rules only after safe storable carriers and access checks are implemented; neither
+this design selection nor its documentation activates execution implementation.
 
 ## Numeric standard library
 

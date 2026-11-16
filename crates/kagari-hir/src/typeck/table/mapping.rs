@@ -517,7 +517,6 @@ impl RemapDefinitions for TypeTable {
                     .iter()
                     .map(|(key, value)| Ok((*(key), (value).remap_definitions(mapper)?))),
             )?,
-            native_default_calls: self.native_default_calls.clone(),
             calls: map_hash_entries(
                 self.calls.len(),
                 self.calls

@@ -4,24 +4,19 @@ use crate::{
     CheckedAnalysis,
     compile_input::{
         body::{BodyKey, BodyRoot, CheckedBodyInput},
-        declarations::{
-            DeclarationHeaders, ImplementationInput, NativeDefaultCall, RegisteredDeclarations,
-        },
+        declarations::{DeclarationHeaders, ImplementationInput},
         environment::CheckedEnvironment,
     },
     hir::{
-        ids::{BodyOwner, FunctionId, HirOwner, ImplId, StaticId},
+        ids::{BodyOwner, HirOwner, ImplId, StaticId},
         item::{Item, function::FunctionImplementation as HirImplementation},
     },
-    native::{NativeBinding, NativeTypeKind},
     program::{CheckedProgram, exports::ProgramExports},
-    resolver::resolved::ResolvedName,
     semantic::signatures::FunctionImplementation,
     source_map::{
         SourceMap,
         origin::{NodeOrigin, OriginTarget},
     },
-    typeck::table::CallTarget,
     update_source::{self, SourceBudget, SourceEvidence},
 };
 use kagari_common::{
@@ -50,15 +45,13 @@ pub enum AdmissionError {
 /// A module's fixed declaration environment and admitted body directory.
 ///
 /// Function signatures explicitly distinguish script, native and required methods.
-/// An absent body is never interpreted as native by lookup. Generated native default
-/// forwarding bodies can exist alongside a native implementation contract.
+/// An absent body is never interpreted as native by lookup. Ordinary Script defaults
+/// retain checked bodies; Native declarations retain only their static contracts.
 pub struct CheckedModule<'a> {
     handle: ModuleHandle,
     source: &'a SourceFile,
     origins: &'a SourceMap,
     headers: DeclarationHeaders<'a>,
-    registration: Option<RegisteredDeclarations<'a>>,
-    native_defaults: HashMap<FunctionId, NativeDefaultCall<'a>>,
     implementations: HashMap<ImplId, ImplementationInput<'a>>,
     environment: CheckedEnvironment<'a>,
     provenance: SourceEvidence,
@@ -71,31 +64,16 @@ impl<'a> CheckedModule<'a> {
         cancel: &CancellationToken,
         budget: &mut SourceBudget<'_>,
     ) -> Result<Self, AdmissionError> {
-        if module.lowered.is_external_api() {
-            return Err(AdmissionError::InvalidModule(
-                "offline declarations cannot authorize compilation",
-            ));
-        }
-        if module.lowered.source_map.arena() != module.lowered.module.body.arena() {
+        if module.lowered.source_map.arena() != module.lowered.module.nodes.arena() {
             return Err(AdmissionError::InvalidModule(
                 "source map belongs to another lowering",
             ));
         }
         for declaration in &module.lowered.module.native_types {
             cancel.check().map_err(|_| AdmissionError::Cancelled)?;
-            if !declaration.fields.is_empty()
-                && !matches!(
-                    module.lowered.native_types.get(&declaration.id),
-                    Some(NativeTypeKind::Host { .. })
-                )
-            {
+            if !declaration.fields.is_empty() && declaration.host.is_none() {
                 return Err(AdmissionError::InvalidModule(
                     "Native interface fields have no executable adapters",
-                ));
-            }
-            if !module.lowered.native_types.contains_key(&declaration.id) {
-                return Err(AdmissionError::InvalidModule(
-                    "Native type declaration has no installed representation",
                 ));
             }
         }
@@ -110,18 +88,6 @@ impl<'a> CheckedModule<'a> {
             source: &module.lowered.source,
             origins: &module.lowered.source_map,
             headers: DeclarationHeaders::new(&module.lowered.module),
-            registration: if module.lowered.is_registered_native_api() {
-                Some(RegisteredDeclarations {
-                    definitions: module.lowered.registered_native_definitions().ok_or(
-                        AdmissionError::InvalidModule("registered module has no definition scope"),
-                    )?,
-                    callables: module.lowered.registered_native_declarations(),
-                    source_traits: module.lowered.registered_source_trait_references(),
-                })
-            } else {
-                None
-            },
-            native_defaults: HashMap::new(),
             implementations: HashMap::new(),
             environment: CheckedEnvironment::new(module),
             provenance: SourceEvidence::default(),
@@ -192,22 +158,15 @@ impl<'a> CheckedModule<'a> {
             let implementation_matches = match (&function.implementation, &signature.implementation)
             {
                 (HirImplementation::Required, FunctionImplementation::Required)
-                | (HirImplementation::Script(_), FunctionImplementation::Script) => {
-                    !module.lowered.native_functions.contains_key(&function.id)
+                | (HirImplementation::Script(_), FunctionImplementation::Script) => true,
+                (HirImplementation::Native(input), FunctionImplementation::Native(checked)) => {
+                    input == checked
                 }
-                (
-                    HirImplementation::Native(_),
-                    FunctionImplementation::Native(binding @ NativeBinding::Entry(_)),
-                )
-                | (
-                    HirImplementation::Script(_),
-                    FunctionImplementation::Native(binding @ NativeBinding::Default(_)),
-                ) => module.lowered.native_functions.get(&function.id) == Some(binding),
                 _ => false,
             };
             if !implementation_matches {
                 return Err(AdmissionError::InvalidModule(
-                    "function implementation and checked binding disagree",
+                    "function implementation and checked contract disagree",
                 ));
             }
             let owner = BodyOwner::Function(function.id);
@@ -218,7 +177,7 @@ impl<'a> CheckedModule<'a> {
                     .zip(&function.params)
                     .any(|(typed, source)| {
                         typed.id != source.id
-                            || typed.id.arena() != module.lowered.module.body.arena()
+                            || typed.id.arena() != module.lowered.module.nodes.arena()
                             || typed.id.owner() != HirOwner::Body(owner)
                     })
             {
@@ -231,7 +190,7 @@ impl<'a> CheckedModule<'a> {
                     return Err(AdmissionError::InvalidBody {
                         key: BodyKey {
                             module: self.handle,
-                            arena: module.lowered.module.body.arena(),
+                            arena: module.lowered.module.nodes.arena(),
                             owner,
                             closure: None,
                         },
@@ -241,46 +200,6 @@ impl<'a> CheckedModule<'a> {
                 self.bodies.insert(
                     owner,
                     CheckedBodyInput::new(module, self.handle, owner, BodyRoot::Block(root))?,
-                );
-            }
-            if matches!(
-                signature.implementation,
-                FunctionImplementation::Native(NativeBinding::Default(_))
-            ) {
-                let call = module
-                    .typed
-                    .type_table()
-                    .native_default_call_ref(function.id)
-                    .ok_or(AdmissionError::InvalidModule(
-                        "native default has no checked forwarding call",
-                    ))?;
-                let declaration = match call.target {
-                    CallTarget::Function(id) => self
-                        .environment
-                        .definition(ResolvedName::Function(id))
-                        .ok_or(AdmissionError::InvalidModule(
-                            "native default target has no declaration",
-                        ))?,
-                    CallTarget::SourceFunction(id) => id,
-                    _ => {
-                        return Err(AdmissionError::InvalidModule(
-                            "native default target is not a declaration",
-                        ));
-                    }
-                };
-                let signature = call
-                    .signature
-                    .as_ref()
-                    .ok_or(AdmissionError::InvalidModule(
-                        "native default has no applied signature",
-                    ))?;
-                self.native_defaults.insert(
-                    function.id,
-                    NativeDefaultCall {
-                        declaration,
-                        arguments: &call.type_arguments,
-                        signature,
-                    },
                 );
             }
         }
@@ -299,7 +218,7 @@ impl<'a> CheckedModule<'a> {
                 return Err(AdmissionError::InvalidBody {
                     key: BodyKey {
                         module: self.handle,
-                        arena: module.lowered.module.body.arena(),
+                        arena: module.lowered.module.nodes.arena(),
                         owner,
                         closure: None,
                     },
@@ -327,7 +246,7 @@ impl<'a> CheckedModule<'a> {
                 return Err(AdmissionError::InvalidBody {
                     key: BodyKey {
                         module: self.handle,
-                        arena: module.lowered.module.body.arena(),
+                        arena: module.lowered.module.nodes.arena(),
                         owner,
                         closure: None,
                     },
@@ -383,11 +302,6 @@ impl<'a> CheckedModule<'a> {
         &self.provenance
     }
 
-    /// Borrows exact installed declarations and their scope, or `None` for source modules.
-    pub fn registration(&self) -> Option<RegisteredDeclarations<'a>> {
-        self.registration
-    }
-
     /// Returns source or structured attribution for an admitted declaration slot.
     /// Structured definition IDs belong to the retained registration/environment scope.
     pub fn declaration_origin(&self, item: Item) -> Option<NodeOrigin> {
@@ -406,14 +320,6 @@ impl<'a> CheckedModule<'a> {
             NodeOrigin::Source(span) => Some(span),
             NodeOrigin::Structured { .. } => None,
         }
-    }
-
-    /// Borrows the proved forwarding application for a native default in this module.
-    ///
-    /// Ordinary script/native functions and required methods return `None`. Admission
-    /// rejects a native default missing this proof instead of treating it as bodyless.
-    pub fn native_default(&self, function: FunctionId) -> Option<NativeDefaultCall<'a>> {
-        self.native_defaults.get(&function).copied()
     }
 
     /// Borrows the checked receiver/binder contract of a local implementation header.

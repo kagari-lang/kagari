@@ -575,11 +575,7 @@ fn verify_interface_tables(
                         .functions
                         .get(target.index())
                         .ok_or(BytecodeVerificationError::InvalidInterfaceTable)?;
-                    if matches!(
-                        method.implementation,
-                        CallableImplementation::Native(_)
-                            | CallableImplementation::NativeDefault(_)
-                    ) {
+                    if matches!(method.implementation, CallableImplementation::Native(_)) {
                         return Err(BytecodeVerificationError::InvalidInterfaceTable);
                     }
                     if abi.bridge.is_some()
@@ -600,11 +596,6 @@ fn verify_interface_tables(
                     if abi.bridge.is_some()
                         || match &method.implementation {
                             CallableImplementation::Native(binding) => binding != &import.binding,
-                            CallableImplementation::NativeDefault(application) => {
-                                application.declaration != import.instance.declaration
-                                    || application.arguments.len()
-                                        != import.instance.arguments.len()
-                            }
                             _ => true,
                         }
                     {
@@ -613,14 +604,6 @@ fn verify_interface_tables(
                     &import.instance
                 }
             };
-            if matches!(
-                method.implementation,
-                CallableImplementation::NativeDefault(_)
-            ) {
-                // The linked proof checks the template, substituted arguments,
-                // binding and signature against the complete dependency closure.
-                continue;
-            }
             if definitions.parent(identity.declaration).ok().flatten() != Some(abi.declaration)
                 || definitions
                     .resolve(identity.declaration)

@@ -67,12 +67,8 @@ pub(super) fn validate_trait_surface(
             continue;
         };
         let type_name = display_type_id(declarations.definitions(), &for_ty);
-        // Installed implementations can define protocols on interface values,
-        // just as Iterator's registered Iterable adapter does. This does not
-        // extend source impl targets or allow bare generic receiver blankets.
-        if matches!(for_ty, TypeId::Generic(_))
-            || matches!(for_ty, TypeId::Trait(_)) && !lowered.is_library_api()
-        {
+        // Interface values are concrete receiver categories; a bare binder is not.
+        if matches!(for_ty, TypeId::Generic(_)) {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
                     trait_name: trait_name.to_string(),
@@ -104,19 +100,17 @@ pub(super) fn validate_trait_surface(
         seen_impls.push((id.clone(), for_ty.clone()));
 
         let standard = Protocol::from_definition(&id.declaration, declarations.definitions());
-        if standard.is_some_and(|kind| {
-            !kind.host_implementable() && matches!(for_ty, TypeId::Host(_))
-                || !lowered.is_library_api()
-                    && kind != Protocol::From
-                    && !matches!(
-                        for_ty,
-                        TypeId::NativeObject(_)
-                            | TypeId::Struct(_)
-                            | TypeId::Enum(_)
-                            | TypeId::Host(_)
-                    )
-        }) {
-            diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidTraitImpl { trait_name: trait_name.clone(), type_name: type_name.clone(), reason: "standard operator/equality impls require a script Struct or enum; formatting requires a nominal receiver".into() }).with_span(lowered.source_map.impl_span(impl_block.id)));
+        if standard
+            .is_some_and(|kind| !kind.host_implementable() && matches!(for_ty, TypeId::Host(_)))
+        {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
+                    trait_name: trait_name.clone(),
+                    type_name: type_name.clone(),
+                    reason: "this language protocol does not support Host receivers".into(),
+                })
+                .with_span(lowered.source_map.impl_span(impl_block.id)),
+            );
             continue;
         }
         let methods = if let Some(trait_def) = trait_def {

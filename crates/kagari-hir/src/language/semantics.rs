@@ -198,7 +198,7 @@ pub fn intrinsic_applies(
 ) -> bool {
     if catalog.is_some_and(|catalog| {
         catalog
-            .engine_implementation(definitions, interface, receiver, bounds)
+            .declared_implementation(definitions, interface, receiver, bounds)
             .is_some()
     }) {
         return true;

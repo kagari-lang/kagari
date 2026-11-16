@@ -183,7 +183,7 @@ fn boolean_operator_recovery_keeps_result_types_and_known_operand_conflicts() {
         let result = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .find_map(|(id, expr)| {
                 matches!(&expr.kind, ExprKind::Name { name, .. } if name == "result")

@@ -30,7 +30,7 @@ pub enum OriginTarget {
 }
 
 /// Attribution, not executable installation evidence. A structured declaration's ID
-/// belongs to `LoweredModule::registered_native_definitions()`; it has no byte range.
+/// belongs to the common analysis definition context; it has no byte range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeOrigin {
     Source(Span),

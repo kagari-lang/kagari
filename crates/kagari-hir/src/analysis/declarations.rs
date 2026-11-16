@@ -12,13 +12,16 @@ use crate::{
     declarations::{Declaration, DeclarationId, Declarations},
     declare_analysis,
     imports::{ModuleGraph, SourceUnit},
-    language::types::builtin_constructor,
     lower::LoweredModule,
     native::{adoption, api::preparation::NativeFiles},
     resolver::resolved::DeclarationNames,
 };
+use kagari_types::declaration::native::NativeTypeConstructor;
 
-use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, mapping::DefinitionMappingError, metadata::DefinitionMetadata},
+};
 use kagari_source::{
     diagnostic::Diagnostic,
     identity::{FileId, Revision},
@@ -272,12 +275,36 @@ impl AnalysisDatabase {
             }
             lowered_files.insert(id, (prepared.parsed, prepared.lowered));
         }
-        ReceiverOwners::from_constructors(lowered_files.values().flat_map(|(_, lowered)| {
-            lowered.native_types.values().filter_map(|kind| {
-                let constructor = builtin_constructor(kind)?;
-                Some((lowered.source.module_identity(), constructor))
-            })
-        }))?;
+        let mut constructors = Vec::new();
+        for (_, lowered) in lowered_files.values() {
+            let root = self
+                .definitions
+                .intern_root(lowered.source.module_identity())
+                .map_err(DefinitionMappingError::from)?;
+            for item in &lowered.module.native_types {
+                cancel.check()?;
+                let id = self
+                    .definitions
+                    .intern_child(root, DefinitionKind::AssociatedType, &item.name, 0)
+                    .map_err(DefinitionMappingError::from)?;
+                if let Some(constructor) =
+                    NativeTypeConstructor::from_definition(id, &self.definitions.snapshot())
+                {
+                    if item.host.is_some()
+                        || item.generic_params.len() != constructor.arity()
+                        || !item.fields.is_empty()
+                    {
+                        return Err(DeclarationError(format!(
+                            "invalid language constructor declaration shape for {}",
+                            item.name
+                        ))
+                        .into());
+                    }
+                    constructors.push((lowered.source.module_identity(), constructor));
+                }
+            }
+        }
+        ReceiverOwners::from_constructors(constructors)?;
         evidence::validate_schema_closure(
             lowered_files.values().map(|(_, lowered)| lowered.as_ref()),
             cancel,
@@ -286,10 +313,16 @@ impl AnalysisDatabase {
         let limits = self.import_solver_limits;
         #[cfg(not(test))]
         let limits = None;
-        let graph = Arc::new(ModuleGraph::build_with_limits(
+        let environment = self.import_scopes(
+            lowered_files.values().map(|(_, lowered)| lowered.as_ref()),
+            source.packages(),
+            cancel,
+        )?;
+        let graph = Arc::new(ModuleGraph::build_with_environment(
             lowered_files.values().map(|(_, lowered)| lowered.as_ref()),
             &self.definitions,
             source.packages(),
+            &environment,
             cancel,
             limits,
         )?);

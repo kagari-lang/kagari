@@ -45,18 +45,24 @@ impl InstancePlanner<'_> {
                 span,
             )?)));
         }
-        if self.native_function(&declaration).is_some() {
-            let applied = AppliedCallSignature {
-                params,
-                return_type: result,
-            };
-            return Ok(CallTarget::Native(Box::new(self.checked_native_import(
-                declaration,
-                &applied,
-                &arguments,
-                span,
-            )?)));
+        if self.native_declaration(&declaration).is_some() {
+            let import = self.native_target_import(&declaration, &arguments, span)?;
+            if import.signature.params
+                != params
+                    .iter()
+                    .map(|ty| self.encode_type(ty))
+                    .collect::<Vec<_>>()
+                || import.signature.result != self.encode_type(&result)
+            {
+                return Err(MirLoweringError::MissingBinding(
+                    "checked Native call signature",
+                ));
+            }
+            let mut import = import;
+            import.callables = self.native_callables(&mut import, span)?;
+            return Ok(CallTarget::Native(Box::new(import)));
         }
+
         let module = self
             .modules
             .get(&self.module_handle(declaration))
@@ -118,26 +124,59 @@ impl InstancePlanner<'_> {
             .modules
             .get(&self.module_handle(*declaration))
             .ok_or_else(invalid)?;
-        let Some(ResolvedName::Function(id)) = module
+        let (parameters, bounds) = if let Some(ResolvedName::Function(id)) = module
             .environment()
             .declarations()
             .definition_target(declaration)
-        else {
-            return Err(invalid());
+        {
+            let function = module
+                .environment()
+                .signatures()
+                .function(id)
+                .ok_or_else(invalid)?;
+            (function.generic_params.clone(), function.bounds.clone())
+        } else {
+            let (implementation, method) = self
+                .catalog
+                .default_method(&self.definitions(), declaration)
+                .ok_or_else(invalid)?;
+            if method.default != Some(MethodDefault::Script) {
+                return Err(invalid());
+            }
+            let contract = self.catalog.trait_(&method.owner).ok_or_else(invalid)?;
+            let mut parameters = implementation.generic_params.clone();
+            parameters.extend_from_slice(&method.generic_params[contract.generic_params.len()..]);
+            let mut inherited: TypeSubstitution = contract
+                .generic_params
+                .iter()
+                .cloned()
+                .zip(implementation.trait_type.arguments.iter().cloned())
+                .collect();
+            inherited.insert_receiver(method.owner, implementation.for_type.clone());
+            let mut bounds = implementation.bounds.clone();
+            for (ty, constraints) in &method.bounds {
+                let apply = |ty: &TypeId| {
+                    ty.instantiate(&inherited)
+                        .with_associated_types(&implementation.trait_type, &implementation.for_type)
+                };
+                let constraints = constraints
+                    .iter()
+                    .map(|constraint| {
+                        let TypeId::Trait(interface) = apply(&TypeId::Trait(constraint.clone()))
+                        else {
+                            unreachable!("checked trait bound")
+                        };
+                        interface
+                    })
+                    .collect::<Vec<_>>();
+                bounds.entry(apply(ty)).or_default().extend(constraints);
+            }
+            (parameters, bounds)
         };
-        let function = module
-            .environment()
-            .signatures()
-            .functions()
-            .iter()
-            .find(|function| function.id == id)
-            .ok_or_else(invalid)?
-            .clone();
-        if arguments.len() != function.generic_params.len() || arguments.is_empty() {
+        if arguments.len() != parameters.len() || arguments.is_empty() {
             return Err(invalid());
         }
-        let canonical: Vec<_> = function
-            .generic_params
+        let canonical: Vec<_> = parameters
             .iter()
             .enumerate()
             .map(|(position, parameter)| {
@@ -148,13 +187,12 @@ impl InstancePlanner<'_> {
                 })
             })
             .collect();
-        let substitution: TypeSubstitution = function
-            .generic_params
+        let substitution: TypeSubstitution = parameters
             .iter()
             .cloned()
             .zip(arguments.iter().cloned())
             .collect();
-        let evidence = self.bound_evidence(&function.bounds, &substitution, span)?;
+        let evidence = self.bound_evidence(&bounds, &substitution, span)?;
         let (instance, implementation, receiver_access) =
             if self.prepare_native_target(declaration, &canonical, span)? {
                 let import = self.native_target_import(declaration, &canonical, span)?;

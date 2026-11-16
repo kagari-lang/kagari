@@ -43,7 +43,7 @@ impl Lowerer {
         }
         let tail_expr = block.tail_expr().map(|expr| self.lower_expr(&expr));
 
-        self.module.body.blocks[id.index()].1 = BlockData {
+        self.module.nodes.blocks[id.index()].1 = BlockData {
             statements,
             tail_expr,
         };

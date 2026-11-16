@@ -378,8 +378,8 @@ fn body_edits_rebase_impl_trait_references_in_signature_cache() {
         authoring_facts.definitions(),
         &fresh.typed.type_table,
         authoring_fresh.definitions(),
-        facts.lowered.module.body.arena(),
-        fresh.lowered.module.body.arena(),
+        facts.lowered.module.nodes.arena(),
+        fresh.lowered.module.nodes.arena(),
     );
     sources
         .set(
@@ -491,8 +491,8 @@ fn untouched()->i32 {1}
         authoring_facts.definitions(),
         &fresh.typed.type_table,
         authoring_fresh.definitions(),
-        facts.lowered.module.body.arena(),
-        fresh.lowered.module.body.arena(),
+        facts.lowered.module.nodes.arena(),
+        fresh.lowered.module.nodes.arena(),
     );
     assert!(updated.file(file).unwrap().signatures_reused());
     assert!(

@@ -31,7 +31,7 @@ use kagari_contract::{
     operations::{BinaryOp as MirBinaryOp, UnaryOp as MirUnaryOp},
     representation::semantic_representation,
     statics::StaticDescriptor,
-    types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
+    types::ConcreteFunctionIdentity,
     updates::limits::UpdateError,
 };
 use kagari_mir::instruction::ConstructionTarget as MirConstruction;
@@ -54,7 +54,6 @@ use kagari_types::{
 use std::{collections::HashMap, slice};
 
 mod debug;
-mod defaults;
 mod interfaces;
 mod placement;
 mod tail;
@@ -123,8 +122,7 @@ pub fn lower_to_bytecode(
         return Err(BytecodeLoweringError::UnlinkedSourceModules);
     }
     let cancel = CancellationToken::default();
-    let catalog = defaults::catalog(slice::from_ref(ir), ir.definitions(), &cancel)?;
-    let mut module = lower_linked_module(ir, None, Vec::new(), catalog.as_ref(), &cancel)?;
+    let mut module = lower_linked_module(ir, None, Vec::new(), &cancel)?;
     views::populate(slice::from_mut(&mut module), ir.definitions())?;
     verify_module(&module, ir.definitions(), &Default::default())
         .map_err(BytecodeLoweringError::Verification)?;
@@ -136,9 +134,11 @@ fn lower_linked_module(
     ir: &VerifiedMirModule,
     program: Option<&VerifiedMirProgram>,
     dependencies: Vec<ModuleRef>,
-    catalog: Option<&ProofCatalog<'_>>,
     cancel: &CancellationToken,
 ) -> Result<BytecodeModule, BytecodeLoweringError> {
+    cancel
+        .check()
+        .map_err(|_| BytecodeLoweringError::Verification(BytecodeVerificationError::Cancelled))?;
     let mut context = BytecodeLoweringContext {
         program,
         structures: &ir.structures,
@@ -166,8 +166,7 @@ fn lower_linked_module(
             .filter(|slot| slot.contract.supplier == ir.identity)
             .map(|slot| FunctionRef::new(slot.initializer.index())),
     );
-    let interface_tables =
-        collect_interface_tables(ir, program, &mut context.native_imports, catalog, cancel)?;
+    let interface_tables = collect_interface_tables(ir, program, &mut context.native_imports)?;
     let mut module = BytecodeModule {
         dependencies,
         external_types: ir.external_types.clone(),
@@ -1142,7 +1141,6 @@ pub(crate) fn lower_program_for_comparison(
     program: &VerifiedMirProgram,
     cancel: &CancellationToken,
 ) -> Result<DefinitionMetadata<BytecodeProgram>, BytecodeLoweringError> {
-    let catalog = defaults::catalog(program.modules(), program.definitions(), cancel)?;
     let indices = program
         .modules()
         .iter()
@@ -1161,7 +1159,6 @@ pub(crate) fn lower_program_for_comparison(
                     .iter()
                     .map(|identity| indices[identity])
                     .collect(),
-                catalog.as_ref(),
                 cancel,
             )
         })

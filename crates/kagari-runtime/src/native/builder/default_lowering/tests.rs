@@ -9,6 +9,7 @@ use kagari_types::{
     callable::{CallableImplementation, MethodPolicy},
     declaration::{
         AssociatedTypeDef, FnDecl, Param, TraitDef, requirement::NativeCallableRequirement,
+        script::ScriptExpr,
     },
     scalar::BuiltinType,
     ty::{
@@ -232,8 +233,24 @@ fn list_hidden_cursor_preserves_requirements_and_concrete_result() {
     });
     let p = |index| parameter(template, index);
     assert_eq!(method, original);
-    assert_eq!(lowered.application.arguments, arguments);
-    assert_eq!(lowered.application.declaration, template);
+    let ScriptExpr::Call {
+        callee,
+        type_arguments,
+        arguments: values,
+    } = &lowered.body
+    else {
+        panic!("ordinary call body")
+    };
+    assert_eq!(type_arguments, &arguments);
+    assert_eq!(
+        values,
+        &method
+            .params
+            .iter()
+            .map(|parameter| ScriptExpr::Name(parameter.name.clone()))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(**callee, ScriptExpr::Definition(template));
     assert_eq!(lowered.template.name, "list_sorted_by_key");
     assert_eq!(
         lowered.template.implementation,
@@ -377,7 +394,24 @@ fn paired_iterables_keep_distinct_receivers_items_and_cursors() {
             },
         ));
         expected_calls.extend(right_calls);
-        assert_eq!(lowered.application.arguments, arguments);
+        let ScriptExpr::Call {
+            callee,
+            type_arguments,
+            arguments: values,
+        } = &lowered.body
+        else {
+            panic!("ordinary call body")
+        };
+        assert_eq!(type_arguments, &arguments);
+        assert_eq!(
+            values,
+            &method
+                .params
+                .iter()
+                .map(|parameter| ScriptExpr::Name(parameter.name.clone()))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(**callee, ScriptExpr::Definition(template));
         assert_eq!(lowered.template.generic_params.len(), arguments.len());
         assert_eq!(lowered.template.params[1].ty, p(2));
         assert_eq!(
@@ -427,7 +461,24 @@ fn destination_defaults_keep_only_the_destination_requirement() {
             concrete_result: None,
         });
         let p = |index| parameter(template, index);
-        assert_eq!(lowered.application.arguments, arguments);
+        let ScriptExpr::Call {
+            callee,
+            type_arguments,
+            arguments: values,
+        } = &lowered.body
+        else {
+            panic!("ordinary call body")
+        };
+        assert_eq!(type_arguments, &arguments);
+        assert_eq!(
+            values,
+            &method
+                .params
+                .iter()
+                .map(|parameter| ScriptExpr::Name(parameter.name.clone()))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(**callee, ScriptExpr::Definition(template));
         assert_eq!(lowered.template.generic_params.len(), 3);
         assert_eq!(lowered.template.return_type, p(2));
         assert_eq!(
@@ -577,7 +628,24 @@ fn nested_projection_keys_are_order_independent_and_keep_application_arguments()
         concrete_result: None,
     });
     let p = |index| parameter(template, index);
-    assert_eq!(lowered.application.arguments, arguments);
+    let ScriptExpr::Call {
+        callee,
+        type_arguments,
+        arguments: values,
+    } = &lowered.body
+    else {
+        panic!("ordinary call body")
+    };
+    assert_eq!(type_arguments, &arguments);
+    assert_eq!(
+        values,
+        &method
+            .params
+            .iter()
+            .map(|parameter| ScriptExpr::Name(parameter.name.clone()))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(**callee, ScriptExpr::Definition(template));
     assert_eq!(
         lowered.template.return_type,
         Ty::Tuple(vec![
@@ -633,7 +701,24 @@ fn projection_keys_distinguish_interface_and_member_arguments() {
         requirements: &[],
         concrete_result: None,
     });
-    assert_eq!(lowered.application.arguments, arguments);
+    let ScriptExpr::Call {
+        callee,
+        type_arguments,
+        arguments: values,
+    } = &lowered.body
+    else {
+        panic!("ordinary call body")
+    };
+    assert_eq!(type_arguments, &arguments);
+    assert_eq!(
+        values,
+        &method
+            .params
+            .iter()
+            .map(|parameter| ScriptExpr::Name(parameter.name.clone()))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(**callee, ScriptExpr::Definition(template));
     assert_eq!(
         lowered.template.return_type,
         Ty::Tuple(

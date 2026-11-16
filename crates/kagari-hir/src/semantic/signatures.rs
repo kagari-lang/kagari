@@ -1,11 +1,11 @@
 //! Callable and static contracts tied to one lowered module and semantic environment.
 
 use crate::{
+    hir::item::function::NativeContract,
     hir::{
         ids::{BodyOwner, FunctionId, HirOwner, ParamId, StaticId},
         writeability::Writeability,
     },
-    native::NativeBinding,
     types::{GenericParameterType, NominalType, TypeId},
 };
 use smallvec::SmallVec;
@@ -47,14 +47,8 @@ pub struct TypedFunction {
 pub enum FunctionImplementation {
     /// A source body selected through the enclosing function/module identity.
     Script,
-    /// An installed native binding carrying its registered contract.
-    Native(NativeBinding),
-    /// Native signature without an installed binding or executable authority.
-    /// External inputs and inadmissible ordinary-source recovery retain this kind.
-    /// HIR still has the three Required/Script/Native implementation forms. This
-    /// semantic distinction is necessary while `Native(binding)` itself carries
-    /// installed authority; unbound declarations must not invent a binding or a body.
-    NativeDeclaration,
+    /// A Native declaration and its checked static contract, without an installed entry.
+    Native(NativeContract),
     /// A trait requirement awaiting an implementation, with no script body.
     Required,
 }

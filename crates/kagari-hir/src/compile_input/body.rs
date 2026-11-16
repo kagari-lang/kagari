@@ -4,9 +4,9 @@ use crate::{
     CheckedAnalysis,
     compile_input::{environment::CheckedEnvironment, program::AdmissionError},
     hir::{
-        body::Body,
         expr::{ClosureParam, ExprData, ExprKind},
         ids::{BlockId, BodyOwner, ExprId, HirOwner, LoweringId, PatternId, PlaceId, StmtId},
+        nodes::HirNodes,
         pattern::PatternData,
         place::PlaceData,
         stmt::{BlockData, StmtData},
@@ -65,7 +65,7 @@ pub enum BodyRoot {
 pub struct CheckedBodyInput<'a> {
     key: BodyKey,
     root: BodyRoot,
-    nodes: &'a Body,
+    nodes: &'a HirNodes,
     types: &'a TypeTable,
     names: &'a ResolvedNames,
     origins: &'a SourceMap,
@@ -84,12 +84,12 @@ impl<'a> CheckedBodyInput<'a> {
         let body = Self {
             key: BodyKey {
                 module: handle,
-                arena: module.lowered.module.body.arena(),
+                arena: module.lowered.module.nodes.arena(),
                 owner,
                 closure: None,
             },
             root,
-            nodes: &module.lowered.module.body,
+            nodes: &module.lowered.module.nodes,
             types: module.typed.type_table(),
             names: &module.names,
             origins: &module.lowered.source_map,

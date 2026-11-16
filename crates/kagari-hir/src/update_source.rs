@@ -305,9 +305,6 @@ pub(crate) fn collect(
             .find(|typed| typed.id == function.id)
             .ok_or(DefinitionMappingError::InvalidContract)?;
         let kind = match &typed.implementation {
-            FunctionImplementation::NativeDeclaration => {
-                return Err(DefinitionMappingError::InvalidContract);
-            }
             FunctionImplementation::Native(_) => SourceBodyKind::Native,
             FunctionImplementation::Script if function.is_async => SourceBodyKind::AsyncFunction,
             FunctionImplementation::Script => SourceBodyKind::Function,

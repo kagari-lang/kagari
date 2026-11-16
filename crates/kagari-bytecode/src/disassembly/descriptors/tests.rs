@@ -377,6 +377,7 @@ fn interface_closure_crosses_modules_but_does_not_follow_callee_bodies() {
 
 fn interface_declaration(declaration: DefinitionId, interface: DefinitionId) -> PublicItem {
     PublicItem::InterfaceTable(Box::new(InterfaceTable {
+        method_origins: Vec::new(),
         associated_type_families: vec![],
         associated_consts: vec![],
         bridge: None,
@@ -823,6 +824,7 @@ fn symbolic_result_adapters_select_the_canonical_generic_table() {
     owner
         .public_items
         .push(PublicItem::InterfaceTable(Box::new(InterfaceTable {
+            method_origins: Vec::new(),
             associated_type_families: vec![],
             associated_consts: vec![],
             bridge: None,

@@ -304,7 +304,7 @@ fn implementation_methods(
         let Some(binding) = binding else {
             if matches!(
                 method.implementation,
-                CallableImplementation::NativeDefault(_) | CallableImplementation::Script
+                CallableImplementation::Native(_) | CallableImplementation::Script
             ) {
                 continue;
             }

@@ -56,7 +56,7 @@ fn lowering_records_owners_for_interleaved_functions_and_constants() {
                     ..
                 } => {
                     assert_eq!(pattern.owner(), expected);
-                    for (local, _) in module.body.pattern_bindings(*pattern) {
+                    for (local, _) in module.nodes.pattern_bindings(*pattern) {
                         assert_eq!(local.owner(), expected);
                     }
                     assert_eq!(initializer.owner(), expected);
@@ -97,7 +97,7 @@ fn lowering_records_owners_for_interleaved_functions_and_constants() {
         HirOwner::Body(BodyOwner::Const(constant.id))
     );
     assert_eq!(constant.ty.unwrap().owner(), constant.initializer.owner());
-    for (expr, _) in module.body.expressions() {
+    for (expr, _) in module.nodes.expressions() {
         assert_ne!(expr.owner(), HirOwner::Declaration);
     }
     for binding in facts.names.bindings() {
@@ -154,7 +154,7 @@ fn implicit_receiver_shares_declaration_type_without_losing_method_ownership() {
         missing.params[0].ty.owner(),
         HirOwner::Body(BodyOwner::Function(missing.id))
     );
-    assert!(lowered.module.body.expressions().any(|(id, data)| {
+    assert!(lowered.module.nodes.expressions().any(|(id, data)| {
         matches!(data.kind, ExprKind::Missing)
             && id.owner() == HirOwner::Body(BodyOwner::Function(missing.id))
     }));
@@ -180,7 +180,7 @@ fn resolver_rejects_cross_body_edges_even_inside_the_same_arena() {
     assert_eq!(first.arena(), second.arena());
     assert_ne!(first.owner(), second.owner());
     let other_expr = lowered.module.block(second).tail_expr.unwrap();
-    lowered.module.body.blocks[first.index()].1.tail_expr = Some(other_expr);
+    lowered.module.nodes.blocks[first.index()].1.tail_expr = Some(other_expr);
     assert!(std::panic::catch_unwind(|| resolve_names(&lowered).unwrap()).is_err());
 }
 

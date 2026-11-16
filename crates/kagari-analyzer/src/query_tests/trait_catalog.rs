@@ -1,13 +1,13 @@
 use crate::query_tests::native_fixture as fixture;
 use crate::{AnalyzerQueries, query_tests::test_analysis};
-use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId};
+use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_hir::{
     aggregates::{
         implementations::{ImplementationSearchContext, ImplementationSearchLimits},
         traits::MethodDefault,
     },
     declarations::DeclarationId,
-    native::{NativeBinding, render::declaration_source},
+    native::render::declaration_source,
     typeck::table::CallTarget,
     types::NominalType,
 };
@@ -15,7 +15,7 @@ use kagari_hir::{analysis::*, resolver::resolved::*, types::*};
 use kagari_source::identity::*;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::catalog as foundation_catalog;
-use kagari_types::{callable::NativeDefaultApplication, scalar::BuiltinType};
+use kagari_types::scalar::BuiltinType;
 
 fn insert(sources: &mut SourceDatabase, name: &str, text: &str) -> FileId {
     sources
@@ -83,26 +83,7 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
             .iter()
             .find(|method| method.name == name)
             .unwrap();
-        let module = definitions
-            .lookup_root(&fixture::module().records().identity)
-            .unwrap();
-        let template = definitions
-            .lookup_child(
-                module,
-                DefinitionKind::Function,
-                &format!("default_{name}"),
-                0,
-            )
-            .unwrap();
-        assert_eq!(
-            method.default,
-            Some(MethodDefault::Native(NativeBinding::Default(
-                NativeDefaultApplication {
-                    declaration: template,
-                    arguments: vec![kagari_types::ty::Ty::SelfType(iterator.id)],
-                }
-            )))
-        );
+        assert_eq!(method.default, Some(MethodDefault::Script));
         assert_eq!(method.allows_override(), overridable);
         let source = snapshot
             .source(method.declaration.source_location().unwrap().file)
@@ -138,7 +119,19 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
             facts
                 .typed
                 .type_table()
-                .native_default_call(function)
+                .call_resolution(
+                    facts
+                        .lowered
+                        .module
+                        .block(
+                            facts.lowered.module.functions[function.index()]
+                                .implementation
+                                .script_body()
+                                .unwrap()
+                        )
+                        .tail_expr
+                        .unwrap()
+                )
                 .is_some()
         );
         let call_offset = source
@@ -320,7 +313,7 @@ fn imported_methods_keep_checked_parameters_self_types_and_source_targets() {
     let methods = facts
         .lowered
         .module
-        .body
+        .nodes
         .expressions()
         .filter_map(
             |(id, _)| match facts.typed.type_table().call_resolution(id)?.target {
@@ -406,7 +399,7 @@ fn ambiguous_methods_have_no_call_target_and_duplicate_bounds_do_not_create_ambi
         let authoring_facts = file.to_unverified(&Default::default()).unwrap();
         let facts = authoring_facts.records().facts();
         assert!(
-            !facts.lowered.module.body.expressions().any(|(id, _)| facts
+            !facts.lowered.module.nodes.expressions().any(|(id, _)| facts
                 .typed
                 .type_table()
                 .call_resolution(id)

@@ -60,6 +60,29 @@ returns `EmbeddingError::SourcePackage { error: SourcePackageError::MissingManif
 A navigation document cannot retroactively authorize a complete implementation-source package.
 Explicit materialized registration views retain the existing checked parsed-source route.
 
+[Declaration inputs](standard-declarations.md#declaration-analysis-inputs) use common
+binding-free HIR facts and static checks, whether structured, parsed external or
+ordinary source. Native means externally implemented, not installed. A checked
+complete program can enter compilation without Rust entries; supported-operation
+checks still apply, and loading/linking independently rejects missing demanded
+implementations, duplicate/conflicting bindings and contract mismatches. Runtime's
+real `NativeBinding` values remain local installation data, never HIR authority.
+
+[AnalysisInputs](../../crates/kagari-hir/src/analysis/inputs.rs) retains explicit
+[import scopes](../../crates/kagari-hir/src/imports/environment.rs) alongside declaration
+inputs for independent replay. `AnalysisDatabase::set_import_environment` replaces
+package alias, dependency and prelude selections and invalidates dependent semantic
+caches/fingerprints; an old snapshot keeps its original selections. Static metadata
+and these scopes do not bypass visibility, bounds, coherence or language-shape checks.
+Script defaults retain ordinary bodies and calls to declared helpers. Source-free
+origins and instruction-checked body records establish internal materialization
+provenance, not semantic authentication. [Runtime Script authentication](../../crates/kagari-runtime/src/native/registry/scripts.rs)
+compares actual bytecode call/value traces against the independently installed canonical
+ScriptExpr and function contract, applying binders and normalizing associated outputs
+through the checked impl. Final Script library methods fail closed when that canonical
+expression is absent; portable metadata, signatures or digests cannot replace it. See
+[checked contracts](standard-declarations.md#checked-executable-contracts).
+
 Source options propagate cancellation through checking, lowering and bytecode
 admission. `Program::from_artifact` propagates its caller token through
 resource checks, identity adoption and executable graph validation; interruption

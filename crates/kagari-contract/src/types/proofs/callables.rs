@@ -24,7 +24,7 @@ use kagari_types::{
     ty::{
         GenericBound, GenericParam, Ty,
         matching::match_pattern,
-        substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
+        substitution::{TypeSubstitution, TypeTransformError},
     },
 };
 
@@ -282,19 +282,7 @@ impl ProofCatalog<'_> {
                     .collect::<Result<_, _>>()?,
                 result: normalize(&method.return_type)?,
             };
-            let (instance, implementation) = if let CallableImplementation::NativeDefault(
-                application,
-            ) = &method.implementation
-            {
-                let application = application.apply(&substitution, cancel)?;
-                let Some(resolved) = self.resolve_native_default(&application, cancel)? else {
-                    return Ok(None);
-                };
-                if resolved.signature != signature {
-                    return Ok(None);
-                }
-                (resolved.instance, resolved.implementation)
-            } else {
+            let (instance, implementation) = {
                 let declaration = self
                     .definitions
                     .lookup_child(*table.declaration(), DefinitionKind::Method, member.name, 0)
@@ -318,61 +306,6 @@ impl ProofCatalog<'_> {
                 signature,
                 effects: EffectSet::native_call(),
             });
-        }
-        if selected.is_none()
-            && !self.has_explicit_implementation(
-                &requirement.interface,
-                &requirement.receiver,
-                cancel,
-            )?
-        {
-            let Some(contract) = self.contracts.get(&requirement.interface.declaration) else {
-                return Ok(None);
-            };
-            let Some(method) = contract
-                .methods
-                .iter()
-                .find(|method| method.name == member.name)
-            else {
-                return Ok(None);
-            };
-            if let CallableImplementation::NativeDefault(application) = &method.implementation {
-                let mut substitution = TypeSubstitution::default();
-                substitution
-                    .bind_receiver(&requirement.interface.declaration, &requirement.receiver);
-                for (parameter, argument) in contract
-                    .generic_params
-                    .iter()
-                    .zip(&requirement.interface.arguments)
-                    .chain(method.generic_params.iter().zip(&requirement.arguments))
-                {
-                    substitution.bind(&parameter.owner, parameter.position, argument);
-                }
-                let mut application = application.apply(&substitution, cancel)?;
-                application.arguments = application
-                    .arguments
-                    .iter()
-                    .map(|ty| {
-                        resolve_associated_outputs(
-                            ty,
-                            &requirement.interface,
-                            &requirement.receiver,
-                            cancel,
-                        )
-                    })
-                    .collect::<Result<_, _>>()?;
-                let Some(resolved) = self.resolve_native_default(&application, cancel)? else {
-                    return Ok(None);
-                };
-                selected = Some(NativeCallableApplication {
-                    origin: NativeCallableOrigin::Implementation,
-                    requirement: requirement.clone(),
-                    instance: resolved.instance,
-                    implementation: resolved.implementation,
-                    signature: resolved.signature,
-                    effects: EffectSet::native_call(),
-                });
-            }
         }
         Ok(selected)
     }

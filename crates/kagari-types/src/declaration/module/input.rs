@@ -4,6 +4,7 @@ use crate::{
     declaration::{
         module::{ImplDecl, ModuleDecl},
         names::NameNamespace,
+        script::ScriptExpr,
         wire::{
             declarations::{TraitDefRecord, TypeDefRecord},
             leaf::NominalTyRecord,
@@ -44,6 +45,7 @@ struct ModuleInput<'a> {
     trait_references: BTreeMap<PortableDefinitionRef, TraitDefRecord>,
     implementations: Vec<ImplementationInput>,
     functions: Vec<FnDeclRecord>,
+    script_bodies: BTreeMap<PortableDefinitionRef, ScriptExprRecord>,
     private_functions: BTreeSet<PortableDefinitionRef>,
     module_documentation: &'a str,
     documentation: BTreeMap<PortableDefinitionRef, &'a str>,
@@ -116,6 +118,7 @@ impl<'a> ModuleInput<'a> {
             trait_references,
             implementations,
             functions,
+            script_bodies,
             private_functions,
             module_documentation,
             documentation,
@@ -169,6 +172,15 @@ impl<'a> ModuleInput<'a> {
                 .iter()
                 .map(|value| FnDeclRecord::encode(value, encoding, cancel))
                 .collect::<Result<_, _>>()?,
+            script_bodies: script_bodies
+                .iter()
+                .map(|(id, body)| {
+                    Ok((
+                        encoding.reference(*id)?,
+                        ScriptExprRecord::encode(body, encoding, cancel)?,
+                    ))
+                })
+                .collect::<Result<_, DefinitionMappingError>>()?,
             private_functions: private_functions
                 .iter()
                 .map(|id| {
@@ -249,6 +261,46 @@ impl ImplementationInput {
     }
 }
 
+#[derive(Serialize)]
+enum ScriptExprRecord {
+    Name(String),
+    Definition(PortableDefinitionRef),
+    Call {
+        callee: Box<ScriptExprRecord>,
+        type_arguments: Vec<WireType>,
+        arguments: Vec<ScriptExprRecord>,
+    },
+}
+
+impl ScriptExprRecord {
+    fn encode(
+        value: &ScriptExpr,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(match value {
+            ScriptExpr::Name(name) => Self::Name(name.clone()),
+            ScriptExpr::Definition(id) => Self::Definition(encoding.reference(*id)?),
+            ScriptExpr::Call {
+                callee,
+                type_arguments,
+                arguments,
+            } => Self::Call {
+                callee: Box::new(Self::encode(callee, encoding, cancel)?),
+                type_arguments: type_arguments
+                    .iter()
+                    .map(|ty| WireType::encode(ty, encoding, cancel))
+                    .collect::<Result<_, _>>()?,
+                arguments: arguments
+                    .iter()
+                    .map(|expr| Self::encode(expr, encoding, cancel))
+                    .collect::<Result<_, _>>()?,
+            },
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -257,6 +309,7 @@ mod tests {
             FnDecl,
             module::ModuleDecl,
             names::{ExportName, NameNamespace},
+            script::ScriptExpr,
         },
         scalar::BuiltinType,
         ty::Ty,
@@ -304,6 +357,25 @@ mod tests {
                 return_type: Ty::Builtin(BuiltinType::I32),
             });
         }
+        let script = context
+            .intern_child(root, DefinitionKind::Function, "script", 0)
+            .unwrap();
+        let target = context
+            .snapshot()
+            .lookup_child(root, DefinitionKind::Function, "b", 0)
+            .unwrap();
+        let mut function = module.functions[0].clone();
+        function.name = "script".into();
+        function.implementation = CallableImplementation::Script;
+        module.functions.push(function);
+        module.script_bodies.insert(
+            script,
+            ScriptExpr::Call {
+                callee: Box::new(ScriptExpr::Definition(target)),
+                type_arguments: vec![],
+                arguments: vec![],
+            },
+        );
         module.functions.sort_by(|a, b| a.name.cmp(&b.name));
         DefinitionMetadata::checked(context.snapshot(), module, &Default::default()).unwrap()
     }
@@ -323,6 +395,10 @@ mod tests {
         // source-signature hash. Visibility/export changes must also invalidate.
         let mut changed = first.records().clone();
         *changed.concrete_results.values_mut().next().unwrap() = Ty::Builtin(BuiltinType::I64);
+        assert_ne!(bytes, encode(&changed, first.definitions()));
+        changed = first.records().clone();
+        *changed.script_bodies.values_mut().next().unwrap() =
+            ScriptExpr::Name("different_body".into());
         assert_ne!(bytes, encode(&changed, first.definitions()));
         changed = first.records().clone();
         changed.private_functions.clear();

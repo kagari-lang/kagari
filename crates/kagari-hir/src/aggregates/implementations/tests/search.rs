@@ -35,9 +35,6 @@ fn bounded_trait_search_reuses_generic_matching_and_stops_growth() {
         arguments: vec![argument],
     };
     let signature = ImplementationSignature {
-        engine_owned: false,
-        external_type_owned: false,
-        external_conversion_owned: false,
         associated_type_families: Default::default(),
         id: owner,
         trait_type: applied(TypeId::Generic(parameter.clone())),
@@ -244,9 +241,6 @@ fn bounded_trait_search_reuses_generic_matching_and_stops_growth() {
         name: "U".into(),
     };
     let next_signature = ImplementationSignature {
-        engine_owned: false,
-        external_type_owned: false,
-        external_conversion_owned: false,
         associated_type_families: Default::default(),
         id: next_parameter.owner,
         trait_type: NominalType {

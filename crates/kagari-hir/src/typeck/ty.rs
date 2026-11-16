@@ -60,7 +60,7 @@ pub(super) fn native_type(
     match target? {
         ResolvedTypeTarget::NativeType(id) => {
             if let Some(kind) = declarations.native_type(id) {
-                return Some(TypeConstructor::registered(&kind));
+                return Some(kind);
             }
             let declaration = *declarations.definition(ResolvedName::NativeType(id))?;
             Some(TypeConstructor::Native {
@@ -71,7 +71,7 @@ pub(super) fn native_type(
         ResolvedTypeTarget::Source(id) => {
             let imported = declarations.imported_types().by_declaration(&id)?;
             if let Some(kind) = &imported.native_type {
-                return Some(TypeConstructor::registered(kind));
+                return Some(*kind);
             }
             let TypeId::NativeObject(nominal) = &imported.ty else {
                 return None;

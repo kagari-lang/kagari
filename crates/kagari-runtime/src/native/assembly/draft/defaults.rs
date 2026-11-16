@@ -329,8 +329,11 @@ pub(crate) fn lower_defaults(
                     binding.check(&signature, definitions)?;
                     Ok(binding)
                 });
-        contract.methods[index].implementation =
-            CallableImplementation::NativeDefault(lowered.application);
+        contract.methods[index].implementation = CallableImplementation::Script;
+        draft
+            .declaration
+            .script_bodies
+            .insert(intent.method, lowered.body);
         draft.declaration.functions.push(lowered.template);
         draft.declaration.private_functions.insert(template);
         draft

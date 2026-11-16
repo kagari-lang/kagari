@@ -28,7 +28,7 @@ fn native_view_must_match_authoritative_signatures_bounds_members_and_visibility
             "default_read::<Self>(self)",
             "default_read::<Self>(self, self)",
         ),
-        ("{\n        default_read::<Self>(self)\n    }", ";"),
+        ("{\n        self::default_read::<Self>(self)\n    }", ";"),
         ("core::hash::Hash", "core::cmp::Eq"),
         ("value0: T", "value0: i32"),
     ] {
@@ -137,11 +137,24 @@ fn native_view_trivia_does_not_change_checked_binding_and_default_ownership() {
                 .iter()
                 .all(|method| method.has_default)
         );
-        assert_eq!(lowered.native_functions.len(), 6);
-        for (id, binding) in &lowered.native_functions {
-            let function = &lowered.module.functions[id.index()];
-            match binding {
-                NativeBinding::Entry(entry) => {
+        let natives = lowered
+            .module
+            .functions
+            .iter()
+            .filter(|function| matches!(function.implementation, FunctionImplementation::Native(_)))
+            .collect::<Vec<_>>();
+        assert_eq!(natives.len(), 4);
+        for function in natives {
+            let entry = module
+                .records()
+                .native_declarations(module.definitions())
+                .unwrap()
+                .into_iter()
+                .find(|declaration| declaration.function.name == function.name)
+                .unwrap()
+                .declaration;
+            {
+                {
                     let FunctionImplementation::Native(contract) = &function.implementation else {
                         panic!("installed entry must own a Native implementation");
                     };
@@ -150,13 +163,13 @@ fn native_view_trivia_does_not_change_checked_binding_and_default_ownership() {
                         module
                             .records()
                             .callable_requirements
-                            .get(entry)
+                            .get(&entry)
                             .map(Vec::as_slice)
                             .unwrap_or_default()
                     );
                     assert_eq!(
                         contract.concrete_result.as_ref(),
-                        module.records().concrete_results.get(entry)
+                        module.records().concrete_results.get(&entry)
                     );
                     if function.name == "default_read" {
                         assert_eq!(contract.callable_requirements.len(), 3);
@@ -176,40 +189,49 @@ fn native_view_trivia_does_not_change_checked_binding_and_default_ownership() {
                         ));
                     }
                 }
-                NativeBinding::Default(_) => {
-                    let FunctionImplementation::Script(body) = function.implementation else {
-                        panic!("native default must retain its forwarding proof body");
-                    };
-                    let call = lowered.module.block(body).tail_expr.unwrap();
-                    let crate::hir::expr::ExprKind::Call {
-                        args, type_args, ..
-                    } = &lowered.module.expr(call).kind
-                    else {
-                        panic!("forwarding default must be a real checked call");
-                    };
-                    assert_eq!(args.len(), function.params.len());
-                    assert_eq!(type_args.as_ref().map_or(0, |arguments| arguments.len()), 1);
-                    let target = crate::source_map::origin::OriginTarget::Expr(call);
-                    assert_eq!(
-                        lowered.source_map.source_span(target).is_some(),
-                        supplied.is_some()
-                    );
-                    if supplied.is_none() {
-                        assert!(matches!(
-                            lowered.source_map.origin(target),
-                            crate::source_map::origin::NodeOrigin::Structured { .. }
-                        ));
-                    }
-                    let registered = &module.records().traits[0]
-                        .methods
-                        .iter()
-                        .find(|method| method.name == function.name)
-                        .unwrap();
-                    assert_eq!(
-                        lowered.method_policies.get(id),
-                        Some(&registered.method_policy)
-                    );
+            }
+        }
+        for function in &lowered.module.functions {
+            if function.implementation.script_body().is_some() {
+                let FunctionImplementation::Script(body) = function.implementation else {
+                    panic!("native default must retain its forwarding proof body");
+                };
+                let call = lowered.module.block(body).tail_expr.unwrap();
+                let crate::hir::expr::ExprKind::Call {
+                    args, type_args, ..
+                } = &lowered.module.expr(call).kind
+                else {
+                    panic!("forwarding default must be a real checked call");
+                };
+                assert_eq!(args.len(), function.params.len());
+                assert_eq!(type_args.as_ref().map_or(0, |arguments| arguments.len()), 1);
+                let target = crate::source_map::origin::OriginTarget::Expr(call);
+                assert_eq!(
+                    lowered.source_map.source_span(target).is_some(),
+                    supplied.is_some()
+                );
+                if supplied.is_none() {
+                    assert!(matches!(
+                        lowered.source_map.origin(target),
+                        crate::source_map::origin::NodeOrigin::Structured { .. }
+                    ));
                 }
+                let registered = &module.records().traits[0]
+                    .methods
+                    .iter()
+                    .find(|method| method.name == function.name)
+                    .unwrap();
+                assert_eq!(
+                    lowered
+                        .module
+                        .traits
+                        .iter()
+                        .flat_map(|item| &item.methods)
+                        .find(|method| method.function == function.id)
+                        .unwrap()
+                        .override_allowed,
+                    registered.method_policy.override_allowed
+                );
             }
         }
     }
@@ -269,12 +291,20 @@ fn core_roles_use_complete_parsed_modules_with_attribute_trivia_and_docs() {
         .find(|item| item.name == "Iterator")
         .unwrap();
     assert!(iterator.methods.iter().any(|method| method.name == "next"));
-    assert!(lowered.language_foundation);
     let id = module
         .records()
         .definition(DefinitionKind::Trait, "Iterator", module.definitions())
         .unwrap();
-    assert!(lowered.registered_traits.contains_key(&id));
+    assert_eq!(
+        module
+            .definitions()
+            .resolve(id)
+            .unwrap()
+            .last()
+            .unwrap()
+            .name,
+        iterator.name
+    );
     let forged = source.text.replace("\"iterator\"", "\"iterable\"");
     source.text = forged;
     assert!(
@@ -329,3 +359,57 @@ mod exact;
 mod host;
 mod reference;
 mod script;
+
+#[test]
+fn native_trait_defaults_remain_native_without_script_bodies() {
+    let (definitions, mut definition) = module().as_ref().clone().into_parts();
+    let owner = definition
+        .definition(DefinitionKind::Trait, "NativeRead", &definitions)
+        .unwrap();
+    let method = ModuleDecl::method_id(owner, "read", &definitions).unwrap();
+    definition.traits[0].methods[0].implementation = CallableImplementation::Native(method);
+    definition.script_bodies.remove(&method);
+    let metadata = Arc::new(
+        DefinitionMetadata::checked(definitions, definition, &Default::default()).unwrap(),
+    );
+    assert!(
+        metadata
+            .records()
+            .native_declarations(metadata.definitions())
+            .unwrap()
+            .iter()
+            .any(|declaration| declaration.declaration == method)
+    );
+    let mut providers = catalog::shared().unwrap();
+    providers.push(metadata.clone());
+    let source = declaration_source(&metadata, &providers).unwrap();
+    for supplied in [None, Some(&source)] {
+        let lowered = PreparedRegistration::new(
+            metadata.clone(),
+            providers.clone().into(),
+            supplied,
+            "/native",
+            Default::default(),
+            &Default::default(),
+        )
+        .unwrap()
+        .attach(&Default::default())
+        .unwrap();
+        let method = lowered.module.traits[0]
+            .methods
+            .iter()
+            .find(|method| method.name == "read")
+            .unwrap();
+        assert!(method.has_default);
+        assert!(matches!(
+            lowered.module.functions[method.function.index()].implementation,
+            FunctionImplementation::Native(_)
+        ));
+        assert!(
+            lowered.module.functions[method.function.index()]
+                .implementation
+                .script_body()
+                .is_none()
+        );
+    }
+}

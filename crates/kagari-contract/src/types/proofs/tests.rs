@@ -81,6 +81,7 @@ fn table(
     receiver: Ty,
 ) -> InterfaceTable {
     InterfaceTable {
+        method_origins: Vec::new(),
         declaration: id(context, DefinitionKind::Impl, name),
         name: name.into(),
         generic_params: vec![],

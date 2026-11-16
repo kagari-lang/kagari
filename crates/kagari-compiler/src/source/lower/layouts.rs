@@ -71,7 +71,10 @@ impl Layouts {
                 .environment()
                 .aggregates()
                 .enumerations()
-                .filter(|s| s.generic_params.is_empty() || module.registration().is_some())
+                .filter(|item| {
+                    item.generic_params.is_empty()
+                        || definitions.module_of(item.id).ok() == Some(module.handle())
+                })
                 .collect();
             enumerations.sort_by(|left, right| {
                 definitions
@@ -97,10 +100,14 @@ impl Layouts {
                         .unwrap_or_default(),
                 ));
             }
-            if module.registration().is_some() {
-                self.scope
-                    .extend(module.environment().aggregates().enumerations().flat_map(
-                        |enumeration| {
+            {
+                self.scope.extend(
+                    module
+                        .environment()
+                        .aggregates()
+                        .enumerations()
+                        .filter(|item| definitions.module_of(item.id).ok() == Some(module.handle()))
+                        .flat_map(|enumeration| {
                             enumeration
                                 .generic_params
                                 .iter()
@@ -108,8 +115,8 @@ impl Layouts {
                                     owner: parameter.owner,
                                     position: parameter.position,
                                 })
-                        },
-                    ));
+                        }),
+                );
             }
             self.seeded = true;
         }

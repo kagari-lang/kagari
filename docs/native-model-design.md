@@ -1,24 +1,26 @@
 # Native model: frontend boundary remediation and deferred direction
 
-**Status: frontend architecture acceptance is reopened.** NM01–NM04 implemented direct lowering,
-explicit Native syntax, fields and sampled analysis/execution paths, but did not finish the
-reviewed ownership replacement. HIR still carries registration/binding state, NativeDefault recipes,
-a mixed Native type classification and parallel registration contracts. Passing tests for those
-paths do not establish the corrected architecture.
+**Status: phases 1–3 and their review repairs are implemented.** Structured declarations,
+external source plus static sidecars and ordinary source now enter binding-free common HIR and
+checking. Native entry selectors, mixed registration/storage classification and dedicated default
+recipes are no longer HIR authority. Ordinary Script bodies and separately installed Runtime
+implementations have distinct owners. This is implementation status, not an all-green acceptance
+or performance claim.
 
-The user's follow-up establishes the binding-free HIR boundary below. The
-[remediation inventory](#9-frontend-and-linking-boundary-remediation) is the single current
-corrective-work list; recording it does not implement its unchecked items. The
-[roadmap](implementation-roadmap.md#native-model-replacement) owns activation/status. Earlier NM
-phase commits and validation evidence remain in Git history; their completion claim is not current
-architecture acceptance.
+The [implemented boundary contracts](#9-frontend-and-linking-boundary-remediation) record ownership,
+compiler/linking obligations and independent source-free validation, not a completed checklist
+ledger. The [roadmap](implementation-roadmap.md#native-model-replacement) owns validation outcomes,
+remaining failures and follow-up sequencing; earlier NM implementation history remains in Git.
 
 [HIR architecture](architecture/hir.md), [Native declarations](spec/standard-declarations.md),
-[syntax](spec/syntax.md#native-declarations) and [embedding](spec/embedding-api.md) describe existing
-implementation surfaces. Where their registration-dependent contracts conflict with this reviewed
-target, they require the updates listed below rather than redefining the target to match code.
-Sketches in sections 4–6 remain deferred product/build/reference discussion, not prerequisites for
-removing binding state from HIR or claims about currently emitted library products.
+[syntax](spec/syntax.md#native-declarations), [embedding](spec/embedding-api.md) and
+[native authoring](native-registration.md) own the lasting implemented contracts. The
+[core-model inventory](#core-model-inputs-and-derived-analysis) preserves the Rust ownership
+sketches and derivation rules below, without introducing another catalog or authoring API.
+Sections 4–6 remain deferred provider/build/prebuild/export sketches. The selected
+[reference-wrapper design](#ref--refmut-ordinary-wrappers-and-explicit-access-methods) and unchecked
+[9G work](#g-replace-reference-special-cases-with-ordinary-wrappers) remain unimplemented; phases 4–5
+are not activated, and existing reference restrictions still apply.
 
 ## 1. Inputs and ownership
 
@@ -34,7 +36,7 @@ those facts. Rust callbacks, storage adapters, live state and installation autho
 the existing registration/Runtime boundary. There is no Runtime-to-HIR dependency, new facade
 crate, arena, universal node identity or authoring DSL.
 
-**Reviewed target:** structured and parsed declarations converge on the same binding-free HIR
+**Implemented boundary:** structured and parsed declarations converge on the same binding-free HIR
 and common checking. LSP analysis and preparation for execution differ in input representation,
 not static permissions, binding requirements or resulting semantic signature kinds. Origins and
 physical source availability may differ; declaration/type/member facts and diagnostic rules must
@@ -45,7 +47,8 @@ means that its implementation is external, not that an implementation is already
 holds Native entry selectors nor checks binding completeness. Linking consumes checked declaration
 identities/contracts plus external implementations and validates missing, duplicate or mismatched
 bindings. Default methods use ordinary Script definitions/calls or genuine Native declarations;
-the current NativeDefault recipe/forwarding machinery is a replacement gap, not the target.
+there is no dedicated default recipe or forwarding-call table. Runtime's real NativeBinding
+objects remain implementation-side installation data, not HIR declaration state.
 
 ## 2. Entry into HIR
 
@@ -67,28 +70,32 @@ failure or cancellation. Current checked-library import uses explicit scope rema
 ### Source declarations and ordinary defaults
 
 Explicit `native fn` / `native type` parse in the same grammar as ordinary definitions. Native
-spelling cannot create executable bindings. Any declaration-authoring admission policy must remain
-separate from implementation availability and cannot create an LSP-versus-execution type system.
-The current registered/external semantic split is listed for removal below. Library inputs retain
-complete Script definitions/default bodies, including Rust-embedded source; authoring location does
-not change implementation kind. Missing dependencies are errors, not a reason to fabricate stripped
-traits or fake defaults.
+spelling cannot create executable bindings. All input representations use common static rules;
+implementation availability is not a declaration-authoring permission or an LSP-versus-execution
+type system. Library inputs retain complete Script definitions/default bodies, including
+Rust-embedded source; authoring location does not change implementation kind. Missing dependencies
+are errors, not a reason to fabricate stripped traits or fake defaults.
 
-ExternalModule accepts source plus scoped static sidecars for language constructors, Host schemas/
-paths, receiver/override restrictions, ordered operation/result requirements and foundation/
-conversion trait contracts. These describe analysis semantics only. They carry no Rust callback,
-provider key or executable binding. Actual foundation and Host inputs use the common checker;
-constructor ownership conflicts reject across the complete mixed environment. The current API
-loads these inputs explicitly. A filesystem exporter, persisted sidecar encoding and directory
-publication/watching remain future integration work.
+[ExternalModule](../crates/kagari-hir/src/analysis/external.rs) accepts source plus scoped static
+sidecars for constructor/Host selection, Host schemas/paths, receiver/override restrictions, enum
+failure flags, import namespace selectors, ordered operation/result requirements and conversion
+relationships. Actual source declarations own trait shapes; independent language-role checks
+replace duplicate expected foundation catalogs. These inputs carry no Rust callback, provider key
+or executable binding. Common declaration preparation checks canonical constructor identity/shape
+and mixed-environment ownership even without a constructor sidecar. Complete checked programs may
+enter compilation through any route; supported-operation checks and implementation linking remain
+separate obligations. A filesystem exporter, persisted sidecar encoding and directory publication/
+watching remain future integration work.
 
 A possible future Script-body authoring API may retain actual block source and its exact range,
 parsed under the owning signature and binder environment. It must preserve cancellation/limits,
 source-view identity and body ownership; generated wrapper functions and string substitutions are
-not a replacement for a real fragment entrypoint. A generalized body-authoring API remains
-deferred, but NativeDefault recipe removal is now an explicit remediation item. Preserve complete
-ordinary default bodies through existing source inputs rather than retaining recipes until a new
-builder API exists.
+not a replacement for a real fragment entrypoint. That generalized API remains deferred.
+Current structured declarations retain complete expression bodies in `ModuleDecl.script_bodies`
+using [ScriptExpr](../crates/kagari-types/src/declaration/script.rs): names, declaration references
+and calls with explicit type/value arguments. Complete parsed source retains ordinary blocks.
+Default authoring supplies ordinary Script methods calling private Native helpers. Module-qualified
+helper references prevent same-named parameters from capturing those calls; missing bodies reject.
 
 ### Origins, not mandatory generated text
 
@@ -114,11 +121,369 @@ is not permission to redesign these APIs or silently admit unsupported executabl
 
 Functions, Native types, fields and impls use ordinary owned HIR tables and checked IDs. Native
 fields share Field records with Script structs; FieldOwner names the actual struct or Native type.
-The target has no parallel registration-owned semantic signature catalog. Currently NativeContract
-and registered_declarations duplicate operation/result facts, while TypeConstructor still derives
-its classification from NativeTypeKind. Both gaps are explicit remediation items. Builtin
-interpretation must belong to the language/type owner: String, ranges and references retain their
-existing semantic types and identity/arity rules, irrespective of Native methods on those types.
+There is no parallel registration-owned semantic signature catalog. NativeContract owns declared
+operation/result and caller-visible policy inputs; checked signatures carry the checked static
+contract. The [language/type owner](../crates/kagari-hir/src/language/types.rs) interprets canonical
+String, range and existing reference constructors independently of storage representation or
+Native methods on those types. Common identity/arity/shape checks apply across input routes;
+physical storage and Rust adapters remain outside HIR.
+
+### Core-model inputs and derived analysis
+
+The implemented core is the complete binding-free declaration and body model together with its
+explicit semantic environment and origins. All retained semantic results derive from these inputs
+under common language rules. "Core" names ownership categories below, not a new `CoreHirModel`
+container, parallel catalog, crate or authoring framework. Section 9 records the implemented
+producer/consumer boundaries; its reference follow-up remains separate unchecked work.
+
+#### Authoritative inputs to retain
+
+The Rust declarations below are ownership sketches of the existing records, not standalone
+compilable examples or new public APIs. Imports and visibility are omitted. Declaration collections
+retain their existing records; selected-field projections of derived structures below are
+explicitly marked and do not authorize dropping unshown semantic facts. The separately labeled
+reference-wrapper sketches remain selected future design, not current records.
+
+**Module and node storage.** [Module](../crates/kagari-hir/src/hir/item.rs) owns `Module.nodes`,
+the shared [HirNodes](../crates/kagari-hir/src/hir/nodes.rs) store.
+[LoweredModule](../crates/kagari-hir/src/lower.rs) has exactly the three fields below; no
+registration attachments remain on its envelope.
+
+```rust,ignore
+struct LoweredModule {
+    source: Arc<SourceFile>, // Identity/revision; authored text is optional.
+    module: Module,
+    source_map: SourceMap,   // Real sites or structured declaration origins.
+}
+
+struct Module {
+    attributes: Vec<AttributeFact>,
+    uses: Vec<UseDecl>,
+    items: Vec<Item>, // Top-level declaration order.
+    functions: Vec<Function>,
+    consts: Vec<ConstItem>,
+    statics: Vec<StaticItem>,
+    modules: Vec<ModuleDecl>,
+    imports: Vec<Import>,
+    structs: Vec<Struct>,
+    native_types: Vec<NativeTypeDeclaration>,
+    type_aliases: Vec<TypeAlias>,
+    enums: Vec<Enum>,
+    traits: Vec<TraitDef>,
+    impls: Vec<Impl>,
+    nodes: HirNodes,
+}
+
+struct HirNodes {
+    arena: LoweringId,
+    blocks: Vec<(HirOwner, BlockData)>,
+    stmts: Vec<(HirOwner, StmtData)>,
+    exprs: Vec<(HirOwner, ExprData)>,
+    places: Vec<(HirOwner, PlaceData)>,
+    patterns: Vec<(HirOwner, PatternData)>,
+    types: Vec<(HirOwner, TypeData)>, // Declared type references, not inferred types.
+}
+```
+
+HirNodes is module-wide storage for declaration type references and all function/constant/static
+body nodes, not one callable's implementation body. Owner-qualified vectors and lowering identity
+are preserved; this introduces neither per-function allocation nor an arena allocator.
+A Script function still selects its root with BlockId. BodyOwner, BodyRoot and CheckedBodyInput
+continue to name actual semantic body owners, roots and checked views; do not rename them merely
+to match the storage container.
+
+The nodes retain child/evaluation order, real Script/default bodies and exact scoped references
+with selected exposure inputs. They contain no dedicated default recipes, forwarding substitutes,
+executable instructions or live runtime values.
+
+**Callable declarations and static requirements.** Reuse the
+[function records](../crates/kagari-hir/src/hir/item/function.rs). Native denotes external
+implementation, never installed implementation.
+
+```rust,ignore
+struct Function {
+    id: FunctionId,
+    kind: FunctionKind,
+    is_async: bool,
+    visibility: Visibility,
+    name: String,
+    generic_params: Vec<GenericParam>,
+    bounds: Vec<TraitBound>,
+    params: Vec<Param>,
+    return_type: Option<TypeRefId>,
+    implementation: FunctionImplementation,
+}
+
+enum FunctionImplementation {
+    Required,
+    Script(BlockId),
+    Native(NativeContract),
+}
+
+struct NativeContract {
+    host_policy: Option<HostCallPolicy>, // Caller-visible static Host restrictions.
+    receiver_access: Option<ReferenceAccess>,
+    // Ordered slots; repeated requirements stay distinct.
+    callable_requirements: Vec<NativeCallableRequirement>,
+    concrete_result: Option<Ty>,
+}
+```
+
+There is no Native entry selector, provider identity, callback, codec or ABI adapter in these
+records. Caller-visible Host/receiver policy is static input, not a Rust adapter or internal loan.
+Checked Native operation/result contracts have one semantic owner, as in
+[9B](#b-remove-duplicate-registration-contracts-from-the-compiler-handoff).
+
+**Type and member declarations.** Ordinary and Native fields share
+[Field](../crates/kagari-hir/src/hir/item/adt.rs); no physical representation is attached.
+
+```rust,ignore
+struct NativeTypeDeclaration {
+    id: NativeTypeId,
+    host: Option<HostContract>, // Address-free schema/path/access contract, not Rust storage.
+    visibility: Visibility,
+    name: String,
+    generic_params: Vec<GenericParam>,
+    bounds: Vec<TraitBound>,
+    trait_bounds: Vec<TraitRef>,
+    fields: Vec<Field>,
+}
+
+struct Field {
+    id: FieldId, // Includes the actual struct/Native declaration owner.
+    visibility: Visibility,
+    writeability: Writeability,
+    name: String,
+    ty: TypeRefId,
+}
+
+// Failure-origin semantics belong to the actual variant declaration.
+struct Variant {
+    id: VariantId,
+    name: String,
+    payload: Vec<TypeRefId>,
+    reports_failure: bool,
+}
+```
+
+Struct/enum/trait/impl records continue to own their generic binders, members and ordinary default
+links. Language-constructor/role associations, Host schemas/paths/capabilities, conversion
+relationships and caller-visible receiver/override constraints retain their existing
+declaration/member/type vocabulary and actual owners. Structured records and parsed static
+sidecars supply the same contracts; neither keeps a privileged secondary catalog. Rust offsets,
+provider hooks and adapter-internal loans stay outside these declarations.
+
+**Identity and origins.** Retain the existing DefinitionContext/DefinitionTable, declaration-to-
+definition correspondence, module ownership, lowering-local IDs and explicit scope import/remapping.
+A table entry alone proves no declaration or language obligation. There is no registration-only
+identity scope, global name lookup authority or universal node ID. Source snapshots and
+[SourceMap](../crates/kagari-hir/src/source_map.rs) retain real authored positions when available and
+structured attribution otherwise; navigation indexes, invented spans and mandatory rendered text
+are not core inputs.
+
+Declared static contracts are essential inputs, not facts inferred from opaque Rust bodies. For
+example, an ordered operation requirement or a Host access restriction cannot be reconstructed
+from a function's parameter/result types alone. Their checked forms are derived; their declarations
+must have an actual input owner. A semantic environment must include the necessary dependencies;
+missing declarations remain errors rather than being obtained from a live Runtime.
+
+LoweredModule retains the structural module, source identity and origins, not a registration
+attachment bag. This does not require changing its source-less logical-key representation now.
+`Module.native_types` contains ordinary Native type declarations, including optional static Host
+contracts. Constructor interpretation and physical representation no longer share a mixed map;
+[9D](#d-remove-nativetypekind-as-the-mixed-hir-type-model) records their separate owners.
+
+#### Reuse the existing package, module and namespace models
+
+No additional "common module metadata" catalog is required. Reuse the existing
+[package environment](../crates/kagari-source/src/package.rs):
+
+```rust,ignore
+struct PackageEnvironment {
+    scopes: BTreeMap<PackageId, PackageScope>,
+}
+
+struct PackageScope {
+    dependencies: BTreeMap<String, PackageId>, // Dependency alias -> package identity.
+    selection: String, // Selected producer revision/configuration fingerprint.
+}
+```
+
+[ImportEnvironment and ModuleScope](../crates/kagari-hir/src/imports/environment.rs) retain explicit
+module scopes using the same PackageScope vocabulary:
+
+```rust,ignore
+struct ImportEnvironment {
+    modules: BTreeMap<ModuleIdentity, ModuleScope>,
+}
+
+struct ModuleScope {
+    packages: PackageScope,
+    dependencies: BTreeSet<ModuleIdentity>,
+    preludes: BTreeSet<ModuleIdentity>,
+}
+```
+
+[Input normalization](../crates/kagari-hir/src/analysis/environment.rs) uses explicit scopes where
+supplied and otherwise derives producer/package defaults before graph construction. Explicit
+package aliases take precedence over dependency-derived spellings. Missing targets and conflicting
+prelude selections reject; dependencies grant reachability, never private member access.
+[AnalysisInputs](../crates/kagari-hir/src/analysis/inputs.rs) captures explicit scopes and declaration
+inputs for replay, and semantic setters invalidate dependent caches/fingerprints. These inputs
+include actual dependency declarations and complete owned Script bodies, not copied expected
+traits or a live implementation registry. ModuleGraph, NamespaceCatalog and
+[ModuleImportFacts](../crates/kagari-hir/src/imports.rs) derive the resolved graph, bindings and
+reachability from those inputs and the declarations. Reusing the graph does not make its computed
+dependency list an independent source of truth.
+
+Package aliases resolve to existing package/module identities. Prelude contributions use the
+existing `BindingOrigin::Prelude` and `NameEntry.implicit`; package bindings use
+`BindingOrigin::Package`. Preserve strong/glob/implicit precedence, ambiguity and access checks.
+Implicit bindings are not fabricated authored imports, duplicate member catalogs or input-origin
+permissions. Explicit input dependencies and dependencies observed during resolution both reach
+the existing graph; inspecting `use` leaves alone cannot recover the complete input closure.
+[9E](#e-remove-loweredmodule-side-maps-by-assigning-actual-semantic-owners) records the common
+package/module/import owners.
+
+#### Derived structures and their limits
+
+These are derived records or selected-field projections of existing records, not additional core
+input owners. Unshown member, protocol, pattern, constraint and provenance facts remain required.
+
+**Resolution output.** Existing declaration indexes, ModuleGraph, NamespaceCatalog, NameTable and
+resolved local/import/exposure facts derive scope lookup and reachability. In particular:
+
+```rust,ignore
+struct ModuleImportFacts {
+    directives: Vec<ImportDirective>,
+    scope: Arc<NameTable>,
+    diagnostics: Vec<Diagnostic>,
+    dependencies: Vec<ModuleHandle>, // Resolved closure, not new dependency declarations.
+}
+
+struct NameEntry {
+    strong: Vec<BindingCandidate>,
+    globs: Vec<BindingCandidate>,
+    implicit: Vec<BindingCandidate>,
+}
+```
+
+These indexes add no privileged declarations; rebuild or reuse them against matching core inputs.
+
+**Checked declarations.** BodySignatures/TypedFunction and AggregateCatalog resolve declared types,
+binders, bounds, fields, trait/impl relationships, language roles and static Native contracts.
+The following excerpt is in the semantic-signature owner, separate from structural Function above:
+
+```rust,ignore
+// Selected-field projection; parameter/binder identities and static contracts remain required.
+struct TypedFunction {
+    id: FunctionId,
+    name: String,
+    implementation: FunctionImplementation,
+    generic_params: Vec<GenericParameterType>,
+    bounds: HashMap<TypeId, Vec<NominalType>>,
+    params: SmallVec<[TypedParameter; 4]>,
+    return_type: TypeId,
+}
+
+// One checked Native kind, without an installed implementation selector.
+enum FunctionImplementation {
+    Required,
+    Script,
+    Native(NativeContract),
+}
+```
+
+Raw declarations and checked output are different stages, not competing checked catalogs. The
+checked Native requirements retain their static contract as in 9B; this projection does not
+introduce a second catalog or attachment API. Logical field/variant/member slots are not byte offsets.
+
+**Checked bodies.** [TypeTable](../crates/kagari-hir/src/typeck/table.rs) and
+[ModuleFacts](../crates/kagari-hir/src/semantic/body.rs) retain semantic results:
+
+```rust,ignore
+// Selected-field projection; existing coercion/protocol/pattern/constraint facts also remain.
+struct TypeTable {
+    type_refs: HashMap<TypeRefId, ResolvedTypeRef>,
+    field_types: HashMap<FieldId, TypeId>,
+    exprs: HashMap<ExprId, TypeId>,
+    locals: HashMap<LocalId, TypeId>,
+    places: HashMap<PlaceId, TypeId>,
+    calls: HashMap<ExprId, ResolvedCall>,
+    expr_fields: HashMap<ExprId, DefinitionId>,
+    place_fields: HashMap<PlaceId, DefinitionId>,
+    // Ordinary call facts; no dedicated default-call or implementation binding map.
+}
+
+struct ResolvedCall {
+    target: CallTarget, // Declaration/member identity or semantic operation category.
+    receiver: Option<ExprId>, // Evaluated once before explicit arguments.
+    type_arguments: Vec<TypeId>,
+    signature: Option<AppliedCallSignature>,
+}
+
+// Selected-field projection; reuse statistics remain analysis support.
+struct ModuleFacts {
+    signatures: Arc<BodySignatures>,
+    consts: HashMap<ConstId, TypeId>,
+    const_values: HashMap<ConstId, ScalarValue>,
+    type_table: TypeTable,
+    valid_bodies: HashSet<FunctionId>,
+    valid_static_initializers: HashSet<StaticId>,
+}
+```
+
+Open generic binders/projections may be valid results; inference holes are temporary. No callback
+address, linked entry, physical layout or ABI recipe belongs in these facts.
+
+**Completion and compiler views.** Diagnostics and positive completion derive from checking;
+CheckedCompilation/CheckedModule/CheckedBodyInput admit matching facts and dependency closures.
+
+```rust,ignore
+// Selected-field projection of the existing checked view, not another owned catalog.
+struct CheckedModule<'a> {
+    handle: ModuleHandle,
+    origins: &'a SourceMap,
+    environment: CheckedEnvironment<'a>,
+    bodies: HashMap<BodyOwner, CheckedBodyInput<'a>>,
+    // No registration or native_defaults fields.
+}
+```
+
+Recovered/selected-body facts alone do not authorize compilation. Views check input ownership and
+completion, not implementation availability or installed adapters. AnalysisDatabase snapshots,
+query indexes, fingerprints, caches, reuse statistics and analyzer/lint projections support these
+results; their validity includes semantic environment, identity scope, source revision, selected
+analysis scope and relevant settings. Provider-only changes grant no static authority. Editor
+indexes remain analyzer-owned.
+
+The word "derived" does not require rerunning analysis for every consumer, storing every fact twice,
+or discarding provenance. Share immutable results and their matching owners. Resolved call/member
+facts remain compiler inputs so the backend does not repeat source name resolution or type checking.
+Logical field/variant/member slots remain semantic positions, not byte offsets. Recognized compiler
+intrinsics can retain their semantic operation category without carrying a runtime helper address.
+
+Not every remaining Rust structure is a retained checking result. Inference variables, worklists,
+recursion guards and local solver assumptions are temporary checking workspace; cancellation,
+limits and snapshot/cache machinery support analysis. Source revisions and optional origins are
+retained input/provenance, not inferred from TypeTable. None of these creates another semantic
+source of truth. Physical layouts, ABI/result adapters, actual Rust implementations, final links,
+live services and Runtime generations belong outside this model and are supplied/validated later.
+
+#### Derivation invariant and operation example
+
+For the `answer()` example in [section 9](#boundary-and-operation-example), the core contains the
+Native declaration, its declared signature, the call structure, identity context and complete
+semantic environment. Resolution/checking derives the selected declaration and `() -> i32` call
+contract without an implementation set. Supplying or removing a Rust implementation changes
+linking's outcome, not those facts. Optional source sites can differ across input representations;
+static privileges and diagnostic rules cannot.
+
+Every retained semantic field must therefore identify its authoritative core input and the rule
+that derives it. A view/cache must identify the result and validity context it reuses. Facts needed
+to preserve a guarantee have an actual core owner, rather than an unreviewed side map or removal
+under the label "derived". This is the ownership criterion for the implemented A–E boundaries,
+not authorization for another HIR storage, query-engine, provider or build-product redesign.
 
 ### Native argument semantics and Rust adaptation
 
@@ -126,8 +491,9 @@ An ordinary object parameter carries the existing object identity, not an implic
 reference or ownership transfer. Protected Object/Opaque handles preserve identity. Supported Rust
 DTO/Serde extraction is binding conversion: no automatic writeback, alias-graph preservation or
 hidden ownership transfer is promised. A mandatory observable snapshot needs its own explicit API.
-HostCallPolicy, initializer/effect evidence, codecs and scoped borrow validation remain at their
-existing boundaries; HIR has no parallel passing-mode array or serialization flag.
+Caller-visible HostCallPolicy remains a static NativeContract input; initializer/effect evidence,
+Rust codecs and scoped borrow validation stay at their execution owners. HIR has no parallel
+passing-mode array, serialization flag or internal Rust-loan model.
 
 ### Native operation requirements
 
@@ -146,18 +512,128 @@ Ref wrappers. Val prevents slot replacement, not mutation through another permit
 Frontend field support does not implement new Runtime access adapters; unsupported executable
 Native-field routes reject explicitly. Existing Host paths keep their own checked access semantics.
 
-### Ref / RefMut: recognition now, behavior later
+### Ref / RefMut: ordinary wrappers and explicit access methods
 
-Ref/RefMut use ordinary type-application parsing and identity-based constructor resolution. Their
-semantic records retain the exact target and Shared/Mutable access, with existing target/position
-eligibility and execution checks. No new borrowing, conversion, projection, forwarding, escape or
-alias-analysis capability is implemented. Ordinary Native self is not a Rust receiver loan.
+**Selected design, not implemented behavior:** Ref<T> and RefMut<T> become ordinary nominal Native
+wrapper types with explicit access methods. They are not traits, do not require a RefMut: Ref
+supertrait, and do not use transparent dereferencing or implicit member forwarding. The wrappers
+are storable handles with dynamically checked access, not Rust references or static lifetime proofs.
+The current special Reference type/constructor, non-storable values and escape/suspension checks
+remain implementation to replace through [9G](#g-replace-reference-special-cases-with-ordinary-wrappers),
+not a claim that the selected model already works. This records design only; execution work still
+requires a coherent implementation checkpoint.
 
-Future reference behavior may expose scoped location handles whose actual overlapping loans are
-checked at callback entry, not continuously held Rust references. A future child projection must
-preserve parent capability, path overlap, scope/generation and cleanup; val constrains replacement
-rather than blanket object immutability. Whether and how reference methods forward remains open.
-These directions cannot silently become callable trait requirements or field-execution acceptance.
+#### Preserve T independently of its access wrappers
+
+T keeps one canonical declaration, its actual field types, visibility, writeability, generic
+binders and member identities. NativeManaged values and handles to Host-held T can coexist in the
+same program without publishing competing T declarations or mixing storage policy into its fields.
+The reference access route wraps T, not T's declaration. In particular, do not rewrite a field of
+type Child to Ref<Child>/RefMut<Child> merely because some T values are accessed through Host loans;
+that would incorrectly change the ordinary managed representation and its public field contract.
+
+For example, this target declaration stays the same for owned and borrowed access:
+
+```text
+pub native type Player {
+    pub var hp: i32,
+    pub var stats: Stats,
+}
+```
+
+An ordinary Player value retains ordinary field semantics. A Ref<Player> or RefMut<Player> has its
+own explicitly declared method surface. The following is an illustrative generated API, not an
+assertion that field execution adapters are implemented:
+
+```text
+pub native type Ref<T>;
+pub native type RefMut<T>;
+
+impl<T> RefMut<T> {
+    pub native fn as_ref(self) -> Ref<T>;
+}
+
+impl Ref<Player> {
+    pub native fn hp(self) -> i32;
+    pub native fn stats(self) -> Ref<Stats>;
+}
+
+impl RefMut<Player> {
+    pub native fn hp(self) -> i32;
+    pub native fn set_hp(self, value: i32);
+    pub native fn stats(self) -> Ref<Stats>;
+    pub native fn stats_mut(self) -> RefMut<Stats>;
+}
+```
+
+Generate finite ordinary impl/method declarations from the target's permitted surface, retaining
+its binders for generic targets rather than enumerating every closed application. These methods
+must satisfy common identity, visibility, coherence and contract rules; generation grants no
+registration privilege. Private fields are not silently exported. Val constrains slot replacement,
+not global immutability of a child accessed through another alias; each projected operation must
+respect its declared path/target capability.
+
+A wrapper method's result kind is fixed by its declared operation, not selected by the receiver's
+current storage tag. In this example, stats() is explicitly a borrowed-view operation and produces
+Ref<Stats> on every supported backing; Player.stats remains Stats. A separately declared operation
+returning an independently retained managed Child must establish that ownership and preserve its
+ordinary Child result. Do not change one method between Child and Ref<Child> according to whether
+its receiver happens to be NativeManaged-backed or Host-backed, and do not wrap every object result
+indiscriminately.
+
+#### Runtime backing, retention and invalidation
+
+The same Ref<T>/RefMut<T> declaration can have Runtime-selected backing: a target in managed storage,
+or an external Host-owned target. This backing distinction is private implementation data, not
+another semantic T, a public representation enum, a NativeTypeKind classifier in HIR, or authority
+to reinterpret an arbitrary value as a Rust payload.
+
+Managed backing retains the target through the existing GC tracing/ownership contract; it does not
+introduce a new weak-reference behavior or per-field Host root registration. External backing holds
+only Runtime/owner, scope/frame/epoch, target/location identity and access capability in its script
+carrier. The active Host owner retains the real address and Rust loan. Saving a wrapper never extends
+the external Rust lifetime; ending its scope invalidates every corresponding handle, including
+captured/returned/container-held and child handles. A later scope or reused slot cannot revive them.
+A Host lifetime reservation is distinct from a short payload loan acquired for an actual operation.
+
+Mutable wrappers authorize declared operations, not unrestricted &mut T. Managed mutation still
+uses the existing provider/field protocol for reference publication, charge and scanner repair;
+wrapping a NativeManaged target cannot bypass its GC invariants or scan arbitrary Rust host state.
+
+Returning, capturing, storing and retaining wrappers across suspension are permitted. None of those
+operations dereferences the target or proves that it is still alive. Copying/converting/tracing/
+dropping an expired carrier must remain safe and must not dereference a dead Host record. A later
+actual read/write/projection, payload extraction or Rust-loan acquisition checks ownership, target,
+generation/epoch and capability before touching storage; expiration is an explicit runtime error.
+Retaining a handle across suspension does not permit retaining an actual Rust loan across suspension.
+
+Validation and the actual operation form a protected access interval. Actual overlapping shared/
+mutable loans remain dynamically checked, with cleanup on errors, cancellation and unwind; release
+physical loans before GC/reentry. Projected locations preserve parent validity and access, and
+structural mutation/slot reuse cannot leave a cached child address dangling or silently retarget an
+old identity. No static escape-analysis replacement, Deref feature or new global permission system
+is introduced by this model. Supported target/projection adapters still need explicit implementation.
+
+This borrows temporal-access checking from [JDK 22 FFM scoped segments](https://openjdk.org/jeps/454):
+a carrier may outlive its scope, but accessing the closed scope fails. Unlike a Java native arena,
+Kagari does not own/free externally borrowed Rust storage; Rust owns its lifetime, and the existing
+exclusive Runtime, loan and GC/reentry boundaries remain necessary. This is a mechanism reference,
+not evidence of equivalent implementation or performance.
+
+#### Explicit mutable-to-shared conversion and HIR boundary
+
+RefMut<T>.as_ref() creates a separate shared-capability handle to the same target/validity owner;
+it does not change the original mutable handle, extend scope validity or access the target. An
+expired mutable handle stays expired after conversion. The shared carrier cannot recover write
+permission through Native raw-value paths, reflection or a cast. No Ref<T>-to-RefMut<T> conversion
+or automatic call-site conversion is part of this decision.
+
+HIR resolves ordinary nominal types, generic arguments, declared methods and calls. It does not
+infer wrapper fields from T, unwrap Ref by name, grant access from a marker trait, or propagate
+reference-specific non-storability through bodies. Static method availability still prevents using
+a shared wrapper where a mutable wrapper is required. Runtime adapters independently authenticate
+actual carriers and access; a forged/user-created object cannot acquire Host access from its name
+or matching type argument. The core T model and its managed field contracts remain unchanged.
 
 ## 4. Checked libraries and Rust providers
 
@@ -402,32 +878,45 @@ valid, not Runtime authority. Some dynamic environments still need first-admissi
 
 ## 7. Replacement boundaries and acceptance
 
-The frontend replacement is not architecturally complete. Acceptance requires the binding-free
-boundary and inventory below, not merely successful paths through the retained registration model.
-Native fields and equivalent structured/parsed analysis do not imply new Runtime execution,
-provider products, binary formats, GC adapters or startup improvements. Ordinary defaults,
-reflection/output, source-free validation, roots, cancellation and reload keep their guarantees.
+Phases 1–3 implement the binding-free frontend/compiler handoff, ordinary default bodies and
+separate Runtime implementation/authentication boundary described below. Native fields and
+equivalent structured/parsed analysis do not imply new Runtime field adapters, provider products,
+binary formats, GC adapters or startup improvements. Reflection/output behavior, roots,
+cancellation and current-versus-retained reload selection retain their existing owners.
 
-Representative current contracts are independently asserted at the HIR/analyzer/compiler/SDK
-owners. Exact source packaging, installed binding agreement and malformed input rejection remain
-separate from successful frontend analysis. The roadmap records actual local checks and CI limits;
-no full-workspace, exhaustive backend/platform or performance acceptance is implied.
+Implementation status is not all-green acceptance. The reported final `native_boundary` result
+remains 120 passed / 35 failed, with no new failing names relative to its baseline. The
+[roadmap](implementation-roadmap.md#native-model-replacement) owns validation outcomes, failure
+follow-up and local/CI limits; this document does not duplicate their ledger. Exact source
+packaging, installed implementation agreement, semantic authentication and malformed-input
+rejection remain separate obligations. No full-workspace, exhaustive backend/platform or
+performance acceptance is implied, and this documentation pass reruns no executable tests.
 
 ## 8. Review decisions and limits
 
-Current decisions are explicit unified Native syntax, ordinary HIR ownership, checked exact
-exposures, real/optional source origins and identical static analysis without binding state.
-Existing model rustdoc describes current records, not proof that registration-dependent records
-satisfy this target. No renaming, wrapper conversion or moved check can replace the ownership change.
+Implemented decisions are unified Native syntax, ordinary HIR ownership, checked exact
+exposures, real/optional source origins and common static analysis without binding state.
+Review repairs preserve module-qualified helper selection under parameter shadowing, explicit
+package-alias precedence, canonical constructor shape checks without optional sidecars, and
+conversion rejection for extra obligations unsupported by intrinsic derivation. These are common
+semantic rules, not input-origin privileges. Source-free materialization provenance and independent
+Runtime authentication are distinct contracts, detailed in 9F; neither is inferred from a passing
+signature check or an artifact-supplied digest.
 
 Remaining directions require separate authorization: registration/provider products, reusable
 preparation and generic/link caches, binary versus generated-code prebuild representation,
 producer/bootstrap and HOST/TARGET configuration, standalone MIR/shared libraries, export-sidecar
-encoding, directory publication/refresh, and new Ref behavior. Existing preparation/workflow is
-active, not an obsolete compatibility reader. Preserve these discussions while keeping follow-up
-scope finite at the existing roadmap owner.
+encoding, directory publication/refresh, and execution implementation of the selected
+[ordinary reference-wrapper design](#ref--refmut-ordinary-wrappers-and-explicit-access-methods).
+Reference representation/API and dynamic-expiration direction are now selected; this documentation
+does not implement them. Existing preparation/workflow is active, not an obsolete compatibility
+reader. Preserve these discussions while keeping follow-up scope finite at the existing roadmap owner.
 
 ## 9. Frontend and linking boundary remediation
+
+A–F record the implemented phases 1–3 ownership and review-repaired contracts. Their headings
+remain stable link anchors, not pending work or a completed checklist ledger. G alone retains the
+selected unchecked reference follow-up; the deferred designs in sections 4–6 are unchanged.
 
 ### Boundary and operation example
 
@@ -442,7 +931,7 @@ external Native implementations -------------------------------> linking
                                                         executable publication
 ```
 
-For `pub native fn answer() -> i32;`, both input formats must accept the same well-typed call
+For `pub native fn answer() -> i32;`, both input formats accept the same well-typed call
 `val value: i32 = answer();` without looking up a Rust entry. The checked signature remains Native
 in both cases. A later execution request fails linking if the implementation is missing, duplicated
 or incompatible. Supplying a matching implementation permits linking without changing the HIR or
@@ -455,140 +944,201 @@ No new provider/prebuild product, Runtime-to-HIR edge or public registration DSL
 
 ### A. Remove registration-dependent HIR state and rules
 
-**Owners:** lower.rs, native/api.rs, typeck/check.rs, typeck/constraints.rs,
-semantic/signatures.rs, aggregates/implementations.rs, compile_input/, imports/ and affected lint/
-cache consumers under [kagari-hir](../crates/kagari-hir/src/lower.rs).
+**Implemented ownership.** [LoweredModule](../crates/kagari-hir/src/lower.rs) retains only source,
+module and source_map. [HirNodes](../crates/kagari-hir/src/hir/nodes.rs) stores module-wide nodes;
+semantic body identities, owner/lowering checks and optional origins are unchanged. HIR has no
+installed Native entry selector or registered/external permission bit.
 
-- [ ] Remove registered_native_api, external_api and their registered/external/library status
-  accessors from LoweredModule. Preserve actual module/dependency metadata and optional origins,
-  not source-format-specific semantic authority.
-- [ ] Remove native_functions and HIR NativeBinding. Native declarations carry no installed entry
-  or NativeDefault binding selector; implementations are supplied separately to linking.
-- [ ] Replace checked-signature Native(binding) versus NativeDeclaration with one Native semantic
-  kind. Retain Required/Script/Native distinctions, resolved signatures and genuine static contracts.
-- [ ] Remove type checking's missing-binding/implementation-binding agreement branches. Restore those
-  requirements at linking using checked declaration identities and the actual implementation set.
-- [ ] Remove the blanket offline-declaration compilation rejection. Compilation consumes the same
-  checked facts regardless of input representation; absence of bindings is a linking failure.
-- [ ] Remove registered_predicate's source-origin-dependent bound-target relaxation. Specify/check
-  the same supported bound forms through both inputs, preserving all actual bounds and obligations.
-- [ ] Remove engine_owned and the separate external_type_owned/external_conversion_owned privilege
-  paths. Derive impl coherence, builtin defining ownership and conversion eligibility from common
-  declaration identities/rules, not how the declarations entered HIR.
-- [ ] Replace registration-based cache/lint/import branches with actual semantic inputs, explicit
-  analysis scope and module metadata. Preserve invalidation, visibility, ambiguity and cancellation.
+[Checked signatures](../crates/kagari-hir/src/semantic/signatures.rs) distinguish Required, Script
+and Native(NativeContract), without a bound/unbound semantic split. Common declaration, body,
+application and bound checking needs no implementation registry. Coherence and conversion
+eligibility use [actual defining ownership](../crates/kagari-hir/src/aggregates/implementations.rs).
+[Compiler admission](../crates/kagari-hir/src/compile_input/program.rs) requires a checked complete
+dependency closure, positive body evidence and supported executable operations, not input origin
+or binding availability. [Lint](../crates/kagari-lint/src/lib.rs) uses the root package's analysis
+scope rather than registration status; semantic caches compare actual inputs.
 
 ### B. Remove duplicate registration contracts from the compiler handoff
 
-**Owners:** [compile_input/declarations.rs](../crates/kagari-hir/src/compile_input/declarations.rs),
-[native/api.rs](../crates/kagari-hir/src/native/api.rs), and compiler source/lower/ ABI, callable
-requirement and result-adaptation consumers.
+**Implemented ownership.** [NativeContract](../crates/kagari-hir/src/hir/item/function.rs) and its
+checked signature retain ordered operation slots, concrete result constraints, host_policy and
+receiver_access. [CheckedModule](../crates/kagari-hir/src/compile_input/program.rs) exposes checked
+environments/body views, not a registration or dedicated default catalog. DefinitionTable and
+explicit scope remapping remain at the common analysis/input boundary.
 
-- [ ] Remove LoweredModule.registered_declarations, RegisteredDeclarations, CheckedModule.registration
-  and registration-specific accessors. Split their contents rather than discarding validations.
-- [ ] Give operation requirements, result constraints and generic templates one checked semantic
-  owner. Compiler planning/portable emission consumes that owner, not the parallel registration copy.
-  Current NativeContract/registered_declarations agreement by construction is not sufficient.
-- [ ] Move entry selection, actual adapters and execution representation to implementation/linking
-  inputs. Preserve independent signature, Host policy, effect and executable agreement checks.
-- [ ] Move implementation-side expected source-trait matching obligations to composition/linking.
-  Ordinary trait definitions/references, dependencies and selected exposures stay in common analysis;
-  copied expected traits do not replace actual owners or grant private-path access.
-- [ ] Remove native_definitions as an attachment-only identity scope. Retain DefinitionTable and
-  explicit remapping at the common input/analysis owner; structured origins must still resolve IDs.
+[Compiler ABI projection](../crates/kagari-compiler/src/source/lower/abi.rs) derives executable
+Native declarations from these checked facts. Applied signatures, bounds, Host policy, ordered
+operations, effects and result adapters retain independent executable validation. Implementation
+selectors and Rust adapters remain composition/linking inputs. Expected source-trait agreement
+is checked at [Runtime implementation matching](../crates/kagari-runtime/src/native/registry/matching.rs),
+not by copying traits into HIR or granting access to private defining paths.
 
 ### C. Replace NativeDefault recipes with ordinary definitions and calls
 
-**Owners:** [callable.rs](../crates/kagari-types/src/callable.rs), HIR structured lowering,
-typeck/check/native_defaults.rs, typeck/table.rs, aggregate defaults, compile_input/ and compiler
-source/lower/instances/defaults.rs, plus affected registration/wire/Runtime consumers.
+**Implemented ownership.** [Default authoring](../crates/kagari-runtime/src/native/builder/default_lowering.rs)
+supplies an ordinary Script method expression and a separately declared private Native helper.
+[ModuleDecl.script_bodies](../crates/kagari-types/src/declaration/module.rs) retains the complete
+ScriptExpr, including explicit helper type/value arguments; parsed inputs retain complete blocks.
+[Structured lowering](../crates/kagari-hir/src/native/structured/items.rs) and
+[rendering](../crates/kagari-hir/src/native/render.rs) qualify same-module helper references so
+parameters cannot capture them. Missing bodies reject rather than becoming success stubs.
 
-- [ ] Remove NativeDefaultApplication, CallableImplementation::NativeDefault and NativeBinding::Default.
-- [ ] Remove recipe-based synthetic forwarding-body construction, NativeDefaultCheck and the
-  dedicated TypeTable native-default call records.
-- [ ] Remove NativeDefaultCall, CheckedModule.native_defaults and dedicated compiler default
-  selection/expansion/ABI emission based on those records.
-- [ ] Replace associated dedicated serialization/mapping/verification records after their consumers
-  use ordinary bodies/call facts. Unpublished products are disposable; no compatibility alias,
-  legacy reader or routine format/ABI bump is required.
-- [ ] Retain real Script default definitions and ordinary calls to declared Native helpers. Genuine
-  Native-provided default methods remain supported without carrying an installed binding in HIR.
-  Required methods must not become defaults or acquire fake bodies during migration.
+Resolution, [ordinary call facts](../crates/kagari-hir/src/typeck/table.rs), checked body views and
+[generic instance planning](../crates/kagari-compiler/src/source/lower/instances/calls.rs) carry
+defaults through compilation. Trait, receiver, method and associated-output substitutions remain
+checked; Required members stay Required and genuine Native defaults stay Native declarations.
+Dedicated default applications, forwarding-call tables and portable default recipes are removed.
+Unpublished affected products are disposable: no compatibility reader or routine format/ABI bump
+is introduced. Source-free materialization and semantic authentication have the distinct owners in 9F.
 
 ### D. Remove NativeTypeKind as the mixed HIR type model
 
-**Owners:** [native.rs](../crates/kagari-hir/src/native.rs), language/types.rs, native input producers,
-imports/type interpretation, aggregate signatures and compiler ABI/representation consumers.
+**Implemented ownership.** [Language constructor identities](../crates/kagari-types/src/declaration/native.rs)
+and [HIR type interpretation](../crates/kagari-hir/src/language/types.rs) select String, Range and
+existing special reference semantics independently of Native storage classification.
+[Common preparation](../crates/kagari-hir/src/analysis/declarations.rs) checks canonical constructor
+arity, field shape and Host conflicts across the complete supplied scope, even when an optional
+constructor sidecar is absent. Actual declarations establish constructor ownership; a table entry
+or same-named user type alone is insufficient. Impl ownership derives from these checked owners
+and ordinary nominal identities, never registered/external source privileges.
 
-- [ ] Remove NativeTypeKind and TypeConstructor::registered(NativeTypeKind) from HIR semantics;
-  moving its match to language/ while retaining the registration classification is not completion.
-- [ ] Interpret String, Range and Reference through the language/type owner with exact constructor
-  identity, arity and eligibility checks. Native methods do not create nominal Native String/Range.
-- [ ] Keep ordinary Native declaration identity, generic parameters, fields and methods on their
-  actual declaration/checking owners, independent of storage-management choices.
-- [ ] Retain caller-visible Host path/access/capability and target restrictions as explicit static
-  contracts shared by both inputs. Do not silently turn Host capabilities into unrestricted managed
-  objects or delete safety distinctions merely to remove the old enum.
-- [ ] Move physical storage layout and Rust implementation details to compiler representation or
-  linking/Runtime ownership as applicable. Preserve unsupported-operation rejection and source-free
-  verification; this remediation does not implement new field adapters or reference operations.
+[NativeTypeDeclaration](../crates/kagari-hir/src/hir/item/adt.rs) owns identity, binders, bounds,
+fields and optional address-free Host schema/path/access contracts. Physical layouts and Rust
+storage/access adapters belong to executable representation and installation. Unsupported Native
+field execution still rejects. Existing Ref/RefMut target, no-escape, suspension and scoped-borrow
+restrictions remain until the unimplemented coherent wrapper replacement in 9G.
 
 ### E. Remove LoweredModule side maps by assigning actual semantic owners
 
-| Current attachment | Required disposition |
-| --- | --- |
-| native_dependencies | Common module/dependency input; retain reachability and dependency checks. |
-| native_package_alias | Common package/module metadata, not registration authority. |
-| native_prelude | Explicit common prelude participation metadata. |
-| native_import_namespaces | Namespace category on the actual import/export record; remove ordinal side mapping. |
-| registered_enum_failures | reports_failure on variant declarations/checked variants; preserve error-origin behavior. |
-| native_trait_adapters | Static conversion relationships on the trait semantic owner; actual Rust adapters remain outside HIR. |
-| method_policies | Separate trait override semantics, caller-visible capability restrictions and adapter-internal Rust loans; assign each to its actual owner. |
-| registered_traits / external_traits | Remove input-route-specific full trait catalogs; retain common actual definitions and necessary independent language-role/shape validation. |
-| native_trait_references | Common semantic dependencies/exposures versus implementation-side expected matching, split as in B. |
-| language_foundation | Remove origin-granted authority; retain common role identity, shape, uniqueness/completeness checks. |
-| native_types | Replace the mixed type/schema/representation map as in D, not a renamed wrapper. |
-| native_attributes | Delete the production-unwritten span allowlist and its attribute-check bypass; retain actual attribute validation. |
+**Implemented ownership.** Static facts now belong to the common inputs and actual declarations:
 
-- [ ] Migrate each live reader/writer to its stated owner; do not delete facts merely because the
-  old attachment disappears. Both source and structured inputs must express the same static facts.
-- [ ] Remove the unused registered_enum_failure accessor, dangling readonly Map/Set comment and
-  registration-authority documentation. Do not preserve forwarding accessors or new hidden side maps.
-- [ ] Normalize structured and parsed frontend entrypoints into the common semantic environment.
-  Rendering remains optional presentation; registration/source correspondence checks cannot remain
-  a backdoor for binding authority or a second semantic catalog.
+| Fact | Owner and contract |
+| --- | --- |
+| Dependency edges, aliases and preludes | [ImportEnvironment/ModuleScope](../crates/kagari-hir/src/imports/environment.rs) with existing PackageScope; [normalization](../crates/kagari-hir/src/analysis/environment.rs) precedes graph construction. Explicit aliases take precedence; accessible prelude bindings use ordinary implicit tiers. |
+| Resolved edges and exposure | ModuleGraph/ModuleImportFacts and the [namespace catalog](../crates/kagari-hir/src/imports/catalog.rs); explicit and observed dependencies retain reachability without granting private access. |
+| Import namespace and enum failure semantics | Namespace category on the actual import leaf; reports_failure on the actual variant and its checked projection. |
+| Conversion and override semantics | Actual trait conversion relationship and trait-member override policy; no input-route-specific full trait catalog. |
+| Caller-visible capabilities | NativeContract and HostContract; internal Rust loans/adapters remain outside HIR. |
+| Language roles and constructors | Canonical declaration ownership plus [independent role/shape checks](../crates/kagari-hir/src/language/items/shapes.rs); no foundation flag, attribute allowlist or registration privilege. |
+
+Conversion relationships must name actual accessible targets; extra supertraits/bounds unsupported
+by intrinsic derivation reject. [Immutable analysis inputs](../crates/kagari-hir/src/analysis/inputs.rs)
+retain explicit scopes for replay; [fingerprints](../crates/kagari-hir/src/analysis/input_fingerprint.rs),
+cache invalidation and reuse account for scopes and non-syntactic contracts. Optional source
+presentation and registration/source correspondence grant no additional static authority.
+
+### F. Adapt producers and consumers across the pipeline
+
+**Implemented pipeline.** [Native assembly](../crates/kagari-runtime/src/native/assembly/draft.rs),
+stdlib and external adapters supply ordinary declarations/static contracts and complete Script
+bodies. [SDK declaration preparation](../crates/kagari/src/engine/declarations.rs) supplies these
+inputs separately from execution implementations, retaining optional checked source views for
+presentation and actual semantic inputs for replay. Analyzer/lint consume common identities,
+contracts, analysis scope and optional origins, not installed entry selectors.
+
+The compiler consumes [checked environments and bodies](../crates/kagari-hir/src/compile_input/program.rs),
+projects [executable ABI contracts](../crates/kagari-compiler/src/source/lower/abi.rs) and plans
+ordinary generic/default calls without rereading a registration catalog or re-resolving source.
+Generic substitution, associated outputs, ordered effects, demand closure, unsupported-capability
+rejection and Native imports remain explicit. The static `concrete_result` constraint preserves
+the `C: I` proof and applied interface selection through
+[compiler result planning](../crates/kagari-compiler/src/source/lower/instances/results.rs),
+[portable adapter validation](../crates/kagari-contract/src/native_import/result.rs) and
+[Runtime result checks](../crates/kagari-runtime/src/native/result.rs); invocation does not run a
+trait solver to recover missing evidence.
+
+**Source-free provenance is not semantic authentication.** Portable interface `method_origins`
+associate an impl-owned placement with its canonical authored trait member.
+[Contract verification](../crates/kagari-contract/src/types/verify.rs) checks those relationships,
+applied signatures/bounds and final override policy.
+[Materialization verification](../crates/kagari-contract/src/types/materialization.rs) ties placed
+Script identities to portable source/body records already checked against instructions by
+[bytecode program verification](../crates/kagari-bytecode/src/program.rs). These checks establish
+internal consistency and materialization provenance; they do not authenticate installed library
+semantics. An attacker can change a product's body, origin and digest together. A Script-kind or
+signature match, coherent origins or a self-consistent instruction certificate is not an
+independent authority for a final default.
+
+[Runtime Script authentication](../crates/kagari-runtime/src/native/registry/scripts.rs) retains
+the installed module's canonical ScriptExpr and function contract independently of the product.
+It reads an actual bytecode call/value trace and compares callee identities, argument flow,
+ordered calls, type applications, signatures and returned value with that installed expression.
+Trait/receiver/method binders are applied before comparison; associated projections and families
+are normalized through the checked applied impl's outputs, with unrelated projections left
+symbolic and invalid/cyclic transforms rejected. Authentication does not parse source, invoke HIR,
+trust compiler assertions about expected instructions, or rerun trait selection. Unsupported
+instructions/effects reject rather than being skipped. A product requesting a final Script
+library method without an installed canonical expression fails closed; parsed source alone does
+not supply that independent authority. This authenticator covers the current ScriptExpr grammar,
+not arbitrary future block-source semantics. Portable source/body evidence requires no physical
+source file or complete authored-source manifest.
+
+[Native linking](../crates/kagari-runtime/src/native/registry.rs) independently matches installed
+entries and [ordinary Native materializations](../crates/kagari-runtime/src/native/registry/matching.rs).
+Runtime's actual NativeBinding objects, storage/access adapters, value checks, roots, loans,
+result publication, reentry/trap cleanup and generation ownership remain valid execution-side
+mechanisms. Missing demanded implementations, duplicates, wrong-context bindings and signature,
+policy, ordered-operation or result mismatches remain errors. Cancellation and ordinary-current
+versus retained-body reload selection are unchanged. Runtime depends on neither HIR nor a compiler
+to manufacture absent executable products.
+
+These adaptations introduce no compatibility reader, routine ABI/format bump, provider/prebuild
+product, exporter, directory watcher or new reference operation. Wider Native backend/platform
+support remains deferred; executable validation and the roadmap's known failures are not waived.
+
+### G. Replace reference special cases with ordinary wrappers
+
+This records the selected reference follow-up in the same inventory, not activation of execution
+implementation by this documentation edit. Its behavior intentionally replaces static no-escape
+rules; do not silently apply that relaxation to the current ephemeral representation.
+
+- [ ] Keep one canonical T declaration and unmodified T field types for ordinary managed use and
+  Host-backed access. Supply ordinary Ref<T>/RefMut<T> declarations and explicit generated method
+  contracts, with one signature per operation across supported backings and explicit as_ref().
+  Remove special Reference constructors/types and auto-unwrapping only with their complete
+  producer, checking, compiler and portable-contract consumer replacement; do not add Deref or
+  privileged generated impls as an intermediate shortcut.
+- [ ] Make script carriers storable, traceable, capturable, returnable and retainable across
+  suspension without extending external Host reservations. Implement backing-specific retention,
+  generation invalidation, child-location validity, safe expired-carrier operations, authenticated
+  shared narrowing and checked short access intervals before removing old no-escape restrictions.
+  Reuse existing GC/Host owners; short payload loans cannot escape or survive GC/reentry/suspension,
+  independently of the Host reservation that keeps the external source valid during its scope.
+- [ ] Adapt the layers in 9F together for this model. Replace obsolete no-escape rejection tests
+  with owner-level assertions for valid in-scope use, saved/captured/returned/suspended handles,
+  expired access before effects, scope/slot reuse, parent/child invalidation, readonly capability,
+  conflicting active loans and cleanup. Preserve independent source-free verification and actual
+  Native execution. Unsupported target adapters still reject; no success stub or unsafe reinterpretation.
 
 ### Sequencing, acceptance and remaining limits
 
-Implement the corrected common semantic owners and update their producers/consumers cohesively;
-then remove binding-dependent checking/handoffs, NativeDefault recipes and mixed type interpretation.
-Check intermediate build boundaries explicitly rather than adding compatibility wrappers, unchecked
-success, disabled admission or fake bodies. Review docs/tests alongside the owning code. This list
-is not a new general Runtime/provider redesign or activation of the deferred sketches above.
+Phases 1–3 close the binding-dependent frontend/default/classification replacement described by
+A–F. The unchecked reference work in 9G requires its complete producer, checking, representation,
+Runtime and source-free-verification replacement before any existing no-escape restriction is
+removed. Sections 4–6 retain deferred provider/build/prebuild/export designs; no such product,
+watcher or new reference model is activated by the implemented boundary or this documentation.
 
-Required behavioral acceptance:
+The lasting acceptance invariants are:
 
-- Equivalent structured/parsed inputs produce the same declaration identities after explicit scope
-  remapping, types, bounds, member/default selection, field writeability and diagnostic kinds.
-  Optional source locations and input versions are allowed to differ, never static privileges.
-- HIR/type checking/checked callable signatures need no Native implementation registry. Linking a
-  missing, duplicate or mismatched implementation fails without changing those semantic facts;
-  matching implementations succeed under the existing execution safety contract.
-- Malformed applications, wrong roles, foreign/stale handles, private exposure bypasses, coherence
-  violations and unmet obligations reject identically through both routes. Independent role/shape
-  oracles remain; removing duplicate registration catalogs must not make checking circular.
-- Ordinary defaults, generic/associated operations and results, actual Native calls, Host access,
-  DTO/handle identity, roots/reentry/trap cleanup, cancellation, reload and source-free validation
-  retain their owner-level assertions. Unsupported new capabilities remain explicitly unsupported.
-- No NativeDefault recipe or registration-derived NativeTypeKind remains in the replaced model.
-  Semantic constraints have one checked owner; compiler emission does not read a parallel copy.
+- The [core-model inventory](#core-model-inputs-and-derived-analysis) owns retained static inputs
+  and derived facts' validity contexts. No parallel checked catalog or cache grants authority.
+- Equivalent input representations use common identities after scope remapping, declaration/body
+  checking, bounds, default selection, field policy and diagnostics; optional origins may differ.
+- Malformed applications, wrong roles, stale/foreign handles, private exposure bypasses, coherence
+  violations and unmet obligations reject through common rules and independent semantic oracles.
+- Compilation consumes supported complete checked facts without an implementation registry.
+  Linking validates installed implementations and final Script semantics independently of the
+  product's internally coherent provenance, including applied associated projections.
+- Ordinary defaults and generic/associated operations retain their Host/GC, roots/loans, actual
+  returned-value, cancellation and reload guarantees. Existing reference restrictions remain until
+  9G is implemented; unsupported capabilities still reject.
 
-Inspect and strengthen existing tests rather than mechanically duplicating them. Run focused affected
-contracts plus the required structure/fmt/workspace Clippy/diff gates at implementation checkpoints.
-Full-workspace and exhaustive feature/backend/platform tests remain CI-only. Historical passing NM
-checks are evidence for unchanged behavior, not passing evidence for this unimplemented remediation.
-The known NC missing-Vec fixture remains separately owned; do not weaken it or substitute a provider.
-This documentation update runs content/link/diff checks only and makes no new build/test claim.
+The [roadmap](implementation-roadmap.md#native-model-replacement) owns remaining failures and
+validation scope, including the baseline noted in section 7; implementation status is not an
+all-green claim. Focused contracts and required local structure/fmt/Clippy/diff gates remain
+implementation-checkpoint obligations; full-workspace tests and exhaustive matrices are CI-only.
+Affected unpublished artifacts/caches are disposable without a routine ABI bump. This documentation
+pass runs content/link/anchor/diff checks only, not code, build or executable tests.
 
 ## References
 

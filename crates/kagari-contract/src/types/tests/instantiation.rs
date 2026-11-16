@@ -55,6 +55,7 @@ fn impl_instantiation_preserves_method_generics_and_substitutes_their_bounds() {
     let source = parameter(&method, 0);
     let input = parameter(&implementation, 0);
     let table = InterfaceTable {
+        method_origins: Vec::new(),
         associated_type_families: vec![],
         associated_consts: vec![],
         bridge: None,

@@ -13,11 +13,18 @@ use kagari_source::{
     diagnostic::{DiagnosticKind, Severity},
     source_database::{SourceDatabase, SourceLayer},
 };
+
 use kagari_types::{
-    declaration::requirement::NativeCallableRequirement,
+    callable::{CallableImplementation, MethodPolicy},
+    declaration::{
+        FnDecl, Param,
+        host::{HostCallPolicy, HostFunctionEffects, HostPassingStyle},
+        module::ModuleDecl,
+        requirement::NativeCallableRequirement,
+    },
     reference::ReferenceAccess,
     scalar::BuiltinType,
-    ty::{NominalTy, Ty},
+    ty::{GenericParam, NominalTy, Ty},
 };
 use std::sync::Arc;
 
@@ -98,6 +105,8 @@ impl Fixture {
 
     fn contract(&self, receiver: Ty) -> NativeContract {
         NativeContract {
+            host_policy: None,
+            receiver_access: None,
             callable_requirements: vec![NativeCallableRequirement {
                 receiver,
                 interface: self.nominal(self.read, vec![]),
@@ -191,6 +200,71 @@ fn nominal_contracts_require_exact_arity_category_and_recursive_applications() {
                 .any(|kind| matches!(kind, DiagnosticKind::InvalidNativeSignature { .. })),
             "{name}: {diagnostics:?}"
         );
+    }
+}
+
+#[test]
+fn host_policies_preserve_unused_and_inherited_signature_binders() {
+    let fixture = Fixture::new();
+    let policy = HostCallPolicy {
+        passing: vec![HostPassingStyle::Owned],
+        effects: HostFunctionEffects::default(),
+    };
+    for (target, name, generic) in [
+        (ExternalFunction::Function("plain".into()), "plain", false),
+        (ExternalFunction::Function("scalar".into()), "scalar", true),
+        (
+            ExternalFunction::ImplMethod {
+                owner: 3,
+                name: "scalar".into(),
+            },
+            "scalar",
+            true,
+        ),
+    ] {
+        let declaration = fixture.id(DefinitionKind::Function, name);
+        let mut structured = ModuleDecl::new(fixture.external.source.module_identity().clone());
+        structured.functions.push(FnDecl {
+            host_policy: Some(policy.clone()),
+            method_policy: MethodPolicy::default(),
+            name: name.into(),
+            implementation: CallableImplementation::Native(declaration),
+            generic_params: if generic {
+                vec![GenericParam {
+                    owner: declaration,
+                    position: 0,
+                }]
+            } else {
+                vec![]
+            },
+            bounds: vec![],
+            params: vec![Param {
+                name: "value".into(),
+                ty: Ty::Builtin(BuiltinType::I32),
+                mutable: false,
+            }],
+            return_type: Ty::Builtin(BuiltinType::I32),
+        });
+        let definitions = structured.collect_definitions(&fixture.context).unwrap();
+        assert_eq!(
+            structured.validate(&|_| None, &definitions).is_ok(),
+            !generic
+        );
+        let diagnostics = fixture.diagnostics_at(
+            target,
+            NativeContract {
+                host_policy: Some(policy.clone()),
+                ..Default::default()
+            },
+        );
+        if generic {
+            assert!(
+                matches!(diagnostics.as_slice(), [DiagnosticKind::InvalidNativeSignature { function, binding }] if function == "scalar" && binding == "invalid Host passing or effect policy"),
+                "{diagnostics:?}"
+            );
+        } else {
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        }
     }
 }
 
@@ -439,6 +513,8 @@ fn native_trait_contracts_use_the_owning_self_bound() {
     let fixture = Fixture::new();
     let owner = fixture.id(DefinitionKind::Trait, "NativeRead");
     let contract = NativeContract {
+        host_policy: None,
+        receiver_access: None,
         callable_requirements: vec![NativeCallableRequirement {
             receiver: Ty::SelfType(owner),
             interface: fixture.nominal(owner, vec![Ty::Parameter { owner, position: 0 }]),
@@ -465,6 +541,8 @@ fn native_trait_contracts_use_the_owning_self_bound() {
     );
 
     let result = NativeContract {
+        host_policy: None,
+        receiver_access: None,
         callable_requirements: vec![],
         concrete_result: Some(Ty::SelfType(owner)),
     };
@@ -506,6 +584,8 @@ fn native_trait_contracts_use_the_owning_self_bound() {
             name: "produce".into(),
         },
         NativeContract {
+            host_policy: None,
+            receiver_access: None,
             callable_requirements: vec![],
             concrete_result: Some(Ty::SelfType(derived)),
         },
@@ -519,6 +599,8 @@ fn concrete_results_use_the_same_recursive_nominal_validation() {
     let diagnostics = fixture.diagnostics_for(
         "produce",
         NativeContract {
+            host_policy: None,
+            receiver_access: None,
             callable_requirements: vec![],
             concrete_result: Some(fixture.receiver()),
         },
@@ -528,6 +610,8 @@ fn concrete_results_use_the_same_recursive_nominal_validation() {
     let diagnostics = fixture.diagnostics_for(
         "produce",
         NativeContract {
+            host_policy: None,
+            receiver_access: None,
             callable_requirements: vec![],
             concrete_result: Some(malformed),
         },

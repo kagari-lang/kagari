@@ -77,7 +77,7 @@ pub(crate) fn binding_usage(
                 });
         }
     }
-    for (id, expression) in facts.lowered.module.body.expressions() {
+    for (id, expression) in facts.lowered.module.nodes.expressions() {
         cancel.check()?;
         if !eligible(id.owner()) {
             continue;
@@ -100,7 +100,7 @@ pub(crate) fn binding_usage(
             }
         }
     }
-    for (id, statement) in facts.lowered.module.body.statements() {
+    for (id, statement) in facts.lowered.module.nodes.statements() {
         cancel.check()?;
         if !eligible(id.owner()) {
             continue;
@@ -112,7 +112,7 @@ pub(crate) fn binding_usage(
                 initializer,
                 ..
             } => {
-                for (local, _) in facts.lowered.module.body.pattern_bindings(*pattern) {
+                for (local, _) in facts.lowered.module.nodes.pattern_bindings(*pattern) {
                     cancel.check()?;
                     if let Some(binding) = usage.get_mut(&ResolvedName::Local(local)) {
                         binding.mutable = *writeability == Writeability::Var;

@@ -134,17 +134,42 @@ pub(crate) fn reuse_signatures(
     {
         return None;
     }
-    // Equal text cannot transfer native authority between installed and source
-    // inputs. The implementation facts are retained by a reused signature.
-    if previous.external_api != current.external_api
-        || previous.registered_native_api != current.registered_native_api
-        || previous.native_functions != current.native_functions
-        || previous.native_types != current.native_types
-        || previous.native_import_namespaces != current.native_import_namespaces
-        || previous.method_policies != current.method_policies
-        || previous.language_foundation != current.language_foundation
-        || previous.external_traits != current.external_traits
-        || previous.native_trait_adapters != current.native_trait_adapters
+    // Equal text cannot establish equality of non-syntactic static contracts.
+    // A reused signature retains these facts, independently of the input route.
+    if previous
+        .module
+        .native_types
+        .iter()
+        .map(|ty| &ty.host)
+        .ne(current.module.native_types.iter().map(|ty| &ty.host))
+        || previous
+            .module
+            .imports
+            .iter()
+            .map(|import| import.namespace)
+            .ne(current.module.imports.iter().map(|import| import.namespace))
+        || previous
+            .module
+            .traits
+            .iter()
+            .flat_map(|item| &item.methods)
+            .map(|method| method.override_allowed)
+            .ne(current
+                .module
+                .traits
+                .iter()
+                .flat_map(|item| &item.methods)
+                .map(|method| method.override_allowed))
+        || previous
+            .module
+            .traits
+            .iter()
+            .map(|item| &item.conversion_adapter)
+            .ne(current
+                .module
+                .traits
+                .iter()
+                .map(|item| &item.conversion_adapter))
         || previous.module.functions.len() != current.module.functions.len()
         || previous
             .module
@@ -163,6 +188,21 @@ pub(crate) fn reuse_signatures(
                     _ => true,
                 },
             )
+    {
+        return None;
+    }
+    if previous
+        .module
+        .enums
+        .iter()
+        .flat_map(|item| &item.variants)
+        .map(|variant| variant.reports_failure)
+        .ne(current
+            .module
+            .enums
+            .iter()
+            .flat_map(|item| &item.variants)
+            .map(|variant| variant.reports_failure))
     {
         return None;
     }

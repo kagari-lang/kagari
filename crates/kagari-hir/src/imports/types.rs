@@ -3,9 +3,9 @@
 use crate::{
     DeclaredAnalysis,
     declarations::{Declaration, DeclarationId},
+    hir::item::adt::HostContract,
     imports::{SourceDeclRef, SourceItem, SourceUnit},
     language::types::TypeConstructor,
-    native::NativeTypeKind,
     resolver::resolved::{DeclarationNames, ResolvedName},
     typeck::supertraits::trait_supertrait_surface,
     types::{NominalType, TypeId},
@@ -27,7 +27,8 @@ use {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedType {
     /// Installed storage/type descriptor when this is a registered native-backed type.
-    pub native_type: Option<NativeTypeKind>,
+    pub(crate) native_type: Option<TypeConstructor>,
+    pub host: Option<HostContract>,
     /// Associated family name to number of member-level generic parameters.
     pub associated_arities: BTreeMap<String, usize>,
     /// Canonical source declaration address.
@@ -54,6 +55,7 @@ impl ImportedType {
         // Exhaustive patterns require an explicit reuse decision for added fields.
         let Self {
             native_type,
+            host,
             associated_arities,
             id,
             declaration:
@@ -77,6 +79,7 @@ impl ImportedType {
             && self.declaration.source_location().map(|site| site.file)
                 == other.declaration.source_location().map(|site| site.file)
             && native_type == &other.native_type
+            && host == &other.host
             && associated_arities == &other.associated_arities
             && ty == &other.ty
             && trait_methods == &other.trait_methods
@@ -217,6 +220,7 @@ impl<'a> TypeCatalog<'a> {
                     .expect("alias declaration");
                 ImportedType {
                     native_type: None,
+                    host: None,
                     associated_arities: Default::default(),
                     id: source,
                     declaration,
@@ -277,9 +281,7 @@ impl<'a> TypeCatalog<'a> {
                 .collect(),
         };
         let ty = match item {
-            _ if native_type.is_some() => {
-                TypeConstructor::registered(native_type.as_ref()?).apply(&nominal.arguments)?
-            }
+            _ if native_type.is_some() => native_type?.apply(&nominal.arguments)?,
             SourceItem::NativeType(_) => TypeId::NativeObject(nominal),
             SourceItem::Struct(_) => TypeId::Struct(nominal),
             SourceItem::Enum(_) => TypeId::Enum(nominal),
@@ -287,6 +289,12 @@ impl<'a> TypeCatalog<'a> {
             _ => return None,
         };
         Some(ImportedType {
+            host: match item {
+                SourceItem::NativeType(id) => {
+                    module.lowered.module.native_types[id.index()].host.clone()
+                }
+                _ => None,
+            },
             native_type,
             associated_arities: match item {
                 SourceItem::Trait(id) => module
@@ -452,10 +460,8 @@ impl ImportedTypes {
     }
 
     /// Iterates canonical imported native representations, independent of aliases.
-    pub(crate) fn native_types(&self) -> impl Iterator<Item = &NativeTypeKind> {
-        self.resolutions
-            .values()
-            .filter_map(|ty| ty.native_type.as_ref())
+    pub(crate) fn host_types(&self) -> impl Iterator<Item = &HostContract> {
+        self.resolutions.values().filter_map(|ty| ty.host.as_ref())
     }
 
     pub(crate) fn variant(&self, name: ResolvedName) -> Option<&Declaration> {

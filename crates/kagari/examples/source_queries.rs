@@ -263,7 +263,7 @@ fn main() -> kagari::CompileResult<()> {
     let helper = facts
         .lowered
         .module
-        .body
+        .nodes
         .expressions()
         .find_map(|(id, _)| match facts.names.expr_resolution(id) {
             Some(ResolvedName::RuntimeHelper(helper)) => Some(helper),
@@ -398,13 +398,13 @@ fn main() -> kagari::CompileResult<()> {
     let old_expr = old_facts
         .lowered
         .module
-        .body
+        .nodes
         .expressions()
         .find(|(id, _)| old_facts.typed.type_table().expr_type(*id).is_some())
         .expect("typed expression")
         .0;
     let new_facts = edited.file(file).expect("edited source").result().facts();
-    assert_ne!(old_expr.arena(), new_facts.lowered.module.body.arena());
+    assert_ne!(old_expr.arena(), new_facts.lowered.module.nodes.arena());
     assert!(new_facts.typed.type_table().expr_type(old_expr).is_none());
     assert!(
         edited

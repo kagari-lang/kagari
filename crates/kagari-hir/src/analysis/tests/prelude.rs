@@ -50,7 +50,7 @@ fn helper_calls_rebase_on_body_reuse_and_invalidate_on_shadowing() {
     let old_call = old
         .lowered()
         .module
-        .body
+        .nodes
         .expressions()
         .find(|(id, _)| old.type_table().call_resolution(*id).is_some())
         .unwrap()
@@ -85,8 +85,8 @@ fn helper_calls_rebase_on_body_reuse_and_invalidate_on_shadowing() {
         reused.definitions(),
         fresh.type_table(),
         fresh.definitions(),
-        reused.lowered().module.body.arena(),
-        fresh.lowered().module.body.arena(),
+        reused.lowered().module.nodes.arena(),
+        fresh.lowered().module.nodes.arena(),
     );
     sources
         .set(
@@ -147,7 +147,7 @@ fn explicit_host_declarations_take_precedence_over_the_helper_prelude() {
         );
         let facts = file.result().facts();
         let expected = file.definitions().lookup(&expected).unwrap();
-        for (id, expr) in facts.lowered.module.body.expressions() {
+        for (id, expr) in facts.lowered.module.nodes.expressions() {
             match expr.kind {
                 ExprKind::Name { .. } => assert_eq!(
                     facts
@@ -389,7 +389,7 @@ fn invalid_reflection_names_keep_helper_targets_and_precise_argument_diagnostics
         let (call, _) = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .find(|(_, expr)| matches!(expr.kind, ExprKind::Call { .. }))
             .unwrap();
@@ -574,7 +574,7 @@ fn standard_variants_and_propagation_rebase_on_body_reuse() {
         reused.definitions(),
         fresh.type_table(),
         fresh.definitions(),
-        reused.lowered().module.body.arena(),
-        fresh.lowered().module.body.arena(),
+        reused.lowered().module.nodes.arena(),
+        fresh.lowered().module.nodes.arena(),
     );
 }

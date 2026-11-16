@@ -2,20 +2,20 @@
 
 use crate::hir::ids::{ExprId, PlaceId};
 
-/// A potential assignment destination in Body.places, with only `kind` as payload.
+/// A potential assignment destination in HirNodes.places, with only `kind` as payload.
 ///
 /// ```text
 /// items[next_index()].count += step();
 /// StmtKind::Assign { target: p2, op: Some(Add), value: rhs_call }
-/// Body.place(p2) -> PlaceData { kind: Field { base: p1, name: "count" } }
-/// Body.place(p1) -> PlaceData { kind: Index { base: p0, index: index_call } }
-/// Body.place(p0) -> PlaceData { kind: Name("items") }
-/// index_call -> Body.expr -> Call for next_index()
-/// rhs_call   -> Body.expr -> Call for step()
+/// HirNodes.place(p2) -> PlaceData { kind: Field { base: p1, name: "count" } }
+/// HirNodes.place(p1) -> PlaceData { kind: Index { base: p0, index: index_call } }
+/// HirNodes.place(p0) -> PlaceData { kind: Name("items") }
+/// index_call -> HirNodes.expr -> Call for next_index()
+/// rhs_call   -> HirNodes.expr -> Call for step()
 /// ```
 ///
 /// The statement owns a target LINK, not a recursive expression subtree. Place
-/// links enter Body.places; index/right-hand values enter Body.exprs. Lowering
+/// links enter HirNodes.places; index/right-hand values enter HirNodes.exprs. Lowering
 /// preserves the target once for checked left-to-right mutation semantics; this
 /// structure is not a second call to next_index(). Type checking supplies binding,
 /// field/index and writeability facts before the compiler emits mutation steps.

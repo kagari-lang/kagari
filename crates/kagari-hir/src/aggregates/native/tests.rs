@@ -2,7 +2,6 @@ use crate::{
     aggregates::implementations::ImplementationSearchLimits,
     analysis::AnalysisSnapshot,
     language::{semantics as traits, semantics::ProtocolSemantics},
-    native::NativeBinding,
     semantic::signatures::FunctionImplementation,
     tests::test_analysis,
     types::{TypeId, TypeSubstitution},
@@ -60,7 +59,7 @@ fn native_receivers_require_installed_impls_and_exact_host_access() {
         interface.arguments.push(item.clone());
         assert!(
             AggregateCatalog::default()
-                .engine_implementation(definitions, &interface, &mutable, &Default::default())
+                .declared_implementation(definitions, &interface, &mutable, &Default::default())
                 .is_none()
         );
         assert!(!traits::intrinsic_applies(
@@ -72,13 +71,13 @@ fn native_receivers_require_installed_impls_and_exact_host_access() {
         ));
         assert!(
             catalog
-                .engine_implementation(definitions, &interface, &mutable, &Default::default())
+                .declared_implementation(definitions, &interface, &mutable, &Default::default())
                 .is_some()
         );
         // Fixed arrays cannot acquire List/MutableList from shared buffer layout.
         assert!(
             catalog
-                .engine_implementation(definitions, &interface, &array, &Default::default())
+                .declared_implementation(definitions, &interface, &array, &Default::default())
                 .is_none()
         );
         assert!(
@@ -129,12 +128,12 @@ fn native_receivers_require_installed_impls_and_exact_host_access() {
     interface.arguments = vec![key, TypeId::Builtin(BuiltinType::I32)];
     assert!(
         catalog
-            .engine_implementation_pattern(&interface, &target)
+            .declared_implementation_pattern(&interface, &target)
             .is_some()
     );
     assert!(
         catalog
-            .engine_implementation(definitions, &interface, &target, &Default::default())
+            .declared_implementation(definitions, &interface, &target, &Default::default())
             .is_none()
     );
 }
@@ -155,20 +154,22 @@ fn algorithm_trait_names_are_ordinary_user_contracts() {
     let implementation = facts
         .aggregates
         .implementations()
-        .find(|item| !item.engine_owned)
+        .find(|item| {
+            definitions.resolve(item.id).unwrap().module() == facts.lowered.source.module_identity()
+        })
         .unwrap();
     let interface = &implementation.trait_type;
     assert!(Protocol::from_definition(&interface.declaration, definitions).is_none());
     assert!(
         facts
             .aggregates
-            .engine_implementation(
+            .declared_implementation(
                 definitions,
                 interface,
                 &implementation.for_type,
                 &Default::default()
             )
-            .is_none()
+            .is_some()
     );
     assert!(
         facts
@@ -238,7 +239,10 @@ fn main() {}
     let implementation = facts
         .aggregates
         .implementations()
-        .find(|implementation| !implementation.engine_owned)
+        .find(|implementation| {
+            definitions.resolve(implementation.id).unwrap().module()
+                == facts.lowered.source.module_identity()
+        })
         .unwrap();
     let receiver = &implementation.for_type;
     let interface = Protocol::Iterator.nominal(definitions).unwrap();
@@ -262,8 +266,8 @@ fn main() {}
     assert!(
         facts
             .aggregates
-            .engine_implementation(definitions, &interface, receiver, &Default::default())
-            .is_none()
+            .declared_implementation(definitions, &interface, receiver, &Default::default())
+            .is_some()
     );
     // Iteration is a language protocol, even when its selected body is script.
     assert!(traits::intrinsic_applies(
@@ -321,10 +325,7 @@ fn every_native_signature_retains_resolved_public_types() {
             file.diagnostics()
         );
         for function in file.signatures().facts().functions() {
-            if !matches!(
-                function.implementation,
-                FunctionImplementation::Native(NativeBinding::Entry(_))
-            ) {
+            if !matches!(function.implementation, FunctionImplementation::Native(_)) {
                 continue;
             }
             let substitution: TypeSubstitution = function

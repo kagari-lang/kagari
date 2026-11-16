@@ -150,8 +150,7 @@ impl OperationWitness {
                         CallableImplementation::Native(binding) => {
                             definitions.resolve(*binding).is_ok()
                         }
-                        CallableImplementation::Required
-                        | CallableImplementation::NativeDefault(_) => false,
+                        CallableImplementation::Required => false,
                     }
             }
         }

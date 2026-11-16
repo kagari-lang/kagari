@@ -1,21 +1,18 @@
-use crate::tests::native_fixture;
 use crate::{
     hir::expr::ExprKind,
-    native::NativeBinding,
     resolver::resolved::ResolvedName,
     semantic::signatures::FunctionImplementation,
     tests::{native as fixture, test_analysis},
     typeck::table::CallTarget,
     types::TypeId,
 };
-use kagari_common::identity::DefinitionKind;
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::catalog as foundation_catalog;
-use kagari_types::{callable::NativeDefaultApplication, scalar::BuiltinType};
+use kagari_types::scalar::BuiltinType;
 
 #[test]
 fn call_type_arguments_reject_top_level_associated_bindings() {
@@ -371,18 +368,7 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
         .unwrap();
     let authoring = file.to_unverified(&Default::default()).unwrap();
     for name in ["read", "fixed"] {
-        let expected =
-            FunctionImplementation::Native(NativeBinding::Default(NativeDefaultApplication {
-                declaration: native_fixture::module()
-                    .records()
-                    .definition(
-                        DefinitionKind::Function,
-                        &format!("default_{name}"),
-                        facts.declarations.definitions(),
-                    )
-                    .unwrap(),
-                arguments: vec![kagari_types::ty::Ty::SelfType(iterator.id)],
-            }));
+        let expected = FunctionImplementation::Script;
         let method = iterator
             .methods
             .iter()
@@ -418,7 +404,18 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
                 .facts()
                 .typed
                 .type_table()
-                .native_default_call(function.id)
+                .call_resolution(
+                    lowered
+                        .module
+                        .block(
+                            lowered.module.functions[function.id.index()]
+                                .implementation
+                                .script_body()
+                                .unwrap()
+                        )
+                        .tail_expr
+                        .unwrap()
+                )
                 .is_some()
         );
     }
@@ -503,7 +500,7 @@ fn inherent_method_selection_checks_receiver_owner_before_same_named_members() {
     let (id, _) = facts
         .lowered
         .module
-        .body
+        .nodes
         .expressions()
         .find(|(_, expr)| matches!(expr.kind, ExprKind::Call { .. }))
         .unwrap();
@@ -552,7 +549,7 @@ fn run(callback: fn(i32) -> bool) {
     let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
     let facts = authoring_facts.records().facts();
     let mut seen = Vec::new();
-    for (site, expression) in facts.lowered.module.body.expressions() {
+    for (site, expression) in facts.lowered.module.nodes.expressions() {
         let ExprKind::Call { callee, args, .. } = &expression.kind else {
             continue;
         };
@@ -627,7 +624,7 @@ fn lexical_values_preserve_associated_native_and_script_type_owners() {
         let (id, _) = facts
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .find(|(_, expression)| matches!(expression.kind, ExprKind::Call { .. }))
             .unwrap();

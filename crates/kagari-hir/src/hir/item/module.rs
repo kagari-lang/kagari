@@ -2,7 +2,7 @@
 
 use crate::hir::ids::{ModuleId, UseId};
 use kagari_common::span::Span;
-use kagari_types::visibility::Visibility;
+use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
 use std::ops::Range;
 
 /// A child module header stored in its parent's Module.modules, not the child HIR.
@@ -67,6 +67,8 @@ pub struct UseDecl {
 /// Import records, and one named leaf may resolve in both namespaces.
 #[derive(Debug, Clone)]
 pub struct Import {
+    /// Optional explicit namespace category; ordinary use syntax selects both.
+    pub namespace: Option<NameNamespace>,
     /// Named/aliased leaf or glob; see the source-to-field examples above.
     pub kind: ImportLeaf,
     /// Outer use-tree token range shared by all its flattened leaves.

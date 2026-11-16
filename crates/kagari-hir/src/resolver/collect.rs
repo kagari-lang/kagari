@@ -5,7 +5,7 @@ use crate::{
     analysis::error::AnalysisError,
     hir::{
         ids::{BodyOwner, BodySelection, HirOwner},
-        item::function::{FunctionImplementation, FunctionKind},
+        item::function::FunctionKind,
     },
     imports::{
         BindingOrigin, ModuleGraph, ModuleImportFacts, SourceUnit, catalog::NamespaceCatalog,
@@ -67,27 +67,6 @@ pub(crate) fn collect_declarations(
 ) -> AnalysisResult<DeclarationNames> {
     let names = imports.scope.clone();
     let mut diagnostics = SmallVec::<[Diagnostic; 4]>::new();
-
-    if !lowered.is_library_api() {
-        for declaration in &lowered.module.native_types {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::UnsupportedSyntax {
-                    feature: "native declarations in ordinary source",
-                })
-                .with_span(lowered.source_map.native_type_span(declaration.id)),
-            );
-        }
-        for function in &lowered.module.functions {
-            if matches!(function.implementation, FunctionImplementation::Native(_)) {
-                diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::UnsupportedSyntax {
-                        feature: "native declarations in ordinary source",
-                    })
-                    .with_span(lowered.source_map.function_span(function.id)),
-                );
-            }
-        }
-    }
 
     let mut local_names = HashMap::new();
     for function in &lowered.module.functions {

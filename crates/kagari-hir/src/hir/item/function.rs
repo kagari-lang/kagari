@@ -13,7 +13,10 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    declaration::requirement::NativeCallableRequirement, ty::Ty, visibility::Visibility,
+    declaration::{host::HostCallPolicy, requirement::NativeCallableRequirement},
+    reference::ReferenceAccess,
+    ty::Ty,
+    visibility::Visibility,
 };
 
 /// A function declaration's signature and implementation, stored in `Module.functions`.
@@ -27,10 +30,10 @@ use kagari_types::{
 ///     params: [Param { id: p, name: "x", ty: t_param }],
 ///     return_type: Some(t_result), implementation: Script(b),
 /// }
-/// t_where, t_param, t_result -> Body.type_ref -> TypeKind::Named("T")
+/// t_where, t_param, t_result -> HirNodes.type_ref -> TypeKind::Named("T")
 /// partial_eq_ref / eq_ref -> TraitRef { ty: ... } -> trait type syntax
-/// b -> Body.block -> BlockData { statements: [], tail_expr: Some(x_expr) }
-/// x_expr -> Body.expr -> Name { name: "x", explicit_type: None }
+/// b -> HirNodes.block -> BlockData { statements: [], tail_expr: Some(x_expr) }
+/// x_expr -> HirNodes.expr -> Name { name: "x", explicit_type: None }
 /// ```
 ///
 /// The traits require matching declarations from the installed foundation.
@@ -53,7 +56,7 @@ use kagari_types::{
 /// use `Local` and retain their declaring block without capturing its values.
 ///
 /// Lowering assigns `HirOwner::Body(BodyOwner::Function(f))` to signature/body
-/// nodes. Type annotations enter `Body.types`, not the semantic type table;
+/// nodes. Type annotations enter `HirNodes.types`, not the semantic type table;
 /// resolution, checking and compiler lowering consume these source records later.
 #[derive(Debug, Clone)]
 pub struct Function {
@@ -81,9 +84,8 @@ pub struct Function {
 
 /// Structural implementation owned by a function declaration, not a runtime binding.
 ///
-/// A native declaration alone grants no installation authority. Checked callable
-/// signatures separately retain installed bindings. Generated native-default
-/// forwarding bodies remain `Script` here so their calls can be checked normally.
+/// A native declaration alone grants no installation authority. Real forwarding
+/// defaults remain ordinary Script bodies and their calls are checked normally.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FunctionImplementation {
     /// A trait member awaiting an implementation, or a missing body during recovery.
@@ -110,10 +112,13 @@ impl FunctionImplementation {
 /// and generic binders belong to the enclosing analysis's retained definition
 /// table. External sidecars import that scope before attachment, without acquiring
 /// registration authority. Requirements are ordered slots; repeated operations remain distinct.
-/// Parameter/result syntax stays on `Function`; Rust adapters, HostCallPolicy and
-/// method policies remain at their existing registration/execution boundaries.
+/// Parameter/result syntax stays on `Function`; receiver access is caller-visible.
+/// Rust adapters and internal payload loans remain outside this declaration.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NativeContract {
+    pub host_policy: Option<HostCallPolicy>,
+    /// Caller-visible scoped receiver access required by this operation.
+    pub receiver_access: Option<ReferenceAccess>,
     /// Operations required by the native algorithm, including applied trait/member arguments.
     pub callable_requirements: Vec<NativeCallableRequirement>,
     /// Concrete result before the existing checked interface-result adaptation.
@@ -141,6 +146,8 @@ impl RemapDefinitions for NativeContract {
         mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         Ok(Self {
+            host_policy: self.host_policy.clone(),
+            receiver_access: self.receiver_access,
             callable_requirements: self.callable_requirements.remap_definitions(mapper)?,
             concrete_result: self
                 .concrete_result
@@ -181,7 +188,7 @@ pub enum FunctionKind {
 /// ```text
 /// fn add(x: i32) -> i32 { x + 1 }
 /// Param { id: p, name: "x", ty: t }
-/// t -> Body.type_ref(t) -> TypeKind::Named("i32")
+/// t -> HirNodes.type_ref(t) -> TypeKind::Named("i32")
 /// p -> SourceMap.param_span(p); resolved uses of x refer to Param(p)
 /// ```
 ///

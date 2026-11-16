@@ -89,7 +89,7 @@ fn static_imports_reexports_inline_modules_and_navigation_keep_original_identity
     let references: Vec<_> = facts
         .lowered
         .module
-        .body
+        .nodes
         .expressions()
         .filter_map(|(id, _)| match facts.names.expr_resolution(id) {
             Some(ResolvedName::Source(source)) if facts.imported_statics.get(&source).is_some() => {

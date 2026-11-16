@@ -364,24 +364,6 @@ fn native_slots_valid(
                     },
                     *binding,
                 ),
-                CallableImplementation::NativeDefault(application) => {
-                    let Some(resolved) = catalog.resolve_native_default_in(
-                        application,
-                        &template.generic_params,
-                        &assumptions,
-                        cancel,
-                    )?
-                    else {
-                        return Ok(false);
-                    };
-                    let CallableImplementation::Native(binding) = resolved.implementation else {
-                        return Ok(false);
-                    };
-                    if resolved.signature != signature {
-                        return Ok(false);
-                    }
-                    (resolved.instance, binding)
-                }
                 _ => continue,
             };
             let mut found = false;

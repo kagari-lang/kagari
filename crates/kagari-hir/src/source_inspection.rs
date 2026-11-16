@@ -88,9 +88,6 @@ pub fn collect_authored_sources(
                 .find(|typed| typed.id == function.id)
                 .ok_or(DefinitionMappingError::InvalidContract)?;
             let kind = match typed.implementation {
-                FunctionImplementation::NativeDeclaration => {
-                    return Err(DefinitionMappingError::InvalidContract);
-                }
                 FunctionImplementation::Native(_) => SourceBodyKind::Native,
                 FunctionImplementation::Required => SourceBodyKind::Required,
                 FunctionImplementation::Script if function.is_async => {

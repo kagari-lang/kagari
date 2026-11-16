@@ -39,7 +39,7 @@ impl Lowerer {
     pub(crate) fn new(cancel: CancellationToken) -> Self {
         let source_map = SourceMap::default();
         let mut module = Module::default();
-        module.body.arena = source_map.arena();
+        module.nodes.arena = source_map.arena();
         Self {
             functions: Vec::new(),
             current_block: None,
@@ -81,28 +81,28 @@ impl Lowerer {
     /// Allocates a source-map ID and appends its owner-tagged block payload at the matching index.
     pub(crate) fn alloc_block(&mut self, span: Span, block: BlockData) -> BlockId {
         let id = self.source_map.push_block(span);
-        self.module.body.blocks.push((id.owner(), block));
+        self.module.nodes.blocks.push((id.owner(), block));
         id
     }
 
     /// Allocates a source-map ID and appends its owner-tagged stmt payload at the matching index.
     pub(crate) fn alloc_stmt(&mut self, span: Span, stmt: StmtData) -> StmtId {
         let id = self.source_map.push_stmt(span);
-        self.module.body.stmts.push((id.owner(), stmt));
+        self.module.nodes.stmts.push((id.owner(), stmt));
         id
     }
 
     /// Allocates a source-map ID and appends its owner-tagged expr payload at the matching index.
     pub(crate) fn alloc_expr(&mut self, span: Span, expr: ExprData) -> ExprId {
         let id = self.source_map.push_expr(span);
-        self.module.body.exprs.push((id.owner(), expr));
+        self.module.nodes.exprs.push((id.owner(), expr));
         id
     }
 
     /// Allocates a source-map ID and appends its owner-tagged pattern payload at the matching index.
     pub(crate) fn alloc_pattern(&mut self, span: Span, pattern: PatternData) -> PatternId {
         let id = self.source_map.push_pattern(span);
-        self.module.body.patterns.push((id.owner(), pattern));
+        self.module.nodes.patterns.push((id.owner(), pattern));
         id
     }
 
@@ -114,14 +114,14 @@ impl Lowerer {
     /// Allocates a source-map ID and appends its owner-tagged place payload at the matching index.
     pub(crate) fn alloc_place(&mut self, span: Span, place: PlaceData) -> PlaceId {
         let id = self.source_map.push_place(span);
-        self.module.body.places.push((id.owner(), place));
+        self.module.nodes.places.push((id.owner(), place));
         id
     }
 
     /// Allocates a source-map ID and appends its owner-tagged type payload at the matching index.
     pub(crate) fn alloc_type(&mut self, span: Span, ty: TypeData) -> TypeRefId {
         let id = self.source_map.push_type(span);
-        self.module.body.types.push((id.owner(), ty));
+        self.module.nodes.types.push((id.owner(), ty));
         id
     }
 

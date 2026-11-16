@@ -2,7 +2,6 @@ use crate::analysis::*;
 use crate::{
     aggregates::traits::MethodDefault,
     declarations::DeclarationId,
-    native::NativeBinding,
     semantic::signatures::FunctionImplementation,
     tests::{native_fixture as fixture, test_analysis},
 };
@@ -66,7 +65,10 @@ fn native_default_bodies_are_checked_without_synthesizing_impl_bodies() {
     let catalog = &authoring_catalog.records().facts().aggregates;
     let implementation = catalog
         .implementations()
-        .find(|item| !item.engine_owned)
+        .find(|item| {
+            definitions.resolve(item.id).unwrap().module()
+                == file.result().facts().lowered.source.module_identity()
+        })
         .unwrap();
     assert!(implementation.methods.is_empty());
     assert_eq!(
@@ -88,10 +90,7 @@ fn native_default_bodies_are_checked_without_synthesizing_impl_bodies() {
         .unwrap();
     assert_eq!(contract.methods.len(), 2);
     for method in &contract.methods {
-        assert!(matches!(
-            method.default,
-            Some(MethodDefault::Native(NativeBinding::Default(_)))
-        ));
+        assert!(matches!(method.default, Some(MethodDefault::Script)));
     }
     assert!(contract.methods[0].declaration.source_location().is_none());
     let owner = definitions
@@ -112,12 +111,7 @@ fn native_default_bodies_are_checked_without_synthesizing_impl_bodies() {
             .signatures
             .functions()
             .iter()
-            .filter(|function| {
-                matches!(
-                    function.implementation,
-                    FunctionImplementation::Native(NativeBinding::Default(_))
-                )
-            })
+            .filter(|function| matches!(function.implementation, FunctionImplementation::Script))
     };
     assert!(defaults().all(|function| {
         native
@@ -125,7 +119,21 @@ fn native_default_bodies_are_checked_without_synthesizing_impl_bodies() {
             .facts()
             .typed
             .type_table
-            .native_default_call(function.id)
+            .call_resolution(
+                native
+                    .result()
+                    .facts()
+                    .lowered
+                    .module
+                    .block(
+                        native.result().facts().lowered.module.functions[function.id.index()]
+                            .implementation
+                            .script_body()
+                            .unwrap(),
+                    )
+                    .tail_expr
+                    .unwrap(),
+            )
             .is_some()
     }));
     let retained = db
@@ -186,7 +194,21 @@ fn native_default_bodies_are_checked_without_synthesizing_impl_bodies() {
             .signatures()
             .facts()
             .type_table()
-            .native_default_call(function.id)
+            .call_resolution(
+                native
+                    .result()
+                    .facts()
+                    .lowered
+                    .module
+                    .block(
+                        native.result().facts().lowered.module.functions[function.id.index()]
+                            .implementation
+                            .script_body()
+                            .unwrap(),
+                    )
+                    .tail_expr
+                    .unwrap(),
+            )
             .is_none()
     }));
     let cancel = CancellationToken::default();
@@ -208,22 +230,48 @@ fn native_default_bodies_are_checked_without_synthesizing_impl_bodies() {
         "{:?}",
         failed.result().diagnostics()
     );
-    assert!(defaults().all(|function| {
-        failed
+    for (name, valid) in [("read", false), ("fixed", true)] {
+        let function = failed
             .result()
             .facts()
             .typed
-            .type_table
-            .native_default_call(function.id)
-            .is_none()
-    }));
+            .signatures
+            .functions()
+            .iter()
+            .find(|function| function.name == name)
+            .unwrap();
+        assert_eq!(
+            failed
+                .result()
+                .facts()
+                .typed
+                .valid_bodies
+                .contains(&function.id),
+            valid,
+            "{name}"
+        );
+    }
     assert!(defaults().all(|function| {
         native
             .result()
             .facts()
             .typed
             .type_table
-            .native_default_call(function.id)
+            .call_resolution(
+                native
+                    .result()
+                    .facts()
+                    .lowered
+                    .module
+                    .block(
+                        native.result().facts().lowered.module.functions[function.id.index()]
+                            .implementation
+                            .script_body()
+                            .unwrap(),
+                    )
+                    .tail_expr
+                    .unwrap(),
+            )
             .is_some()
     }));
 }
@@ -456,7 +504,7 @@ fn imported_method_contract_edits_invalidate_consumers_and_preserve_old_snapshot
         invalidated.definitions(),
         fresh.type_table(),
         fresh.definitions(),
-        invalidated.lowered().module.body.arena(),
-        fresh.lowered().module.body.arena(),
+        invalidated.lowered().module.nodes.arena(),
+        fresh.lowered().module.nodes.arena(),
     );
 }

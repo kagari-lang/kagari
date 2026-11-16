@@ -44,8 +44,6 @@ fn declaration_only_functions_do_not_acquire_script_bodies() {
         native.implementation,
         FunctionImplementation::Native(_)
     ));
-    assert!(!lowered.registered_native_api);
-    assert!(lowered.native_functions.is_empty());
     assert_eq!(required.implementation, FunctionImplementation::Required);
     assert!(matches!(
         script.implementation,

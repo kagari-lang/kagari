@@ -33,6 +33,11 @@ impl AnalysisDatabase {
             return Ok(fingerprint.clone());
         }
         let mut hash = Hasher::new_derive_key("kagari analysis environment v1");
+        hash_bytes(
+            &mut hash,
+            format!("{:?}", self.import_environment).as_bytes(),
+            cancel,
+        )?;
         let mut providers = self.native_modules.iter().collect::<Vec<_>>();
         providers.sort_by(|a, b| a.records().identity.cmp(&b.records().identity));
         hash.update(&(providers.len() as u64).to_le_bytes());
@@ -62,22 +67,23 @@ impl AnalysisDatabase {
             hash_bytes(
                 &mut hash,
                 format!(
-                    "{:?}{:?}{:?}{:?}{:?}{:?}",
+                    "{:?}{:?}{:?}{:?}{:?}{:?}{:?}",
                     input.package_alias,
                     input.prelude,
                     input.dependencies,
                     input.types,
                     input.methods,
-                    input.language_foundation
+                    input.enum_failures,
+                    input.import_namespaces
                 )
                 .as_bytes(),
                 cancel,
             )?;
-            for (name, metadata) in &input.traits {
+            for (name, metadata) in &input.conversions {
                 hash_bytes(&mut hash, name.as_bytes(), cancel)?;
                 hash_bytes(
                     &mut hash,
-                    &evidence_fingerprint::trait_bytes(metadata, cancel)?,
+                    &evidence_fingerprint::conversion_bytes(metadata, cancel)?,
                     cancel,
                 )?;
             }

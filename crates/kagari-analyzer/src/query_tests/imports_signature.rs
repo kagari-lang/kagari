@@ -49,7 +49,7 @@ fn signatures_and_imported_calls_survive_dependency_body_errors() {
             .facts()
             .lowered
             .module
-            .body
+            .nodes
             .expressions()
             .any(|(id, _)| {
                 file.result()

@@ -1,0 +1,6 @@
+use api::Echo;
+
+fn main() -> i32 {
+    val value: Echo<bool> = 1;
+    1.echo::<i32>(false, 20) + value.echo::<i32>(true, 22)
+}
