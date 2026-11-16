@@ -70,12 +70,13 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   views, demand-built indexes and the compiler/lint boundary. The arena/reference migration
   is withdrawn and cache policy is unchanged. [Review notes](hir-model-review.md) retain only
   separate inline-identity/cache follow-ups.
-- [Native HIR inputs and origins](architecture/hir.md#native-declaration-inputs-and-origins):
-  implemented direct structured input and parsed external `.kgr` analysis share HIR/checking,
-  field/member semantics and explicit optional source attribution. Local acceptance and CI limits
-  live in the [roadmap](implementation-roadmap.md#native-model-replacement). The
-  [Native design](native-model-design.md) retains deferred registration/provider/prebuild and
-  directory-publication directions; new field execution, reflection and Ref behavior are not implied.
+- [Native frontend boundary remediation](native-model-design.md#9-frontend-and-linking-boundary-remediation):
+  architecture acceptance is reopened. Direct/parsed inputs work, but HIR still carries registration
+  state, binding-dependent checking, NativeDefault recipes and mixed NativeTypeKind classification.
+  The corrective target is identical binding-free semantic output, with implementations matched at
+  linking. The [roadmap](implementation-roadmap.md#native-model-replacement) tracks status; the design
+  keeps one remediation inventory and separately deferred provider/prebuild/publication directions.
+  New field execution, reflection and Ref behavior are not implied.
 
 - [Runtime architecture](architecture/runtime.md), [call walkthrough](architecture/runtime/calls.md)
   and [reload walkthrough](architecture/runtime/reload.md): implemented exclusive

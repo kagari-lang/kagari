@@ -48,21 +48,23 @@ Record a demonstrated mismatch and its consumers before activating another slice
 `BodySignatures` and `update_source` stay unchanged. Broader naming, incremental parsing,
 function-granularity reuse/reclamation and LSP scheduling require separate scope.
 
-## LoweredModule boundary and deferred execution evidence
+## LoweredModule boundary remediation
 
-[Native input ownership](architecture/hir.md#native-declaration-inputs-and-origins) now uses direct
-structured lowering and explicit parsed inputs with common checking and real/structured origins.
-Construction records registration correspondence; generated text is not required for direct HIR.
-Existing installation/representation/Host policies remain attached at their active boundaries,
-not erased merely because declaration facts moved to ordinary owners. Broader provider/wire
-separation remains in the [deferred Native design](native-model-design.md#4-checked-libraries-and-rust-providers).
+[Native input implementation](architecture/hir.md#native-declaration-inputs-and-origins) supports
+direct lowering and parsed inputs, but registration/binding authority and misplaced static side maps
+still remain in LoweredModule and its consumers. The reviewed target is identical binding-free HIR
+and checking regardless of LSP/execution intent; Native implementations are matched at linking.
+The [single remediation inventory](native-model-design.md#9-frontend-and-linking-boundary-remediation)
+owns removal, semantic-owner migration and preserved validations. A live consumer is migration work,
+not justification for keeping the old ownership model. Broader provider/prebuild products stay deferred.
 
 ## Native model
 
-The scoped NM01–NM04 frontend replacement is implemented; the completed plan is retired.
-[Architecture](architecture/hir.md#native-declaration-inputs-and-origins) owns current contracts,
-[the roadmap](implementation-roadmap.md#native-model-replacement) owns remaining acceptance limits,
-and the [design](native-model-design.md) retains future whole-stack discussion without activating it.
+The NM01–NM04 commits exist, but architecture acceptance is reopened. Their implementation and
+prior focused validation do not resolve the registration-dependent frontend split. The
+[roadmap](implementation-roadmap.md#native-model-replacement) tracks outstanding remediation;
+[the design inventory](native-model-design.md#9-frontend-and-linking-boundary-remediation) is its
+only corrective-work list, alongside separately deferred whole-stack discussion.
 
 - Ordinary HIR declares Required/Script/Native functions, fields, methods/associated functions
   and trait impls. Rust implementation code stays outside HIR; no general trait receiver loans.
@@ -72,8 +74,10 @@ and the [design](native-model-design.md) retains future whole-stack discussion w
   New Rust field adapters/execution are deferred after scope narrowing, not implied by type checks.
 - Ref/RefMut recognition and target/access type records are included, but no new borrowing,
   projection, adaptation, forwarding or execution features. Reuse builtin reference semantics.
-- Existing defaults, registration/binding, output/reflection, Ref/RefMut and executable validation
-  remain operational. No NativeDefault wire/execution replacement or prebuild producer is required.
+- NativeDefault recipes must become ordinary definitions/calls; NativeTypeKind must cease mixing
+  builtin interpretation, declarations and execution representation. Preserve existing defaults,
+  Host/reference safety and executable validation, but remove binding checks and privilege from HIR.
+  This does not require a new prebuild producer or generalized registration framework.
 - The design retains future library/provider/build/cache and directory-refresh discussion as
   explicitly deferred direction, not current acceptance.
 

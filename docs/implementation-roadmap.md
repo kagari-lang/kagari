@@ -1207,22 +1207,32 @@ host facade redesign and VM/backend expansion remain independent work.
 
 ## Native model replacement
 
-The scoped NM01–NM04 frontend replacement is implemented and locally accepted. Current contracts
-live in [HIR inputs/origins](architecture/hir.md#native-declaration-inputs-and-origins),
+**Architecture acceptance is reopened; remediation is outstanding.** NM01–NM04 delivered working
+frontend paths but retained registration-dependent semantic state, duplicate contracts, NativeDefault
+recipes and NativeTypeKind. The user clarified that LSP and execution preparation differ only in
+input format: both must produce the same binding-free HIR/checking results; Native binding belongs
+to linking. Prior passing tests do not establish that boundary.
+
+The [Native boundary remediation inventory](native-model-design.md#9-frontend-and-linking-boundary-remediation)
+is the single corrective-work list. It specifies removal, semantic-owner migration, linking-owner
+migration and acceptance; no corrective code has been implemented by recording it. The historical
+NM execution plan remains retired and its commits/measurements remain in Git. Existing implementation
+surfaces are documented in [HIR inputs/origins](architecture/hir.md#native-declaration-inputs-and-origins),
 [Native declarations](spec/standard-declarations.md#declaration-analysis-inputs),
-[unified syntax](spec/syntax.md#native-declarations) and [embedding](spec/embedding-api.md).
-The completed execution plan is retired; Git history owns its phase ledger and historical NM00
-measurements. No startup or callback speedup is claimed.
+[syntax](spec/syntax.md#native-declarations) and [embedding](spec/embedding-api.md); conflicting
+registration-authority wording must be updated with the remediation, not treated as its target.
 
 Direct ModuleDecl lowering records identities during construction; explicitly supplied exported
-source plus scoped static sidecars uses the same HIR/checker without installed bindings. Functions
+source plus scoped static sidecars reaches common checking, but the current registered/external
+split still changes signature kinds, impl/bound rules and compiler admission. Functions
 retain Required/Script/Native, Native fields share owner-qualified field records and var/val rules,
 and Ref/RefMut retain exact targets/access without new operations. Optional parses and canonical
 structured origins do not invent source locations or complete implementation-source manifests.
 Default SDK preparation uses direct inputs; explicit materialized views retain checked navigation.
 
-**Local evidence:** focused HIR native/contract/external equivalence (including actual foundation,
-Host paths, constructor conflicts and selected public exposures), analyzer queries, compiler exact
+**Historical NM local evidence (not remediation acceptance):** focused HIR native/contract/external
+equivalence (including actual foundation, Host paths, constructor conflicts and selected public
+exposures), analyzer queries, compiler exact
 source/source-free fields, SDK preparation/update/session and Runtime declaration/scalar/lifetime
 selections pass. SDK source-free artifacts run in a separate frontend-disabled build; actual
 source-free Cranelift execution and native-only SDK checking pass. Generic identity, DTO/handle
@@ -1241,8 +1251,10 @@ with [NC](native-collections-plan.md), not a Native frontend regression or passi
 retains registration/provider products, prebuild binary versus generated-code representation,
 standalone MIR/shared libraries, HOST/TARGET producer/bootstrap, preparation/link caches and
 export-sidecar encoding/directory publication/refresh. New Native field adapters, Ref operations,
-output/reflection extraction and broader LSP scheduling require separate scope. No new queue,
-Runtime-to-HIR dependency, format/ABI bump or provider installation redesign is implied.
+output/reflection extraction and broader LSP scheduling require separate scope. Removing HIR
+binding state, NativeDefault recipes and mixed NativeTypeKind is current corrective scope, not
+conditional on those deferred products. No Runtime-to-HIR dependency, routine format/ABI bump or
+general provider installation redesign is implied.
 
 ## Numeric standard library
 
