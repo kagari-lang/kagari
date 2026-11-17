@@ -720,10 +720,24 @@ reuse while preserving transitive invalidation and a fresh-analysis oracle. Curr
 quality gates and directly affected regressions pass. Full workspace and exhaustive feature/backend/
 platform coverage remain CI-only and pending; local acceptance is not a full CI claim.
 
-**Separate deferred work:** [inline identities](hir-model-review.md#finite-inline-identity-follow-up),
-[cache retention](hir-model-review.md#cache-policy-is-separate), incremental parsing, finer body
-reuse/reclamation and LSP scheduling. [Native frontend ownership](#native-model-replacement) is
-implemented; broader Native products and NC restoration retain their separate follow-up owners.
+**Queued origin ownership follow-up:** the
+[SO00–SO03 plan](hir-model-review.md#node-owned-origins-and-record-based-ids) moves source/structured
+origins onto actual HIR records and allocates IDs from authoritative category slots. Keep owned
+vectors, typed links and current lowering/owner validity checks; no universal counter or arena
+migration. Real local/generic records and trait-relative method IDs replace the remaining
+source-map-issued identities. Migrate reuse, exact name/static-initializer ranges and checked
+source-free provenance with their consumers, then remove SourceMap. Design is recorded;
+implementation has not started and no implementation validation is claimed.
+
+**Pending source-walkthrough review:** [analysis flow and naming](hir-model-review.md#analysis-flow-and-naming-review)
+records stage discoverability, orchestration placement and stage-result/fact/query naming concerns.
+Revisit after the user finishes reading the code; names, module moves and execution phases remain
+undecided. This is separate from the selected origin ownership plan.
+
+**Separate deferred work:** [cache retention](hir-model-review.md#cache-policy-is-separate),
+incremental parsing, finer body reuse/reclamation and LSP scheduling.
+[Native frontend ownership](#native-model-replacement) is implemented; broader Native products
+and NC restoration retain their separate follow-up owners.
 
 ### HIR hash collection policy
 
