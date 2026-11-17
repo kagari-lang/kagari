@@ -1,12 +1,15 @@
 //! Track example discovery and unpublished-workspace contracts for persisted native code.
-#[cfg(feature = "aot-load")]
+// Cargo activates same-named normal/build dependencies together: source also
+// needs blake3. Compile the helpers with that dependency, but run them only for AOT.
+#[cfg(any(feature = "aot-load", feature = "source"))]
 use blake3::Hasher;
 #[cfg(any(feature = "aot-load", feature = "source"))]
-use std::{env, path::PathBuf};
-#[cfg(feature = "aot-load")]
-use std::{fs, path::Path};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
 
-#[cfg(feature = "aot-load")]
+#[cfg(any(feature = "aot-load", feature = "source"))]
 fn collect(path: &Path, paths: &mut Vec<PathBuf>) {
     println!("cargo:rerun-if-changed={}", path.display());
     for entry in fs::read_dir(path).expect("contract source directory") {
@@ -32,11 +35,13 @@ fn main() {
             }
         }
     }
-    #[cfg(feature = "aot-load")]
-    fingerprint();
+    #[cfg(any(feature = "aot-load", feature = "source"))]
+    if env::var_os("CARGO_FEATURE_AOT_LOAD").is_some() {
+        fingerprint();
+    }
 }
 
-#[cfg(feature = "aot-load")]
+#[cfg(any(feature = "aot-load", feature = "source"))]
 fn fingerprint() {
     let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest"));
     let root = manifest

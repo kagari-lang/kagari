@@ -744,8 +744,9 @@ Selected local validation passes: HIR all-target checking; 40 HIR import-solver,
 constraint, signature/declaration-cache, identity and compiler-admission tests (one existing explicit
 measurement test remains ignored); four HIR doctests; 10 compiler source-package/source-free-visibility
 tests; five SDK session/installation tests; structure, workspace formatting, workspace all-target Clippy
-and diff checks. No full-workspace tests or exhaustive matrices ran. The existing optional blake3
-Cargo manifest warning remains. Embedded Kagari source, literals and comments were preserved.
+and diff checks. No full-workspace tests or exhaustive matrices ran. The optional blake3 build-script
+warning is resolved under [dependency maintenance](#dependency-maintenance). Embedded Kagari source,
+literals and comments were preserved.
 
 The analyzer Native-facade revision-invalidation failure exposed by the hash selection is resolved
 at the [Native input dependency boundary](#native-model-replacement), not by changing the hasher.
@@ -1262,7 +1263,8 @@ Native direct/interface/callable-requirement and associated-method execution, fi
 rejection, portable round trips, linking, SDK Host/interfaces/results and analyzer/lint consumers.
 These selections cover changed mechanisms and direct downstream consumers, not every combination.
 IDE `build_project` repeatedly timed out at the MCP context server; Cargo test builds and Clippy
-completed. The existing optional unused blake3 manifest warning remains, not a Clippy failure.
+completed. The optional blake3 build-script warning is resolved under
+[dependency maintenance](#dependency-maintenance).
 
 **Dependency-scope repair:** Native dependency inference uses the selected provider's portable
 module identity rather than looking up its type in another input's independent DefinitionTable.
@@ -2285,6 +2287,17 @@ Important ordering constraints and limits:
   unmeasured speedups.
 
 ## Dependency maintenance
+
+The user-requested compiler-warning cleanup is limited to emitted warnings, not a dependency audit.
+The SDK's blake3 build dependency is required for AOT fingerprints; Cargo activates same-named normal
+and build dependencies together, so source-only builds also enable it. Build helpers now compile
+whenever that dependency is enabled and execute fingerprint generation only when
+`CARGO_FEATURE_AOT_LOAD` is present. This removes the conditional unused-dependency warning without
+suppressing diagnostics, deleting the AOT hasher or changing dependency activation. Default SDK,
+AOT-load-only and featureless library checks plus workspace all-target Clippy pass without that
+warning. Structure, formatting and diff checks pass; no runtime tests or exhaustive matrices are
+required or claimed for this build-script-only change. Affected unpublished AOT build fingerprints
+change with their tracked build-script input; old products are disposable, with no ABI bump.
 
 The 2026-10-13 refresh selects Cranelift 0.136.2, Rowan 0.17.0, mlua 0.12.2,
 SmallVec 1.16.3 and Serde 1.0.229, with their resolved transitive updates.
