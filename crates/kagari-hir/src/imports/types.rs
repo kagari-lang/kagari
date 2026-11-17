@@ -2,6 +2,7 @@
 
 use crate::{
     DeclaredAnalysis,
+    collections::HashMap,
     declarations::{Declaration, DeclarationId},
     hir::item::adt::HostContract,
     imports::{SourceDeclRef, SourceItem, SourceUnit},
@@ -11,10 +12,7 @@ use crate::{
     types::{NominalType, TypeId},
 };
 
-use std::{
-    cell::RefCell,
-    collections::{BTreeMap, HashMap},
-};
+use std::{cell::RefCell, collections::BTreeMap};
 use {
     kagari_common::{
         cancellation::{CancellationToken, Cancelled},
@@ -354,7 +352,7 @@ impl<'a> TypeCatalog<'a> {
         if self.surfaces.borrow().is_some() {
             return Ok(());
         }
-        let mut initial = HashMap::new();
+        let mut initial = HashMap::default();
         for module in self.modules.values() {
             for item in &module.lowered.module.traits {
                 cancel.check()?;

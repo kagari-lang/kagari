@@ -1,6 +1,7 @@
 //! Mutable fixed-point preparation; immutable publication contains no pending edges.
 use crate::imports::environment::{ImportEnvironment, ModuleScope};
 use crate::{
+    collections::{HashMap, HashSet},
     hir::{item::function::FunctionKind, ty::TypeKind},
     imports::{
         BindingCandidate, BindingOrigin, LocalName, ModuleGraph, ModuleImportFacts, ModuleNode,
@@ -24,7 +25,7 @@ use kagari_source::{
 };
 use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     iter,
     sync::Arc,
 };
@@ -163,7 +164,7 @@ impl ModuleGraph {
                 .push(*identity);
         }
         let mut nodes = BTreeMap::new();
-        let mut source_facts = HashMap::new();
+        let mut source_facts = HashMap::default();
         for (unit, mut facts) in resolved {
             cancel.check()?;
             let identity = &unit.module;

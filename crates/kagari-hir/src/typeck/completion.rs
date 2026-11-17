@@ -2,6 +2,7 @@
 //! a returning block does not produce Unit at the function's fallthrough boundary.
 
 use crate::{
+    collections::HashMap,
     hir::{
         expr::{ExprKind, MatchArm, ops::BinaryOp},
         ids::{BlockId, ExprId, PlaceId, StmtId},
@@ -13,7 +14,7 @@ use crate::{
     resolver::resolved::ResolvedNames,
     typeck::table::TypeTable,
 };
-use std::{collections::HashMap, iter};
+use std::iter;
 
 use kagari_common::cancellation::{CancellationToken, Cancelled};
 
@@ -152,7 +153,7 @@ impl<'a> CompletionCache<'a> {
             nodes,
             names,
             types,
-            facts: HashMap::new(),
+            facts: HashMap::default(),
         }
     }
 
@@ -291,7 +292,7 @@ impl<'a> Completion<'a> {
 
     /// Evaluates normal/break exits with a work stack and per-traversal memoized node facts.
     fn run<'b>(&'b self, first: Task<'b>) -> Result<Exits, Cancelled> {
-        self.run_cached(first, &mut HashMap::new())
+        self.run_cached(first, &mut HashMap::default())
     }
 
     fn run_cached<'b>(

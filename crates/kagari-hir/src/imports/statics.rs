@@ -2,6 +2,7 @@
 
 use crate::{
     PreparedSignatures,
+    collections::HashMap,
     declarations::Declaration,
     hir::writeability::Writeability,
     identity_mapping::map_hash_entries,
@@ -18,7 +19,6 @@ use kagari_common::{
     },
 };
 use kagari_source::identity::FileId;
-use std::collections::HashMap;
 
 /// A canonical foreign runtime cell contract; importing never evaluates its initializer.
 #[derive(Debug, Clone, PartialEq, Eq)]

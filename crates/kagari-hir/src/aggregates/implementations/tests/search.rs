@@ -51,7 +51,7 @@ fn bounded_trait_search_reuses_generic_matching_and_stops_growth() {
     let required = applied(actual.clone());
     let cancel = CancellationToken::default();
     let fresh_cancel = CancellationToken::default();
-    let assumptions = GenericBounds::new();
+    let assumptions = GenericBounds::default();
     let search = |max_checks, max_depth, cancel| ImplementationSearchContext {
         assumptions: &assumptions,
         limits: ImplementationSearchLimits {
@@ -339,7 +339,8 @@ fn bounded_trait_search_reuses_generic_matching_and_stops_growth() {
             associated_types: Default::default(),
         }],
     )]
-    .into();
+    .into_iter()
+    .collect();
     let cancel = CancellationToken::default();
     let search = ImplementationSearchContext {
         assumptions: &assumptions,

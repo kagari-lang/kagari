@@ -1,6 +1,7 @@
 //! Checked rebuilding of identity-bearing analysis indexes.
+use crate::collections::HashMap;
 use kagari_common::identity::mapping::DefinitionMappingError;
-use std::{collections::HashMap, hash::Hash};
+use std::hash::Hash;
 
 pub(crate) fn map_hash_entries<K: Eq + Hash, V>(
     count: usize,
@@ -9,7 +10,7 @@ pub(crate) fn map_hash_entries<K: Eq + Hash, V>(
     if count > 1_000_000 {
         return Err(DefinitionMappingError::LimitExceeded);
     }
-    let mut result = HashMap::with_capacity(count);
+    let mut result = HashMap::with_capacity_and_hasher(count, Default::default());
     for entry in entries {
         let (key, value) = entry?;
         if result.insert(key, value).is_some() {

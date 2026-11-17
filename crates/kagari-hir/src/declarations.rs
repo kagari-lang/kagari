@@ -5,6 +5,7 @@ use kagari_types::{
 };
 
 use crate::{
+    collections::HashMap,
     hir::item::adt::HostContract,
     hir::{
         ids::{
@@ -46,7 +47,7 @@ use kagari_common::{
 };
 use kagari_source::{identity::FileSpan, source::SourceFile};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -229,9 +230,9 @@ impl Declarations {
             analysis,
             definitions: context.snapshot(),
             context: context.clone(),
-            targets: HashMap::new(),
-            identities: HashMap::new(),
-            impl_identities: HashMap::new(),
+            targets: HashMap::default(),
+            identities: HashMap::default(),
+            impl_identities: HashMap::default(),
             host_types: lowered
                 .module
                 .native_types
@@ -261,7 +262,7 @@ impl Declarations {
             map: &lowered.source_map,
             cancel,
             result: Self::empty(lowered, names, context),
-            occurrences: HashMap::new(),
+            occurrences: HashMap::default(),
         };
         let module = &lowered.module;
         let map = &lowered.source_map;
@@ -603,7 +604,7 @@ impl Declarations {
             map: &lowered.source_map,
             cancel,
             result: self,
-            occurrences: HashMap::new(),
+            occurrences: HashMap::default(),
         };
         for binding in names.bindings() {
             if cancel.check().is_err() {

@@ -1,6 +1,7 @@
 //! Callable and static contracts tied to one lowered module and semantic environment.
 
 use crate::{
+    collections::HashMap,
     hir::item::function::NativeContract,
     hir::{
         ids::{BodyOwner, FunctionId, HirOwner, ParamId, StaticId},
@@ -9,7 +10,6 @@ use crate::{
     types::{GenericParameterType, NominalType, TypeId},
 };
 use smallvec::SmallVec;
-use std::collections::HashMap;
 
 mod mapping;
 

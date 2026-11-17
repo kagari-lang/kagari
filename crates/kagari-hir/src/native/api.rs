@@ -3,6 +3,7 @@ mod correspondence;
 pub(crate) mod preparation;
 
 use crate::{
+    collections::HashSet,
     hir::{
         ids::FunctionId,
         item::{
@@ -46,7 +47,7 @@ use kagari_types::{
     },
 };
 use std::collections::BTreeSet;
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 
 /// Attaches trusted registration facts to a fresh lowering, never to a copied ID map.
 fn attach(
@@ -392,7 +393,7 @@ pub(crate) fn dependencies(
 ) -> Result<BTreeSet<ModuleIdentity>, DeclarationError> {
     let definition = metadata.records();
     let definitions = metadata.definitions();
-    let mut imports = HashSet::new();
+    let mut imports = HashSet::default();
     let referenced: HashSet<_> = lowered
         .module
         .nodes

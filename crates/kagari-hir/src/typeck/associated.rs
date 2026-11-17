@@ -2,6 +2,7 @@
 
 use crate::{
     aggregates::traits::trait_inheritance_closure,
+    collections::HashSet,
     declarations::{DeclarationId, Declarations},
     hir::item::{
         Module,
@@ -23,7 +24,7 @@ use kagari_common::{
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use smallvec::SmallVec;
-use std::{cell::RefCell, collections::HashSet};
+use std::cell::RefCell;
 
 pub(super) fn prepare(
     lowered: &LoweredModule,
@@ -40,7 +41,7 @@ pub(super) fn prepare(
         .with_span(lowered.source_map.type_span(item.name_ref))
     };
     for item in &lowered.module.traits {
-        let mut names = HashSet::new();
+        let mut names = HashSet::default();
         for member in &item.associated_types {
             let DeclarationId::Definition(member_id) = declarations
                 .associated_type(member.name_ref)
@@ -55,7 +56,7 @@ pub(super) fn prepare(
             if member.ty.is_some() {
                 diagnostics.push(error(member, "associated type defaults are not supported"));
             }
-            let mut parameter_names = HashSet::new();
+            let mut parameter_names = HashSet::default();
             for parameter in &member.generic_params {
                 if !parameter_names.insert(&parameter.name) {
                     diagnostics.push(error(member, "duplicate generic parameter"));
@@ -139,7 +140,7 @@ pub(super) fn prepare(
                 .with_span(lowered.source_map.type_span(reference.ty)),
             );
         }
-        let mut names = HashSet::new();
+        let mut names = HashSet::default();
         for member in &item.associated_types {
             let DeclarationId::Definition(member_id) = declarations
                 .associated_type(member.name_ref)
@@ -179,7 +180,7 @@ pub(super) fn prepare(
                     "generic parameter count differs from the trait declaration",
                 ));
             }
-            let mut parameter_names = HashSet::new();
+            let mut parameter_names = HashSet::default();
             for parameter in &member.generic_params {
                 if !parameter_names.insert(&parameter.name) {
                     diagnostics.push(error(member, "duplicate generic parameter"));

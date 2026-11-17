@@ -3,6 +3,7 @@
 use crate::{
     DiagnosticBuffer,
     aggregates::{AggregateCatalog, implementations::ImplementationSearchError},
+    collections::HashSet,
     declarations::{DeclarationId, Declarations},
     hir::item::{
         Item,
@@ -33,7 +34,6 @@ use kagari_types::{
     },
     ty::{GenericParam, Ty},
 };
-use std::collections::HashSet;
 
 #[cfg(test)]
 mod tests;
@@ -184,7 +184,7 @@ fn validate_operation(
         ty.instantiate(&substitution)
             .with_associated_types(&interface, &receiver)
     };
-    let mut method_bounds = GenericBounds::new();
+    let mut method_bounds = GenericBounds::default();
     for (parameter, constraints) in &method.bounds {
         let parameter = apply(parameter);
         let constraints = constraints
@@ -218,7 +218,7 @@ fn validate_operation(
     )?;
     applications::validate_requirements(
         context,
-        &[(receiver, vec![interface])].into(),
+        &[(receiver, vec![interface])].into_iter().collect(),
         self_identity,
         available,
         span,
@@ -530,7 +530,9 @@ pub(super) fn validate(
             && let (Some(result), TypeId::Trait(interface)) =
                 (&contract.concrete_result, &signature.return_type)
         {
-            let required = [(raise_type(result), vec![interface.clone()])].into();
+            let required = [(raise_type(result), vec![interface.clone()])]
+                .into_iter()
+                .collect();
             if let Err(ImplementationSearchError::LimitExceeded) =
                 applications::validate_requirements(
                     ApplicationContext {

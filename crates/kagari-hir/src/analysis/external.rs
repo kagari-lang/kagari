@@ -10,6 +10,7 @@ use crate::{
         error::AnalysisError,
         source_preparation::{self, ParsedModule, SourceParseCache, SourcePreparer},
     },
+    collections::HashSet,
     hir::item::function::{Function, FunctionImplementation, FunctionKind, NativeContract},
     lower::LoweredModule,
 };
@@ -29,7 +30,7 @@ use kagari_types::{
     },
 };
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
 
@@ -272,7 +273,7 @@ impl AnalysisDatabase {
         cancel: &CancellationToken,
     ) -> Result<BTreeMap<FileId, (ParsedModule, Arc<LoweredModule>)>, AnalysisError> {
         let mut files = BTreeMap::new();
-        let mut identities = HashSet::new();
+        let mut identities = HashSet::default();
         for input in &self.external_modules {
             cancel.check()?;
             let mut cache = SourceParseCache::default();

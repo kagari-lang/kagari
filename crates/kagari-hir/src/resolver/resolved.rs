@@ -2,6 +2,7 @@
 
 use crate::{
     builtin::BuiltinFunction,
+    collections::HashMap,
     hir::{
         ids::{
             BodyOwner, ConstId, EnumId, ExprId, FunctionId, LocalId, ModuleId, NativeTypeId,
@@ -14,7 +15,7 @@ use crate::{
     imports::{ModuleImportFacts, NamespaceId, SourceDeclRef, catalog::NamespaceCatalog},
     resolver::table::NameTable,
 };
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 /// One canonical lexical declaration in the matching lowering, including unused binders.
 #[derive(Debug, Clone)]
@@ -145,12 +146,12 @@ impl ResolvedNames {
             imports,
             catalog,
             items,
-            bindings: HashMap::new(),
-            exprs: HashMap::new(),
-            places: HashMap::new(),
-            qualified_members: HashMap::new(),
-            pattern_variants: HashMap::new(),
-            closure_captures: HashMap::new(),
+            bindings: HashMap::default(),
+            exprs: HashMap::default(),
+            places: HashMap::default(),
+            qualified_members: HashMap::default(),
+            pattern_variants: HashMap::default(),
+            closure_captures: HashMap::default(),
         }
     }
 

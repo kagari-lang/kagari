@@ -2,6 +2,7 @@
 
 use crate::{
     builtin::BuiltinFunction,
+    collections::{HashMap, HashSet},
     hir::{
         expr::{ClosureParam, Condition, ExprKind},
         ids::{
@@ -22,10 +23,7 @@ use crate::{
 use kagari_types::declaration::names::NameNamespace;
 
 use kagari_common::cancellation::CancellationToken;
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 /// Disposable semantic frame; snapshots freeze named-local-function environments.
 #[derive(Clone)]
@@ -64,7 +62,7 @@ impl<'a> BodyResolver<'a> {
             resolved: ResolvedNames::new(names.clone(), imports, catalog),
             scopes: Vec::new(),
             closures: Vec::new(),
-            local_scopes: HashMap::new(),
+            local_scopes: HashMap::default(),
         }
     }
 
@@ -506,7 +504,7 @@ impl<'a> BodyResolver<'a> {
     fn push_scope(&mut self, owner: BodyOwner) {
         self.scopes.push(ActiveScope {
             owner,
-            latest: HashMap::new(),
+            latest: HashMap::default(),
         });
     }
 

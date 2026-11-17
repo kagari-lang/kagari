@@ -735,6 +735,7 @@ dependencies = [
  "kagari-syntax",
  "kagari-types",
  "rstest",
+ "rustc-hash",
  "serde",
  "serde_json",
  "smallvec",

@@ -3,6 +3,7 @@
 //! name resolution supplies identities while this stage validates type compatibility.
 
 use crate::{
+    collections::{HashMap, HashSet},
     hir::{
         expr::MatchArm,
         ids::{LocalId, PatternId},
@@ -16,7 +17,7 @@ use crate::{
 use kagari_common::span::Span;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{declaration::names::NameNamespace, scalar::BuiltinType};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 
 mod declarations;
 mod enums;
@@ -249,7 +250,7 @@ impl<'a> BodyChecker<'a> {
                     return;
                 }
                 let mut identities = Vec::new();
-                let mut seen = HashSet::new();
+                let mut seen = HashSet::default();
                 for field in fields {
                     if !seen.insert(field.name.clone()) {
                         self.diagnostics.push(
@@ -352,7 +353,7 @@ impl<'a> BodyChecker<'a> {
         &self,
         pattern: PatternId,
     ) -> (HashMap<String, LocalId>, bool) {
-        let mut names = HashMap::new();
+        let mut names = HashMap::default();
         let mut duplicate = false;
         let mut work = vec![pattern];
         while let Some(pattern) = work.pop() {

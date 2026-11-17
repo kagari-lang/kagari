@@ -5,6 +5,7 @@
 
 use crate::{
     CheckedAnalysis,
+    collections::HashMap,
     declarations::DeclarationId,
     hir::ids::{BodyOwner, HirOwner},
     resolver::resolved::ResolvedName,
@@ -20,7 +21,6 @@ use kagari_common::{
 };
 use kagari_syntax::{lexer::lex_with_cancellation, token::TokenKind};
 use kagari_types::ty::Ty;
-use std::collections::HashMap;
 
 mod facts;
 mod order;

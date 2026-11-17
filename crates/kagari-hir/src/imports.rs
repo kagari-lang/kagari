@@ -1,5 +1,6 @@
 //! Immutable import syntax, scope bindings and qualified namespace identities.
 use crate::{
+    collections::{HashMap, HashSet},
     hir::ids::{
         ConstId, EnumId, FunctionId, LoweringId, ModuleId, NativeTypeId, StaticId, StructId,
         TraitId, TypeAliasId, VariantId,
@@ -18,7 +19,7 @@ use kagari_source::{
 };
 use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
 

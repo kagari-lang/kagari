@@ -2,6 +2,7 @@
 
 use crate::{
     CheckedAnalysis,
+    collections::HashMap,
     declarations::DeclarationId,
     hir::{
         expr::ExprKind,
@@ -19,7 +20,6 @@ use kagari_common::{
     span::Span,
 };
 use kagari_types::ty::{GenericParam, Ty};
-use std::collections::HashMap;
 
 impl BodyBuilder {
     fn reference(

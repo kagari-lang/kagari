@@ -1,9 +1,8 @@
 //! Checked constant prerequisites reused by imports and function-body analysis.
 
-use std::collections::HashMap;
-
 use crate::{
     DiagnosticBuffer,
+    collections::HashMap,
     hir::ids::ConstId,
     identity_mapping::map_hash_entries,
     typeck::{scalar::ScalarValue, table::TypeTable},

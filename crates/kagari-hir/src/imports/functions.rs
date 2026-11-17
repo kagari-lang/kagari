@@ -3,13 +3,13 @@
 use crate::{
     PreparedSignatures,
     aggregates::AggregateCatalog,
+    collections::HashMap,
     declarations::Declaration,
     imports::{SourceDeclRef, SourceItem},
     resolver::resolved::{DeclarationNames, ResolvedName},
     semantic::signatures::TypedFunction,
 };
 
-use std::collections::HashMap;
 use {
     kagari_common::{
         cancellation::{CancellationToken, Cancelled},

@@ -1,15 +1,13 @@
 //! Retained body facts and shared signature contracts, with no checking workspace.
 
 use crate::{
+    collections::{HashMap, HashSet},
     hir::ids::{ConstId, FunctionId, StaticId},
     semantic::signatures::BodySignatures,
     typeck::{scalar::ScalarValue, table::TypeTable},
     types::TypeId,
 };
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 mod mapping;
 

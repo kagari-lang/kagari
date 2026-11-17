@@ -1,3 +1,4 @@
+use crate::collections::HashSet;
 use crate::types::*;
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, map::DefinitionContext, table::DefinitionId,
@@ -44,10 +45,7 @@ fn nominal_identity_includes_kind_declaration_and_ordered_type_arguments() {
         TypeId::Struct(foreign),
         TypeId::Struct(bare),
     ];
-    let set = types
-        .iter()
-        .cloned()
-        .collect::<std::collections::HashSet<_>>();
+    let set = types.iter().cloned().collect::<HashSet<_>>();
     assert_eq!(set.len(), types.len());
     assert_eq!(
         TypeId::Struct(a).display_name(&context.snapshot()),

@@ -22,6 +22,7 @@
 use crate::{
     AnalysisResult,
     aggregates::AggregateCatalog,
+    collections::HashMap,
     declarations::Declarations,
     hir::{
         ids::{BodySelection, ConstId, ExprId, LocalId, ParamId, StaticId},
@@ -69,7 +70,7 @@ pub(crate) mod signature_reuse;
 pub mod table;
 mod ty;
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 /// Semantic subject type to required applied traits; keys retain binder identity.
 pub type GenericBounds = HashMap<TypeId, Vec<NominalType>>;

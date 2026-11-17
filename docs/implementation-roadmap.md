@@ -724,6 +724,37 @@ platform coverage remain CI-only and pending; local acceptance is not a full CI 
 reuse/reclamation and LSP scheduling. [Native frontend ownership](#native-model-replacement) is
 implemented; broader Native products and NC restoration retain their separate follow-up owners.
 
+### HIR hash collection policy
+
+HIR now uses centralized `HashMap`/`HashSet` aliases backed by `rustc-hash` 2.1.3, including
+string and structural type keys, as requested. Existing ordered collections and other crates'
+hash policies are unchanged. The shared `type_valid` validator accepts a caller-selected
+BuildHasher, and the compiler constructs HIR GenericBounds through Default; these are boundary
+adaptations, not migrations of those crates' own maps. No feature, per-engine policy or measured
+performance gain is included in this checkpoint.
+
+[The HIR policy owner](architecture/hir.md#hash-collection-policy) records trusted-input assumptions,
+unspecified iteration and the matching Rust mechanism. Adversarial-input/HashDoS treatment is
+explicitly deferred: it must assess source, identity interning, structural keys and source-free
+verification entrypoints, rather than treating randomized Fx seeds or a Cargo feature as a security
+boundary. Preserve validation/cancellation and canonical output order during future changes.
+
+Selected local validation passes: HIR all-target checking; 40 HIR import-solver, substitution,
+constraint, signature/declaration-cache, identity and compiler-admission tests (one existing explicit
+measurement test remains ignored); four HIR doctests; 10 compiler source-package/source-free-visibility
+tests; five SDK session/installation tests; structure, workspace formatting, workspace all-target Clippy
+and diff checks. No full-workspace tests or exhaustive matrices ran. The existing optional blake3
+Cargo manifest warning remains. Embedded Kagari source, literals and comments were preserved.
+
+One analyzer selection has 23 passes and one unresolved failure:
+`cargo test -p kagari-analyzer --lib query_tests::native_facade::facade_bindings_keep_offline_host_identity_queries_and_revision_invalidation -- --exact`
+fails at native_facade.rs:121 with `NativeApi(DeclarationError("missing registered native identity"))`.
+A temporary control changing only the centralized aliases back to std RandomState reproduces the
+same failure; Fx was restored afterward. This rules out the hasher choice as the cause of that
+failure, but does not diagnose its registration/identity root cause. Its analyzer/Native-input owner
+must investigate it separately; assertions and production registration behavior were not changed
+in this hash-policy task. The initially timed-out compiler/SDK selections were rerun and passed.
+
 ## Compilation cancellation polling
 
 Coarse syntax checkpoints and the unified `parse(source, options, cancel)` API

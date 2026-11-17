@@ -5,6 +5,7 @@ use crate::imports::environment::ImportEnvironment;
 use crate::tests::cancellation::{Checkpoint, checkpoint};
 
 use crate::{
+    collections::{HashMap, HashSet},
     imports::{
         BindingCandidate, BindingOrigin, DirectiveId, NamespaceId, ResolvedTarget, SourceDeclRef,
         SourceUnit, bindings::LookupOutcome, cache::same_name_tables, solver::Observation,
@@ -24,7 +25,7 @@ use kagari_source::package::PackageEnvironment;
 use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
 
@@ -165,7 +166,7 @@ impl NamespaceCatalog {
             definitions,
             packages,
             modules: BTreeMap::new(),
-            namespaces: HashMap::new(),
+            namespaces: HashMap::default(),
             module_dependencies: BTreeMap::new(),
             environment: Default::default(),
         }
@@ -418,7 +419,7 @@ impl NamespaceCatalog {
                     return Ok(LookupResult::Inaccessible(vec![]));
                 }
                 let root = LookupResult::Found(LookupHit {
-                    support: HashSet::new(),
+                    support: HashSet::default(),
                     namespace: NameNamespace::Type,
                     target: ResolvedTarget::Namespace(NamespaceId::Module(units[0].clone())),
                     via: vec![],
@@ -443,7 +444,7 @@ impl NamespaceCatalog {
             return self.resolve_path(
                 ctx,
                 LookupResult::Found(LookupHit {
-                    support: HashSet::new(),
+                    support: HashSet::default(),
                     namespace: NameNamespace::Type,
                     target: ResolvedTarget::Namespace(prefix),
                     via: vec![],
@@ -498,7 +499,7 @@ impl NamespaceCatalog {
         cancel: &CancellationToken,
     ) -> Result<HashSet<SourceDeclRef>, Cancelled> {
         let Some(unit) = names.unit.as_ref() else {
-            return Ok(HashSet::new());
+            return Ok(HashSet::default());
         };
         let ctx = LookupContext {
             importer: &unit.module,
@@ -517,8 +518,8 @@ impl NamespaceCatalog {
                 })
             })
             .collect::<Vec<_>>();
-        let mut seen = HashSet::new();
-        let mut sources = HashSet::new();
+        let mut seen = HashSet::default();
+        let mut sources = HashSet::default();
         self.add_package_namespaces(&ctx, &mut pending, cancel)?;
         while let Some(target) = pending.pop() {
             cancel.check()?;
@@ -722,7 +723,7 @@ impl NamespaceCatalog {
         {
             return Ok(false);
         }
-        let mut seen = HashSet::new();
+        let mut seen = HashSet::default();
         while let Some(target) = pending.pop() {
             #[cfg(test)]
             checkpoint(Checkpoint::Namespaces);

@@ -1,6 +1,7 @@
 //! Cache semantic facts by source content, remapping lowering-local IDs on reuse.
 
 use crate::{
+    collections::HashSet,
     hir::{
         ids::FunctionId,
         item::function::{Function, FunctionKind},
@@ -12,7 +13,6 @@ use crate::{
 use kagari_common::span::Span;
 use kagari_source::diagnostic::Diagnostic;
 use kagari_syntax::{lexer, token::Token};
-use std::collections::HashSet;
 
 /// Prior body facts plus old/new text used to attempt lowering-aware reuse.
 ///

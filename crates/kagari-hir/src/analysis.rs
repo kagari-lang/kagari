@@ -25,6 +25,7 @@ use crate::{
         source_preparation::{ParsedModule, SourceParseCache},
     },
     analyze_parsed,
+    collections::HashMap,
     declarations::{Declaration, DeclarationId},
     imports::ModuleGraph,
     native::{api::preparation::NativeFiles, render::DeclarationSource},
@@ -49,7 +50,7 @@ use kagari_syntax::{ast::module::ModuleSyntax, parser::ParseLimits};
 use kagari_types::declaration::module::{DeclarationError, ModuleDecl};
 use std::{
     cell::OnceCell,
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     sync::{Arc, Weak},
 };
 
@@ -208,9 +209,9 @@ impl AnalysisDatabase {
             source_parse_cache: SourceParseCache::default(),
             declaration_cache: None,
             signature_cache: None,
-            files: HashMap::new(),
+            files: HashMap::default(),
             latest_revision: Revision::default(),
-            inline_ids: HashMap::new(),
+            inline_ids: HashMap::default(),
             import_environment: Default::default(),
             native_modules: vec![],
             native_sources: None,
@@ -329,7 +330,7 @@ impl AnalysisDatabase {
             .iter()
             .filter_map(|(id, file)| file.upgrade().map(|file| (*id, file)))
             .collect::<HashMap<_, _>>();
-        let mut files = HashMap::new();
+        let mut files = HashMap::default();
         for (id, (file, parsed, scoped_prepared)) in signatures {
             cancel.check()?;
             let prepared = scoped_prepared;

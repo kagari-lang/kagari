@@ -1,5 +1,6 @@
 //! Exact references retain a selected exposure without bypassing catalog access checks.
 use crate::{
+    collections::HashSet,
     hir::ty::DefinitionExposure,
     imports::{
         NamespaceId, ResolvedTarget,
@@ -11,7 +12,7 @@ use kagari_common::{
     identity::table::{DefinitionId, DefinitionTable, module::ModuleHandle},
 };
 use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 
 /// Unchecked exact identity and optional authored/selected route in the current scope.
 pub(crate) struct DefinitionLookup<'a> {
@@ -104,7 +105,7 @@ impl NamespaceCatalog {
             return Ok(None);
         };
         let root = LookupResult::Found(LookupHit {
-            support: HashSet::new(),
+            support: HashSet::default(),
             namespace: NameNamespace::Type,
             target: ResolvedTarget::Namespace(NamespaceId::Module(unit.clone())),
             via: vec![],
@@ -169,7 +170,7 @@ impl NamespaceCatalog {
             };
             pending.push_back((NamespaceId::Module(unit), exposure));
         }
-        let mut seen = HashSet::new();
+        let mut seen = HashSet::default();
         let mut selected: Option<DefinitionSelection> = None;
         while let Some((ns, exposure)) = pending.pop_front() {
             cancel.check()?;

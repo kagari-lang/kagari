@@ -1,5 +1,5 @@
 use crate::analysis::*;
-use crate::{declarations::DeclarationId, tests::test_analysis};
+use crate::{collections::HashSet, declarations::DeclarationId, tests::test_analysis};
 use kagari_common::{
     identity::{DefinitionKind, MAX_IDENTITY_PATH_SEGMENTS, ModuleIdentity, PackageId},
     span::Span,
@@ -173,7 +173,7 @@ fn declaration_paths_distinguish_kinds_duplicates_and_method_owners() {
     let ids = declarations
         .iter()
         .map(|decl| &decl.id)
-        .collect::<std::collections::HashSet<_>>();
+        .collect::<HashSet<_>>();
     assert_eq!(declarations.len(), ids.len());
     assert_eq!(
         declarations
@@ -199,7 +199,7 @@ fn declaration_paths_distinguish_kinds_duplicates_and_method_owners() {
                 .unwrap();
             (segment.kind, segment.occurrence)
         })
-        .collect::<std::collections::HashSet<_>>();
+        .collect::<HashSet<_>>();
     assert_eq!(
         same,
         [

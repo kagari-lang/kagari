@@ -5,6 +5,7 @@
 use crate::{
     AnalysisResult,
     aggregates::{AggregateCatalog, traits::MethodSignature},
+    collections::{HashMap, HashSet},
     declarations::Declarations,
     hir::{
         ids::{BodyOwner, BodySelection, HirOwner},
@@ -46,7 +47,6 @@ use kagari_common::{
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind, Severity, TypePosition};
 use kagari_types::scalar::BuiltinType;
 use smallvec::SmallVec;
-use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 mod constants;
@@ -108,7 +108,7 @@ pub(crate) fn check_signatures(
         cancel,
     );
 
-    let mut type_bounds = HashMap::new();
+    let mut type_bounds = HashMap::default();
     for (target, params) in lowered
         .module
         .structs
@@ -150,7 +150,7 @@ pub(crate) fn check_signatures(
                 .map(|item| (&item.name, &item.generic_params, &item.fields)),
         )
     {
-        let mut field_names = HashSet::new();
+        let mut field_names = HashSet::default();
         for field in fields {
             cancel.check()?;
             if !field_names.insert(&field.name) {
@@ -509,7 +509,7 @@ pub(crate) fn check_bodies_controlled(
         aggregates,
     } = inputs;
     let reuse = reuse.filter(|reuse| reuse.environment_matches(lowered));
-    let mut valid_bodies = HashSet::new();
+    let mut valid_bodies = HashSet::default();
     let mut checked_bodies = 0;
     let mut reused_bodies = 0;
     let mut diagnostics = if matches!(selection, BodySelection::All) {
@@ -575,7 +575,7 @@ pub(crate) fn check_bodies_controlled(
                         receiver: None,
                     },
                     &ty,
-                    &HashMap::new(),
+                    &HashMap::default(),
                     lowered.source_map.type_span(ty_ref),
                     &mut diagnostics,
                     cancel,

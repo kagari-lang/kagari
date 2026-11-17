@@ -2,6 +2,7 @@
 
 use crate::{
     DeclaredAnalysis,
+    collections::{HashMap, HashSet},
     declarations::{DeclarationId, Declarations},
     hir::{
         ids::TypeRefId,
@@ -18,7 +19,6 @@ use kagari_common::{
     identity::table::DefinitionId,
 };
 use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
-use std::collections::{HashMap, HashSet};
 
 /// A transparent target template with canonical declaration-owned binders.
 ///
@@ -67,7 +67,7 @@ impl CanonicalAlias {
 
 impl TypeCatalog<'_> {
     pub(super) fn prepare_aliases(&self, cancel: &CancellationToken) -> Result<(), Cancelled> {
-        let mut owners = HashMap::new();
+        let mut owners = HashMap::default();
         for module in self.modules.values() {
             for alias in &module.lowered.module.type_aliases {
                 cancel.check()?;
@@ -83,9 +83,9 @@ impl TypeCatalog<'_> {
         // Classify dependency depth independently of DFS/cache order. Each round
         // admits exactly one declaration level; unresolved vertices after 64
         // rounds are cyclic or depend on a path longer than the declared limit.
-        let mut dependencies = HashMap::new();
+        let mut dependencies = HashMap::default();
         for (&id, &(module, alias)) in &owners {
-            let mut edges = HashSet::new();
+            let mut edges = HashSet::default();
             for reference in alias_references(&module.lowered.module, alias, cancel)? {
                 let (TypeKind::Named(name) | TypeKind::Generic { name, .. }) =
                     &module.lowered.module.type_ref(reference).kind
@@ -105,7 +105,7 @@ impl TypeCatalog<'_> {
             }
             dependencies.insert(id, edges);
         }
-        let mut admitted = HashSet::new();
+        let mut admitted = HashSet::default();
         for _ in 0..64 {
             cancel.check()?;
             let ready = dependencies
@@ -133,7 +133,7 @@ impl TypeCatalog<'_> {
         let mut pending = owners.keys().copied().collect::<Vec<_>>();
         pending.sort();
         for id in pending {
-            self.prepare_alias(id, &owners, &mut HashSet::new(), cancel)?;
+            self.prepare_alias(id, &owners, &mut HashSet::default(), cancel)?;
         }
         Ok(())
     }

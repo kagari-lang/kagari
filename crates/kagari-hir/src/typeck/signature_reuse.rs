@@ -1,10 +1,10 @@
 //! Reuse checked signatures after body edits, rebasing all source-local type IDs.
-use std::collections::HashMap;
 
 use kagari_common::{cancellation::CancellationToken, span::Span};
 
 use crate::{
     AnalysisResult,
+    collections::HashMap,
     hir::item::function::{FunctionImplementation, FunctionKind},
     lower::LoweredModule,
 };
@@ -214,7 +214,7 @@ pub(crate) fn reuse_signatures(
     }
     // Declaration order is unchanged. Body-local type annotations, however, may
     // change both the lengths and indices of the shared type-syntax tables.
-    let mut old_types: HashMap<_, Vec<_>> = HashMap::new();
+    let mut old_types: HashMap<_, Vec<_>> = HashMap::default();
     for (index, span) in previous.source_map.type_spans().iter().enumerate() {
         cancel.check().ok()?;
         if let Some(key) = old.span(*span) {
@@ -224,7 +224,7 @@ pub(crate) fn reuse_signatures(
                 .push(previous.source_map.type_id(index));
         }
     }
-    let mut new_types: HashMap<_, Vec<_>> = HashMap::new();
+    let mut new_types: HashMap<_, Vec<_>> = HashMap::default();
     for (index, span) in current.source_map.type_spans().iter().enumerate() {
         cancel.check().ok()?;
         if let Some(key) = new.span(*span) {
@@ -237,7 +237,7 @@ pub(crate) fn reuse_signatures(
     if old_types.len() != new_types.len() {
         return None;
     }
-    let mut ids = HashMap::new();
+    let mut ids = HashMap::default();
     for (span, old_ids) in old_types {
         cancel.check().ok()?;
         let new_ids = new_types.remove(&span)?;
@@ -276,7 +276,7 @@ pub(crate) fn reuse_signatures(
             param.id = new.id;
         }
     }
-    let mut fields = HashMap::new();
+    let mut fields = HashMap::default();
     if previous.module.structs.len() != current.module.structs.len()
         || previous.module.native_types.len() != current.module.native_types.len()
     {

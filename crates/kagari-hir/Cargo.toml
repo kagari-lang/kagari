@@ -12,6 +12,7 @@ kagari-source.workspace = true
 kagari-common.workspace = true
 kagari-syntax.workspace = true
 serde.workspace = true
+rustc-hash.workspace = true
 smallvec.workspace = true
 thiserror.workspace = true
 

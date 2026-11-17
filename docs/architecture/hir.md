@@ -152,6 +152,29 @@ scoped IDs and use the analysis context for cache keys; callers with an external
 path explicitly look it up in the relevant declaration snapshot first. Source,
 revision and dependency checks still govern reuse.
 
+## Hash collection policy
+
+[HIR collection aliases](../../crates/kagari-hir/src/collections.rs) own the hasher choice for
+HIR's `HashMap` and `HashSet`, including name/type keys, semantic indexes and analysis caches.
+They currently use `rustc-hash` 2.1.3's Fx aliases; no feature or per-engine switch is introduced.
+Public HIR collection types use the same aliases. Future hasher selection belongs at this owner,
+not in scattered semantic modules. This is not a new collection implementation: FxHashMap/FxHashSet
+are standard hash collections with a different BuildHasher. Existing ordered maps/sets stay ordered.
+
+This choice explicitly assumes trusted compilation inputs and is not HashDoS-resistant. A future
+untrusted-input design must cover source names, recursive type keys, shared identity tables and
+independent artifact/tooling entrypoints; changing only an engine flag cannot harden existing maps.
+Other crates keep their own current hash policy. Key scope/generation checks, equality, cancellation
+and work limits remain unchanged, but do not establish adversarial collision resistance.
+
+Iteration stays unspecified. Semantic selection, diagnostic order and portable fingerprints or
+serialized slot ordering must use their actual order owners, not Fx's default seed. Rust's
+[Fx collection owner](https://github.com/rust-lang/rust/blob/1.91.0/compiler/rustc_data_structures/src/fx.rs)
+similarly distinguishes fast hashing from stable/insertion ordering; the
+[rustc-hash documentation](https://docs.rs/rustc-hash/2.1.3/rustc_hash/) states its non-cryptographic
+compiler threat assumption. Kagari retains scoped IDs and explicit canonicalization; no speedup
+is claimed without a workload measurement.
+
 ## Static declaration and initializer ownership
 
 [StaticItem](../../crates/kagari-hir/src/hir/item/storage.rs) belongs to

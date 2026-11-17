@@ -3,6 +3,7 @@
 //! types are finalized; source diagnostics retain unresolved or conflicting uses.
 
 use crate::{
+    collections::HashSet,
     hir::{
         expr::ExprKind,
         ids::{BlockId, ExprId, TypeRefId},
@@ -17,7 +18,6 @@ use crate::{
     types::{GenericParameterType, NominalType, TypeId, TypeSubstitution},
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use std::collections::HashSet;
 
 #[derive(Clone, Copy)]
 enum InferenceRoot {
@@ -223,7 +223,7 @@ impl BodyChecker<'_> {
         // validates all bounds and rejects ambiguity. Keep inference traversal
         // within the same candidate/depth limits as implementation validation.
         let mut pending = vec![(actual.clone(), interface.clone(), 0)];
-        let mut visited = HashSet::new();
+        let mut visited = HashSet::default();
         let mut checks = 0;
         while let Some((actual, interface, depth)) = pending.pop() {
             let actual = self.solver.resolve(&actual);

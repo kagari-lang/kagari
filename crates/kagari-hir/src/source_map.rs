@@ -1,5 +1,6 @@
 //! Allocation-aligned byte ranges and diagnostic/debug origins for lowered HIR.
 
+use crate::collections::HashMap;
 use crate::hir::{
     attribute::AttributeTarget,
     ids::{
@@ -13,7 +14,7 @@ pub mod origin;
 
 use self::origin::OriginTarget;
 use kagari_common::{identity::table::DefinitionId, span::Span};
-use std::{collections::HashMap, mem};
+use std::mem;
 
 /// Source byte ranges and ID allocation state for one [`crate::lower::LoweredModule`].
 ///

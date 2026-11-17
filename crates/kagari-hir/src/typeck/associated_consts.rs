@@ -3,6 +3,7 @@
 use crate::{
     DiagnosticBuffer,
     aggregates::AggregateCatalog,
+    collections::HashSet,
     declarations::Declarations,
     lower::LoweredModule,
     typeck::{
@@ -16,7 +17,6 @@ use crate::{
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind, span::Span};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::scalar::BuiltinType;
-use std::collections::HashSet;
 
 fn error(name: &str, reason: &str, span: Span) -> Diagnostic {
     Diagnostic::error(DiagnosticKind::InvalidAssociatedConst {
@@ -75,7 +75,7 @@ pub(super) fn prepare(
             )
         }));
     for (members, generics, self_type, implementation) in owners {
-        let mut names = HashSet::new();
+        let mut names = HashSet::default();
         for member in members {
             if cancel.check().is_err() {
                 return;
@@ -130,7 +130,7 @@ pub(crate) fn validate(
             .impl_identity(item.id)
             .and_then(|id| catalog.implementation_signature(id))
             .and_then(|signature| catalog.trait_(&signature.trait_type.declaration));
-        let mut defined = HashSet::new();
+        let mut defined = HashSet::default();
         for member in &item.associated_consts {
             let id = contract.and_then(|owner| {
                 declarations.definitions().lookup_child(

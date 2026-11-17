@@ -1,6 +1,7 @@
 //! Checked public namespace edges, canonical types and authored function declarations.
 
 use crate::{
+    collections::HashSet,
     hir::item::function::FunctionKind,
     imports::{
         BindingOrigin, NamespaceId, ResolvedTarget, SourceDeclRef, SourceItem, SourceUnit,
@@ -19,7 +20,7 @@ use kagari_common::{
     },
 };
 use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
 const MAX_EXPORT_RECORDS: usize = 65_536;
 
@@ -100,7 +101,7 @@ impl ProgramExports {
             &root.lowered,
             &catalog.definitions,
         ))];
-        let mut seen = HashSet::new();
+        let mut seen = HashSet::default();
         let mut result = Self::default();
         let mut records = 0usize;
         while let Some(namespace) = pending.pop() {

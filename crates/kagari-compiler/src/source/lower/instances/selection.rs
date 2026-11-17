@@ -142,7 +142,7 @@ impl InstancePlanner<'_> {
         scope: &GenericBounds,
         substitution: &TypeSubstitution,
     ) -> Result<GenericBounds, MirLoweringError> {
-        let mut bounds = GenericBounds::new();
+        let mut bounds = GenericBounds::default();
         for (ty, constraints) in scope {
             let actual = self
                 .catalog

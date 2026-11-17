@@ -2,6 +2,7 @@
 
 use crate::{
     analysis::{error::AnalysisError, records::DeclarationCache},
+    collections::{HashMap, HashSet},
     lower::{LoweredModule, lower_module_controlled},
 };
 use kagari_common::cancellation::{CancellationToken, Cancelled};
@@ -19,7 +20,7 @@ use kagari_syntax::{
     parser::{Parse, ParseLimits, ParseOptions, parse},
 };
 use std::{
-    collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, VecDeque},
     sync::Arc,
 };
 
@@ -264,7 +265,7 @@ pub(super) fn prepare_syntax(
             None => parsed.module(),
         };
         let mut pending = VecDeque::from([(physical.clone(), syntax)]);
-        let mut generated = HashSet::new();
+        let mut generated = HashSet::default();
         let mut logical = Vec::new();
         while let Some((source, syntax)) = pending.pop_front() {
             cancel.check()?;

@@ -3,6 +3,7 @@
 use crate::{
     CheckedAnalysis,
     aggregates::AggregateCatalog,
+    collections::HashMap,
     compile_input::declarations::ConstantValue,
     declarations::Declarations,
     hir::ids::ConstId,
@@ -15,7 +16,6 @@ use crate::{
     types::TypeId,
 };
 use kagari_common::identity::table::{DefinitionId, DefinitionTable};
-use std::collections::HashMap;
 
 /// Borrowed declaration environment of one admitted module.
 ///

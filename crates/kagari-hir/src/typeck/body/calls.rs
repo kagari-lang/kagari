@@ -230,7 +230,7 @@ impl<'a> BodyChecker<'a> {
             .filter(|parameter| !substitution.contains_key(*parameter))
             .cloned()
             .collect::<Vec<_>>();
-        let empty_bounds = GenericBounds::new();
+        let empty_bounds = GenericBounds::default();
         let bounds = function.bounds().unwrap_or(&empty_bounds);
         self.seed_callable_context(callee, function.generic_params(), bounds, &mut substitution);
         self.seed_explicit_arguments(callee, &explicit_parameters, &mut substitution);

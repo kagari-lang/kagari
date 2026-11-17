@@ -1,10 +1,11 @@
 //! Import a provider batch once before attaching its records to source lowering.
+use crate::collections::HashSet;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{map::DefinitionContext, metadata::DefinitionMetadata},
 };
 use kagari_types::declaration::module::{DeclarationError, ModuleDecl};
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 
 /// Return one retained prefix containing all provider references and implicit names.
 /// Identity adoption does not grant declaration, binding or source correspondence evidence.
@@ -17,7 +18,7 @@ pub(crate) fn adopt(
         .check()
         .map_err(|_| DeclarationError("native provider adoption cancelled".into()))?;
     let invalid = |error| DeclarationError(format!("native provider adoption: {error}"));
-    let mut identities = HashSet::new();
+    let mut identities = HashSet::default();
     let mut records = Vec::with_capacity(providers.len());
     for provider in providers {
         if !identities.insert(&provider.records().identity) {

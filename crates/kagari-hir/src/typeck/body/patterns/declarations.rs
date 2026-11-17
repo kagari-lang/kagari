@@ -1,13 +1,12 @@
 //! Declaration-only duplicate-name, writeability and irrefutability checks.
 
 use crate::{
+    collections::HashSet,
     hir::{ids::PatternId, writeability::Writeability},
     typeck::{BodyTypeEnv, body::BodyChecker},
     types::TypeId,
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-
-use std::collections::HashSet;
 
 impl BodyChecker<'_> {
     pub(in crate::typeck::body) fn check_declaration_pattern(
@@ -30,7 +29,7 @@ impl BodyChecker<'_> {
                 .with_span(self.lowered.source_map.pattern_span(pattern)),
             );
         }
-        let mut names = HashSet::new();
+        let mut names = HashSet::default();
         for (local, name) in self.lowered.module.nodes.pattern_bindings(pattern) {
             if !names.insert(name) {
                 self.diagnostics.push(

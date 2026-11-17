@@ -5,6 +5,7 @@
 //! containing document. Named locals are indexed independently of reachability.
 
 use crate::{
+    collections::HashSet,
     compile_input::program::{CheckedCompilation, CheckedModule},
     hir::item::Item,
     resolver::resolved::ResolvedName,
@@ -22,7 +23,7 @@ use kagari_common::{
     span::Span,
 };
 use kagari_source::source::SourceFile;
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 
 const MAX_RECORDS: usize = 1_000_000;
 const MAX_BYTES: usize = 64 * 1024 * 1024;
@@ -73,7 +74,7 @@ pub fn collect_authored_sources(
             documents: Vec::new(),
             declarations: Vec::new(),
         },
-        seen: HashSet::new(),
+        seen: HashSet::default(),
         bytes: 0,
     };
     for module in program.modules() {

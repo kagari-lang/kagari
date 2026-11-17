@@ -3,6 +3,7 @@
 
 use crate::{
     builtin::surface,
+    collections::HashMap,
     hir::{
         expr::{
             ExprKind,
@@ -19,7 +20,6 @@ use kagari_common::{cancellation::CancellationToken, identity::table::Definition
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::scalar::BuiltinType;
 use smallvec::SmallVec;
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ConstVisitState {
@@ -318,7 +318,7 @@ pub(super) fn validate_const_initializers(
         type_table,
         cancel,
         diagnostics,
-        states: HashMap::new(),
+        states: HashMap::default(),
         budget,
     };
     for const_item in &lowered.module.consts {

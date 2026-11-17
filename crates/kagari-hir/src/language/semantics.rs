@@ -3,6 +3,7 @@
 use crate::builtin::surface;
 use crate::{
     aggregates::{AggregateCatalog, implementations::ImplementationSearchLimits},
+    collections::HashSet,
     typeck::GenericBounds,
     types::{NominalType, TypeId},
 };
@@ -16,7 +17,7 @@ use kagari_types::{
     language::{Protocol, binding, role::LangRole},
     scalar::BuiltinType,
 };
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
 /// HIR type views of compiler-recognized protocols whose declarations remain ordinary traits.
 pub trait ProtocolSemantics {
@@ -363,7 +364,7 @@ pub fn intrinsic_holds(
         return catalog.standard_protocol_holds(definitions, protocol, ty, bounds);
     }
     let mut pending = vec![(ty.clone(), 0usize)];
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::default();
     while let Some((ty, depth)) = pending.pop() {
         if seen.len() >= 4096 || depth > 64 {
             return false;

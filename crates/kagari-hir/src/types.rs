@@ -3,13 +3,14 @@
 mod display;
 pub mod semantic;
 
+use crate::collections::{HashMap, HashSet};
 use crate::typeck::{GenericBounds, associated};
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::{
     range::RangeKind, reference::ReferenceAccess, scalar::BuiltinType, surface as standard_surface,
 };
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::BTreeMap,
     hash::{Hash, Hasher},
     ops::{Deref, DerefMut},
 };
@@ -239,7 +240,7 @@ pub fn supports_array_repetition(
     mut enum_payload: impl FnMut(&NominalType) -> Option<Vec<TypeId>>,
 ) -> bool {
     let mut pending = vec![ty.clone()];
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::default();
     let mut work = 0;
     while let Some(ty) = pending.pop() {
         work += 1;

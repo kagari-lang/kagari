@@ -3,6 +3,7 @@
 //! missing, duplicate and incompatible inputs remain source diagnostics.
 
 use crate::{
+    collections::HashSet,
     declarations::DeclarationId,
     hir::{
         expr::{ExprKind, FieldInit},
@@ -20,7 +21,6 @@ use crate::{
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_types::declaration::names::NameNamespace;
-use std::collections::HashSet;
 use {
     kagari_common::identity::table::DefinitionId,
     kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
@@ -504,7 +504,7 @@ impl<'a> BodyChecker<'a> {
         if let (Some(base), Some((actual, true))) = (base, &base_ty) {
             self.check_struct_update_base(path, base, &result, actual);
         }
-        let mut seen = HashSet::new();
+        let mut seen = HashSet::default();
         let mut resolved = ResolvedStructInit {
             structure: struct_def.id,
             base_fields: Vec::new(),

@@ -19,6 +19,7 @@ use kagari_common::{
 };
 use std::{
     collections::{BTreeMap, HashSet},
+    hash::BuildHasher,
     iter,
 };
 
@@ -423,7 +424,7 @@ pub fn native_bounds_valid(
     cancel: &CancellationToken,
     table: &DefinitionTable,
 ) -> bool {
-    let params = parameters
+    let params: Parameters = parameters
         .iter()
         .map(|param| (param.owner, param.position))
         .collect();
@@ -552,7 +553,7 @@ pub fn types_in_scope<'a>(
     {
         return false;
     }
-    let parameters = parameters
+    let parameters: Parameters = parameters
         .iter()
         .map(|parameter| (parameter.owner, parameter.position))
         .collect();
@@ -561,9 +562,9 @@ pub fn types_in_scope<'a>(
         .all(|ty| ty.within_wire_limits() && type_valid(ty, &parameters, None, cancel, table))
 }
 
-pub fn type_valid(
+pub fn type_valid<S: BuildHasher>(
     ty: &Ty,
-    params: &HashSet<(DefinitionId, usize)>,
+    params: &HashSet<(DefinitionId, usize), S>,
     self_owner: Option<&DefinitionId>,
     cancel: &CancellationToken,
     table: &DefinitionTable,

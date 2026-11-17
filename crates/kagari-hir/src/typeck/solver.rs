@@ -4,12 +4,12 @@
 use crate::tests::cancellation::{Checkpoint, checkpoint};
 
 use crate::{
+    collections::{HashMap, HashSet},
     hir::ids::{ExprId, TypeRefId},
     types::TypeId,
 };
 use kagari_common::cancellation::{CancellationToken, Cancelled};
 use kagari_types::scalar::BuiltinType;
-use std::collections::{HashMap, HashSet};
 
 /// Constraint storage belongs to one function body, never to a cached signature.
 #[derive(Default)]

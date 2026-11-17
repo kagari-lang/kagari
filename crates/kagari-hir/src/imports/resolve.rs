@@ -1,5 +1,6 @@
 //! Rebuild one module's contributions from an immutable catalog observation.
 use crate::{
+    collections::HashSet,
     hir::item::module::ImportLeaf,
     imports::{
         BindingOrigin, DirectiveId, DirectiveResolution, ImportDirective, ImportKind, LocalName,
@@ -19,12 +20,7 @@ use kagari_common::{
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
-use std::{
-    cell::RefCell,
-    collections::{BTreeSet, HashSet},
-    slice,
-    sync::Arc,
-};
+use std::{cell::RefCell, collections::BTreeSet, slice, sync::Arc};
 
 struct ImportContext<'a> {
     lookup: LookupContext<'a>,
@@ -133,7 +129,7 @@ pub(super) fn resolve_imports(
             {
                 lookup = LookupResult::NotNamespace;
             }
-            let mut support = HashSet::new();
+            let mut support = HashSet::default();
             let outcome = match lookup {
                 LookupResult::Found(hit)
                     if matches!(import.kind, ImportLeaf::Glob)

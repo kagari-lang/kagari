@@ -2,6 +2,7 @@
 
 use crate::{
     aggregates::{AggregateCatalog, implementations::ImplementationSearchError},
+    collections::{HashMap, HashSet},
     declarations::{Declaration, DeclarationId, Declarations},
     hir::item::function::NativeContract,
     hir::writeability::Writeability,
@@ -20,7 +21,7 @@ use kagari_common::{
 };
 use kagari_types::{callable::MethodPolicy, declaration::conversion::ConversionAdapter};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
 
@@ -176,7 +177,7 @@ impl AggregateCatalog {
         signatures: &ModuleSignatures,
         cancel: &CancellationToken,
     ) -> Result<(), Cancelled> {
-        let mut functions = HashMap::new();
+        let mut functions = HashMap::default();
         for function in signatures.functions() {
             cancel.check()?;
             functions.insert(function.id, function);
@@ -190,7 +191,7 @@ impl AggregateCatalog {
                 unreachable!("nominal trait");
             };
             let mut generic_params = Vec::new();
-            let mut bounds = GenericBounds::new();
+            let mut bounds = GenericBounds::default();
             for param in &item.generic_params {
                 cancel.check()?;
                 let identity = declarations
@@ -393,7 +394,7 @@ pub fn trait_inheritance_closure(
     lookup: &impl Fn(&DefinitionId) -> Option<(Vec<GenericParameterType>, Vec<NominalType>)>,
 ) -> Result<Vec<NominalType>, ImplementationSearchError> {
     let mut result = Vec::new();
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::default();
     let mut pending = vec![(interface.clone(), Vec::<DefinitionId>::new())];
     while let Some((applied, mut path)) = pending.pop() {
         cancel

@@ -2,6 +2,7 @@
 
 use crate::{
     DiagnosticBuffer,
+    collections::{HashMap, HashSet},
     declarations::Declarations,
     hir::ids::StaticId,
     lower::LoweredModule,
@@ -17,7 +18,6 @@ use crate::{
 };
 use kagari_common::cancellation::{CancellationToken, Cancelled};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind, Severity};
-use std::collections::{HashMap, HashSet};
 
 /// Resolve every explicit annotation before any initializer is visited.
 pub(super) fn signatures(
@@ -27,7 +27,7 @@ pub(super) fn signatures(
     diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) -> HashMap<StaticId, TypeId> {
-    let mut result = HashMap::new();
+    let mut result = HashMap::default();
     for item in &lowered.module.statics {
         if cancel.check().is_err() {
             break;
@@ -66,7 +66,7 @@ pub(super) fn initializers(
     let shared_valid = !diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error);
-    let mut valid = HashSet::new();
+    let mut valid = HashSet::default();
     for item in &lowered.module.statics {
         indexes.cancel.check()?;
         let diagnostic_start = diagnostics.len();

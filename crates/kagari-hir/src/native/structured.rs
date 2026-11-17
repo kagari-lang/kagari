@@ -3,6 +3,7 @@ mod items;
 mod types;
 
 use crate::{
+    collections::HashMap,
     hir::item::Item,
     lower::{LoweredModule, context::Lowerer},
 };
@@ -15,7 +16,7 @@ use kagari_common::{
 };
 use kagari_source::source::SourceFile;
 use kagari_types::declaration::module::{DeclarationError, ModuleDecl};
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 /// Construction-time correspondence. Entries are produced with allocation, not
 /// reconstructed from source ranges or name matching after lowering.
@@ -54,7 +55,7 @@ pub(crate) fn lower(
         providers,
         definitions: metadata.definitions(),
         correspondence: RegistrationMap::default(),
-        parameter_names: HashMap::new(),
+        parameter_names: HashMap::default(),
     };
     builder.lowerer.source_map.mark_structured_input();
     builder.prepare_parameters()?;

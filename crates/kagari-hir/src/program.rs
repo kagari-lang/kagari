@@ -1,7 +1,10 @@
 //! A checked, snapshot-owned source dependency closure for compilation and linking.
 
-use crate::{program::exports::ProgramExports, semantic::signatures::TypedFunction};
-use std::collections::{HashMap, HashSet};
+use crate::{
+    collections::{HashMap, HashSet},
+    program::exports::ProgramExports,
+    semantic::signatures::TypedFunction,
+};
 
 pub mod exports;
 
@@ -193,10 +196,10 @@ impl AnalysisSnapshot {
                 error => ProgramCheckError::Graph(error),
             })?;
         let mut modules = Vec::with_capacity(order.len());
-        let mut by_file = HashMap::new();
-        let mut dependencies = HashMap::new();
+        let mut by_file = HashMap::default();
+        let mut dependencies = HashMap::default();
         let mut diagnostics = Vec::new();
-        let mut physical_parses = HashSet::new();
+        let mut physical_parses = HashSet::default();
         for identity in order {
             cancel.check().map_err(|_| ProgramCheckError::Cancelled)?;
             let node = self

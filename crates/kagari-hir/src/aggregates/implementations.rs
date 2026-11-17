@@ -8,6 +8,7 @@ use crate::{
         AggregateCatalog,
         traits::{MethodDefault, MethodSignature},
     },
+    collections::HashSet,
     declarations::Declarations,
     language::{semantics as traits, semantics::ProtocolSemantics},
     lower::LoweredModule,
@@ -29,11 +30,7 @@ use kagari_types::{
     declaration::conversion::ConversionAdapter,
     language::{Protocol, binding},
 };
-use std::{
-    collections::{BTreeMap, HashSet},
-    iter,
-    sync::Arc,
-};
+use std::{collections::BTreeMap, iter, sync::Arc};
 
 /// Cancellation or resource exhaustion during bounded trait implementation search.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,7 +88,7 @@ impl<'a> SearchBudget<'a> {
             max_depth: context.limits.max_depth,
             cancel: context.cancel,
             assumptions: context.assumptions,
-            defaults: HashSet::new(),
+            defaults: HashSet::default(),
         })
     }
 
@@ -263,9 +260,9 @@ impl AggregateCatalog {
             max_depth: 64,
             cancel: &cancel,
             assumptions,
-            defaults: HashSet::new(),
+            defaults: HashSet::default(),
         };
-        self.standard_holds(protocol, ty, &mut HashSet::new(), &mut budget)
+        self.standard_holds(protocol, ty, &mut HashSet::default(), &mut budget)
             .unwrap_or(false)
     }
 
@@ -636,7 +633,7 @@ impl AggregateCatalog {
                 implementation,
                 trait_type,
                 receiver,
-                &mut HashSet::new(),
+                &mut HashSet::default(),
                 &mut budget,
             )?
             else {
@@ -760,7 +757,7 @@ impl AggregateCatalog {
                 implementation,
                 trait_type,
                 receiver,
-                &mut HashSet::new(),
+                &mut HashSet::default(),
                 &mut budget,
             )? {
                 if selected.is_some() {
@@ -800,7 +797,7 @@ impl AggregateCatalog {
                     implementation,
                     trait_type,
                     receiver,
-                    &mut HashSet::new(),
+                    &mut HashSet::default(),
                     &mut budget,
                 )?
                 .is_some()
@@ -818,7 +815,7 @@ impl AggregateCatalog {
                     Protocol::from_definition(&trait_type.declaration, definitions)
                 && protocol.equality_protocol()
             {
-                self.standard_holds(protocol, receiver, &mut HashSet::new(), &mut budget)?
+                self.standard_holds(protocol, receiver, &mut HashSet::default(), &mut budget)?
             } else {
                 traits::intrinsic_applies(
                     definitions,

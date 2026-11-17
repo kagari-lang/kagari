@@ -2,6 +2,7 @@
 
 use crate::{
     CheckedAnalysis,
+    collections::HashMap,
     compile_input::{
         body::{BodyKey, BodyRoot, CheckedBodyInput},
         declarations::{DeclarationHeaders, ImplementationInput},
@@ -27,7 +28,6 @@ use kagari_common::{
     span::Span,
 };
 use kagari_source::source::SourceFile;
-use std::collections::HashMap;
 
 /// Failure to admit a checked source closure for elaboration.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,10 +88,10 @@ impl<'a> CheckedModule<'a> {
             source: &module.lowered.source,
             origins: &module.lowered.source_map,
             headers: DeclarationHeaders::new(&module.lowered.module),
-            implementations: HashMap::new(),
+            implementations: HashMap::default(),
             environment: CheckedEnvironment::new(module),
             provenance: SourceEvidence::default(),
-            bodies: HashMap::new(),
+            bodies: HashMap::default(),
         };
         result.admit_implementations(module, cancel)?;
         result.admit_functions(module, cancel)?;
@@ -445,7 +445,7 @@ impl<'a> CheckedCompilation<'a> {
     ) -> Result<Self, AdmissionError> {
         cancel.check().map_err(|_| AdmissionError::Cancelled)?;
         let mut modules = Vec::with_capacity(program.modules().len());
-        let mut dependencies = HashMap::new();
+        let mut dependencies = HashMap::default();
         let mut root = None;
         let mut budget = SourceBudget::new(cancel);
         for module in program.modules() {

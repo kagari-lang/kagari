@@ -5,6 +5,7 @@ use crate::tests::cancellation::{Checkpoint, checkpoint};
 
 use crate::{
     aggregates::AggregateCatalog,
+    collections::{HashMap, HashSet},
     declarations::Declarations,
     hir::{
         expr::{ExprKind, literal::LiteralKind},
@@ -28,7 +29,6 @@ use kagari_common::cancellation::{CancellationToken, Cancelled};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{language::Protocol, range::RangeKind, scalar::BuiltinType};
 use smallvec::SmallVec;
-use std::collections::{HashMap, HashSet};
 
 mod asynchronous;
 mod calls;

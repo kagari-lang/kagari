@@ -3,6 +3,7 @@
 use crate::{
     AnalysisResult,
     analysis::error::AnalysisError,
+    collections::{HashMap, HashSet},
     hir::{
         ids::{BodyOwner, BodySelection, HirOwner},
         item::function::FunctionKind,
@@ -18,10 +19,7 @@ use crate::{
 };
 use kagari_types::visibility::Visibility;
 use smallvec::SmallVec;
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::sync::Arc;
 use {
     kagari_common::{
         cancellation::CancellationToken,
@@ -68,14 +66,14 @@ pub(crate) fn collect_declarations(
     let names = imports.scope.clone();
     let mut diagnostics = SmallVec::<[Diagnostic; 4]>::new();
 
-    let mut local_names = HashMap::new();
+    let mut local_names = HashMap::default();
     for function in &lowered.module.functions {
         if cancel.check().is_err() {
             break;
         }
         if let FunctionKind::Local { block } = function.kind {
             let span = lowered.source_map.function_span(function.id);
-            let names = local_names.entry(block).or_insert_with(HashSet::new);
+            let names = local_names.entry(block).or_insert_with(HashSet::default);
             if !function.name.is_empty() && !names.insert(&function.name) {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::DuplicateDeclaration {
@@ -138,7 +136,7 @@ pub(crate) fn collect_declarations(
         if cancel.check().is_err() {
             break;
         }
-        let mut seen = HashSet::new();
+        let mut seen = HashSet::default();
         for variant in &enum_def.variants {
             if cancel.check().is_err() {
                 break;
@@ -159,7 +157,7 @@ pub(crate) fn collect_declarations(
         if cancel.check().is_err() {
             break;
         }
-        let mut seen = HashSet::new();
+        let mut seen = HashSet::default();
         for method in &item.methods {
             if cancel.check().is_err() {
                 break;
@@ -180,7 +178,7 @@ pub(crate) fn collect_declarations(
             break;
         }
 
-        let mut seen = HashSet::new();
+        let mut seen = HashSet::default();
         for method in &impl_block.methods {
             if cancel.check().is_err() {
                 break;
@@ -235,7 +233,7 @@ pub(crate) fn resolve_bodies(
     }
     // Resolve only selected bodies and their lexical ancestors. Ancestors supply
     // declaration-time scopes; their bodies are not type-checked by this traversal.
-    let mut required = HashSet::new();
+    let mut required = HashSet::default();
     for function in &lowered.module.functions {
         if !selection.includes(function.id)
             && lowered

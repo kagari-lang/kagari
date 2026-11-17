@@ -83,6 +83,7 @@ pub mod aggregates;
 pub mod analysis;
 pub mod builtin;
 pub mod callable;
+pub mod collections;
 pub mod compile_input;
 pub mod declarations;
 pub mod hir;

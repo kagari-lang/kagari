@@ -1,6 +1,7 @@
 //! Registration type expressions become unchecked type references, never checked Ty facts.
 use super::StructuredLowerer;
 use crate::{
+    collections::HashMap,
     hir::{
         ids::TypeRefId,
         item::behavior::{GenericParam, TraitBound, TraitRef},
@@ -17,15 +18,12 @@ use kagari_types::{
     scalar::BuiltinType,
     ty::{GenericBound, GenericParam as RegisteredParameter, NominalTy, Ty},
 };
-use std::{
-    collections::{BTreeMap, HashMap},
-    slice,
-};
+use std::{collections::BTreeMap, slice};
 
 impl StructuredLowerer<'_> {
     pub(super) fn prepare_parameters(&mut self) -> Result<(), DeclarationError> {
         let module = self.declaration;
-        let mut counts = HashMap::<DefinitionId, usize>::new();
+        let mut counts = HashMap::<DefinitionId, usize>::default();
         let parameters = module
             .types
             .iter()

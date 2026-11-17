@@ -7,6 +7,7 @@ use crate::{
     },
     builtin::BuiltinFunction,
     callable::AppliedCallSignature,
+    collections::HashMap,
     hir::{
         ids::{
             EnumId, ExprId, FieldId, FunctionId, GenericParamId, LocalId, NativeTypeId, PatternId,
@@ -27,7 +28,6 @@ use kagari_common::{
     span::Span,
 };
 use kagari_types::declaration::path::{HostPathContract, HostPathDeclaration};
-use std::collections::HashMap;
 
 /// Declaration/binder identity selected for a source type reference, separate from its resulting type.
 #[derive(Debug, Clone, PartialEq, Eq)]

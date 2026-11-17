@@ -1,6 +1,7 @@
 //! Bounded reproducible solver workloads; source preparation is timed separately.
 use crate::{
     analysis::{AnalysisDatabase, error::AnalysisError},
+    collections::HashSet,
     imports::{
         ModuleGraph, NamespaceId, SourceUnit,
         resolve::{ResolutionInputs, resolve_imports},
@@ -14,7 +15,7 @@ use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
-use std::{cell::RefCell, collections::HashSet, sync::Arc, time::Instant};
+use std::{cell::RefCell, sync::Arc, time::Instant};
 
 #[test]
 fn failed_solves_preserve_published_snapshots_and_allow_recovery() {
@@ -139,7 +140,7 @@ fn failed_relative_imports_observe_access_to_successful_prefixes() {
         .iter()
         .find(|module| module.source.id() == tree)
         .unwrap();
-    let observations = RefCell::new(HashSet::new());
+    let observations = RefCell::new(HashSet::default());
     let cancel = CancellationToken::default();
     let facts = resolve_imports(
         module,
@@ -148,7 +149,7 @@ fn failed_relative_imports_observe_access_to_successful_prefixes() {
             catalog: &graph.catalog,
             sources: &lowered.iter().collect::<Vec<_>>(),
             cancel: &cancel,
-            closed: &HashSet::new(),
+            closed: &HashSet::default(),
             observations: &observations,
         },
     )
@@ -168,13 +169,15 @@ fn failed_relative_imports_observe_access_to_successful_prefixes() {
     // prefix must still watch the parent's access binding, even without editor hits.
     assert_eq!(
         observations.into_inner(),
-        HashSet::from([
+        [
             Observation::InputUniverse,
             Observation::Namespace(NamespaceId::Module(SourceUnit::of(
                 parent,
                 graph.catalog.definitions()
             ))),
-        ])
+        ]
+        .into_iter()
+        .collect::<HashSet<_>>()
     );
 }
 

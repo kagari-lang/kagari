@@ -1,5 +1,6 @@
 //! Import solver work accounting and completion boundary.
 use crate::{
+    collections::{HashMap, HashSet},
     hir::item::module::ImportLeaf,
     imports::{
         BindingOrigin, DirectiveId, DirectiveResolution, LocalName, ModuleImportFacts, NamespaceId,
@@ -20,7 +21,7 @@ use kagari_source::identity::FileSpan;
 use kagari_types::declaration::names::NameNamespace;
 use std::{
     cell::RefCell,
-    collections::{BTreeSet, HashMap, HashSet, VecDeque},
+    collections::{BTreeSet, VecDeque},
     sync::Arc,
 };
 
@@ -160,9 +161,9 @@ pub(super) fn solve(
         }));
     }
     let mut queue = (0..sources.len()).collect::<BTreeSet<_>>();
-    let mut observed = vec![HashSet::new(); sources.len()];
-    let mut watchers = HashMap::<Observation, BTreeSet<usize>>::new();
-    let mut closed = HashSet::new();
+    let mut observed = vec![HashSet::default(); sources.len()];
+    let mut watchers = HashMap::<Observation, BTreeSet<usize>>::default();
+    let mut closed = HashSet::default();
     let mut history = VecDeque::<Checkpoint>::new();
     let mut work = SolverWork::default();
     loop {
@@ -175,7 +176,7 @@ pub(super) fn solve(
                     imports: failure_sites(sources, [index]),
                 });
             }
-            let observations = RefCell::new(HashSet::new());
+            let observations = RefCell::new(HashSet::default());
             let next = resolve_imports(
                 sources[index],
                 &ResolutionInputs {

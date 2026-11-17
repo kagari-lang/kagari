@@ -1,10 +1,12 @@
 //! Mutable type-resolution workspace, separate from retained semantic facts.
 
-use crate::{hir::ids::TypeRefId, typeck::table::TypeTable, types::TypeId};
-use std::{
+use crate::{
     collections::{HashMap, HashSet},
-    ops::{Deref, DerefMut},
+    hir::ids::TypeRefId,
+    typeck::table::TypeTable,
+    types::TypeId,
 };
+use std::ops::{Deref, DerefMut};
 
 /// Owns the facts being built and the temporary state needed to resolve types.
 ///

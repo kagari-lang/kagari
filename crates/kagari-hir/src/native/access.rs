@@ -1,5 +1,6 @@
 //! Select source paths from checked module records without inspecting host storage.
 use crate::{
+    collections::HashSet,
     declarations::Declarations,
     types::{TypeId, semantic::raise_type},
 };
@@ -10,7 +11,6 @@ use kagari_common::identity::{
 use kagari_types::declaration::path::{
     HostPathContract, HostPathDeclaration, HostPathSegmentDeclaration,
 };
-use std::collections::HashSet;
 
 /// Checked source operations used to select an installed external path contract.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,7 +29,7 @@ fn select<'a>(
         if path.root != root || path.segments.len() != steps.len() {
             return false;
         }
-        let mut slots = HashSet::new();
+        let mut slots = HashSet::default();
         path.segments
             .iter()
             .zip(steps)

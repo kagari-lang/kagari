@@ -5,6 +5,7 @@ use crate::tests::cancellation::{Checkpoint, checkpoint};
 
 use super::const_budget::ConstBudget;
 use crate::{
+    collections::HashMap,
     hir::{
         expr::{
             ExprKind,
@@ -28,7 +29,6 @@ use kagari_types::{
     scalar::{IntegerType, error::ScalarError},
 };
 use smallvec::SmallVec;
-use std::collections::HashMap;
 
 #[cfg(test)]
 mod tests;
@@ -47,7 +47,7 @@ pub(super) fn evaluate_constants(
         type_table,
         cancel,
         diagnostics,
-        cache: HashMap::new(),
+        cache: HashMap::default(),
         budget,
     };
     for item in &lowered.module.consts {

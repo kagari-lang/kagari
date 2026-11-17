@@ -1,9 +1,10 @@
 //! Canonical imported constant facts, never initializer syntax or alias-based identities.
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use crate::{
     PreparedSignatures,
+    collections::HashMap,
     declarations::Declaration,
     identity_mapping::map_hash_entries,
     imports::{SourceDeclRef, SourceItem},

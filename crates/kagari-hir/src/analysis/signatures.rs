@@ -11,6 +11,7 @@ use crate::{
         ownership,
         records::{SignatureCache, SignatureCacheEntry},
     },
+    collections::HashMap,
     declarations::Declarations,
     hir::ids::BodySelection,
     imports::{
@@ -47,10 +48,7 @@ use kagari_source::{
     source_database::SourceSnapshot,
 };
 use kagari_syntax::ast::module::ModuleSyntax;
-use std::{
-    collections::{BTreeMap, HashMap},
-    sync::Arc,
-};
+use std::{collections::BTreeMap, sync::Arc};
 
 #[cfg(test)]
 mod tests;
@@ -140,7 +138,7 @@ impl SignatureSnapshot {
             .map(|file| (file.source().id(), &file.prepared))
             .collect();
         let aggregates = &self.aggregates;
-        let mut result = HashMap::new();
+        let mut result = HashMap::default();
         for (id, file) in self.files.iter() {
             cancel.check()?;
             let aggregates = aggregates.for_module(
@@ -173,7 +171,7 @@ impl SignatureSnapshot {
                 },
             );
         }
-        let mut checked = HashMap::new();
+        let mut checked = HashMap::default();
         for (id, file) in self.files.iter() {
             cancel.check()?;
             let prepared = &file.prepared;
@@ -327,7 +325,7 @@ impl AnalysisDatabase {
     ) -> Result<SignatureSnapshot, AnalysisError> {
         let declarations = self.prepare_declarations(source, cancel)?;
         let catalog = TypeCatalog::new(declarations.files.values().map(|file| &file.declared));
-        let mut imported_types = HashMap::new();
+        let mut imported_types = HashMap::default();
         for (id, file) in declarations.files.iter() {
             cancel.check()?;
             imported_types.insert(*id, catalog.bindings(file.names(), cancel)?);
