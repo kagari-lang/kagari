@@ -423,15 +423,9 @@ pub(crate) fn dependencies(
             if !referenced.contains(alias.as_str()) {
                 continue;
             }
-            let kind = ty.kind.definition_kind();
-            let id = provider.definition(kind, &ty.name, definitions)?;
-            imports.insert(
-                definitions
-                    .resolve(id)
-                    .map_err(|error| DeclarationError(error.to_string()))?
-                    .module()
-                    .clone(),
-            );
+            // Providers may have independent definition scopes. Reachability needs
+            // the provider's portable module identity, not a cross-scope type lookup.
+            imports.insert(provider.identity.clone());
         }
     }
     definition

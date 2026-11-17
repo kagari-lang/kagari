@@ -693,11 +693,12 @@ performance improvement or exhaustive documentation coverage is claimed.
 
 HR00–HR08 implementation is complete; required acceptance remains open. The
 [HIR architecture](architecture/hir.md) owns current structures and contracts: owned ID-linked
-`Module`/`Body`, function-local parameters, typed attributes, canonical binding records,
+`Module`/`HirNodes`, function-local parameters, typed attributes, canonical binding records,
 analyzer `.queries()` views and demand-built editor indexes, and private lint projections.
-`LoweringId`, `ResolvedTypeTarget` and internal `PreparedSignatures` clarify existing roles.
-The external-arena/direct-reference migration was withdrawn, not completed. Cache policy
-is unchanged: owned semantic records do not keep weakly indexed HIR graphs alive.
+`Module.nodes` stores module-wide nodes; semantic `BodyOwner`, `BodyRoot` and `CheckedBodyInput`
+names remain unchanged. `LoweringId`, `ResolvedTypeTarget` and internal `PreparedSignatures`
+clarify existing roles. The external-arena/direct-reference migration was withdrawn, not completed.
+Cache policy is unchanged: owned semantic records do not keep weakly indexed HIR graphs alive.
 The completed execution plan is removed; Git history retains its phase ledger.
 
 **Local evidence:** 144 analyzer library, 19 lint and four stdio tests pass.
@@ -746,14 +747,11 @@ tests; five SDK session/installation tests; structure, workspace formatting, wor
 and diff checks. No full-workspace tests or exhaustive matrices ran. The existing optional blake3
 Cargo manifest warning remains. Embedded Kagari source, literals and comments were preserved.
 
-One analyzer selection has 23 passes and one unresolved failure:
-`cargo test -p kagari-analyzer --lib query_tests::native_facade::facade_bindings_keep_offline_host_identity_queries_and_revision_invalidation -- --exact`
-fails at native_facade.rs:121 with `NativeApi(DeclarationError("missing registered native identity"))`.
-A temporary control changing only the centralized aliases back to std RandomState reproduces the
-same failure; Fx was restored afterward. This rules out the hasher choice as the cause of that
-failure, but does not diagnose its registration/identity root cause. Its analyzer/Native-input owner
-must investigate it separately; assertions and production registration behavior were not changed
-in this hash-policy task. The initially timed-out compiler/SDK selections were rerun and passed.
+The analyzer Native-facade revision-invalidation failure exposed by the hash selection is resolved
+at the [Native input dependency boundary](#native-model-replacement), not by changing the hasher.
+Cross-provider dependency inference no longer queries another provider's type in the requesting
+module's independent identity table. Existing query/signature/documentation assertions remain;
+this repair adds no registration privilege, binding check or hash-policy change.
 
 ## Compilation cancellation polling
 
@@ -1266,8 +1264,28 @@ These selections cover changed mechanisms and direct downstream consumers, not e
 IDE `build_project` repeatedly timed out at the MCP context server; Cargo test builds and Clippy
 completed. The existing optional unused blake3 manifest warning remains, not a Clippy failure.
 
-**Known baseline failures:** `cargo test -p kagari-stdlib --lib native_boundary -- --nocapture`
-reports **120 passed / 35 failed**. An isolated pre-change baseline at
+**Dependency-scope repair:** Native dependency inference uses the selected provider's portable
+module identity rather than looking up its type in another input's independent DefinitionTable.
+For example, changing an independently authored `demo::echo` result from i32 to String previously
+failed snapshot preparation with `missing registered native identity`, before semantic diagnostics
+or editor invalidation could run. The dependency edge now reaches the actual String provider;
+ordinary identity/shape/access checking and binding-free HIR are unchanged. The existing analyzer
+regression retains old/new signatures, call results, documentation and snapshot-reuse assertions;
+no duplicate test or relaxed assertion was added.
+
+Selected repair validation passes: 11 HIR tests covering declaration-cache lifecycle/cancellation,
+independent provider adoption, structured/parsed equivalence and exact-type access/arity/foreign-scope
+rejection; 11 analyzer Native facade/path/offline tests; six SDK session/installation and unchanged-
+environment reuse tests. Reproduce the original regression with
+`cargo test -p kagari-analyzer --lib query_tests::native_facade::facade_bindings_keep_offline_host_identity_queries_and_revision_invalidation -- --exact`.
+Structure, workspace formatting, workspace all-target Clippy with `-D warnings` and diff checks pass.
+Documentation scope is recognition-only Ref/RefMut; no reference implementation or restriction was
+changed. The selection samples the changed dependency path and its direct consumers, not the full
+workspace or backend/platform matrix. Those matrices remain CI-only. The unrelated baseline suite
+below was not rerun for this repair; its owning follow-ups and previous evidence remain open.
+
+**Known baseline failures:** the phases 1–3 run of
+`cargo test -p kagari-stdlib --lib native_boundary -- --nocapture` reported **120 passed / 35 failed**. An isolated pre-change baseline at
 `0cbeb0d636553a5e3505db8d90de87de1519e518` reported 117 passed / 38 failed; the current failure-name
 set is a subset, with no new failing names. Three enum lifecycle/bound tests now pass. This is not
 an all-green suite or proof that the other failures are harmless. Representative existing failures:
@@ -1292,19 +1310,18 @@ Earlier NM evidence applies only to unchanged code, not to this implementation's
 **Deferred:** [the existing design](native-model-design.md#4-checked-libraries-and-rust-providers)
 retains registration/provider products, prebuild binary versus generated-code representation,
 standalone MIR/shared libraries, HOST/TARGET producer/bootstrap, preparation/link caches and
-export-sidecar encoding/directory publication/refresh. New Native field adapters, the reference
-migration, output/reflection extraction and broader LSP scheduling are outside these three phases.
-Unpublished affected products are disposable; no compatibility reader, routine format/ABI bump or
+export-sidecar encoding/directory publication/refresh. New Native field adapters, concrete reference
+access/runtime design, output/reflection extraction and broader LSP scheduling are outside these
+three phases. Unpublished affected products are disposable; no compatibility reader, routine format/ABI bump or
 general provider installation redesign was added.
 
-The selected [reference-wrapper design](native-model-design.md#ref--refmut-ordinary-wrappers-and-explicit-access-methods)
-keeps T's canonical fields unchanged and uses ordinary nominal Ref<T>/RefMut<T>, explicit access
-methods and as_ref(), not trait wrappers or automatic Deref. Managed and Host-backed access share
-one declaration surface with Runtime-owned backing/retention; saved handles may expire and actual
-access checks validity. [The coupled reference follow-up](native-model-design.md#g-replace-reference-special-cases-with-ordinary-wrappers)
-records the required frontend/value/contract/Runtime replacement and tests. It intentionally replaces
-static no-escape rules only after safe storable carriers and access checks are implemented; neither
-this design selection nor its documentation activates execution implementation.
+[Ref/RefMut scope](native-model-design.md#ref--refmut-recognition-only) is recognition of target T
+and shared/mutable category only, with T's canonical fields unchanged. Concrete access and runtime
+design [remains undecided](native-model-design.md#g-reference-access-and-runtime-design-remain-undecided).
+Ordinary wrappers, generated methods, explicit `as_ref()`, storable handles, backing/retention and
+dynamic expiry are proposals, not selected implementation or current acceptance. Existing reference
+representation, escape/suspension restrictions, scoped borrowing and executable safety checks remain
+unchanged; this scope does not authorize implementation or relaxation.
 
 ## Numeric standard library
 

@@ -17,10 +17,11 @@ remaining failures and follow-up sequencing; earlier NM implementation history r
 [native authoring](native-registration.md) own the lasting implemented contracts. The
 [core-model inventory](#core-model-inputs-and-derived-analysis) preserves the Rust ownership
 sketches and derivation rules below, without introducing another catalog or authoring API.
-Sections 4–6 remain deferred provider/build/prebuild/export sketches. The selected
-[reference-wrapper design](#ref--refmut-ordinary-wrappers-and-explicit-access-methods) and unchecked
-[9G work](#g-replace-reference-special-cases-with-ordinary-wrappers) remain unimplemented; phases 4–5
-are not activated, and existing reference restrictions still apply.
+Sections 4–6 remain deferred provider/build/prebuild/export sketches.
+[Ref/RefMut scope](#ref--refmut-recognition-only) is recognition of target T and shared/mutable
+category only. [Concrete access/runtime design](#g-reference-access-and-runtime-design-remain-undecided)
+remains undecided, not current acceptance; phases 4–5 are not activated, and existing reference
+restrictions still apply.
 
 ## 1. Inputs and ownership
 
@@ -134,15 +135,15 @@ The implemented core is the complete binding-free declaration and body model tog
 explicit semantic environment and origins. All retained semantic results derive from these inputs
 under common language rules. "Core" names ownership categories below, not a new `CoreHirModel`
 container, parallel catalog, crate or authoring framework. Section 9 records the implemented
-producer/consumer boundaries; its reference follow-up remains separate unchecked work.
+producer/consumer boundaries; concrete reference access/runtime design remains undecided.
 
 #### Authoritative inputs to retain
 
 The Rust declarations below are ownership sketches of the existing records, not standalone
 compilable examples or new public APIs. Imports and visibility are omitted. Declaration collections
 retain their existing records; selected-field projections of derived structures below are
-explicitly marked and do not authorize dropping unshown semantic facts. The separately labeled
-reference-wrapper sketches remain selected future design, not current records.
+explicitly marked and do not authorize dropping unshown semantic facts. Ref/RefMut recognition
+does not select a future access API or runtime representation.
 
 **Module and node storage.** [Module](../crates/kagari-hir/src/hir/item.rs) owns `Module.nodes`,
 the shared [HirNodes](../crates/kagari-hir/src/hir/nodes.rs) store.
@@ -512,128 +513,31 @@ Ref wrappers. Val prevents slot replacement, not mutation through another permit
 Frontend field support does not implement new Runtime access adapters; unsupported executable
 Native-field routes reject explicitly. Existing Host paths keep their own checked access semantics.
 
-### Ref / RefMut: ordinary wrappers and explicit access methods
+### Ref / RefMut: recognition only
 
-**Selected design, not implemented behavior:** Ref<T> and RefMut<T> become ordinary nominal Native
-wrapper types with explicit access methods. They are not traits, do not require a RefMut: Ref
-supertrait, and do not use transparent dereferencing or implicit member forwarding. The wrappers
-are storable handles with dynamically checked access, not Rust references or static lifetime proofs.
-The current special Reference type/constructor, non-storable values and escape/suspension checks
-remain implementation to replace through [9G](#g-replace-reference-special-cases-with-ordinary-wrappers),
-not a claim that the selected model already works. This records design only; execution work still
-requires a coherent implementation checkpoint.
+**Current scope:** recognize `Ref<T>` and `RefMut<T>` and retain target T plus the shared/mutable
+category. Recognition uses checked canonical constructor identity, arity and shape, not an arbitrary
+user type's spelling. The [language/type owner](../crates/kagari-hir/src/language/types.rs) produces
+existing `TypeId::Reference { target, access }` records. This is static type recognition, not proof
+of a live Rust borrow or permission to access storage.
 
-#### Preserve T independently of its access wrappers
+T retains its canonical declaration, field types, visibility, writeability, binders and member
+identities. For example, recognizing `Ref<Player>` does not rewrite a declared `Player.stats: Stats`
+field to `Ref<Stats>` or select a generated `stats()` accessor. Ordinary managed field semantics
+remain unchanged; recognition neither generates an access surface nor implements a Native field
+adapter.
 
-T keeps one canonical declaration, its actual field types, visibility, writeability, generic
-binders and member identities. NativeManaged values and handles to Host-held T can coexist in the
-same program without publishing competing T declarations or mixing storage policy into its fields.
-The reference access route wraps T, not T's declaration. In particular, do not rewrite a field of
-type Child to Ref<Child>/RefMut<Child> merely because some T values are accessed through Host loans;
-that would incorrectly change the ordinary managed representation and its public field contract.
+**Undecided proposals, not acceptance:** ordinary nominal wrappers, generated access methods,
+explicit `as_ref()`, storable handles, managed/Host backing and dynamically expiring access are
+possible directions, not selected implementation. No replacement of the current reference
+representation, forwarding/conversion rules or escape/suspension policy is authorized. Concrete
+access APIs, projection, adaptation and runtime lifetime design remain undecided under
+[9G](#g-reference-access-and-runtime-design-remain-undecided).
 
-For example, this target declaration stays the same for owned and borrowed access:
-
-```text
-pub native type Player {
-    pub var hp: i32,
-    pub var stats: Stats,
-}
-```
-
-An ordinary Player value retains ordinary field semantics. A Ref<Player> or RefMut<Player> has its
-own explicitly declared method surface. The following is an illustrative generated API, not an
-assertion that field execution adapters are implemented:
-
-```text
-pub native type Ref<T>;
-pub native type RefMut<T>;
-
-impl<T> RefMut<T> {
-    pub native fn as_ref(self) -> Ref<T>;
-}
-
-impl Ref<Player> {
-    pub native fn hp(self) -> i32;
-    pub native fn stats(self) -> Ref<Stats>;
-}
-
-impl RefMut<Player> {
-    pub native fn hp(self) -> i32;
-    pub native fn set_hp(self, value: i32);
-    pub native fn stats(self) -> Ref<Stats>;
-    pub native fn stats_mut(self) -> RefMut<Stats>;
-}
-```
-
-Generate finite ordinary impl/method declarations from the target's permitted surface, retaining
-its binders for generic targets rather than enumerating every closed application. These methods
-must satisfy common identity, visibility, coherence and contract rules; generation grants no
-registration privilege. Private fields are not silently exported. Val constrains slot replacement,
-not global immutability of a child accessed through another alias; each projected operation must
-respect its declared path/target capability.
-
-A wrapper method's result kind is fixed by its declared operation, not selected by the receiver's
-current storage tag. In this example, stats() is explicitly a borrowed-view operation and produces
-Ref<Stats> on every supported backing; Player.stats remains Stats. A separately declared operation
-returning an independently retained managed Child must establish that ownership and preserve its
-ordinary Child result. Do not change one method between Child and Ref<Child> according to whether
-its receiver happens to be NativeManaged-backed or Host-backed, and do not wrap every object result
-indiscriminately.
-
-#### Runtime backing, retention and invalidation
-
-The same Ref<T>/RefMut<T> declaration can have Runtime-selected backing: a target in managed storage,
-or an external Host-owned target. This backing distinction is private implementation data, not
-another semantic T, a public representation enum, a NativeTypeKind classifier in HIR, or authority
-to reinterpret an arbitrary value as a Rust payload.
-
-Managed backing retains the target through the existing GC tracing/ownership contract; it does not
-introduce a new weak-reference behavior or per-field Host root registration. External backing holds
-only Runtime/owner, scope/frame/epoch, target/location identity and access capability in its script
-carrier. The active Host owner retains the real address and Rust loan. Saving a wrapper never extends
-the external Rust lifetime; ending its scope invalidates every corresponding handle, including
-captured/returned/container-held and child handles. A later scope or reused slot cannot revive them.
-A Host lifetime reservation is distinct from a short payload loan acquired for an actual operation.
-
-Mutable wrappers authorize declared operations, not unrestricted &mut T. Managed mutation still
-uses the existing provider/field protocol for reference publication, charge and scanner repair;
-wrapping a NativeManaged target cannot bypass its GC invariants or scan arbitrary Rust host state.
-
-Returning, capturing, storing and retaining wrappers across suspension are permitted. None of those
-operations dereferences the target or proves that it is still alive. Copying/converting/tracing/
-dropping an expired carrier must remain safe and must not dereference a dead Host record. A later
-actual read/write/projection, payload extraction or Rust-loan acquisition checks ownership, target,
-generation/epoch and capability before touching storage; expiration is an explicit runtime error.
-Retaining a handle across suspension does not permit retaining an actual Rust loan across suspension.
-
-Validation and the actual operation form a protected access interval. Actual overlapping shared/
-mutable loans remain dynamically checked, with cleanup on errors, cancellation and unwind; release
-physical loans before GC/reentry. Projected locations preserve parent validity and access, and
-structural mutation/slot reuse cannot leave a cached child address dangling or silently retarget an
-old identity. No static escape-analysis replacement, Deref feature or new global permission system
-is introduced by this model. Supported target/projection adapters still need explicit implementation.
-
-This borrows temporal-access checking from [JDK 22 FFM scoped segments](https://openjdk.org/jeps/454):
-a carrier may outlive its scope, but accessing the closed scope fails. Unlike a Java native arena,
-Kagari does not own/free externally borrowed Rust storage; Rust owns its lifetime, and the existing
-exclusive Runtime, loan and GC/reentry boundaries remain necessary. This is a mechanism reference,
-not evidence of equivalent implementation or performance.
-
-#### Explicit mutable-to-shared conversion and HIR boundary
-
-RefMut<T>.as_ref() creates a separate shared-capability handle to the same target/validity owner;
-it does not change the original mutable handle, extend scope validity or access the target. An
-expired mutable handle stays expired after conversion. The shared carrier cannot recover write
-permission through Native raw-value paths, reflection or a cast. No Ref<T>-to-RefMut<T> conversion
-or automatic call-site conversion is part of this decision.
-
-HIR resolves ordinary nominal types, generic arguments, declared methods and calls. It does not
-infer wrapper fields from T, unwrap Ref by name, grant access from a marker trait, or propagate
-reference-specific non-storability through bodies. Static method availability still prevents using
-a shared wrapper where a mutable wrapper is required. Runtime adapters independently authenticate
-actual carriers and access; a forged/user-created object cannot acquire Host access from its name
-or matching type argument. The core T model and its managed field contracts remain unchanged.
+Existing target/access validation, non-storability, escape/suspension restrictions and scoped Rust
+borrow checks remain in force. Host state stays outside the script heap; installed typed access,
+ownership/generation validation, roots, GC/reentry boundaries and cleanup retain their current
+owners. Recognition must not bypass those checks or admit unsupported executable operations.
 
 ## 4. Checked libraries and Rust providers
 
@@ -906,17 +810,17 @@ signature check or an artifact-supplied digest.
 Remaining directions require separate authorization: registration/provider products, reusable
 preparation and generic/link caches, binary versus generated-code prebuild representation,
 producer/bootstrap and HOST/TARGET configuration, standalone MIR/shared libraries, export-sidecar
-encoding, directory publication/refresh, and execution implementation of the selected
-[ordinary reference-wrapper design](#ref--refmut-ordinary-wrappers-and-explicit-access-methods).
-Reference representation/API and dynamic-expiration direction are now selected; this documentation
-does not implement them. Existing preparation/workflow is active, not an obsolete compatibility
-reader. Preserve these discussions while keeping follow-up scope finite at the existing roadmap owner.
+encoding, directory publication/refresh, and concrete reference access/runtime design beyond
+[recognition](#ref--refmut-recognition-only). Reference representation, access API and lifetime policy
+are undecided; ordinary wrappers and dynamic expiry are proposals, not selected requirements.
+Existing preparation/workflow is active, not an obsolete compatibility reader. The existing roadmap
+owns deferred scope; this document does not add a reference implementation queue.
 
 ## 9. Frontend and linking boundary remediation
 
 A–F record the implemented phases 1–3 ownership and review-repaired contracts. Their headings
-remain stable link anchors, not pending work or a completed checklist ledger. G alone retains the
-selected unchecked reference follow-up; the deferred designs in sections 4–6 are unchanged.
+remain stable link anchors, not pending work or a completed checklist ledger. G records the
+recognition-only scope and undecided access/runtime design; sections 4–6 remain deferred sketches.
 
 ### Boundary and operation example
 
@@ -1006,7 +910,7 @@ and ordinary nominal identities, never registered/external source privileges.
 fields and optional address-free Host schema/path/access contracts. Physical layouts and Rust
 storage/access adapters belong to executable representation and installation. Unsupported Native
 field execution still rejects. Existing Ref/RefMut target, no-escape, suspension and scoped-borrow
-restrictions remain until the unimplemented coherent wrapper replacement in 9G.
+restrictions remain in force; 9G selects no replacement.
 
 ### E. Remove LoweredModule side maps by assigning actual semantic owners
 
@@ -1086,37 +990,25 @@ These adaptations introduce no compatibility reader, routine ABI/format bump, pr
 product, exporter, directory watcher or new reference operation. Wider Native backend/platform
 support remains deferred; executable validation and the roadmap's known failures are not waived.
 
-### G. Replace reference special cases with ordinary wrappers
+### G. Reference access and runtime design remain undecided
 
-This records the selected reference follow-up in the same inventory, not activation of execution
-implementation by this documentation edit. Its behavior intentionally replaces static no-escape
-rules; do not silently apply that relaxation to the current ephemeral representation.
+The current Ref/RefMut scope is [recognition only](#ref--refmut-recognition-only): target T and
+shared/mutable category. Ordinary wrappers, generated methods, storable carriers and dynamic expiry
+are unselected proposals, not a required migration or acceptance checklist. A future concrete
+access/runtime model needs an explicit decision and authorization at the existing roadmap owner.
 
-- [ ] Keep one canonical T declaration and unmodified T field types for ordinary managed use and
-  Host-backed access. Supply ordinary Ref<T>/RefMut<T> declarations and explicit generated method
-  contracts, with one signature per operation across supported backings and explicit as_ref().
-  Remove special Reference constructors/types and auto-unwrapping only with their complete
-  producer, checking, compiler and portable-contract consumer replacement; do not add Deref or
-  privileged generated impls as an intermediate shortcut.
-- [ ] Make script carriers storable, traceable, capturable, returnable and retainable across
-  suspension without extending external Host reservations. Implement backing-specific retention,
-  generation invalidation, child-location validity, safe expired-carrier operations, authenticated
-  shared narrowing and checked short access intervals before removing old no-escape restrictions.
-  Reuse existing GC/Host owners; short payload loans cannot escape or survive GC/reentry/suspension,
-  independently of the Host reservation that keeps the external source valid during its scope.
-- [ ] Adapt the layers in 9F together for this model. Replace obsolete no-escape rejection tests
-  with owner-level assertions for valid in-scope use, saved/captured/returned/suspended handles,
-  expired access before effects, scope/slot reuse, parent/child invalidation, readonly capability,
-  conflicting active loans and cleanup. Preserve independent source-free verification and actual
-  Native execution. Unsupported target adapters still reject; no success stub or unsafe reinterpretation.
+No current reference constructor, type, access rule or safety test is retired by this boundary
+remediation. Keep existing target/access, escape/suspension, scoped-borrow and executable validation;
+new access adapters or relaxed restrictions are outside current scope.
 
 ### Sequencing, acceptance and remaining limits
 
 Phases 1–3 close the binding-dependent frontend/default/classification replacement described by
-A–F. The unchecked reference work in 9G requires its complete producer, checking, representation,
-Runtime and source-free-verification replacement before any existing no-escape restriction is
-removed. Sections 4–6 retain deferred provider/build/prebuild/export designs; no such product,
-watcher or new reference model is activated by the implemented boundary or this documentation.
+A–F. Ref/RefMut acceptance is recognition of target T and shared/mutable category only, with
+existing safety checks unchanged. 9G selects no access/runtime replacement or relaxation of
+no-escape restrictions. Sections 4–6 retain deferred provider/build/prebuild/export designs; no
+such product, watcher or new reference model is activated by the implemented boundary or this
+documentation.
 
 The lasting acceptance invariants are:
 
@@ -1130,15 +1022,15 @@ The lasting acceptance invariants are:
   Linking validates installed implementations and final Script semantics independently of the
   product's internally coherent provenance, including applied associated projections.
 - Ordinary defaults and generic/associated operations retain their Host/GC, roots/loans, actual
-  returned-value, cancellation and reload guarantees. Existing reference restrictions remain until
-  9G is implemented; unsupported capabilities still reject.
+  returned-value, cancellation and reload guarantees. Existing reference restrictions remain in
+  force; recognition selects no new access/runtime semantics, and unsupported capabilities still reject.
 
 The [roadmap](implementation-roadmap.md#native-model-replacement) owns remaining failures and
 validation scope, including the baseline noted in section 7; implementation status is not an
 all-green claim. Focused contracts and required local structure/fmt/Clippy/diff gates remain
 implementation-checkpoint obligations; full-workspace tests and exhaustive matrices are CI-only.
-Affected unpublished artifacts/caches are disposable without a routine ABI bump. This documentation
-pass runs content/link/anchor/diff checks only, not code, build or executable tests.
+Affected unpublished artifacts/caches are disposable without a routine ABI bump. The roadmap
+records actual local validation and unrun CI scope; design status alone is not validation evidence.
 
 ## References
 

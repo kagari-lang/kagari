@@ -3,15 +3,18 @@
 **Status:** HR04–HR08 compiler/tool separation is implemented on owned, ID-linked HIR.
 Required acceptance remains open in the
 [roadmap](implementation-roadmap.md#hir-storage-and-attribute-refactor).
-The arena/reference migration is withdrawn, not completed. Native model implementation,
-inline-identity review and cache-retention policy changes remain separate follow-ups.
+The arena/reference migration is withdrawn, not completed. Native frontend phases 1–3 are
+implemented; their acceptance limits, inline-identity review and cache-retention policy changes
+retain their existing roadmap owners.
 [Current HIR](architecture/hir.md) and [Runtime](architecture/runtime.md) own implemented contracts.
 
 ## Selected storage and attribute scope
 
-`Module`/`Body` retain ordinary owned category tables and ID links. `Function.params` owns
-parameter positions; `Module` owns typed attribute attachments. `LoweringId` identifies one
-lowering, not an allocator. There is no borrowed graph, universal owner table or session cutover.
+`Module`/`HirNodes` retain ordinary owned category tables and ID links. `Module.nodes` is shared
+module-wide storage; semantic body names such as `BodyOwner`, `BodyRoot` and `CheckedBodyInput`
+are unchanged. `Function.params` owns parameter positions; `Module` owns typed attribute
+attachments. `LoweringId` identifies one lowering, not an allocator. There is no borrowed graph,
+universal owner table or session cutover.
 See [storage and IDs](architecture/hir.md#storage-and-ids) for current data structures.
 
 ## Compiler and tooling boundary
@@ -51,20 +54,21 @@ function-granularity reuse/reclamation and LSP scheduling require separate scope
 ## LoweredModule boundary remediation
 
 [Native input implementation](architecture/hir.md#native-declaration-inputs-and-origins) supports
-direct lowering and parsed inputs, but registration/binding authority and misplaced static side maps
-still remain in LoweredModule and its consumers. The reviewed target is identical binding-free HIR
-and checking regardless of LSP/execution intent; Native implementations are matched at linking.
-The [single remediation inventory](native-model-design.md#9-frontend-and-linking-boundary-remediation)
-owns removal, semantic-owner migration and preserved validations. A live consumer is migration work,
-not justification for keeping the old ownership model. Broader provider/prebuild products stay deferred.
+direct lowering and parsed inputs with common binding-free HIR and checking regardless of
+LSP/execution intent. A–F were implemented in `4e6cc2d3a`: `LoweredModule` retains only `source`,
+`module` and `source_map`; `Module.nodes` holds `HirNodes`. Common import scopes and actual
+declarations own static facts, not registration attachment maps. Native implementations are matched
+at linking, outside HIR. The [boundary contracts](native-model-design.md#9-frontend-and-linking-boundary-remediation)
+describe these owners and preserved validations, not pending migration. Broader provider/prebuild
+products stay deferred.
 
 ## Native model
 
-The NM01–NM04 commits exist, but architecture acceptance is reopened. Their implementation and
-prior focused validation do not resolve the registration-dependent frontend split. The
-[roadmap](implementation-roadmap.md#native-model-replacement) tracks outstanding remediation;
-[the design inventory](native-model-design.md#9-frontend-and-linking-boundary-remediation) is its
-only corrective-work list, alongside separately deferred whole-stack discussion.
+Phases 1–3 remove the registration-dependent frontend split, dedicated default recipes and mixed
+HIR type/storage classification. Implementation is not all-green acceptance: the
+[roadmap](implementation-roadmap.md#native-model-replacement) retains known baseline failures and
+local/CI limits. The [boundary contracts](native-model-design.md#9-frontend-and-linking-boundary-remediation)
+record implemented ownership alongside explicitly deferred whole-stack discussion, not a second queue.
 
 - Ordinary HIR declares Required/Script/Native functions, fields, methods/associated functions
   and trait impls. Rust implementation code stays outside HIR; no general trait receiver loans.
@@ -72,12 +76,14 @@ only corrective-work list, alongside separately deferred whole-stack discussion.
   the same unchecked input and uses common analysis with user source and exact navigation origins.
 - Native field names/types, var/val and ordinary child-object handles are frontend requirements.
   New Rust field adapters/execution are deferred after scope narrowing, not implied by type checks.
-- Ref/RefMut recognition and target/access type records are included, but no new borrowing,
-  projection, adaptation, forwarding or execution features. Reuse builtin reference semantics.
-- NativeDefault recipes must become ordinary definitions/calls; NativeTypeKind must cease mixing
-  builtin interpretation, declarations and execution representation. Preserve existing defaults,
-  Host/reference safety and executable validation, but remove binding checks and privilege from HIR.
-  This does not require a new prebuild producer or generalized registration framework.
+- Ref/RefMut scope is recognition of target T and shared/mutable category only. Concrete access
+  and runtime design remains undecided: ordinary wrappers, generated methods, storable handles and
+  dynamic expiry are proposals, not current acceptance. Existing reference semantics and safety
+  checks remain; no new borrowing, projection, adaptation, forwarding or execution is implied.
+- Ordinary Script definitions/calls replace dedicated NativeDefault recipes; language constructor
+  interpretation is separate from Native declarations and execution storage. Binding checks belong
+  at linking, not HIR. Existing defaults, Host/reference safety and executable validation remain.
+  No new prebuild producer or generalized registration framework was required.
 - The design retains future library/provider/build/cache and directory-refresh discussion as
   explicitly deferred direction, not current acceptance.
 

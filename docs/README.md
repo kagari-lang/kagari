@@ -70,13 +70,13 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   views, demand-built indexes and the compiler/lint boundary. The arena/reference migration
   is withdrawn and cache policy is unchanged. [Review notes](hir-model-review.md) retain only
   separate inline-identity/cache follow-ups.
-- [Native frontend boundary remediation](native-model-design.md#9-frontend-and-linking-boundary-remediation):
-  architecture acceptance is reopened. Direct/parsed inputs work, but HIR still carries registration
-  state, binding-dependent checking, NativeDefault recipes and mixed NativeTypeKind classification.
-  The corrective target is identical binding-free semantic output, with implementations matched at
-  linking. The [roadmap](implementation-roadmap.md#native-model-replacement) tracks status; the design
-  keeps one remediation inventory and separately deferred provider/prebuild/publication directions.
-  New field execution, reflection and Ref behavior are not implied.
+- [Native frontend boundary contracts](native-model-design.md#9-frontend-and-linking-boundary-remediation):
+  phases 1–3 are implemented. Structured and parsed declarations use common binding-free HIR and
+  checking; ordinary Script bodies replace dedicated default recipes, and Native implementations
+  are matched at linking. The [roadmap](implementation-roadmap.md#native-model-replacement) tracks
+  remaining failures and CI acceptance separately from deferred provider/prebuild/publication work.
+  Ref/RefMut scope is type recognition only; concrete access/runtime behavior remains undecided.
+  New field execution and reflection are not implied.
 
 - [Runtime architecture](architecture/runtime.md), [call walkthrough](architecture/runtime/calls.md)
   and [reload walkthrough](architecture/runtime/reload.md): implemented exclusive

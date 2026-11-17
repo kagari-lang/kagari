@@ -1107,8 +1107,11 @@ facts absent from syntax:
 carry package aliases, explicit dependency edges and selected preludes separately
 from lowered nodes. [Input normalization](../../crates/kagari-hir/src/analysis/environment.rs)
 combines explicit scopes with producer/package defaults before graph construction;
-explicit aliases take precedence over dependency-derived package spellings. Dependencies
-grant reachability, never private member access. Selected preludes contribute accessible
+explicit aliases take precedence over dependency-derived package spellings. Inferred cross-provider
+type dependencies use the selected provider's portable module identity: original provider metadata
+may have independent definition scopes, so another provider's type must not be looked up in the
+requesting module's retained table. Common identity, shape and access checks still validate actual
+type uses. Dependencies grant reachability, never private member access. Selected preludes contribute accessible
 implicit bindings; multiple selections conflict. Coherence uses actual defining
 identities, not registration/external origin privileges. Immutable
 [AnalysisInputs](../../crates/kagari-hir/src/analysis/inputs.rs) captures explicit scopes
