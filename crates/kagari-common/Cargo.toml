@@ -7,7 +7,7 @@ license.workspace = true
 [dependencies]
 thiserror.workspace = true
 serde.workspace = true
-bincode.workspace = true
 
 [dev-dependencies]
+bincode.workspace = true
 rstest.workspace = true

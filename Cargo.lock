@@ -691,7 +691,6 @@ dependencies = [
  "kagari-stdlib",
  "kagari-types",
  "serde",
- "smallvec",
 ]
 
 [[package]]
