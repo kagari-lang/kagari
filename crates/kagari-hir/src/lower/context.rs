@@ -14,7 +14,7 @@ use crate::{
         nodes::Local,
         pattern::{PatternData, PatternKind},
         place::{PlaceData, PlaceKind},
-        stmt::{BlockData, StmtData},
+        stmt::{BlockData, StmtData, StmtKind},
         ty::{TypeData, TypeKind},
     },
     source_map::SourceMap,
@@ -82,31 +82,46 @@ impl Lowerer {
         *slot = Some(function);
     }
 
-    /// Allocates a source-map ID and appends its owner-tagged block payload at the matching index.
-    pub(crate) fn alloc_block(&mut self, span: Span, block: BlockData) -> BlockId {
-        let id = self.source_map.push_block(span);
-        self.module.nodes.blocks.push((id.owner(), block));
+    pub(crate) fn alloc_block(&mut self, span: Span, tail_expr: Option<ExprId>) -> BlockId {
+        let origin = self.source_map.node_origin(span);
+        let owner = self.source_map.owner();
+        let nodes = &mut self.module.nodes;
+        let id = BlockId::new(nodes.arena(), owner, nodes.blocks.len());
+        nodes.blocks.push((
+            owner,
+            BlockData {
+                origin,
+                statements: Default::default(),
+                tail_expr,
+            },
+        ));
         id
     }
 
-    /// Allocates a source-map ID and appends its owner-tagged stmt payload at the matching index.
-    pub(crate) fn alloc_stmt(&mut self, span: Span, stmt: StmtData) -> StmtId {
-        let id = self.source_map.push_stmt(span);
-        self.module.nodes.stmts.push((id.owner(), stmt));
+    pub(crate) fn alloc_stmt(&mut self, span: Span, kind: StmtKind) -> StmtId {
+        let origin = self.source_map.node_origin(span);
+        let owner = self.source_map.owner();
+        let nodes = &mut self.module.nodes;
+        let id = StmtId::new(nodes.arena(), owner, nodes.stmts.len());
+        nodes.stmts.push((owner, StmtData { origin, kind }));
         id
     }
 
-    /// Allocates a source-map ID and appends its owner-tagged expr payload at the matching index.
-    pub(crate) fn alloc_expr(&mut self, span: Span, expr: ExprData) -> ExprId {
-        let id = self.source_map.push_expr(span);
-        self.module.nodes.exprs.push((id.owner(), expr));
+    pub(crate) fn alloc_expr(&mut self, span: Span, kind: ExprKind) -> ExprId {
+        let origin = self.source_map.node_origin(span);
+        let owner = self.source_map.owner();
+        let nodes = &mut self.module.nodes;
+        let id = ExprId::new(nodes.arena(), owner, nodes.exprs.len());
+        nodes.exprs.push((owner, ExprData { origin, kind }));
         id
     }
 
-    /// Allocates a source-map ID and appends its owner-tagged pattern payload at the matching index.
-    pub(crate) fn alloc_pattern(&mut self, span: Span, pattern: PatternData) -> PatternId {
-        let id = self.source_map.push_pattern(span);
-        self.module.nodes.patterns.push((id.owner(), pattern));
+    pub(crate) fn alloc_pattern(&mut self, span: Span, kind: PatternKind) -> PatternId {
+        let origin = self.source_map.node_origin(span);
+        let owner = self.source_map.owner();
+        let nodes = &mut self.module.nodes;
+        let id = PatternId::new(nodes.arena(), owner, nodes.patterns.len());
+        nodes.patterns.push((owner, PatternData { origin, kind }));
         id
     }
 
@@ -126,61 +141,50 @@ impl Lowerer {
         let nodes = &mut self.module.nodes;
         let owner = self.source_map.owner();
         let id = LocalId::new(nodes.arena(), owner, nodes.locals.len());
-        nodes.locals.push((owner, Local { name }));
-        self.source_map.insert_local(id, span);
+        nodes.locals.push((
+            owner,
+            Local {
+                name,
+                origin: self.source_map.node_origin(span),
+            },
+        ));
         id
     }
 
-    /// Allocates a source-map ID and appends its owner-tagged place payload at the matching index.
-    pub(crate) fn alloc_place(&mut self, span: Span, place: PlaceData) -> PlaceId {
-        let id = self.source_map.push_place(span);
-        self.module.nodes.places.push((id.owner(), place));
+    pub(crate) fn alloc_place(&mut self, span: Span, kind: PlaceKind) -> PlaceId {
+        let origin = self.source_map.node_origin(span);
+        let owner = self.source_map.owner();
+        let nodes = &mut self.module.nodes;
+        let id = PlaceId::new(nodes.arena(), owner, nodes.places.len());
+        nodes.places.push((owner, PlaceData { origin, kind }));
         id
     }
 
-    /// Allocates a source-map ID and appends its owner-tagged type payload at the matching index.
-    pub(crate) fn alloc_type(&mut self, span: Span, ty: TypeData) -> TypeRefId {
-        let id = self.source_map.push_type(span);
-        self.module.nodes.types.push((id.owner(), ty));
+    pub(crate) fn alloc_type(&mut self, span: Span, kind: TypeKind) -> TypeRefId {
+        let origin = self.source_map.node_origin(span);
+        let owner = self.source_map.owner();
+        let nodes = &mut self.module.nodes;
+        let id = TypeRefId::new(nodes.arena(), owner, nodes.types.len());
+        nodes.types.push((owner, TypeData { origin, kind }));
         id
     }
 
     /// Allocates a recovery expression with an empty synthetic source range.
     pub(crate) fn missing_expr(&mut self) -> ExprId {
-        self.alloc_expr(
-            Span::default(),
-            ExprData {
-                kind: ExprKind::Missing,
-            },
-        )
+        self.alloc_expr(Span::default(), ExprKind::Missing)
     }
 
     pub(crate) fn synthetic_name_pattern(&mut self, name: &str) -> PatternId {
         let local = self.alloc_local(Span::default(), name.to_string());
-        self.alloc_pattern(
-            Span::default(),
-            PatternData {
-                kind: PatternKind::Name { local },
-            },
-        )
+        self.alloc_pattern(Span::default(), PatternKind::Name { local })
     }
 
     pub(crate) fn synthetic_name_place(&mut self, name: &str) -> PlaceId {
-        self.alloc_place(
-            Span::default(),
-            PlaceData {
-                kind: PlaceKind::Name(name.to_string()),
-            },
-        )
+        self.alloc_place(Span::default(), PlaceKind::Name(name.to_string()))
     }
 
     pub(crate) fn synthetic_named_type(&mut self, name: &str) -> TypeRefId {
-        self.alloc_type(
-            Span::default(),
-            TypeData {
-                kind: TypeKind::Named(name.to_string()),
-            },
-        )
+        self.alloc_type(Span::default(), TypeKind::Named(name.to_string()))
     }
 }
 

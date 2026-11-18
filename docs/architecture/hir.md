@@ -367,9 +367,9 @@ a separate checked signature with the same Required/Script/Native distinction;
 Native means externally implemented, not already bound. Script defaults retain real
 blocks and ordinary checked calls, including calls to declared Native helpers.
 
-The lowerer allocates source-map slots and node rows together under owner
-`HirOwner::Body(BodyOwner::Function(f))`. `p` and `l` are identities, not indices into
-`HirNodes.exprs`.
+The lowerer allocates node IDs from their category rows under
+`HirOwner::Body(BodyOwner::Function(f))`. Each row carries its own source or structured origin.
+`p` addresses a function parameter and `l` addresses a local in `HirNodes.locals`.
 The tail expression is separate from the statement list. Parentheses disappear
 as wrappers; constructor shorthand and interpolation can create HIR nodes that
 are not in one-to-one correspondence with AST nodes.
@@ -381,7 +381,7 @@ result           -> ResolvedNames.exprs -> Local(l)
 sum              -> TypeTable.exprs     -> semantic i32 type
 l                -> TypeTable.locals    -> semantic i32 type
 t                -> type syntax         -> resolved type facts
-sum              -> SourceMap.expr_span -> first-to-last written token bytes for the addition
+sum              -> ExprData.origin    -> first-to-last written token bytes for the addition
 ```
 
 [ResolvedNames](../../crates/kagari-hir/src/resolver/resolved.rs) records bindings;

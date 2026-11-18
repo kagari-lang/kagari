@@ -100,7 +100,7 @@ impl<'a> FileQueries<'a> {
             .nodes
             .expressions()
             .filter_map(|(id, expr)| {
-                let span = facts.lowered.source_map.expr_span(id);
+                let span = facts.lowered.module.expr(id).origin.diagnostic_span();
                 let span = match &expr.kind {
                     ExprKind::Field { .. } | ExprKind::Name { .. } => {
                         sites.expr_reference_span(id)?
@@ -222,7 +222,7 @@ impl<'a> FileQueries<'a> {
             .nodes
             .expressions()
             .filter_map(|(id, expr)| {
-                let span = facts.lowered.source_map.expr_span(id);
+                let span = facts.lowered.module.expr(id).origin.diagnostic_span();
                 let span = match &expr.kind {
                     ExprKind::Field { .. }
                     | ExprKind::Name { .. }
@@ -275,7 +275,7 @@ impl<'a> FileQueries<'a> {
                 Some((span, target))
             });
         let places = facts.lowered.module.nodes.places().filter_map(|(id, _)| {
-            let span = facts.lowered.source_map.place_span(id);
+            let span = facts.lowered.module.place(id).origin.diagnostic_span();
             let target = facts
                 .names
                 .place_resolution(id)
@@ -344,7 +344,7 @@ impl<'a> FileQueries<'a> {
                     return None;
                 };
                 let call = facts.typed.type_table().call_resolution(id)?;
-                let callee_span = facts.lowered.source_map.expr_span(*callee);
+                let callee_span = facts.lowered.module.expr(*callee).origin.diagnostic_span();
                 let callee_span = match &facts.lowered.module.expr(*callee).kind {
                     ExprKind::Field { .. } | ExprKind::Name { .. } => {
                         sites.expr_reference_span(*callee)?
@@ -464,7 +464,7 @@ pub(crate) fn type_reference_target_at(
         .module
         .nodes
         .types()
-        .map(|(id, _)| (id, lowered.source_map.type_span(id)))
+        .map(|(id, _)| (id, lowered.module.type_ref(id).origin.diagnostic_span()))
         .filter(|(_, span)| span.start <= offset && offset < span.end)
         .min_by_key(|(_, span)| span.end - span.start)?;
     let resolved = table.type_ref(type_id)?;
@@ -488,13 +488,13 @@ pub(crate) fn type_at_in(
     offset: usize,
 ) -> Option<TypeId> {
     let expressions = lowered.module.nodes.expressions().filter_map(|(id, _)| {
-        let span = lowered.source_map.expr_span(id);
+        let span = lowered.module.expr(id).origin.diagnostic_span();
         (span.start <= offset && offset < span.end)
             .then(|| table.expr_type(id).map(|ty| (span.end - span.start, ty)))
             .flatten()
     });
     let types = lowered.module.nodes.types().filter_map(|(id, _)| {
-        let span = lowered.source_map.type_span(id);
+        let span = lowered.module.type_ref(id).origin.diagnostic_span();
         if !(span.start <= offset && offset < span.end) {
             return None;
         }
@@ -503,7 +503,7 @@ pub(crate) fn type_at_in(
             .map(|resolved| (span.end - span.start, resolved.ty.clone()))
     });
     let places = lowered.module.nodes.places().filter_map(|(id, _)| {
-        let span = lowered.source_map.place_span(id);
+        let span = lowered.module.place(id).origin.diagnostic_span();
         (span.start <= offset && offset < span.end)
             .then(|| table.place_type(id).map(|ty| (span.end - span.start, ty)))
             .flatten()
@@ -524,7 +524,7 @@ pub(crate) fn member_receiver_type_in(
         let ExprKind::Field { receiver, .. } = &expr.kind else {
             return None;
         };
-        let span = lowered.source_map.expr_span(id);
+        let span = lowered.module.expr(id).origin.diagnostic_span();
         if span.start <= offset && offset <= span.end {
             table
                 .expr_type(*receiver)
@@ -537,7 +537,7 @@ pub(crate) fn member_receiver_type_in(
         let PlaceKind::Field { base, .. } = &place.kind else {
             return None;
         };
-        let span = lowered.source_map.place_span(id);
+        let span = lowered.module.place(id).origin.diagnostic_span();
         (span.start <= offset && offset <= span.end)
             .then(|| {
                 table

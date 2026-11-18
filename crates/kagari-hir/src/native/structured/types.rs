@@ -5,7 +5,7 @@ use crate::{
     hir::{
         ids::{GenericParamId, TypeRefId},
         item::behavior::{GenericParam, TraitBound, TraitRef},
-        ty::{TypeBuffer, TypeData, TypeKind},
+        ty::{TypeBuffer, TypeKind},
     },
     native::paths::module_path,
 };
@@ -128,7 +128,7 @@ impl StructuredLowerer<'_> {
     }
 
     pub(super) fn alloc_type(&mut self, kind: TypeKind) -> TypeRefId {
-        self.lowerer.alloc_type(Span::default(), TypeData { kind })
+        self.lowerer.alloc_type(Span::default(), kind)
     }
 
     pub(super) fn generics(

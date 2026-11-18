@@ -3,13 +3,12 @@
 use crate::{
     hir::{
         expr::{
-            ClosureParam, Condition, ExprData, ExprKind, FieldInit, MatchArm,
+            ClosureParam, Condition, ExprKind, FieldInit, MatchArm,
             literal::{Literal, LiteralKind},
             ops::PrefixOp,
         },
         ids::ExprId,
-        stmt::BlockData,
-        ty::{TypeData, TypeKind},
+        ty::TypeKind,
     },
     lower::context::{Lowerer, lower_binary_op, syntax_span, token_span},
 };
@@ -24,7 +23,7 @@ use kagari_source::literal::decode_string_fragment_with_cancellation;
 mod literal;
 mod pattern;
 
-use smallvec::{SmallVec, smallvec};
+use smallvec::SmallVec;
 
 impl Lowerer {
     /// Prefers binding-condition syntax over the plain expression accessor and supplies missing children for recovery.
@@ -82,15 +81,12 @@ impl Lowerer {
                             let bindings = self.lower_associated_bindings(&arguments);
                             self.alloc_type(
                                 span,
-                                TypeData {
-                                    kind: TypeKind::Generic {
-                                        name,
-                                        args,
-                                        bindings,
-                                        callable_syntax: false,
-                                        positional_after_binding: arguments
-                                            .positional_after_binding(),
-                                    },
+                                TypeKind::Generic {
+                                    name,
+                                    args,
+                                    bindings,
+                                    callable_syntax: false,
+                                    positional_after_binding: arguments.positional_after_binding(),
                                 },
                             )
                         })
@@ -111,12 +107,10 @@ impl Lowerer {
                                 text.expect("FormatText tokens have validated literal syntax");
                             parts.push(self.alloc_expr(
                                 token.body_span(),
-                                ExprData {
-                                    kind: ExprKind::Literal(Literal {
-                                        kind: LiteralKind::String,
-                                        text,
-                                    }),
-                                },
+                                ExprKind::Literal(Literal {
+                                    kind: LiteralKind::String,
+                                    text,
+                                }),
                             ));
                         }
                         StringPartView::Hole(part) => {
@@ -126,11 +120,9 @@ impl Lowerer {
                                 .unwrap_or_else(|| self.missing_expr());
                             parts.push(self.alloc_expr(
                                 syntax_span(&part),
-                                ExprData {
-                                    kind: ExprKind::FormatPart {
-                                        expr,
-                                        debug: part.debug(),
-                                    },
+                                ExprKind::FormatPart {
+                                    expr,
+                                    debug: part.debug(),
                                 },
                             ));
                         }
@@ -233,13 +225,7 @@ impl Lowerer {
                 condition: self.lower_condition(if_expr.binding_condition(), if_expr.condition()),
                 then_branch: match if_expr.then_branch() {
                     Some(block) => self.lower_block(&block),
-                    None => self.alloc_block(
-                        syntax_span(if_expr),
-                        BlockData {
-                            statements: smallvec![],
-                            tail_expr: None,
-                        },
-                    ),
+                    None => self.alloc_block(syntax_span(if_expr), None),
                 },
                 else_branch: if_expr.else_branch().map(|expr| self.lower_expr(&expr)),
             },
@@ -257,14 +243,12 @@ impl Lowerer {
                     let bindings = self.lower_associated_bindings(&arguments);
                     self.alloc_type(
                         span,
-                        TypeData {
-                            kind: TypeKind::Generic {
-                                name,
-                                args,
-                                bindings,
-                                callable_syntax: false,
-                                positional_after_binding: arguments.positional_after_binding(),
-                            },
+                        TypeKind::Generic {
+                            name,
+                            args,
+                            bindings,
+                            callable_syntax: false,
+                            positional_after_binding: arguments.positional_after_binding(),
                         },
                     )
                 }),
@@ -287,11 +271,9 @@ impl Lowerer {
                                 let span = token_span(&name);
                                 self.alloc_expr(
                                     span,
-                                    ExprData {
-                                        kind: ExprKind::Name {
-                                            name: field.name_text().unwrap_or_default(),
-                                            explicit_type: None,
-                                        },
+                                    ExprKind::Name {
+                                        name: field.name_text().unwrap_or_default(),
+                                        explicit_type: None,
                                     },
                                 )
                             }),
@@ -328,15 +310,7 @@ impl Lowerer {
                 body: loop_expr
                     .body()
                     .map(|body| self.lower_block(&body))
-                    .unwrap_or_else(|| {
-                        self.alloc_block(
-                            syntax_span(loop_expr),
-                            BlockData {
-                                statements: smallvec![],
-                                tail_expr: None,
-                            },
-                        )
-                    }),
+                    .unwrap_or_else(|| self.alloc_block(syntax_span(loop_expr), None)),
             },
             ExprView::AsyncBlockExpr(block) => ExprKind::AsyncBlock {
                 body: block
@@ -391,6 +365,6 @@ impl Lowerer {
             },
         };
 
-        self.alloc_expr(syntax_span(expr), ExprData { kind })
+        self.alloc_expr(syntax_span(expr), kind)
     }
 }

@@ -592,8 +592,18 @@ fn mixed_field_chains_resolve_the_complete_host_suffix() {
         Some(count)
     );
 
-    let read_span = facts.lowered.source_map.expr_span(reads[0].root);
-    let write_span = facts.lowered.source_map.place_span(writes[0].root);
+    let read_span = facts
+        .lowered
+        .module
+        .expr(reads[0].root)
+        .origin
+        .diagnostic_span();
+    let write_span = facts
+        .lowered
+        .module
+        .place(writes[0].root)
+        .origin
+        .diagnostic_span();
     assert_eq!(&text[read_span.start..read_span.end], "value.inner.host");
     assert_eq!(&text[write_span.start..write_span.end], "value.inner.host");
 }

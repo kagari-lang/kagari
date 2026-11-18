@@ -85,7 +85,11 @@ pub(super) fn validate_const_initializers(
 
             let initializer = self.lowered.module.constant(const_id).initializer;
             if !self.budget.enter(
-                self.lowered.source_map.expr_span(initializer),
+                self.lowered
+                    .module
+                    .expr(initializer)
+                    .origin
+                    .diagnostic_span(),
                 self.diagnostics,
             ) {
                 return;
@@ -134,7 +138,13 @@ pub(super) fn validate_const_initializers(
                             display_type_id(self.definitions, &actual)
                         ),
                     })
-                    .with_span(self.lowered.source_map.expr_span(const_item.initializer)),
+                    .with_span(
+                        self.lowered
+                            .module
+                            .expr(const_item.initializer)
+                            .origin
+                            .diagnostic_span(),
+                    ),
                 );
             }
             self.states.insert(const_id, ConstVisitState::Done);
@@ -142,9 +152,10 @@ pub(super) fn validate_const_initializers(
 
         fn validate_const_expr(&mut self, owner: ConstId, expr_id: ExprId) {
             if self.cancel.check().is_err()
-                || !self
-                    .budget
-                    .enter(self.lowered.source_map.expr_span(expr_id), self.diagnostics)
+                || !self.budget.enter(
+                    self.lowered.module.expr(expr_id).origin.diagnostic_span(),
+                    self.diagnostics,
+                )
             {
                 return;
             }
@@ -268,7 +279,7 @@ pub(super) fn validate_const_initializers(
                     const_name: const_item.name.clone(),
                     reason: reason.to_owned(),
                 })
-                .with_span(self.lowered.source_map.expr_span(expr_id)),
+                .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
             );
         }
     }

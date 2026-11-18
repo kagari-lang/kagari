@@ -603,6 +603,8 @@ impl<'a> Completion<'a> {
 
 #[cfg(test)]
 mod tests {
+    use crate::hir::origin::NodeOrigin;
+    use kagari_common::span::Span;
     use {
         crate::{hir::ids::StmtId, resolver::collect::resolve_names},
         kagari_source::source::SourceFile,
@@ -643,6 +645,7 @@ mod tests {
                         module.nodes.blocks.push((
                             owner,
                             BlockData {
+                                origin: NodeOrigin::Source(Span::default()),
                                 statements: Default::default(),
                                 tail_expr: Some(expr),
                             },
@@ -651,7 +654,13 @@ mod tests {
                     }
                 };
                 expr = ExprId::new(arena, owner, module.nodes.exprs.len());
-                module.nodes.exprs.push((owner, ExprData { kind }));
+                module.nodes.exprs.push((
+                    owner,
+                    ExprData {
+                        origin: NodeOrigin::Source(Span::default()),
+                        kind,
+                    },
+                ));
             }
             let token = CancellationToken::default();
             assert_eq!(
@@ -663,6 +672,7 @@ mod tests {
             module.nodes.places.push((
                 owner,
                 PlaceData {
+                    origin: NodeOrigin::Source(Span::default()),
                     kind: PlaceKind::Expr(expr),
                 },
             ));
@@ -672,6 +682,7 @@ mod tests {
                 module.nodes.places.push((
                     owner,
                     PlaceData {
+                        origin: NodeOrigin::Source(Span::default()),
                         kind: PlaceKind::Field {
                             base,
                             name: "field".into(),
@@ -756,6 +767,7 @@ mod tests {
             module.nodes.exprs.push((
                 owner,
                 ExprData {
+                    origin: NodeOrigin::Source(Span::default()),
                     kind: ExprKind::Tuple(smallvec::smallvec![previous, previous]),
                 },
             ));
@@ -770,6 +782,7 @@ mod tests {
         module.nodes.stmts.push((
             owner,
             StmtData {
+                origin: NodeOrigin::Source(Span::default()),
                 kind: StmtKind::Break,
             },
         ));
@@ -777,6 +790,7 @@ mod tests {
         module.nodes.blocks.push((
             owner,
             BlockData {
+                origin: NodeOrigin::Source(Span::default()),
                 statements: smallvec::smallvec![breaking],
                 tail_expr: None,
             },
@@ -785,6 +799,7 @@ mod tests {
         module.nodes.stmts.push((
             owner,
             StmtData {
+                origin: NodeOrigin::Source(Span::default()),
                 kind: StmtKind::Loop { body },
             },
         ));

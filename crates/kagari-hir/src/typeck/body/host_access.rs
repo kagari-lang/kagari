@@ -185,7 +185,7 @@ impl<'a> BodyChecker<'a> {
                 Diagnostic::error(DiagnosticKind::InvalidReference {
                     reason: "reflection helpers do not accept scoped views; use typed field access",
                 })
-                .with_span(self.lowered.source_map.expr_span(receiver)),
+                .with_span(self.lowered.module.expr(receiver).origin.diagnostic_span()),
             );
             return Ok(Some(TypeId::Error));
         }
@@ -217,7 +217,7 @@ impl<'a> BodyChecker<'a> {
                     expected: display_type_id(self.declarations.definitions(), expected),
                     found: display_type_id(self.declarations.definitions(), &found),
                 })
-                .with_span(self.lowered.source_map.expr_span(value)),
+                .with_span(self.lowered.module.expr(value).origin.diagnostic_span()),
             );
         }
     }
@@ -240,8 +240,13 @@ impl<'a> BodyChecker<'a> {
         let name = self.string_literal_value(expression);
         if name.is_none() {
             self.diagnostics.push(
-                Diagnostic::error(DiagnosticKind::ReflectionFieldNameNotConstant)
-                    .with_span(self.lowered.source_map.expr_span(expression)),
+                Diagnostic::error(DiagnosticKind::ReflectionFieldNameNotConstant).with_span(
+                    self.lowered
+                        .module
+                        .expr(expression)
+                        .origin
+                        .diagnostic_span(),
+                ),
             );
         }
         name
@@ -383,7 +388,7 @@ impl<'a> BodyChecker<'a> {
                     Diagnostic::error(DiagnosticKind::InvalidHostPath {
                         reason: reason.into(),
                     })
-                    .with_span(self.lowered.source_map.expr_span(expr_id)),
+                    .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
                 );
                 Some(if recovered_all_members {
                     current
@@ -475,7 +480,7 @@ impl<'a> BodyChecker<'a> {
                         Diagnostic::error(DiagnosticKind::InvalidHostPath {
                             reason: "host path is read-only".into(),
                         })
-                        .with_span(self.lowered.source_map.place_span(place_id)),
+                        .with_span(self.lowered.module.place(place_id).origin.diagnostic_span()),
                     );
                 } else {
                     self.type_table.insert_host_place_path(
@@ -520,7 +525,7 @@ impl<'a> BodyChecker<'a> {
                     Diagnostic::error(DiagnosticKind::InvalidHostPath {
                         reason: reason.into(),
                     })
-                    .with_span(self.lowered.source_map.place_span(place_id)),
+                    .with_span(self.lowered.module.place(place_id).origin.diagnostic_span()),
                 );
                 Some(if recovered_all_members {
                     current

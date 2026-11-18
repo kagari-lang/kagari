@@ -10,13 +10,14 @@ use crate::{
     collections::HashMap,
     hir::{
         ids::{
-            EnumId, ExprId, FieldId, FunctionId, GenericParamId, LocalId, NativeTypeId, PatternId,
-            PlaceId, StructId, TraitId, TypeRefId,
+            EnumId, ExprId, FieldId, FunctionId, GenericParamId, HirOwner, LocalId, NativeTypeId,
+            PatternId, PlaceId, StructId, TraitId, TypeRefId,
         },
+        nodes::HirNodes,
+        origin::NodeOrigin,
         ty::DefinitionExposure,
     },
     language::semantics as traits,
-    source_map::SourceMap,
     typeck::{scalar::ScalarValue, table::propagation::ResolvedPropagation},
     types::{
         AssociatedTypeFamily, AssociatedTypeParameters, GenericParameterType, NominalType, TypeId,
@@ -44,7 +45,7 @@ pub enum ResolvedTypeTarget {
     Enum(EnumId),
     /// Local trait slot.
     Trait(TraitId),
-    /// Local generic-parameter source slot.
+    /// Local generic binder record.
     Generic(GenericParamId),
 }
 
@@ -331,6 +332,7 @@ impl TypeTable {
         &self,
         ids: &HashMap<TypeRefId, TypeRefId>,
         fields: &HashMap<FieldId, FieldId>,
+        generics: &HashMap<GenericParamId, GenericParamId>,
     ) -> Option<Self> {
         let mut result = self.clone();
         result.field_types = self
@@ -341,7 +343,13 @@ impl TypeTable {
         result.type_refs = self
             .type_refs
             .iter()
-            .map(|(id, value)| Some((*ids.get(id)?, value.clone())))
+            .map(|(id, value)| {
+                let mut value = value.clone();
+                if let Some(ResolvedTypeTarget::Generic(id)) = &mut value.target {
+                    *id = *generics.get(id)?;
+                }
+                Some((*ids.get(id)?, value))
+            })
             .collect::<Option<_>>()?;
         result.constraints = self
             .constraints
@@ -463,27 +471,35 @@ impl TypeTable {
     pub(crate) fn restore_function(
         &mut self,
         old: &Self,
-        old_map: &SourceMap,
-        new_map: &SourceMap,
+        old_nodes: &HirNodes,
+        new_nodes: &HirNodes,
+        function_owner: HirOwner,
         old_span: Span,
         new_span: Span,
     ) -> bool {
-        fn remap(
-            old: &[Span],
-            new: &[Span],
+        fn remap<Id: Copy>(
+            old: impl Iterator<Item = (Id, HirOwner, NodeOrigin)>,
+            new: impl Iterator<Item = (Id, HirOwner, NodeOrigin)>,
+            owner: HirOwner,
             old_span: Span,
             new_span: Span,
-        ) -> Option<Vec<(usize, usize)>> {
-            let relative = |spans: &[Span], owner: Span| {
-                spans
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, span)| span.start >= owner.start && span.end <= owner.end)
-                    .map(|(id, span)| (id, span.start - owner.start, span.end - owner.start))
-                    .collect::<Vec<_>>()
-            };
-            let old = relative(old, old_span);
-            let new = relative(new, new_span);
+        ) -> Option<Vec<(Id, Id)>> {
+            fn relative<Id>(
+                nodes: impl Iterator<Item = (Id, HirOwner, NodeOrigin)>,
+                owner: HirOwner,
+                extent: Span,
+            ) -> Vec<(Id, usize, usize)> {
+                nodes
+                    .filter_map(|(id, candidate, origin)| {
+                        let span = origin.diagnostic_span();
+                        (candidate == owner && span.start >= extent.start && span.end <= extent.end)
+                            .then(|| (id, span.start - extent.start, span.end - extent.start))
+                    })
+                    .collect()
+            }
+
+            let old = relative(old, owner, old_span);
+            let new = relative(new, owner, new_span);
             if old.len() != new.len() {
                 return None;
             }
@@ -492,55 +508,75 @@ impl TypeTable {
                 .map(|((a, start, end), (b, ns, ne))| (start == ns && end == ne).then_some((a, b)))
                 .collect()
         }
+
         let Some(exprs) = remap(
-            old_map.expr_spans(),
-            new_map.expr_spans(),
+            old_nodes
+                .expressions()
+                .map(|(id, node)| (id, id.owner(), node.origin)),
+            new_nodes
+                .expressions()
+                .map(|(id, node)| (id, id.owner(), node.origin)),
+            function_owner,
             old_span,
             new_span,
         ) else {
             return false;
         };
         let Some(locals) = remap(
-            old_map.local_spans(),
-            new_map.local_spans(),
+            old_nodes
+                .locals()
+                .map(|(id, node)| (id, id.owner(), node.origin)),
+            new_nodes
+                .locals()
+                .map(|(id, node)| (id, id.owner(), node.origin)),
+            function_owner,
             old_span,
             new_span,
         ) else {
             return false;
         };
         let Some(places) = remap(
-            old_map.place_spans(),
-            new_map.place_spans(),
+            old_nodes
+                .places()
+                .map(|(id, node)| (id, id.owner(), node.origin)),
+            new_nodes
+                .places()
+                .map(|(id, node)| (id, id.owner(), node.origin)),
+            function_owner,
             old_span,
             new_span,
         ) else {
             return false;
         };
         let Some(patterns) = remap(
-            old_map.pattern_spans(),
-            new_map.pattern_spans(),
+            old_nodes
+                .patterns()
+                .map(|(id, node)| (id, id.owner(), node.origin)),
+            new_nodes
+                .patterns()
+                .map(|(id, node)| (id, id.owner(), node.origin)),
+            function_owner,
             old_span,
             new_span,
         ) else {
             return false;
         };
         let Some(types) = remap(
-            old_map.type_spans(),
-            new_map.type_spans(),
+            old_nodes
+                .types()
+                .map(|(id, node)| (id, id.owner(), node.origin)),
+            new_nodes
+                .types()
+                .map(|(id, node)| (id, id.owner(), node.origin)),
+            function_owner,
             old_span,
             new_span,
         ) else {
             return false;
         };
-        let expr_ids = exprs
-            .iter()
-            .map(|(a, b)| (old_map.expr_id(*a), new_map.expr_id(*b)))
-            .collect::<HashMap<_, _>>();
+        let expr_ids = exprs.iter().copied().collect::<HashMap<_, _>>();
         let mut calls = Vec::new();
-        let place_ids = places
-            .iter()
-            .map(|(a, b)| (old_map.place_id(*a), new_map.place_id(*b)))
-            .collect::<HashMap<_, _>>();
+        let place_ids = places.iter().copied().collect::<HashMap<_, _>>();
         let mut host_place_paths = Vec::new();
         for (old_id, new_id) in &place_ids {
             if let Some(path) = old.host_place_paths.get(old_id) {
@@ -615,88 +651,77 @@ impl TypeTable {
         self.host_place_paths.extend(host_place_paths);
         self.host_paths.extend(host_paths);
         for (a, b) in types {
-            if let Some(ty) = old.type_refs.get(&old_map.type_id(a)) {
-                self.type_refs.insert(new_map.type_id(b), ty.clone());
+            if let Some(ty) = old.type_refs.get(&a) {
+                self.type_refs.insert(b, ty.clone());
             }
         }
         for (a, b) in patterns {
-            if let Some(value) = old.pattern_scalars.get(&old_map.pattern_id(a)) {
-                self.pattern_scalars
-                    .insert(new_map.pattern_id(b), value.clone());
+            if let Some(value) = old.pattern_scalars.get(&a) {
+                self.pattern_scalars.insert(b, value.clone());
             }
-            if let Some(bounds) = old.pattern_ranges.get(&old_map.pattern_id(a)) {
-                self.pattern_ranges
-                    .insert(new_map.pattern_id(b), bounds.clone());
+            if let Some(bounds) = old.pattern_ranges.get(&a) {
+                self.pattern_ranges.insert(b, bounds.clone());
             }
-            if let Some(fields) = old.pattern_fields.get(&old_map.pattern_id(a)) {
-                self.pattern_fields
-                    .insert(new_map.pattern_id(b), fields.clone());
+            if let Some(fields) = old.pattern_fields.get(&a) {
+                self.pattern_fields.insert(b, fields.clone());
             }
-            if let Some(variant) = old.pattern_variants.get(&old_map.pattern_id(a)) {
-                self.pattern_variants
-                    .insert(new_map.pattern_id(b), *variant);
+            if let Some(variant) = old.pattern_variants.get(&a) {
+                self.pattern_variants.insert(b, *variant);
             }
         }
         for (a, b) in exprs {
-            if let Some(fact) = old.propagations.get(&old_map.expr_id(a)) {
-                self.propagations.insert(new_map.expr_id(b), fact.clone());
+            if let Some(fact) = old.propagations.get(&a) {
+                self.propagations.insert(b, fact.clone());
             }
-            if let Some(fact) = old.iterations.get(&old_map.expr_id(a)) {
-                self.iterations.insert(new_map.expr_id(b), fact.clone());
+            if let Some(fact) = old.iterations.get(&a) {
+                self.iterations.insert(b, fact.clone());
             }
-            if let Some(fact) = old.protocol_receivers.get(&old_map.expr_id(a)) {
-                self.protocol_receivers
-                    .insert(new_map.expr_id(b), fact.clone());
+            if let Some(fact) = old.protocol_receivers.get(&a) {
+                self.protocol_receivers.insert(b, fact.clone());
             }
-            if let Some(fact) = old.associated_consts.get(&old_map.expr_id(a)) {
-                self.associated_consts
-                    .insert(new_map.expr_id(b), fact.clone());
+            if let Some(fact) = old.associated_consts.get(&a) {
+                self.associated_consts.insert(b, fact.clone());
             }
-            if let Some(coercion) = old.callable_coercions.get(&old_map.expr_id(a)) {
-                self.callable_coercions
-                    .insert(new_map.expr_id(b), coercion.clone());
+            if let Some(coercion) = old.callable_coercions.get(&a) {
+                self.callable_coercions.insert(b, coercion.clone());
             }
-            if let Some(coercion) = old.interface_coercions.get(&old_map.expr_id(a)) {
-                self.interface_coercions
-                    .insert(new_map.expr_id(b), coercion.clone());
+            if let Some(coercion) = old.interface_coercions.get(&a) {
+                self.interface_coercions.insert(b, coercion.clone());
             }
-            if let Some(field) = old.expr_fields.get(&old_map.expr_id(a)) {
-                self.expr_fields.insert(new_map.expr_id(b), *field);
+            if let Some(field) = old.expr_fields.get(&a) {
+                self.expr_fields.insert(b, *field);
             }
-            if let Some(target) = old.struct_inits.get(&old_map.expr_id(a)) {
-                self.struct_inits.insert(new_map.expr_id(b), target.clone());
+            if let Some(target) = old.struct_inits.get(&a) {
+                self.struct_inits.insert(b, target.clone());
             }
-            if let Some(target) = old.enum_constructors.get(&old_map.expr_id(a)) {
-                self.enum_constructors
-                    .insert(new_map.expr_id(b), target.clone());
+            if let Some(target) = old.enum_constructors.get(&a) {
+                self.enum_constructors.insert(b, target.clone());
             }
-            if let Some(value) = old.scalars.get(&old_map.expr_id(a)) {
-                self.scalars.insert(new_map.expr_id(b), value.clone());
+            if let Some(value) = old.scalars.get(&a) {
+                self.scalars.insert(b, value.clone());
             }
-            if let Some(ty) = old.exprs.get(&old_map.expr_id(a)) {
-                self.exprs.insert(new_map.expr_id(b), ty.clone());
+            if let Some(ty) = old.exprs.get(&a) {
+                self.exprs.insert(b, ty.clone());
             }
         }
         for (a, b) in locals {
-            if let Some(ty) = old.locals.get(&old_map.local_id(a)) {
-                self.locals.insert(new_map.local_id(b), ty.clone());
+            if let Some(ty) = old.locals.get(&a) {
+                self.locals.insert(b, ty.clone());
             }
         }
         for (a, b) in places {
-            if let Some(interface) = old.place_indexes.get(&old_map.place_id(a)) {
-                self.place_indexes
-                    .insert(new_map.place_id(b), interface.clone());
+            if let Some(interface) = old.place_indexes.get(&a) {
+                self.place_indexes.insert(b, interface.clone());
             }
 
-            if let Some(interface) = old.place_index_writes.get(&old_map.place_id(a)) {
-                self.place_index_writes
-                    .insert(new_map.place_id(b), interface.clone());
+            if let Some(interface) = old.place_index_writes.get(&a) {
+                self.place_index_writes.insert(b, interface.clone());
             }
-            if let Some(field) = old.place_fields.get(&old_map.place_id(a)) {
-                self.place_fields.insert(new_map.place_id(b), *field);
+            if let Some(field) = old.place_fields.get(&a) {
+                self.place_fields.insert(b, *field);
             }
-            if let Some(ty) = old.places.get(&old_map.place_id(a)) {
-                self.places.insert(new_map.place_id(b), ty.clone());
+            if let Some(ty) = old.places.get(&a) {
+                self.places.insert(b, ty.clone());
             }
         }
         true

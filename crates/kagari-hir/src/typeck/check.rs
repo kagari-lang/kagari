@@ -179,12 +179,12 @@ pub(crate) fn check_signatures(
                     Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
                         type_name: display_type(&lowered.module, field.ty),
                     })
-                    .with_span(lowered.source_map.type_span(field.ty)),
+                    .with_span(lowered.module.type_ref(field.ty).origin.diagnostic_span()),
                 );
             }
             validate_reference_position(
                 &ty,
-                lowered.source_map.type_span(field.ty),
+                lowered.module.type_ref(field.ty).origin.diagnostic_span(),
                 &mut diagnostics,
             );
             if ty.contains_stored_reference() {
@@ -192,7 +192,7 @@ pub(crate) fn check_signatures(
                     Diagnostic::error(DiagnosticKind::InvalidReference {
                         reason: "a scoped view cannot be stored in a field",
                     })
-                    .with_span(lowered.source_map.type_span(field.ty)),
+                    .with_span(lowered.module.type_ref(field.ty).origin.diagnostic_span()),
                 );
             }
             type_table.insert_field_type(field.id, ty);
@@ -221,26 +221,28 @@ pub(crate) fn check_signatures(
                                 Diagnostic::error(DiagnosticKind::InvalidReference {
                                     reason: "a scoped view cannot be stored in an enum payload",
                                 })
-                                .with_span(lowered.source_map.type_span(*payload)),
+                                .with_span(
+                                    lowered.module.type_ref(*payload).origin.diagnostic_span(),
+                                ),
                             );
                         }
                         validate_reference_position(
                             &ty,
-                            lowered.source_map.type_span(*payload),
+                            lowered.module.type_ref(*payload).origin.diagnostic_span(),
                             &mut diagnostics,
                         );
                     }
                     ty => {
                         validate_reference_position(
                             &ty,
-                            lowered.source_map.type_span(*payload),
+                            lowered.module.type_ref(*payload).origin.diagnostic_span(),
                             &mut diagnostics,
                         );
                         diagnostics.push(
                             Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
                                 type_name: display_type(&lowered.module, *payload),
                             })
-                            .with_span(lowered.source_map.type_span(*payload)),
+                            .with_span(lowered.module.type_ref(*payload).origin.diagnostic_span()),
                         );
                     }
                 }
@@ -270,7 +272,7 @@ pub(crate) fn check_signatures(
                     Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
                         type_name: display_type(&lowered.module, ty),
                     })
-                    .with_span(lowered.source_map.type_span(ty)),
+                    .with_span(lowered.module.type_ref(ty).origin.diagnostic_span()),
                 );
             }
         }
@@ -313,7 +315,7 @@ pub(crate) fn check_signatures(
             };
             validate_reference_position(
                 &param_type,
-                lowered.source_map.type_span(param.ty),
+                lowered.module.type_ref(param.ty).origin.diagnostic_span(),
                 &mut diagnostics,
             );
             if param_type.is_unresolved() {
@@ -323,7 +325,7 @@ pub(crate) fn check_signatures(
                         function_name: function_name.clone(),
                         position: TypePosition::Parameter,
                     })
-                    .with_span(lowered.source_map.type_span(param.ty)),
+                    .with_span(lowered.module.type_ref(param.ty).origin.diagnostic_span()),
                 );
             }
             if function.is_async && param_type.contains_host_value() {
@@ -331,7 +333,7 @@ pub(crate) fn check_signatures(
                     Diagnostic::error(DiagnosticKind::InvalidAsyncCapture {
                         type_name: display_type_id(declarations.definitions(), &param_type),
                     })
-                    .with_span(lowered.source_map.type_span(param.ty)),
+                    .with_span(lowered.module.type_ref(param.ty).origin.diagnostic_span()),
                 );
             }
             params.push(TypedParameter {
@@ -351,12 +353,12 @@ pub(crate) fn check_signatures(
                         Diagnostic::error(DiagnosticKind::InvalidReference {
                             reason: "a scoped view cannot be returned",
                         })
-                        .with_span(lowered.source_map.type_span(*ty_ref)),
+                        .with_span(lowered.module.type_ref(*ty_ref).origin.diagnostic_span()),
                     );
                 }
                 validate_reference_position(
                     &ty,
-                    lowered.source_map.type_span(*ty_ref),
+                    lowered.module.type_ref(*ty_ref).origin.diagnostic_span(),
                     &mut diagnostics,
                 );
                 if ty.is_unresolved() {
@@ -366,7 +368,7 @@ pub(crate) fn check_signatures(
                             function_name: function_name.clone(),
                             position: TypePosition::Return,
                         })
-                        .with_span(lowered.source_map.type_span(*ty_ref)),
+                        .with_span(lowered.module.type_ref(*ty_ref).origin.diagnostic_span()),
                     );
                 }
                 ty
@@ -508,7 +510,7 @@ pub(crate) fn check_bodies_controlled(
         constants,
         aggregates,
     } = inputs;
-    let reuse = reuse.filter(|reuse| reuse.environment_matches(lowered));
+    let reuse = reuse.filter(|reuse| reuse.environment_matches(lowered, cancel));
     let mut valid_bodies = HashSet::default();
     let mut checked_bodies = 0;
     let mut reused_bodies = 0;
@@ -547,7 +549,7 @@ pub(crate) fn check_bodies_controlled(
                     ty if !ty.is_unresolved() => {
                         validate_reference_position(
                             &ty,
-                            lowered.source_map.type_span(ty_ref),
+                            lowered.module.type_ref(ty_ref).origin.diagnostic_span(),
                             &mut diagnostics,
                         );
                         ty
@@ -555,7 +557,7 @@ pub(crate) fn check_bodies_controlled(
                     ty => {
                         validate_reference_position(
                             &ty,
-                            lowered.source_map.type_span(ty_ref),
+                            lowered.module.type_ref(ty_ref).origin.diagnostic_span(),
                             &mut diagnostics,
                         );
                         diagnostics.push(
@@ -576,7 +578,7 @@ pub(crate) fn check_bodies_controlled(
                     },
                     &ty,
                     &HashMap::default(),
-                    lowered.source_map.type_span(ty_ref),
+                    lowered.module.type_ref(ty_ref).origin.diagnostic_span(),
                     &mut diagnostics,
                     cancel,
                 );
@@ -834,7 +836,7 @@ pub(crate) fn check_bodies_controlled(
                 checker.set_async(function.is_async);
                 let body_ty = checker.solve_body(body, &mut env, Some(&body_output));
                 checker.finish()?;
-                let body_span = lowered.source_map.block_span(body);
+                let body_span = lowered.module.block(body).origin.diagnostic_span();
                 aliases::AliasValidation {
                     lowered,
                     declarations,
@@ -844,7 +846,7 @@ pub(crate) fn check_bodies_controlled(
                 }
                 .uses(
                     |reference| {
-                        let span = lowered.source_map.type_span(reference);
+                        let span = lowered.module.type_ref(reference).origin.diagnostic_span();
                         body_span.start <= span.start
                             && span.end <= body_span.end
                             && reference.owner() == body.owner()

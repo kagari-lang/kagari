@@ -118,14 +118,22 @@ impl<'a> DeclarationSiteIndex<'a> {
             index.generics(lowered, declarations, generics);
             for member in constants {
                 index.insert(
-                    map.type_span(member.name_ref),
+                    lowered
+                        .module
+                        .type_ref(member.name_ref)
+                        .origin
+                        .diagnostic_span(),
                     declarations.associated_const(member.name_ref),
                     true,
                 );
             }
             for member in types {
                 index.insert(
-                    map.type_span(member.name_ref),
+                    lowered
+                        .module
+                        .type_ref(member.name_ref)
+                        .origin
+                        .diagnostic_span(),
                     declarations.associated_type(member.name_ref),
                     true,
                 );
@@ -137,7 +145,7 @@ impl<'a> DeclarationSiteIndex<'a> {
         for (_, pattern) in module.nodes.patterns() {
             if let PatternKind::Name { local, .. } = pattern.kind {
                 index.insert(
-                    map.local_span(local),
+                    lowered.module.nodes.local(local).origin.diagnostic_span(),
                     declarations.target(ResolvedName::Local(local)),
                     false,
                 );
@@ -147,7 +155,12 @@ impl<'a> DeclarationSiteIndex<'a> {
             if let ExprKind::Closure { params, .. } = &expr.kind {
                 for param in params {
                     index.insert(
-                        map.local_span(param.local),
+                        lowered
+                            .module
+                            .nodes
+                            .local(param.local)
+                            .origin
+                            .diagnostic_span(),
                         declarations.target(ResolvedName::Local(param.local)),
                         false,
                     );

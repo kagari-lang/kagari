@@ -1,6 +1,7 @@
 //! Assignment-path syntax kept separate from ordinary value expressions.
 
 use crate::hir::ids::{ExprId, PlaceId};
+use crate::hir::origin::NodeOrigin;
 
 /// A potential assignment destination in HirNodes.places, with only `kind` as payload.
 ///
@@ -21,6 +22,8 @@ use crate::hir::ids::{ExprId, PlaceId};
 /// field/index and writeability facts before the compiler emits mutation steps.
 #[derive(Debug, Clone)]
 pub struct PlaceData {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
     /// Root or projection of a potential assignment destination.
     pub kind: PlaceKind,
 }

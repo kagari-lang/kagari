@@ -18,7 +18,7 @@ impl BodyChecker<'_> {
         if !self.async_body {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::AwaitOutsideAsync)
-                    .with_span(self.lowered.source_map.expr_span(site)),
+                    .with_span(self.lowered.module.expr(site).origin.diagnostic_span()),
             );
         }
         // The outer expectation constrains the completed output; imposing
@@ -35,7 +35,7 @@ impl BodyChecker<'_> {
                 Diagnostic::error(DiagnosticKind::InvalidAwaitOperand {
                     type_name: display_type_id(self.declarations.definitions(), &operand_type),
                 })
-                .with_span(self.lowered.source_map.expr_span(operand)),
+                .with_span(self.lowered.module.expr(operand).origin.diagnostic_span()),
             );
         }
         TypeId::Error

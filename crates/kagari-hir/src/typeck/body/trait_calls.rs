@@ -84,7 +84,7 @@ impl BodyChecker<'_> {
                         function_name: name.to_owned(),
                         parameter: "Self".into(),
                     })
-                    .with_span(self.lowered.source_map.expr_span(callee)),
+                    .with_span(self.lowered.module.expr(callee).origin.diagnostic_span()),
                 );
             }
             return None;
@@ -101,7 +101,7 @@ impl BodyChecker<'_> {
                 trait_name: TypeId::Trait(interface.clone())
                     .display_name(self.declarations.definitions()),
             })
-            .with_span(self.lowered.source_map.expr_span(callee)),
+            .with_span(self.lowered.module.expr(callee).origin.diagnostic_span()),
         );
         None
     }

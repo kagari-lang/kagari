@@ -99,7 +99,9 @@ impl BodyChecker<'_> {
                                 ),
                                 found: display_type_id(self.declarations.definitions(), &else_ty),
                             })
-                            .with_span(self.lowered.source_map.expr_span(else_expr)),
+                            .with_span(
+                                self.lowered.module.expr(else_expr).origin.diagnostic_span(),
+                            ),
                         );
                     } else if else_completes {
                         // Unify unresolved constructor payloads without converting values.
@@ -209,7 +211,7 @@ impl BodyChecker<'_> {
                         expected: display_type_id(self.declarations.definitions(), &result),
                         found: display_type_id(self.declarations.definitions(), &found),
                     })
-                    .with_span(self.lowered.source_map.expr_span(expr)),
+                    .with_span(self.lowered.module.expr(expr).origin.diagnostic_span()),
                 );
             } else {
                 self.stopped =

@@ -189,7 +189,13 @@ fn structural_scopes_preserve_binder_regions_and_noncapturing_shadow_blockers() 
         let Some(canonical) = facts.names.binding(&resolved) else {
             continue;
         };
-        let offset = facts.lowered.source_map.expr_span(expr).start;
+        let offset = facts
+            .lowered
+            .module
+            .expr(expr)
+            .origin
+            .diagnostic_span()
+            .start;
         let visible = index.visible_bindings(offset);
         let selected = visible
             .iter()

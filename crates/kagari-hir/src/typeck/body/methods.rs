@@ -143,7 +143,7 @@ impl<'a> BodyChecker<'a> {
                             resource: "interface bound construction",
                             limit: 4096,
                         })
-                        .with_span(self.lowered.source_map.expr_span(expr_id)),
+                        .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
                     );
                     return source;
                 }
@@ -200,7 +200,7 @@ impl<'a> BodyChecker<'a> {
                         resource: "interface implementation search",
                         limit: 4096,
                     })
-                    .with_span(self.lowered.source_map.expr_span(expr_id)),
+                    .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
                 );
                 source
             }
@@ -260,7 +260,7 @@ impl<'a> BodyChecker<'a> {
             self.infer_call_args(args, env);
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::AmbiguousMethod { name })
-                    .with_span(self.lowered.source_map.expr_span(callee)),
+                    .with_span(self.lowered.module.expr(callee).origin.diagnostic_span()),
             );
             return Some(TypeId::Error);
         }
@@ -448,7 +448,7 @@ impl<'a> BodyChecker<'a> {
         if candidates.len() > 1 || requested.is_some() {
             self.diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidAssociatedConst { name: member,
                 reason: "requires a unique constant from a satisfied trait; use a qualified path to disambiguate".into(),
-            }).with_span(self.lowered.source_map.expr_span(expr)));
+            }).with_span(self.lowered.module.expr(expr).origin.diagnostic_span()));
             return Some(TypeId::Error);
         }
         None
@@ -636,7 +636,7 @@ impl<'a> BodyChecker<'a> {
             self.infer_call_args(args, env);
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::AmbiguousMethod { name: name.clone() })
-                    .with_span(self.lowered.source_map.expr_span(callee)),
+                    .with_span(self.lowered.module.expr(callee).origin.diagnostic_span()),
             );
             return Some(TypeId::Error);
         }
@@ -813,7 +813,7 @@ impl<'a> BodyChecker<'a> {
                     expected: params.len(),
                     found: arg_tys.len(),
                 })
-                .with_span(self.lowered.source_map.expr_span(callee)),
+                .with_span(self.lowered.module.expr(callee).origin.diagnostic_span()),
             );
         }
         for (index, param) in params.iter().enumerate() {

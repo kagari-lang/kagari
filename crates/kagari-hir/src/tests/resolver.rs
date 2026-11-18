@@ -98,7 +98,7 @@ fn resolves_params_and_locals_in_function_body() {
             binding
         ));
         let mutable = matches!(binding.resolved, ResolvedName::Local(local)
-            if lowered.source_map.local_span(local).start == text.find("(unused, _)").unwrap() + 1);
+            if lowered.module.nodes.local(local).origin.diagnostic_span().start == text.find("(unused, _)").unwrap() + 1);
         assert_eq!(
             binding.writeability,
             if mutable {

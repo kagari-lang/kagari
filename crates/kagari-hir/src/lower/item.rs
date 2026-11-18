@@ -24,7 +24,7 @@ use crate::{
             module::{Import, ImportLeaf, ModuleDecl, UseDecl as HirUseDecl},
             storage::{ConstItem, ConstOwner, StaticItem},
         },
-        ty::{TypeData, TypeKind},
+        ty::TypeKind,
         writeability::Writeability,
     },
     lower::context::{self, Lowerer, syntax_span, token_span},
@@ -358,9 +358,7 @@ impl Lowerer {
                 .as_ref()
                 .map(token_span)
                 .unwrap_or_else(|| syntax_span(item)),
-            TypeData {
-                kind: TypeKind::Named(name.clone()),
-            },
+            TypeKind::Named(name.clone()),
         );
         AssociatedType {
             generic_params: item
@@ -641,21 +639,14 @@ impl Lowerer {
         let kind = if let Some(callable) = trait_ref.callable() {
             let input_span = callable.input_span();
             let inputs = callable.inputs().map(|ty| self.lower_type(&ty)).collect();
-            let tuple = self.alloc_type(
-                input_span,
-                TypeData {
-                    kind: TypeKind::Tuple(inputs),
-                },
-            );
+            let tuple = self.alloc_type(input_span, TypeKind::Tuple(inputs));
             let output = if let Some(output) = callable.output() {
                 self.lower_type(&output)
             } else {
                 let end = token_span(trait_ref).end;
                 self.alloc_type(
                     Span { start: end, end },
-                    TypeData {
-                        kind: TypeKind::Tuple(Default::default()),
-                    },
+                    TypeKind::Tuple(Default::default()),
                 )
             };
             TypeKind::Generic {
@@ -678,7 +669,7 @@ impl Lowerer {
                 positional_after_binding: list.positional_after_binding(),
             }
         };
-        let ty = self.alloc_type(context::token_span(trait_ref), TypeData { kind });
+        let ty = self.alloc_type(context::token_span(trait_ref), kind);
 
         TraitRef { ty }
     }
@@ -764,9 +755,7 @@ impl Lowerer {
             item.name()
                 .map(|name| token_span(&name))
                 .unwrap_or_else(|| syntax_span(item)),
-            TypeData {
-                kind: TypeKind::Named(name.clone()),
-            },
+            TypeKind::Named(name.clone()),
         );
         let (ty, initializer) = if item.initializer().is_some() {
             let initializer_owner = match owner {

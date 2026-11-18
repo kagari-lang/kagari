@@ -1,5 +1,6 @@
 //! Unchecked source/structured type references, distinct from semantic `crate::types` facts.
 
+use crate::hir::origin::NodeOrigin;
 use kagari_common::identity::{ModuleIdentity, table::DefinitionId};
 use smallvec::SmallVec;
 
@@ -38,6 +39,8 @@ pub struct DefinitionExposure {
 /// required syntax can become `Named("<missing>")`.
 #[derive(Debug, Clone)]
 pub struct TypeData {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
     /// Source type form and child type-syntax IDs.
     pub kind: TypeKind,
 }

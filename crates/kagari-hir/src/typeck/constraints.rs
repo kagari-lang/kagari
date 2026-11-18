@@ -177,7 +177,13 @@ pub(super) fn resolve_owner_in(
                 Diagnostic::error(DiagnosticKind::InvalidBoundTarget {
                     name: bound.target.clone(),
                 })
-                .with_span(lowered.source_map.type_span(bound.target_ref)),
+                .with_span(
+                    lowered
+                        .module
+                        .type_ref(bound.target_ref)
+                        .origin
+                        .diagnostic_span(),
+                ),
             );
         }
         for reference in &bound.traits {
@@ -225,7 +231,7 @@ pub(super) fn resolve_constraint(
                     Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
                         type_name: ty::display_type(&lowered.module, *argument),
                     })
-                    .with_span(lowered.source_map.type_span(*argument)),
+                    .with_span(lowered.module.type_ref(*argument).origin.diagnostic_span()),
                 );
             }
         }
@@ -275,7 +281,13 @@ pub(super) fn resolve_constraint(
                     trait_name: ty::display_type(&lowered.module, reference.ty),
                 }
             })
-            .with_span(lowered.source_map.type_span(reference.ty)),
+            .with_span(
+                lowered
+                    .module
+                    .type_ref(reference.ty)
+                    .origin
+                    .diagnostic_span(),
+            ),
         );
     }
 }

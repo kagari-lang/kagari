@@ -82,7 +82,15 @@ fn native_generic_scalar_calls_keep_their_exact_declared_types() {
             assert_eq!(
                 analysis
                     .queries()
-                    .call_signature_at(facts.lowered.source_map.expr_span(expression).start)
+                    .call_signature_at(
+                        facts
+                            .lowered
+                            .module
+                            .expr(expression)
+                            .origin
+                            .diagnostic_span()
+                            .start
+                    )
                     .unwrap()
                     .declaration,
                 imported.site.id
@@ -173,7 +181,15 @@ fn main() -> i32 {
         assert_eq!(applied.params, expected_params, "{name}");
         let queried = analysis
             .queries()
-            .call_signature_at(facts.lowered.source_map.expr_span(*callee).start)
+            .call_signature_at(
+                facts
+                    .lowered
+                    .module
+                    .expr(*callee)
+                    .origin
+                    .diagnostic_span()
+                    .start,
+            )
             .unwrap();
         assert_eq!(queried.result, TypeId::Builtin(BuiltinType::I32));
         assert_eq!(
@@ -280,7 +296,15 @@ fn call_signature_queries_keep_declared_types_for_invalid_source_trait_and_host_
         };
         let queried = file
             .queries()
-            .call_signature_at(facts.lowered.source_map.expr_span(*callee).start)
+            .call_signature_at(
+                facts
+                    .lowered
+                    .module
+                    .expr(*callee)
+                    .origin
+                    .diagnostic_span()
+                    .start,
+            )
             .unwrap();
         let parameters = applied.params[usize::from(call.receiver.is_some())..].to_vec();
         assert_eq!(

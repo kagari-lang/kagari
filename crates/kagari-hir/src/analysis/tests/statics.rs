@@ -193,7 +193,13 @@ fn static_storage_contract_rejects_views_but_allows_callable_view_inputs() {
             continue;
         }
         let annotation = result.facts().lowered.module.statics[0].ty.unwrap();
-        let span = result.facts().lowered.source_map.type_span(annotation);
+        let span = result
+            .facts()
+            .lowered
+            .module
+            .type_ref(annotation)
+            .origin
+            .diagnostic_span();
         assert!(
             result.diagnostics().iter().any(|diagnostic| {
                 matches!(diagnostic.kind, DiagnosticKind::InvalidReference { .. })

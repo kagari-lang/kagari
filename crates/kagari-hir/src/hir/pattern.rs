@@ -1,5 +1,6 @@
 //! Match and binding pattern storage, including provisional local identities.
 
+use crate::hir::origin::NodeOrigin;
 use crate::hir::{
     expr::literal::Literal,
     ids::{LocalId, PatternId},
@@ -21,6 +22,8 @@ use crate::hir::{
 /// decide bindings and constructor meanings; allocation alone is not validation.
 #[derive(Debug, Clone)]
 pub struct PatternData {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
     /// Pattern structure and binding IDs, before constructor/type resolution.
     pub kind: PatternKind,
 }

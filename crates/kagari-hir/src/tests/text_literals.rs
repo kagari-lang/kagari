@@ -70,7 +70,7 @@ fn interpolation_text_and_occurrences_keep_decoded_values_and_physical_spans() {
                     panic!("name hole");
                 };
                 assert_eq!(name, "name");
-                let span = lowered.source_map.expr_span(*expr);
+                let span = lowered.module.expr(*expr).origin.diagnostic_span();
                 assert_eq!(&text[span.start..span.end], "name");
                 names.push((*expr, *debug));
             }

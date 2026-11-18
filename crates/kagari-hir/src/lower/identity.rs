@@ -1,7 +1,7 @@
 //! Reference coverage for attached registration facts; source arenas remain unchanged.
 
 use crate::{
-    hir::{item::function::FunctionImplementation, ty::TypeKind},
+    hir::{item::function::FunctionImplementation, origin::NodeOrigin, ty::TypeKind},
     lower::LoweredModule,
 };
 use kagari_common::{
@@ -29,6 +29,12 @@ impl DefinitionReferences for LoweredModule {
         for function in &self.module.functions {
             if let FunctionImplementation::Native(contract) = &function.implementation {
                 contract.visit_definition_ids(visit, cancel)?;
+            }
+        }
+        for origin in self.module.nodes.origins() {
+            check_cancel(cancel)?;
+            if let NodeOrigin::Structured { declaration } = origin {
+                visit(declaration)?;
             }
         }
         for declaration in self.source_map.structured_definitions() {

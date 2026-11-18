@@ -67,7 +67,7 @@ impl BodyChecker<'_> {
                 if !bindings.is_empty() {
                     self.diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidCallTarget {
                         type_name: "local function values accept positional type arguments only".into(),
-                    }).with_span(self.lowered.source_map.expr_span(callee)));
+                    }).with_span(self.lowered.module.expr(callee).origin.diagnostic_span()));
                 }
                 (callee, args.as_slice())
             }
@@ -92,7 +92,7 @@ impl BodyChecker<'_> {
                     Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
                         type_name: display_type(&self.lowered.module, *ty),
                     })
-                    .with_span(self.lowered.source_map.type_span(*ty)),
+                    .with_span(self.lowered.module.type_ref(*ty).origin.diagnostic_span()),
                 );
             }
             arguments.push(
@@ -123,7 +123,7 @@ impl BodyChecker<'_> {
                         arguments.len()
                     ),
                 })
-                .with_span(self.lowered.source_map.expr_span(site)),
+                .with_span(self.lowered.module.expr(site).origin.diagnostic_span()),
             );
         }
         substitution.extend(parameters.iter().cloned().zip(arguments.iter().cloned()));
@@ -143,7 +143,7 @@ impl BodyChecker<'_> {
                 Diagnostic::error(DiagnosticKind::InvalidCallTarget {
                     type_name: "this call does not accept explicit type arguments".into(),
                 })
-                .with_span(self.lowered.source_map.expr_span(site)),
+                .with_span(self.lowered.module.expr(site).origin.diagnostic_span()),
             );
         }
     }
@@ -468,7 +468,7 @@ impl BodyChecker<'_> {
                         function_name: "expression".into(),
                         parameter: "type (add an annotation)".into(),
                     })
-                    .with_span(self.lowered.source_map.expr_span(site)),
+                    .with_span(self.lowered.module.expr(site).origin.diagnostic_span()),
                 );
                 return resolved.diagnose_unknowns();
             }

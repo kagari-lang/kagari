@@ -11,10 +11,7 @@ use kagari_syntax::ast::{
 use smallvec::SmallVec;
 
 use crate::{
-    hir::{
-        ids::TypeRefId,
-        ty::{TypeData, TypeKind},
-    },
+    hir::{ids::TypeRefId, ty::TypeKind},
     lower::context::{Lowerer, syntax_span},
 };
 
@@ -29,9 +26,7 @@ impl Lowerer {
                 Required::Present(ty) => self.lower_type(&ty),
                 Required::Missing { at } => self.alloc_type(
                     Span::new(at as usize, at as usize),
-                    TypeData {
-                        kind: TypeKind::Named("<missing>".into()),
-                    },
+                    TypeKind::Named("<missing>".into()),
                 ),
             })
             .collect()
@@ -44,12 +39,7 @@ impl Lowerer {
                     .ty()
                     .map(|inner| self.lower_type(&inner))
                     .unwrap_or_else(|| {
-                        self.alloc_type(
-                            syntax_span(ty),
-                            TypeData {
-                                kind: TypeKind::Named("<missing>".into()),
-                            },
-                        )
+                        self.alloc_type(syntax_span(ty), TypeKind::Named("<missing>".into()))
                     });
             }
             TypeView::Named(path) => TypeKind::Named(path.text().unwrap_or_default()),
@@ -89,12 +79,12 @@ impl Lowerer {
             TypeView::Qualified(qualified) => self.projection_kind(&qualified),
             TypeView::Error(_) => TypeKind::Named("<missing>".into()),
         };
-        self.alloc_type(syntax_span(ty), TypeData { kind })
+        self.alloc_type(syntax_span(ty), kind)
     }
 
     pub(crate) fn lower_qualified_type(&mut self, qualified: &Ast<'_, QualifiedType>) -> TypeRefId {
         let kind = self.projection_kind(qualified);
-        self.alloc_type(syntax_span(qualified), TypeData { kind })
+        self.alloc_type(syntax_span(qualified), kind)
     }
 
     fn projection_kind(&mut self, qualified: &Ast<'_, QualifiedType>) -> TypeKind {

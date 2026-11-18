@@ -28,6 +28,7 @@ pub mod expr;
 pub mod ids;
 pub mod item;
 pub mod nodes;
+pub mod origin;
 pub mod pattern;
 pub mod place;
 pub mod stmt;

@@ -167,11 +167,14 @@ fn arrays() {
                 Some(TypeId::Array(Box::new(TypeId::Builtin(BuiltinType::U8))))
             );
             assert!(facts.typed.type_table.scalar_value(id).is_none());
-            let span = facts.lowered.source_map.expr_span(id);
+            let span = facts.lowered.module.expr(id).origin.diagnostic_span();
             let values = elements
                 .iter()
                 .map(|item| {
-                    assert_eq!(facts.lowered.source_map.expr_span(*item), span);
+                    assert_eq!(
+                        facts.lowered.module.expr(*item).origin.diagnostic_span(),
+                        span
+                    );
                     let Some(ScalarValue::Integer { value, ty }) =
                         facts.typed.type_table.scalar_value(*item)
                     else {

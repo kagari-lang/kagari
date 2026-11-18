@@ -70,7 +70,12 @@ impl<'a> BodyChecker<'a> {
     ) {
         let context = self.diverging_pattern_context(pattern, expected);
         let expected = context.as_ref().unwrap_or(expected);
-        let span = self.lowered.source_map.pattern_span(pattern);
+        let span = self
+            .lowered
+            .module
+            .pattern(pattern)
+            .origin
+            .diagnostic_span();
         match &self.lowered.module.pattern(pattern).kind {
             PatternKind::Wildcard => {}
             PatternKind::Or(alternatives) => {
@@ -92,7 +97,13 @@ impl<'a> BodyChecker<'a> {
                                 expected: "each name bound once per alternative".into(),
                                 found: format!("bindings {names:?}"),
                             })
-                            .with_span(self.lowered.source_map.pattern_span(alternative)),
+                            .with_span(
+                                self.lowered
+                                    .module
+                                    .pattern(alternative)
+                                    .origin
+                                    .diagnostic_span(),
+                            ),
                         );
                     }
                     if let Some(first) = &canonical
@@ -103,7 +114,13 @@ impl<'a> BodyChecker<'a> {
                                 expected: "the same bindings in every alternative".into(),
                                 found: format!("bindings {names:?}"),
                             })
-                            .with_span(self.lowered.source_map.pattern_span(alternative)),
+                            .with_span(
+                                self.lowered
+                                    .module
+                                    .pattern(alternative)
+                                    .origin
+                                    .diagnostic_span(),
+                            ),
                         );
                     }
                     if index == 0 {
@@ -256,7 +273,13 @@ impl<'a> BodyChecker<'a> {
                                 expected: "distinct struct fields".into(),
                                 found: format!("duplicate field `{}`", field.name),
                             })
-                            .with_span(self.lowered.source_map.pattern_span(field.pattern)),
+                            .with_span(
+                                self.lowered
+                                    .module
+                                    .pattern(field.pattern)
+                                    .origin
+                                    .diagnostic_span(),
+                            ),
                         );
                         continue;
                     }
@@ -269,7 +292,13 @@ impl<'a> BodyChecker<'a> {
                                 ),
                                 found: format!("unknown field `{}`", field.name),
                             })
-                            .with_span(self.lowered.source_map.pattern_span(field.pattern)),
+                            .with_span(
+                                self.lowered
+                                    .module
+                                    .pattern(field.pattern)
+                                    .origin
+                                    .diagnostic_span(),
+                            ),
                         );
                         continue;
                     };

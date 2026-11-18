@@ -395,7 +395,7 @@ impl<'a> BodyChecker<'a> {
                     Diagnostic::error(DiagnosticKind::InvalidAssignmentTarget {
                         reason: format!("field `{name}` is read-only"),
                     })
-                    .with_span(self.lowered.source_map.expr_span(site)),
+                    .with_span(self.lowered.module.expr(site).origin.diagnostic_span()),
                 );
             }
             // Read-only targets still provide RHS context and independent errors.
@@ -409,7 +409,7 @@ impl<'a> BodyChecker<'a> {
                 Diagnostic::error(DiagnosticKind::InvalidReference {
                     reason: "field read requires an inline struct or owned scalar/handle reader",
                 })
-                .with_span(self.lowered.source_map.expr_span(site)),
+                .with_span(self.lowered.module.expr(site).origin.diagnostic_span()),
             );
             return TypeId::Error;
         }
@@ -418,7 +418,7 @@ impl<'a> BodyChecker<'a> {
                 Diagnostic::error(DiagnosticKind::UnknownName {
                     name: name.to_owned(),
                 })
-                .with_span(self.lowered.source_map.expr_span(site)),
+                .with_span(self.lowered.module.expr(site).origin.diagnostic_span()),
             );
         }
         TypeId::Error
@@ -560,7 +560,7 @@ impl<'a> BodyChecker<'a> {
                 Diagnostic::error(DiagnosticKind::InvalidIndexTarget {
                     type_name: display_type_id(self.declarations.definitions(), receiver),
                 })
-                .with_span(self.lowered.source_map.expr_span(site)),
+                .with_span(self.lowered.module.expr(site).origin.diagnostic_span()),
             );
         }
         // An invalid index does not erase an array's or unique Index result contract.
@@ -644,7 +644,7 @@ impl<'a> BodyChecker<'a> {
         if let Some(const_name) = self.const_root_name(expr_id) {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::ConstWriteNotAllowed { const_name })
-                    .with_span(self.lowered.source_map.expr_span(expr_id)),
+                    .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
             );
         }
     }

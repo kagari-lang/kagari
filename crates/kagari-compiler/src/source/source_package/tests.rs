@@ -11,8 +11,8 @@ use kagari_common::{
 };
 use kagari_contract::{source::ExecutableOrigin, updates::BodyClassification};
 use kagari_hir::{
-    analysis::AnalysisDatabase, native::render::declaration_source, program::CheckedProgram,
-    source_map::origin::NodeOrigin,
+    analysis::AnalysisDatabase, hir::origin::NodeOrigin, native::render::declaration_source,
+    program::CheckedProgram,
 };
 use kagari_source::{
     package::{PackageEnvironment, PackageScope},

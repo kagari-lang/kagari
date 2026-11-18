@@ -1,5 +1,6 @@
 //! Owner-tagged node vectors and lowering-checked access to a module's lowered bodies.
 
+use crate::hir::origin::NodeOrigin;
 use crate::hir::{
     expr::ExprData,
     ids::{BlockId, ExprId, HirOwner, LocalId, LoweringId, PatternId, PlaceId, StmtId, TypeRefId},
@@ -12,15 +13,16 @@ use crate::hir::{
 /// A name declared by a pattern or closure parameter.
 #[derive(Debug, Clone)]
 pub struct Local {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
     /// Written name, or the lowering's recovery name.
     pub name: String,
 }
 
 /// Node storage shared by all declarations and function/constant bodies in a module.
 ///
-/// The internal `Lowerer` appends a source-map entry and a node row at
-/// the same index. Each row carries its [`HirOwner`]; storage uses ordinary owned
-/// vectors, not an allocator arena or separate per-function storage. Cloning preserves
+/// The internal `Lowerer` allocates IDs from the category row index. Each row
+/// pairs an [`HirOwner`] with a payload that carries its origin. Cloning preserves
 /// the lowering identity and row order.
 ///
 /// # Storage and lookup
@@ -39,8 +41,7 @@ pub struct Local {
 /// expr(e2): assert arena -> exprs[index] -> assert owner -> borrow ExprData
 /// ```
 ///
-/// Name resolution, semantic types and source spans are separate tables keyed by
-/// these IDs. Functions own their parameters. Pattern leaves and closure
+/// Name resolution and semantic types are separate tables keyed by these IDs. Functions own their parameters. Pattern leaves and closure
 /// parameters link to the provisional name records in `locals`.
 ///
 /// For the example above, `blocks` contains the function's block, `exprs` contains
@@ -177,6 +178,26 @@ impl HirNodes {
         let (owner, node) = &self.patterns[id.index()];
         assert_eq!(id.owner(), *owner, "foreign HIR body node");
         node
+    }
+
+    /// Visits local name records in allocation order with their complete IDs.
+    pub(crate) fn locals(&self) -> impl Iterator<Item = (LocalId, &Local)> {
+        self.locals
+            .iter()
+            .enumerate()
+            .map(|(index, (owner, local))| (LocalId::new(self.arena, *owner, index), local))
+    }
+
+    pub(crate) fn origins(&self) -> impl Iterator<Item = &NodeOrigin> {
+        self.blocks
+            .iter()
+            .map(|(_, node)| &node.origin)
+            .chain(self.stmts.iter().map(|(_, node)| &node.origin))
+            .chain(self.exprs.iter().map(|(_, node)| &node.origin))
+            .chain(self.places.iter().map(|(_, node)| &node.origin))
+            .chain(self.patterns.iter().map(|(_, node)| &node.origin))
+            .chain(self.types.iter().map(|(_, node)| &node.origin))
+            .chain(self.locals.iter().map(|(_, node)| &node.origin))
     }
 
     /// Borrows a local name in the matching lowering and owner.

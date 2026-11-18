@@ -53,7 +53,7 @@ impl BodyChecker<'_> {
                     Diagnostic::error(DiagnosticKind::InvalidClosureCapture {
                         type_name: display_type_id(self.declarations.definitions(), ty),
                     })
-                    .with_span(self.lowered.source_map.expr_span(expr_id)),
+                    .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
                 );
             }
         }
@@ -94,8 +94,14 @@ impl BodyChecker<'_> {
                 self.inference_variable(expr_id, 128 + index)
             } else {
                 self.diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::ExpectedType)
-                        .with_span(self.lowered.source_map.local_span(param.local)),
+                    Diagnostic::error(DiagnosticKind::ExpectedType).with_span(
+                        self.lowered
+                            .module
+                            .nodes
+                            .local(param.local)
+                            .origin
+                            .diagnostic_span(),
+                    ),
                 );
                 TypeId::Unknown
             };
@@ -105,7 +111,14 @@ impl BodyChecker<'_> {
                     Diagnostic::error(DiagnosticKind::InvalidAsyncCapture {
                         type_name: display_type_id(self.declarations.definitions(), &ty),
                     })
-                    .with_span(self.lowered.source_map.local_span(param.local)),
+                    .with_span(
+                        self.lowered
+                            .module
+                            .nodes
+                            .local(param.local)
+                            .origin
+                            .diagnostic_span(),
+                    ),
                 );
             }
             closure_env.locals.insert(param.local, ty.clone());
@@ -160,7 +173,7 @@ impl BodyChecker<'_> {
                         expected: display_type_id(self.declarations.definitions(), &result),
                         found: display_type_id(self.declarations.definitions(), &returned),
                     })
-                    .with_span(self.lowered.source_map.expr_span(body)),
+                    .with_span(self.lowered.module.expr(body).origin.diagnostic_span()),
                 );
             } else {
                 result.recover_from(&returned);
@@ -177,7 +190,7 @@ impl BodyChecker<'_> {
                     Diagnostic::error(DiagnosticKind::UnsupportedSyntax {
                         feature: "async requires one installed Future storage declaration",
                     })
-                    .with_span(self.lowered.source_map.expr_span(expr_id)),
+                    .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
                 );
                 TypeId::Error
             });

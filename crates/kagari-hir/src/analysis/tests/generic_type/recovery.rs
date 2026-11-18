@@ -85,7 +85,7 @@ fn indexing_partial_composites_preserves_the_selected_member() {
             .expressions()
             .filter(|(_, expr)| matches!(expr.kind, ExprKind::Index { .. }))
             .max_by_key(|(id, _)| {
-                let span = facts.lowered.source_map.expr_span(*id);
+                let span = facts.lowered.module.expr(*id).origin.diagnostic_span();
                 span.end - span.start
             })
             .and_then(|(id, _)| facts.typed.type_table.expr_type(id));

@@ -59,7 +59,7 @@ impl BodyChecker<'_> {
                     Diagnostic::error(DiagnosticKind::InvalidLiteral {
                         reason: reason.into(),
                     })
-                    .with_span(self.lowered.source_map.expr_span(site)),
+                    .with_span(self.lowered.module.expr(site).origin.diagnostic_span()),
                 );
                 TypeId::Error
             }

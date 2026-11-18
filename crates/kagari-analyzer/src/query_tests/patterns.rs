@@ -151,7 +151,15 @@ fn declaration_pattern_canonical_leaf_order_uses_the_first_alternative() {
         ["second", "first", "last"]
     );
     for (local, name) in bindings {
-        let span = file.result().facts().lowered.source_map.local_span(local);
+        let span = file
+            .result()
+            .facts()
+            .lowered
+            .module
+            .nodes
+            .local(local)
+            .origin
+            .diagnostic_span();
         assert_eq!(&source[span.start..span.end], name);
         assert_eq!(
             file.queries().type_at(source.rfind(name).unwrap()),

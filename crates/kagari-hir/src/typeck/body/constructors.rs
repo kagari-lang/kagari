@@ -90,7 +90,7 @@ impl<'a> BodyChecker<'a> {
                 },
                 &resolved,
                 &env.generic_bounds,
-                self.lowered.source_map.type_span(ty),
+                self.lowered.module.type_ref(ty).origin.diagnostic_span(),
                 self.diagnostics,
                 self.cancel,
             );
@@ -98,12 +98,12 @@ impl<'a> BodyChecker<'a> {
                 Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
                     type_name: display_type(&self.lowered.module, ty),
                 })
-                .with_span(self.lowered.source_map.type_span(ty)),
+                .with_span(self.lowered.module.type_ref(ty).origin.diagnostic_span()),
             );
         }
         check::validate_reference_position(
             &resolved,
-            self.lowered.source_map.type_span(ty),
+            self.lowered.module.type_ref(ty).origin.diagnostic_span(),
             self.diagnostics,
         );
         resolved
@@ -133,7 +133,7 @@ impl<'a> BodyChecker<'a> {
                     Diagnostic::error(DiagnosticKind::InvalidValueTarget {
                         name: "explicit enum constructor".into(),
                     })
-                    .with_span(self.lowered.source_map.expr_span(callee)),
+                    .with_span(self.lowered.module.expr(callee).origin.diagnostic_span()),
                 );
                 self.infer_call_args(args, env);
                 return Some(TypeId::Error);
@@ -150,7 +150,7 @@ impl<'a> BodyChecker<'a> {
                 Diagnostic::error(DiagnosticKind::InvalidValueTarget {
                     name: "generic alias constructors require explicit type arguments".into(),
                 })
-                .with_span(self.lowered.source_map.expr_span(callee)),
+                .with_span(self.lowered.module.expr(callee).origin.diagnostic_span()),
             );
             self.infer_call_args(args, env);
             return Some(TypeId::Error);
@@ -243,7 +243,13 @@ impl<'a> BodyChecker<'a> {
                     Diagnostic::error(DiagnosticKind::InvalidCallTarget {
                         type_name: format!("{name} (unit variant; omit parentheses)"),
                     })
-                    .with_span(self.lowered.source_map.expr_span(expression)),
+                    .with_span(
+                        self.lowered
+                            .module
+                            .expr(expression)
+                            .origin
+                            .diagnostic_span(),
+                    ),
                 );
             }
             if actual.len() != variant.payload.len() {
@@ -253,7 +259,7 @@ impl<'a> BodyChecker<'a> {
                         expected: variant.payload.len(),
                         found: actual.len(),
                     })
-                    .with_span(self.lowered.source_map.expr_span(callee)),
+                    .with_span(self.lowered.module.expr(callee).origin.diagnostic_span()),
                 );
             }
             for (index, expected) in variant.payload.iter().enumerate() {
@@ -271,7 +277,7 @@ impl<'a> BodyChecker<'a> {
         } else {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::UnknownName { name })
-                    .with_span(self.lowered.source_map.expr_span(callee)),
+                    .with_span(self.lowered.module.expr(callee).origin.diagnostic_span()),
             );
         }
         Some(result)
@@ -302,7 +308,7 @@ impl<'a> BodyChecker<'a> {
                     struct_name: path.to_owned(),
                     reason: "unknown struct".to_owned(),
                 })
-                .with_span(self.lowered.source_map.expr_span(expr_id)),
+                .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
             );
             return TypeId::Error;
         };
@@ -325,7 +331,7 @@ impl<'a> BodyChecker<'a> {
                     struct_name: path.to_owned(),
                     reason: "generic alias constructors require explicit type arguments".into(),
                 })
-                .with_span(self.lowered.source_map.expr_span(expr_id)),
+                .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
             );
             for field in fields {
                 self.infer_expr_type(field.value, env);
@@ -538,7 +544,13 @@ impl<'a> BodyChecker<'a> {
                         struct_name: path.to_owned(),
                         reason: format!("duplicate field `{name}`"),
                     })
-                    .with_span(self.lowered.source_map.expr_span(*value_expr)),
+                    .with_span(
+                        self.lowered
+                            .module
+                            .expr(*value_expr)
+                            .origin
+                            .diagnostic_span(),
+                    ),
                 );
                 continue;
             }
@@ -549,7 +561,13 @@ impl<'a> BodyChecker<'a> {
                         struct_name: path.to_owned(),
                         reason: format!("unknown field `{name}`"),
                     })
-                    .with_span(self.lowered.source_map.expr_span(*value_expr)),
+                    .with_span(
+                        self.lowered
+                            .module
+                            .expr(*value_expr)
+                            .origin
+                            .diagnostic_span(),
+                    ),
                 );
                 continue;
             };
@@ -571,7 +589,13 @@ impl<'a> BodyChecker<'a> {
                         expected: display_type_id(self.declarations.definitions(), &expected),
                         found: display_type_id(self.declarations.definitions(), value_ty),
                     })
-                    .with_span(self.lowered.source_map.expr_span(*value_expr)),
+                    .with_span(
+                        self.lowered
+                            .module
+                            .expr(*value_expr)
+                            .origin
+                            .diagnostic_span(),
+                    ),
                 );
             }
         }
@@ -595,7 +619,7 @@ impl<'a> BodyChecker<'a> {
                                 field.name
                             ),
                         })
-                        .with_span(self.lowered.source_map.expr_span(expr_id)),
+                        .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
                     );
                 } else if !explicit.contains(&field.id) {
                     resolved.base_fields.push(field.id);
@@ -606,7 +630,7 @@ impl<'a> BodyChecker<'a> {
                         struct_name: path.to_owned(),
                         reason: format!("missing field `{}`", field.name),
                     })
-                    .with_span(self.lowered.source_map.expr_span(expr_id)),
+                    .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
                 );
             }
         }
@@ -655,7 +679,7 @@ impl<'a> BodyChecker<'a> {
                         display_type_id(self.declarations.definitions(), &actual)
                     ),
                 })
-                .with_span(self.lowered.source_map.expr_span(base)),
+                .with_span(self.lowered.module.expr(base).origin.diagnostic_span()),
             );
         }
     }

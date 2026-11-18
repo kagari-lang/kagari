@@ -15,7 +15,6 @@ use kagari_hir::{
         bindings::LookupOutcome,
         catalog::{LookupContext, LookupHit, LookupResult},
     },
-    source_map::origin::OriginTarget,
     typeck::table::ResolvedTypeTarget,
 };
 use kagari_types::declaration::names::NameNamespace;
@@ -163,7 +162,7 @@ fn expression_hits(
             && let Some(hit) = full
             && let Some(span) = sites
                 .expr_reference_span(id)
-                .or_else(|| facts.lowered.source_map.source_span(OriginTarget::Expr(id)))
+                .or_else(|| facts.lowered.module.expr(id).origin.source_span())
         {
             hits.push((span, hit));
         }

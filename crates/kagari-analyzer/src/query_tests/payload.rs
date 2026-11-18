@@ -62,7 +62,12 @@ fn payload_errors_preserve_later_types_and_neighbor_queries() {
     }
     let missing = text.find(", Point) }").unwrap();
     assert_eq!(
-        facts.lowered.source_map.type_span(variants[2].payload[0]),
+        facts
+            .lowered
+            .module
+            .type_ref(variants[2].payload[0])
+            .origin
+            .diagnostic_span(),
         Span::new(missing, missing)
     );
     let DeclarationId::Definition(id) = &facts.declarations.variant(variants[2].id).unwrap().id

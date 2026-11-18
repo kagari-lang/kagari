@@ -4,9 +4,9 @@ use crate::{
     hir::{
         ids::{BlockId, PlaceId, StmtId},
         item::function::FunctionKind,
-        pattern::{PatternData, PatternKind},
-        place::{PlaceData, PlaceKind},
-        stmt::{BlockData, StmtData, StmtKind},
+        pattern::PatternKind,
+        place::PlaceKind,
+        stmt::StmtKind,
         writeability::Writeability,
     },
     lower::context::{Lowerer, lower_binary_op, syntax_span},
@@ -18,7 +18,7 @@ use kagari_syntax::ast::{
     views::{ExprView, StmtView},
 };
 
-use smallvec::{SmallVec, smallvec};
+use smallvec::SmallVec;
 
 impl Lowerer {
     /// Reserves a block, lowers statements in order, then lowers its optional tail.
@@ -26,13 +26,7 @@ impl Lowerer {
     /// Cancellation stops the statement loop but still finalizes the partial block
     /// and restores the enclosing block. The analysis caller rejects cancelled work.
     pub(crate) fn lower_block(&mut self, block: &Ast<'_, BlockExpr>) -> BlockId {
-        let id = self.alloc_block(
-            syntax_span(block),
-            BlockData {
-                statements: SmallVec::new(),
-                tail_expr: None,
-            },
-        );
+        let id = self.alloc_block(syntax_span(block), None);
         let previous_block = self.current_block.replace(id);
         let mut statements = SmallVec::<[_; 8]>::new();
         for stmt in block.statements() {
@@ -43,10 +37,9 @@ impl Lowerer {
         }
         let tail_expr = block.tail_expr().map(|expr| self.lower_expr(&expr));
 
-        self.module.nodes.blocks[id.index()].1 = BlockData {
-            statements,
-            tail_expr,
-        };
+        let (_, node) = &mut self.module.nodes.blocks[id.index()];
+        node.statements = statements;
+        node.tail_expr = tail_expr;
         self.current_block = previous_block;
         id
     }
@@ -82,12 +75,7 @@ impl Lowerer {
                     Some(AssignmentOp::Compound(operator)) => Some(lower_binary_op(operator)),
                     None => {
                         let missing = self.missing_expr();
-                        return self.alloc_stmt(
-                            syntax_span(stmt),
-                            StmtData {
-                                kind: StmtKind::Expr(missing),
-                            },
-                        );
+                        return self.alloc_stmt(syntax_span(stmt), StmtKind::Expr(missing));
                     }
                 },
                 target: stmt
@@ -106,25 +94,13 @@ impl Lowerer {
                 condition: self.lower_condition(stmt.binding_condition(), stmt.condition()),
                 body: match stmt.body() {
                     Some(body) => self.lower_block(&body),
-                    None => self.alloc_block(
-                        syntax_span(stmt),
-                        BlockData {
-                            statements: smallvec![],
-                            tail_expr: None,
-                        },
-                    ),
+                    None => self.alloc_block(syntax_span(stmt), None),
                 },
             },
             StmtView::LoopStmt(stmt) => StmtKind::Loop {
                 body: match stmt.body() {
                     Some(body) => self.lower_block(&body),
-                    None => self.alloc_block(
-                        syntax_span(stmt),
-                        BlockData {
-                            statements: smallvec![],
-                            tail_expr: None,
-                        },
-                    ),
+                    None => self.alloc_block(syntax_span(stmt), None),
                 },
             },
             StmtView::ForStmt(stmt) => StmtKind::For {
@@ -132,12 +108,7 @@ impl Lowerer {
                     .pattern()
                     .map(|pattern| self.lower_pattern(&pattern))
                     .unwrap_or_else(|| {
-                        self.alloc_pattern(
-                            syntax_span(stmt),
-                            PatternData {
-                                kind: PatternKind::Wildcard,
-                            },
-                        )
+                        self.alloc_pattern(syntax_span(stmt), PatternKind::Wildcard)
                     }),
                 iterable: stmt
                     .iterable()
@@ -145,13 +116,7 @@ impl Lowerer {
                     .unwrap_or_else(|| self.missing_expr()),
                 body: match stmt.body() {
                     Some(body) => self.lower_block(&body),
-                    None => self.alloc_block(
-                        syntax_span(stmt),
-                        BlockData {
-                            statements: smallvec![],
-                            tail_expr: None,
-                        },
-                    ),
+                    None => self.alloc_block(syntax_span(stmt), None),
                 },
             },
             StmtView::BreakStmt(stmt) => match stmt.expr() {
@@ -167,7 +132,7 @@ impl Lowerer {
             ),
         };
 
-        self.alloc_stmt(syntax_span(stmt), StmtData { kind })
+        self.alloc_stmt(syntax_span(stmt), kind)
     }
 
     /// Retains field/index chains as places; general roots become expression-backed places for later validation.
@@ -175,9 +140,7 @@ impl Lowerer {
         match expr {
             ExprView::PathExpr(path) => self.alloc_place(
                 syntax_span(path),
-                PlaceData {
-                    kind: PlaceKind::Name(path.name_text().unwrap_or_default()),
-                },
+                PlaceKind::Name(path.name_text().unwrap_or_default()),
             ),
             ExprView::FieldExpr(field) => {
                 let base = field
@@ -186,11 +149,9 @@ impl Lowerer {
                     .unwrap_or_else(|| self.synthetic_name_place("<missing>"));
                 self.alloc_place(
                     syntax_span(field),
-                    PlaceData {
-                        kind: PlaceKind::Field {
-                            base,
-                            name: field.name_text().unwrap_or_default(),
-                        },
+                    PlaceKind::Field {
+                        base,
+                        name: field.name_text().unwrap_or_default(),
                     },
                 )
             }
@@ -203,12 +164,7 @@ impl Lowerer {
                     .index()
                     .map(|expr| self.lower_expr(&expr))
                     .unwrap_or_else(|| self.missing_expr());
-                self.alloc_place(
-                    syntax_span(index_expr),
-                    PlaceData {
-                        kind: PlaceKind::Index { base, index },
-                    },
-                )
+                self.alloc_place(syntax_span(index_expr), PlaceKind::Index { base, index })
             }
             ExprView::ParenExpr(paren) => paren
                 .expr()
@@ -216,12 +172,7 @@ impl Lowerer {
                 .unwrap_or_else(|| self.synthetic_name_place("<missing>")),
             _ => {
                 let value = self.lower_expr(expr);
-                self.alloc_place(
-                    syntax_span(expr),
-                    PlaceData {
-                        kind: PlaceKind::Expr(value),
-                    },
-                )
+                self.alloc_place(syntax_span(expr), PlaceKind::Expr(value))
             }
         }
     }

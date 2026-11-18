@@ -1,5 +1,6 @@
 //! Blocks and statements: separate statement sequences, value tails and mutation places.
 
+use crate::hir::origin::NodeOrigin;
 use crate::hir::{
     expr::{Condition, ops::BinaryOp},
     ids::{BlockId, ExprId, FunctionId, PatternId, PlaceId, StmtId, TypeRefId},
@@ -28,6 +29,8 @@ use smallvec::SmallVec;
 /// a block used as a value is additionally wrapped by ExprKind::Block.
 #[derive(Debug, Clone)]
 pub struct BlockData {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
     /// Statement IDs in source order, excluding the tail expression.
     pub statements: StmtBuffer,
     /// Final expression without a terminating semicolon, when present.
@@ -43,6 +46,8 @@ pub struct BlockData {
 /// separate from this row; see StmtKind for every source-to-payload form.
 #[derive(Debug, Clone)]
 pub struct StmtData {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
     /// Control-flow, binding, assignment or discarded-expression form.
     pub kind: StmtKind,
 }

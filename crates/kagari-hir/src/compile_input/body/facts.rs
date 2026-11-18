@@ -149,7 +149,7 @@ impl<'a> CheckedBodyInput<'a> {
     /// Returns the authored binding range for a checked local in this body.
     pub fn local_span(self, id: LocalId) -> Option<Span> {
         self.local_type(id)?;
-        Some(self.origins.local_span(id))
+        Some(self.local(id)?.origin.diagnostic_span())
     }
 
     /// Returns a parameter type from the matching enclosing function signature.

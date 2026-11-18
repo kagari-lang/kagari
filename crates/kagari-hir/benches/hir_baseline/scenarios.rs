@@ -181,7 +181,7 @@ pub fn verify_edit(
                 .nodes
                 .expressions()
                 .find(|(expr_id, _)| {
-                    let span = facts.lowered.source_map.expr_span(*expr_id);
+                    let span = facts.lowered.module.expr(*expr_id).origin.diagnostic_span();
                     span.start == offset && span.end == offset + 1
                 })
                 .expect("edited literal expression");

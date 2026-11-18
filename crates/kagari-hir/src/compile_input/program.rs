@@ -8,16 +8,14 @@ use crate::{
         declarations::{DeclarationHeaders, ImplementationInput},
         environment::CheckedEnvironment,
     },
+    hir::origin::NodeOrigin,
     hir::{
         ids::{BodyOwner, HirOwner, ImplId, StaticId},
         item::{Item, function::FunctionImplementation as HirImplementation},
     },
     program::{CheckedProgram, exports::ProgramExports},
     semantic::signatures::FunctionImplementation,
-    source_map::{
-        SourceMap,
-        origin::{NodeOrigin, OriginTarget},
-    },
+    source_map::{SourceMap, origin::OriginTarget},
     update_source::{self, SourceBudget, SourceEvidence},
 };
 use kagari_common::{

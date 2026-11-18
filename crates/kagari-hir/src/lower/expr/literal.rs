@@ -13,7 +13,7 @@ use smallvec::SmallVec;
 
 use crate::{
     hir::expr::{
-        ExprData, ExprKind,
+        ExprKind,
         literal::{Literal, LiteralKind},
     },
     lower::context::{Lowerer, syntax_span},
@@ -37,12 +37,10 @@ impl Lowerer {
             }
             elements.push(self.alloc_expr(
                 syntax_span(literal),
-                ExprData {
-                    kind: ExprKind::Literal(Literal {
-                        kind: LiteralKind::Byte(value),
-                        text: String::new(),
-                    }),
-                },
+                ExprKind::Literal(Literal {
+                    kind: LiteralKind::Byte(value),
+                    text: String::new(),
+                }),
             ));
         }
         ExprKind::Array {

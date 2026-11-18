@@ -36,7 +36,7 @@ impl FileQueries<'_> {
                 if !matches!(expression.kind, ExprKind::Call { .. }) {
                     return None;
                 }
-                let span = facts.lowered.source_map.expr_span(id);
+                let span = facts.lowered.module.expr(id).origin.diagnostic_span();
                 (span.start <= offset && offset < span.end).then_some((span.end - span.start, id))
             })
             .min_by_key(|(length, _)| *length)?;

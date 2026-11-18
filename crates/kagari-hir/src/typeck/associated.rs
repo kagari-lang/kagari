@@ -38,7 +38,13 @@ pub(super) fn prepare(
             name: item.name.clone(),
             reason: reason.into(),
         })
-        .with_span(lowered.source_map.type_span(item.name_ref))
+        .with_span(
+            lowered
+                .module
+                .type_ref(item.name_ref)
+                .origin
+                .diagnostic_span(),
+        )
     };
     for item in &lowered.module.traits {
         let mut names = HashSet::default();
@@ -137,7 +143,13 @@ pub(super) fn prepare(
                     name: ty::display_type(&lowered.module, reference.ty),
                     reason: "define associated types in the impl body, not the impl header".into(),
                 })
-                .with_span(lowered.source_map.type_span(reference.ty)),
+                .with_span(
+                    lowered
+                        .module
+                        .type_ref(reference.ty)
+                        .origin
+                        .diagnostic_span(),
+                ),
             );
         }
         let mut names = HashSet::default();
@@ -155,7 +167,13 @@ pub(super) fn prepare(
                         name: member.name.clone(),
                         reason: "duplicate definition".into(),
                     })
-                    .with_span(lowered.source_map.type_span(member.name_ref)),
+                    .with_span(
+                        lowered
+                            .module
+                            .type_ref(member.name_ref)
+                            .origin
+                            .diagnostic_span(),
+                    ),
                 );
             }
             if !declared.contains(&member.name) || !member.bounds.is_empty() || member.ty.is_none()
@@ -165,7 +183,13 @@ pub(super) fn prepare(
                         name: member.name.clone(),
                         reason: "expected a definition of a type declared by this trait".into(),
                     })
-                    .with_span(lowered.source_map.type_span(member.name_ref)),
+                    .with_span(
+                        lowered
+                            .module
+                            .type_ref(member.name_ref)
+                            .origin
+                            .diagnostic_span(),
+                    ),
                 );
             }
             if member_arity(
@@ -219,7 +243,7 @@ pub(super) fn prepare(
                             name: member.name.clone(),
                             reason: "definition is unknown or recursively depends on itself".into(),
                         })
-                        .with_span(lowered.source_map.type_span(ty)),
+                        .with_span(lowered.module.type_ref(ty).origin.diagnostic_span()),
                     );
                 }
                 if member.generic_params.is_empty() {

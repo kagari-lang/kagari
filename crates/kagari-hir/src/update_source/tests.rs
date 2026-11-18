@@ -44,7 +44,15 @@ fn initializer_retains_parentheses_and_literal_trivia() {
         &module.lowered.source.text()[span.start..span.end],
         "((1 + 2))"
     );
-    assert_ne!(span, map.expr_span(items[0].initializer));
+    assert_ne!(
+        span,
+        module
+            .lowered
+            .module
+            .expr(items[0].initializer)
+            .origin
+            .diagnostic_span()
+    );
     let records = evidence(&module);
     let first = &records.bodies[0];
     let range = first.initializer.unwrap();

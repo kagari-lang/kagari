@@ -1,12 +1,12 @@
-//! Allocation-aligned byte ranges and diagnostic/debug origins for lowered HIR.
+//! Source and registration attribution for lowered declaration rows.
 
 use crate::collections::HashMap;
 use crate::hir::{
     attribute::AttributeTarget,
     ids::{
-        BlockId, BodyOwner, ConstId, EnumId, ExprId, FieldId, FunctionId, GenericParamId, HirOwner,
-        ImplId, LocalId, LoweringId, ModuleId, NativeTypeId, ParamId, PatternId, PlaceId, StaticId,
-        StmtId, StructId, TraitId, TraitMethodId, TypeAliasId, TypeRefId, VariantId,
+        BodyOwner, ConstId, EnumId, FieldId, FunctionId, GenericParamId, HirOwner, ImplId,
+        LoweringId, ModuleId, NativeTypeId, ParamId, StaticId, StructId, TraitId, TraitMethodId,
+        TypeAliasId, VariantId,
     },
     item::Item,
 };
@@ -16,38 +16,16 @@ use self::origin::OriginTarget;
 use kagari_common::{identity::table::DefinitionId, span::Span};
 use std::mem;
 
-/// Source byte ranges and ID allocation state for one [`crate::lower::LoweredModule`].
+/// Declaration ranges and attribution for one [`crate::lower::LoweredModule`].
 ///
-/// This owns origins, not source text. Authored ranges refer to the matching
-/// `LoweredModule::source_surface()`. Structured nodes have declaration-ID origins
-/// and no source surface; use `origin()` / `source_span()` for attribution.
-/// Legacy span accessors return empty diagnostic anchors for structured nodes,
-/// which must never be interpreted as authored or implementation-source evidence.
-/// The lowerer appends dense spans and payload rows together; their indices must agree.
-/// Parameters instead register their function-local identities explicitly.
-/// `set_owner` switches the owner attached to subsequently allocated local IDs.
-///
-/// ```text
-/// Lowerer::alloc_expr(span, data)
-/// +-- SourceMap::push_expr -> ExprId { arena, owner, index: expr_spans.len() }
-/// |   +-- expr_spans[index] = span
-/// |   `-- expr_owners[index] = owner
-/// `-- Module.body.exprs[index] = (owner, data)
-///
-/// SourceMap::expr_span(id) -> arena/owner checks -> expr_spans[id.index()]
-/// LoweredModule.source.text()[span.start..span.end] -> corresponding source text
-/// ```
-///
-/// All spans use half-open byte offsets, not character or line indices. Synthetic
-/// nodes may have a default empty span. Sparse maps retain authored declaration
-/// and initializer origins; editor reference sites are derived from syntax.
-/// Inline module analysis preserves physical source offsets.
+/// Body nodes carry their own origins. Remaining declaration ranges refer to the
+/// matching `LoweredModule::source_surface()`. Structured declarations carry
+/// registration identity and use empty spans only as diagnostic anchors.
 ///
 /// # Panics
 ///
-/// Dense range accessors panic for an invalid index; local-node accessors also check
-/// lowering identity and owner. Required parameter/field/variant map lookups panic for an absent key.
-/// Plain declaration IDs do not carry a lowering identity: callers must keep the matching map.
+/// Plain IDs require the matching module. Qualified member/parameter lookups
+/// require the complete identity and panic for an absent key.
 #[derive(Debug, Clone, Default)]
 pub struct SourceMap {
     /// Lowering identity shared with the matching HIR node storage.
@@ -74,28 +52,10 @@ pub struct SourceMap {
     trait_method_spans: HashMap<TraitMethodId, Span>,
     impl_spans: Vec<Span>,
     param_spans: HashMap<ParamId, Span>,
-    local_spans: Vec<Span>,
-    local_owners: Vec<HirOwner>,
     struct_spans: Vec<Span>,
     native_type_spans: Vec<Span>,
     type_alias_spans: Vec<Span>,
     enum_spans: Vec<Span>,
-    block_spans: Vec<Span>,
-    block_owners: Vec<HirOwner>,
-    expr_spans: Vec<Span>,
-
-    expr_owners: Vec<HirOwner>,
-    place_spans: Vec<Span>,
-
-    place_owners: Vec<HirOwner>,
-    stmt_spans: Vec<Span>,
-    stmt_owners: Vec<HirOwner>,
-    pattern_spans: Vec<Span>,
-
-    pattern_owners: Vec<HirOwner>,
-    type_spans: Vec<Span>,
-
-    type_owners: Vec<HirOwner>,
 }
 
 impl SourceMap {
@@ -161,46 +121,6 @@ impl SourceMap {
         mem::replace(&mut self.owner, owner)
     }
 
-    pub(crate) fn type_id(&self, index: usize) -> TypeRefId {
-        assert!(
-            index < self.type_spans.len(),
-            "HIR source slot out of bounds"
-        );
-        TypeRefId::new(self.arena, self.type_owners[index], index)
-    }
-
-    pub(crate) fn pattern_id(&self, index: usize) -> PatternId {
-        assert!(
-            index < self.pattern_spans.len(),
-            "HIR source slot out of bounds"
-        );
-        PatternId::new(self.arena, self.pattern_owners[index], index)
-    }
-
-    pub(crate) fn place_id(&self, index: usize) -> PlaceId {
-        assert!(
-            index < self.place_spans.len(),
-            "HIR source slot out of bounds"
-        );
-        PlaceId::new(self.arena, self.place_owners[index], index)
-    }
-
-    pub(crate) fn expr_id(&self, index: usize) -> ExprId {
-        assert!(
-            index < self.expr_spans.len(),
-            "HIR source slot out of bounds"
-        );
-        ExprId::new(self.arena, self.expr_owners[index], index)
-    }
-
-    pub(crate) fn local_id(&self, index: usize) -> LocalId {
-        assert!(
-            index < self.local_spans.len(),
-            "HIR source slot out of bounds"
-        );
-        LocalId::new(self.arena, self.local_owners[index], index)
-    }
-
     /// Returns the lowering identity shared with the matching HIR node storage.
     pub fn arena(&self) -> LoweringId {
         self.arena
@@ -215,10 +135,6 @@ impl SourceMap {
     /// Returns the generic parameter byte range; see the [ID validity requirements](Self#panics).
     pub fn generic_param_span(&self, id: GenericParamId) -> Span {
         self.generic_param_spans[id.index()]
-    }
-
-    pub(crate) fn type_spans(&self) -> &[Span] {
-        &self.type_spans
     }
 
     pub(crate) fn insert_field(&mut self, id: FieldId, span: Span) {
@@ -245,22 +161,6 @@ impl SourceMap {
             Item::Trait(id) => self.trait_span(id),
             Item::Impl(id) => self.impl_span(id),
         }
-    }
-
-    pub(crate) fn pattern_spans(&self) -> &[Span] {
-        &self.pattern_spans
-    }
-
-    pub(crate) fn expr_spans(&self) -> &[Span] {
-        &self.expr_spans
-    }
-
-    pub(crate) fn local_spans(&self) -> &[Span] {
-        &self.local_spans
-    }
-
-    pub(crate) fn place_spans(&self) -> &[Span] {
-        &self.place_spans
     }
 
     pub(crate) fn insert_function(&mut self, id: FunctionId, span: Span) {
@@ -325,14 +225,6 @@ impl SourceMap {
         self.owner
     }
 
-    pub(crate) fn insert_local(&mut self, id: LocalId, span: Span) {
-        assert_eq!(id.arena(), self.arena);
-        assert_eq!(id.index(), self.local_spans.len());
-        self.local_spans.push(span);
-        self.local_owners.push(id.owner());
-        self.record_origin(OriginTarget::Local(id));
-    }
-
     pub(crate) fn push_struct(&mut self, span: Span) -> StructId {
         let id = StructId::new(self.struct_spans.len());
         self.struct_spans.push(span);
@@ -344,22 +236,6 @@ impl SourceMap {
         let id = EnumId::new(self.enum_spans.len());
         self.enum_spans.push(span);
         self.record_origin(OriginTarget::Item(Item::Enum(id)));
-        id
-    }
-
-    pub(crate) fn push_block(&mut self, span: Span) -> BlockId {
-        let id = BlockId::new(self.arena, self.owner, self.block_spans.len());
-        self.block_spans.push(span);
-        self.block_owners.push(self.owner);
-        self.record_origin(OriginTarget::Block(id));
-        id
-    }
-
-    pub(crate) fn push_expr(&mut self, span: Span) -> ExprId {
-        let id = ExprId::new(self.arena, self.owner, self.expr_spans.len());
-        self.expr_spans.push(span);
-        self.expr_owners.push(self.owner);
-        self.record_origin(OriginTarget::Expr(id));
         id
     }
 
@@ -376,38 +252,6 @@ impl SourceMap {
     pub fn item_declaration_span(&self, item: Item) -> Span {
         self.item_name_span(item)
             .unwrap_or_else(|| self.item_span(item))
-    }
-
-    pub(crate) fn push_place(&mut self, span: Span) -> PlaceId {
-        let id = PlaceId::new(self.arena, self.owner, self.place_spans.len());
-        self.place_spans.push(span);
-        self.place_owners.push(self.owner);
-        self.record_origin(OriginTarget::Place(id));
-        id
-    }
-
-    pub(crate) fn push_stmt(&mut self, span: Span) -> StmtId {
-        let id = StmtId::new(self.arena, self.owner, self.stmt_spans.len());
-        self.stmt_spans.push(span);
-        self.stmt_owners.push(self.owner);
-        self.record_origin(OriginTarget::Stmt(id));
-        id
-    }
-
-    pub(crate) fn push_pattern(&mut self, span: Span) -> PatternId {
-        let id = PatternId::new(self.arena, self.owner, self.pattern_spans.len());
-        self.pattern_spans.push(span);
-        self.pattern_owners.push(self.owner);
-        self.record_origin(OriginTarget::Pattern(id));
-        id
-    }
-
-    pub(crate) fn push_type(&mut self, span: Span) -> TypeRefId {
-        let id = TypeRefId::new(self.arena, self.owner, self.type_spans.len());
-        self.type_spans.push(span);
-        self.type_owners.push(self.owner);
-        self.record_origin(OriginTarget::Type(id));
-        id
     }
 
     /// Returns the function byte range; see the [ID validity requirements](Self#panics).
@@ -464,17 +308,6 @@ impl SourceMap {
             .expect("unregistered HIR parameter source range")
     }
 
-    /// Returns the local binding byte range; see the [ID validity requirements](Self#panics).
-    pub fn local_span(&self, id: LocalId) -> Span {
-        assert_eq!(id.arena(), self.arena, "foreign HIR source range");
-        assert_eq!(
-            id.owner(),
-            self.local_owners[id.index()],
-            "foreign HIR body source range"
-        );
-        self.local_spans[id.index()]
-    }
-
     /// Returns the struct declaration byte range; see the [ID validity requirements](Self#panics).
     pub fn struct_span(&self, id: StructId) -> Span {
         self.struct_spans[id.index()]
@@ -483,71 +316,5 @@ impl SourceMap {
     /// Returns the enum declaration byte range; see the [ID validity requirements](Self#panics).
     pub fn enum_span(&self, id: EnumId) -> Span {
         self.enum_spans[id.index()]
-    }
-
-    /// Returns the block byte range; see the [ID validity requirements](Self#panics).
-    pub fn block_span(&self, id: BlockId) -> Span {
-        assert_eq!(id.arena(), self.arena, "foreign HIR source range");
-        assert_eq!(
-            id.owner(),
-            self.block_owners[id.index()],
-            "foreign HIR body source range"
-        );
-        self.block_spans[id.index()]
-    }
-
-    /// Returns the expression byte range; see the [ID validity requirements](Self#panics).
-    pub fn expr_span(&self, id: ExprId) -> Span {
-        assert_eq!(id.arena(), self.arena, "foreign HIR source range");
-        assert_eq!(
-            id.owner(),
-            self.expr_owners[id.index()],
-            "foreign HIR body source range"
-        );
-        self.expr_spans[id.index()]
-    }
-
-    /// Returns the assignment place byte range; see the [ID validity requirements](Self#panics).
-    pub fn place_span(&self, id: PlaceId) -> Span {
-        assert_eq!(id.arena(), self.arena, "foreign HIR source range");
-        assert_eq!(
-            id.owner(),
-            self.place_owners[id.index()],
-            "foreign HIR body source range"
-        );
-        self.place_spans[id.index()]
-    }
-
-    /// Returns the statement byte range; see the [ID validity requirements](Self#panics).
-    pub fn stmt_span(&self, id: StmtId) -> Span {
-        assert_eq!(id.arena(), self.arena, "foreign HIR source range");
-        assert_eq!(
-            id.owner(),
-            self.stmt_owners[id.index()],
-            "foreign HIR body source range"
-        );
-        self.stmt_spans[id.index()]
-    }
-
-    /// Returns the pattern byte range; see the [ID validity requirements](Self#panics).
-    pub fn pattern_span(&self, id: PatternId) -> Span {
-        assert_eq!(id.arena(), self.arena, "foreign HIR source range");
-        assert_eq!(
-            id.owner(),
-            self.pattern_owners[id.index()],
-            "foreign HIR body source range"
-        );
-        self.pattern_spans[id.index()]
-    }
-
-    /// Returns the type syntax byte range; see the [ID validity requirements](Self#panics).
-    pub fn type_span(&self, id: TypeRefId) -> Span {
-        assert_eq!(id.arena(), self.arena, "foreign HIR source range");
-        assert_eq!(
-            id.owner(),
-            self.type_owners[id.index()],
-            "foreign HIR body source range"
-        );
-        self.type_spans[id.index()]
     }
 }

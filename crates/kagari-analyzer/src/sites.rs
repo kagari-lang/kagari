@@ -7,7 +7,6 @@ use kagari_common::{
 use kagari_hir::{
     hir::ids::{ExprId, PatternId, PlaceId, TypeRefId},
     lower::LoweredModule,
-    source_map::origin::OriginTarget,
 };
 use kagari_syntax::ast::{
     borrow::Ast,
@@ -267,24 +266,18 @@ impl<'a> SourceSites<'a> {
 
     pub(crate) fn expr_reference_span(&self, id: ExprId) -> Option<Span> {
         self.expressions
-            .get(&key(self
-                .lowered
-                .source_map
-                .source_span(OriginTarget::Expr(id))?))?
+            .get(&key(self.lowered.module.expr(id).origin.source_span()?))?
             .reference
     }
 
     pub(crate) fn expr_owner_span(&self, id: ExprId) -> Option<Span> {
         self.expressions
-            .get(&key(self
-                .lowered
-                .source_map
-                .source_span(OriginTarget::Expr(id))?))?
+            .get(&key(self.lowered.module.expr(id).origin.source_span()?))?
             .owner
     }
 
     pub(crate) fn expr_path(&self, id: ExprId) -> &[(String, Span)] {
-        let Some(span) = self.lowered.source_map.source_span(OriginTarget::Expr(id)) else {
+        let Some(span) = self.lowered.module.expr(id).origin.source_span() else {
             return &[];
         };
         self.expressions
@@ -296,20 +289,14 @@ impl<'a> SourceSites<'a> {
         Some(
             &self
                 .expressions
-                .get(&key(self
-                    .lowered
-                    .source_map
-                    .source_span(OriginTarget::Expr(id))?))?
+                .get(&key(self.lowered.module.expr(id).origin.source_span()?))?
                 .fields,
         )
     }
 
     pub(crate) fn place_member_span(&self, id: PlaceId) -> Option<Span> {
         self.expressions
-            .get(&key(self
-                .lowered
-                .source_map
-                .source_span(OriginTarget::Place(id))?))?
+            .get(&key(self.lowered.module.place(id).origin.source_span()?))?
             .reference
     }
 
@@ -317,8 +304,10 @@ impl<'a> SourceSites<'a> {
         self.patterns
             .get(&key(self
                 .lowered
-                .source_map
-                .source_span(OriginTarget::Pattern(id))?))
+                .module
+                .pattern(id)
+                .origin
+                .source_span()?))
             .copied()
     }
 
@@ -326,8 +315,10 @@ impl<'a> SourceSites<'a> {
         self.types
             .get(&key(self
                 .lowered
-                .source_map
-                .source_span(OriginTarget::Type(id))?))?
+                .module
+                .type_ref(id)
+                .origin
+                .source_span()?))?
             .name
     }
 
@@ -335,13 +326,15 @@ impl<'a> SourceSites<'a> {
         self.types
             .get(&key(self
                 .lowered
-                .source_map
-                .source_span(OriginTarget::Type(id))?))?
+                .module
+                .type_ref(id)
+                .origin
+                .source_span()?))?
             .terminal
     }
 
     pub(crate) fn type_path(&self, id: TypeRefId) -> &[(String, Span)] {
-        let Some(span) = self.lowered.source_map.source_span(OriginTarget::Type(id)) else {
+        let Some(span) = self.lowered.module.type_ref(id).origin.source_span() else {
             return &[];
         };
         self.types.get(&key(span)).map_or(&[], |site| &site.path)

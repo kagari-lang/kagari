@@ -1,11 +1,9 @@
 //! Attribution of HIR nodes without pretending registration has authored byte ranges.
 use crate::{
     hir::{
-        ids::{
-            BlockId, ExprId, FieldId, GenericParamId, LocalId, ParamId, PatternId, PlaceId, StmtId,
-            TraitMethodId, TypeRefId, VariantId,
-        },
+        ids::{FieldId, GenericParamId, ParamId, TraitMethodId, VariantId},
         item::Item,
+        origin::NodeOrigin,
     },
     source_map::SourceMap,
 };
@@ -20,21 +18,6 @@ pub enum OriginTarget {
     GenericParam(GenericParamId),
     TraitMethod(TraitMethodId),
     Param(ParamId),
-    Local(LocalId),
-    Block(BlockId),
-    Expr(ExprId),
-    Place(PlaceId),
-    Stmt(StmtId),
-    Pattern(PatternId),
-    Type(TypeRefId),
-}
-
-/// Attribution, not executable installation evidence. A structured declaration's ID
-/// belongs to the common analysis definition context; it has no byte range.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NodeOrigin {
-    Source(Span),
-    Structured { declaration: DefinitionId },
 }
 
 impl SourceMap {
@@ -65,13 +48,6 @@ impl SourceMap {
             OriginTarget::GenericParam(id) => self.generic_param_span(id),
             OriginTarget::TraitMethod(id) => self.trait_method_span(id),
             OriginTarget::Param(id) => self.param_span(id),
-            OriginTarget::Local(id) => self.local_span(id),
-            OriginTarget::Block(id) => self.block_span(id),
-            OriginTarget::Expr(id) => self.expr_span(id),
-            OriginTarget::Place(id) => self.place_span(id),
-            OriginTarget::Stmt(id) => self.stmt_span(id),
-            OriginTarget::Pattern(id) => self.pattern_span(id),
-            OriginTarget::Type(id) => self.type_span(id),
         };
         NodeOrigin::Source(span)
     }
@@ -82,6 +58,13 @@ impl SourceMap {
         match self.origin(target) {
             NodeOrigin::Source(span) => Some(span),
             NodeOrigin::Structured { .. } => None,
+        }
+    }
+
+    pub(crate) fn node_origin(&self, span: Span) -> NodeOrigin {
+        match self.structured_owner {
+            Some(declaration) => NodeOrigin::Structured { declaration },
+            None => NodeOrigin::Source(span),
         }
     }
 

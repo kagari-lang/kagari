@@ -65,7 +65,12 @@ fn impl_headers_keep_trait_targets_arguments_and_exact_source_positions() {
     };
     assert_eq!(args.len(), 2);
     assert!(args.iter().all(|arg| arg.owner() == HirOwner::Declaration));
-    let span = facts.lowered.source_map.type_span(applied.ty);
+    let span = facts
+        .lowered
+        .module
+        .type_ref(applied.ty)
+        .origin
+        .diagnostic_span();
     assert_eq!(&text[span.start..span.end], "View<Missing, Point>");
     let error = analysis
         .result()
@@ -76,9 +81,15 @@ fn impl_headers_keep_trait_targets_arguments_and_exact_source_positions() {
     assert_eq!(error.span, Some(span));
     assert_eq!(
         analysis.queries().definition_at(span.start),
-        analysis
-            .queries()
-            .definition_at(facts.lowered.source_map.type_span(valid.ty).start)
+        analysis.queries().definition_at(
+            facts
+                .lowered
+                .module
+                .type_ref(valid.ty)
+                .origin
+                .diagnostic_span()
+                .start
+        )
     );
     assert_eq!(
         analysis.queries().type_at(text.rfind(" x }").unwrap() + 1),

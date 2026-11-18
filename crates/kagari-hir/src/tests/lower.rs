@@ -635,12 +635,16 @@ fn inline_ast_lowering_owns_only_its_items_and_attributes() {
     assert_eq!(lowered.module.functions.len(), 1);
     assert_eq!(lowered.module.functions[0].name, "f");
     assert_eq!(lowered.module.modules.len(), 1);
-    let span = lowered.source_map.block_span(
-        lowered.module.functions[0]
-            .implementation
-            .script_body()
-            .unwrap(),
-    );
+    let span = lowered
+        .module
+        .block(
+            lowered.module.functions[0]
+                .implementation
+                .script_body()
+                .unwrap(),
+        )
+        .origin
+        .diagnostic_span();
     assert_eq!(&source.text()[span.start..span.end].trim(), &"{}");
 }
 
@@ -667,7 +671,7 @@ fn local_function_rows_preserve_owners_and_module_membership() {
             HirOwner::Body(BodyOwner::Function(function.id))
         );
         let declaration = lowered.source_map.function_span(function.id);
-        let body_span = lowered.source_map.block_span(body);
+        let body_span = lowered.module.block(body).origin.diagnostic_span();
         assert!(declaration.start <= body_span.start && declaration.end >= body_span.end);
         if let FunctionKind::Local { block } = function.kind {
             assert!(!lowered.module.items.contains(&Item::Function(function.id)));

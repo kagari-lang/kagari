@@ -57,7 +57,7 @@ impl<'a> BodyChecker<'a> {
                             },
                             &resolved,
                             &env.generic_bounds,
-                            self.lowered.source_map.type_span(ty),
+                            self.lowered.module.type_ref(ty).origin.diagnostic_span(),
                             self.diagnostics,
                             self.cancel,
                         );
@@ -70,12 +70,12 @@ impl<'a> BodyChecker<'a> {
                             Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
                                 type_name: display_type(&self.lowered.module, ty),
                             })
-                            .with_span(self.lowered.source_map.type_span(ty)),
+                            .with_span(self.lowered.module.type_ref(ty).origin.diagnostic_span()),
                         );
                     }
                     check::validate_reference_position(
                         &resolved,
-                        self.lowered.source_map.type_span(ty),
+                        self.lowered.module.type_ref(ty).origin.diagnostic_span(),
                         self.diagnostics,
                     );
                     resolved
@@ -92,7 +92,7 @@ impl<'a> BodyChecker<'a> {
                     self.declarations.definitions(),
                     &local_ty,
                     self.aggregates,
-                    self.lowered.source_map.stmt_span(stmt_id),
+                    self.lowered.module.stmt(stmt_id).origin.diagnostic_span(),
                     self.diagnostics,
                     self.cancel,
                 );
@@ -104,7 +104,7 @@ impl<'a> BodyChecker<'a> {
                     },
                     &local_ty,
                     &env.generic_bounds,
-                    self.lowered.source_map.stmt_span(stmt_id),
+                    self.lowered.module.stmt(stmt_id).origin.diagnostic_span(),
                     self.diagnostics,
                     self.cancel,
                 );
@@ -126,7 +126,13 @@ impl<'a> BodyChecker<'a> {
                                 &initializer_ty,
                             ),
                         })
-                        .with_span(self.lowered.source_map.expr_span(*initializer)),
+                        .with_span(
+                            self.lowered
+                                .module
+                                .expr(*initializer)
+                                .origin
+                                .diagnostic_span(),
+                        ),
                     );
                 }
                 self.check_declaration_pattern(*pattern, &local_ty, *writeability, env);
@@ -183,14 +189,16 @@ impl<'a> BodyChecker<'a> {
                                 ),
                                 found: display_type_id(self.declarations.definitions(), &value_ty),
                             })
-                            .with_span(self.lowered.source_map.place_span(*target)),
+                            .with_span(self.lowered.module.place(*target).origin.diagnostic_span()),
                         )
                     }
                     None => {
                         let reason = self.assignment_target_error_reason(*target, env);
                         self.diagnostics.push(
                             Diagnostic::error(DiagnosticKind::InvalidAssignmentTarget { reason })
-                                .with_span(self.lowered.source_map.place_span(*target)),
+                                .with_span(
+                                    self.lowered.module.place(*target).origin.diagnostic_span(),
+                                ),
                         );
                     }
                     _ => {}
@@ -228,7 +236,7 @@ impl<'a> BodyChecker<'a> {
                             ),
                             found: display_type_id(self.declarations.definitions(), &found),
                         })
-                        .with_span(self.lowered.source_map.stmt_span(stmt_id)),
+                        .with_span(self.lowered.module.stmt(stmt_id).origin.diagnostic_span()),
                     );
                 }
             }
@@ -276,7 +284,9 @@ impl<'a> BodyChecker<'a> {
                                     &iterable_ty,
                                 ),
                             })
-                            .with_span(self.lowered.source_map.expr_span(*iterable)),
+                            .with_span(
+                                self.lowered.module.expr(*iterable).origin.diagnostic_span(),
+                            ),
                         );
                     }
                     return;
@@ -292,7 +302,13 @@ impl<'a> BodyChecker<'a> {
                             expected: "irrefutable for binding".into(),
                             found: "refutable pattern".into(),
                         })
-                        .with_span(self.lowered.source_map.pattern_span(*pattern)),
+                        .with_span(
+                            self.lowered
+                                .module
+                                .pattern(*pattern)
+                                .origin
+                                .diagnostic_span(),
+                        ),
                     );
                 }
                 self.loop_depth += 1;
@@ -305,13 +321,13 @@ impl<'a> BodyChecker<'a> {
                 if self.loop_depth == 0 {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::BreakOutsideLoop)
-                            .with_span(self.lowered.source_map.stmt_span(stmt_id)),
+                            .with_span(self.lowered.module.stmt(stmt_id).origin.diagnostic_span()),
                     );
                 } else {
                     self.record_loop_break_type(
                         TypeId::Builtin(BuiltinType::Unit),
                         false,
-                        self.lowered.source_map.stmt_span(stmt_id),
+                        self.lowered.module.stmt(stmt_id).origin.diagnostic_span(),
                     );
                 }
             }
@@ -326,13 +342,13 @@ impl<'a> BodyChecker<'a> {
                 if self.loop_depth == 0 {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::BreakOutsideLoop)
-                            .with_span(self.lowered.source_map.stmt_span(stmt_id)),
+                            .with_span(self.lowered.module.stmt(stmt_id).origin.diagnostic_span()),
                     );
                 } else {
                     self.record_loop_break_type(
                         ty,
                         true,
-                        self.lowered.source_map.stmt_span(stmt_id),
+                        self.lowered.module.stmt(stmt_id).origin.diagnostic_span(),
                     );
                 }
             }
@@ -340,7 +356,7 @@ impl<'a> BodyChecker<'a> {
                 if self.loop_depth == 0 {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::ContinueOutsideLoop)
-                            .with_span(self.lowered.source_map.stmt_span(stmt_id)),
+                            .with_span(self.lowered.module.stmt(stmt_id).origin.diagnostic_span()),
                     );
                 }
             }

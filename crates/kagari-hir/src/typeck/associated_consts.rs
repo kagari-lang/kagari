@@ -80,7 +80,11 @@ pub(super) fn prepare(
             if cancel.check().is_err() {
                 return;
             }
-            let span = lowered.source_map.type_span(member.name_ref);
+            let span = lowered
+                .module
+                .type_ref(member.name_ref)
+                .origin
+                .diagnostic_span();
             if !names.insert(&member.name) {
                 diagnostics.push(error(&member.name, "duplicate declaration", span));
             }
@@ -143,7 +147,11 @@ pub(crate) fn validate(
             let expected = id
                 .as_ref()
                 .and_then(|id| contract?.associated_consts.get(id));
-            let span = lowered.source_map.type_span(member.name_ref);
+            let span = lowered
+                .module
+                .type_ref(member.name_ref)
+                .origin
+                .diagnostic_span();
             let Some(expected) = expected else {
                 diagnostics.push(error(
                     &member.name,

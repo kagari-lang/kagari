@@ -548,7 +548,7 @@ fn structured_and_offline_apis_share_fields_calls_traits_and_diagnostic_rules() 
                 .nodes
                 .expressions()
                 .map(|(id, expression)| {
-                    let span = facts.lowered.source_map.expr_span(id);
+                    let span = facts.lowered.module.expr(id).origin.diagnostic_span();
                     let ty = facts
                         .typed
                         .type_table()

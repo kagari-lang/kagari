@@ -205,15 +205,12 @@ fn native_view_trivia_does_not_change_checked_binding_and_default_ownership() {
                 };
                 assert_eq!(args.len(), function.params.len());
                 assert_eq!(type_args.as_ref().map_or(0, |arguments| arguments.len()), 1);
-                let target = crate::source_map::origin::OriginTarget::Expr(call);
-                assert_eq!(
-                    lowered.source_map.source_span(target).is_some(),
-                    supplied.is_some()
-                );
+                let origin = lowered.module.expr(call).origin;
+                assert_eq!(origin.source_span().is_some(), supplied.is_some());
                 if supplied.is_none() {
                     assert!(matches!(
-                        lowered.source_map.origin(target),
-                        crate::source_map::origin::NodeOrigin::Structured { .. }
+                        origin,
+                        crate::hir::origin::NodeOrigin::Structured { .. }
                     ));
                 }
                 let registered = &module.records().traits[0]

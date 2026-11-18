@@ -78,7 +78,16 @@ fn native_and_script_variants_share_checked_constructor_and_pattern_facts() {
                     return None;
                 };
                 arms.iter()
-                    .find(|arm| facts.lowered.source_map.pattern_span(arm.pattern).start == offset)
+                    .find(|arm| {
+                        facts
+                            .lowered
+                            .module
+                            .pattern(arm.pattern)
+                            .origin
+                            .diagnostic_span()
+                            .start
+                            == offset
+                    })
                     .map(|arm| arm.pattern)
             })
             .unwrap();

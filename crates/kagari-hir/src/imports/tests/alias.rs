@@ -184,11 +184,9 @@ fn type_alias_composite_retention_is_bounded_across_siblings() {
         let facts = result.facts();
         let table = facts.signatures.facts().type_table();
         let mut retained = 0;
-        for (index, (_, reference)) in facts.lowered.module.nodes.types.iter().enumerate() {
+        for (id, reference) in facts.lowered.module.nodes.types() {
             if matches!(&reference.kind, TypeKind::Named(name) if name == "Big") {
-                let resolved = table
-                    .type_ref(facts.lowered.source_map.type_id(index))
-                    .expect("visited sibling");
+                let resolved = table.type_ref(id).expect("visited sibling");
                 retained += usize::from(!resolved.ty.is_unresolved());
                 assert!(
                     resolved.target.is_some(),
@@ -197,7 +195,7 @@ fn type_alias_composite_retention_is_bounded_across_siblings() {
             }
             if matches!(&reference.kind, TypeKind::Named(name) if name == "Missing") {
                 let resolved = table
-                    .type_ref(facts.lowered.source_map.type_id(index))
+                    .type_ref(id)
                     .expect("later unresolved sibling visited");
                 assert!(resolved.ty.is_unresolved());
             }

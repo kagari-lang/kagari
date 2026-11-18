@@ -3,14 +3,14 @@
 use crate::{
     collections::HashSet,
     hir::{
-        ids::FunctionId,
+        ids::{BodyOwner, FunctionId, HirOwner},
         item::function::{Function, FunctionKind},
     },
     lower::LoweredModule,
-    typeck::table::TypeTable,
+    typeck::{signature_reuse::generic_correspondence, table::TypeTable},
 };
 
-use kagari_common::span::Span;
+use kagari_common::{cancellation::CancellationToken, span::Span};
 use kagari_source::diagnostic::Diagnostic;
 use kagari_syntax::{lexer, token::Token};
 
@@ -37,7 +37,11 @@ pub struct BodyReuse<'a> {
 
 impl BodyReuse<'_> {
     /// Requires compatible surrounding source tokens and diagnostic locations before trying body reuse.
-    pub(crate) fn environment_matches(&self, current: &LoweredModule) -> bool {
+    pub(crate) fn environment_matches(
+        &self,
+        current: &LoweredModule,
+        cancel: &CancellationToken,
+    ) -> bool {
         if self
             .previous_lowered
             .module
@@ -65,6 +69,8 @@ impl BodyReuse<'_> {
             && environment(self.previous_lowered, self.old_text)
                 .zip(environment(current, self.new_text))
                 .is_some_and(|(old, new)| same_environment_tokens(&old, &new))
+            && generic_correspondence(&self.previous_lowered.module, &current.module, cancel)
+                .is_some_and(|ids| ids.into_iter().all(|(old, new)| old == new))
     }
 
     /// Matches unchanged body syntax and remaps its IDs/spans into the new lowering before restoring facts.
@@ -111,8 +117,9 @@ impl BodyReuse<'_> {
         }
         table.restore_function(
             self.previous_types,
-            &self.previous_lowered.source_map,
-            &current.source_map,
+            &self.previous_lowered.module.nodes,
+            &current.module.nodes,
+            HirOwner::Body(BodyOwner::Function(function.id)),
             old_span,
             new_span,
         )
@@ -144,7 +151,7 @@ fn environment(module: &LoweredModule, text: &str) -> Option<String> {
         .filter_map(|f| {
             f.implementation
                 .script_body()
-                .map(|body| module.source_map.block_span(body))
+                .map(|body| module.module.block(body).origin.diagnostic_span())
         })
         .collect::<Vec<_>>();
     bodies.sort_by_key(|span| span.start);
@@ -259,8 +266,10 @@ mod tests {
         let point = |function: &Function| {
             let span = facts
                 .lowered
-                .source_map
-                .block_span(function.implementation.script_body().unwrap());
+                .module
+                .block(function.implementation.script_body().unwrap())
+                .origin
+                .diagnostic_span();
             Span {
                 start: span.start + 1,
                 end: span.start + 1,
@@ -286,7 +295,7 @@ mod tests {
                 new_text: source.text(),
             };
             assert_eq!(
-                reuse.environment_matches(&facts.lowered),
+                reuse.environment_matches(&facts.lowered, &Default::default()),
                 environment_valid,
                 "{span:?}"
             );

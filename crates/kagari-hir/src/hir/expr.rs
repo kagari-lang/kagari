@@ -1,6 +1,7 @@
 //! Expressions and their stored child IDs, before name resolution and type checking.
 
 pub mod literal;
+use crate::hir::origin::NodeOrigin;
 use crate::hir::{
     expr::{
         literal::Literal,
@@ -25,7 +26,7 @@ use smallvec::SmallVec;
 /// ```
 ///
 /// Only `kind` is stored here. The ID/row supply arena and owner;
-/// [`SourceMap`](crate::source_map::SourceMap) supplies byte sites;
+/// the row origin supplies its byte site;
 /// [`ResolvedNames`](crate::resolver::resolved::ResolvedNames) and
 /// [`TypeTable`](crate::typeck::table::TypeTable) supply binding/type/call facts.
 /// Expression lowering builds the rows and child links before checking. See
@@ -33,6 +34,8 @@ use smallvec::SmallVec;
 /// lookup and physical storage.
 #[derive(Debug, Clone)]
 pub struct ExprData {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
     /// Expression form and stored child IDs, before semantic checking.
     pub kind: ExprKind,
 }

@@ -91,10 +91,10 @@ impl Evaluator<'_> {
         #[cfg(test)]
         checkpoint(Checkpoint::Constants);
         self.cancel.check().ok()?;
-        if !self
-            .budget
-            .enter(self.lowered.source_map.expr_span(id), self.diagnostics)
-        {
+        if !self.budget.enter(
+            self.lowered.module.expr(id).origin.diagnostic_span(),
+            self.diagnostics,
+        ) {
             return None;
         }
         let result = self.expression_inner(owner, id);
@@ -151,7 +151,7 @@ impl Evaluator<'_> {
                         const_name: item.name.clone(),
                         reason: reason.to_string(),
                     })
-                    .with_span(self.lowered.source_map.expr_span(id)),
+                    .with_span(self.lowered.module.expr(id).origin.diagnostic_span()),
                 );
             })
             .ok()

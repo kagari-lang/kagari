@@ -202,7 +202,10 @@ fn stored_node_and_source_owners_reject_an_internally_mistagged_id() {
     let mistagged = ExprId::new(expr.arena(), second.owner(), expr.index());
     assert_ne!(expr, mistagged);
     assert!(std::panic::catch_unwind(|| lowered.module.expr(mistagged)).is_err());
-    assert!(std::panic::catch_unwind(|| lowered.source_map.expr_span(mistagged)).is_err());
+    assert!(
+        std::panic::catch_unwind(|| lowered.module.expr(mistagged).origin.diagnostic_span())
+            .is_err()
+    );
 
     let module = &lowered.module;
     let parameter = module.functions[0].params[0].id;

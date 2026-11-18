@@ -223,8 +223,7 @@ impl AliasValidation<'_> {
         bounds: &GenericBounds,
         diagnostics: &mut DiagnosticBuffer,
     ) {
-        for index in 0..self.lowered.module.nodes.types.len() {
-            let reference = self.lowered.source_map.type_id(index);
+        for (reference, _) in self.lowered.module.nodes.types() {
             if !select(reference) {
                 continue;
             }
@@ -266,7 +265,12 @@ impl AliasValidation<'_> {
         if args.len() != alias.parameters.len() {
             return;
         }
-        let span = self.lowered.source_map.type_span(reference);
+        let span = self
+            .lowered
+            .module
+            .type_ref(reference)
+            .origin
+            .diagnostic_span();
         for argument in &args {
             interfaces::validate_type(
                 self.declarations.definitions(),
@@ -354,8 +358,7 @@ impl AliasValidation<'_> {
                 self.cancel,
             );
         }
-        for index in 0..self.lowered.module.nodes.types.len() {
-            let reference = self.lowered.source_map.type_id(index);
+        for (reference, _) in self.lowered.module.nodes.types() {
             if self.cancel.check().is_err() {
                 return;
             }
@@ -373,7 +376,12 @@ impl AliasValidation<'_> {
                 .map(|function| function.bounds.clone())
                 .unwrap_or_default();
         }
-        let span = self.lowered.source_map.type_span(reference);
+        let span = self
+            .lowered
+            .module
+            .type_ref(reference)
+            .origin
+            .diagnostic_span();
         let contains = |owner: Span| owner.start <= span.start && span.end <= owner.end;
         for alias in &self.lowered.module.type_aliases {
             if contains(self.lowered.source_map.type_alias_span(alias.id)) {
@@ -449,7 +457,12 @@ impl AliasValidation<'_> {
                     iter::once(bound.target_ref).chain(bound.traits.iter().map(|bound| bound.ty))
                 }));
             if references.into_iter().any(|reference| {
-                let owner = self.lowered.source_map.type_span(reference);
+                let owner = self
+                    .lowered
+                    .module
+                    .type_ref(reference)
+                    .origin
+                    .diagnostic_span();
                 owner.start <= span.start && span.end <= owner.end
             }) {
                 for (subject, requirements) in associated::family_inputs(
@@ -524,7 +537,7 @@ pub(super) fn check_definitions(
                         name: alias.name.clone(),
                         reason: "alias targets cannot contain inference placeholders".into(),
                     })
-                    .with_span(lowered.source_map.type_span(reference)),
+                    .with_span(lowered.module.type_ref(reference).origin.diagnostic_span()),
                 );
             }
         }

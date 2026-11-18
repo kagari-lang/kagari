@@ -26,7 +26,13 @@ impl BodyChecker<'_> {
                     expected: "irrefutable declaration pattern".into(),
                     found: "refutable pattern".into(),
                 })
-                .with_span(self.lowered.source_map.pattern_span(pattern)),
+                .with_span(
+                    self.lowered
+                        .module
+                        .pattern(pattern)
+                        .origin
+                        .diagnostic_span(),
+                ),
             );
         }
         let mut names = HashSet::default();
@@ -37,7 +43,14 @@ impl BodyChecker<'_> {
                         expected: "each name bound once in a declaration".into(),
                         found: format!("duplicate binding `{name}`"),
                     })
-                    .with_span(self.lowered.source_map.local_span(local)),
+                    .with_span(
+                        self.lowered
+                            .module
+                            .nodes
+                            .local(local)
+                            .origin
+                            .diagnostic_span(),
+                    ),
                 );
             }
             env.local_writeability.insert(local, writeability);

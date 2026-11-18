@@ -175,8 +175,7 @@ impl<'a> CheckedBodyInput<'a> {
 
     /// Returns the original source extent of an expression in this body.
     pub fn expression_span(self, id: ExprId) -> Option<Span> {
-        self.expression(id)?;
-        Some(self.origins.expr_span(id))
+        Some(self.expression(id)?.origin.diagnostic_span())
     }
 
     /// Selects a nested callable root within the existing lowered node storage.
@@ -216,25 +215,21 @@ impl<'a> CheckedBodyInput<'a> {
 
     /// Returns the source extent of a block belonging to this input.
     pub fn block_span(self, id: BlockId) -> Option<Span> {
-        self.block(id)?;
-        Some(self.origins.block_span(id))
+        Some(self.block(id)?.origin.diagnostic_span())
     }
 
     /// Returns the source extent of a statement belonging to this input.
     pub fn statement_span(self, id: StmtId) -> Option<Span> {
-        self.statement(id)?;
-        Some(self.origins.stmt_span(id))
+        Some(self.statement(id)?.origin.diagnostic_span())
     }
 
     /// Returns the source extent of a mutation target belonging to this input.
     pub fn place_span(self, id: PlaceId) -> Option<Span> {
-        self.place(id)?;
-        Some(self.origins.place_span(id))
+        Some(self.place(id)?.origin.diagnostic_span())
     }
 
     /// Returns the source extent of a pattern belonging to this input.
     pub fn pattern_span(self, id: PatternId) -> Option<Span> {
-        self.pattern(id)?;
-        Some(self.origins.pattern_span(id))
+        Some(self.pattern(id)?.origin.diagnostic_span())
     }
 }

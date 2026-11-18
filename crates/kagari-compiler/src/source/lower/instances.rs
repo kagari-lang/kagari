@@ -22,13 +22,13 @@ use kagari_hir::{
     },
     compile_input::program::CheckedModule,
     declarations::DeclarationId,
+    hir::origin::NodeOrigin,
     hir::{
         ids::{BodyOwner, ExprId, FunctionId, StaticId},
         item::Item,
     },
     resolver::resolved::ResolvedName,
     semantic::signatures::{FunctionImplementation, TypedFunction},
-    source_map::origin::NodeOrigin,
     typeck::GenericBounds,
     types::{
         GenericParameterType, NominalType, TypeId, TypeSubstitution,

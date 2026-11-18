@@ -39,7 +39,7 @@ pub(super) fn signatures(
                     Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
                         type_name: display_type(&lowered.module, annotation),
                     })
-                    .with_span(lowered.source_map.type_span(annotation)),
+                    .with_span(lowered.module.type_ref(annotation).origin.diagnostic_span()),
                 );
             }
             ty
@@ -103,7 +103,13 @@ pub(super) fn initializers(
                     expected: display_type_id(indexes.declarations.definitions(), &expected),
                     found: display_type_id(indexes.declarations.definitions(), &actual),
                 })
-                .with_span(lowered.source_map.expr_span(item.initializer)),
+                .with_span(
+                    lowered
+                        .module
+                        .expr(item.initializer)
+                        .origin
+                        .diagnostic_span(),
+                ),
             );
         }
         if shared_valid

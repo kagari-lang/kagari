@@ -2,7 +2,7 @@
 use super::StructuredLowerer;
 use crate::hir::{
     attribute::{AttributeFact, AttributeForm, AttributeTarget, AttributeValue},
-    expr::{ExprData, ExprKind},
+    expr::ExprKind,
     ids::{
         BodyOwner, ExprId, FieldId, FieldOwner, FunctionId, GenericParamId, HirOwner, ParamId,
         TraitMethodId, TypeRefId, VariantId,
@@ -14,7 +14,6 @@ use crate::hir::{
         function::{Function, FunctionImplementation, FunctionKind, Param},
         module::{Import, ImportLeaf},
     },
-    stmt::BlockData,
     ty::TypeKind,
     writeability::Writeability,
 };
@@ -424,13 +423,7 @@ impl StructuredLowerer<'_> {
                         DeclarationError("Script registration requires a complete body".into())
                     })?;
                 let tail = self.script_expr(expression)?;
-                let block = self.lowerer.alloc_block(
-                    Span::default(),
-                    BlockData {
-                        statements: Default::default(),
-                        tail_expr: Some(tail),
-                    },
-                );
+                let block = self.lowerer.alloc_block(Span::default(), Some(tail));
                 FunctionImplementation::Script(block)
             }
             // The installed contract is attached by exact allocation correspondence.
@@ -505,6 +498,6 @@ impl StructuredLowerer<'_> {
                 },
             },
         };
-        Ok(self.lowerer.alloc_expr(Span::default(), ExprData { kind }))
+        Ok(self.lowerer.alloc_expr(Span::default(), kind))
     }
 }

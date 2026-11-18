@@ -264,7 +264,7 @@ impl<'a> BodyChecker<'a> {
                     resource: "expression inference depth",
                     limit: MAX_INFERENCE_DEPTH,
                 })
-                .with_span(self.lowered.source_map.expr_span(expr_id)),
+                .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
             );
             return TypeId::Unknown;
         }
@@ -298,7 +298,7 @@ impl<'a> BodyChecker<'a> {
                 Diagnostic::error(DiagnosticKind::InvalidReference {
                     reason: "views require a nominal target and cannot be nested in owning values",
                 })
-                .with_span(self.lowered.source_map.expr_span(expr_id)),
+                .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
             );
         }
         self.check_call_type_arguments_used(expr_id);
@@ -336,7 +336,7 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Missing => {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::ExpectedExpression)
-                        .with_span(self.lowered.source_map.expr_span(expr_id)),
+                        .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
                 );
                 TypeId::Unknown
             }
@@ -385,7 +385,7 @@ impl<'a> BodyChecker<'a> {
                         } else {
                             DiagnosticKind::UnknownName { name: name.clone() }
                         })
-                        .with_span(self.lowered.source_map.expr_span(expr_id)),
+                        .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
                     );
                     TypeId::Error
                 }),
@@ -405,7 +405,7 @@ impl<'a> BodyChecker<'a> {
                         Diagnostic::error(DiagnosticKind::InvalidLiteral {
                             reason: reason.to_owned(),
                         })
-                        .with_span(self.lowered.source_map.expr_span(expr_id)),
+                        .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
                     );
                     TypeId::Error
                 }
@@ -452,7 +452,7 @@ impl<'a> BodyChecker<'a> {
                                 display_type_id(self.declarations.definitions(), &ty)
                             ),
                         })
-                        .with_span(self.lowered.source_map.expr_span(*expr)),
+                        .with_span(self.lowered.module.expr(*expr).origin.diagnostic_span()),
                     );
                 }
                 TypeId::Builtin(BuiltinType::String)
@@ -497,7 +497,7 @@ impl<'a> BodyChecker<'a> {
                             from: display_type_id(self.declarations.definitions(), &input),
                             to: display_type_id(self.declarations.definitions(), &output),
                         })
-                        .with_span(self.lowered.source_map.expr_span(expr_id)),
+                        .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
                     );
                 }
                 output
@@ -532,7 +532,9 @@ impl<'a> BodyChecker<'a> {
                                         &actual,
                                     ),
                                 })
-                                .with_span(self.lowered.source_map.expr_span(*operand)),
+                                .with_span(
+                                    self.lowered.module.expr(*operand).origin.diagnostic_span(),
+                                ),
                             );
                         }
                         expected.recover_from(&actual);
@@ -593,7 +595,7 @@ impl<'a> BodyChecker<'a> {
                 if name.is_empty() {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::ExpectedFieldName)
-                            .with_span(self.lowered.source_map.expr_span(expr_id)),
+                            .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
                     );
                     TypeId::Error
                 } else if !completes {
@@ -681,7 +683,7 @@ impl<'a> BodyChecker<'a> {
                             reason: "initialize each element separately to create distinct objects"
                                 .into(),
                         })
-                        .with_span(self.lowered.source_map.expr_span(*value)),
+                        .with_span(self.lowered.module.expr(*value).origin.diagnostic_span()),
                     );
                 }
                 let length_type = TypeId::Builtin(BuiltinType::U64);
@@ -696,7 +698,7 @@ impl<'a> BodyChecker<'a> {
                             ),
                             found: display_type_id(self.declarations.definitions(), &actual),
                         })
-                        .with_span(self.lowered.source_map.expr_span(*count)),
+                        .with_span(self.lowered.module.expr(*count).origin.diagnostic_span()),
                     );
                 }
                 TypeId::Array(Box::new(element))
@@ -743,7 +745,9 @@ impl<'a> BodyChecker<'a> {
                                     ),
                                     found: display_type_id(self.declarations.definitions(), &ty),
                                 })
-                                .with_span(self.lowered.source_map.expr_span(*expr)),
+                                .with_span(
+                                    self.lowered.module.expr(*expr).origin.diagnostic_span(),
+                                ),
                             );
                         }
                         element_ty.recover_from(&ty);
@@ -785,7 +789,7 @@ impl<'a> BodyChecker<'a> {
             },
             &ty,
             &env.generic_bounds,
-            self.lowered.source_map.expr_span(expr_id),
+            self.lowered.module.expr(expr_id).origin.diagnostic_span(),
             self.diagnostics,
             self.cancel,
         );

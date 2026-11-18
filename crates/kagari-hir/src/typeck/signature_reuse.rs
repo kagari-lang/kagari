@@ -5,7 +5,13 @@ use kagari_common::{cancellation::CancellationToken, span::Span};
 use crate::{
     AnalysisResult,
     collections::HashMap,
-    hir::item::function::{FunctionImplementation, FunctionKind},
+    hir::{
+        ids::GenericParamId,
+        item::{
+            Module,
+            function::{FunctionImplementation, FunctionKind},
+        },
+    },
     lower::LoweredModule,
 };
 
@@ -36,7 +42,7 @@ impl Surface {
             .filter_map(|f| {
                 f.implementation
                     .script_body()
-                    .map(|body| module.source_map.block_span(body))
+                    .map(|body| module.module.block(body).origin.diagnostic_span())
             })
             .collect::<Vec<_>>();
         bodies.sort_by_key(|span| span.start);
@@ -215,23 +221,17 @@ pub(crate) fn reuse_signatures(
     // Declaration order is unchanged. Body-local type annotations, however, may
     // change both the lengths and indices of the shared type-syntax tables.
     let mut old_types: HashMap<_, Vec<_>> = HashMap::default();
-    for (index, span) in previous.source_map.type_spans().iter().enumerate() {
+    for (id, node) in previous.module.nodes.types() {
         cancel.check().ok()?;
-        if let Some(key) = old.span(*span) {
-            old_types
-                .entry(key)
-                .or_default()
-                .push(previous.source_map.type_id(index));
+        if let Some(key) = old.span(node.origin.diagnostic_span()) {
+            old_types.entry((id.owner(), key)).or_default().push(id);
         }
     }
     let mut new_types: HashMap<_, Vec<_>> = HashMap::default();
-    for (index, span) in current.source_map.type_spans().iter().enumerate() {
+    for (id, node) in current.module.nodes.types() {
         cancel.check().ok()?;
-        if let Some(key) = new.span(*span) {
-            new_types
-                .entry(key)
-                .or_default()
-                .push(current.source_map.type_id(index));
+        if let Some(key) = new.span(node.origin.diagnostic_span()) {
+            new_types.entry((id.owner(), key)).or_default().push(id);
         }
     }
     if old_types.len() != new_types.len() {
@@ -246,6 +246,7 @@ pub(crate) fn reuse_signatures(
         }
         ids.extend(old_ids.into_iter().zip(new_ids));
     }
+    let generics = generic_correspondence(&previous.module, &current.module, cancel)?;
     let mut result = previous_signatures.clone();
     let old_functions = &previous.module.functions;
     let new_functions = &current.module.functions;
@@ -314,7 +315,7 @@ pub(crate) fn reuse_signatures(
     result.facts.type_table = result
         .facts
         .type_table
-        .remap_signature_types(&ids, &fields)?;
+        .remap_signature_types(&ids, &fields, &generics)?;
     for diagnostic in &mut result.diagnostics {
         cancel.check().ok()?;
         if let Some(span) = diagnostic.span {
@@ -323,4 +324,93 @@ pub(crate) fn reuse_signatures(
         }
     }
     Some(result)
+}
+
+fn binder_lists(module: &Module) -> impl Iterator<Item = &[GenericParamId]> {
+    module
+        .functions
+        .iter()
+        .map(|item| item.generic_params.as_slice())
+        .chain(
+            module
+                .structs
+                .iter()
+                .map(|item| item.generic_params.as_slice()),
+        )
+        .chain(
+            module
+                .enums
+                .iter()
+                .map(|item| item.generic_params.as_slice()),
+        )
+        .chain(
+            module
+                .native_types
+                .iter()
+                .map(|item| item.generic_params.as_slice()),
+        )
+        .chain(
+            module
+                .type_aliases
+                .iter()
+                .map(|item| item.generic_params.as_slice()),
+        )
+        .chain(
+            module
+                .traits
+                .iter()
+                .map(|item| item.generic_params.as_slice()),
+        )
+        .chain(
+            module
+                .impls
+                .iter()
+                .map(|item| item.generic_params.as_slice()),
+        )
+        .chain(
+            module
+                .traits
+                .iter()
+                .flat_map(|item| &item.associated_types)
+                .map(|item| item.generic_params.as_slice()),
+        )
+        .chain(
+            module
+                .impls
+                .iter()
+                .flat_map(|item| &item.associated_types)
+                .map(|item| item.generic_params.as_slice()),
+        )
+}
+
+/// Pairs original and inherited binder-list entries after checking their enclosing source.
+pub(super) fn generic_correspondence(
+    previous: &Module,
+    current: &Module,
+    cancel: &CancellationToken,
+) -> Option<HashMap<GenericParamId, GenericParamId>> {
+    let mut old_lists = binder_lists(previous);
+    let mut new_lists = binder_lists(current);
+    let mut forward = HashMap::default();
+    let mut reverse = HashMap::default();
+    for old in &mut old_lists {
+        cancel.check().ok()?;
+        let new = new_lists.next()?;
+        if old.len() != new.len() {
+            return None;
+        }
+        for (&old, &new) in old.iter().zip(new) {
+            cancel.check().ok()?;
+            if previous.generic_parameter(old).name != current.generic_parameter(new).name
+                || forward.insert(old, new).is_some_and(|other| other != new)
+                || reverse.insert(new, old).is_some_and(|other| other != old)
+            {
+                return None;
+            }
+        }
+    }
+    (new_lists.next().is_none()
+        && forward.len() == previous.generic_params.len()
+        && reverse.len() == current.generic_params.len())
+    .then_some(forward)
 }

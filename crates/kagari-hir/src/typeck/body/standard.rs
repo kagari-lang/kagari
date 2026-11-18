@@ -39,7 +39,7 @@ impl BodyChecker<'_> {
             }
             actual.recover_from(expected);
             if self.type_table.enum_constructor(site).is_some() && !actual.is_unresolved() {
-                let span = self.lowered.source_map.expr_span(site);
+                let span = self.lowered.module.expr(site).origin.diagnostic_span();
                 self.diagnostics.retain(|d| {
                     !(d.span == Some(span)
                         && matches!(d.kind, DiagnosticKind::CannotInferGenericArgument { .. }))
@@ -260,7 +260,7 @@ impl BodyChecker<'_> {
                 type_name: ty.display_name(self.declarations.definitions()),
                 trait_name,
             })
-            .with_span(self.lowered.source_map.expr_span(site)),
+            .with_span(self.lowered.module.expr(site).origin.diagnostic_span()),
         );
     }
 

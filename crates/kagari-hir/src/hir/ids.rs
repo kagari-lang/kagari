@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! Lowerer::reserve_function -> FunctionId -> Module.functions[id.index()]
-//! SourceMap::push_expr     -> ExprId    -> HirNodes.expr(id) -> exprs[id.index()]
+//! Lowerer::alloc_expr      -> ExprId    -> HirNodes.expr(id) -> exprs[id.index()]
 //! Lowerer parameter slot   -> ParamId   -> Module.parameter(id) -> Function.params[id.index()]
 //! Lowerer::alloc_local    -> LocalId   -> HirNodes.local(id) -> locals[id.index()]
 //! FieldId                 -> Module.field(id)
@@ -20,8 +20,8 @@
 //! records logically; only parameter indices are relative to their function owner.
 //! It is distinct from an enclosing struct/enum owner in a member ID.
 //!
-//! The internal `Lowerer` allocates body nodes through the source map and appends
-//! matching body rows. Local records and parameters register spans under their own IDs.
+//! The internal `Lowerer` allocates body node IDs from their record slots. Parameters
+//! register source ranges under their function-local IDs.
 //! Body/parameter access checks lowering identity and owner before returning the record.
 //! Plain declaration IDs lack those checks and require the matching module.
 //! Cross-module references use [`crate::imports::SourceDeclRef`] with its complete

@@ -649,7 +649,7 @@ pub(crate) fn validate_signatures(
         };
         let span = item.ty.map_or_else(
             || lowered.source_map.static_span(item.id),
-            |ty| lowered.source_map.type_span(ty),
+            |ty| lowered.module.type_ref(ty).origin.diagnostic_span(),
         );
         let normalized = catalog.normalize_type(definitions, ty);
         if !ty.is_unresolved() && !normalized.is_concrete() {
@@ -764,7 +764,11 @@ pub(crate) fn validate_signatures(
             },
             &TypeId::Trait(instance.clone()),
             &available,
-            lowered.source_map.type_span(trait_ref.ty),
+            lowered
+                .module
+                .type_ref(trait_ref.ty)
+                .origin
+                .diagnostic_span(),
             diagnostics,
             cancel,
         );

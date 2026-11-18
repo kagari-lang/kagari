@@ -47,7 +47,11 @@ impl<'a> ScopeIndex<'a> {
         for constant in &lowered.module.consts {
             let scope = index.scope(
                 BodyOwner::Const(constant.id),
-                lowered.source_map.expr_span(constant.initializer),
+                lowered
+                    .module
+                    .expr(constant.initializer)
+                    .origin
+                    .diagnostic_span(),
                 None,
             );
             index.expr(constant.initializer, scope);
@@ -55,7 +59,11 @@ impl<'a> ScopeIndex<'a> {
         for item in &lowered.module.statics {
             let scope = index.scope(
                 BodyOwner::Static(item.id),
-                lowered.source_map.expr_span(item.initializer),
+                lowered
+                    .module
+                    .expr(item.initializer)
+                    .origin
+                    .diagnostic_span(),
                 None,
             );
             index.expr(item.initializer, scope);
@@ -143,7 +151,12 @@ impl<'a> ScopeIndex<'a> {
             self.binding(
                 scope,
                 ResolvedName::Param(param.id),
-                self.lowered.source_map.block_span(body).start,
+                self.lowered
+                    .module
+                    .block(body)
+                    .origin
+                    .diagnostic_span()
+                    .start,
             );
         }
         self.block(body, scope);
@@ -151,7 +164,7 @@ impl<'a> ScopeIndex<'a> {
 
     fn block(&mut self, id: BlockId, parent: usize) {
         let block = self.lowered.module.block(id);
-        let span = self.lowered.source_map.block_span(id);
+        let span = self.lowered.module.block(id).origin.diagnostic_span();
         let scope = self.child(parent, span);
         // Local function names are hoisted, but their non-capturing environments
         // see only the lexical prefix at their own declaration.
@@ -171,7 +184,7 @@ impl<'a> ScopeIndex<'a> {
     fn condition_block(&mut self, condition: &Condition, body: BlockId, scope: usize) {
         self.expr(condition.value(), scope);
         let scope = if let Condition::Binding { pattern, .. } = condition {
-            let span = self.lowered.source_map.block_span(body);
+            let span = self.lowered.module.block(body).origin.diagnostic_span();
             let child = self.child(scope, span);
             self.pattern(child, *pattern, span.start);
             child
@@ -189,7 +202,11 @@ impl<'a> ScopeIndex<'a> {
                 ..
             } => {
                 self.expr(*initializer, scope);
-                self.pattern(scope, *pattern, self.lowered.source_map.stmt_span(id).end);
+                self.pattern(
+                    scope,
+                    *pattern,
+                    self.lowered.module.stmt(id).origin.diagnostic_span().end,
+                );
             }
             StmtKind::Assign { target, value, .. } => {
                 self.place(*target, scope);
@@ -208,7 +225,7 @@ impl<'a> ScopeIndex<'a> {
                 body,
             } => {
                 self.expr(*iterable, scope);
-                let span = self.lowered.source_map.block_span(*body);
+                let span = self.lowered.module.block(*body).origin.diagnostic_span();
                 let child = self.child(scope, span);
                 self.pattern(child, *pattern, span.start);
                 self.block(*body, child);
@@ -264,9 +281,15 @@ impl<'a> ScopeIndex<'a> {
             ExprKind::Match { scrutinee, arms } => {
                 self.expr(*scrutinee, scope);
                 for arm in arms {
-                    let mut span = self.lowered.source_map.expr_span(arm.expr);
+                    let mut span = self.lowered.module.expr(arm.expr).origin.diagnostic_span();
                     if let Some(guard) = arm.guard {
-                        span.start = self.lowered.source_map.expr_span(guard).start;
+                        span.start = self
+                            .lowered
+                            .module
+                            .expr(guard)
+                            .origin
+                            .diagnostic_span()
+                            .start;
                     }
                     let child = self.child(scope, span);
                     self.pattern(child, arm.pattern, span.start);
@@ -293,18 +316,25 @@ impl<'a> ScopeIndex<'a> {
             }
             ExprKind::Block(block) | ExprKind::Loop { body: block } => self.block(*block, scope),
             ExprKind::Closure { params, body, .. } => {
-                let child = self.child(scope, self.lowered.source_map.expr_span(id));
+                let child =
+                    self.child(scope, self.lowered.module.expr(id).origin.diagnostic_span());
                 for param in params {
                     self.binding(
                         child,
                         ResolvedName::Local(param.local),
-                        self.lowered.source_map.expr_span(*body).start,
+                        self.lowered
+                            .module
+                            .expr(*body)
+                            .origin
+                            .diagnostic_span()
+                            .start,
                     );
                 }
                 self.expr(*body, child);
             }
             ExprKind::AsyncBlock { body } => {
-                let child = self.child(scope, self.lowered.source_map.expr_span(id));
+                let child =
+                    self.child(scope, self.lowered.module.expr(id).origin.diagnostic_span());
                 self.expr(*body, child);
             }
         }

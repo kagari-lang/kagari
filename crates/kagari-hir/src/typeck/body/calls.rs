@@ -124,7 +124,7 @@ impl<'a> BodyChecker<'a> {
                     Diagnostic::error(DiagnosticKind::InvalidCallTarget {
                         type_name: display_type_id(self.declarations.definitions(), &callee_ty),
                     })
-                    .with_span(self.lowered.source_map.expr_span(callee)),
+                    .with_span(self.lowered.module.expr(callee).origin.diagnostic_span()),
                 );
             }
             return TypeId::Error;
@@ -450,7 +450,7 @@ impl<'a> BodyChecker<'a> {
         if let Some(reason) = reason {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidReference { reason })
-                    .with_span(self.lowered.source_map.expr_span(site)),
+                    .with_span(self.lowered.module.expr(site).origin.diagnostic_span()),
             );
         }
     }
@@ -519,7 +519,9 @@ impl<'a> BodyChecker<'a> {
                                         resource: "trait implementation search",
                                         limit: 4096,
                                     })
-                                    .with_span(self.lowered.source_map.expr_span(callee)),
+                                    .with_span(
+                                        self.lowered.module.expr(callee).origin.diagnostic_span(),
+                                    ),
                                 );
                                 return;
                             }
@@ -553,7 +555,7 @@ impl<'a> BodyChecker<'a> {
                             type_name: actual.display_name(self.declarations.definitions()),
                             trait_name,
                         })
-                        .with_span(self.lowered.source_map.expr_span(callee)),
+                        .with_span(self.lowered.module.expr(callee).origin.diagnostic_span()),
                     );
                 }
             }
@@ -575,7 +577,7 @@ impl<'a> BodyChecker<'a> {
                     expected: function.parameters().len().saturating_sub(implicit),
                     found: arg_tys.len().saturating_sub(implicit),
                 })
-                .with_span(self.lowered.source_map.expr_span(callee)),
+                .with_span(self.lowered.module.expr(callee).origin.diagnostic_span()),
             );
         }
         for (index, (name, ty)) in function.parameters().enumerate() {
@@ -627,7 +629,7 @@ impl<'a> BodyChecker<'a> {
                     expected: display_type_id(self.declarations.definitions(), &expected),
                     found: display_type_id(self.declarations.definitions(), found),
                 })
-                .with_span(self.lowered.source_map.expr_span(*arg_expr)),
+                .with_span(self.lowered.module.expr(*arg_expr).origin.diagnostic_span()),
             );
         }
     }
@@ -647,7 +649,7 @@ impl<'a> BodyChecker<'a> {
                 expected: display_type_id(self.declarations.definitions(), expected),
                 found: display_type_id(self.declarations.definitions(), found),
             })
-            .with_span(self.lowered.source_map.expr_span(span_expr)),
+            .with_span(self.lowered.module.expr(span_expr).origin.diagnostic_span()),
         );
     }
 
@@ -684,7 +686,7 @@ impl<'a> BodyChecker<'a> {
                         function_name: name.to_owned(),
                         parameter: parameter.name.clone(),
                     })
-                    .with_span(self.lowered.source_map.expr_span(site)),
+                    .with_span(self.lowered.module.expr(site).origin.diagnostic_span()),
                 );
             }
             let argument = inferred
@@ -895,7 +897,7 @@ impl<'a> BodyChecker<'a> {
                     expected,
                     found,
                 })
-                .with_span(self.lowered.source_map.expr_span(callee)),
+                .with_span(self.lowered.module.expr(callee).origin.diagnostic_span()),
             );
         }
     }

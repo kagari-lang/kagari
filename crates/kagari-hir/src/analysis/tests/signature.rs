@@ -35,21 +35,23 @@ fn assert_fresh(file: &FileAnalysis, sources: &SourceDatabase) {
         &context,
     );
     // Signature type-reference facts must match a fresh analysis after rebasing.
-    for (index, _) in file
-        .result()
-        .facts()
-        .lowered
-        .source_map
-        .type_spans()
-        .iter()
-        .enumerate()
-    {
-        let id = file.result().facts().lowered.source_map.type_id(index);
+    let types = |file: &FileAnalysis| {
+        file.result()
+            .facts()
+            .lowered
+            .module
+            .nodes
+            .types()
+            .map(|(id, _)| id)
+            .collect::<Vec<_>>()
+    };
+    let old_ids = types(file);
+    let fresh_ids = types(fresh);
+    assert_eq!(old_ids.len(), fresh_ids.len());
+    for (id, fresh_id) in old_ids.into_iter().zip(fresh_ids) {
         assert_eq!(
             authoring.records().type_ref(id),
-            authoring_fresh
-                .records()
-                .type_ref(fresh.result().facts().lowered.source_map.type_id(index))
+            authoring_fresh.records().type_ref(fresh_id)
         );
     }
 }

@@ -13,6 +13,7 @@ use crate::{
             VariantId,
         },
         item::{Item, Module, function::FunctionKind},
+        origin::NodeOrigin,
         ty::DefinitionExposure,
     },
     imports::{
@@ -29,10 +30,7 @@ use crate::{
         resolved::{DeclarationNames, ResolvedName, ResolvedNames},
         table::NameTable,
     },
-    source_map::{
-        SourceMap,
-        origin::{NodeOrigin, OriginTarget},
-    },
+    source_map::{SourceMap, origin::OriginTarget},
     types::GenericParameterType,
 };
 use kagari_common::{
@@ -176,12 +174,14 @@ enum DeclarationKey {
 }
 
 impl DeclarationKey {
-    fn origin_target(&self) -> OriginTarget {
-        match self {
+    fn origin(&self, module: &Module, map: &SourceMap) -> NodeOrigin {
+        let target = match self {
             Self::Field(id) => OriginTarget::Field(*id),
             Self::Variant(id) => OriginTarget::Variant(*id),
             Self::GenericParameter(id) => OriginTarget::GenericParam(*id),
-            Self::AssociatedType(id) | Self::AssociatedConst(id) => OriginTarget::Type(*id),
+            Self::AssociatedType(id) | Self::AssociatedConst(id) => {
+                return module.type_ref(*id).origin;
+            }
             Self::Name(name) => match name {
                 ResolvedName::Function(id) => OriginTarget::Item(Item::Function(*id)),
                 ResolvedName::Const(id) => OriginTarget::Item(Item::Const(*id)),
@@ -193,14 +193,15 @@ impl DeclarationKey {
                 ResolvedName::Enum(id) => OriginTarget::Item(Item::Enum(*id)),
                 ResolvedName::Trait(id) => OriginTarget::Item(Item::Trait(*id)),
                 ResolvedName::Param(id) => OriginTarget::Param(*id),
-                ResolvedName::Local(id) => OriginTarget::Local(*id),
+                ResolvedName::Local(id) => return module.nodes.local(*id).origin,
                 ResolvedName::Source(_)
                 | ResolvedName::Namespace(_)
                 | ResolvedName::RuntimeHelper(_) => {
                     unreachable!("only local declarations have source-map keys")
                 }
             },
-        }
+        };
+        map.origin(target)
     }
 }
 
@@ -499,7 +500,7 @@ impl Declarations {
                     DeclarationKey::AssociatedConst(member.name_ref),
                     DeclarationId::Definition(id),
                     &member.name,
-                    map.type_span(member.name_ref),
+                    module.type_ref(member.name_ref).origin.diagnostic_span(),
                 );
                 if let Some(initializer) = member.initializer {
                     // Header and initializer share identity; reverse lookup retains the
@@ -568,7 +569,7 @@ impl Declarations {
                     DeclarationKey::AssociatedType(member.name_ref),
                     DeclarationId::Definition(id),
                     &member.name,
-                    map.type_span(member.name_ref),
+                    module.type_ref(member.name_ref).origin.diagnostic_span(),
                 );
                 builder.generic_params(&id, &member.generic_params);
             }
@@ -623,7 +624,7 @@ impl Declarations {
             };
             let range = match binding.resolved.clone() {
                 ResolvedName::Param(id) => map.param_span(id),
-                ResolvedName::Local(id) => map.local_span(id),
+                ResolvedName::Local(id) => lowered.module.nodes.local(id).origin.diagnostic_span(),
                 ResolvedName::Function(_) => continue,
                 _ => unreachable!("directory binds parameters, locals and local functions"),
             };
@@ -721,7 +722,7 @@ impl Builder<'_> {
     ) {
         let key = key.into();
 
-        let origin = match self.map.origin(key.origin_target()) {
+        let origin = match key.origin(self.module, self.map) {
             NodeOrigin::Source(_) => {
                 assert!(
                     !self.map.is_structured(),

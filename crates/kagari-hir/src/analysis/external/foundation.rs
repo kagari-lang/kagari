@@ -319,7 +319,13 @@ fn actual_foundation_exports_admit_roles_arithmetic_iteration_and_conversion_wit
                     ])
                 });
                 (
-                    file.result().facts().lowered.source_map.expr_span(id),
+                    file.result()
+                        .facts()
+                        .lowered
+                        .module
+                        .expr(id)
+                        .origin
+                        .diagnostic_span(),
                     file.result()
                         .facts()
                         .typed

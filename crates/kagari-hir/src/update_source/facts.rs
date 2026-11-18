@@ -67,7 +67,16 @@ impl BodyBuilder {
         }
         let map = &module.lowered.source_map;
         let (binding, ty) = match name {
-            ResolvedName::Local(id) => (map.local_span(id), module.typed.type_table.local_type(id)),
+            ResolvedName::Local(id) => (
+                module
+                    .lowered
+                    .module
+                    .nodes
+                    .local(id)
+                    .origin
+                    .diagnostic_span(),
+                module.typed.type_table.local_type(id),
+            ),
             ResolvedName::Param(id) => (
                 map.param_span(id),
                 module
@@ -163,7 +172,7 @@ impl BodyBuilder {
         budget: &mut SourceBudget<'_>,
     ) -> Result<(), DefinitionMappingError> {
         let table = &module.typed.type_table;
-        let span = module.lowered.source_map.expr_span(id);
+        let span = module.lowered.module.expr(id).origin.diagnostic_span();
         if let Some(ty) = table.expr_type(id) {
             self.fact(span, FactKind::Type, vec![], vec![lower_type(&ty)], budget)?;
         }
@@ -349,20 +358,19 @@ pub(super) fn collect(
 ) -> Result<(), DefinitionMappingError> {
     let hir = &module.lowered.module.nodes;
     let table = &module.typed.type_table;
-    let map = &module.lowered.source_map;
     for (id, expression) in hir.expressions() {
         budget.charge(1, 0)?;
         if let Some(index) = owners.get(&id.owner()) {
             builders[*index].expression(module, id, &expression.kind, budget)?;
         }
     }
-    for (id, _) in hir.places() {
+    for (id, place) in hir.places() {
         budget.charge(1, 0)?;
         let Some(index) = owners.get(&id.owner()) else {
             continue;
         };
         let body = &mut builders[*index];
-        let span = map.place_span(id);
+        let span = place.origin.diagnostic_span();
         if let Some(name) = module.names.place_resolution(id) {
             body.reference(module, span, name, budget)?;
         }
@@ -409,13 +417,12 @@ pub(super) fn collect(
             body.fact(span, FactKind::HostAccess, targets, vec![], budget)?;
         }
     }
-    for (index, (owner, _)) in hir.types.iter().enumerate() {
+    for (id, node) in hir.types() {
         budget.charge(1, 0)?;
-        let Some(body) = owners.get(owner) else {
+        let Some(body) = owners.get(&id.owner()) else {
             continue;
         };
-        let id = map.type_id(index);
-        let span = map.type_span(id);
+        let span = node.origin.diagnostic_span();
         let initializer = builders[*body].span;
         if span.start < initializer.start || span.end > initializer.end {
             continue;
@@ -457,12 +464,11 @@ pub(super) fn collect(
             )?;
         }
     }
-    for (index, (owner, _)) in hir.patterns.iter().enumerate() {
+    for (id, node) in hir.patterns() {
         budget.charge(1, 0)?;
-        let Some(body) = owners.get(owner) else {
+        let Some(body) = owners.get(&id.owner()) else {
             continue;
         };
-        let id = map.pattern_id(index);
         let targets = table
             .pattern_fields(id)
             .unwrap_or_default()
@@ -471,7 +477,7 @@ pub(super) fn collect(
             .chain(table.pattern_variant(id).copied())
             .collect();
         builders[*body].fact(
-            map.pattern_span(id),
+            node.origin.diagnostic_span(),
             FactKind::Member,
             targets,
             vec![],

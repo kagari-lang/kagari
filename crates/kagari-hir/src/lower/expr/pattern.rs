@@ -3,7 +3,7 @@
 use crate::{
     hir::{
         ids::PatternId,
-        pattern::{PatternBound, PatternData, PatternField, PatternKind},
+        pattern::{PatternBound, PatternField, PatternKind},
     },
     lower::context::{Lowerer, syntax_span, token_span},
 };
@@ -64,12 +64,7 @@ impl Lowerer {
                             let field_span =
                                 field.name().map(|name| token_span(&name)).unwrap_or(span);
                             let local = self.alloc_local(field_span, name.clone());
-                            self.alloc_pattern(
-                                field_span,
-                                PatternData {
-                                    kind: PatternKind::Name { local },
-                                },
-                            )
+                            self.alloc_pattern(field_span, PatternKind::Name { local })
                         };
                         PatternField { name, pattern }
                     })
@@ -119,6 +114,6 @@ impl Lowerer {
             }
         };
 
-        self.alloc_pattern(span, PatternData { kind })
+        self.alloc_pattern(span, kind)
     }
 }

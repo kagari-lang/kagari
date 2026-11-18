@@ -301,10 +301,18 @@ checks pass. The selected HIR, analyzer and compiler library run has 45 passing 
 record lookup, owner isolation, nested slots, generic navigation and shadowing, Native parity,
 body reuse and capture elaboration. The compiler test `aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions`
 also ran through the lower-module filter and fails with `CompileLimitExceeded` at generic
-instance limit 4. The same failure reproduces in a compiler test binary built before SO00.
+instance limit 4. The same failure reproduces from the clean pre-SO00 revision `4665f274c`.
 Compiler generic-instance accounting owns the follow-up. Reproduce with
 `cargo test -p kagari-compiler --lib tests::lower::aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions -- --exact`.
 Full workspace and backend/platform matrices remain CI scope.
+
+SO01 stores node/local origins with their payloads and allocates IDs from those rows. Body
+reuse checks the owner and relative ranges of ordered records. Signature reuse pairs ordered
+type references by owner and projected range and remaps generic targets through matched binder
+lists. Structured node origins participate in definition-reference validation.
+Thirteen focused HIR, analyzer and compiler tests pass across signature/body reuse, Native
+origins, initializer evidence, owner isolation, debug ranges, capture and navigation. Structure,
+workspace formatting, workspace all-target Clippy and diff checks pass.
 
 No compatibility exports, old/new access paths, version bumps or artifact regeneration solely
 for unpublished API changes. If a checkpoint cannot build through the intended boundary, repair

@@ -70,7 +70,7 @@ impl BodyChecker<'_> {
                             expected: "numeric".to_owned(),
                             found: display_type_id(self.declarations.definitions(), &inner),
                         })
-                        .with_span(self.lowered.source_map.expr_span(*expr)),
+                        .with_span(self.lowered.module.expr(*expr).origin.diagnostic_span()),
                     );
                 }
                 if completes { inner } else { TypeId::Unknown }
@@ -83,7 +83,7 @@ impl BodyChecker<'_> {
                             expected: "bool".to_owned(),
                             found: display_type_id(self.declarations.definitions(), &inner),
                         })
-                        .with_span(self.lowered.source_map.expr_span(*expr)),
+                        .with_span(self.lowered.module.expr(*expr).origin.diagnostic_span()),
                     );
                 }
                 TypeId::Builtin(BuiltinType::Bool)
@@ -527,7 +527,7 @@ impl<'a> BodyChecker<'a> {
                 lhs: display_type_id(self.declarations.definitions(), lhs),
                 rhs: display_type_id(self.declarations.definitions(), rhs),
             })
-            .with_span(self.lowered.source_map.expr_span(span_expr)),
+            .with_span(self.lowered.module.expr(span_expr).origin.diagnostic_span()),
         );
     }
 
@@ -577,7 +577,7 @@ impl<'a> BodyChecker<'a> {
                     context,
                     found: display_type_id(self.declarations.definitions(), &ty),
                 })
-                .with_span(self.lowered.source_map.expr_span(expr_id)),
+                .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
             );
         }
         Ok(completes)
