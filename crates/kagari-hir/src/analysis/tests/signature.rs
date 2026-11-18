@@ -92,7 +92,7 @@ fn body_edits_rebase_signature_types_and_preserve_old_queries() {
             assert_eq!(parameter.id.index(), index);
             let record = current.module.parameter(parameter.id);
             assert_eq!(record.name, parameter.name);
-            let span = current.source_map.param_span(parameter.id);
+            let span = current.module.parameter(parameter.id).binding_span();
             assert_eq!(&edit[span.start..span.end], parameter.name);
             let old_parameter = old.module.functions[function.id.index()].params[index].id;
             assert_ne!(old_parameter, parameter.id);

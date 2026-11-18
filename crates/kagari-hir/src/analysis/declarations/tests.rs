@@ -107,7 +107,10 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
     }
     assert_ne!(lowered.module.functions[0].params[0].ty, old_type);
     assert!(std::panic::catch_unwind(|| lowered.module.parameter(old_parameter)).is_err());
-    assert!(std::panic::catch_unwind(|| lowered.source_map.param_span(old_parameter)).is_err());
+    assert!(
+        std::panic::catch_unwind(|| lowered.module.parameter(old_parameter).binding_span())
+            .is_err()
+    );
     for function in &lowered.module.functions {
         for (index, parameter) in function.params.iter().enumerate() {
             assert_eq!(parameter.id.index(), index);
@@ -115,7 +118,7 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
                 lowered.module.parameter(parameter.id),
                 parameter
             ));
-            let span = lowered.source_map.param_span(parameter.id);
+            let span = lowered.module.parameter(parameter.id).binding_span();
             assert_eq!(&lowered.source.text()[span.start..span.end], parameter.name);
         }
     }

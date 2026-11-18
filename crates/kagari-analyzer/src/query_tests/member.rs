@@ -233,7 +233,10 @@ fn members_keep_module_ownership_and_exact_declaration_locations() {
     );
     assert!(b.declarations.variant(variant).is_none());
     assert!(std::panic::catch_unwind(|| b.lowered.module.variant(variant)).is_err());
-    assert!(std::panic::catch_unwind(|| b.lowered.source_map.variant_span(variant)).is_err());
+    assert!(
+        std::panic::catch_unwind(|| b.lowered.module.variant(variant).diagnostic_name_span())
+            .is_err()
+    );
     assert_eq!(facts.lowered.module.variant(variant).name, "Ready");
     let offset = text.find("Ready").unwrap();
     assert_eq!(declaration.source_location().unwrap().file, left);
@@ -277,7 +280,9 @@ fn members_keep_module_ownership_and_exact_declaration_locations() {
     assert!(b.declarations.field(field).is_none());
     assert!(b.typed.type_table().field_type(field).is_none());
     assert!(std::panic::catch_unwind(|| b.lowered.module.field(field)).is_err());
-    assert!(std::panic::catch_unwind(|| b.lowered.source_map.field_span(field)).is_err());
+    assert!(
+        std::panic::catch_unwind(|| b.lowered.module.field(field).diagnostic_name_span()).is_err()
+    );
     assert_eq!(
         a.queries().definition_at(text.find("x:").unwrap()),
         a.result().facts().declarations.field(field)

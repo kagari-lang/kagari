@@ -46,7 +46,7 @@ fn native_fields_share_ownership_types_and_assignment_rules_without_storage_auth
     let (foreign, foreign_id) = analyze(text);
     let foreign = &foreign.file(foreign_id).unwrap().result().facts().lowered;
     assert!(std::panic::catch_unwind(|| foreign.module.field(field.id)).is_err());
-    let span = lowered.source_map.field_span(field.id);
+    let span = lowered.module.field(field.id).diagnostic_name_span();
     assert_eq!(&text[span.start..span.end], "value");
 
     let diagnostics = file.result().diagnostics();

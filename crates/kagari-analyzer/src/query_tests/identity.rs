@@ -50,12 +50,9 @@ fn named_declarations_point_to_identifier_tokens() {
         .iter()
         .find(|function| function.name == "run")
         .unwrap();
-    let item = file
-        .result()
-        .facts()
-        .lowered
-        .source_map
-        .function_span(function.id);
+    let item = file.result().facts().lowered.module.functions[function.id.index()]
+        .origin
+        .diagnostic_span();
     assert!(item.start < item.end);
     assert!(item.end > text.find("fn run()").unwrap() + "fn run()".len());
 }

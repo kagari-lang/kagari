@@ -39,7 +39,7 @@ fn lowering_records_owners_for_interleaved_functions_and_constants() {
         for (index, parameter) in function.params.iter().enumerate() {
             assert_eq!(parameter.id.index(), index);
             assert!(std::ptr::eq(module.parameter(parameter.id), parameter));
-            let span = facts.lowered.source_map.param_span(parameter.id);
+            let span = facts.lowered.module.parameter(parameter.id).binding_span();
             assert_eq!(&text[span.start..span.end], parameter.name);
             assert_eq!(parameter.id.owner(), expected);
             assert_eq!(parameter.ty.owner(), expected);
@@ -132,7 +132,7 @@ fn implicit_receiver_shares_declaration_type_without_losing_method_ownership() {
                 lowered.module.parameter(parameter.id),
                 parameter
             ));
-            let span = lowered.source_map.param_span(parameter.id);
+            let span = lowered.module.parameter(parameter.id).binding_span();
             assert_eq!(&text[span.start..span.end], parameter.name);
         }
     }
@@ -237,7 +237,7 @@ fn stored_node_and_source_owners_reject_an_internally_mistagged_id() {
             "{invalid:?}"
         );
         assert!(
-            std::panic::catch_unwind(|| lowered.source_map.param_span(invalid)).is_err(),
+            std::panic::catch_unwind(|| lowered.module.parameter(invalid).binding_span()).is_err(),
             "{invalid:?}"
         );
     }

@@ -8,14 +8,14 @@ use crate::{
         declarations::{DeclarationHeaders, ImplementationInput},
         environment::CheckedEnvironment,
     },
-    hir::origin::NodeOrigin,
     hir::{
         ids::{BodyOwner, HirOwner, ImplId, StaticId},
         item::{Item, function::FunctionImplementation as HirImplementation},
+        origin::NodeOrigin,
     },
+    lower::LoweredModule,
     program::{CheckedProgram, exports::ProgramExports},
     semantic::signatures::FunctionImplementation,
-    source_map::{SourceMap, origin::OriginTarget},
     update_source::{self, SourceBudget, SourceEvidence},
 };
 use kagari_common::{
@@ -47,9 +47,7 @@ pub enum AdmissionError {
 /// retain checked bodies; Native declarations retain only their static contracts.
 pub struct CheckedModule<'a> {
     handle: ModuleHandle,
-    source: &'a SourceFile,
-    origins: &'a SourceMap,
-    headers: DeclarationHeaders<'a>,
+    lowered: &'a LoweredModule,
     implementations: HashMap<ImplId, ImplementationInput<'a>>,
     environment: CheckedEnvironment<'a>,
     provenance: SourceEvidence,
@@ -62,11 +60,6 @@ impl<'a> CheckedModule<'a> {
         cancel: &CancellationToken,
         budget: &mut SourceBudget<'_>,
     ) -> Result<Self, AdmissionError> {
-        if module.lowered.source_map.arena() != module.lowered.module.nodes.arena() {
-            return Err(AdmissionError::InvalidModule(
-                "source map belongs to another lowering",
-            ));
-        }
         for declaration in &module.lowered.module.native_types {
             cancel.check().map_err(|_| AdmissionError::Cancelled)?;
             if !declaration.fields.is_empty() && declaration.host.is_none() {
@@ -83,9 +76,7 @@ impl<'a> CheckedModule<'a> {
             ))?;
         let mut result = Self {
             handle,
-            source: &module.lowered.source,
-            origins: &module.lowered.source_map,
-            headers: DeclarationHeaders::new(&module.lowered.module),
+            lowered: &module.lowered,
             implementations: HashMap::default(),
             environment: CheckedEnvironment::new(module),
             provenance: SourceEvidence::default(),
@@ -273,12 +264,12 @@ impl<'a> CheckedModule<'a> {
     /// Borrows the logical input key, including source-less registration identity.
     /// Use `source_surface()` before treating this value as authored text.
     pub fn source(&self) -> &'a SourceFile {
-        self.source
+        &self.lowered.source
     }
 
     /// Returns retained authored text, never a structured registration's graph key.
     pub fn source_surface(&self) -> Option<&'a SourceFile> {
-        (!self.origins.is_structured()).then_some(self.source)
+        self.lowered.source_surface().map(AsRef::as_ref)
     }
 
     /// Borrows immutable declaration contracts, separate from body nodes and facts.
@@ -288,7 +279,7 @@ impl<'a> CheckedModule<'a> {
 
     /// Borrows declaration metadata without exposing the shared body node tables.
     pub fn headers(&self) -> DeclarationHeaders<'a> {
-        self.headers
+        DeclarationHeaders::new(&self.lowered.module)
     }
 
     /// Borrows authored ownership and checked static initializer evidence.
@@ -304,9 +295,10 @@ impl<'a> CheckedModule<'a> {
     /// Returns source or structured attribution for an admitted declaration slot.
     /// Structured definition IDs belong to the retained registration/environment scope.
     pub fn declaration_origin(&self, item: Item) -> Option<NodeOrigin> {
-        self.headers
-            .contains(item)
-            .then(|| self.origins.origin(OriginTarget::Item(item)))
+        self.lowered
+            .module
+            .item_source(item)
+            .map(|(origin, _)| origin)
     }
 
     /// Returns a declaration's authored source extent, or `None` for a structured
@@ -315,10 +307,7 @@ impl<'a> CheckedModule<'a> {
     /// Plain item IDs require this module's context; they cannot detect a coincident
     /// numeric slot from another module. Use canonical identities across modules.
     pub fn declaration_span(&self, item: Item) -> Option<Span> {
-        match self.declaration_origin(item)? {
-            NodeOrigin::Source(span) => Some(span),
-            NodeOrigin::Structured { .. } => None,
-        }
+        self.declaration_origin(item)?.source_span()
     }
 
     /// Borrows the checked receiver/binder contract of a local implementation header.
@@ -354,7 +343,12 @@ impl<'a> CheckedModule<'a> {
     /// node's extent. Absent module-local static slots return `None`.
     pub fn static_initializer_span(&self, id: StaticId) -> Option<Span> {
         self.bodies.get(&BodyOwner::Static(id))?;
-        self.origins.static_initializer_span(id)
+        self.lowered
+            .module
+            .statics
+            .get(id.index())
+            .filter(|item| item.id == id)?
+            .initializer_span
     }
 
     /// Visits admitted bodies; order is unspecified and does not define execution order.

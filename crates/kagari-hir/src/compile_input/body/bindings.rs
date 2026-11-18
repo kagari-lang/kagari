@@ -77,7 +77,10 @@ impl<'a> CheckedBodyInput<'a> {
             BindingId::Local(local) => (self.local_type(local)?, self.local_span(local)?),
             BindingId::Parameter(parameter) => (
                 self.parameter_type(parameter)?.clone(),
-                self.origins.param_span(parameter),
+                self.parameters
+                    .get(parameter.index())
+                    .filter(|record| record.id == parameter)?
+                    .binding_span(),
             ),
         };
         let binding = self.names.binding(&id.resolution())?;

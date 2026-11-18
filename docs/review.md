@@ -250,7 +250,7 @@ it did not prove every expression-checking branch correct.
 
 The following design boundaries were found intact:
 
-- `hir`/lowering/source maps retain structural ownership and provenance; lowering
+- `hir`/lowering retain structural ownership and provenance; lowering
   does not perform name resolution or inference.
 - Resolver/import modules separate scopes, graph solving and staged projections;
   their borrowed preparation records do not reenter a mutable database.
@@ -1177,15 +1177,15 @@ The first three duplicate their declaration-vector index. Fields and variants
 are nested records: a slot alone cannot identify a member across owners. Their
 IDs could also be reconstructed by a container, but only with the full arena,
 owner and slot context. Review these two categories separately, including their
-source-map and semantic-table consumers; this observation does not establish
+origin and semantic-table consumers; this observation does not establish
 that any of the five fields should be removed.
 
 [Function](../crates/kagari-hir/src/hir/item/function.rs) has the same
 container-derived self identity as the top-level ADT declarations above:
-`module.functions[index].id.index() == index`. The
-[source map](../crates/kagari-hir/src/source_map.rs) allocates `FunctionId` from
-its function-span vector. Current lowering reserves private slots before
-descending into children and fills each exact slot before publication. This
+`module.functions[index].id.index() == index`.
+[Lowering](../crates/kagari-hir/src/lower/context.rs) allocates `FunctionId` by reserving
+a private function slot before descending into children. It fills that slot, including the
+record's origin, before publication. This
 applies to module functions, named locals and trait/impl methods in the same
 collection; only module functions also enter Module.items.
 
@@ -1195,7 +1195,7 @@ functions and source locations. It is a redundant identity with convenience
 uses; removing it requires updating those consumers.
 Review retaining the field versus supplying `(FunctionId, &Function)` from the
 container and passing the identity explicitly to consumers. `FunctionId` itself
-must remain available for method links, name resolution, source maps and
+must remain available for method links, name resolution, origin lookup and
 `BodyOwner::Function`; only its duplication inside `Function` is under review.
 Any change must preserve allocation/storage order and snapshot identity mapping.
 Named local functions preserve that relationship when parent and child records
@@ -1203,13 +1203,13 @@ finish at different times. Review this implemented reservation/finalization boun
 without reintroducing a second function store or exposing incomplete records.
 
 Expression storage uses a different interface:
-[Body::expressions](../crates/kagari-hir/src/hir/body.rs) yields `(ExprId,
+[HirNodes::expressions](../crates/kagari-hir/src/hir/nodes.rs) yields `(ExprId,
 &ExprData)`, reconstructing each ID from the container's arena, the row's owner
 and its index. `ExprData` contains no self ID. Both declarations and expressions
 have identities; the difference is where that identity is supplied to consumers.
 
 For structs, the duplicated invariant is
-`module.structs[index].id.index() == index`, with matching source-map slots.
+`module.structs[index].id.index() == index`. Each row owns its origin.
 Reordering rows or changing the stored ID independently can break those links.
 No current invariant violation or measured performance bottleneck was established
 by this review. `StructId` is lowering-local and carries only an index; retaining
@@ -1220,7 +1220,7 @@ self IDs with container-owned iteration returning `(ID, &record)` for the five
 ADT records and `Function` above; review other declarations only where the same
 issue applies.
 The identity interface and any field removals remain undecided.
-Preserve item order, source-map alignment, member ownership, semantic declaration
+Preserve item order, record origins, member ownership, semantic declaration
 mapping and snapshot/reuse remapping. Do not conflate inline binding/member IDs
 with redundant self IDs, or widen visibility/add forwarding APIs to hide the
 ownership question. Reuse existing declaration, navigation and snapshot contracts

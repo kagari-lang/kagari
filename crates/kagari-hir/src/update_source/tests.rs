@@ -38,8 +38,7 @@ fn initializer_retains_parentheses_and_literal_trivia() {
         "static val N: i32 = ((1 + 2)); static val S: String = (r#\" // keep /* this */ \"#);",
     );
     let items = &module.lowered.module.statics;
-    let map = &module.lowered.source_map;
-    let span = map.static_initializer_span(items[0].id).unwrap();
+    let span = items[0].initializer_span.unwrap();
     assert_eq!(
         &module.lowered.source.text()[span.start..span.end],
         "((1 + 2))"

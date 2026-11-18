@@ -159,7 +159,7 @@ pub(crate) fn check_signatures(
                         struct_name: name.clone(),
                         name: field.name.clone(),
                     })
-                    .with_span(lowered.source_map.field_span(field.id)),
+                    .with_span(lowered.module.field(field.id).diagnostic_name_span()),
                 );
             }
             let ty = resolve_type_in(
@@ -382,7 +382,11 @@ pub(crate) fn check_signatures(
                     Diagnostic::error(DiagnosticKind::UnsupportedSyntax {
                         feature: "async trait methods",
                     })
-                    .with_span(lowered.source_map.function_span(function.id)),
+                    .with_span(
+                        lowered.module.functions[function.id.index()]
+                            .origin
+                            .diagnostic_span(),
+                    ),
                 );
             }
             asynchronous::future_type(declarations, return_type).unwrap_or_else(|| {
@@ -390,7 +394,11 @@ pub(crate) fn check_signatures(
                     Diagnostic::error(DiagnosticKind::UnsupportedSyntax {
                         feature: "async requires one installed Future storage declaration",
                     })
-                    .with_span(lowered.source_map.function_span(function.id)),
+                    .with_span(
+                        lowered.module.functions[function.id.index()]
+                            .origin
+                            .diagnostic_span(),
+                    ),
                 );
                 TypeId::Error
             })
@@ -565,7 +573,13 @@ pub(crate) fn check_bodies_controlled(
                                 const_name: const_item.name.clone(),
                                 type_name: display_type(&lowered.module, ty_ref),
                             })
-                            .with_span(lowered.source_map.const_span(const_item.id)),
+                            .with_span(
+                                lowered
+                                    .module
+                                    .constant(const_item.id)
+                                    .origin
+                                    .diagnostic_span(),
+                            ),
                         );
                         ty
                     }
@@ -870,7 +884,11 @@ pub(crate) fn check_bodies_controlled(
                             expected: display_type_id(declarations.definitions(), &body_output),
                             found: display_type_id(declarations.definitions(), &body_ty),
                         })
-                        .with_span(lowered.source_map.function_span(function.id)),
+                        .with_span(
+                            lowered.module.functions[function.id.index()]
+                                .origin
+                                .diagnostic_span(),
+                        ),
                     );
                 }
                 if let Some(owner) = lowered.module.static_initializer_for_function(function.id)

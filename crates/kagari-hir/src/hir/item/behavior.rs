@@ -3,6 +3,8 @@
 use crate::hir::ids::{
     ConstId, FunctionId, GenericParamId, ImplId, TraitId, TraitMethodId, TypeRefId,
 };
+use crate::hir::origin::NodeOrigin;
+use kagari_common::span::Span;
 use kagari_types::{declaration::conversion::ConversionAdapter, visibility::Visibility};
 
 /// A trait's inline member declarations, generic inputs and parent requirements.
@@ -37,6 +39,10 @@ use kagari_types::{declaration::conversion::ConversionAdapter, visibility::Visib
 /// member contracts; this record alone does not establish an implementation.
 #[derive(Debug, Clone)]
 pub struct TraitDef {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
+    /// Exact written name when available.
+    pub name_span: Option<Span>,
     /// Static conversion relationship, independent of any Rust implementation.
     pub conversion_adapter: Option<ConversionAdapter>,
     /// Associated constant signatures and optional defaults.
@@ -80,6 +86,10 @@ pub struct TraitDef {
 /// that a default expression is legal.
 #[derive(Debug, Clone)]
 pub struct AssociatedConst {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
+    /// Exact written name when available.
+    pub name_span: Option<Span>,
     /// Associated constant name.
     pub name: String,
     /// Synthetic type-syntax handle preserving the member-name site.
@@ -126,6 +136,10 @@ pub struct AssociatedConst {
 /// syntax IDs before executable lowering; there is no runtime type-family lookup.
 #[derive(Debug, Clone)]
 pub struct AssociatedType {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
+    /// Exact written name when available.
+    pub name_span: Option<Span>,
     /// Member-level generic binders.
     pub generic_params: Vec<GenericParamId>,
     /// Where constraints on member binders.
@@ -145,17 +159,20 @@ pub struct AssociatedType {
 /// ```text
 /// trait Reader { fn read(self) -> i32; }
 /// TraitMethod { has_default: false, id: m, name: "read", function: f }
-/// m -> SourceMap.trait_method_span(m)
+/// m -> Module.trait_method(m) -> origin
 /// f -> Module.functions[f.index()] -> Function { kind: TraitMethod, implementation: Required, ... }
 /// ```
 ///
 /// Replacing `;` with `{ 1 }` sets `has_default: true` and `Function.implementation: Script(b)`.
-/// `id` is a source-map-wide trait-method identity, not its ordinal within one
-/// trait. `name` is written syntax; the function parameters establish receiver
+/// `id` qualifies the method's slot with its owning trait and lowering. `name` is written syntax; the function parameters establish receiver
 /// presence. Generics, visibility, parameter/return types and body live in the
 /// function row. Trait checking and method lookup consume this link.
 #[derive(Debug, Clone)]
 pub struct TraitMethod {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
+    /// Exact written name when available.
+    pub name_span: Option<Span>,
     /// Required methods must permit implementation; defaults may prohibit overrides.
     pub override_allowed: bool,
     /// Whether syntax supplied a default method body.
@@ -201,6 +218,8 @@ pub struct TraitMethod {
 /// this path.
 #[derive(Debug, Clone)]
 pub struct Impl {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
     /// Associated constant definitions retained in this impl.
     pub associated_consts: Vec<AssociatedConst>,
     /// Slot in `Module.impls`.
@@ -246,20 +265,31 @@ pub struct ImplMethod {
 /// GenericParam { name: "T", bounds: [display_ref, copy_ref] }
 /// display_ref.ty -> HirNodes.type_ref -> Named("Display")
 /// copy_ref.ty -> HirNodes.type_ref -> Named("Copy")
-/// g -> SourceMap.generic_param_span(g)
+/// g -> Module.generic_parameter(g) -> origin and name_span
 /// ```
 ///
-/// The name is source syntax, `id` is a source-map-wide allocated identity, and
+/// The name is source syntax, its ID indexes the owning module's binder table, and
 /// `bounds` retains the `:` list in order. A bare `<T>` has empty bounds.
 /// Use `TraitBound` for trailing `where` predicates instead. Semantic checking
 /// identifies a binder by its declaration context; a type named "T" is still
 /// unresolved until that stage.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenericParam {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
+    /// Exact written name when available.
+    pub name_span: Option<Span>,
     /// Binder name as written.
     pub name: String,
     /// Inline unresolved trait references.
     pub bounds: Vec<TraitRef>,
+}
+
+impl GenericParam {
+    /// Uses the written name location when available, otherwise the record's anchor.
+    pub fn diagnostic_name_span(&self) -> Span {
+        self.origin.diagnostic_name(self.name_span)
+    }
 }
 
 /// One where-clause predicate, with target syntax separate from trait requirements.

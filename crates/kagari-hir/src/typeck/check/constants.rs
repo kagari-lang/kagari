@@ -76,7 +76,13 @@ pub(super) fn validate_const_initializers(
                         Diagnostic::error(DiagnosticKind::ConstCycle {
                             const_name: const_item.name.clone(),
                         })
-                        .with_span(self.lowered.source_map.const_span(const_id)),
+                        .with_span(
+                            self.lowered
+                                .module
+                                .constant(const_id)
+                                .origin
+                                .diagnostic_span(),
+                        ),
                     );
                     return;
                 }
@@ -112,7 +118,13 @@ pub(super) fn validate_const_initializers(
                             display_type_id(self.definitions, const_ty)
                         ),
                     })
-                    .with_span(self.lowered.source_map.const_span(const_id)),
+                    .with_span(
+                        self.lowered
+                            .module
+                            .constant(const_id)
+                            .origin
+                            .diagnostic_span(),
+                    ),
                 );
                 self.states.insert(const_id, ConstVisitState::Done);
                 return;

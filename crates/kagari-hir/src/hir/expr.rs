@@ -71,7 +71,7 @@ pub struct ExprData {
 /// receiver/type application or a local function value application; `type_args`
 /// belongs to the CALL. Checking resolves only argument types for a local function
 /// application, never the function name as a type. Neither field stores
-/// the callee's checked type. Path component sites live in SourceMap; member
+/// the callee's checked type. Editor path component sites derive from retained syntax. Member
 /// and callable identities are selected by resolution/type checking.
 ///
 /// # Values and operations

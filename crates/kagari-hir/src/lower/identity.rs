@@ -1,7 +1,11 @@
 //! Reference coverage for attached registration facts; source arenas remain unchanged.
 
 use crate::{
-    hir::{item::function::FunctionImplementation, origin::NodeOrigin, ty::TypeKind},
+    hir::{
+        item::{Module, function::FunctionImplementation},
+        origin::NodeOrigin,
+        ty::TypeKind,
+    },
     lower::LoweredModule,
 };
 use kagari_common::{
@@ -12,6 +16,8 @@ use kagari_common::{
         table::DefinitionId,
     },
 };
+
+use std::iter::once;
 
 impl DefinitionReferences for LoweredModule {
     fn visit_definition_ids(
@@ -31,15 +37,18 @@ impl DefinitionReferences for LoweredModule {
                 contract.visit_definition_ids(visit, cancel)?;
             }
         }
-        for origin in self.module.nodes.origins() {
-            check_cancel(cancel)?;
-            if let NodeOrigin::Structured { declaration } = origin {
-                visit(declaration)?;
+        if self.source_surface().is_none() {
+            for origin in self
+                .module
+                .nodes
+                .origins()
+                .chain(declaration_origins(&self.module))
+            {
+                check_cancel(cancel)?;
+                if let NodeOrigin::Structured { declaration } = origin {
+                    visit(declaration)?;
+                }
             }
-        }
-        for declaration in self.source_map.structured_definitions() {
-            check_cancel(cancel)?;
-            visit(declaration)?;
         }
         for item in &self.module.native_types {
             if let Some(host) = &item.host {
@@ -53,4 +62,78 @@ impl DefinitionReferences for LoweredModule {
         }
         Ok(())
     }
+}
+
+fn declaration_origins(module: &Module) -> impl Iterator<Item = &NodeOrigin> {
+    module
+        .functions
+        .iter()
+        .flat_map(|item| once(&item.origin).chain(item.params.iter().map(|param| &param.origin)))
+        .chain(module.consts.iter().map(|item| &item.origin))
+        .chain(module.statics.iter().map(|item| &item.origin))
+        .chain(module.modules.iter().map(|item| &item.origin))
+        .chain(module.uses.iter().map(|item| &item.origin))
+        .chain(module.structs.iter().map(|item| &item.origin))
+        .chain(module.enums.iter().map(|item| &item.origin))
+        .chain(module.native_types.iter().map(|item| &item.origin))
+        .chain(module.type_aliases.iter().map(|item| &item.origin))
+        .chain(module.traits.iter().map(|item| &item.origin))
+        .chain(module.impls.iter().map(|item| &item.origin))
+        .chain(module.generic_params.iter().map(|item| &item.origin))
+        .chain(
+            module
+                .structs
+                .iter()
+                .flat_map(|item| &item.fields)
+                .map(|item| &item.origin),
+        )
+        .chain(
+            module
+                .native_types
+                .iter()
+                .flat_map(|item| &item.fields)
+                .map(|item| &item.origin),
+        )
+        .chain(
+            module
+                .enums
+                .iter()
+                .flat_map(|item| &item.variants)
+                .map(|item| &item.origin),
+        )
+        .chain(
+            module
+                .traits
+                .iter()
+                .flat_map(|item| &item.methods)
+                .map(|item| &item.origin),
+        )
+        .chain(
+            module
+                .traits
+                .iter()
+                .flat_map(|item| &item.associated_consts)
+                .map(|item| &item.origin),
+        )
+        .chain(
+            module
+                .traits
+                .iter()
+                .flat_map(|item| &item.associated_types)
+                .map(|item| &item.origin),
+        )
+        .chain(
+            module
+                .impls
+                .iter()
+                .flat_map(|item| &item.associated_consts)
+                .map(|item| &item.origin),
+        )
+        .chain(
+            module
+                .impls
+                .iter()
+                .flat_map(|item| &item.associated_types)
+                .map(|item| &item.origin),
+        )
 }

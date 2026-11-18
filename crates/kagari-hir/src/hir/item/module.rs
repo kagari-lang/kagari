@@ -1,6 +1,7 @@
 //! Child module headers and flattened import syntax, before graph construction.
 
 use crate::hir::ids::{ModuleId, UseId};
+use crate::hir::origin::NodeOrigin;
 use kagari_common::span::Span;
 use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
 use std::ops::Range;
@@ -10,7 +11,7 @@ use std::ops::Range;
 /// ```text
 /// pub mod nested { fn value() -> i32 { 1 } }
 /// ModuleDecl { id: m, visibility: Public, name: "nested", inline: true }
-/// m -> parent.modules[m.index()]; matching SourceMap module span
+/// m -> parent.modules[m.index()]; header.origin gives the authored site
 /// analysis preparation -> separate child SourceUnit and LoweredModule for value
 /// ```
 ///
@@ -21,6 +22,10 @@ use std::ops::Range;
 /// collection. Analysis owns child-source preparation and physical-offset routing.
 #[derive(Debug, Clone)]
 pub struct ModuleDecl {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
+    /// Exact written name when available.
+    pub name_span: Option<Span>,
     /// Parent-local slot in `Module.modules`.
     pub id: ModuleId,
     /// Visibility declared on the child module header.
@@ -35,9 +40,11 @@ pub struct ModuleDecl {
 ///
 /// `imports` selects its contiguous flattened leaves in `Module.imports`. This is
 /// structural attachment identity only; import resolution still consumes the leaves.
-/// Full declaration ranges are retained by `SourceMap::attribute_target_span`.
+/// The record origin contains the complete declaration range.
 #[derive(Debug, Clone)]
 pub struct UseDecl {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
     pub id: UseId,
     pub imports: Range<usize>,
 }
@@ -61,7 +68,7 @@ pub struct UseDecl {
 /// `span` is the terminal use-tree leaf token range (including its alias when
 /// present); `root_span` is the outer use-tree token range, here
 /// `pkg::math::{sum as add, value, ops::*}`, excluding `pub use` and the semicolon.
-/// SourceMap separately retains path-prefix sites by import slot.
+/// Editor path-prefix sites derive from the matching authored syntax.
 /// Without `pub`, visibility is Private. Import analysis builds directives and
 /// Type/Value bindings from these leaves; a glob is not expanded into more HIR
 /// Import records, and one named leaf may resolve in both namespaces.

@@ -62,7 +62,11 @@ pub(super) fn validate_trait_surface(
                     type_name: "<missing>".to_string(),
                     reason: "impl target type is unknown".to_string(),
                 })
-                .with_span(lowered.source_map.impl_span(impl_block.id)),
+                .with_span(
+                    lowered.module.impls[impl_block.id.index()]
+                        .origin
+                        .diagnostic_span(),
+                ),
             );
             continue;
         };
@@ -75,7 +79,11 @@ pub(super) fn validate_trait_surface(
                     type_name,
                     reason: "impl target must be a concrete type".to_string(),
                 })
-                .with_span(lowered.source_map.impl_span(impl_block.id)),
+                .with_span(
+                    lowered.module.impls[impl_block.id.index()]
+                        .origin
+                        .diagnostic_span(),
+                ),
             );
             continue;
         }
@@ -93,7 +101,11 @@ pub(super) fn validate_trait_surface(
                     type_name: type_name.clone(),
                     reason: "overlapping impl".to_string(),
                 })
-                .with_span(lowered.source_map.impl_span(impl_block.id)),
+                .with_span(
+                    lowered.module.impls[impl_block.id.index()]
+                        .origin
+                        .diagnostic_span(),
+                ),
             );
             continue;
         }
@@ -109,7 +121,11 @@ pub(super) fn validate_trait_surface(
                     type_name: type_name.clone(),
                     reason: "this language protocol does not support Host receivers".into(),
                 })
-                .with_span(lowered.source_map.impl_span(impl_block.id)),
+                .with_span(
+                    lowered.module.impls[impl_block.id.index()]
+                        .origin
+                        .diagnostic_span(),
+                ),
             );
             continue;
         }

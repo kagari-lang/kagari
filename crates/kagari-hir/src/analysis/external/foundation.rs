@@ -299,7 +299,12 @@ fn actual_foundation_exports_admit_roles_arithmetic_iteration_and_conversion_wit
                             portable(vec![TypeId::Trait(interface)])
                         ),
                         CallTarget::Function(id) => {
-                            format!("local:{:?}", facts.lowered.source_map.function_span(id))
+                            format!(
+                                "local:{:?}",
+                                facts.lowered.module.functions[id.index()]
+                                    .origin
+                                    .diagnostic_span()
+                            )
                         }
                         other => format!("{other:?}"),
                     };

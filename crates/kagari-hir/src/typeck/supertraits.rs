@@ -144,7 +144,11 @@ pub(crate) fn validate(
                         .find(|item| {
                             declarations.impl_identity(item.id) == Some(&implementation.id)
                         })
-                        .map(|item| lowered.source_map.impl_span(item.id))
+                        .map(|item| {
+                            lowered.module.impls[item.id.index()]
+                                .origin
+                                .diagnostic_span()
+                        })
                         .unwrap_or_default(),
                 ),
             );
@@ -204,7 +208,11 @@ pub(crate) fn validate(
                             .find(|item| {
                                 declarations.impl_identity(item.id) == Some(&implementation.id)
                             })
-                            .map(|item| lowered.source_map.impl_span(item.id))
+                            .map(|item| {
+                                lowered.module.impls[item.id.index()]
+                                    .origin
+                                    .diagnostic_span()
+                            })
                             .unwrap_or_default(),
                     ),
                 );

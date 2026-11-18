@@ -1,9 +1,11 @@
 //! Function declarations, inline parameters and method origin tags.
 
+use crate::hir::origin::NodeOrigin;
 use crate::hir::{
     ids::{BlockId, FunctionId, GenericParamId, ParamId, TypeRefId},
     item::behavior::TraitBound,
 };
+use kagari_common::span::Span;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -38,7 +40,7 @@ use kagari_types::{
 ///
 /// The traits require matching declarations from the installed foundation.
 /// Symbolic IDs are allocator outputs, not written syntax or promised indices.
-/// `f.index()` selects the function row and matching source-map slot; the stored
+/// `f.index()` selects the function row carrying the origin; the stored
 /// `id` repeats that identity for consumers holding only `&Function`.
 ///
 /// Omitting `pub` selects `Private`; omitting generics/`where` leaves those buffers
@@ -60,6 +62,10 @@ use kagari_types::{
 /// resolution, checking and compiler lowering consume these source records later.
 #[derive(Debug, Clone)]
 pub struct Function {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
+    /// Exact written name when available.
+    pub name_span: Option<Span>,
     /// Slot in the enclosing module's function collection.
     pub id: FunctionId,
     /// Module, local, trait method or implementation method origin.
@@ -189,7 +195,7 @@ pub enum FunctionKind {
 /// fn add(x: i32) -> i32 { x + 1 }
 /// Param { id: p, name: "x", ty: t }
 /// t -> HirNodes.type_ref(t) -> TypeKind::Named("i32")
-/// p -> SourceMap.param_span(p); resolved uses of x refer to Param(p)
+/// p -> Module.parameter(p) -> name_span; resolved uses of x refer to Param(p)
 /// ```
 ///
 /// `id` is allocated, not derived from the spelling. Its index is the position in
@@ -201,10 +207,21 @@ pub enum FunctionKind {
 /// inference-enabled `None`.
 #[derive(Debug, Clone)]
 pub struct Param {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
+    /// Exact written name when available.
+    pub name_span: Option<Span>,
     /// Arena/function-qualified identity whose index is its position in `Function.params`.
     pub id: ParamId,
     /// Source name, including `self` where applicable.
     pub name: String,
     /// Parameter type syntax; missing required types use a placeholder.
     pub ty: TypeRefId,
+}
+
+impl Param {
+    /// Returns the binding name range, with the parameter extent as a recovery anchor.
+    pub fn binding_span(&self) -> Span {
+        self.origin.diagnostic_name(self.name_span)
+    }
 }

@@ -145,13 +145,12 @@ impl StructuredLowerer<'_> {
                     .ok_or_else(|| {
                         DeclarationError("unbound registered generic parameter".into())
                     })?;
-                Ok(self.lowerer.alloc_generic_param(
-                    Span::default(),
-                    GenericParam {
-                        name,
-                        bounds: Vec::new(),
-                    },
-                ))
+                Ok(self.lowerer.alloc_generic_param(GenericParam {
+                    origin: self.lowerer.origin(Span::default()),
+                    name_span: None,
+                    name,
+                    bounds: Vec::new(),
+                }))
             })
             .collect()
     }

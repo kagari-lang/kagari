@@ -38,7 +38,10 @@ pub(crate) fn scoped_attributes(file: &FileAnalysis) -> Vec<ScopedAttribute<'_>>
             };
             ScopedAttribute {
                 attribute,
-                declaration: lowered.source_map.attribute_target_span(attribute.target),
+                declaration: lowered
+                    .module
+                    .attribute_target_origin(attribute.target)
+                    .diagnostic_span(),
                 module,
             }
         })

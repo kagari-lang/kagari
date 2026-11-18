@@ -1,11 +1,13 @@
 //! Nominal struct, enum and native-backed type declarations; no runtime object storage.
 
+use crate::hir::origin::NodeOrigin;
 use crate::hir::{
     ids::{EnumId, FieldId, GenericParamId, ImplId, NativeTypeId, StructId, TypeRefId, VariantId},
     item::behavior::{TraitBound, TraitRef},
     writeability::Writeability,
 };
 use kagari_common::identity::table::DefinitionId;
+use kagari_common::span::Span;
 use kagari_types::{
     declaration::{TypeDeclaration, TypeDef, path::HostPathDeclaration},
     visibility::Visibility,
@@ -36,6 +38,10 @@ use std::sync::Arc;
 /// declarations have a separate alias owner and create no Native identity.
 #[derive(Debug, Clone)]
 pub struct NativeTypeDeclaration {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
+    /// Exact written name when available.
+    pub name_span: Option<Span>,
     /// Slot in `Module.native_types`.
     pub id: NativeTypeId,
     /// Address-free Host schema and caller-visible path capabilities, if this is a Host declaration.
@@ -71,7 +77,7 @@ pub struct NativeTypeDeclaration {
 /// label_field has slot 1, Private visibility, Val writeability and String type syntax
 /// ```
 ///
-/// `s` is allocated from the declaration/source-map slots. Fields retain source
+/// `s` is allocated from the declaration slot. Fields retain source
 /// order; `struct Empty {}` has no fields, and omitted generics leave no binders.
 /// Field types and generic requirements are unresolved until signature checking.
 /// Current lowering leaves `impls` empty, including when a separate
@@ -79,6 +85,10 @@ pub struct NativeTypeDeclaration {
 /// This vector must not be read as a complete list of associated implementations.
 #[derive(Debug, Clone)]
 pub struct Struct {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
+    /// Exact written name when available.
+    pub name_span: Option<Span>,
     /// Slot in `Module.structs`.
     pub id: StructId,
     /// Declared visibility.
@@ -100,7 +110,7 @@ pub struct Struct {
 /// Field { id: f, visibility: Public, writeability: Var, name: "x", ty: t }
 /// f = FieldId { arena, owner: FieldOwner::Struct(point_id), slot: 0 }
 /// t -> HirNodes.type_ref -> Named("i32")
-/// f -> Module.field(f); SourceMap.field_span(f) records the name site
+/// f -> Module.field(f); field.name_span records the name site
 /// ```
 ///
 /// `pub`, `var`, `x` and `i32` supply visibility, writeability, name and type syntax;
@@ -110,6 +120,10 @@ pub struct Struct {
 /// Checking determines field layout/access; missing type syntax becomes a placeholder.
 #[derive(Debug, Clone)]
 pub struct Field {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
+    /// Exact written name when available.
+    pub name_span: Option<Span>,
     /// Lowering/declaration/slot identity used by `Module::field`.
     pub id: FieldId,
     /// Visibility required to select this field.
@@ -120,6 +134,13 @@ pub struct Field {
     pub name: String,
     /// Unresolved field type syntax.
     pub ty: TypeRefId,
+}
+
+impl Field {
+    /// Uses the written name location when available, otherwise the record's anchor.
+    pub fn diagnostic_name_span(&self) -> Span {
+        self.origin.diagnostic_name(self.name_span)
+    }
 }
 
 /// A nominal enum declaration with inline positional variant payload types.
@@ -145,6 +166,10 @@ pub struct Field {
 /// aggregate/executable metadata determines representation, not this source row.
 #[derive(Debug, Clone)]
 pub struct Enum {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
+    /// Exact written name when available.
+    pub name_span: Option<Span>,
     /// Slot in `Module.enums`.
     pub id: EnumId,
     /// Declared visibility.
@@ -175,6 +200,10 @@ pub struct Enum {
 /// `Event::Pair(x, _)` in a match is an EnumVariant pattern.
 #[derive(Debug, Clone)]
 pub struct Variant {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
+    /// Exact written name when available.
+    pub name_span: Option<Span>,
     /// Whether construction starts the declared failure-origin behavior.
     pub reports_failure: bool,
     /// Arena/enum/slot identity used by `Module::variant`.
@@ -183,6 +212,13 @@ pub struct Variant {
     pub name: String,
     /// Payload type syntax in positional order; empty for a unit variant.
     pub payload: Vec<TypeRefId>,
+}
+
+impl Variant {
+    /// Uses the written name location when available, otherwise the record's anchor.
+    pub fn diagnostic_name_span(&self) -> Span {
+        self.origin.diagnostic_name(self.name_span)
+    }
 }
 
 /// Static Host schema/path closure. Contains no Rust layout, binding or storage classification.

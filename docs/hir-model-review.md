@@ -105,8 +105,8 @@ This is not authorization to redesign storage, introduce a pipeline framework or
 
 [Native input implementation](architecture/hir.md#native-declaration-inputs-and-origins) supports
 direct lowering and parsed inputs with common binding-free HIR and checking regardless of
-LSP/execution intent. A–F were implemented in `4e6cc2d3a`: `LoweredModule` retains only `source`,
-`module` and `source_map`; `Module.nodes` holds `HirNodes`. Common import scopes and actual
+LSP/execution intent. A–F were implemented in `4e6cc2d3a`. `LoweredModule` owns the source and module, and
+`Module.nodes` holds `HirNodes`. SO02 moves the remaining origins onto the records. Common import scopes and actual
 declarations own static facts, not registration attachment maps. Native implementations are matched
 at linking, outside HIR. The [boundary contracts](native-model-design.md#9-frontend-and-linking-boundary-remediation)
 describe these owners and preserved validations, not pending migration. Broader provider/prebuild
@@ -313,6 +313,14 @@ lists. Structured node origins participate in definition-reference validation.
 Thirteen focused HIR, analyzer and compiler tests pass across signature/body reuse, Native
 origins, initializer evidence, owner isolation, debug ranges, capture and navigation. Structure,
 workspace formatting, workspace all-target Clippy and diff checks pass.
+
+SO02 moves the remaining origins and exact name/initializer ranges into the declaration
+records and removes SourceMap. Lowerer owns construction context, and checked admission
+reads the matching records and retains source-less registration identity. Attribute targets
+follow record IDs to complete declaration ranges. Eighteen selected HIR, analyzer, compiler
+and lint tests pass across exact sites, Native origin and foreign scope, checked update
+evidence, source-free products and lint targeting. Structure, workspace formatting,
+workspace all-target Clippy and diff checks pass.
 
 No compatibility exports, old/new access paths, version bumps or artifact regeneration solely
 for unpublished API changes. If a checkpoint cannot build through the intended boundary, repair

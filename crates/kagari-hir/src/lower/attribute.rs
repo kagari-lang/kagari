@@ -5,7 +5,7 @@ use crate::{
         AttributeArgument, AttributeFact, AttributeForm, AttributePayload, AttributeTarget,
         AttributeValue,
     },
-    lower::context::{Lowerer, syntax_span, token_span},
+    lower::context::{Lowerer, token_span},
 };
 use kagari_syntax::ast::{
     borrow::{Ast, AttributeOwner, NodeData},
@@ -23,8 +23,6 @@ impl Lowerer {
         owner: Ast<'_, T>,
         target: AttributeTarget,
     ) {
-        self.source_map
-            .insert_attribute_target(target, syntax_span(&owner));
         for attribute in owner.attributes() {
             if self.cancel.check().is_err() {
                 break;

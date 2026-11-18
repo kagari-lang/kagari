@@ -13,7 +13,7 @@ the documentation conventions.
 
 | Reader's question | Start here |
 | --- | --- |
-| Where do node IDs find their data? | [Storage and IDs](#storage-and-ids), then `hir::HirNodes` and `SourceMap`. |
+| Where do node IDs find their data? | [Storage and IDs](#storage-and-ids), then the matching `Module` or `HirNodes` collection. |
 | How does a source expression acquire a type and a selected call? | [One function through the tables](#one-function-through-the-tables), then `ModuleFacts` and `TypeTable`. |
 | Which work does an editor query trigger or reuse? | [Editor query views and indexes](#editor-query-views-and-indexes), then [semantic query reuse](#query-work-reuse-and-publication). |
 | What does the compiler receive? | [Checked handoff](#checked-handoff-and-registered-inputs), then the runnable `CheckedCompilation` rustdoc example. |
@@ -29,7 +29,7 @@ keeps workloads, measurement boundaries and limitations separate from API guaran
 
 | Owner | Input and output |
 | --- | --- |
-| `hir`, `lower`, `source_map`, `native::structured` | Parsed source or owned structured declarations become owner-qualified structural nodes plus source/structured origins; lowering does not infer types. |
+| `hir`, `lower`, `native::structured` | Parsed source or owned structured declarations become owner-qualified structural nodes plus source/structured origins; lowering does not infer types. |
 | `declarations`, `resolver`, `imports` | Declaration identities, lexical bindings and cross-module namespaces. |
 | `aggregates`, `semantic` | Shared nominal/signature contracts and immutable published body facts. |
 | `typeck` | Temporary inference and constraint state produces those facts and positive completion evidence. |
@@ -69,14 +69,15 @@ Start with [LoweredModule](../../crates/kagari-hir/src/lower.rs),
 LoweredModule
 +-- source: Arc<SourceFile> -> source text/identity/revision, or a logical registration key
 +-- module: Module
-|   +-- functions, consts, statics, structs, enums, traits, impls, ...
+|   +-- functions, consts, statics, structs, enums, traits, impls, ... -> origin-bearing records
+|   +-- generic_params -> authored binder records
 |   +-- attributes: Vec<AttributeFact> -> typed declaration/member targets
 |   +-- uses: Vec<UseDecl> -> authored identities and contiguous import-leaf ranges
 |   `-- nodes: HirNodes
 |       +-- exprs:    Vec<(HirOwner, ExprData)>
 |       +-- stmts:    Vec<(HirOwner, StmtData)>
-|       `-- blocks, places, patterns, types: analogous owner-tagged vectors
-`-- source_map: SourceMap -> ID-keyed source byte sites or structured declaration origins
+|       `-- blocks, places, patterns, types, locals: analogous owner-tagged vectors
+`-- input_kind -> authored source or structured registration
 ```
 
 These arrows describe owned fields except the explicitly shared `Arc`. A body
@@ -91,7 +92,7 @@ reviewed inline capacities; ID checks and allocation behavior are unchanged.
 | --- | --- |
 | `FunctionId`, `ConstId`, `StaticId`, other plain declaration IDs | Index the matching collection in the same module; no arena is carried. |
 | `ExprId`, `StmtId`, `BlockId`, `PlaceId`, `PatternId`, `TypeRefId` | Carry `LoweringId`, owner and an allocation-wide index; `HirNodes` checks lowering/owner and indexes its vector. |
-| `ParamId` | Carries lowering/owner and a position in `Function.params`; `Module::parameter` checks the function and stored identity. `SourceMap` explicitly registers the complete ID's span. |
+| `ParamId` | Carries lowering/owner and a position in `Function.params`; `Module::parameter` checks the function and stored identity. The record stores its origin and written name range. |
 | `LocalId` | Carries lowering/owner and a module-wide slot in `HirNodes.locals`; pattern leaves and closure parameters link to that name record. |
 | `GenericParamId` | Indexes an authored binder in `Module.generic_params`. Inherited method lists reuse the enclosing declaration's IDs. |
 | `FieldId`, `VariantId`, `TraitMethodId` | Carry lowering, enclosing declaration owner and member slot. Look up the owner's nested field, variant or method vector. |
@@ -102,10 +103,10 @@ reviewed inline capacities; ID checks and allocation behavior are unchanged.
 | `DefinitionId` | Interpreted by its matching immutable definition-table prefix; distinct from all lowering-local IDs. Exact owned paths belong to explicit authoring/display queries. |
 | `BindingId` | An analysis identity, scoped body definition and resolved local slot. Changing the definition context does not change the binding's owning analysis or source slot. |
 
-Parameter identity is chosen from its owning function's retained list, not allocated by
-SourceMap. Two functions can each have parameter index zero; their complete IDs differ.
-Closure binders remain LocalId. Other body-node indices remain module-wide category slots.
-Param stores only its ID, name and type syntax. Resolver bindings and checked source
+Parameter identity comes from its owning function's retained list. Two functions can each
+have parameter index zero, with distinct complete IDs. Closure binders remain LocalId.
+Other body-node indices remain module-wide category slots.
+Each Param stores its ID, name, type syntax and origin. Resolver bindings and checked source
 signatures impose Val rather than reading configurable parameter writeability; object-field
 mutation remains distinct from rebinding the parameter.
 
@@ -117,10 +118,10 @@ revision. For a source-less registration the current graph retains an empty
 `SourceFile` at a `kagari-registration://...` logical key; it is not a physical
 source document or declaration surface. Even when file/revision/arena are identical,
 a handle from an independent context is foreign. Reusing a lowering in that context
-requires rebuilding its graph. See
-[source maps](../../crates/kagari-hir/src/source_map.rs) for node/declaration origins;
-analyzer derives reference-token/path sites only from real source. Empty internal
-ranges on structured nodes do not authorize navigation or debug source spans.
+requires rebuilding its graph. [NodeOrigin](../../crates/kagari-hir/src/hir/origin.rs)
+retains a byte range for source or a scoped declaration ID for structured registration.
+Analyzer derives reference-token/path sites from authored syntax. Structured origins yield no
+source span.
 
 HIR types, declarations, signatures and checked-call facts use fixed `DefinitionId`
 fields. Their Rust models have no parameter selecting paths versus IDs. A
@@ -193,11 +194,12 @@ Module.items contains Item::Static(s)
 t -> HirNodes.type_ref -> Named("i32")
 e -> HirNodes.expr -> Call to the resolved seed function
 owner(t) = owner(e) = HirOwner::Body(BodyOwner::Static(s))
-SourceMap.static_span(s) -> declaration site
+Module.static_item(s).origin -> declaration extent
+Module.static_item(s).initializer_span -> full authored initializer
 ```
 
 The IDs above are symbolic, lowering-local handles. Lowering allocates the static
-source-map slot, switches the body owner while lowering annotation/initializer
+record slot, switches the body owner while lowering annotation/initializer
 nodes, then restores the previous owner. Missing annotations remain `None` and
 missing initializers become `ExprKind::Missing` for recovery; neither is a valid
 checked static. The accepted declaration requires a closed, durably storable type.
@@ -235,14 +237,14 @@ has its own `BodyOwner::Function(inner)`. Methods use the same function table;
 closures remain expressions. Traversing an outer statement does not traverse the
 local function body as part of outer's return, capture or control-flow analysis.
 
-Lowering reserves each function ID/source-map slot before descending into children,
+Lowering reserves each function slot before descending into children,
 then fills that exact private `Option<Function>` slot. It reserves block rows before
 statements too. Only complete function records enter the published module. For
 outer/inner, allocation order is outer then inner even though inner completes first.
 Semantic definitions are nested under the enclosing named callable, with per-name
 source-order occurrences distinguishing identical spellings in separate blocks.
 These are compilation identities, not public or edit-stable paths. Function self
-IDs remain unchanged; their separate review must preserve row/source-map alignment.
+IDs address the reserved rows, which carry their own origins.
 
 Resolution predeclares block functions, then freezes declaration-time `ActiveScope`
 frames temporarily within the resolver. A selected local body resolves its ancestor chain
@@ -462,7 +464,7 @@ retains its allocation owner while its closure/async expression selects a distin
 root. Foreign-owner/arena node
 lookups return `None`; a missing source body never implies a native implementation.
 Admission also requires positive function/static completion evidence, evaluated
-constants, matched signature parameters and a matching source-map arena.
+constants, matched signature parameters and origins in the admitted lowering.
 
 [Declaration projections](../../crates/kagari-hir/src/compile_input/declarations.rs)
 retain header order, visibility, source extents and implementation kind without a
@@ -673,7 +675,7 @@ than defining another resolver. Syntactic facade dependencies remain distinct fr
 canonical target/provenance edges and failed/pending lookup observations. Reuse
 compares written segments alongside kind, visibility, dependencies and outcomes;
 equal canonical targets alone do not authorize reuse across source revisions or
-HIR arenas. Retained snapshots keep their matching source maps and immutable catalogs;
+HIR arenas. Retained snapshots keep their matching records, origins and immutable catalogs;
 see [query reuse and publication](#query-work-reuse-and-publication).
 
 The segment separation follows Rust HIR's
@@ -984,7 +986,7 @@ edit, even when signature surfaces match. Finer invalidation remains separate.
 | Change | Actual reuse boundary |
 | --- | --- |
 | Unchanged source and dependencies | A file result can retain its `Arc` when revision/arena, imports, reachable namespaces, imported types/functions and aggregate facts match. Installed native declarations participate through these ordinary facts. |
-| Body-only edit | Changed source receives fresh node tables and a lowering identity. Signature reuse compares the source surface with eligible function bodies removed and remaps local IDs. Other bodies may reuse facts if environment tokens, diagnostics, body contents and source-map correspondence permit it. |
+| Body-only edit | Changed source receives fresh node tables and a lowering identity. Signature reuse compares the source surface with eligible function bodies removed and remaps local IDs. Other bodies may reuse facts if environment tokens, diagnostics, body contents and matching owners and ordered relative ranges permit it. |
 | Signature/export edit | Imports/namespaces and imported type/callable/aggregate contracts are compared again; failed reuse predicates force checking. This is not guaranteed minimal dependency invalidation. |
 | Semantic input/policy change | Replacing declarations, external sidecars or explicit import scopes invalidates dependent semantic caches and the environment fingerprint. Parse policy clears parse-dependent caches; body/constant limits clear body/file caches. Runtime binding replacement is validated at its own installation boundary. |
 
@@ -1139,8 +1141,8 @@ The parameter/result and call checks are preserved; omitting source metadata is 
 omitting validation. [DeclarationOrigin](../../crates/kagari-hir/src/declarations.rs)
 is the canonical declaration attribution: `Source(FileSpan)` or
 `Structured { declaration }`. `Declaration::source_location()` returns `None` for
-the latter. [NodeOrigin](../../crates/kagari-hir/src/source_map/origin.rs) and
-`SourceMap` preserve the matching node attribution;
+the latter. Each HIR record's [NodeOrigin](../../crates/kagari-hir/src/hir/origin.rs)
+preserves the matching attribution.
 `LoweredModule::source_surface()` and syntax queries are likewise optional. An
 empty logical registration key is not a zero-length physical declaration. Diagnostics
 and documentation retain structured identity without fabricated file locations;
@@ -1287,8 +1289,8 @@ Module owns [attribute facts](../../crates/kagari-hir/src/hir/attribute.rs). Low
 each fact directly to its declaration/member ID and preserves source order; it does not
 collect a second AST walk or recover targets by matching spans. Associated requirements
 without defaults keep their member target, and grouped uses keep one authored target.
-SourceMap supplies full ranges by typed target, reusing ordinary item spans and storing
-additional member/use ranges only where needed.
+Typed target lookup follows the declaration, member or authored use record and reads its
+full origin. Separate name ranges support navigation and name diagnostics.
 
 Lint's private [attribute projection](../../crates/kagari-lint/src/attributes.rs) pairs
 the typed fact with its declaration range and an optional logical child-module identity

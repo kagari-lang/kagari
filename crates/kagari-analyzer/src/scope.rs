@@ -144,7 +144,9 @@ impl<'a> ScopeIndex<'a> {
         };
         let scope = self.scope(
             BodyOwner::Function(id),
-            self.lowered.source_map.function_span(id),
+            self.lowered.module.functions[id.index()]
+                .origin
+                .diagnostic_span(),
             parent,
         );
         for param in &function.params {

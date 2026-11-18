@@ -4,7 +4,7 @@ use kagari_common::span::Span;
 use kagari_hir::{
     analysis::declarations::{DeclarationSnapshot, FileDeclarations},
     declarations::{Declaration, Declarations},
-    hir::{expr::ExprKind, ids::GenericParamId, item::Item, pattern::PatternKind},
+    hir::{expr::ExprKind, ids::GenericParamId, pattern::PatternKind},
     lower::LoweredModule,
     resolver::resolved::ResolvedName,
 };
@@ -25,48 +25,47 @@ struct DeclarationSiteIndex<'a> {
 impl<'a> DeclarationSiteIndex<'a> {
     fn new(lowered: &LoweredModule, declarations: &'a Declarations) -> Self {
         let mut index = Self::default();
-        if lowered.source_map.is_structured() {
+        if lowered.source_surface().is_none() {
             return index;
         }
         let module = &lowered.module;
-        let map = &lowered.source_map;
-        let mut named = |item, name| {
-            if let Some(span) = map.item_name_span(item) {
+        let mut named = |span, name| {
+            if let Some(span) = span {
                 index.insert(span, declarations.target(name), false);
             }
         };
         for item in &module.functions {
-            named(Item::Function(item.id), ResolvedName::Function(item.id));
+            named(item.name_span, ResolvedName::Function(item.id));
         }
         for item in &module.consts {
-            named(Item::Const(item.id), ResolvedName::Const(item.id));
+            named(item.name_span, ResolvedName::Const(item.id));
         }
         for item in &module.statics {
-            named(Item::Static(item.id), ResolvedName::Static(item.id));
+            named(item.name_span, ResolvedName::Static(item.id));
         }
         for item in &module.modules {
-            named(Item::Module(item.id), ResolvedName::Module(item.id));
+            named(item.name_span, ResolvedName::Module(item.id));
         }
         for item in &module.type_aliases {
-            named(Item::TypeAlias(item.id), ResolvedName::TypeAlias(item.id));
+            named(item.name_span, ResolvedName::TypeAlias(item.id));
         }
         for item in &module.native_types {
-            named(Item::NativeType(item.id), ResolvedName::NativeType(item.id));
+            named(item.name_span, ResolvedName::NativeType(item.id));
         }
         for item in &module.structs {
-            named(Item::Struct(item.id), ResolvedName::Struct(item.id));
+            named(item.name_span, ResolvedName::Struct(item.id));
         }
         for item in &module.enums {
-            named(Item::Enum(item.id), ResolvedName::Enum(item.id));
+            named(item.name_span, ResolvedName::Enum(item.id));
         }
         for item in &module.traits {
-            named(Item::Trait(item.id), ResolvedName::Trait(item.id));
+            named(item.name_span, ResolvedName::Trait(item.id));
         }
         for item in &module.functions {
             index.generics(lowered, declarations, &item.generic_params);
             for param in &item.params {
                 index.insert(
-                    map.param_span(param.id),
+                    param.binding_span(),
                     declarations.target(ResolvedName::Param(param.id)),
                     false,
                 );
@@ -78,20 +77,28 @@ impl<'a> DeclarationSiteIndex<'a> {
         for item in &module.native_types {
             index.generics(lowered, declarations, &item.generic_params);
             for field in &item.fields {
-                index.insert(map.field_span(field.id), declarations.field(field.id), true);
+                index.insert(
+                    field.diagnostic_name_span(),
+                    declarations.field(field.id),
+                    true,
+                );
             }
         }
         for item in &module.structs {
             index.generics(lowered, declarations, &item.generic_params);
             for field in &item.fields {
-                index.insert(map.field_span(field.id), declarations.field(field.id), true);
+                index.insert(
+                    field.diagnostic_name_span(),
+                    declarations.field(field.id),
+                    true,
+                );
             }
         }
         for item in &module.enums {
             index.generics(lowered, declarations, &item.generic_params);
             for variant in &item.variants {
                 index.insert(
-                    map.variant_span(variant.id),
+                    variant.diagnostic_name_span(),
                     declarations.variant(variant.id),
                     true,
                 );
@@ -118,22 +125,14 @@ impl<'a> DeclarationSiteIndex<'a> {
             index.generics(lowered, declarations, generics);
             for member in constants {
                 index.insert(
-                    lowered
-                        .module
-                        .type_ref(member.name_ref)
-                        .origin
-                        .diagnostic_span(),
+                    member.origin.diagnostic_name(member.name_span),
                     declarations.associated_const(member.name_ref),
                     true,
                 );
             }
             for member in types {
                 index.insert(
-                    lowered
-                        .module
-                        .type_ref(member.name_ref)
-                        .origin
-                        .diagnostic_span(),
+                    member.origin.diagnostic_name(member.name_span),
                     declarations.associated_type(member.name_ref),
                     true,
                 );
@@ -200,7 +199,10 @@ impl<'a> DeclarationSiteIndex<'a> {
     ) {
         for param in params {
             self.insert(
-                lowered.source_map.generic_param_span(*param),
+                lowered
+                    .module
+                    .generic_parameter(*param)
+                    .diagnostic_name_span(),
                 declarations.generic_parameter(*param),
                 false,
             );

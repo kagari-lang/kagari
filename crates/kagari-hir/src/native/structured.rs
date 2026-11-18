@@ -5,7 +5,7 @@ mod types;
 use crate::{
     collections::HashMap,
     hir::item::Item,
-    lower::{LoweredModule, context::Lowerer},
+    lower::{LoweredModule, ModuleInputKind, context::Lowerer},
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -57,15 +57,14 @@ pub(crate) fn lower(
         correspondence: RegistrationMap::default(),
         parameter_names: HashMap::default(),
     };
-    builder.lowerer.source_map.mark_structured_input();
     builder.prepare_parameters()?;
     builder.module()?;
     cancel
         .check()
         .map_err(|_| DeclarationError("native declaration lowering cancelled".into()))?;
-    let (module, source_map) = builder.lowerer.finish();
+    let module = builder.lowerer.finish();
     Ok((
-        LoweredModule::from_parts(source, module, source_map),
+        LoweredModule::from_parts(source, module, ModuleInputKind::Structured),
         builder.correspondence,
     ))
 }

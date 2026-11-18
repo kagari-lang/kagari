@@ -1,30 +1,27 @@
 //! Shared HIR construction state, synchronized allocation and source-range helpers.
 
-use kagari_common::{cancellation::CancellationToken, span::Span};
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId, span::Span};
 use kagari_syntax::ast::{borrow::AstNode, expr::BinaryOp as AstBinaryOp};
+use std::mem;
 
-use crate::{
-    hir::{
-        expr::{ExprData, ExprKind, ops::BinaryOp},
-        ids::{
-            BlockId, ExprId, FunctionId, GenericParamId, LocalId, PatternId, PlaceId, StmtId,
-            TypeRefId,
-        },
-        item::{Module, behavior::GenericParam, function::Function},
-        nodes::Local,
-        pattern::{PatternData, PatternKind},
-        place::{PlaceData, PlaceKind},
-        stmt::{BlockData, StmtData, StmtKind},
-        ty::{TypeData, TypeKind},
+use crate::hir::{
+    expr::{ExprData, ExprKind, ops::BinaryOp},
+    ids::{
+        BlockId, ExprId, FunctionId, GenericParamId, HirOwner, LocalId, PatternId, PlaceId, StmtId,
+        TypeRefId,
     },
-    source_map::SourceMap,
+    item::{Module, behavior::GenericParam, function::Function},
+    nodes::Local,
+    origin::NodeOrigin,
+    pattern::{PatternData, PatternKind},
+    place::{PlaceData, PlaceKind},
+    stmt::{BlockData, StmtData, StmtKind},
+    ty::{TypeData, TypeKind},
 };
 
-/// Mutable construction state whose source-map slots and body rows advance together.
+/// Construction state for the active HIR owner and structured declaration.
 ///
-/// Allocation obtains an ID from `SourceMap` first, then appends the corresponding
-/// payload to `Module.body`. Keep those vectors aligned. Owner changes are made on
-/// the source map by item lowering and restored after the nested construction.
+/// Allocated records belong to the matching module and carry their own origins.
 pub(crate) struct Lowerer {
     /// Reserved declaration slots, finalized only when all nested lowering completes.
     pub(crate) functions: Vec<Option<Function>>,
@@ -32,29 +29,27 @@ pub(crate) struct Lowerer {
     pub(crate) current_block: Option<BlockId>,
     /// Cancellation observed by traversal loops; publication callers reject cancelled work.
     pub(crate) cancel: CancellationToken,
-    /// Arena identity, active owner and allocation-aligned byte ranges.
-    pub(crate) source_map: SourceMap,
+    owner: HirOwner,
+    structured_owner: Option<DefinitionId>,
     /// Declarations and node rows being built; unresolved until later analysis.
     pub(crate) module: Module,
 }
 
 impl Lowerer {
-    /// Creates fresh storage and gives the body the source map's arena identity.
+    /// Creates module storage with a fresh lowering identity.
     pub(crate) fn new(cancel: CancellationToken) -> Self {
-        let source_map = SourceMap::default();
-        let mut module = Module::default();
-        module.nodes.arena = source_map.arena();
         Self {
             functions: Vec::new(),
             current_block: None,
             cancel,
-            source_map,
-            module,
+            owner: HirOwner::Declaration,
+            structured_owner: None,
+            module: Module::default(),
         }
     }
 
-    /// Moves out the matching module/map pair after traversal.
-    pub(crate) fn finish(mut self) -> (Module, SourceMap) {
+    /// Publishes the complete module after traversal.
+    pub(crate) fn finish(mut self) -> Module {
         self.module.functions = self
             .functions
             .into_iter()
@@ -64,14 +59,35 @@ impl Lowerer {
         self.module
             .attributes
             .sort_by_key(|attribute| attribute.span.start);
-        (self.module, self.source_map)
+        self.module
     }
 
-    /// Reserves a source identity and its matching private function slot before children.
-    pub(crate) fn reserve_function(&mut self, span: Span) -> FunctionId {
+    pub(crate) fn set_owner(&mut self, owner: HirOwner) -> HirOwner {
+        mem::replace(&mut self.owner, owner)
+    }
+
+    pub(crate) fn set_structured_origin(
+        &mut self,
+        declaration: DefinitionId,
+    ) -> Option<DefinitionId> {
+        self.structured_owner.replace(declaration)
+    }
+
+    pub(crate) fn restore_structured_origin(&mut self, owner: Option<DefinitionId>) {
+        self.structured_owner = owner;
+    }
+
+    pub(crate) fn origin(&self, span: Span) -> NodeOrigin {
+        match self.structured_owner {
+            Some(declaration) => NodeOrigin::Structured { declaration },
+            None => NodeOrigin::Source(span),
+        }
+    }
+
+    /// Reserves a function slot before lowering its children.
+    pub(crate) fn reserve_function(&mut self) -> FunctionId {
         let id = FunctionId::new(self.functions.len());
         self.functions.push(None);
-        self.source_map.insert_function(id, span);
         id
     }
 
@@ -83,8 +99,8 @@ impl Lowerer {
     }
 
     pub(crate) fn alloc_block(&mut self, span: Span, tail_expr: Option<ExprId>) -> BlockId {
-        let origin = self.source_map.node_origin(span);
-        let owner = self.source_map.owner();
+        let origin = self.origin(span);
+        let owner = self.owner;
         let nodes = &mut self.module.nodes;
         let id = BlockId::new(nodes.arena(), owner, nodes.blocks.len());
         nodes.blocks.push((
@@ -99,8 +115,8 @@ impl Lowerer {
     }
 
     pub(crate) fn alloc_stmt(&mut self, span: Span, kind: StmtKind) -> StmtId {
-        let origin = self.source_map.node_origin(span);
-        let owner = self.source_map.owner();
+        let origin = self.origin(span);
+        let owner = self.owner;
         let nodes = &mut self.module.nodes;
         let id = StmtId::new(nodes.arena(), owner, nodes.stmts.len());
         nodes.stmts.push((owner, StmtData { origin, kind }));
@@ -108,8 +124,8 @@ impl Lowerer {
     }
 
     pub(crate) fn alloc_expr(&mut self, span: Span, kind: ExprKind) -> ExprId {
-        let origin = self.source_map.node_origin(span);
-        let owner = self.source_map.owner();
+        let origin = self.origin(span);
+        let owner = self.owner;
         let nodes = &mut self.module.nodes;
         let id = ExprId::new(nodes.arena(), owner, nodes.exprs.len());
         nodes.exprs.push((owner, ExprData { origin, kind }));
@@ -117,43 +133,33 @@ impl Lowerer {
     }
 
     pub(crate) fn alloc_pattern(&mut self, span: Span, kind: PatternKind) -> PatternId {
-        let origin = self.source_map.node_origin(span);
-        let owner = self.source_map.owner();
+        let origin = self.origin(span);
+        let owner = self.owner;
         let nodes = &mut self.module.nodes;
         let id = PatternId::new(nodes.arena(), owner, nodes.patterns.len());
         nodes.patterns.push((owner, PatternData { origin, kind }));
         id
     }
 
-    pub(crate) fn alloc_generic_param(
-        &mut self,
-        span: Span,
-        record: GenericParam,
-    ) -> GenericParamId {
+    pub(crate) fn alloc_generic_param(&mut self, record: GenericParam) -> GenericParamId {
         let id = GenericParamId::new(self.module.generic_params.len());
         self.module.generic_params.push(record);
-        self.source_map.insert_generic_param(id, span);
         id
     }
 
     /// Allocates an authoritative name record for a provisional local.
     pub(crate) fn alloc_local(&mut self, span: Span, name: String) -> LocalId {
+        let origin = self.origin(span);
         let nodes = &mut self.module.nodes;
-        let owner = self.source_map.owner();
+        let owner = self.owner;
         let id = LocalId::new(nodes.arena(), owner, nodes.locals.len());
-        nodes.locals.push((
-            owner,
-            Local {
-                name,
-                origin: self.source_map.node_origin(span),
-            },
-        ));
+        nodes.locals.push((owner, Local { name, origin }));
         id
     }
 
     pub(crate) fn alloc_place(&mut self, span: Span, kind: PlaceKind) -> PlaceId {
-        let origin = self.source_map.node_origin(span);
-        let owner = self.source_map.owner();
+        let origin = self.origin(span);
+        let owner = self.owner;
         let nodes = &mut self.module.nodes;
         let id = PlaceId::new(nodes.arena(), owner, nodes.places.len());
         nodes.places.push((owner, PlaceData { origin, kind }));
@@ -161,8 +167,8 @@ impl Lowerer {
     }
 
     pub(crate) fn alloc_type(&mut self, span: Span, kind: TypeKind) -> TypeRefId {
-        let origin = self.source_map.node_origin(span);
-        let owner = self.source_map.owner();
+        let origin = self.origin(span);
+        let owner = self.owner;
         let nodes = &mut self.module.nodes;
         let id = TypeRefId::new(nodes.arena(), owner, nodes.types.len());
         nodes.types.push((owner, TypeData { origin, kind }));

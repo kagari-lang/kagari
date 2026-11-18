@@ -53,7 +53,7 @@ pub struct Local {
 /// parameter list. LocalId indexes the module-wide local name records and keys
 /// semantic binding maps.
 ///
-/// The historic `arena` field stores the lowering identity shared with SourceMap, not
+/// The `arena` field stores the lowering identity rather than a value
 /// written in source. `HirOwner::Declaration` marks nodes outside function/constant
 /// construction; `Body(Function(f))` and `Body(Const(c))` mark those allocation
 /// contexts. `index` addresses the whole corresponding vector, not a per-owner
@@ -68,7 +68,7 @@ pub struct Local {
 /// errors. Retain the matching [`crate::lower::LoweredModule`] when retaining IDs.
 #[derive(Debug, Clone, Default)]
 pub struct HirNodes {
-    /// Lowering identity shared with the matching source map.
+    /// Identity of this lowering, shared by its qualified IDs.
     pub(crate) arena: LoweringId,
     /// Block rows paired with their allocation owners.
     pub(crate) blocks: Vec<(HirOwner, BlockData)>,

@@ -1,7 +1,7 @@
 //! Module declaration collections and handles into their shared HIR storage.
 
 use crate::hir::{
-    attribute::AttributeFact,
+    attribute::{AssociatedOwner, AttributeFact, AttributeTarget},
     expr::ExprData,
     ids::{
         BlockId, BodyOwner, ConstId, EnumId, ExprId, FieldId, FieldOwner, FunctionId,
@@ -17,11 +17,14 @@ use crate::hir::{
         storage::{ConstItem, StaticItem},
     },
     nodes::HirNodes,
+    origin::NodeOrigin,
     pattern::PatternData,
     place::PlaceData,
     stmt::{BlockData, StmtData},
     ty::TypeData,
 };
+use kagari_common::span::Span;
+
 pub mod adt;
 pub mod alias;
 pub mod behavior;
@@ -58,7 +61,7 @@ pub mod storage;
 /// `nodes` owns declaration type syntax and all function/constant nodes together;
 /// it is not one HirNodes per function. Child module rows are headers, with their
 /// contents analyzed in separate modules. LoweredModule pairs this record with
-/// source and SourceMap. Resolution/typing consume it and publish separate facts;
+/// its source and input kind. Resolution/typing consume it and publish separate facts.
 /// allocation does not establish source validity. Resolved scope/export candidates
 /// belong to the import graph, including public glob expansion; there is no
 /// additional export collection here.
@@ -114,6 +117,58 @@ impl Module {
         let method = &self.traits[id.owner().index()].methods[id.slot()];
         assert_eq!(method.id, id, "trait method slot mismatch");
         method
+    }
+
+    /// Returns the full origin and optional written name range of an item slot.
+    ///
+    /// IDs belong to the matching module. An absent slot returns `None`.
+    pub fn item_source(&self, item: Item) -> Option<(NodeOrigin, Option<Span>)> {
+        macro_rules! source {
+            ($records:ident, $id:ident) => {{
+                let item = self.$records.get($id.index())?;
+                (item.id == $id).then_some((item.origin, item.name_span))
+            }};
+        }
+
+        match item {
+            Item::Function(id) => source!(functions, id),
+            Item::Const(id) => source!(consts, id),
+            Item::Static(id) => source!(statics, id),
+            Item::Module(id) => source!(modules, id),
+            Item::Struct(id) => source!(structs, id),
+            Item::NativeType(id) => source!(native_types, id),
+            Item::TypeAlias(id) => source!(type_aliases, id),
+            Item::Enum(id) => source!(enums, id),
+            Item::Trait(id) => source!(traits, id),
+            Item::Impl(id) => {
+                let item = self.impls.get(id.index())?;
+                (item.id == id).then_some((item.origin, None))
+            }
+        }
+    }
+
+    /// Returns the full origin of a typed attribute target in this module.
+    ///
+    /// Panics for an invalid target slot or foreign qualified handle.
+    pub fn attribute_target_origin(&self, target: AttributeTarget) -> NodeOrigin {
+        match target {
+            AttributeTarget::Item(item) => self.item_source(item).expect("attribute item slot").0,
+            AttributeTarget::Use(id) => self.uses[id.index()].origin,
+            AttributeTarget::Field(id) => self.field(id).origin,
+            AttributeTarget::Variant(id) => self.variant(id).origin,
+            AttributeTarget::AssociatedType { owner, index } => match owner {
+                AssociatedOwner::Trait(id) => {
+                    self.traits[id.index()].associated_types[index].origin
+                }
+                AssociatedOwner::Impl(id) => self.impls[id.index()].associated_types[index].origin,
+            },
+            AttributeTarget::AssociatedConst { owner, index } => match owner {
+                AssociatedOwner::Trait(id) => {
+                    self.traits[id.index()].associated_consts[index].origin
+                }
+                AssociatedOwner::Impl(id) => self.impls[id.index()].associated_consts[index].origin,
+            },
+        }
     }
 
     pub(crate) fn static_initializer_for_function(&self, mut id: FunctionId) -> Option<StaticId> {
@@ -244,7 +299,7 @@ impl Module {
 /// The enclosed IDs are lowering-local, not checked DefinitionIds. Item carries
 /// no declaration body itself; Module.items retains source declaration order
 /// across kinds. Imports are separate leaves, and trait/impl members are not
-/// standalone entries in this vector. SourceMap uses these links for declaration
+/// standalone entries in this vector. Provenance queries use these links for declaration
 /// and name sites; later collection builds semantic declaration identities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Item {

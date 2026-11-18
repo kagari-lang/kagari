@@ -96,7 +96,6 @@ pub mod program;
 pub mod resolver;
 pub mod semantic;
 pub mod source_inspection;
-pub mod source_map;
 pub mod typeck;
 pub mod types;
 pub mod update_source;
@@ -111,7 +110,7 @@ pub type BoxedDiagnosticBuffer = Box<DiagnosticBuffer>;
 ///
 /// ```text
 /// AnalyzedModule
-/// +-- lowered: Arc<LoweredModule> -> source + Module/Body + SourceMap
+/// +-- lowered: Arc<LoweredModule> -> source + origin-bearing Module/HirNodes + input kind
 /// +-- names: ResolvedNames       -> ExprId/PlaceId -> bindings, shared namespaces
 /// +-- declarations              -> source declarations and scoped identities
 /// +-- signatures: Arc<AnalysisResult<ModuleSignatures>>

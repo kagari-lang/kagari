@@ -72,7 +72,7 @@ impl<'a> FunctionQueries<'a> {
 
     fn contains(&self, offset: usize) -> bool {
         let lowered = self.analysis.lowered();
-        if lowered.source_map.is_structured() {
+        if lowered.source_surface().is_none() {
             return false;
         }
         let function = &lowered.module.functions[self.analysis.function().index()];
@@ -82,7 +82,9 @@ impl<'a> FunctionQueries<'a> {
             "selected function owner mismatch"
         );
         function.implementation.script_body().is_some() && {
-            let span = lowered.source_map.function_span(function.id);
+            let span = lowered.module.functions[function.id.index()]
+                .origin
+                .diagnostic_span();
             span.start <= offset && offset <= span.end
         }
     }

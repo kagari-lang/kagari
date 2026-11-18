@@ -72,7 +72,9 @@ pub(crate) fn collect_declarations(
             break;
         }
         if let FunctionKind::Local { block } = function.kind {
-            let span = lowered.source_map.function_span(function.id);
+            let span = lowered.module.functions[function.id.index()]
+                .origin
+                .diagnostic_span();
             let names = local_names.entry(block).or_insert_with(HashSet::default);
             if !function.name.is_empty() && !names.insert(&function.name) {
                 diagnostics.push(
@@ -147,7 +149,7 @@ pub(crate) fn collect_declarations(
                         enum_name: enum_def.name.clone(),
                         name: variant.name.clone(),
                     })
-                    .with_span(lowered.source_map.variant_span(variant.id)),
+                    .with_span(lowered.module.variant(variant.id).diagnostic_name_span()),
                 );
             }
         }
@@ -168,7 +170,11 @@ pub(crate) fn collect_declarations(
                         owner: item.name.clone(),
                         name: method.name.clone(),
                     })
-                    .with_span(lowered.source_map.function_span(method.function)),
+                    .with_span(
+                        lowered.module.functions[method.function.index()]
+                            .origin
+                            .diagnostic_span(),
+                    ),
                 );
             }
         }
@@ -189,7 +195,11 @@ pub(crate) fn collect_declarations(
                         owner: "impl".into(),
                         name: method.name.clone(),
                     })
-                    .with_span(lowered.source_map.function_span(method.function)),
+                    .with_span(
+                        lowered.module.functions[method.function.index()]
+                            .origin
+                            .diagnostic_span(),
+                    ),
                 );
             }
         }

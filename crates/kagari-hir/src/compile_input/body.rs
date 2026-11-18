@@ -8,6 +8,7 @@ use crate::{
         ids::{
             BlockId, BodyOwner, ExprId, HirOwner, LocalId, LoweringId, PatternId, PlaceId, StmtId,
         },
+        item::function::Param,
         nodes::{HirNodes, Local},
         pattern::PatternData,
         place::PlaceData,
@@ -15,7 +16,6 @@ use crate::{
     },
     resolver::resolved::ResolvedNames,
     semantic::signatures::TypedFunction,
-    source_map::SourceMap,
     typeck::table::TypeTable,
 };
 pub mod bindings;
@@ -70,7 +70,7 @@ pub struct CheckedBodyInput<'a> {
     nodes: &'a HirNodes,
     types: &'a TypeTable,
     names: &'a ResolvedNames,
-    origins: &'a SourceMap,
+    parameters: &'a [Param],
     signature: Option<&'a TypedFunction>,
     definitions: &'a DefinitionTable,
     environment: CheckedEnvironment<'a>,
@@ -94,7 +94,16 @@ impl<'a> CheckedBodyInput<'a> {
             nodes: &module.lowered.module.nodes,
             types: module.typed.type_table(),
             names: &module.names,
-            origins: &module.lowered.source_map,
+            parameters: match owner {
+                BodyOwner::Function(id) => module
+                    .lowered
+                    .module
+                    .functions
+                    .get(id.index())
+                    .map(|function| function.params.as_slice())
+                    .unwrap_or_default(),
+                _ => &[],
+            },
             definitions: module.definitions(),
             environment: CheckedEnvironment::new(module),
             signature: match owner {

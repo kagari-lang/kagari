@@ -4,8 +4,8 @@ use crate::hir::{
     attribute::{AttributeFact, AttributeForm, AttributeTarget, AttributeValue},
     expr::ExprKind,
     ids::{
-        BodyOwner, ExprId, FieldId, FieldOwner, FunctionId, GenericParamId, HirOwner, ParamId,
-        TraitMethodId, TypeRefId, VariantId,
+        BodyOwner, EnumId, ExprId, FieldId, FieldOwner, FunctionId, GenericParamId, HirOwner,
+        ImplId, NativeTypeId, ParamId, StructId, TraitId, TraitMethodId, TypeRefId, VariantId,
     },
     item::{
         Item,
@@ -14,6 +14,7 @@ use crate::hir::{
         function::{Function, FunctionImplementation, FunctionKind, Param},
         module::{Import, ImportLeaf},
     },
+    origin::NodeOrigin,
     ty::TypeKind,
     writeability::Writeability,
 };
@@ -47,8 +48,8 @@ impl StructuredLowerer<'_> {
                 &contract.name,
                 self.definitions,
             )?;
-            self.lowerer.source_map.set_structured_origin(declaration);
-            let id = self.lowerer.source_map.push_trait(Span::default());
+            self.lowerer.set_structured_origin(declaration);
+            let id = TraitId::new(self.lowerer.module.traits.len());
             let generic_params =
                 self.bounded_generics(&contract.generic_params, &contract.bounds)?;
             let mut methods = Vec::new();
@@ -61,13 +62,12 @@ impl StructuredLowerer<'_> {
                     &generic_params,
                     None,
                 )?;
-                self.lowerer.source_map.set_structured_origin(owner);
                 let method_id =
                     TraitMethodId::new(self.lowerer.module.nodes.arena(), id, methods.len());
-                self.lowerer
-                    .source_map
-                    .insert_trait_method(method_id, Span::default());
+
                 methods.push(TraitMethod {
+                    origin: NodeOrigin::Structured { declaration: owner },
+                    name_span: None,
                     override_allowed: method.method_policy.override_allowed,
                     id: method_id,
                     name: method.name.clone(),
@@ -80,12 +80,14 @@ impl StructuredLowerer<'_> {
             }
             let mut associated_types = Vec::new();
             for member in &contract.associated_types {
-                self.lowerer
-                    .source_map
-                    .set_structured_origin(member.declaration);
+                let previous_origin = self.lowerer.set_structured_origin(member.declaration);
                 let name = self.name(member.declaration)?;
                 let name_ref = self.alloc_type(TypeKind::Named(name.clone()));
                 associated_types.push(AssociatedType {
+                    origin: NodeOrigin::Structured {
+                        declaration: member.declaration,
+                    },
+                    name_span: None,
                     name,
                     name_ref,
                     generic_params: self.generics(&member.generic_params)?,
@@ -93,6 +95,7 @@ impl StructuredLowerer<'_> {
                     ty: None,
                     bounds: self.constraints(&member.bounds)?,
                 });
+                self.lowerer.restore_structured_origin(previous_origin);
             }
             if !contract.associated_consts.is_empty() {
                 return Err(DeclarationError(
@@ -100,9 +103,10 @@ impl StructuredLowerer<'_> {
                         .into(),
                 ));
             }
-            self.lowerer.source_map.set_structured_origin(declaration);
             let supertraits = self.constraints(&contract.supertraits)?;
             self.lowerer.module.traits.push(TraitDef {
+                origin: NodeOrigin::Structured { declaration },
+                name_span: None,
                 conversion_adapter: contract.conversion_adapter.clone(),
                 id,
                 name: contract.name.clone(),
@@ -132,8 +136,8 @@ impl StructuredLowerer<'_> {
             let declaration = self
                 .declaration
                 .implementation_id(index, self.definitions)?;
-            self.lowerer.source_map.set_structured_origin(declaration);
-            let id = self.lowerer.source_map.push_impl(Span::default());
+            self.lowerer.set_structured_origin(declaration);
+            let id = ImplId::new(self.lowerer.module.impls.len());
             let generic_params = self.generics(&implementation.generic_params)?;
             let for_type = Some(self.ty(&implementation.for_type)?);
             let trait_ref = implementation
@@ -158,9 +162,11 @@ impl StructuredLowerer<'_> {
                         .ok_or_else(|| {
                             DeclarationError("missing implementation associated identity".into())
                         })?;
-                    self.lowerer.source_map.set_structured_origin(owner);
+                    let previous_origin = self.lowerer.set_structured_origin(owner);
                     let name_ref = self.alloc_type(TypeKind::Named(name.clone()));
                     associated_types.push(AssociatedType {
+                        origin: NodeOrigin::Structured { declaration: owner },
+                        name_span: None,
                         name,
                         name_ref,
                         ty: Some(self.ty(value)?),
@@ -168,6 +174,7 @@ impl StructuredLowerer<'_> {
                         parameter_bounds: vec![],
                         bounds: vec![],
                     });
+                    self.lowerer.restore_structured_origin(previous_origin);
                 }
             }
             let mut methods = Vec::new();
@@ -185,6 +192,7 @@ impl StructuredLowerer<'_> {
                 });
             }
             self.lowerer.module.impls.push(Impl {
+                origin: NodeOrigin::Structured { declaration },
                 id,
                 generic_params,
                 trait_ref,
@@ -248,7 +256,7 @@ impl StructuredLowerer<'_> {
         let declaration =
             self.declaration
                 .definition(ty.kind.definition_kind(), &ty.name, self.definitions)?;
-        self.lowerer.source_map.set_structured_origin(declaration);
+        self.lowerer.set_structured_origin(declaration);
         let generic_params = if matches!(ty.kind, TypeDefKind::Struct | TypeDefKind::Enum) {
             self.bounded_generics(&ty.generic_params, &ty.bounds)?
         } else {
@@ -256,9 +264,11 @@ impl StructuredLowerer<'_> {
         };
         let item = match ty.kind {
             TypeDefKind::Struct => {
-                let id = self.lowerer.source_map.push_struct(Span::default());
+                let id = StructId::new(self.lowerer.module.structs.len());
                 let fields = self.fields(declaration, FieldOwner::Struct(id), ty)?;
                 self.lowerer.module.structs.push(Struct {
+                    origin: NodeOrigin::Structured { declaration },
+                    name_span: None,
                     id,
                     visibility: Visibility::Public,
                     name: ty.name.clone(),
@@ -269,32 +279,35 @@ impl StructuredLowerer<'_> {
                 Item::Struct(id)
             }
             TypeDefKind::Enum => {
-                let id = self.lowerer.source_map.push_enum(Span::default());
+                let id = EnumId::new(self.lowerer.module.enums.len());
                 let mut variants = Vec::new();
                 for (slot, variant) in ty.variants.iter().enumerate() {
                     let owner =
                         ModuleDecl::variant_id(declaration, &variant.name, self.definitions)?;
-                    self.lowerer.source_map.set_structured_origin(owner);
-                    let member = VariantId::new(self.lowerer.source_map.arena(), id, slot);
-                    self.lowerer
-                        .source_map
-                        .insert_variant(member, Span::default());
+                    let previous_origin = self.lowerer.set_structured_origin(owner);
+                    let member = VariantId::new(self.lowerer.module.nodes.arena(), id, slot);
+
                     let payload = variant
                         .payload
                         .iter()
                         .map(|ty| self.ty(ty))
                         .collect::<Result<_, _>>()?;
                     variants.push(Variant {
+                        origin: NodeOrigin::Structured { declaration: owner },
+                        name_span: None,
                         reports_failure: variant.reports_failure,
                         id: member,
                         name: variant.name.clone(),
                         payload,
                     });
+                    self.lowerer.restore_structured_origin(previous_origin);
                     if self.declaration.variant_exports.contains(&ty.name) {
                         self.import(owner, None, None)?;
                     }
                 }
                 self.lowerer.module.enums.push(Enum {
+                    origin: NodeOrigin::Structured { declaration },
+                    name_span: None,
                     id,
                     visibility: Visibility::Public,
                     name: ty.name.clone(),
@@ -305,14 +318,15 @@ impl StructuredLowerer<'_> {
                 Item::Enum(id)
             }
             _ => {
-                let id = self.lowerer.source_map.push_native_type(Span::default());
+                let id = NativeTypeId::new(self.lowerer.module.native_types.len());
                 let fields = self.fields(declaration, FieldOwner::NativeType(id), ty)?;
-                self.lowerer.source_map.set_structured_origin(declaration);
                 let bounds = self.bounds(&ty.bounds)?;
                 self.lowerer
                     .module
                     .native_types
                     .push(NativeTypeDeclaration {
+                        origin: NodeOrigin::Structured { declaration },
+                        name_span: None,
                         host: None,
                         id,
                         visibility: Visibility::Public,
@@ -343,10 +357,12 @@ impl StructuredLowerer<'_> {
                     .definitions
                     .lookup_child(declaration, DefinitionKind::Field, &field.name, 0)
                     .ok_or_else(|| DeclarationError("missing registered field identity".into()))?;
-                self.lowerer.source_map.set_structured_origin(declaration);
-                let id = FieldId::new(self.lowerer.source_map.arena(), owner, slot);
-                self.lowerer.source_map.insert_field(id, Span::default());
-                Ok(Field {
+                let previous_origin = self.lowerer.set_structured_origin(declaration);
+                let id = FieldId::new(self.lowerer.module.nodes.arena(), owner, slot);
+
+                let record = Field {
+                    origin: NodeOrigin::Structured { declaration },
+                    name_span: None,
                     id,
                     visibility: field.visibility,
                     name: field.name.clone(),
@@ -356,7 +372,9 @@ impl StructuredLowerer<'_> {
                         Writeability::Val
                     },
                     ty: self.ty(&field.ty)?,
-                })
+                };
+                self.lowerer.restore_structured_origin(previous_origin);
+                Ok(record)
             })
             .collect()
     }
@@ -369,8 +387,8 @@ impl StructuredLowerer<'_> {
         inherited: &[GenericParamId],
         receiver: Option<TypeRefId>,
     ) -> Result<FunctionId, DeclarationError> {
-        self.lowerer.source_map.set_structured_origin(declaration);
-        let id = self.lowerer.reserve_function(Span::default());
+        let previous_origin = self.lowerer.set_structured_origin(declaration);
+        let id = self.lowerer.reserve_function();
         assert!(
             self.correspondence
                 .items
@@ -378,7 +396,7 @@ impl StructuredLowerer<'_> {
                 .is_none()
         );
         let owner = HirOwner::Body(BodyOwner::Function(id));
-        let previous = self.lowerer.source_map.set_owner(owner);
+        let previous = self.lowerer.set_owner(owner);
         let own = function
             .generic_params
             .iter()
@@ -392,8 +410,8 @@ impl StructuredLowerer<'_> {
             .iter()
             .enumerate()
             .map(|(index, parameter)| {
-                let id = ParamId::new(self.lowerer.source_map.arena(), owner, index);
-                self.lowerer.source_map.insert_param(id, Span::default());
+                let id = ParamId::new(self.lowerer.module.nodes.arena(), owner, index);
+
                 // Shared signature checking resolves the implicit impl receiver once
                 // at its header; retain that exact reference, including its binder owner.
                 let ty = if parameter.name == "self" {
@@ -405,6 +423,8 @@ impl StructuredLowerer<'_> {
                     self.ty(&parameter.ty)?
                 };
                 Ok(Param {
+                    origin: NodeOrigin::Structured { declaration },
+                    name_span: None,
                     id,
                     name: parameter.name.clone(),
                     ty,
@@ -432,6 +452,8 @@ impl StructuredLowerer<'_> {
             }
         };
         self.lowerer.finish_function(Function {
+            origin: NodeOrigin::Structured { declaration },
+            name_span: None,
             id,
             kind,
             is_async: false,
@@ -449,7 +471,8 @@ impl StructuredLowerer<'_> {
             return_type,
             implementation,
         });
-        self.lowerer.source_map.set_owner(previous);
+        self.lowerer.set_owner(previous);
+        self.lowerer.restore_structured_origin(previous_origin);
         Ok(id)
     }
 

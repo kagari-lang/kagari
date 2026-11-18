@@ -65,7 +65,6 @@ impl BodyBuilder {
                 DeclarationId::Binding(_) => {}
             }
         }
-        let map = &module.lowered.source_map;
         let (binding, ty) = match name {
             ResolvedName::Local(id) => (
                 module
@@ -78,7 +77,7 @@ impl BodyBuilder {
                 module.typed.type_table.local_type(id),
             ),
             ResolvedName::Param(id) => (
-                map.param_span(id),
+                module.lowered.module.parameter(id).binding_span(),
                 module
                     .typed
                     .signatures

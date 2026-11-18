@@ -18,14 +18,14 @@ use kagari_syntax::{lexer, token::Token};
 ///
 /// The caller first checks imports, signatures and aggregate environments. Reuse
 /// then requires compatible surrounding declaration tokens, unchanged body text
-/// and a source-map correspondence. Local IDs are remapped into the new lowering;
+/// and an ordered correspondence between records. Local IDs are remapped into the new lowering;
 /// old IDs cannot simply be copied. Failed correspondence falls back to checking.
 pub struct BodyReuse<'a> {
     /// Positive eligibility evidence retained before diagnostic truncation.
     pub previous_valid_bodies: &'a HashSet<FunctionId>,
     /// Previous analysis diagnostics used to exclude unsafe reuse.
     pub previous_diagnostics: &'a [Diagnostic],
-    /// Old source, nodes and source-map ownership for remapping.
+    /// Old source and its origin-bearing nodes for remapping.
     pub previous_lowered: &'a LoweredModule,
     /// Previously published type/call/member facts.
     pub previous_types: &'a TypeTable,
@@ -59,7 +59,9 @@ impl BodyReuse<'_> {
                     .functions
                     .iter()
                     .any(|function| {
-                        let owner = self.previous_lowered.source_map.function_span(function.id);
+                        let owner = self.previous_lowered.module.functions[function.id.index()]
+                            .origin
+                            .diagnostic_span();
                         matches!(function.kind, FunctionKind::User | FunctionKind::ImplMethod)
                             && owner.start <= span.start
                             && span.end <= owner.end
@@ -95,7 +97,9 @@ impl BodyReuse<'_> {
         if !self.previous_valid_bodies.contains(&old.id) {
             return false;
         }
-        let old_span = self.previous_lowered.source_map.function_span(old.id);
+        let old_span = self.previous_lowered.module.functions[old.id.index()]
+            .origin
+            .diagnostic_span();
         for diagnostic in self.previous_diagnostics {
             let Some(span) = diagnostic.span else {
                 return false;
@@ -108,7 +112,9 @@ impl BodyReuse<'_> {
                 return false;
             }
         }
-        let new_span = current.source_map.function_span(function.id);
+        let new_span = current.module.functions[function.id.index()]
+            .origin
+            .diagnostic_span();
         let Some(old_text) = self.old_text.get(old_span.start..old_span.end) else {
             return false;
         };

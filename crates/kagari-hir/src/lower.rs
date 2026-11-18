@@ -2,10 +2,10 @@
 //!
 //! [`lower_module`] is the standalone convenience entrypoint. Analysis uses the
 //! already parsed AST through `lower_module_controlled`. The internal `Lowerer`
-//! coordinates node allocation with [`SourceMap`]; category modules implement the
+//! coordinates slot allocation and record origins. Category modules implement the
 //! syntax transformations. No import lookup or type inference happens here.
 
-use crate::{hir::item::Module, lower::context::Lowerer, source_map::SourceMap};
+use crate::{hir::item::Module, lower::context::Lowerer};
 use kagari_common::cancellation::CancellationToken;
 use kagari_source::source::SourceFile;
 use kagari_syntax::{
@@ -28,7 +28,7 @@ mod ty;
 /// LoweredModule
 /// +-- source: Arc<SourceFile>       // retained text + identity/revision
 /// +-- module: Module               // declaration vectors + shared HirNodes
-/// +-- source_map: SourceMap        // matching arena, ID -> source byte sites
+/// +-- input_kind: ModuleInputKind  // source or structured registration
 /// ```
 ///
 /// Source and structured inputs create ordinary declaration records.
@@ -41,15 +41,21 @@ pub struct LoweredModule {
     pub source: Arc<SourceFile>,
     /// Owned declaration collections and node storage.
     pub module: Module,
-    /// ID-aligned source positions sharing the module body's lowering identity.
-    pub source_map: SourceMap,
+    pub(crate) input_kind: ModuleInputKind,
+}
+
+/// Determines whether the retained source is authored or a structured registration key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ModuleInputKind {
+    Source,
+    Structured,
 }
 
 impl LoweredModule {
     /// Authored source when available. A structured registration retains `source`
     /// only as a logical graph key; it is not a navigation or implementation surface.
     pub fn source_surface(&self) -> Option<&Arc<SourceFile>> {
-        (!self.source_map.is_structured()).then_some(&self.source)
+        (self.input_kind == ModuleInputKind::Source).then_some(&self.source)
     }
 }
 
@@ -94,7 +100,7 @@ pub fn lower_module(source: &SourceFile) -> LoweredModule {
     lower_module_controlled(Arc::new(source.clone()), &syntax, &Default::default())
 }
 
-/// Lowers a logical AST view and its matching source into fresh owned HIR/source-map tables.
+/// Lowers a logical AST view and its matching source into fresh owned, origin-bearing HIR.
 ///
 /// The caller must pair the view with its retained source revision and keep parse
 /// diagnostics separately. Cancellation may leave partial structural HIR; callers
@@ -106,20 +112,19 @@ pub(crate) fn lower_module_controlled(
 ) -> LoweredModule {
     let mut lowerer = Lowerer::new(cancel.clone());
     lowerer.lower_module(module);
-    let (module, source_map) = lowerer.finish();
-    LoweredModule::from_parts(source, module, source_map)
+    LoweredModule::from_parts(source, lowerer.finish(), ModuleInputKind::Source)
 }
 
 impl LoweredModule {
     pub(crate) fn from_parts(
         source: Arc<SourceFile>,
         module: Module,
-        source_map: SourceMap,
+        input_kind: ModuleInputKind,
     ) -> Self {
         Self {
             source,
             module,
-            source_map,
+            input_kind,
         }
     }
 }

@@ -436,7 +436,7 @@ fn body_reuse_remaps_types_and_refreshes_local_identity_after_neighbor_edit() {
     assert_eq!(second.names().binding(&new_binding).unwrap().name, "value");
     assert_eq!(lowered.module.parameter(parameter).name, "value");
     assert!(std::panic::catch_unwind(|| lowered.module.parameter(old_parameter)).is_err());
-    let span = lowered.source_map.param_span(parameter);
+    let span = lowered.module.parameter(parameter).binding_span();
     assert_eq!(span.start, edit.find("value: i32").unwrap());
     assert_eq!(&edit[span.start..span.end], "value");
     let binding = second

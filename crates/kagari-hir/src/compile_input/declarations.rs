@@ -73,33 +73,6 @@ impl<'a> DeclarationHeaders<'a> {
             implementations: &module.impls,
         }
     }
-
-    pub(super) fn contains(self, item: Item) -> bool {
-        match item {
-            Item::Function(id) => self
-                .functions
-                .get(id.index())
-                .is_some_and(|row| row.id == id),
-            Item::Const(id) => self
-                .constants
-                .get(id.index())
-                .is_some_and(|row| row.id == id),
-            Item::Static(id) => self.statics.get(id.index()).is_some_and(|row| row.id == id),
-            Item::Module(id) => self.modules.get(id.index()).is_some_and(|row| row.id == id),
-            Item::Struct(id) => self.structs.get(id.index()).is_some_and(|row| row.id == id),
-            Item::NativeType(id) => self
-                .native_types
-                .get(id.index())
-                .is_some_and(|row| row.id == id),
-            Item::TypeAlias(id) => self.aliases.get(id.index()).is_some_and(|row| row.id == id),
-            Item::Enum(id) => self.enums.get(id.index()).is_some_and(|row| row.id == id),
-            Item::Trait(id) => self.traits.get(id.index()).is_some_and(|row| row.id == id),
-            Item::Impl(id) => self
-                .implementations
-                .get(id.index())
-                .is_some_and(|row| row.id == id),
-        }
-    }
 }
 
 /// The type and evaluated value of one local scalar constant.

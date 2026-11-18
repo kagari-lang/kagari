@@ -60,7 +60,7 @@ fn declaration_only_functions_do_not_acquire_script_bodies() {
                 lowered.module.parameter(parameter.id),
                 parameter
             ));
-            let span = lowered.source_map.param_span(parameter.id);
+            let span = lowered.module.parameter(parameter.id).binding_span();
             assert_eq!(&lowered.source.text()[span.start..span.end], parameter.name);
         }
     }
@@ -164,7 +164,10 @@ fn attributes_preserve_structured_metadata_and_typed_targets() {
         (&rest[3], "#[meta]\n    type Output;"),
         (&rest[4], "#[meta]\n    fn method(self);"),
     ] {
-        let range = lowered.source_map.attribute_target_span(fact.target);
+        let range = lowered
+            .module
+            .attribute_target_origin(fact.target)
+            .diagnostic_span();
         assert_eq!(&source[range.start..range.end], expected);
     }
     assert_eq!(bare.form, AttributeForm::Bare);
@@ -178,7 +181,10 @@ fn attributes_preserve_structured_metadata_and_typed_targets() {
     }
     assert_eq!(bare.target, attribute.target);
     assert_eq!(empty_args.target, attribute.target);
-    let field_span = lowered.source_map.attribute_target_span(empty_list.target);
+    let field_span = lowered
+        .module
+        .attribute_target_origin(empty_list.target)
+        .diagnostic_span();
     assert_eq!(
         &source[field_span.start..field_span.end],
         "#[meta =[]]\n    val value: i32"
@@ -187,7 +193,10 @@ fn attributes_preserve_structured_metadata_and_typed_targets() {
         &source[attribute.span.start..attribute.span.end],
         "#[meta(name = \"answer\", tags = [1, true, sample:: /* qualifier */ tag])]"
     );
-    let declaration = lowered.source_map.attribute_target_span(attribute.target);
+    let declaration = lowered
+        .module
+        .attribute_target_origin(attribute.target)
+        .diagnostic_span();
     assert_eq!(
         &source[declaration.start..declaration.end],
         source.split_once("\n\n").unwrap().0
@@ -370,8 +379,9 @@ fn attributes_preserve_structured_metadata_and_typed_targets() {
     assert_eq!(recovered.imports, 0..0);
     assert!(lowered.module.imports.is_empty());
     let range = lowered
-        .source_map
-        .attribute_target_span(recovered_use.target);
+        .module
+        .attribute_target_origin(recovered_use.target)
+        .diagnostic_span();
     assert_eq!(&source.text()[range.start..range.end], "#[meta]\nuse");
 }
 
@@ -582,6 +592,13 @@ pub const VERSION: i32 = 1;
 
     let const_item = &lowered.module.consts[0];
     assert_eq!(const_item.name, "VERSION");
+    let full = const_item.origin.source_span().unwrap();
+    let name = const_item.name_span.unwrap();
+    assert_eq!(
+        &lowered.source.text()[full.start..full.end],
+        "pub const VERSION: i32 = 1;"
+    );
+    assert_eq!(&lowered.source.text()[name.start..name.end], "VERSION");
     assert!(matches!(const_item.visibility, Visibility::Public));
     assert!(matches!(
         lowered.module.expr(const_item.initializer).kind,
@@ -624,8 +641,9 @@ fn inline_ast_lowering_owns_only_its_items_and_attributes() {
         AttributeTarget::Item(Item::Function(lowered.module.functions[0].id))
     );
     let range = lowered
-        .source_map
-        .attribute_target_span(child_attribute.target);
+        .module
+        .attribute_target_origin(child_attribute.target)
+        .diagnostic_span();
     assert_eq!(&source.text()[range.start..range.end], "#[meta] fn f() {}");
     assert_eq!(
         &source.text()[child_attribute.span.start..child_attribute.span.end],
@@ -670,7 +688,9 @@ fn local_function_rows_preserve_owners_and_module_membership() {
             body.owner(),
             HirOwner::Body(BodyOwner::Function(function.id))
         );
-        let declaration = lowered.source_map.function_span(function.id);
+        let declaration = lowered.module.functions[function.id.index()]
+            .origin
+            .diagnostic_span();
         let body_span = lowered.module.block(body).origin.diagnostic_span();
         assert!(declaration.start <= body_span.start && declaration.end >= body_span.end);
         if let FunctionKind::Local { block } = function.kind {
@@ -701,8 +721,13 @@ fn local_function_rows_preserve_owners_and_module_membership() {
             FunctionKind::Local { .. }
         ));
         assert_eq!(
-            lowered.source_map.attribute_target_span(fact.target),
-            lowered.source_map.function_span(id)
+            lowered
+                .module
+                .attribute_target_origin(fact.target)
+                .diagnostic_span(),
+            lowered.module.functions[id.index()]
+                .origin
+                .diagnostic_span()
         );
     }
     assert_eq!(functions[1].generic_params.len(), 1);

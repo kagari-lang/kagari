@@ -133,7 +133,9 @@ fn external_source_preserves_fields_members_and_complete_script_definitions_with
             .implementation,
         CheckedImplementation::Native(Default::default())
     );
-    let span = facts.lowered.source_map.function_span(native.id);
+    let span = facts.lowered.module.functions[native.id.index()]
+        .origin
+        .diagnostic_span();
     assert!(library_source.text()[span.start..span.end].contains("native fn new"));
     let program = snapshot.check_program(root, &Default::default()).unwrap();
     assert!(matches!(

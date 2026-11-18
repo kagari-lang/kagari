@@ -287,7 +287,14 @@ pub(super) fn validate(
                     function: item.name.clone(),
                     binding: "invalid language constructor declaration shape".into(),
                 })
-                .with_span(lowered.source_map.item_span(Item::NativeType(item.id))),
+                .with_span(
+                    lowered
+                        .module
+                        .item_source(Item::NativeType(item.id))
+                        .expect("HIR item slot")
+                        .0
+                        .diagnostic_span(),
+                ),
             );
         }
     }
@@ -303,7 +310,11 @@ pub(super) fn validate(
                     function: method.name.clone(),
                     binding: "required methods must permit implementation".into(),
                 })
-                .with_span(lowered.source_map.function_span(method.function)),
+                .with_span(
+                    lowered.module.functions[method.function.index()]
+                        .origin
+                        .diagnostic_span(),
+                ),
             );
         }
     }
@@ -332,7 +343,11 @@ pub(super) fn validate(
                     function: function.name.clone(),
                     binding: "receiver policy requires an eligible nominal self parameter".into(),
                 })
-                .with_span(lowered.source_map.function_span(function.id)),
+                .with_span(
+                    lowered.module.functions[function.id.index()]
+                        .origin
+                        .diagnostic_span(),
+                ),
             );
         }
         let FunctionImplementation::Native(contract) = &function.implementation else {
@@ -383,7 +398,11 @@ pub(super) fn validate(
                     function: function.name.clone(),
                     binding: "invalid Host passing or effect policy".into(),
                 })
-                .with_span(lowered.source_map.function_span(function.id)),
+                .with_span(
+                    lowered.module.functions[function.id.index()]
+                        .origin
+                        .diagnostic_span(),
+                ),
             );
         }
         if contract.callable_requirements.is_empty() && contract.concrete_result.is_none() {
@@ -440,7 +459,9 @@ pub(super) fn validate(
                 .map_err(|_| "type dependency, visibility or associated member is not admitted")
         };
         let mut malformed = contract.callable_requirements.len() > 4096;
-        let span = lowered.source_map.function_span(function.id);
+        let span = lowered.module.functions[function.id.index()]
+            .origin
+            .diagnostic_span();
         let mut invalid_types = Vec::new();
         let mut check_application = |ty: &Ty, receiver: Option<&TypeId>| {
             if let Err(reason) = valid(ty) {

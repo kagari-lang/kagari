@@ -6,7 +6,7 @@ use crate::{
     usage::{self, BindingKind},
 };
 use kagari_common::cancellation::{CancellationToken, Cancelled};
-use kagari_hir::{analysis::FileAnalysis, hir::item::Item};
+use kagari_hir::analysis::FileAnalysis;
 use kagari_source::identity::FileSpan;
 use kagari_syntax::ast::{borrow::Ast, misc::ParamList, visit::NodeRef};
 
@@ -23,12 +23,7 @@ pub(crate) fn collect(
         .iter()
         .filter(|implementation| implementation.trait_ref.is_some())
         .flat_map(|implementation| &implementation.methods)
-        .filter_map(|method| {
-            facts
-                .lowered
-                .source_map
-                .item_name_span(Item::Function(method.function))
-        })
+        .filter_map(|method| facts.lowered.module.functions[method.function.index()].name_span)
         .collect();
     let Some(syntax) = file.syntax() else {
         return Ok(());

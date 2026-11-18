@@ -349,7 +349,12 @@ fn add_declarations(
                 &item.name,
                 SourceItem::Function(item.id),
                 item.visibility,
-                location(module, module.source_map.function_span(item.id)),
+                location(
+                    module,
+                    module.module.functions[item.id.index()]
+                        .origin
+                        .diagnostic_span(),
+                ),
             );
         }
     }
@@ -362,7 +367,10 @@ fn add_declarations(
                 &item.name,
                 SourceItem::Const(item.id),
                 item.visibility,
-                location(module, module.source_map.const_span(item.id)),
+                location(
+                    module,
+                    module.module.constant(item.id).origin.diagnostic_span(),
+                ),
             );
         }
     }
@@ -374,7 +382,10 @@ fn add_declarations(
             &item.name,
             SourceItem::Static(item.id),
             item.visibility,
-            location(module, module.source_map.static_span(item.id)),
+            location(
+                module,
+                module.module.static_item(item.id).origin.diagnostic_span(),
+            ),
         );
     }
     for item in &module.module.structs {
@@ -385,7 +396,12 @@ fn add_declarations(
             &item.name,
             SourceItem::Struct(item.id),
             item.visibility,
-            location(module, module.source_map.struct_span(item.id)),
+            location(
+                module,
+                module.module.structs[item.id.index()]
+                    .origin
+                    .diagnostic_span(),
+            ),
         );
     }
     for item in &module.module.enums {
@@ -396,7 +412,12 @@ fn add_declarations(
             &item.name,
             SourceItem::Enum(item.id),
             item.visibility,
-            location(module, module.source_map.enum_span(item.id)),
+            location(
+                module,
+                module.module.enums[item.id.index()]
+                    .origin
+                    .diagnostic_span(),
+            ),
         );
     }
     for item in &module.module.native_types {
@@ -407,7 +428,12 @@ fn add_declarations(
             &item.name,
             SourceItem::NativeType(item.id),
             item.visibility,
-            location(module, module.source_map.native_type_span(item.id)),
+            location(
+                module,
+                module.module.native_types[item.id.index()]
+                    .origin
+                    .diagnostic_span(),
+            ),
         );
     }
     for item in &module.module.type_aliases {
@@ -418,7 +444,12 @@ fn add_declarations(
             &item.name,
             SourceItem::TypeAlias(item.id),
             item.visibility,
-            location(module, module.source_map.type_alias_span(item.id)),
+            location(
+                module,
+                module.module.type_aliases[item.id.index()]
+                    .origin
+                    .diagnostic_span(),
+            ),
         );
     }
     for item in &module.module.traits {
@@ -429,7 +460,12 @@ fn add_declarations(
             &item.name,
             SourceItem::Trait(item.id),
             item.visibility,
-            location(module, module.source_map.trait_span(item.id)),
+            location(
+                module,
+                module.module.traits[item.id.index()]
+                    .origin
+                    .diagnostic_span(),
+            ),
         );
     }
     for item in &module.module.modules {
@@ -464,7 +500,12 @@ fn add_declarations(
                             module: item.id,
                         },
                         item.visibility,
-                        Some(location(module, module.source_map.module_span(item.id))),
+                        Some(location(
+                            module,
+                            module.module.modules[item.id.index()]
+                                .origin
+                                .diagnostic_span(),
+                        )),
                     ),
                 );
             }
@@ -506,7 +547,10 @@ fn add_declarations(
                 &variant.name,
                 SourceItem::Variant(variant.id),
                 item.visibility,
-                location(module, module.source_map.variant_span(variant.id)),
+                location(
+                    module,
+                    module.module.variant(variant.id).diagnostic_name_span(),
+                ),
             );
         }
         associated.insert(
@@ -545,7 +589,12 @@ fn add_declarations(
                 &method.name,
                 SourceItem::Function(function.id),
                 function.visibility,
-                location(module, module.source_map.function_span(function.id)),
+                location(
+                    module,
+                    module.module.functions[function.id.index()]
+                        .origin
+                        .diagnostic_span(),
+                ),
             );
         }
     }

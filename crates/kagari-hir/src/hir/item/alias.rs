@@ -1,9 +1,11 @@
 //! Transparent script type declarations, separate from native opaque types.
 
+use crate::hir::origin::NodeOrigin;
 use crate::hir::{
     ids::{GenericParamId, TypeAliasId, TypeRefId},
     item::behavior::TraitBound,
 };
+use kagari_common::span::Span;
 use kagari_types::visibility::Visibility;
 
 /// A source alias whose target is resolved in its declaring module.
@@ -21,6 +23,10 @@ use kagari_types::visibility::Visibility;
 /// target is retained for malformed-source recovery and rejected by checking.
 #[derive(Debug, Clone)]
 pub struct TypeAlias {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
+    /// Exact written name when available.
+    pub name_span: Option<Span>,
     /// Local slot in `Module.type_aliases`.
     pub id: TypeAliasId,
     /// Declared exposure, which must not widen target visibility.

@@ -78,7 +78,7 @@ pub(super) fn validate(
                             "generic associated type implementation strengthens the trait input bounds"
                                 .into(),
                     })
-                    .with_span(lowered.source_map.impl_span(item.id)),
+                    .with_span(lowered.module.impls[item.id.index()].origin.diagnostic_span()),
                 );
             }
             let mut available = implementation.bounds.clone();
@@ -101,7 +101,9 @@ pub(super) fn validate(
                 },
                 &family.value,
                 &available,
-                lowered.source_map.impl_span(item.id),
+                lowered.module.impls[item.id.index()]
+                    .origin
+                    .diagnostic_span(),
                 diagnostics,
                 cancel,
             );
@@ -119,7 +121,11 @@ pub(super) fn validate(
                             .to_owned(),
                         reason: "generic associated type recursively depends on itself".into(),
                     })
-                    .with_span(lowered.source_map.impl_span(item.id)),
+                    .with_span(
+                        lowered.module.impls[item.id.index()]
+                            .origin
+                            .diagnostic_span(),
+                    ),
                 );
             }
             for required in contract.associated_types.get(member).into_iter().flatten() {
@@ -163,7 +169,11 @@ pub(super) fn validate(
                                 "generic associated type output does not satisfy its declared bound"
                                     .into(),
                         })
-                        .with_span(lowered.source_map.impl_span(item.id)),
+                        .with_span(
+                            lowered.module.impls[item.id.index()]
+                                .origin
+                                .diagnostic_span(),
+                        ),
                     );
                 }
             }

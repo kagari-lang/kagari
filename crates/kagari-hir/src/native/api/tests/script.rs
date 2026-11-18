@@ -167,7 +167,7 @@ fn embedded_script_definitions_keep_bodies_fields_and_native_binding_separate() 
     .unwrap();
     let lowered = prepared.attach(&Default::default()).unwrap();
     assert_eq!(lowered.source_surface().unwrap().text(), source.text);
-    assert!(!lowered.source_map.is_structured());
+    assert!(lowered.source_surface().is_some());
     assert_eq!(lowered.module.structs[0].fields.len(), 1);
     assert!(lowered.module.traits[0].methods[0].has_default);
     let get = lowered.module.traits[0].methods[0].function;

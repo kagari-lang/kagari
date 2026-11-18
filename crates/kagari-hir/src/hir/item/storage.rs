@@ -1,9 +1,11 @@
 //! Constant declarations and their semantic owners.
 
+use crate::hir::origin::NodeOrigin;
 use crate::hir::{
     ids::{ConstId, ExprId, ImplId, StaticId, TraitId, TypeRefId},
     writeability::Writeability,
 };
+use kagari_common::span::Span;
 use kagari_types::visibility::Visibility;
 
 /// A constant definition stored in Module.consts, with an expression initializer.
@@ -12,7 +14,7 @@ use kagari_types::visibility::Visibility;
 /// pub const LIMIT: i32 = 10;
 /// ConstItem { owner: None, id: c, visibility: Public, name: "LIMIT",
 ///             ty: Some(t), initializer: e }
-/// c -> Module.constant(c); SourceMap.const_span(c)
+/// c -> Module.constant(c) -> origin and name_span
 /// t -> HirNodes.type_ref -> Named("i32")
 /// e -> HirNodes.expr -> Literal { kind: Number, text: "10" }
 /// initializer nodes carry HirOwner::Body(BodyOwner::Const(c))
@@ -28,6 +30,10 @@ use kagari_types::visibility::Visibility;
 /// neither stores an evaluated value nor proves const-safe semantics.
 #[derive(Debug, Clone)]
 pub struct ConstItem {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
+    /// Exact written name when available.
+    pub name_span: Option<Span>,
     /// Associated trait/impl container, or `None` for a free constant.
     pub owner: Option<ConstOwner>,
     /// Slot in `Module.consts`.
@@ -67,6 +73,12 @@ pub enum ConstOwner {
 /// executes this initializer or publishes a constant value for the declaration.
 #[derive(Debug, Clone)]
 pub struct StaticItem {
+    /// Source range or structured declaration attribution.
+    pub origin: NodeOrigin,
+    /// Exact written name when available.
+    pub name_span: Option<Span>,
+    /// Complete authored initializer, including outer parentheses.
+    pub initializer_span: Option<Span>,
     /// Slot in `Module.statics` within this lowering.
     pub id: StaticId,
     /// Declared visibility, including through imports.

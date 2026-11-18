@@ -648,7 +648,7 @@ pub(crate) fn validate_signatures(
             continue;
         };
         let span = item.ty.map_or_else(
-            || lowered.source_map.static_span(item.id),
+            || lowered.module.static_item(item.id).origin.diagnostic_span(),
             |ty| lowered.module.type_ref(ty).origin.diagnostic_span(),
         );
         let normalized = catalog.normalize_type(definitions, ty);
@@ -692,7 +692,7 @@ pub(crate) fn validate_signatures(
                 definitions,
                 &parameter.ty,
                 catalog,
-                lowered.source_map.param_span(parameter.id),
+                lowered.module.parameter(parameter.id).binding_span(),
                 diagnostics,
                 cancel,
             );
@@ -704,7 +704,7 @@ pub(crate) fn validate_signatures(
                 },
                 &parameter.ty,
                 &function.bounds,
-                lowered.source_map.param_span(parameter.id),
+                lowered.module.parameter(parameter.id).binding_span(),
                 diagnostics,
                 cancel,
             );
@@ -713,7 +713,9 @@ pub(crate) fn validate_signatures(
             definitions,
             &function.return_type,
             catalog,
-            lowered.source_map.function_span(function.id),
+            lowered.module.functions[function.id.index()]
+                .origin
+                .diagnostic_span(),
             diagnostics,
             cancel,
         );
@@ -725,7 +727,9 @@ pub(crate) fn validate_signatures(
             },
             &function.return_type,
             &function.bounds,
-            lowered.source_map.function_span(function.id),
+            lowered.module.functions[function.id.index()]
+                .origin
+                .diagnostic_span(),
             diagnostics,
             cancel,
         );
@@ -772,7 +776,9 @@ pub(crate) fn validate_signatures(
             diagnostics,
             cancel,
         );
-        let span = lowered.source_map.impl_span(impl_block.id);
+        let span = lowered.module.impls[impl_block.id.index()]
+            .origin
+            .diagnostic_span();
         for method in &contract.methods {
             let Some(implementation) = impl_block
                 .methods

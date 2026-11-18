@@ -46,7 +46,7 @@ pub(super) fn signatures(
         } else {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::ExpectedType)
-                    .with_span(lowered.source_map.static_span(item.id)),
+                    .with_span(lowered.module.static_item(item.id).origin.diagnostic_span()),
             );
             TypeId::Error
         };

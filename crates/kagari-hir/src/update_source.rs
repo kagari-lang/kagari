@@ -294,7 +294,6 @@ pub(crate) fn collect(
     budget: &mut SourceBudget<'_>,
 ) -> Result<SourceEvidence, DefinitionMappingError> {
     let hir = &module.lowered.module;
-    let map = &module.lowered.source_map;
     let mut result = SourceEvidence::default();
     for function in &hir.functions {
         let typed = module
@@ -327,8 +326,8 @@ pub(crate) fn collect(
     }
     let mut builders = Vec::new();
     for item in &hir.statics {
-        let initializer = map
-            .static_initializer_span(item.id)
+        let initializer = item
+            .initializer_span
             .ok_or(DefinitionMappingError::InvalidContract)?;
         let body = builder(
             module,

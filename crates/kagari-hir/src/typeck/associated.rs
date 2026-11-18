@@ -270,7 +270,11 @@ pub(super) fn prepare(
                         name,
                         reason: "missing definition in trait implementation".into(),
                     })
-                    .with_span(lowered.source_map.impl_span(item.id)),
+                    .with_span(
+                        lowered.module.impls[item.id.index()]
+                            .origin
+                            .diagnostic_span(),
+                    ),
                 );
             }
         }

@@ -30,10 +30,6 @@ fn identical_local_slots_from_different_lowerings_cannot_resolve() {
         left.lowered.module.nodes.arena(),
         right.lowered.module.nodes.arena()
     );
-    assert_eq!(
-        left.lowered.module.nodes.arena(),
-        left.lowered.source_map.arena()
-    );
     let a = &left.lowered.module.functions[0];
     let b = &right.lowered.module.functions[0];
     assert_eq!(
@@ -111,7 +107,12 @@ fn identical_local_slots_from_different_lowerings_cannot_resolve() {
         .is_err()
     );
     assert!(
-        std::panic::catch_unwind(|| right.lowered.source_map.param_span(a.params[0].id)).is_err()
+        std::panic::catch_unwind(|| right
+            .lowered
+            .module
+            .parameter(a.params[0].id)
+            .binding_span())
+        .is_err()
     );
     assert!(std::panic::catch_unwind(|| right.lowered.module.stmt(left_stmt)).is_err());
     assert!(
@@ -154,7 +155,10 @@ fn edits_retire_local_ids_while_unchanged_queries_share_the_lowering() {
     assert_eq!(old_facts.lowered.module.parameter(old_parameter).name, "x");
     assert_eq!(new.lowered.module.parameter(new_parameter).name, "x");
     assert!(std::panic::catch_unwind(|| new.lowered.module.parameter(old_parameter)).is_err());
-    assert!(std::panic::catch_unwind(|| new.lowered.source_map.param_span(old_parameter)).is_err());
+    assert!(
+        std::panic::catch_unwind(|| new.lowered.module.parameter(old_parameter).binding_span())
+            .is_err()
+    );
 }
 
 #[test]

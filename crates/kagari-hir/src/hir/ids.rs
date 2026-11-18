@@ -20,8 +20,8 @@
 //! records logically; only parameter indices are relative to their function owner.
 //! It is distinct from an enclosing struct/enum owner in a member ID.
 //!
-//! The internal `Lowerer` allocates body node IDs from their record slots. Parameters
-//! register source ranges under their function-local IDs.
+//! The internal `Lowerer` allocates body node IDs from record slots.
+//! Parameters own origins in the function-local parameter list.
 //! Body/parameter access checks lowering identity and owner before returning the record.
 //! Plain declaration IDs lack those checks and require the matching module.
 //! Cross-module references use [`crate::imports::SourceDeclRef`] with its complete
@@ -49,7 +49,7 @@
 //! A FieldId/VariantId instead uses an enclosing declaration and a member-relative `slot`.
 //!
 //! ID constructors check the usize-to-u32 conversion.
-//! HirNodes/SourceMap accessors for qualified IDs check lowering identity and
+//! HIR record accessors for qualified IDs check lowering identity and
 //! stored owner on lookup. An ID does not itself borrow or own its target.
 //! Rebuilding after inserting a declaration can shift plain IDs; neither macro
 //! supplies stable declaration identity across edits. These source-analysis
@@ -83,7 +83,7 @@ macro_rules! id_newtype {
 /// Identity of one immutable lowering, not a function slot or memory address.
 ///
 /// Lowering source containing `fn a() {} fn b() {}` assigns one identity A to both
-/// functions' body-node IDs and the shared Body/SourceMap. Lowering it again
+/// functions' qualified IDs and the shared HirNodes. Lowering it again
 /// obtains another identity B; cloned/reused lowering retains A. A checked process-
 /// wide counter creates the value. The nodes use ordinary owned vectors, not an
 /// allocator arena. This identity has no source token and no guarantee of persistence

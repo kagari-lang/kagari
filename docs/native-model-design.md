@@ -154,7 +154,7 @@ registration attachments remain on its envelope.
 struct LoweredModule {
     source: Arc<SourceFile>, // Identity/revision; authored text is optional.
     module: Module,
-    source_map: SourceMap,   // Real sites or structured declaration origins.
+    input_kind: ModuleInputKind, // Authored text or structured registration.
 }
 
 struct Module {
@@ -267,8 +267,8 @@ struct Variant {
 }
 ```
 
-Struct/enum/trait/impl records continue to own their generic binders, members and ordinary default
-links. Language-constructor/role associations, Host schemas/paths/capabilities, conversion
+Struct/enum/trait/impl records retain binder IDs, inline members and ordinary default links.
+Authored binder records live in Module.generic_params. Language-constructor/role associations, Host schemas/paths/capabilities, conversion
 relationships and caller-visible receiver/override constraints retain their existing
 declaration/member/type vocabulary and actual owners. Structured records and parsed static
 sidecars supply the same contracts; neither keeps a privileged secondary catalog. Rust offsets,
@@ -277,10 +277,9 @@ provider hooks and adapter-internal loans stay outside these declarations.
 **Identity and origins.** Retain the existing DefinitionContext/DefinitionTable, declaration-to-
 definition correspondence, module ownership, lowering-local IDs and explicit scope import/remapping.
 A table entry alone proves no declaration or language obligation. There is no registration-only
-identity scope, global name lookup authority or universal node ID. Source snapshots and
-[SourceMap](../crates/kagari-hir/src/source_map.rs) retain real authored positions when available and
-structured attribution otherwise; navigation indexes, invented spans and mandatory rendered text
-are not core inputs.
+identity scope, global name lookup authority or universal node ID. Each HIR record carries a
+[NodeOrigin](../crates/kagari-hir/src/hir/origin.rs) with its authored position or scoped
+structured attribution. Source snapshots retain optional authored text for those positions.
 
 Declared static contracts are essential inputs, not facts inferred from opaque Rust bodies. For
 example, an ordered operation requirement or a Host access restriction cannot be reconstructed
@@ -444,7 +443,7 @@ CheckedCompilation/CheckedModule/CheckedBodyInput admit matching facts and depen
 // Selected-field projection of the existing checked view, not another owned catalog.
 struct CheckedModule<'a> {
     handle: ModuleHandle,
-    origins: &'a SourceMap,
+    lowered: &'a LoweredModule,
     environment: CheckedEnvironment<'a>,
     bodies: HashMap<BodyOwner, CheckedBodyInput<'a>>,
     // No registration or native_defaults fields.
@@ -848,9 +847,9 @@ No new provider/prebuild product, Runtime-to-HIR edge or public registration DSL
 
 ### A. Remove registration-dependent HIR state and rules
 
-**Implemented ownership.** [LoweredModule](../crates/kagari-hir/src/lower.rs) retains only source,
-module and source_map. [HirNodes](../crates/kagari-hir/src/hir/nodes.rs) stores module-wide nodes;
-semantic body identities, owner/lowering checks and optional origins are unchanged. HIR has no
+**Implemented ownership.** [LoweredModule](../crates/kagari-hir/src/lower.rs) retains source,
+module and input kind. [HirNodes](../crates/kagari-hir/src/hir/nodes.rs) stores module-wide nodes
+with their origins and preserves semantic body identities and owner/lowering checks. HIR has no
 installed Native entry selector or registered/external permission bit.
 
 [Checked signatures](../crates/kagari-hir/src/semantic/signatures.rs) distinguish Required, Script

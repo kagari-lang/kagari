@@ -184,7 +184,11 @@ pub(crate) fn validate_host_surfaces(
                         item.name
                     ),
                 })
-                .with_span(lowered.source_map.native_type_span(item.id)),
+                .with_span(
+                    lowered.module.native_types[item.id.index()]
+                        .origin
+                        .diagnostic_span(),
+                ),
             );
         }
     }

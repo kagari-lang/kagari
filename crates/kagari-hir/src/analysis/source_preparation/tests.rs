@@ -120,8 +120,8 @@ fn inline_views_share_the_parse_and_rebase_retained_queries() {
     let parameter = new_lowered.module.functions[0].params[0].id;
     assert_eq!(parameter.index(), 0);
     assert_eq!(new_lowered.module.parameter(parameter).name, "x");
-    let old_span = old_lowered.source_map.param_span(old_parameter);
-    let span = new_lowered.source_map.param_span(parameter);
+    let old_span = old_lowered.module.parameter(old_parameter).binding_span();
+    let span = new_lowered.module.parameter(parameter).binding_span();
     assert_eq!(old_span.start, text.find("x: i32").unwrap());
     assert_eq!(span.start, changed.find("x: i32").unwrap());
     assert_eq!(span.start - old_span.start, "// inserted\r\n".len());

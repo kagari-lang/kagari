@@ -39,7 +39,9 @@ impl FileQueries<'_> {
             .functions()
             .iter()
             .filter_map(|function| {
-                let span = facts.lowered.source_map.function_span(function.id);
+                let span = facts.lowered.module.functions[function.id.index()]
+                    .origin
+                    .diagnostic_span();
                 (span.start <= offset && offset <= span.end)
                     .then_some((span.end - span.start, &function.bounds))
             })

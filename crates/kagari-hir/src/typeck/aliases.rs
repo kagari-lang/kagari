@@ -335,7 +335,9 @@ impl AliasValidation<'_> {
             let Some(template) = self.declarations.imported_types().alias(id) else {
                 continue;
             };
-            let span = self.lowered.source_map.type_alias_span(alias.id);
+            let span = self.lowered.module.type_aliases[alias.id.index()]
+                .origin
+                .diagnostic_span();
             check::validate_reference_position(&template.target, span, diagnostics);
             interfaces::validate_type(
                 self.declarations.definitions(),
@@ -384,7 +386,11 @@ impl AliasValidation<'_> {
             .diagnostic_span();
         let contains = |owner: Span| owner.start <= span.start && span.end <= owner.end;
         for alias in &self.lowered.module.type_aliases {
-            if contains(self.lowered.source_map.type_alias_span(alias.id)) {
+            if contains(
+                self.lowered.module.type_aliases[alias.id.index()]
+                    .origin
+                    .diagnostic_span(),
+            ) {
                 return self
                     .declarations
                     .definition(ResolvedName::TypeAlias(alias.id))
@@ -394,7 +400,11 @@ impl AliasValidation<'_> {
             }
         }
         for item in &self.lowered.module.structs {
-            if contains(self.lowered.source_map.struct_span(item.id)) {
+            if contains(
+                self.lowered.module.structs[item.id.index()]
+                    .origin
+                    .diagnostic_span(),
+            ) {
                 return constraints::parameter_bounds(
                     &self.lowered.module,
                     &item.generic_params,
@@ -404,7 +414,11 @@ impl AliasValidation<'_> {
             }
         }
         for item in &self.lowered.module.enums {
-            if contains(self.lowered.source_map.enum_span(item.id)) {
+            if contains(
+                self.lowered.module.enums[item.id.index()]
+                    .origin
+                    .diagnostic_span(),
+            ) {
                 return constraints::parameter_bounds(
                     &self.lowered.module,
                     &item.generic_params,
@@ -414,7 +428,11 @@ impl AliasValidation<'_> {
             }
         }
         for item in &self.lowered.module.impls {
-            if contains(self.lowered.source_map.impl_span(item.id)) {
+            if contains(
+                self.lowered.module.impls[item.id.index()]
+                    .origin
+                    .diagnostic_span(),
+            ) {
                 let mut bounds = constraints::implementation_bounds(
                     &self.lowered.module,
                     item,
@@ -426,7 +444,11 @@ impl AliasValidation<'_> {
             }
         }
         for item in &self.lowered.module.traits {
-            if contains(self.lowered.source_map.trait_span(item.id)) {
+            if contains(
+                self.lowered.module.traits[item.id.index()]
+                    .origin
+                    .diagnostic_span(),
+            ) {
                 let mut bounds = constraints::parameter_bounds(
                     &self.lowered.module,
                     &item.generic_params,
@@ -503,7 +525,11 @@ pub(super) fn check_definitions(
                     name: alias.name.clone(),
                     reason: reason.clone(),
                 })
-                .with_span(lowered.source_map.type_alias_span(alias.id)),
+                .with_span(
+                    lowered.module.type_aliases[alias.id.index()]
+                        .origin
+                        .diagnostic_span(),
+                ),
             );
         }
         let context = TypeContext {

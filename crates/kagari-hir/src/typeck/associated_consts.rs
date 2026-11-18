@@ -184,7 +184,9 @@ pub(crate) fn validate(
                             .expect("associated constant")
                             .name,
                         "missing definition in trait implementation",
-                        lowered.source_map.impl_span(item.id),
+                        lowered.module.impls[item.id.index()]
+                            .origin
+                            .diagnostic_span(),
                     ));
                 }
             }

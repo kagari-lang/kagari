@@ -180,7 +180,7 @@ pub struct ResolvedIteration {
 ///
 /// Temporary inference holes and recursion guards belong to the private checking
 /// workspace and cannot be stored in this table. Semantic definition mapping does
-/// not remap lowering-local IDs; body and signature reuse use explicit source-map remappers
+/// not remap lowering-local IDs; body and signature reuse remap through matching record origins
 /// for local IDs.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TypeTable {

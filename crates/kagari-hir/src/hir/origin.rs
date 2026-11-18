@@ -20,6 +20,11 @@ impl NodeOrigin {
         }
     }
 
+    /// Uses a precise name range for a diagnostic when the source supplied one.
+    pub fn diagnostic_name(self, name: Option<Span>) -> Span {
+        name.unwrap_or_else(|| self.diagnostic_span())
+    }
+
     /// Returns the byte anchor for diagnostics on the matching input.
     ///
     /// Structured records use an empty anchor internally. Use [Self::source_span]

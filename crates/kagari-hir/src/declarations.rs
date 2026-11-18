@@ -12,7 +12,7 @@ use crate::{
             BodyOwner, FieldId, GenericParamId, HirOwner, ImplId, NativeTypeId, TypeRefId,
             VariantId,
         },
-        item::{Item, Module, function::FunctionKind},
+        item::{Module, function::FunctionKind},
         origin::NodeOrigin,
         ty::DefinitionExposure,
     },
@@ -30,7 +30,6 @@ use crate::{
         resolved::{DeclarationNames, ResolvedName, ResolvedNames},
         table::NameTable,
     },
-    source_map::{SourceMap, origin::OriginTarget},
     types::GenericParameterType,
 };
 use kagari_common::{
@@ -173,38 +172,6 @@ enum DeclarationKey {
     AssociatedConst(TypeRefId),
 }
 
-impl DeclarationKey {
-    fn origin(&self, module: &Module, map: &SourceMap) -> NodeOrigin {
-        let target = match self {
-            Self::Field(id) => OriginTarget::Field(*id),
-            Self::Variant(id) => OriginTarget::Variant(*id),
-            Self::GenericParameter(id) => OriginTarget::GenericParam(*id),
-            Self::AssociatedType(id) | Self::AssociatedConst(id) => {
-                return module.type_ref(*id).origin;
-            }
-            Self::Name(name) => match name {
-                ResolvedName::Function(id) => OriginTarget::Item(Item::Function(*id)),
-                ResolvedName::Const(id) => OriginTarget::Item(Item::Const(*id)),
-                ResolvedName::Static(id) => OriginTarget::Item(Item::Static(*id)),
-                ResolvedName::Module(id) => OriginTarget::Item(Item::Module(*id)),
-                ResolvedName::Struct(id) => OriginTarget::Item(Item::Struct(*id)),
-                ResolvedName::NativeType(id) => OriginTarget::Item(Item::NativeType(*id)),
-                ResolvedName::TypeAlias(id) => OriginTarget::Item(Item::TypeAlias(*id)),
-                ResolvedName::Enum(id) => OriginTarget::Item(Item::Enum(*id)),
-                ResolvedName::Trait(id) => OriginTarget::Item(Item::Trait(*id)),
-                ResolvedName::Param(id) => OriginTarget::Param(*id),
-                ResolvedName::Local(id) => return module.nodes.local(*id).origin,
-                ResolvedName::Source(_)
-                | ResolvedName::Namespace(_)
-                | ResolvedName::RuntimeHelper(_) => {
-                    unreachable!("only local declarations have source-map keys")
-                }
-            },
-        };
-        map.origin(target)
-    }
-}
-
 impl From<ResolvedName> for DeclarationKey {
     fn from(value: ResolvedName) -> Self {
         Self::Name(value)
@@ -259,15 +226,13 @@ impl Declarations {
         logging::declaration()?;
         let root = context.intern_root(source.module_identity())?;
         let mut builder = Builder {
-            source,
-            map: &lowered.source_map,
+            source: lowered.source_surface().map(|_| source),
             module: &lowered.module,
             cancel,
             result: Self::empty(lowered, names, context),
             occurrences: HashMap::default(),
         };
         let module = &lowered.module;
-        let map = &lowered.source_map;
         for item in &module.functions {
             cancel
                 .check()
@@ -283,7 +248,8 @@ impl Declarations {
                 root,
                 kind,
                 &item.name,
-                map.item_declaration_span(Item::Function(item.id)),
+                item.origin,
+                item.origin.diagnostic_name(item.name_span),
             )?;
             builder.generic_params(&owner, &item.generic_params);
         }
@@ -299,7 +265,8 @@ impl Declarations {
                 root,
                 DefinitionKind::Const,
                 &item.name,
-                map.item_declaration_span(Item::Const(item.id)),
+                item.origin,
+                item.origin.diagnostic_name(item.name_span),
             )?;
         }
         for item in &module.statics {
@@ -311,7 +278,8 @@ impl Declarations {
                 root,
                 DefinitionKind::Static,
                 &item.name,
-                map.item_declaration_span(Item::Static(item.id)),
+                item.origin,
+                item.origin.diagnostic_name(item.name_span),
             )?;
         }
         for item in &module.modules {
@@ -323,7 +291,8 @@ impl Declarations {
                 root,
                 DefinitionKind::Module,
                 &item.name,
-                map.item_declaration_span(Item::Module(item.id)),
+                item.origin,
+                item.origin.diagnostic_name(item.name_span),
             )?;
         }
         for item in &module.type_aliases {
@@ -335,7 +304,8 @@ impl Declarations {
                 root,
                 DefinitionKind::TypeAlias,
                 &item.name,
-                map.item_declaration_span(Item::TypeAlias(item.id)),
+                item.origin,
+                item.origin.diagnostic_name(item.name_span),
             )?;
             builder.generic_params(&owner, &item.generic_params);
         }
@@ -352,7 +322,8 @@ impl Declarations {
                     DefinitionKind::AssociatedType
                 },
                 &item.name,
-                map.item_declaration_span(Item::NativeType(item.id)),
+                item.origin,
+                item.origin.diagnostic_name(item.name_span),
             )?;
             builder.generic_params(&owner, &item.generic_params);
             for field in &item.fields {
@@ -364,7 +335,8 @@ impl Declarations {
                     DeclarationKey::Field(field.id),
                     DeclarationId::Definition(id),
                     &field.name,
-                    map.field_span(field.id),
+                    field.origin,
+                    field.diagnostic_name_span(),
                 );
             }
         }
@@ -377,7 +349,8 @@ impl Declarations {
                 root,
                 DefinitionKind::Struct,
                 &item.name,
-                map.item_declaration_span(Item::Struct(item.id)),
+                item.origin,
+                item.origin.diagnostic_name(item.name_span),
             )?;
             builder.generic_params(&owner, &item.generic_params);
             for field in &item.fields {
@@ -389,7 +362,8 @@ impl Declarations {
                     DeclarationKey::Field(field.id),
                     DeclarationId::Definition(id),
                     &field.name,
-                    map.field_span(field.id),
+                    field.origin,
+                    field.diagnostic_name_span(),
                 );
             }
         }
@@ -402,7 +376,8 @@ impl Declarations {
                 root,
                 DefinitionKind::Enum,
                 &item.name,
-                map.item_declaration_span(Item::Enum(item.id)),
+                item.origin,
+                item.origin.diagnostic_name(item.name_span),
             )?;
             builder.generic_params(&owner, &item.generic_params);
             for variant in &item.variants {
@@ -414,7 +389,8 @@ impl Declarations {
                     DeclarationKey::Variant(variant.id),
                     DeclarationId::Definition(id),
                     &variant.name,
-                    map.variant_span(variant.id),
+                    variant.origin,
+                    variant.diagnostic_name_span(),
                 );
             }
         }
@@ -427,25 +403,23 @@ impl Declarations {
                 root,
                 DefinitionKind::Trait,
                 &item.name,
-                map.item_declaration_span(Item::Trait(item.id)),
+                item.origin,
+                item.origin.diagnostic_name(item.name_span),
             )?;
             builder.generic_params(&owner, &item.generic_params);
             for method in &item.methods {
                 cancel
                     .check()
                     .map_err(|_| DefinitionMappingError::Cancelled)?;
+                let function = &module.functions[method.function.index()];
                 let method_owner = builder.definition(
                     ResolvedName::Function(method.function),
                     owner,
                     DefinitionKind::Method,
                     &method.name,
-                    map.item_declaration_span(Item::Function(method.function)),
+                    function.origin,
+                    function.origin.diagnostic_name(function.name_span),
                 )?;
-                let function = module
-                    .functions
-                    .iter()
-                    .find(|function| function.id == method.function)
-                    .expect("trait method function");
                 builder.generic_params(&method_owner, &function.generic_params);
             }
         }
@@ -460,18 +434,15 @@ impl Declarations {
                 cancel
                     .check()
                     .map_err(|_| DefinitionMappingError::Cancelled)?;
+                let function = &module.functions[method.function.index()];
                 let method_owner = builder.definition(
                     ResolvedName::Function(method.function),
                     owner,
                     DefinitionKind::Method,
                     &method.name,
-                    map.item_declaration_span(Item::Function(method.function)),
+                    function.origin,
+                    function.origin.diagnostic_name(function.name_span),
                 )?;
-                let function = module
-                    .functions
-                    .iter()
-                    .find(|function| function.id == method.function)
-                    .expect("impl method function");
                 builder.generic_params(&method_owner, &function.generic_params);
             }
         }
@@ -500,16 +471,19 @@ impl Declarations {
                     DeclarationKey::AssociatedConst(member.name_ref),
                     DeclarationId::Definition(id),
                     &member.name,
-                    module.type_ref(member.name_ref).origin.diagnostic_span(),
+                    member.origin,
+                    member.origin.diagnostic_name(member.name_span),
                 );
                 if let Some(initializer) = member.initializer {
+                    let item = module.constant(initializer);
                     // Header and initializer share identity; reverse lookup retains the
                     // executable initializer's local handle rather than its header alias.
                     builder.insert(
                         ResolvedName::Const(initializer),
                         DeclarationId::Definition(id),
                         &member.name,
-                        map.item_declaration_span(Item::Const(initializer)),
+                        item.origin,
+                        item.origin.diagnostic_name(item.name_span),
                     );
                 }
             }
@@ -537,7 +511,8 @@ impl Declarations {
                 parent,
                 DefinitionKind::Function,
                 &function.name,
-                map.item_declaration_span(Item::Function(function.id)),
+                function.origin,
+                function.origin.diagnostic_name(function.name_span),
             )?;
             builder.generic_params(&owner, &function.generic_params);
         }
@@ -569,7 +544,8 @@ impl Declarations {
                     DeclarationKey::AssociatedType(member.name_ref),
                     DeclarationId::Definition(id),
                     &member.name,
-                    module.type_ref(member.name_ref).origin.diagnostic_span(),
+                    member.origin,
+                    member.origin.diagnostic_name(member.name_span),
                 );
                 builder.generic_params(&id, &member.generic_params);
             }
@@ -600,10 +576,8 @@ impl Declarations {
                 .expect("analysis identity exhausted"),
         );
         let analysis = self.analysis;
-        let map = &lowered.source_map;
         let mut builder = Builder {
-            source: &lowered.source,
-            map: &lowered.source_map,
+            source: lowered.source_surface().map(AsRef::as_ref),
             module: &lowered.module,
             cancel,
             result: self,
@@ -622,9 +596,15 @@ impl Declarations {
             else {
                 unreachable!("body owner is a definition")
             };
-            let range = match binding.resolved.clone() {
-                ResolvedName::Param(id) => map.param_span(id),
-                ResolvedName::Local(id) => lowered.module.nodes.local(id).origin.diagnostic_span(),
+            let (origin, range) = match binding.resolved.clone() {
+                ResolvedName::Param(id) => {
+                    let param = lowered.module.parameter(id);
+                    (param.origin, param.binding_span())
+                }
+                ResolvedName::Local(id) => {
+                    let origin = lowered.module.nodes.local(id).origin;
+                    (origin, origin.diagnostic_span())
+                }
                 ResolvedName::Function(_) => continue,
                 _ => unreachable!("directory binds parameters, locals and local functions"),
             };
@@ -636,6 +616,7 @@ impl Declarations {
                     slot: binding.resolved.clone(),
                 }),
                 &binding.name,
+                origin,
                 range,
             );
         }
@@ -644,8 +625,7 @@ impl Declarations {
 }
 
 struct Builder<'a> {
-    source: &'a SourceFile,
-    map: &'a SourceMap,
+    source: Option<&'a SourceFile>,
     module: &'a Module,
     cancel: &'a CancellationToken,
     result: Declarations,
@@ -664,14 +644,16 @@ impl Builder<'_> {
             if self.result.targets.contains_key(&key) {
                 continue;
             }
+            let param = self.module.generic_parameter(*param);
             self.insert(
                 key,
                 DeclarationId::GenericParameter {
                     owner: *owner,
                     position,
                 },
-                &self.module.generic_parameter(*param).name,
-                self.map.generic_param_span(*param),
+                &param.name,
+                param.origin,
+                param.diagnostic_name_span(),
             );
             position += 1;
         }
@@ -706,10 +688,11 @@ impl Builder<'_> {
         parent: DefinitionId,
         kind: DefinitionKind,
         name: &str,
+        origin: NodeOrigin,
         range: Span,
     ) -> Result<DefinitionId, DefinitionMappingError> {
         let id = self.identity(parent, kind, name)?;
-        self.insert(key, DeclarationId::Definition(id), name, range);
+        self.insert(key, DeclarationId::Definition(id), name, origin, range);
         Ok(id)
     }
 
@@ -718,22 +701,18 @@ impl Builder<'_> {
         key: impl Into<DeclarationKey>,
         id: DeclarationId,
         name: &str,
+        origin: NodeOrigin,
         range: Span,
     ) {
         let key = key.into();
 
-        let origin = match key.origin(self.module, self.map) {
-            NodeOrigin::Source(_) => {
-                assert!(
-                    !self.map.is_structured(),
-                    "structured declaration must retain registration attribution"
-                );
-                DeclarationOrigin::Source(
-                    self.source
-                        .span(range)
-                        .expect("declaration range must belong to its retained source"),
-                )
-            }
+        let origin = match origin {
+            NodeOrigin::Source(_) => DeclarationOrigin::Source(
+                self.source
+                    .expect("structured declaration must retain registration attribution")
+                    .span(range)
+                    .expect("declaration range must belong to its retained source"),
+            ),
             NodeOrigin::Structured { declaration } => DeclarationOrigin::Structured { declaration },
         };
         self.result.identities.insert(id.clone(), key.clone());
