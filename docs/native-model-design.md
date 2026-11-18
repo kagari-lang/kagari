@@ -18,10 +18,10 @@ remaining failures and follow-up sequencing; earlier NM implementation history r
 [core-model inventory](#core-model-inputs-and-derived-analysis) preserves the Rust ownership
 sketches and derivation rules below, without introducing another catalog or authoring API.
 Sections 4–6 remain deferred provider/build/prebuild/export sketches.
-[Ref/RefMut scope](#ref--refmut-recognition-only) is recognition of target T and shared/mutable
-category only. [Concrete access/runtime design](#g-reference-access-and-runtime-design-remain-undecided)
-remains undecided, not current acceptance; phases 4–5 are not activated, and existing reference
-restrictions still apply.
+The [Ref/RefMut removal](#g-remove-script-reference-views) is the next planned checkpoint, not
+implemented behavior. It removes the built-in declarations as well as their scoped-view feature,
+without placeholders. Replacement type declarations and Runtime invocation remain separate design
+work; the former phases 4–5 are not activated.
 
 ## 1. Inputs and ownership
 
@@ -142,8 +142,8 @@ producer/consumer boundaries; concrete reference access/runtime design remains u
 The Rust declarations below are ownership sketches of the existing records, not standalone
 compilable examples or new public APIs. Imports and visibility are omitted. Declaration collections
 retain their existing records; selected-field projections of derived structures below are
-explicitly marked and do not authorize dropping unshown semantic facts. Ref/RefMut recognition
-does not select a future access API or runtime representation.
+explicitly marked and do not authorize dropping unshown semantic facts. These sketches describe
+the implemented model; the planned Ref/RefMut removal is specified separately below.
 
 **Module and node storage.** [Module](../crates/kagari-hir/src/hir/item.rs) owns `Module.nodes`,
 the shared [HirNodes](../crates/kagari-hir/src/hir/nodes.rs) store.
@@ -512,31 +512,35 @@ Ref wrappers. Val prevents slot replacement, not mutation through another permit
 Frontend field support does not implement new Runtime access adapters; unsupported executable
 Native-field routes reject explicitly. Existing Host paths keep their own checked access semantics.
 
-### Ref / RefMut: recognition only
+### Enum failure-origin metadata: deferred narrowing
 
-**Current scope:** recognize `Ref<T>` and `RefMut<T>` and retain target T plus the shared/mutable
-category. Recognition uses checked canonical constructor identity, arity and shape, not an arbitrary
-user type's spelling. The [language/type owner](../crates/kagari-hir/src/language/types.rs) produces
-existing `TypeId::Reference { target, access }` records. This is static type recognition, not proof
-of a live Rust borrow or permission to access storage.
+[`ExternalModule::enum_failures`](../crates/kagari-hir/src/analysis/external.rs#L65) can mark any
+existing enum variant as `reports_failure`. The standard library marks only `Result::Err`, and
+ordinary enum variants default to unmarked. Offline inputs cannot authorize execution. The boundary
+is nevertheless too broad for a `Result::Err`-only policy: an ordinary variant marked in an admitted
+layout would capture a stack on construction, and `Runtime::result_failure` could report it as a
+business failure when it has a trace and a payload.
 
-T retains its canonical declaration, field types, visibility, writeability, binders and member
-identities. For example, recognizing `Ref<Player>` does not rewrite a declared `Player.stats: Stats`
-field to `Ref<Stats>` or select a generated `stats()` accessor. Ordinary managed field semantics
-remain unchanged; recognition neither generates an access surface nor implements a Native field
-adapter.
+**Proposed follow-up, not current behavior:** remove `enum_failures` as an external input and stop
+carrying `reports_failure` as an authored declaration fact. Derive the executable layout bit from
+the canonical `Result::Err` variant identity in both declaration routes, never from its spelling,
+alias or type arguments. Verify the bit for every executable enum layout, including private enums:
+a canonical `Err` must be marked, and any other variant must be unmarked. Runtime construction can
+continue to read the verified bit without doing an identity lookup on each construction.
 
-**Undecided proposals, not acceptance:** ordinary nominal wrappers, generated access methods,
-explicit `as_ref()`, storable handles, managed/Host backing and dynamically expiring access are
-possible directions, not selected implementation. No replacement of the current reference
-representation, forwarding/conversion rules or escape/suspension policy is authorized. Concrete
-access APIs, projection, adaptation and runtime lifetime design remain undecided under
-[9G](#g-reference-access-and-runtime-design-remain-undecided).
+Keep the [error-reporting contract](spec/error-reporting.md#origin-ownership-and-propagation): a new
+`Err` captures its bounded VM stack in production, and propagation through `?` or `map_err` preserves
+its original trace. Compact capture and deferred formatting are a separate Runtime concern; this
+follow-up does not disable stack capture or change error propagation.
 
-Existing target/access validation, non-storability, escape/suspension restrictions and scoped Rust
-borrow checks remain in force. Host state stays outside the script heap; installed typed access,
-ownership/generation validation, roots, GC/reentry boundaries and cleanup retain their current
-owners. Recognition must not bypass those checks or admit unsupported executable operations.
+### Ref / RefMut: removal boundary
+
+**Planned, not current behavior.** Remove the standard-library `Ref<T>` and `RefMut<T>` names,
+exports and scoped-view behavior together. Do not keep declaration-only placeholders or reserve
+those spellings: a user-declared type with either name follows ordinary generic rules and does not
+acquire borrow semantics. `Player.stats: Stats` and other declarations of the former target types
+remain unchanged. See [9G](#g-remove-script-reference-views) for the removal sequence and preserved
+contracts.
 
 ## 4. Checked libraries and Rust providers
 
@@ -809,17 +813,16 @@ signature check or an artifact-supplied digest.
 Remaining directions require separate authorization: registration/provider products, reusable
 preparation and generic/link caches, binary versus generated-code prebuild representation,
 producer/bootstrap and HOST/TARGET configuration, standalone MIR/shared libraries, export-sidecar
-encoding, directory publication/refresh, and concrete reference access/runtime design beyond
-[recognition](#ref--refmut-recognition-only). Reference representation, access API and lifetime policy
-are undecided; ordinary wrappers and dynamic expiry are proposals, not selected requirements.
-Existing preparation/workflow is active, not an obsolete compatibility reader. The existing roadmap
-owns deferred scope; this document does not add a reference implementation queue.
+encoding, directory publication/refresh, and any replacement for the script reference views.
+Reference representation, access API and lifetime policy remain undecided. Existing
+preparation/workflow is active, not an obsolete compatibility reader. The roadmap owns the removal
+checkpoint; it does not schedule a replacement reference feature.
 
 ## 9. Frontend and linking boundary remediation
 
 A–F record the implemented phases 1–3 ownership and review-repaired contracts. Their headings
-remain stable link anchors, not pending work or a completed checklist ledger. G records the
-recognition-only scope and undecided access/runtime design; sections 4–6 remain deferred sketches.
+remain stable link anchors, not pending work or a completed checklist ledger. G records the planned
+reference feature removal; sections 4–6 remain deferred sketches.
 
 ### Boundary and operation example
 
@@ -908,8 +911,8 @@ and ordinary nominal identities, never registered/external source privileges.
 [NativeTypeDeclaration](../crates/kagari-hir/src/hir/item/adt.rs) owns identity, binders, bounds,
 fields and optional address-free Host schema/path/access contracts. Physical layouts and Rust
 storage/access adapters belong to executable representation and installation. Unsupported Native
-field execution still rejects. Existing Ref/RefMut target, no-escape, suspension and scoped-borrow
-restrictions remain in force; 9G selects no replacement.
+field execution still rejects. The implemented Ref/RefMut route remains checked until it is
+removed as a unit under 9G; no replacement access semantics have been selected.
 
 ### E. Remove LoweredModule side maps by assigning actual semantic owners
 
@@ -989,25 +992,53 @@ These adaptations introduce no compatibility reader, routine ABI/format bump, pr
 product, exporter, directory watcher or new reference operation. Wider Native backend/platform
 support remains deferred; executable validation and the roadmap's known failures are not waived.
 
-### G. Reference access and runtime design remain undecided
+### G. Remove script reference views
 
-The current Ref/RefMut scope is [recognition only](#ref--refmut-recognition-only): target T and
-shared/mutable category. Ordinary wrappers, generated methods, storable carriers and dynamic expiry
-are unselected proposals, not a required migration or acceptance checklist. A future concrete
-access/runtime model needs an explicit decision and authorization at the existing roadmap owner.
+**Next planned checkpoint; not implemented.** The [scoped SDK example](../crates/kagari/examples/scoped_host.rs)
+currently borrows an external Rust `Player` as `RefMut<Player>`, then calls `player.heal(10)` in
+script. That path depends on HIR projecting members from `Player`, checked executable reference
+contracts, and Runtime borrowing the original Rust object. After removal, `RefMut<Player>` no
+longer resolves to a standard-library type and this script/SDK call path no longer exists. Do not
+supply a replacement type, placeholder, alias, or compatibility route.
 
-No current reference constructor, type, access rule or safety test is retired by this boundary
-remediation. Keep existing target/access, escape/suspension, scoped-borrow and executable validation;
-new access adapters or relaxed restrictions are outside current scope.
+**Implementation order.** Land these steps as one checkpoint; do not leave a runnable carrier whose
+source or executable safety rules were removed earlier.
+
+1. **Standard library and HIR.** Remove the `Ref` and `RefMut` declarations and re-exports from the
+   foundation, prelude and declaration exports. Remove their canonical constructor/shape checks,
+   `TypeId::Reference` interpretation, field and method projection, implicit narrowing and the
+   escape/suspension rules specific to this carrier. Remove the behavior for both structured and
+   source-backed inputs. Preserve ordinary generic checks, other language constructors, and static
+   rules for other Host values.
+2. **Compiler, verification, Runtime and SDK.** Remove the dedicated reference type, transport,
+   call/field lowering and verifier rules, and the Rust-to-script `borrow`/`borrow_mut` entrypoints
+   that produce this carrier. Preserve independent executable validation: the removed carrier must
+   not be accepted at another entrypoint or reinterpreted as another type in an artifact. Keep
+   `HostScope` and `execute_scoped` for retained paths, including
+   [manual Host adapters](../crates/kagari-stdlib/src/tests/execution/native_boundary/native_boundary_conversion/host_adapter.rs#L435).
+   Keep `Opaque<T>`, Host path handling, checked short Rust loans, and their ownership, aliasing,
+   reload and cleanup guarantees. Remove the wrapper lookup use of
+   [`receiver_access`](../crates/kagari-types/src/callable.rs#L7), not the binding/access checks that
+   surviving Native consumers still need.
+3. **Consumers and acceptance.** Retire or rewrite affected examples, specs, fixtures and tests.
+   Discard affected unpublished artifacts/caches; no compatibility reader or routine ABI bump.
+   Check both declaration routes no longer provide the standard names and same-named user types act
+   like ordinary types. Exercise representative rejection of the removed executable carrier and run
+   focused source-free and actual Host/Opaque call regressions, preserving distinct loan and
+   cleanup assertions. Run the repository's local structure, fmt, workspace all-target Clippy and
+   diff gates; full workspace tests and exhaustive matrices remain CI-only.
+
+**Deferred, not part of removal:** whether types such as `Player` should later supply their own view
+and methods, how declarations are generated or named, and how Runtime binds those calls and checks
+handle lifetime/access. No public generic wrapper, per-type view, implicit conversion, or change
+to `Player`'s fields is required now.
 
 ### Sequencing, acceptance and remaining limits
 
 Phases 1–3 close the binding-dependent frontend/default/classification replacement described by
-A–F. Ref/RefMut acceptance is recognition of target T and shared/mutable category only, with
-existing safety checks unchanged. 9G selects no access/runtime replacement or relaxation of
-no-escape restrictions. Sections 4–6 retain deferred provider/build/prebuild/export designs; no
-such product, watcher or new reference model is activated by the implemented boundary or this
-documentation.
+A–F. The planned 9G removal is a separate checkpoint; current scoped views and their checks still
+apply until then. Sections 4–6 retain deferred provider/build/prebuild/export designs. Neither the
+implemented boundary nor this documentation activates a replacement reference feature.
 
 The lasting acceptance invariants are:
 
@@ -1021,8 +1052,8 @@ The lasting acceptance invariants are:
   Linking validates installed implementations and final Script semantics independently of the
   product's internally coherent provenance, including applied associated projections.
 - Ordinary defaults and generic/associated operations retain their Host/GC, roots/loans, actual
-  returned-value, cancellation and reload guarantees. Existing reference restrictions remain in
-  force; recognition selects no new access/runtime semantics, and unsupported capabilities still reject.
+  returned-value, cancellation and reload guarantees. The existing reference restrictions remain
+  in force until the scoped-view route is removed; unsupported capabilities still reject.
 
 The [roadmap](implementation-roadmap.md#native-model-replacement) owns remaining failures and
 validation scope, including the baseline noted in section 7; implementation status is not an

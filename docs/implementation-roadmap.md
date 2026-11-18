@@ -1323,8 +1323,8 @@ rejection; 11 analyzer Native facade/path/offline tests; six SDK session/install
 environment reuse tests. Reproduce the original regression with
 `cargo test -p kagari-analyzer --lib query_tests::native_facade::facade_bindings_keep_offline_host_identity_queries_and_revision_invalidation -- --exact`.
 Structure, workspace formatting, workspace all-target Clippy with `-D warnings` and diff checks pass.
-Documentation scope is recognition-only Ref/RefMut; no reference implementation or restriction was
-changed. The selection samples the changed dependency path and its direct consumers, not the full
+At that checkpoint, Ref/RefMut remained recognition-only in scope; no reference implementation or
+restriction changed. The selection samples the changed dependency path and its direct consumers, not the full
 workspace or backend/platform matrix. Those matrices remain CI-only. The unrelated baseline suite
 below was not rerun for this repair; its owning follow-ups and previous evidence remain open.
 
@@ -1359,13 +1359,13 @@ access/runtime design, output/reflection extraction and broader LSP scheduling a
 three phases. Unpublished affected products are disposable; no compatibility reader, routine format/ABI bump or
 general provider installation redesign was added.
 
-[Ref/RefMut scope](native-model-design.md#ref--refmut-recognition-only) is recognition of target T
-and shared/mutable category only, with T's canonical fields unchanged. Concrete access and runtime
-design [remains undecided](native-model-design.md#g-reference-access-and-runtime-design-remain-undecided).
-Ordinary wrappers, generated methods, explicit `as_ref()`, storable handles, backing/retention and
-dynamic expiry are proposals, not selected implementation or current acceptance. Existing reference
-representation, escape/suspension restrictions, scoped borrowing and executable safety checks remain
-unchanged; this scope does not authorize implementation or relaxation.
+**Next checkpoint, not implemented:** [remove script Ref/RefMut views](native-model-design.md#g-remove-script-reference-views).
+Remove the two built-in names and their scoped-view feature together, without placeholders. The plan
+orders standard-library/HIR removal, compiler/verifier and Runtime/SDK cleanup, then consumer and
+contract validation. Preserve independent Host/Opaque access and their checked loans. Until that
+checkpoint, existing scoped views and their safety checks still apply. Any replacement, including
+per-type view declarations and their Runtime invocation, remains deferred. This is not an activation
+of the former phases 4–5.
 
 ## Numeric standard library
 
