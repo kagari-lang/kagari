@@ -127,7 +127,6 @@ impl Runtime {
         let Self {
             memory,
             host,
-            host_borrows,
             resources,
             ..
         } = self;
@@ -139,7 +138,7 @@ impl Runtime {
                     }
                     let value = field.get(cx)?;
                     let expected = description.field(index).ok_or(GcError::Representation)?;
-                    if !scoped::matches(cx, value, expected, host, host_borrows, resources)? {
+                    if !scoped::matches(cx, value, expected, host, resources)? {
                         return Err(RuntimeError::from(
                             TrapReason::InvalidHeapTargetIndexOrPayload,
                         )

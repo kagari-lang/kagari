@@ -10,7 +10,7 @@ use crate::{
     test_support::update_programs::load_empty,
     value::{
         aggregates::tuples::TupleObject, carriers::ScopedValue, cells::CellObject,
-        ephemeral::EphemeralValueId, host_values::HostRootObject, strings::StringObject,
+        host_values::HostRootObject, strings::StringObject,
     },
     value_check::data::{AsyncDataWalk, DataWalk, async_scoped},
 };
@@ -125,8 +125,7 @@ fn async_data_walk_rechecks_mutable_private_cycles_and_hidden_capabilities() {
                     .object(cx, payload.erase(), resources)
                     .unwrap()
             );
-            let ephemeral = ScopedValue::runtime_ephemeral(EphemeralValueId(1));
-            let tuple = TupleObject::alloc(cx, &[ephemeral])?;
+            let tuple = TupleObject::alloc(cx, &[ScopedValue::managed(host)])?;
             assert!(!async_scoped(cx, &[ScopedValue::managed(tuple)], resources).unwrap());
             PrivateLink::NEXT.set(cx, alias, Some(tuple.erase()));
             assert!(

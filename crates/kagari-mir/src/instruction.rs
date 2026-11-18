@@ -16,7 +16,6 @@ use kagari_contract::{
 };
 use kagari_types::{
     declaration::path::HostPathDeclaration,
-    reference::ReferenceAccess,
     ty::{NominalTy, Ty},
 };
 use serde::{Deserialize, Serialize};
@@ -49,7 +48,6 @@ pub struct MirValue {
 pub struct AggregateFieldRef {
     pub owner: NominalTy,
     pub slot: usize,
-    pub reference: Option<ReferenceAccess>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -364,11 +362,6 @@ impl Instruction {
             | Self::MakeStruct { .. }
             | Self::MakeEnum { .. } => EffectSet::allocation(),
 
-            Self::ReadAggregateField { field, .. } | Self::WriteAggregateField { field, .. }
-                if field.reference.is_some() =>
-            {
-                EffectSet::native_call()
-            }
             Self::ReadAggregateField { .. }
             | Self::ReadCell { .. }
             | Self::ReadAggregateIndex { .. }

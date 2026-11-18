@@ -41,13 +41,6 @@ impl SharedCall {
         definitions: &DefinitionTable,
     ) -> bool {
         access_valid(self.receiver_access, &self.signature.params)
-            && !self.signature.result.contains_stored_reference()
-            && self.signature.result.reference_position_valid()
-            && self
-                .signature
-                .params
-                .iter()
-                .all(Ty::reference_position_valid)
             && (self.receiver_access.is_none()
                 || matches!(self.implementation, CallableImplementation::Native(_)))
             && definitions.resolve(self.instance.declaration).is_ok()

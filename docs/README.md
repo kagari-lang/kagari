@@ -17,7 +17,7 @@ below; the public Pages site has not been activated by this work.
 | Numeric library | [Scalar method inventory](spec/builtins.md#numeric-scalar-methods), [integer policies](spec/value-semantics.md#explicit-integer-arithmetic), [float edge cases and precision](spec/value-semantics.md#floating-point-utilities-and-math) |
 | Collections and native modules | [Collection interfaces/storage](spec/collection-access.md), [native declarations](spec/standard-declarations.md) |
 | Failure and execution | [Failure semantics](spec/failure-semantics.md), [execution](spec/execution.md), [runtime](spec/runtime.md), [security/access](spec/security.md), [error reporting](spec/error-reporting.md) |
-| Host integration | [Embedding and Rust DTO/Serde conversion](spec/embedding-api.md), [unified registration, Opaque and scoped Ref/RefMut](spec/host-interop.md), [typed path mutation](spec/typed-path-mutation.md) |
+| Host integration | [Embedding and Rust DTO/Serde conversion](spec/embedding-api.md), [unified registration, Opaque and checked Host access](spec/host-interop.md), [typed path mutation](spec/typed-path-mutation.md) |
 | Modules and reload | [Packages/workspaces](spec/packages.md), [Modules](spec/modules.md), [loading](spec/module-loading.md), [activation](spec/module-activation.md) |
 | Executable products | [Bytecode](spec/bytecode.md), [artifacts](spec/artifacts.md), [backend contract](spec/codegen-backend.md), [JIT](spec/jit.md), [AOT deployment](spec/aot.md) |
 | Tooling | [Formatter, checker, linter and KBC disassembler](spec/toolchain-tools.md), [Debugger and adapter](spec/debugger.md), [reflection](spec/reflection.md), [language conformance](spec/language-conformance.md) |
@@ -75,8 +75,8 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   checking; ordinary Script bodies replace dedicated default recipes, and Native implementations
   are matched at linking. The [roadmap](implementation-roadmap.md#native-model-replacement) tracks
   remaining failures and CI acceptance separately from deferred provider/prebuild/publication work.
-  Ref/RefMut scope is type recognition only; concrete access/runtime behavior remains undecided.
-  New field execution and reflection are not implied.
+  9G removes script reference wrappers without replacing them; checked Host paths and Opaque
+  loans remain. New field execution and reflection are not implied.
 
 - [Runtime architecture](architecture/runtime.md), [call walkthrough](architecture/runtime/calls.md)
   and [reload walkthrough](architecture/runtime/reload.md): implemented exclusive

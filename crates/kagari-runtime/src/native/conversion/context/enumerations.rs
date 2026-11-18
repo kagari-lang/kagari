@@ -79,7 +79,6 @@ impl<'runtime> ConversionContext<'runtime> {
         let Runtime {
             memory,
             host,
-            host_borrows,
             resources,
             ..
         } = &mut *self.runtime;
@@ -102,7 +101,6 @@ impl<'runtime> ConversionContext<'runtime> {
                         value,
                         TypeView::new(ty, layout.module(), environment),
                         host,
-                        host_borrows,
                         resources,
                     ) {
                         Ok(matched) => matched,
@@ -197,7 +195,6 @@ impl<'runtime> ConversionContext<'runtime> {
         let Runtime {
             memory,
             host,
-            host_borrows,
             resources,
             ..
         } = &mut *self.runtime;
@@ -213,7 +210,6 @@ impl<'runtime> ConversionContext<'runtime> {
                         *field,
                         TypeView::new(ty, layout.module(), environment),
                         host,
-                        host_borrows,
                         resources,
                     ) {
                         Ok(matched) => matched,

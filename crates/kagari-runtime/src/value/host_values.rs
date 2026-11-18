@@ -4,11 +4,7 @@ pub(crate) mod paths;
 mod tests;
 use crate::{
     host::HostRootHandle,
-    value::{
-        EphemeralValue,
-        carriers::{ManagedRepresentation, ScopedValue},
-        kind::ObjectKind,
-    },
+    value::{carriers::ManagedRepresentation, kind::ObjectKind},
 };
 use kagari_gc::{
     access::Scope,
@@ -39,27 +35,6 @@ impl HostRootObject {
 
 /// Frame loans and scoped Host projections remain revocable Host capabilities.
 /// Runtime-only opaque temporaries stay inline and allocate no wrapper.
-#[derive(Debug)]
-pub(crate) struct EphemeralObject {
-    value: EphemeralValue,
-}
-
-impl EphemeralObject {
-    pub(crate) fn alloc<'gc>(
-        cx: &mut Scope<'gc>,
-        value: EphemeralValue,
-    ) -> Result<ScopedValue<'gc>, GcError> {
-        match value {
-            EphemeralValue::Runtime(id) => Ok(ScopedValue::runtime_ephemeral(id)),
-            value => cx.alloc_leaf(Self { value }).map(ScopedValue::managed),
-        }
-    }
-
-    pub(crate) fn value(&self) -> EphemeralValue {
-        self.value
-    }
-}
-
 macro_rules! host_leaf {
     ($object:ty, $kind:ident) => {
         impl ManagedRepresentation for $object {
@@ -89,4 +64,3 @@ macro_rules! host_leaf {
 }
 
 host_leaf!(HostRootObject, HostRoot);
-host_leaf!(EphemeralObject, Ephemeral);

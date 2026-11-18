@@ -1,5 +1,4 @@
-//! One registered method set serves runtime-owned and externally borrowed players.
-use kagari::runtime::Runtime;
+//! Runtime-owned Opaque payloads use checked Rust loans and retain shared identity.
 use kagari::{context::ExecutionContext, engine::KagariEngine};
 use kagari_runtime::native::{
     builder::ModuleBuilder,
@@ -57,7 +56,7 @@ fn main() {
     let program = engine
         .compile_to_program(
             SourceFile::new(
-                "scoped.kgr",
+                "scoped-host.kgr",
                 include_str!("../../../examples/scoped-host.kgr"),
             ),
             Default::default(),
@@ -80,47 +79,22 @@ fn main() {
     let owned_hp: i32 = runtime
         .execute_typed(&loaded, "owned", (owned.clone(),), &context)
         .unwrap();
-    let mut external = Player { hp: 60 };
-    let borrowed_hp = runtime
-        .with_host_scope(|scope| {
-            let view = scope.borrow_mut(descriptor.rust_type(), &mut external)?;
-            let hp =
-                Runtime::execute_scoped(scope, &loaded, "borrowed", &[view.value()], &context)?
-                    .as_i32()
-                    .expect("checked hp result");
-            assert_eq!(
-                Runtime::execute_scoped(scope, &loaded, "inspect", &[view.value()], &context)?
-                    .as_i32(),
-                Some(hp)
-            );
-            Ok(hp)
-        })
-        .unwrap();
     assert_eq!(owned_hp, 70);
-    assert_eq!(borrowed_hp, 70);
-    assert_eq!(external.hp, 70);
-    runtime
-        .with_host_scope(|scope| {
-            let view = scope.borrow(descriptor.rust_type(), &external)?;
-            assert_eq!(
-                Runtime::execute_scoped(scope, &loaded, "inspect", &[view.value()], &context)?
-                    .as_i32(),
-                Some(70)
-            );
-            Ok(())
-        })
-        .unwrap();
-    let mut cx = NativeContext::new(&mut runtime, &selected).unwrap();
-    assert_eq!(owned.read(&mut cx, |player| Ok(player.hp)).unwrap(), 70);
-    owned
-        .edit(&mut cx, |player| {
-            player.hp += 1;
-            Ok(())
-        })
-        .unwrap();
     let alias = owned.clone();
-    let alias_hp = alias.read(&mut cx, |player| Ok(player.hp)).unwrap();
+    {
+        let mut cx = NativeContext::new(&mut runtime, &selected).unwrap();
+        assert_eq!(owned.read(&mut cx, |player| Ok(player.hp)).unwrap(), 70);
+        owned
+            .edit(&mut cx, |player| {
+                player.hp += 1;
+                Ok(())
+            })
+            .unwrap();
+    }
+    let alias_hp: i32 = runtime
+        .execute_typed(&loaded, "inspect", (alias,), &context)
+        .unwrap();
     assert_eq!(alias_hp, 71);
-    println!("owned hp={owned_hp}, borrowed hp={borrowed_hp}");
-    println!("shared opaque alias hp={alias_hp}");
+    println!("opaque hp after script heal={owned_hp}");
+    println!("opaque alias hp after Rust edit={alias_hp}");
 }

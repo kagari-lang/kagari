@@ -32,6 +32,15 @@ pub enum CallableImplementation {
     Native(DefinitionId),
 }
 
+/// A declared receiver loan names a nominal receiver or its checked binder.
+/// Executable call validation separately checks the installed storage form.
+pub fn receiver_type_valid(ty: &Ty) -> bool {
+    matches!(
+        ty,
+        Ty::Struct(_) | Ty::NativeObject(_) | Ty::Parameter { .. } | Ty::SelfType(_)
+    )
+}
+
 mod mapping;
 
 /// Parameter and result semantics, independent of an executable target.

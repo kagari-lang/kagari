@@ -143,7 +143,7 @@ impl OwnedResult {
                 ObjectKind::Cell => "cell",
                 ObjectKind::HostRoot => "host_root",
                 ObjectKind::HostPath => "host_path_view",
-                ObjectKind::Ephemeral => "ephemeral",
+
                 ObjectKind::String => unreachable!("String handled above"),
             },
         })

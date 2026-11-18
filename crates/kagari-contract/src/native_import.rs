@@ -41,8 +41,7 @@ pub fn binding_id(module: &ModuleIdentity, name: &str) -> DefinitionPath {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeImport {
-    /// Checked declaration's required loan; permits a scoped view of this
-    /// signature's nominal receiver without changing entry or target identity.
+    /// Checked declaration's required short Rust loan on the nominal receiver.
     pub receiver_access: Option<ReferenceAccess>,
     /// Convert a validated Rust body result using this preselected interface table.
     pub result_adapter: Option<NativeResultAdapter>,
@@ -64,13 +63,6 @@ impl NativeImport {
         let valid =
             |ty: &Ty| types_in_scope([ty], parameters, &CancellationToken::default(), definitions);
         access_valid(self.receiver_access, &self.signature.params)
-            && !self.signature.result.contains_stored_reference()
-            && self.signature.result.reference_position_valid()
-            && self
-                .signature
-                .params
-                .iter()
-                .all(Ty::reference_position_valid)
             && self.generic.as_ref().is_none_or(|body| {
                 !body.parameters.is_empty()
                     && body

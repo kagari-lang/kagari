@@ -27,9 +27,9 @@ Rust DTO derives and schema-backed Serde; [host interop](spec/host-interop.md) o
 borrowed method adapters. Runtime-owned `Opaque<T>`
 uses the selected storage and roots described here. RR03 is moving checked read,
 fixed-data edit and managed fields to concrete GC providers; the complete Runtime
-consumer cutover is not yet runnable. Payload extraction is removed. External Ref/RefMut scopes retain their separate
-host ownership under the implemented branded scope contract. Shared resources
-inside a payload need their own Rust access guarantees.
+consumer cutover is not yet runnable. Payload extraction is removed. Registered
+Host roots and paths retain separate host ownership and checked access contracts.
+Shared resources inside a payload need their own Rust access guarantees.
 
 The SDK exposes typed `Function` bindings, current ordinary-call selection and
 shared async scheduling. `Program`/`Module` are live installation handles;

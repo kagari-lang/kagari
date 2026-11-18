@@ -77,7 +77,7 @@ fn main() -> P<i32> {{ {expression} }}
                 }
                 Instruction::ReadAggregateField { dst, base, field } => {
                     assert_eq!(Some(*base), base_value);
-                    assert_eq!(field.reference, None);
+                    assert_eq!(base.ty, ValueType::HeapObject);
                     assert_eq!(dst.ty, expected_types[field.slot]);
                     assert_eq!(
                         function.semantic.registers[&dst.temp.index()],

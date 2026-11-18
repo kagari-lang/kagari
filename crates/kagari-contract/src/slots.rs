@@ -93,18 +93,6 @@ pub fn types_valid(
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
 ) -> bool {
-    if signature
-        .result()
-        .is_some_and(Ty::contains_stored_reference)
-        || signature
-            .params()
-            .values()
-            .chain(signature.value_types())
-            .chain(signature.result())
-            .any(|ty| !ty.reference_position_valid())
-    {
-        return false;
-    }
     let types = signature
         .params()
         .values()
@@ -115,9 +103,7 @@ pub fn types_valid(
             identity.is_some_and(|identity| body.valid(identity, cancel, definitions))
                 && body.types_valid(types, cancel, definitions)
         }
-        None => types
-            .into_iter()
-            .all(|ty| ty.within_wire_limits() && types_in_scope([ty], &[], cancel, definitions)),
+        None => types_in_scope(types, &[], cancel, definitions),
     }
 }
 

@@ -746,28 +746,28 @@ session's cancellation and exact admitted entry. The explicit named-entry policy
 
 ### Scoped external host entry
 
-Runtime::with_host_scope reserves the mutable runtime and gives its callback
-an invariant native HostScope. The callback returns Result<_, RuntimeError>, so native lending
-errors preserve the canonical typed reason and trace without string conversion. No
-scope brand, borrowed result or host reference can escape.
+`kagari_runtime::Runtime::with_host_scope` reserves the mutable runtime and supplies an invariant
+`HostScope`. Use `scope.import` to admit a rooted value, such as a registered Host
+root or typed path view. The scope protects call-local values; it does not lend
+arbitrary Rust storage as a script argument.
 
 Inside that scope, Runtime::execute_scoped(scope, loaded, entry, values,
 execution) delegates to the VM's existing checked scoped entry. ExecutionContext is
 required: cancellation, deterministic inputs, host-call recording and the observer
 apply to this root session. JitPolicy::Disabled explicitly selects the interpreter;
-other policies reject before callback effects. Scoped native reference bodies have
-no implied native backend implementation. The same API is available without source
-or native features and reads only the installed source-free checked product.
+other policies reject before callback effects. The same API is available without
+source or native features and reads only the installed source-free checked product.
 
 A returned ValueView names protected execution storage until scope exit. Decode
 owned DTO/scalar data or explicitly call scope.retain within the scope when a heap
 result must outlive it. Backend invocation publishes through its linear ResultPlace
 before retiring callee scratch; a successful publication proof is consumed by the
 scope before argument cleanup. Temporary transport creates no owning Host root.
-Scoped Host/runtime ephemeral results reject before escape. Leaving
-the scope revokes every external view on success, failure and supported Rust unwind.
-The executable [scoped host example](../../crates/kagari/examples/scoped_host.rs)
-uses the SDK facade for the same explicitly registered Opaque/external method body.
+Results that fail Host retention checks cannot escape. Scope exit
+releases temporary protection on success, failure and supported Rust unwind;
+it does not revoke independently retained Host roots. See the
+[manual Host adapter tests](../../crates/kagari-stdlib/src/tests/execution/native_boundary/native_boundary_conversion/host_adapter.rs)
+for scoped calls with registered roots and typed paths.
 
 ## Typed native registration
 
@@ -855,13 +855,10 @@ checks Vec capacity growth. Individual blocking iterator steps are not preempted
 See the [typed_native example](../../crates/kagari/examples/typed_native.rs)
 for registration and a host entry with owned arguments and results.
 
-`RustType<T>` is the runtime-bound target descriptor shared by external scope
-lending and NativeType's storage application. Bind ordinary registered structs with
-`runtime.bind_rust_type::<T>(&owner)`; use `native_type.rust_type()` for a native
-payload. A HostScope reserves the original Rust value, uses checked loan-capable
-methods and releases every address on exit. GC struct values remain owned DTO data
-and cannot become Rust references. See the [scoped consumer](../../crates/kagari/examples/scoped_host.rs)
-and the [scope contract](host-interop.md).
+An Opaque instance method can bind a short checked `&T` or `&mut T` receiver loan
+using `LoanContext`. GC struct values remain owned DTO data and cannot become Rust
+references. See the [Opaque consumer](../../crates/kagari/examples/scoped_host.rs)
+and the [payload loan contract](host-interop.md#registered-payload-loans).
 
 ## Retained objects and prepared calls
 

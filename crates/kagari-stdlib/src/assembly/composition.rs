@@ -98,8 +98,6 @@ pub(super) fn collect() -> NativeResult<ModuleAssembly> {
     }
     for (name, kind) in [
         ("String", DefinitionKind::AssociatedType),
-        ("Ref", DefinitionKind::AssociatedType),
-        ("RefMut", DefinitionKind::AssociatedType),
         ("Option", DefinitionKind::Enum),
         ("Result", DefinitionKind::Enum),
         ("Future", DefinitionKind::AssociatedType),

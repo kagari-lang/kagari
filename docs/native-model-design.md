@@ -18,10 +18,10 @@ remaining failures and follow-up sequencing; earlier NM implementation history r
 [core-model inventory](#core-model-inputs-and-derived-analysis) preserves the Rust ownership
 sketches and derivation rules below, without introducing another catalog or authoring API.
 Sections 4–6 remain deferred provider/build/prebuild/export sketches.
-The [Ref/RefMut removal](#g-remove-script-reference-views) is the next planned checkpoint, not
-implemented behavior. It removes the built-in declarations as well as their scoped-view feature,
-without placeholders. Replacement type declarations and Runtime invocation remain separate design
-work; the former phases 4–5 are not activated.
+The [Ref/RefMut removal](#g-remove-script-reference-views) removes the built-in declarations and
+scoped-view feature without placeholders. Independent Host paths and Opaque loans remain.
+Any replacement type declarations and Runtime invocation remain separate design work; the former
+phases 4–5 are not activated.
 
 ## 1. Inputs and ownership
 
@@ -143,7 +143,7 @@ The Rust declarations below are ownership sketches of the existing records, not 
 compilable examples or new public APIs. Imports and visibility are omitted. Declaration collections
 retain their existing records; selected-field projections of derived structures below are
 explicitly marked and do not authorize dropping unshown semantic facts. These sketches describe
-the implemented model; the planned Ref/RefMut removal is specified separately below.
+the implemented model; the Ref/RefMut removal boundary is described separately below.
 
 **Module and node storage.** [Module](../crates/kagari-hir/src/hir/item.rs) owns `Module.nodes`,
 the shared [HirNodes](../crates/kagari-hir/src/hir/nodes.rs) store.
@@ -507,8 +507,8 @@ Rust bodies remain opaque; declared operation evidence is not Runtime name looku
 ### Native fields
 
 Declared fields specify types, visibility and var/val, not Rust offsets or unrestricted references.
-Reading an ordinary managed object field has an ordinary object-handle type; it does not insert
-Ref wrappers. Val prevents slot replacement, not mutation through another permitted alias.
+Reading an ordinary managed object field has an ordinary object-handle type. Val prevents slot
+replacement, not mutation through another permitted alias.
 Frontend field support does not implement new Runtime access adapters; unsupported executable
 Native-field routes reject explicitly. Existing Host paths keep their own checked access semantics.
 
@@ -535,12 +535,11 @@ follow-up does not disable stack capture or change error propagation.
 
 ### Ref / RefMut: removal boundary
 
-**Planned, not current behavior.** Remove the standard-library `Ref<T>` and `RefMut<T>` names,
-exports and scoped-view behavior together. Do not keep declaration-only placeholders or reserve
-those spellings: a user-declared type with either name follows ordinary generic rules and does not
-acquire borrow semantics. `Player.stats: Stats` and other declarations of the former target types
-remain unchanged. See [9G](#g-remove-script-reference-views) for the removal sequence and preserved
-contracts.
+The standard library no longer declares or exports `Ref<T>` or `RefMut<T>`, and the script
+scoped-view behavior is gone. Neither spelling is reserved: a user-declared type with either name
+follows ordinary generic rules and does not acquire borrow semantics. `Player.stats: Stats` and
+other declarations of the former target types remain unchanged. See
+[9G](#g-remove-script-reference-views) for the removed and preserved contracts.
 
 ## 4. Checked libraries and Rust providers
 
@@ -911,8 +910,8 @@ and ordinary nominal identities, never registered/external source privileges.
 [NativeTypeDeclaration](../crates/kagari-hir/src/hir/item/adt.rs) owns identity, binders, bounds,
 fields and optional address-free Host schema/path/access contracts. Physical layouts and Rust
 storage/access adapters belong to executable representation and installation. Unsupported Native
-field execution still rejects. The implemented Ref/RefMut route remains checked until it is
-removed as a unit under 9G; no replacement access semantics have been selected.
+field execution still rejects. [9G](#g-remove-script-reference-views) removes the script wrapper
+route; it does not select replacement access semantics.
 
 ### E. Remove LoweredModule side maps by assigning actual semantic owners
 
@@ -994,39 +993,34 @@ support remains deferred; executable validation and the roadmap's known failures
 
 ### G. Remove script reference views
 
-**Next planned checkpoint; not implemented.** The [scoped SDK example](../crates/kagari/examples/scoped_host.rs)
-currently borrows an external Rust `Player` as `RefMut<Player>`, then calls `player.heal(10)` in
-script. That path depends on HIR projecting members from `Player`, checked executable reference
-contracts, and Runtime borrowing the original Rust object. After removal, `RefMut<Player>` no
-longer resolves to a standard-library type and this script/SDK call path no longer exists. Do not
-supply a replacement type, placeholder, alias, or compatibility route.
+**Implemented boundary.** Script can no longer receive an external Rust `Player` through the
+former `RefMut<Player>` wrapper and call its projected `heal` method. The
+[SDK example](../crates/kagari/examples/scoped_host.rs) instead uses a nominal `Player` backed by
+runtime-owned Opaque storage. There is no replacement type, placeholder, alias, or compatibility route.
 
-**Implementation order.** Land these steps as one checkpoint; do not leave a runnable carrier whose
-source or executable safety rules were removed earlier.
+The removal spans these layers as one checkpoint; no runnable carrier remains without its source
+or executable safety rules.
 
-1. **Standard library and HIR.** Remove the `Ref` and `RefMut` declarations and re-exports from the
-   foundation, prelude and declaration exports. Remove their canonical constructor/shape checks,
-   `TypeId::Reference` interpretation, field and method projection, implicit narrowing and the
-   escape/suspension rules specific to this carrier. Remove the behavior for both structured and
-   source-backed inputs. Preserve ordinary generic checks, other language constructors, and static
-   rules for other Host values.
-2. **Compiler, verification, Runtime and SDK.** Remove the dedicated reference type, transport,
-   call/field lowering and verifier rules, and the Rust-to-script `borrow`/`borrow_mut` entrypoints
-   that produce this carrier. Preserve independent executable validation: the removed carrier must
-   not be accepted at another entrypoint or reinterpreted as another type in an artifact. Keep
-   `HostScope` and `execute_scoped` for retained paths, including
-   [manual Host adapters](../crates/kagari-stdlib/src/tests/execution/native_boundary/native_boundary_conversion/host_adapter.rs#L435).
-   Keep `Opaque<T>`, Host path handling, checked short Rust loans, and their ownership, aliasing,
-   reload and cleanup guarantees. Remove the wrapper lookup use of
-   [`receiver_access`](../crates/kagari-types/src/callable.rs#L7), not the binding/access checks that
-   surviving Native consumers still need.
-3. **Consumers and acceptance.** Retire or rewrite affected examples, specs, fixtures and tests.
-   Discard affected unpublished artifacts/caches; no compatibility reader or routine ABI bump.
+1. **Standard library and HIR.** The foundation, prelude and declaration exports no longer supply
+   the built-in declarations or re-exports. Both structured and source-backed inputs drop their
+   special constructor checks, field and method projection, implicit narrowing and carrier-specific
+   escape/suspension rules. Ordinary generics, other language constructors and static rules for
+   independent Host values remain.
+2. **Compiler, verification, Runtime and SDK.** The dedicated reference type, transport, lowering,
+   verifier rules and Rust-to-script lending entrypoints are removed. Independent executable
+   validation must not admit the removed carrier or reinterpret it as another type in an artifact.
+   `HostScope` and `execute_scoped` remain for routes such as
+   [manual Host adapters](../crates/kagari-stdlib/src/tests/execution/native_boundary/native_boundary_conversion/host_adapter.rs).
+   `Opaque<T>`, Host paths and checked short Rust loans retain their ownership, aliasing, reload and
+   cleanup guarantees. `receiver_access` still describes binding/access checks, not wrapper lookup.
+3. **Consumers and acceptance.** Examples and specs use the retained APIs. Discard affected
+   unpublished artifacts/caches; no compatibility reader or routine ABI bump.
    Check both declaration routes no longer provide the standard names and same-named user types act
-   like ordinary types. Exercise representative rejection of the removed executable carrier and run
-   focused source-free and actual Host/Opaque call regressions, preserving distinct loan and
-   cleanup assertions. Run the repository's local structure, fmt, workspace all-target Clippy and
-   diff gates; full workspace tests and exhaustive matrices remain CI-only.
+   like ordinary types. Retain focused source-free and actual Host/Opaque call regressions,
+   preserving distinct loan and cleanup assertions. Checks using the retired wire encoding were
+   temporary migration probes, not maintained historical fixtures. Run the repository's local
+   structure, fmt, workspace all-target Clippy and diff gates; full workspace tests and exhaustive
+   matrices remain CI-only.
 
 **Deferred, not part of removal:** whether types such as `Player` should later supply their own view
 and methods, how declarations are generated or named, and how Runtime binds those calls and checks
@@ -1036,9 +1030,8 @@ to `Player`'s fields is required now.
 ### Sequencing, acceptance and remaining limits
 
 Phases 1–3 close the binding-dependent frontend/default/classification replacement described by
-A–F. The planned 9G removal is a separate checkpoint; current scoped views and their checks still
-apply until then. Sections 4–6 retain deferred provider/build/prebuild/export designs. Neither the
-implemented boundary nor this documentation activates a replacement reference feature.
+A–F. 9G removes the script reference views in a separate checkpoint. Sections 4–6 retain deferred
+provider/build/prebuild/export designs. The removal does not activate a replacement reference feature.
 
 The lasting acceptance invariants are:
 
@@ -1052,8 +1045,8 @@ The lasting acceptance invariants are:
   Linking validates installed implementations and final Script semantics independently of the
   product's internally coherent provenance, including applied associated projections.
 - Ordinary defaults and generic/associated operations retain their Host/GC, roots/loans, actual
-  returned-value, cancellation and reload guarantees. The existing reference restrictions remain
-  in force until the scoped-view route is removed; unsupported capabilities still reject.
+  returned-value, cancellation and reload guarantees. Independent Host values retain their
+  access and escape restrictions; unsupported capabilities still reject.
 
 The [roadmap](implementation-roadmap.md#native-model-replacement) owns remaining failures and
 validation scope, including the baseline noted in section 7; implementation status is not an

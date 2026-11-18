@@ -326,12 +326,7 @@ pub(super) fn constructor_registration() -> Arc<DefinitionMetadata<ModuleDecl>> 
     let providers = kagari_stdlib::catalog::shared().unwrap();
     let providers =
         crate::native::adoption::adopt(&providers, &context, &Default::default()).unwrap();
-    for (name, package, path) in [
-        ("Ref", "core", "host"),
-        ("RefMut", "core", "host"),
-        ("String", "alloc", "string"),
-        ("Range", "core", "ops"),
-    ] {
+    for (name, package, path) in [("String", "alloc", "string"), ("Range", "core", "ops")] {
         let identity = kagari_stdlib::namespaces::module(package, path);
         let provider = providers
             .iter()
@@ -385,30 +380,10 @@ pub(super) fn constructor_registration() -> Arc<DefinitionMetadata<ModuleDecl>> 
         generic_params: vec![],
         bounds: vec![],
         trait_type: None,
-        for_type: target.clone(),
+        for_type: target,
         methods,
     });
     for (name, params, result) in [
-        (
-            "references",
-            vec![
-                (
-                    "shared",
-                    Ty::Reference {
-                        target: Box::new(target.clone()),
-                        access: ReferenceAccess::Shared,
-                    },
-                ),
-                (
-                    "mutable",
-                    Ty::Reference {
-                        target: Box::new(target),
-                        access: ReferenceAccess::Mutable,
-                    },
-                ),
-            ],
-            Ty::Builtin(BuiltinType::Unit),
-        ),
         (
             "text",
             vec![("value", Ty::Builtin(BuiltinType::String))],

@@ -22,7 +22,7 @@ use crate::{
 use std::slice;
 
 impl Runtime {
-    /// Execute a closed public entry using a branded external host scope. This
+    /// Execute a closed public entry using a branded Host scope. This
     /// uses the interpreter's ordinary checked entry, session and trap cleanup.
     pub fn execute_scoped<'entry, 'scope, 'host: 'scope>(
         scope: &mut HostScope<'scope, 'host>,

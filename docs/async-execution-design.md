@@ -772,7 +772,7 @@ not that every result handle has been dropped or remote IO rolled back.
 
 Allowed retained state: owned scalar/managed values, code pins, checked stable IDs,
 closure environments and rooted cursors. Prohibited retained state: Rust Ref/RefMut,
-host scoped borrows/ephemerals, prepared writable paths, frame mutation guards and
+scoped Host loans, prepared writable paths, frame mutation guards and
 an unfinished synchronous native/reentry activation. For-loop tests park real
 executions, force GC, permit source edits and verify that subsequent stale reads
 trap without repeating earlier effects. Nonstructural replacements remain visible.
@@ -780,7 +780,7 @@ Completion, cancellation and owner retirement release frame roots independently
 of GC timing. No source snapshot is required.
 
 Cold capture validation follows reachable managed values/cells with cycle detection,
-not just static outer types. Reject ephemeral or scoped host resources at creation
+not just static outer types. Reject non-suspendable Host capabilities at creation
 and revalidate actual reachable mutable state on drive/suspension. Declared owned
 host payloads must expose their traced edges; arbitrary raw host references cannot
 hide in a Future. Source diagnostics reject known-invalid captures, and portable

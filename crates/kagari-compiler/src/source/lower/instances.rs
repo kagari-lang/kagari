@@ -1189,10 +1189,6 @@ fn instantiate(
         TypeId::Range(element, kind) => TypeId::Range(Box::new(child(element)?), *kind),
 
         TypeId::Array(element) => TypeId::Array(Box::new(child(element)?)),
-        TypeId::Reference { target, access } => TypeId::Reference {
-            target: Box::new(child(target)?),
-            access: *access,
-        },
 
         TypeId::NativeObject(nominal)
         | TypeId::Struct(nominal)

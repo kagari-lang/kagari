@@ -7,11 +7,11 @@ use crate::{
     module::ExecutableModule,
     native::conversion::context::ConversionContext,
     session::owned::OwnedExecution,
+    test_support::layouts,
     test_support::{bytecode::load_bytecode, native::program::ProgramFixture},
     value::{
         aggregates::tuples::TupleObject,
         carriers::{RootedValue, ScopedValue},
-        ephemeral::EphemeralValueId,
         view::ValueView,
     },
 };
@@ -103,15 +103,11 @@ fn set_rooted(runtime: &mut Runtime, stack: &FrameStack, value: &RootedValue) {
     set_frame(source.runtime_mut(), stack, &value);
 }
 
-fn transient_tuple(runtime: &mut Runtime, ephemeral: bool) -> RootedValue {
+fn transient_tuple(runtime: &mut Runtime, host: Option<&RootedValue>) -> RootedValue {
     runtime
         .memory
         .scope(&runtime.resources, |cx, _| {
-            let value = if ephemeral {
-                ScopedValue::runtime_ephemeral(EphemeralValueId(1))
-            } else {
-                ScopedValue::unit()
-            };
+            let value = host.map_or(Ok(ScopedValue::unit()), |root| root.get(cx))?;
             let tuple = TupleObject::alloc(cx, &[value])?;
             ScopedValue::managed(tuple).retain(cx)
         })
@@ -166,6 +162,7 @@ fn transition(stack: ExecutionStack<'_>) {
 #[test]
 fn declined_parking_retains_activation_for_retry_and_errors_retain_trace() {
     let mut runtime = Runtime::default();
+    let (host, _) = layouts::host_values(&mut runtime, 2);
     let module = module(&mut runtime, 1, false);
     let owner = runtime
         .start_owned_execution(&module, FunctionRef::new(0), &[], Default::default())
@@ -175,7 +172,7 @@ fn declined_parking_retains_activation_for_retry_and_errors_retain_trace() {
         .as_mut()
         .unwrap()
         .with(|runtime, stack| {
-            let value = transient_tuple(runtime, true);
+            let value = transient_tuple(runtime, Some(&host));
             set_rooted(runtime, stack, &value);
             Ok(())
         })
@@ -204,7 +201,7 @@ fn declined_parking_retains_activation_for_retry_and_errors_retain_trace() {
         .unwrap()
         .with(|runtime, stack| {
             assert_eq!(runtime.capture_error_trace().frames.len(), 1);
-            let value = transient_tuple(runtime, false);
+            let value = transient_tuple(runtime, None);
             set_rooted(runtime, stack, &value);
             Ok(())
         })

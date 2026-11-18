@@ -22,7 +22,6 @@ use kagari_types::{
         module::ModuleDecl,
         requirement::NativeCallableRequirement,
     },
-    reference::ReferenceAccess,
     scalar::BuiltinType,
     ty::{GenericParam, NominalTy, Ty},
 };
@@ -308,16 +307,6 @@ fn supplied_contract_types_retain_binder_scope_and_declared_bounds() {
         "{diagnostics:?}"
     );
     for (name, receiver) in [
-        (
-            "stored reference in a nominal argument",
-            Ty::Struct(fixture.nominal(
-                fixture.box_id,
-                vec![Ty::Reference {
-                    target: Box::new(good),
-                    access: ReferenceAccess::Shared,
-                }],
-            )),
-        ),
         (
             "out of range binder",
             Ty::Parameter {

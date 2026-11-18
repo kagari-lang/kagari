@@ -25,7 +25,7 @@ impl NativeCall<'_> {
         }
         self.native_stack = Some(self.runtime.resources.enter_native_stack()?);
         let result = self
-            .narrow_arguments()
+            .narrow_host_arguments()
             .and_then(|()| self.invoke_narrowed(destination));
         result.map_err(|error| self.runtime.resources().admit_execution_error(error))
     }

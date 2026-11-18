@@ -24,7 +24,6 @@ use crate::{
     resource::ResourceState,
     value::{
         carriers::ScopedValue,
-        kind::ObjectKind,
         scalar::{self, domain},
         view::ValueView,
     },
@@ -136,12 +135,7 @@ impl FrameSlots {
         }
         if location.operand.managed() {
             let value = memory.inspect_value(self.managed_location(location)?)?;
-            let borrowed = location.borrowed_receiver
-                && matches!(
-                    value.kind(),
-                    Some(ObjectKind::Ephemeral | ObjectKind::HostPath)
-                );
-            if !value.is_unit() && !borrowed && !value.has_representation(location.representation) {
+            if !value.is_unit() && !value.has_representation(location.representation) {
                 return Err(GcError::Representation);
             }
             return Ok(value);
@@ -262,20 +256,6 @@ impl FrameSlots {
         location: Location,
     ) -> Result<ScopedValue<'gc>, GcError> {
         read_operand(slots, self.banks, location)
-    }
-
-    pub(crate) fn view<'frame>(
-        self,
-        slots: &mut Slots<'_, '_>,
-        location: Location,
-    ) -> Result<ValueView<'frame>, GcError> {
-        let value = self.read(slots, location)?;
-        let source = if value.object().is_some() {
-            Some(self.managed_location(location)?)
-        } else {
-            None
-        };
-        ValueView::protected(value, source)
     }
 
     pub(crate) fn write<'gc>(

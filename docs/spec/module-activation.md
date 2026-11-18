@@ -146,10 +146,9 @@ publication does not cancel tasks or roll back completed script/external effects
 Native declarations, explicit impls, external schemas and local projector/storage
 capabilities remain part of that checked dependency contract. Reload does not
 redirect an existing method or field descriptor to a different Rust layout.
-Pinned code still validates receiver liveness: an opaque receiver taken out of
-runtime storage remains unavailable to old methods, and a revoked external view
-remains invalid after publication. A retained generation never extends a host
-scope or resurrects removed payload storage.
+Pinned code still validates receiver liveness. A revoked Host capability remains
+invalid after publication, and retaining a code generation does not by itself
+retain an Opaque receiver or extend a Host execution scope.
 
 ## Lazy static activation
 

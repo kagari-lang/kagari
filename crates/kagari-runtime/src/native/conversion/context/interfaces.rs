@@ -257,7 +257,6 @@ impl<'call> ConversionContext<'call> {
         let Runtime {
             memory,
             host,
-            host_borrows,
             resources,
             ..
         } = &mut *self.runtime;
@@ -278,14 +277,7 @@ impl<'call> ConversionContext<'call> {
                             .as_ref()
                             .map(|env| env.types.as_ref()),
                     );
-                    if !scoped::matches(
-                        slots.scope(),
-                        data,
-                        expected,
-                        host,
-                        host_borrows,
-                        resources,
-                    )? {
+                    if !scoped::matches(slots.scope(), data, expected, host, resources)? {
                         return Err(RuntimeError::from(TrapReason::InvalidInterfaceReceiver).into());
                     }
                     Ok(())
@@ -327,7 +319,6 @@ impl<'call> ConversionContext<'call> {
             resources,
             modules,
             host,
-            host_borrows,
             ..
         } = &mut *self.runtime;
         let result = memory.scope(resources, |cx, roots| {
@@ -366,18 +357,12 @@ impl<'call> ConversionContext<'call> {
                             .as_ref()
                             .map(|environment| environment.types.as_ref()),
                     );
-                    if !scoped::matches(
-                        slots.scope(),
-                        data,
-                        expected,
-                        host,
-                        host_borrows,
-                        resources,
-                    )
-                    .map_err(|error| match error {
-                        CheckError::Storage(error) => MetadataError::Memory(error),
-                        CheckError::Execution(error) => MetadataError::Execution(error),
-                    })? {
+                    if !scoped::matches(slots.scope(), data, expected, host, resources).map_err(
+                        |error| match error {
+                            CheckError::Storage(error) => MetadataError::Memory(error),
+                            CheckError::Execution(error) => MetadataError::Execution(error),
+                        },
+                    )? {
                         return Err(RuntimeError::from(TrapReason::InvalidInterfaceReceiver).into());
                     }
                     let object = InterfaceObject::alloc(

@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     execution::roots::{ExecutionRoots, SessionId},
-    host::{FrameHostBorrowToken, HostBorrowKind, HostCallContext, HostError, HostRootHandle},
+    host::{HostCallContext, HostError},
     module::ExecutableModule,
     native::{
         adapter::{Host, NativeAdapter},
@@ -12,10 +12,8 @@ use crate::{
         context::NativeCall,
     },
     value::{
-        EphemeralValue,
-        host_values::{EphemeralObject, HostRootObject, paths::HostPathObject},
+        host_values::{HostRootObject, paths::HostPathObject},
         kind::ObjectKind,
-        properties::ValueProperties,
         view::ValueView,
     },
     value_check,
@@ -92,7 +90,7 @@ where
                     let place = call.pending_place()?;
                     let mut context = HostCallContext::new(call.runtime, &[])?;
                     context.validate_arguments(&values)?;
-                    check_arguments(&mut context, owner, function, &values, &policy)?;
+                    check_arguments(&mut context, owner, function, &values)?;
                     acquire_arguments(&mut context, &values, &policy)?;
                     let result = callback(&mut context, &values)
                         .map_err(RuntimeError::from_host)
@@ -165,29 +163,9 @@ fn check_arguments(
     owner: &ExecutableModule,
     function: &LinkedNativeFunction,
     values: &[ValueView<'_>],
-    policy: &HostCallPolicy,
 ) -> NativeResult<()> {
     let signature = function.type_signature()?;
-    for ((value, expected), passing) in values.iter().zip(&signature.params).zip(&policy.passing) {
-        if *passing == HostPassingStyle::Owned {
-            let properties = {
-                let Runtime {
-                    memory, resources, ..
-                } = context.runtime_mut();
-                memory.scope(resources, |cx, roots| {
-                    ExecutionRoots::with(roots, cx, |slots| {
-                        let value = value.get(slots)?;
-                        ValueProperties::of(slots.scope(), value)
-                    })
-                })
-            }
-            .map_err(|error| context.runtime().managed_memory_error(error))?;
-            if properties.host_borrow {
-                return Err(RuntimeError::host_borrow_escape(
-                    "frame-scoped host borrow cannot outlive its call frame",
-                ));
-            }
-        }
+    for (value, expected) in values.iter().zip(&signature.params) {
         if !value_check::matches_protected(context.runtime_mut(), owner, expected, value)? {
             return Err(RuntimeError::host_call_failure(
                 "host arguments do not match the declared signature",
@@ -213,19 +191,16 @@ fn check_result<'call>(
     Ok(value)
 }
 
-enum BorrowInput {
-    Root(HostRootHandle),
-    Token(FrameHostBorrowToken),
-    None,
-}
-
 fn acquire_arguments(
     context: &mut HostCallContext<'_>,
     values: &[ValueView<'_>],
     policy: &HostCallPolicy,
 ) -> NativeResult<()> {
     for (value, passing) in values.iter().zip(&policy.passing) {
-        let input = {
+        if *passing == HostPassingStyle::Owned {
+            continue;
+        }
+        let root = {
             let Runtime {
                 memory, resources, ..
             } = context.runtime_mut();
@@ -233,16 +208,14 @@ fn acquire_arguments(
                 ExecutionRoots::with(roots, cx, |slots| {
                     let value = value.get(slots)?;
                     let Some(object) = value.object() else {
-                        return Ok(Ok(BorrowInput::None));
+                        return Ok(Ok(None));
                     };
                     Ok(match value.kind() {
-                        Some(ObjectKind::HostRoot) if *passing != HostPassingStyle::Owned => {
+                        Some(ObjectKind::HostRoot) => {
                             let object = slots.scope().downcast::<HostRootObject>(object)?;
-                            Ok(BorrowInput::Root(
-                                slots.scope().read(object, HostRootObject::handle),
-                            ))
+                            Ok(Some(slots.scope().read(object, HostRootObject::handle)))
                         }
-                        Some(ObjectKind::HostPath) if *passing != HostPassingStyle::Owned => {
+                        Some(ObjectKind::HostPath) => {
                             let object = slots.scope().downcast::<HostPathObject>(object)?;
                             let facts = slots.scope().read(object, HostPathObject::facts);
                             if *passing == HostPassingStyle::UniqueBorrow
@@ -252,19 +225,10 @@ fn acquire_arguments(
                                     "host path view is readonly",
                                 ))
                             } else {
-                                Ok(BorrowInput::Root(facts.root))
+                                Ok(Some(facts.root))
                             }
                         }
-                        Some(ObjectKind::Ephemeral) if value.as_runtime_ephemeral().is_none() => {
-                            let object = slots.scope().downcast::<EphemeralObject>(object)?;
-                            match slots.scope().read(object, EphemeralObject::value) {
-                                EphemeralValue::HostRef(token) | EphemeralValue::HostMut(token) => {
-                                    Ok(BorrowInput::Token(token))
-                                }
-                                _ => Err(RuntimeError::host_call_failure("host borrow argument")),
-                            }
-                        }
-                        _ => Ok(BorrowInput::None),
+                        _ => Ok(None),
                     })
                 })
             })
@@ -272,8 +236,8 @@ fn acquire_arguments(
         .map_err(|error: GcError| context.runtime().managed_memory_error(error))??;
         // Acquiring/validating a loan can report a traced error. The physical
         // source loan above has ended before entering any borrow-table service.
-        match input {
-            BorrowInput::Root(root) => match passing {
+        if let Some(root) = root {
+            match passing {
                 HostPassingStyle::SharedBorrow => {
                     context
                         .borrows()
@@ -285,20 +249,7 @@ fn acquire_arguments(
                         .borrow_unique(root.object_id(), root.type_id())?;
                 }
                 HostPassingStyle::Owned => unreachable!("owned root needs no automatic loan"),
-            },
-            BorrowInput::Token(token) => {
-                let access = match passing {
-                    HostPassingStyle::SharedBorrow => HostBorrowKind::Shared,
-                    HostPassingStyle::UniqueBorrow => HostBorrowKind::Unique,
-                    HostPassingStyle::Owned => {
-                        return Err(RuntimeError::host_borrow_escape(
-                            "borrowed host argument cannot satisfy owned passing",
-                        ));
-                    }
-                };
-                context.runtime().validate_host_borrow(token, access)?;
             }
-            BorrowInput::None => {}
         }
     }
     Ok(())

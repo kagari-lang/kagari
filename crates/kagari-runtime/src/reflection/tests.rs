@@ -1,18 +1,14 @@
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
-    host::HostObjectId,
     native::conversion::context::ConversionContext,
-    reflection::type_name,
     test_support::{
         layouts,
         update_programs::{load_empty, source_code},
     },
     value::{
-        EphemeralValue,
         aggregates::tuples::TupleObject,
         carriers::{RootedValue, ScopedValue},
-        host_values::EphemeralObject,
         scalar,
         strings::StringObject,
     },
@@ -125,7 +121,6 @@ fn wide_indices_do_not_mutate_arrays_or_tuples() {
 fn reports_production_value_category_names() {
     let mut runtime = Runtime::default();
     let (host, path) = layouts::host_values(&mut runtime, 2);
-    let ty = runtime.types().get_by_name("fixtures::Player").unwrap().id;
     let program = runtime
         .load_verified_program(
             "reflection-interface",
@@ -153,19 +148,4 @@ fn reports_production_value_category_names() {
             .unwrap();
         assert_eq!(actual, expected);
     }
-    let Runtime {
-        resources,
-        memory,
-        host_borrows,
-        ..
-    } = &mut runtime;
-    let loan = host_borrows.enter_frame().unwrap();
-    let token = loan.borrow_shared(HostObjectId(2), ty).unwrap();
-    memory
-        .scope(resources, |cx, _| {
-            let value = EphemeralObject::alloc(cx, EphemeralValue::HostRef(token))?;
-            assert_eq!(type_name(cx, value)?, "ephemeral");
-            Ok(())
-        })
-        .unwrap();
 }

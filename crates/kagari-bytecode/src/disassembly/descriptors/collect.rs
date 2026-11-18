@@ -268,7 +268,6 @@ impl References {
                 }
                 Ty::Range(item, _) | Ty::Array(item) => types.push(item),
 
-                Ty::Reference { target, .. } => types.push(target),
                 Ty::Host(_) | Ty::SelfType(_) | Ty::Parameter { .. } | Ty::Builtin(_) => {}
             }
         }

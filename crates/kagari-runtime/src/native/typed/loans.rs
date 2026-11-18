@@ -1,5 +1,4 @@
 //! Lifetime-aware callbacks use the ordinary declaration and conversion boundary.
-pub mod pairs;
 use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
@@ -7,14 +6,10 @@ use crate::{
         adapter::NativeAdapter,
         binding::{NativeBinding, NativeResult},
         catalog::DeclarationCatalog,
-        conversion::{FromKagari, IntoKagari, arguments::ArgumentValues},
-        typed::{
-            NativeContext,
-            loan_arguments::{LoanArguments, LoanReceiver},
-        },
+        conversion::{FromKagari, IntoKagari},
+        typed::{NativeContext, loan_arguments::LoanArguments},
     },
     resource::ResourceState,
-    value::kind::ObjectKind,
 };
 use kagari_types::{declaration::FnDecl, reference::ReferenceAccess, ty::Ty};
 use std::marker::PhantomData;
@@ -65,32 +60,21 @@ pub struct Shared<T, A>(PhantomData<(T, A)>);
 #[doc(hidden)]
 pub struct Mutable<T, A>(PhantomData<(T, A)>);
 
-fn check_receiver(
-    declaration: &FnDecl,
-    access: ReferenceAccess,
-    arity: usize,
-) -> NativeResult<Option<ReferenceAccess>> {
-    let first = declaration.params.first();
-    let receiver = declaration.method_policy.receiver_access;
-    let valid = match receiver {
-        Some(required) => required == access && first.is_some_and(|p| p.name == "self"),
-        None => first.is_some_and(
-            |p| matches!(&p.ty, Ty::Reference { access: required, .. } if *required == access),
-        ),
-    };
+fn check_receiver(declaration: &FnDecl, access: ReferenceAccess, arity: usize) -> NativeResult<()> {
+    let valid = declaration.method_policy.receiver_access == Some(access)
+        && declaration.params.first().is_some_and(|p| p.name == "self");
     if declaration.params.len() != arity || !valid {
         return Err(RuntimeError::metadata_conflict(
             "borrowed callback differs from declared receiver access or argument count",
         ));
     }
-    Ok(receiver)
+    Ok(())
 }
 
-pub(super) fn check_receiver_storage<'call>(
-    cx: &mut NativeContext<'call>,
+pub(super) fn check_receiver_storage(
+    cx: &NativeContext<'_>,
     access: Option<ReferenceAccess>,
     types: &[TypeArgument],
-    values: ArgumentValues<'call>,
 ) -> NativeResult<()> {
     let Some(access) = access else {
         return Ok(());
@@ -98,27 +82,6 @@ pub(super) fn check_receiver_storage<'call>(
     let ty = types
         .first()
         .ok_or_else(|| RuntimeError::module_validation("missing receiver type"))?;
-    let value = values.get(&mut cx.conversion, 0)?;
-    if value.kind() == Some(ObjectKind::Ephemeral) {
-        let view = cx.runtime_mut().scoped_view(&value)?;
-        if !cx.runtime().host_borrows.scoped_matches(
-            cx.runtime(),
-            view,
-            ty,
-            access,
-            cx.conversion.owner(),
-        ) {
-            return Err(RuntimeError::module_validation(
-                "external receiver target or capability",
-            ));
-        }
-        return Ok(());
-    }
-    if matches!(ty.ty(), Ty::Struct(_)) {
-        return Err(RuntimeError::module_validation(
-            "Rust struct receiver requires an external scoped location",
-        ));
-    }
     if access == ReferenceAccess::Mutable {
         let Ty::NativeObject(nominal) = ty.ty() else {
             return Err(RuntimeError::module_validation(
@@ -151,25 +114,17 @@ macro_rules! receiver_adapters {
                 + Send + Sync + 'static,
         {
             fn prepare(self, declaration: &FnDecl, _: &DeclarationCatalog) -> NativeResult<NativeBinding> {
-                let receiver_access = check_receiver(declaration, ReferenceAccess::Shared, 1 + $count)?;
+                check_receiver(declaration, ReferenceAccess::Shared, 1 + $count)?;
                 let mut binding = NativeBinding::contextual(
                     declaration.params.len(),
-                    move |cx: &mut NativeContext<'_>, LoanArguments(receiver, arguments): LoanArguments<T, ($($argument,)*), false>| {
+                    move |cx: &mut NativeContext<'_>, LoanArguments(receiver, arguments): LoanArguments<T, ($($argument,)*)>| {
                         let ($($value,)*) = arguments;
-                        match receiver {
-                            LoanReceiver::Native(receiver) => cx.conversion.borrow_native_argument(
-                                receiver.request(ReferenceAccess::Shared), [],
-                                |resources, payload, []| self(&mut LoanContext { resources }, (payload.shared()?, $($value,)*))),
-                            LoanReceiver::External(view) => {
-                                let runtime = cx.runtime();
-                                let mut loan = LoanContext { resources: runtime.resources() };
-                                runtime.host_borrows.read_scoped(runtime, view,
-                                    |payload| self(&mut loan, (payload, $($value,)*)))
-                            }
-                        }
+                        cx.conversion.borrow_native_argument(
+                                receiver.request(ReferenceAccess::Shared),
+                                |resources, payload| self(&mut LoanContext { resources }, (payload.shared()?, $($value,)*)))
                     },
                 );
-                binding.receiver_access = receiver_access;
+                binding.receiver_access = Some(ReferenceAccess::Shared);
                 Ok(binding)
             }
         }
@@ -183,25 +138,17 @@ macro_rules! receiver_adapters {
                 + Send + Sync + 'static,
         {
             fn prepare(self, declaration: &FnDecl, _: &DeclarationCatalog) -> NativeResult<NativeBinding> {
-                let receiver_access = check_receiver(declaration, ReferenceAccess::Mutable, 1 + $count)?;
+                check_receiver(declaration, ReferenceAccess::Mutable, 1 + $count)?;
                 let mut binding = NativeBinding::contextual(
                     declaration.params.len(),
-                    move |cx: &mut NativeContext<'_>, LoanArguments(receiver, arguments): LoanArguments<T, ($($argument,)*), true>| {
+                    move |cx: &mut NativeContext<'_>, LoanArguments(receiver, arguments): LoanArguments<T, ($($argument,)*)>| {
                         let ($($value,)*) = arguments;
-                        match receiver {
-                            LoanReceiver::Native(receiver) => cx.conversion.borrow_native_argument(
-                                receiver.request(ReferenceAccess::Mutable), [],
-                                |resources, payload, []| self(&mut LoanContext { resources }, (payload.mutable()?, $($value,)*))),
-                            LoanReceiver::External(view) => {
-                                let runtime = cx.runtime();
-                                let mut loan = LoanContext { resources: runtime.resources() };
-                                runtime.host_borrows.edit_scoped(runtime, view,
-                                    |payload| self(&mut loan, (payload, $($value,)*)))
-                            }
-                        }
+                        cx.conversion.borrow_native_argument(
+                                receiver.request(ReferenceAccess::Mutable),
+                                |resources, payload| self(&mut LoanContext { resources }, (payload.mutable()?, $($value,)*)))
                     },
                 );
-                binding.receiver_access = receiver_access;
+                binding.receiver_access = Some(ReferenceAccess::Mutable);
                 Ok(binding)
             }
         }

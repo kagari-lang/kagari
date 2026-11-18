@@ -9,7 +9,6 @@ use kagari_common::identity::{
 use kagari_contract::effects::EffectSet;
 use kagari_types::{
     range::RangeKind,
-    reference::ReferenceAccess,
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
 };
@@ -140,7 +139,7 @@ fn nominal_categories_and_host_identity_remain_explicit() {
 }
 
 #[test]
-fn containers_functions_and_access_modes_keep_all_type_facts() {
+fn containers_functions_and_ranges_keep_all_type_facts() {
     let table = DefinitionTableBuilder::new().unwrap().freeze();
     let display = DisplayContext {
         definitions: &table,
@@ -154,18 +153,6 @@ fn containers_functions_and_access_modes_keep_all_type_facts() {
         result: Box::new(Ty::Builtin(BuiltinType::Never)),
     };
     assert_eq!(display.ty(&ty), "fn([i32], [()], (i32, bool)) -> !");
-    for (access, expected) in [
-        (ReferenceAccess::Shared, "Ref<i32>"),
-        (ReferenceAccess::Mutable, "RefMut<i32>"),
-    ] {
-        assert_eq!(
-            display.ty(&Ty::Reference {
-                target: Box::new(i32_ty()),
-                access,
-            }),
-            expected
-        );
-    }
     for (kind, expected) in [
         (RangeKind::Exclusive, "Range<i32>"),
         (RangeKind::Inclusive, "RangeInclusive<i32>"),

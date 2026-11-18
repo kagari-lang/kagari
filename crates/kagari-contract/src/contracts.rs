@@ -11,6 +11,9 @@ use kagari_common::identity::table::DefinitionTable;
 
 mod intrinsics;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContractError {
     TypeMismatch {
@@ -102,14 +105,9 @@ pub fn verify_native_call(
         });
     }
     for (index, (actual, expected)) in args.iter().zip(&import.signature.params).enumerate() {
-        if index == 0 && *actual == ValueType::HostHandle && import.receiver_access.is_some() {
-            // Semantic flow verification must additionally prove the same target
-            // and sufficient view access. This is storage adaptation, not a cast.
-            continue;
-        }
         if index == 0 && !accepts_owned(import.receiver_access, expected) {
             return Err(ContractError::InvalidOperation {
-                reason: "Rust struct receiver requires an external scoped location",
+                reason: "native receiver loan requires runtime-owned native storage",
             });
         }
         expect_type(

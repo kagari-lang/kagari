@@ -840,8 +840,7 @@ optional origins, not registration authority. Module-wide storage is `Module.nod
 Exact-ID type inputs retain a requested `DefinitionExposure`, validated into a
 selected route; common checking still enforces accessibility, dependencies, category,
 arity and bounds. Native field
-writeability is a frontend contract, not new executable field support. Ref/RefMut
-recognition retains target/access records without adding reference operations. The
+writeability is a frontend contract, not new executable field support. The
 [HIR input contract](architecture/hir.md#native-declaration-inputs-and-origins) owns
 these details and a same-call comparison of direct and offline analysis.
 
@@ -1827,7 +1826,7 @@ strings, immutable tuples/ranges, mutable objects and host descriptors carry che
 text/aggregate contents nor acquires ownership or a root. Tuple updates allocate a
 replacement tuple while sharing referenced children; mutable children retain alias
 semantics. Host descriptors are heap records, but referenced Rust state remains
-outside the script heap. Runtime-only ephemeral IDs remain a distinct value tag.
+outside the script heap; scoped access does not give Rust borrows a value tag.
 Every heap access still checks owner, generation and object kind. Saturated slot
 generations retire storage; owner/slot exhaustion cannot truncate or wrap identity.
 
@@ -2807,9 +2806,9 @@ interprets canonical String/Range constructors with common shape/arity checks;
 ordinary Native declarations retain their own identities, fields and generic
 contracts. Host schema/path/access facts stay explicit static contracts; physical
 storage and Rust adapters belong to executable representation and installation.
-The existing special Ref/RefMut target, no-escape and scoped-borrow rules remain
-until their separate wrapper replacement; storable reference wrappers are not yet
-implemented. Ordinary new containers use nominal NativeStorage registration without
+The removed script reference wrappers have no replacement. Checked Host paths and
+Opaque loans are independent of constructor interpretation. Ordinary new containers
+use nominal NativeStorage registration without
 a new generic type or execution-dispatch variant.
 
 HIR checks [supplied interface conversion targets](spec/traits.md#accepted-interface-conversion-context).
@@ -2839,8 +2838,8 @@ uses them. MIR and bytecode share that value-type validation.
 
 Library-owned key constraints are ordinary declaration/implementation bounds.
 HIR and source-free verification check those proofs through the complete catalog;
-there is no additional collection-family eligibility predicate. Scoped-reference
-placement retains its independent validation.
+there is no additional collection-family eligibility predicate. Scope-bound Host
+values retain their independent placement validation.
 
 Interface call slot validation checks the applied input/output types separately
 from bound proofs. For `R: FromResidual<A::Residual>`, substitution can leave a

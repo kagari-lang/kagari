@@ -231,9 +231,6 @@ fn render<'gc>(
         Some(ObjectKind::Closure) if debug => {
             output.write_str("<function>").map_err(|_| unsupported())?
         }
-        Some(ObjectKind::Ephemeral) if debug => {
-            output.write_str("<borrow>").map_err(|_| unsupported())?
-        }
         _ => return Err(unsupported()),
     }
     Ok(())

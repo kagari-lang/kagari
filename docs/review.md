@@ -1229,20 +1229,20 @@ This entry records a design review only and does not activate a migration.
 
 ## SA21 Unify Rust registration through NativeModule with scoped host access
 
-Registration, runtime-owned Opaque and scoped Ref/RefMut are implemented.
+Registration, runtime-owned Opaque and checked Host root/path access are implemented.
 Common NativeModule declarations, one bind entrypoint and atomic installation
 replace the former host aggregate, standalone format and parallel registration.
 Existing live-host consumers retain their checked root/path behavior. The completed
 HR/RF/RI plans are retired; Git history retains their phase ledgers.
 
 The [host interop specification](spec/host-interop.md) owns the storage/passing
-matrix, scoped loans, generated inline field paths and explicit method/trait
+matrix, Opaque loans, checked Host roots and paths, and explicit method/trait
 registration. The [embedding guide](spec/embedding-api.md#typed-native-registration)
 owns DTO/Serde conversion and runnable consumers. Rust traits and Kagari traits
-remain independent. Borrowed returns, general view trait forwarding, async
-retention and wider native reference execution remain outside this implementation;
-[the roadmap](implementation-roadmap.md#host-registration-and-interop-delivery)
-records those limits and pending exhaustive CI.
+remain independent. 9G removes the former script wrapper path without adding
+borrowed returns or extending Host/Opaque access. The
+[roadmap](implementation-roadmap.md#host-registration-and-interop-delivery)
+records scope and pending exhaustive CI.
 
 ### Call-boundary cost follow-up
 

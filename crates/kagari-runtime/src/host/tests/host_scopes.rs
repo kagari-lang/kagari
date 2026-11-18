@@ -7,20 +7,16 @@ use crate::{
     host::{HostBorrowKind, HostCallContext, HostError, HostObjectId, HostSchemaEpoch},
     metadata::TypeId,
     module::managed::source::RevisionSource,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, host, types::Type},
-    session::TraceValue,
-    test_support::{self as support, native::program::ProgramFixture},
-    value::{
-        EphemeralValue,
-        aggregates::tuples::TupleObject,
-        arrays::ArrayObject,
-        carriers::{RootedValue, ScopedValue},
-        host_values::EphemeralObject,
-        view::ValueView,
+    native::{
+        builder::ModuleBuilder, conversion::context::ConversionContext, declarations::FunctionDecl,
+        host, types::Type,
     },
+    session::TraceValue,
+    test_support::{
+        self as support, layouts, native::program::ProgramFixture, update_programs::load_empty,
+    },
+    value::{arrays::ArrayObject, carriers::RootedValue, view::ValueView},
 };
-
-mod scoped_loans;
 
 use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
 use kagari_common::identity::map::DefinitionContext;
@@ -61,7 +57,7 @@ fn function(name: &str, result: Type) -> FunctionDecl {
 fn same_frame_numbers_in_different_runtimes_do_not_authorize_foreign_borrows() {
     let mut first = runtime();
     let mut second = runtime();
-    let mut a = first.host_scope(&[]).unwrap();
+    let a = first.host_scope(&[]).unwrap();
     let b = second.host_scope(&[]).unwrap();
     let at = a
         .borrows()
@@ -88,26 +84,6 @@ fn same_frame_numbers_in_different_runtimes_do_not_authorize_foreign_borrows() {
             .kind(),
         RuntimeErrorKind::ExpiredHostBorrow
     );
-    let foreign = {
-        let Runtime {
-            memory, resources, ..
-        } = a.runtime_mut();
-        memory.scope(resources, |cx, _| {
-            let foreign = EphemeralObject::alloc(cx, EphemeralValue::HostRef(bt))?;
-            let tuple = TupleObject::alloc(cx, &[foreign])?;
-            ScopedValue::managed(tuple).retain(cx)
-        })
-    }
-    .unwrap();
-    assert_eq!(
-        a.runtime_mut()
-            .host_scope(std::slice::from_ref(&foreign))
-            .err()
-            .expect("foreign Host token")
-            .kind(),
-        RuntimeErrorKind::ExpiredHostBorrow
-    );
-    drop(foreign);
     a.borrows().validate(at, HostBorrowKind::Shared).unwrap();
     drop(a);
     assert_eq!(
@@ -467,21 +443,12 @@ fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
     let baseline = runtime.collected_gc_stats().root_registrations;
     let mut scope = runtime.host_scope(&[]).unwrap();
     let token = scope.borrows().borrow_shared(HostObjectId(1), ty).unwrap();
-    let borrowed_value = {
-        let Runtime {
-            memory, resources, ..
-        } = scope.runtime_mut();
-        memory.scope(resources, |cx, _| {
-            EphemeralObject::alloc(cx, EphemeralValue::HostRef(token))?.retain(cx)
-        })
-    }
-    .unwrap();
     assert_eq!(
         invoke(
             scope.runtime_mut(),
             &loaded,
             0,
-            std::slice::from_ref(&borrowed_value)
+            std::slice::from_ref(&object)
         )
         .unwrap_err()
         .kind(),
@@ -491,24 +458,19 @@ fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
         scope.runtime_mut(),
         &loaded,
         1,
-        std::slice::from_ref(&borrowed_value),
+        std::slice::from_ref(&object),
     )
     .unwrap();
+    scope
+        .borrows()
+        .validate(token, HostBorrowKind::Shared)
+        .unwrap();
     drop(scope);
-    let error = invoke(
-        &mut runtime,
-        &loaded,
-        1,
-        std::slice::from_ref(&borrowed_value),
-    )
-    .unwrap_err();
-    assert_eq!(
-        error.kind(),
-        RuntimeErrorKind::ExpiredHostBorrow,
-        "{error:?}"
-    );
+    let error = runtime
+        .validate_host_borrow(token, HostBorrowKind::Shared)
+        .unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::ExpiredHostBorrow);
     assert_eq!(invoked.load(Ordering::SeqCst), 1);
-    drop(borrowed_value);
     assert_eq!(runtime.collected_gc_stats().root_registrations, baseline);
 }
 
@@ -596,6 +558,40 @@ fn quarantine_does_not_block_host_scope_cleanup() {
             .active_calls,
         0
     );
+}
+
+#[test]
+fn branded_scope_protects_host_paths_and_keeps_published_results_without_roots() {
+    let mut runtime = runtime();
+    let (_, path) = layouts::host_values(&mut runtime, 7);
+    let program = load_empty(&mut runtime, "scope-publication");
+    let owner = runtime.select_program(&program).unwrap();
+    let baseline = runtime.collected_gc_stats().root_registrations;
+    let result = runtime
+        .with_host_scope(|scope| {
+            let path = scope.import(&path)?;
+            let path = scope.protect(&path)?;
+            let text = scope.execute(&[path], |runtime, arguments, result| {
+                runtime.collect_garbage()?;
+                assert_eq!(runtime.gc_stats().root_registrations, baseline);
+                let mut cx = ConversionContext::new(runtime, &owner)?;
+                assert_eq!(arguments.get(&mut cx, 0)?.kind(), path.kind());
+                let text = cx.allocate_string("surviving child".into())?;
+                result.publish(cx.runtime_mut(), &text)
+            })?;
+            scope.execute(&[text], |runtime, arguments, result| {
+                runtime.collect_garbage()?;
+                let mut cx = ConversionContext::new(runtime, &owner)?;
+                let text = arguments.get(&mut cx, 0)?;
+                cx.read_string(&text, |text| assert_eq!(text, "surviving child"))?;
+                result.publish(cx.runtime_mut(), &ValueView::unit())
+            })?;
+            scope.retain(&text)
+        })
+        .unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, baseline + 1);
+    drop(result);
+    assert_eq!(runtime.collected_gc_stats().root_registrations, baseline);
 }
 
 #[test]

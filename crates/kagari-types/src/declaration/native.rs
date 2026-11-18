@@ -3,7 +3,6 @@
 
 use crate::declaration::TypeDef;
 use crate::range::RangeKind;
-use crate::reference::ReferenceAccess;
 use kagari_common::identity::{
     DefinitionKind,
     table::{DefinitionId, DefinitionTable},
@@ -39,7 +38,7 @@ pub enum NativeTypeConstructor {
     String,
 
     Range(RangeKind),
-    Reference(ReferenceAccess),
+    // The retired reference constructor occupied tag 2. Leave it unassigned.
 }
 
 /// Tests exact language ownership, including declaration kind and occurrence.
@@ -80,14 +79,6 @@ impl NativeTypeConstructor {
                 return Some(Self::Range(kind));
             }
         }
-        for (name, access) in [
-            ("Ref", ReferenceAccess::Shared),
-            ("RefMut", ReferenceAccess::Mutable),
-        ] {
-            if language_type(id, definitions, "kagari-core", "host", name) {
-                return Some(Self::Reference(access));
-            }
-        }
         None
     }
 
@@ -95,7 +86,7 @@ impl NativeTypeConstructor {
         match self {
             Self::String | Self::Range(RangeKind::Full) => 0,
 
-            Self::Range(_) | Self::Reference(_) => 1,
+            Self::Range(_) => 1,
         }
     }
 

@@ -214,7 +214,6 @@ mod tests {
         let Runtime {
             memory,
             host,
-            host_borrows,
             resources,
             ..
         } = runtime;
@@ -222,12 +221,7 @@ mod tests {
             .scope(resources, |cx, _| {
                 let value = value.get(cx)?;
                 Ok(value_check::scoped::matches(
-                    cx,
-                    value,
-                    expected,
-                    host,
-                    host_borrows,
-                    resources,
+                    cx, value, expected, host, resources,
                 ))
             })
             .unwrap()

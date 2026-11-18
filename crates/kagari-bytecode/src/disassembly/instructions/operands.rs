@@ -1,10 +1,7 @@
 //! Register lists, field selections and explicit operation vocabulary.
 
 use crate::{
-    disassembly::{
-        presentation::DisplayContext,
-        resolution::contracts::{access, types},
-    },
+    disassembly::{presentation::DisplayContext, resolution::contracts::types},
     instruction::{BinaryOp, FieldRef, ScalarOperand, Slot, UnaryOp},
 };
 use kagari_contract::numeric::NumericOperation;
@@ -56,7 +53,6 @@ pub(super) fn field(
         structure,
         arguments,
         slot,
-        reference,
     } = field;
     write!(
         writer,
@@ -64,7 +60,7 @@ pub(super) fn field(
         structure.index()
     )?;
     types(writer, context, arguments)?;
-    write!(writer, ", slot={slot}, reference={}}}", access(*reference))
+    write!(writer, ", slot={slot}}}")
 }
 
 pub(super) fn unary(op: UnaryOp) -> &'static str {

@@ -17,8 +17,7 @@ use kagari_types::{
     scalar::BuiltinType,
 };
 
-/// Inference alone does not prove that an impl owns this receiver. A method
-/// on writable storage cannot be selected through a readonly storage type.
+/// Inference alone does not prove that an impl owns this receiver.
 pub(crate) fn inherent_substitution(
     definitions: &DefinitionTable,
     aggregates: &AggregateCatalog,
@@ -26,16 +25,6 @@ pub(crate) fn inherent_substitution(
     receiver: &TypeId,
     cancel: &CancellationToken,
 ) -> Option<TypeSubstitution> {
-    let scoped = matches!(receiver, TypeId::Reference { .. });
-    let receiver = if let TypeId::Reference { target, access } = receiver {
-        let required = method.receiver_access?;
-        if !access.permits(required) {
-            return None;
-        }
-        target.as_ref()
-    } else {
-        receiver
-    };
     let mut substitution = TypeSubstitution::default();
     inference::infer(
         &method.owner,
@@ -47,18 +36,16 @@ pub(crate) fn inherent_substitution(
     )
     .ok()?;
     let owner = aggregates.normalize_type(definitions, &method.owner.instantiate(&substitution));
-    if !scoped
-        && method.receiver_access.is_some()
+    if method.receiver_access.is_some()
         && !matches!(
             receiver,
             TypeId::NativeObject(_) | TypeId::Generic(_) | TypeId::SelfType(_)
         )
     {
-        // The outer scoped reference was unwrapped above. Preserve that fact:
-        // plain GC structs cannot become Rust references through a method call.
+        // Plain GC structs cannot supply the Rust loan required by a native method.
         return None;
     }
-    (!owner.conflicts_with(receiver) || receiver.can_weaken_to(&owner)).then_some(substitution)
+    (!owner.conflicts_with(receiver)).then_some(substitution)
 }
 
 /// Enumerates declared, assumed and intrinsic interfaces for this receiver.

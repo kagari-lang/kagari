@@ -136,11 +136,11 @@ pub enum EngineFault {
     #[error("host object borrow disappeared during cleanup")]
     HostObjectBorrowDisappearedDuringCleanup,
 
-    #[error("host path borrow count underflow")]
-    HostPathBorrowCountUnderflow,
+    #[error("host shared borrow count underflow")]
+    HostSharedBorrowCountUnderflow,
 
-    #[error("host path borrow disappeared during cleanup")]
-    HostPathBorrowDisappearedDuringCleanup,
+    #[error("host unique borrow disappeared during cleanup")]
+    HostUniqueBorrowDisappearedDuringCleanup,
 
     #[error("host path commit panicked")]
     HostPathCommitPanicked,

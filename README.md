@@ -45,7 +45,7 @@ Kagari is currently being shaped around the following principles:
 - No direct reproduction of Rust's lifetime and borrow system at the script language level
 - A GC-backed runtime responsible for script-owned memory
 - Hot reload as a first-class concern, with module loading and version evolution treated as core capabilities
-- Natural interoperability with Rust hosts through controlled host APIs, frame-scoped host borrow tokens, and typed path mutation
+- Natural interoperability with Rust hosts through checked Host adapters, retained Opaque payloads, and typed path mutation
 - A clean separation between frontend, intermediate representation, bytecode, interpreter execution, and optional machine-code backends
 
 ## Runtime and Host Interoperability Principles

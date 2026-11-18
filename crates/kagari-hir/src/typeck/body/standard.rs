@@ -187,11 +187,6 @@ impl BodyChecker<'_> {
         else {
             return TypeId::Error;
         };
-        for call in [&branch, &from_residual] {
-            if let Some(signature) = &call.signature {
-                self.check_applied_reference_positions(site, signature);
-            }
-        }
         let Some(control_flow) = self
             .declarations
             .definitions()

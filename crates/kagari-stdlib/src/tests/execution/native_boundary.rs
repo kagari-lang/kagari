@@ -51,7 +51,6 @@ mod native_boundary_gc;
 mod native_boundary_host;
 mod native_boundary_interfaces;
 mod native_boundary_payload;
-mod native_boundary_references;
 mod native_boundary_resources;
 mod native_boundary_storage;
 mod native_boundary_transfer;

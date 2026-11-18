@@ -1,0 +1,9 @@
+use game::scoped::{ Counter, heal, read };
+
+pub fn tick(hp: Counter, gold: Counter) -> i32 {
+    heal(hp, gold)
+}
+
+pub fn inspect(hp: Counter) -> i32 {
+    read(hp)
+}

@@ -57,18 +57,6 @@ pub(crate) fn infer(
             continue;
         }
         match (expected, actual) {
-            (
-                TypeId::Reference {
-                    target: expected,
-                    access: ea,
-                },
-                TypeId::Reference {
-                    target: actual,
-                    access: aa,
-                },
-            ) if aa.permits(*ea) => {
-                pending.push((expected, actual));
-            }
             (TypeId::NativeObject(expected), TypeId::NativeObject(actual))
             | (TypeId::Struct(expected), TypeId::Struct(actual))
             | (TypeId::Enum(expected), TypeId::Enum(actual))

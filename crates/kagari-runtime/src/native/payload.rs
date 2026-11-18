@@ -66,11 +66,6 @@ impl<T> Clone for Opaque<T> {
 }
 
 impl<T> NativeType<T> {
-    /// The same checked target descriptor used when lending external Rust storage.
-    pub fn rust_type(&self) -> &RustType<T> {
-        &self.record.rust_type
-    }
-
     pub fn type_argument(&self) -> &TypeArgument {
         self.record.rust_type.type_argument()
     }

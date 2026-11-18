@@ -39,7 +39,6 @@ pub enum RuntimeErrorKind {
     InvalidReflectiveWrite,
     ExpiredHostBorrow,
     HostBorrowConflict,
-    HostBorrowEscape,
     HostCallFailure,
     TypedPathValidation,
     ModuleValidation,
@@ -63,7 +62,6 @@ impl RuntimeErrorKind {
             Self::InvalidReflectiveWrite => "KG_RUNTIME_INVALID_REFLECTIVE_WRITE",
             Self::ExpiredHostBorrow => "KG_RUNTIME_EXPIRED_HOST_BORROW",
             Self::HostBorrowConflict => "KG_RUNTIME_HOST_BORROW_CONFLICT",
-            Self::HostBorrowEscape => "KG_RUNTIME_HOST_BORROW_ESCAPE",
             Self::HostCallFailure => "KG_RUNTIME_HOST_CALL_FAILURE",
             Self::TypedPathValidation => "KG_RUNTIME_TYPED_PATH_VALIDATION",
             Self::ModuleValidation => "KG_RUNTIME_MODULE_VALIDATION",
@@ -130,10 +128,6 @@ impl RuntimeError {
 
     pub fn host_borrow_conflict(detail: impl Into<String>) -> Self {
         Self::new(ErrorReason::HostBorrowConflict(detail.into()))
-    }
-
-    pub fn host_borrow_escape(detail: impl Into<String>) -> Self {
-        Self::new(ErrorReason::HostBorrowEscape(detail.into()))
     }
 
     pub fn typed_path_validation(detail: impl Into<String>) -> Self {

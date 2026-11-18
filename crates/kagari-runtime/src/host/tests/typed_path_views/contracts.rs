@@ -7,13 +7,9 @@ use crate::{
     host::HostCallContext,
     native::conversion::context::ConversionContext,
     value::{
-        EphemeralValue,
         arrays::ArrayObject,
         carriers::{RootedValue, ScopedValue},
-        host_values::{
-            EphemeralObject,
-            paths::{HostPathObject, PathFacts},
-        },
+        host_values::paths::{HostPathObject, PathFacts},
         properties::ValueProperties,
         view::ValueView,
     },
@@ -585,25 +581,8 @@ fn validates_dynamic_index_argument_shape_for_path_views() {
 
     let mut call = HostCallContext::new(&mut runtime, &[]).unwrap();
     let value = call.import(&root_value).unwrap();
-    let token = call
-        .borrows()
-        .borrow_shared(HostObjectId(99), i32_id)
-        .unwrap();
-    let execution = call.scope.execution_id();
-    let borrowed = {
-        let Runtime {
-            memory, resources, ..
-        } = call.runtime_mut();
-        memory.scope(resources, |cx, roots| {
-            ExecutionRoots::with(roots, cx, |slots| {
-                let value = EphemeralObject::alloc(slots.scope(), EphemeralValue::HostRef(token))?;
-                slots.protect_local(execution, value)
-            })
-        })
-    }
-    .unwrap();
     assert_eq!(
-        call.make_path_view(&value, descriptor_id, &[borrowed])
+        call.make_path_view(&value, descriptor_id, &[value])
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::TypedPathValidation

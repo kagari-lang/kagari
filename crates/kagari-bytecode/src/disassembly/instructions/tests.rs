@@ -26,7 +26,6 @@ use kagari_contract::{
 use kagari_types::{
     callable::{CallableImplementation, Signature},
     declaration::{FnDecl, NativeDeclaration, Param, TraitDef},
-    reference::ReferenceAccess,
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
 };
@@ -222,12 +221,11 @@ fn t() -> Ty {
     Ty::Builtin(BuiltinType::I32)
 }
 
-fn field(reference: Option<ReferenceAccess>) -> FieldRef {
+fn field() -> FieldRef {
     FieldRef {
         structure: StructId::new(3),
         arguments: vec![t()],
         slot: 7,
-        reference,
     }
 }
 
@@ -489,25 +487,17 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
             BytecodeInstruction::ReadAggregateField {
                 dst: r(0),
                 base: r(1),
-                field: field(None),
+                field: field(),
             },
-            "read_aggregate_field s0, base=s1, field={@1:struct#3, arguments=[i32], slot=7, reference=none}",
+            "read_aggregate_field s0, base=s1, field={@1:struct#3, arguments=[i32], slot=7}",
         ),
         (
             BytecodeInstruction::WriteAggregateField {
                 base: r(1),
-                field: field(Some(ReferenceAccess::Mutable)),
+                field: field(),
                 value: r(2),
             },
-            "write_aggregate_field base=s1, field={@1:struct#3, arguments=[i32], slot=7, reference=mutable}, value=s2",
-        ),
-        (
-            BytecodeInstruction::ReadAggregateField {
-                dst: r(0),
-                base: r(1),
-                field: field(Some(ReferenceAccess::Shared)),
-            },
-            "read_aggregate_field s0, base=s1, field={@1:struct#3, arguments=[i32], slot=7, reference=shared}",
+            "write_aggregate_field base=s1, field={@1:struct#3, arguments=[i32], slot=7}, value=s2",
         ),
         (
             BytecodeInstruction::ReadAggregateIndex {

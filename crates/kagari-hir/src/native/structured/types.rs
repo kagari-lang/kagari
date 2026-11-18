@@ -347,15 +347,6 @@ impl StructuredLowerer<'_> {
             | Ty::Enum(nominal)
             | Ty::NativeObject(nominal)
             | Ty::Trait(nominal) => return self.nominal(nominal),
-            Ty::Reference { target, access } => {
-                let declaration =
-                    self.representation(NativeTypeConstructor::Reference(*access), access.name())?;
-                return self.application(
-                    declaration,
-                    slice::from_ref(target.as_ref()),
-                    &BTreeMap::new(),
-                );
-            }
             Ty::Range(element, range) => {
                 let constructor = NativeTypeConstructor::Range(*range);
                 let declaration = self.representation(constructor, range.name())?;

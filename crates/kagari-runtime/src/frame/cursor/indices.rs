@@ -139,7 +139,6 @@ impl ExecutionCursor<'_, '_, '_, '_> {
                                     value,
                                     array.contract().view(),
                                     self.host,
-                                    self.host_borrows,
                                     self.resources,
                                 )
                             })

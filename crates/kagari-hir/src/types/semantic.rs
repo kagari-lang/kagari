@@ -24,10 +24,6 @@ pub fn lower_nominal_type(ty: &NominalType) -> NominalTy {
 /// Panics if any inference variable, unknown or error type reaches this checked boundary.
 pub fn lower_type(ty: &TypeId) -> Ty {
     match ty {
-        TypeId::Reference { target, access } => Ty::Reference {
-            target: Box::new(lower_type(target)),
-            access: *access,
-        },
         TypeId::Projection {
             receiver,
             interface,
@@ -82,10 +78,6 @@ pub fn raise_nominal_type(ty: &NominalTy) -> NominalType {
 /// Reconstructs a HIR semantic type from scoped metadata, synthesizing generic display names where needed.
 pub fn raise_type(ty: &Ty) -> TypeId {
     match ty {
-        Ty::Reference { target, access } => TypeId::Reference {
-            target: Box::new(raise_type(target)),
-            access: *access,
-        },
         Ty::Projection {
             receiver,
             interface,

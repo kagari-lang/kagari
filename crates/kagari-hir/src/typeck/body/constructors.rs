@@ -14,7 +14,7 @@ use crate::{
     typeck::{
         BodyTypeEnv, applications,
         body::BodyChecker,
-        check, completion, inference,
+        completion, inference,
         table::{ResolvedEnumConstructor, ResolvedStructInit},
         ty::{TypeContext, display_type, display_type_id, resolve_type_in},
     },
@@ -101,11 +101,6 @@ impl<'a> BodyChecker<'a> {
                 .with_span(self.lowered.module.type_ref(ty).origin.diagnostic_span()),
             );
         }
-        check::validate_reference_position(
-            &resolved,
-            self.lowered.module.type_ref(ty).origin.diagnostic_span(),
-            self.diagnostics,
-        );
         resolved
     }
 

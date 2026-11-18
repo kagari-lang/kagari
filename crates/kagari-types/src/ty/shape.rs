@@ -20,7 +20,7 @@ impl ShapeBudget {
         }
         let children = match ty {
             Ty::Host(_) | Ty::SelfType(_) | Ty::Parameter { .. } | Ty::Builtin(_) => 0,
-            Ty::Reference { .. } | Ty::Range(..) | Ty::Array(_) => 1,
+            Ty::Range(..) | Ty::Array(_) => 1,
 
             Ty::Tuple(elements) => elements.len(),
             Ty::Function { params, .. } => params.len().saturating_add(1),
@@ -65,9 +65,7 @@ impl ShapeBudget {
         // records are constructed, and the Rust call stack is bounded by depth.
         match ty {
             Ty::Host(_) | Ty::SelfType(_) | Ty::Parameter { .. } | Ty::Builtin(_) => {}
-            Ty::Reference { target, .. } | Ty::Range(target, _) | Ty::Array(target) => {
-                self.visit(target, depth + 1, cancel)?
-            }
+            Ty::Range(target, _) | Ty::Array(target) => self.visit(target, depth + 1, cancel)?,
 
             Ty::Tuple(elements) => {
                 for element in elements {

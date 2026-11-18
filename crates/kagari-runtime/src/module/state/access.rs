@@ -4,7 +4,7 @@ use crate::{
     error::{RuntimeError, fault::EngineFault, trap::TrapReason},
     execution::roots::{DependencyId, ExecutionRoots, Slots},
     frame::types::compatibility::TypeView,
-    host::{HostBorrowTable, HostRegistry},
+    host::HostRegistry,
     module::{
         ExecutableModule, ModuleInstance,
         managed::{
@@ -237,7 +237,6 @@ impl Runtime {
         self.require_static_ready(&target, origin, target_slot)?;
         let Self {
             host,
-            host_borrows,
             resources,
             memory,
             modules,
@@ -249,15 +248,7 @@ impl Runtime {
                 let cell = resolve(slots.scope(), revision, &target, target_slot)?;
                 Ok((|| {
                     let value = StaticCellObject::read(slots.scope(), cell)?;
-                    check_ready(
-                        slots.scope(),
-                        value,
-                        module,
-                        slot,
-                        host,
-                        host_borrows,
-                        resources,
-                    )?;
+                    check_ready(slots.scope(), value, module, slot, host, resources)?;
                     value.retain(slots.scope()).map_err(CheckError::from)
                 })())
             })
@@ -287,7 +278,6 @@ impl Runtime {
             memory,
             modules,
             host,
-            host_borrows,
             resources,
             ..
         } = self;
@@ -297,27 +287,11 @@ impl Runtime {
                 let cell = resolve(slots.scope(), revision, &target, target_slot)?;
                 Ok((|| {
                     let previous = StaticCellObject::read(slots.scope(), cell)?;
-                    check_ready(
-                        slots.scope(),
-                        previous,
-                        module,
-                        slot,
-                        host,
-                        host_borrows,
-                        resources,
-                    )?;
+                    check_ready(slots.scope(), previous, module, slot, host, resources)?;
                     let value = value
                         .get(slots.scope())
                         .map_err(|_| RuntimeError::from(TrapReason::InvalidOrForeignHeapPayload))?;
-                    check_input(
-                        slots.scope(),
-                        value,
-                        module,
-                        slot,
-                        host,
-                        host_borrows,
-                        resources,
-                    )?;
+                    check_input(slots.scope(), value, module, slot, host, resources)?;
                     resources.poll_closed()?;
                     StaticCellObject::replace(slots.scope(), cell, value).map_err(CheckError::from)
                 })())
@@ -408,7 +382,6 @@ pub(crate) fn check_ready<'gc>(
     owner: &ExecutableModule,
     slot: ModuleSlot,
     host: &HostRegistry,
-    borrows: &HostBorrowTable,
     resources: &ResourceState,
 ) -> Result<(), CheckError> {
     if !ValueProperties::of(cx, value)?.storable
@@ -421,7 +394,6 @@ pub(crate) fn check_ready<'gc>(
                 None,
             ),
             host,
-            borrows,
             resources,
         )?
     {
@@ -438,7 +410,6 @@ pub(crate) fn check_input<'gc>(
     owner: &ExecutableModule,
     slot: ModuleSlot,
     host: &HostRegistry,
-    borrows: &HostBorrowTable,
     resources: &ResourceState,
 ) -> Result<(), CheckError> {
     if !ValueProperties::of(cx, value)?.storable {
@@ -453,7 +424,6 @@ pub(crate) fn check_input<'gc>(
             None,
         ),
         host,
-        borrows,
         resources,
     )? {
         return Err(RuntimeError::module_validation("static semantic type mismatch").into());

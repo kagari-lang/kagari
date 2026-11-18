@@ -2,11 +2,11 @@
 mod allocation;
 mod calls;
 mod enums;
+mod host_arguments;
 mod invocation;
 pub mod operations;
 mod ranges;
 mod reads;
-mod references;
 mod result;
 mod scratch;
 mod tasks;

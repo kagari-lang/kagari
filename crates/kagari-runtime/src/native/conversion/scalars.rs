@@ -19,9 +19,6 @@ macro_rules! scalar {
                 Ok(Type::scalar(<Self as NativeScalar>::abi_type()))
             }
 
-            fn snapshot_field<'call>(&self, cx: &mut ConversionContext<'call>, expected: &TypeArgument) -> NativeResult<ValueView<'call>> {
-                cx.encode_value(expected, *self)
-            }
         }
 
         impl IntoKagari for $ty {
@@ -59,24 +56,6 @@ scalar!(
 impl KagariType for String {
     fn kagari_type(_: &DeclarationCatalog) -> NativeResult<Type> {
         Ok(Type::scalar(BuiltinType::String))
-    }
-
-    fn snapshot_field<'call>(
-        &self,
-        cx: &mut ConversionContext<'call>,
-        expected: &TypeArgument,
-    ) -> NativeResult<ValueView<'call>> {
-        cx.charge_string(self.len())?;
-        let mut copy = String::new();
-        copy.try_reserve_exact(self.len()).map_err(|_| {
-            cx.runtime()
-                .resources()
-                .limit("String field snapshot capacity")
-        })?;
-        copy.push_str(self);
-        let value = cx.allocate_string(copy)?;
-        cx.check_value(expected, &value)?;
-        Ok(value)
     }
 }
 

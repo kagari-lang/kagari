@@ -546,13 +546,12 @@ Native functions and methods end in a semicolon, not a Script body. An ordinary
 trait method without a body remains Required; an ordinary function or default
 with a body remains Script. Native type fields reuse ordinary field syntax,
 including visibility, `val`/`var`, attributes and generic type references.
-`Ref<T>` and `RefMut<T>` use ordinary path/application syntax, not special parser
-rules. Structured, external and ordinary project inputs use the same static checks;
+Structured, external and ordinary project inputs use the same static checks;
 `native` declares an external implementation without requiring it to be bound during
 analysis or compilation. Execution still requires supported executable operations
 and matching implementations at linking. Syntax alone installs no Rust callback or
 storage/field adapter. The AST stores Native types as `NativeTypeDef`, not an opaque
-alias or an associated type. Existing scoped-reference restrictions are unchanged.
+alias or an associated type.
 
 ### Modules and Imports
 
@@ -1036,8 +1035,8 @@ range and explicit variant patterns are rejected, including single-variant enums
 Top-level alternatives are excluded; grouped/nested alternatives retain existing
 binding-consistency and conservative irrefutability rules, not general exhaustiveness
 analysis. Accepted declarations have no runtime match-failure path.
-Decomposition supports owned tuples and structs, not host objects, scoped references,
-path views or interface values. This restriction does not exclude otherwise valid
+Decomposition supports owned tuples and structs, not Host objects, path views or
+interface values. This restriction does not exclude otherwise valid
 simple name/wildcard bindings of those values. Required extraction follows pattern
 source order; `_`, rest and nested subpatterns needing neither a binding nor a
 runtime decision cause no projection. Static field-access checks still apply.

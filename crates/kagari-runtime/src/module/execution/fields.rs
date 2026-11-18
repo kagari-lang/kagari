@@ -4,7 +4,7 @@ use crate::module::execution::{
     layout::{FrameLayout, Location},
 };
 use kagari_bytecode::instruction::BytecodeInstruction;
-use kagari_types::{reference::ReferenceAccess, scalar::BuiltinType};
+use kagari_types::scalar::BuiltinType;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum FieldAccess {
@@ -18,7 +18,6 @@ pub(crate) struct PreparedFieldOperation {
     pub(crate) access: FieldAccess,
     pub(crate) slot: u32,
     pub(crate) layout_site: LayoutSite,
-    pub(crate) reference: Option<ReferenceAccess>,
     pub(crate) scalar: Option<BuiltinType>,
 }
 
@@ -66,7 +65,6 @@ impl PreparedFieldOperation {
             access,
             layout_site,
             slot: field.slot,
-            reference: field.reference,
             scalar,
         }
     }

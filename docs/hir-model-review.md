@@ -164,13 +164,12 @@ record implemented ownership alongside explicitly deferred whole-stack discussio
   the same unchecked input and uses common analysis with user source and exact navigation origins.
 - Native field names/types, var/val and ordinary child-object handles are frontend requirements.
   New Rust field adapters/execution are deferred after scope narrowing, not implied by type checks.
-- Ref/RefMut scope is recognition of target T and shared/mutable category only. Concrete access
-  and runtime design remains undecided: ordinary wrappers, generated methods, storable handles and
-  dynamic expiry are proposals, not current acceptance. Existing reference semantics and safety
-  checks remain; no new borrowing, projection, adaptation, forwarding or execution is implied.
+- 9G removes script reference wrappers. Neither same-named user types nor ordinary
+  Native declarations gain borrowing, projection or forwarding. Independent Host
+  path and Opaque loan contracts remain.
 - Ordinary Script definitions/calls replace dedicated NativeDefault recipes; language constructor
   interpretation is separate from Native declarations and execution storage. Binding checks belong
-  at linking, not HIR. Existing defaults, Host/reference safety and executable validation remain.
+  at linking, not HIR. Existing defaults, Host safety and executable validation remain.
   No new prebuild producer or generalized registration framework was required.
 - The design retains future library/provider/build/cache and directory-refresh discussion as
   explicitly deferred direction, not current acceptance.

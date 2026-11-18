@@ -1,0 +1,34 @@
+struct Ref<T> {
+    val value: T,
+}
+
+struct RefMut<T> {
+    var value: T,
+}
+
+struct Point {
+    val x: i32,
+}
+
+impl Point {
+    fn read(self) -> i32 {
+        self.x
+    }
+}
+
+struct Saved {
+    val data: RefMut<Ref<i32>>,
+}
+
+static var saved: RefMut<Ref<i32>> = RefMut { value: Ref { value: 0 } };
+
+fn store(input: RefMut<Ref<i32>>) -> RefMut<Ref<i32>> {
+    val record = Saved { data: input };
+    val captured = || record.data;
+    saved = captured();
+    saved
+}
+
+async fn read(value: Ref<i32>) -> i32 {
+    value.value
+}

@@ -1,44 +1,11 @@
-//! Outer storage/view capabilities and value-copy checks over semantic types.
+//! Value-copy checks over semantic types.
 use crate::ty::{
     NominalTy, Ty,
     substitution::{MAX_TYPE_NODES, TypeSubstitution},
 };
 
-use crate::reference::ReferenceAccess;
 use kagari_common::cancellation::CancellationToken;
 use std::collections::HashSet;
-
-impl Ty {
-    /// Weaken only the outer host/storage descriptor; element types remain invariant.
-    /// Ordinary trait relationships are independent of this concrete-family rule.
-    pub fn read_only_view(&self) -> Option<Self> {
-        Some(match self {
-            Self::Reference { target, .. } => Self::Reference {
-                target: target.clone(),
-                access: ReferenceAccess::Shared,
-            },
-
-            _ => return None,
-        })
-    }
-
-    pub fn can_weaken_to(&self, target: &Self) -> bool {
-        if let (
-            Self::Reference {
-                target: source,
-                access: ReferenceAccess::Mutable,
-            },
-            Self::Reference {
-                target,
-                access: ReferenceAccess::Shared,
-            },
-        ) = (self, target)
-        {
-            return source == target;
-        }
-        false
-    }
-}
 
 /// Repetition copies value-like elements but never duplicates a shared object.
 /// The caller supplies the checked payloads of each applied enum.
@@ -92,27 +59,6 @@ pub fn supports_array_repetition(
 mod tests {
     use super::*;
     use crate::scalar::BuiltinType;
-
-    #[test]
-    fn weakening_is_outer_only_and_does_not_change_storage_families() {
-        let item: Ty = Ty::Builtin(BuiltinType::I32);
-        let mutable = Ty::Reference {
-            target: Box::new(item.clone()),
-            access: ReferenceAccess::Mutable,
-        };
-        let readonly = mutable.read_only_view().unwrap();
-        assert!(mutable.can_weaken_to(&readonly));
-        assert!(!readonly.can_weaken_to(&mutable));
-        assert!(!mutable.can_weaken_to(&Ty::Array(Box::new(item))));
-        assert!(
-            Ty::Array(Box::new(mutable.clone()))
-                .read_only_view()
-                .is_none()
-        );
-        let nested_mutable = Ty::Array(Box::new(mutable));
-        let nested_readonly = Ty::Array(Box::new(readonly));
-        assert!(!nested_mutable.can_weaken_to(&nested_readonly));
-    }
 
     #[test]
     fn repetition_rejects_shared_payloads_and_checks_cancellation() {

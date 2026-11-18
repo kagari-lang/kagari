@@ -10,18 +10,8 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    declaration::native::{NativeTypeConstructor, language_type},
-    range::RangeKind,
-    reference::ReferenceAccess,
-    scalar::BuiltinType,
+    declaration::native::NativeTypeConstructor, range::RangeKind, scalar::BuiltinType,
 };
-
-pub(crate) fn payload_reference_eligible(id: DefinitionId, definitions: &DefinitionTable) -> bool {
-    !language_type(id, definitions, "kagari-core", "future", "Future")
-        && !language_type(id, definitions, "kagari-core", "task", "Task")
-        && !language_type(id, definitions, "kagari-core", "task", "TaskScope")
-        && NativeTypeConstructor::from_definition(id, definitions).is_none()
-}
 
 /// Checked constructor identity, independent of registration storage/layout policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,7 +23,6 @@ pub(crate) enum TypeConstructor {
     Host(DefinitionId),
     String,
     Range(RangeKind),
-    Reference(ReferenceAccess),
 }
 
 impl TypeConstructor {
@@ -49,7 +38,7 @@ impl TypeConstructor {
         match NativeTypeConstructor::from_definition(declaration, definitions) {
             Some(NativeTypeConstructor::String) => Self::String,
             Some(NativeTypeConstructor::Range(kind)) => Self::Range(kind),
-            Some(NativeTypeConstructor::Reference(access)) => Self::Reference(access),
+
             None => Self::Native { declaration, arity },
         }
     }
@@ -58,7 +47,7 @@ impl TypeConstructor {
         match self {
             Self::Native { arity, .. } => arity,
             Self::Host(_) | Self::String | Self::Range(RangeKind::Full) => 0,
-            Self::Range(_) | Self::Reference(_) => 1,
+            Self::Range(_) => 1,
         }
     }
 
@@ -81,10 +70,6 @@ impl TypeConstructor {
                 RangeKind::Full,
             ),
             Self::Range(kind) => TypeId::Range(first(), kind),
-            Self::Reference(access) => TypeId::Reference {
-                target: first(),
-                access,
-            },
         })
     }
 }

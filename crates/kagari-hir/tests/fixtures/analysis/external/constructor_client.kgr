@@ -6,9 +6,8 @@ fn range() -> api::Range<i32> {
     1..3
 }
 
-fn forward(shared: api::Ref<api::Target>, mutable: api::RefMut<api::Target>) {
-    shared.shared();
-    mutable.mutable();
-    mutable.shared();
-    api::references(shared, mutable);
+fn forward(target: api::Target) {
+    target.shared();
+    target.mutable();
+    target.plain();
 }

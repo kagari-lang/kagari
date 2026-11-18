@@ -157,8 +157,6 @@ pub enum ErrorReason {
     ExpiredHostBorrow(String),
     #[error("host borrow conflict: {0}")]
     HostBorrowConflict(String),
-    #[error("host borrow escape: {0}")]
-    HostBorrowEscape(String),
     #[error("invalid reflective read: {0}")]
     InvalidReflectiveRead(#[source] ReflectiveFailure),
     #[error("invalid reflective write: {0}")]
@@ -205,7 +203,6 @@ impl ErrorReason {
             Self::MetadataConflict(_) => RuntimeErrorKind::MetadataConflict,
             Self::ExpiredHostBorrow(_) => RuntimeErrorKind::ExpiredHostBorrow,
             Self::HostBorrowConflict(_) => RuntimeErrorKind::HostBorrowConflict,
-            Self::HostBorrowEscape(_) => RuntimeErrorKind::HostBorrowEscape,
             Self::InvalidReflectiveRead(_) => RuntimeErrorKind::InvalidReflectiveRead,
             Self::InvalidReflectiveWrite(_) => RuntimeErrorKind::InvalidReflectiveWrite,
             Self::HostCallFailure(_) => RuntimeErrorKind::HostCallFailure,
@@ -236,7 +233,6 @@ impl ErrorReason {
             | Self::MetadataConflict(text)
             | Self::ExpiredHostBorrow(text)
             | Self::HostBorrowConflict(text)
-            | Self::HostBorrowEscape(text)
             | Self::TypedPathValidation(text)
             | Self::ModuleValidation(text)
             | Self::DebugObservationFailure(text)

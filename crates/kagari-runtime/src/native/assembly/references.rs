@@ -353,9 +353,5 @@ fn constructor_type(
             Ty::Range(Box::new(Ty::Builtin(BuiltinType::Unit)), RangeKind::Full)
         }
         NativeTypeConstructor::Range(kind) => Ty::Range(Box::new(arguments.remove(0)), kind),
-        NativeTypeConstructor::Reference(access) => Ty::Reference {
-            target: Box::new(arguments.remove(0)),
-            access,
-        },
     })
 }

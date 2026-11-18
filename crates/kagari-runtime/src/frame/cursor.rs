@@ -11,7 +11,7 @@ use crate::{
         },
         values::{FrameAccessError, operands::OperandWindow},
     },
-    host::{HostBorrowTable, HostRegistry},
+    host::HostRegistry,
     module::{
         ModuleStore, execution::ExecutionFunction, linked_execution::LinkedFunction,
         managed::revision::RevisionState,
@@ -48,7 +48,6 @@ struct ExecutionCursor<'code, 'access, 'source, 'gc> {
     modules: &'code ModuleStore,
     session: &'code SessionState,
     host: &'code HostRegistry,
-    host_borrows: &'code HostBorrowTable,
     resources: &'code ResourceState,
     collection_due: bool,
     automatic_collection: bool,
@@ -102,7 +101,6 @@ impl FrameStack {
             memory,
             modules,
             host,
-            host_borrows,
             ..
         } = runtime;
         let mut frames = resources.sessions.frames_mut(self.session).ok_or_else(|| {
@@ -181,7 +179,6 @@ impl FrameStack {
                         modules,
                         session: &session,
                         host,
-                        host_borrows,
                         resources,
                         collection_due,
                         automatic_collection,

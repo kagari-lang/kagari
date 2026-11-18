@@ -6,16 +6,13 @@ pub mod inheritance;
 mod mapping;
 pub mod matching;
 mod order;
-mod reference;
+
 mod shape;
 pub mod substitution;
 #[doc(hidden)]
 pub mod wire;
 
-use crate::{
-    range::RangeKind, reference::ReferenceAccess, scalar::BuiltinType,
-    ty::substitution::TypeSubstitution,
-};
+use crate::{range::RangeKind, scalar::BuiltinType, ty::substitution::TypeSubstitution};
 use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
 use std::collections::BTreeMap;
 
@@ -71,11 +68,6 @@ pub enum Ty {
     NativeObject(NominalTy),
     Enum(NominalTy),
     Trait(NominalTy),
-    /// A scope-bound host location, never an ordinary GC value or Rust pointer.
-    Reference {
-        target: Box<Ty>,
-        access: ReferenceAccess,
-    },
 }
 
 impl Ty {
@@ -88,7 +80,6 @@ impl Ty {
                     pending.extend(&ty.arguments);
                     pending.extend(ty.associated_types.values());
                 }
-                Self::Reference { target, .. } => pending.push(target),
                 Self::Tuple(items) => pending.extend(items),
                 Self::Array(item) | Self::Range(item, _) => pending.push(item),
 
@@ -109,7 +100,6 @@ impl Ty {
                 Self::Projection { .. } | Self::Parameter { .. } | Self::SelfType(_) => {
                     return false;
                 }
-                Self::Reference { target, .. } => pending.push(target),
                 Self::Tuple(types) => pending.extend(types),
                 Self::Function { params, result } => {
                     pending.extend(params);

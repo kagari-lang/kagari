@@ -131,7 +131,6 @@ fn pair<'gc>(
                     | ObjectKind::Interface
                     | ObjectKind::HostRoot
                     | ObjectKind::HostPath
-                    | ObjectKind::Ephemeral
             )
         )
     };

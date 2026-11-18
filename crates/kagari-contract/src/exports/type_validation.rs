@@ -446,7 +446,7 @@ fn children<'a>(ty: &'a Ty, pending: &mut Vec<&'a Ty>) {
             pending.extend(&applied.arguments);
             pending.extend(applied.associated_types.values());
         }
-        Ty::Reference { target, .. } => pending.push(target),
+
         Ty::Tuple(items) => pending.extend(items),
         Ty::Function { params, result } => {
             pending.extend(params);

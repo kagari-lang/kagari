@@ -115,7 +115,6 @@ impl PairContext<'_> {
         let Runtime {
             memory,
             host,
-            host_borrows,
             resources,
             ..
         } = &mut *self.runtime;
@@ -128,7 +127,7 @@ impl PairContext<'_> {
                         resources.poll_closed()?;
                     }
                     let value = root.get(cx)?;
-                    if !scoped::matches(cx, value, ty.view(owner), host, host_borrows, resources)? {
+                    if !scoped::matches(cx, value, ty.view(owner), host, resources)? {
                         return Err(invalid().into());
                     }
                     fields.push(value);

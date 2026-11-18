@@ -101,7 +101,7 @@ Rust embedding examples use common declarations, explicit `bind` and installatio
 
 | Boundary | Command | Result |
 | --- | --- | --- |
-| One method set for runtime-owned Opaque and scoped Ref/RefMut; checked read/edit/take | `cargo run -p kagari --example scoped_host` | Both calls return hp=70; take returns hp=71 and old aliases reject access |
+| Runtime-owned Opaque methods, checked Rust read/edit loans and shared identity | `cargo run -p kagari --example scoped_host` | Script heals to hp=70; after a Rust edit, script inspects hp=71 through an alias |
 | DTO derive with a retained Opaque field | `cargo run -p kagari --example value_interop` | `Applied(Response { amount: 40 })` |
 | Optional schema-backed Serde | `cargo run -p kagari --example serde_interop --no-default-features --features source,serde` | `Applied(7, 20)` |
 | Cold declarations, encoded contracts and installed callbacks | `cargo run -p kagari-runtime --example offline_host` | Immutable configuration returns 42 |

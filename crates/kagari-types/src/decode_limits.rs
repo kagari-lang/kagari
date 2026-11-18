@@ -1,4 +1,4 @@
-//! Bounded semantic metadata collections and unique associated-output maps.
+//! Wire guards for bounded metadata collections and reserved fields.
 use kagari_common::decode_limits::bounded_vec;
 use serde::{
     Deserialize, Deserializer, de,
@@ -8,6 +8,19 @@ use std::{collections::BTreeMap, fmt, marker::PhantomData};
 
 pub const MAX_NESTED_RECORDS: usize = 4_096;
 pub const MAX_TABLE_RECORDS: usize = 1_000_000;
+
+/// A reserved wire byte. It always encodes as zero; nonzero values are invalid.
+#[derive(Default, serde::Serialize)]
+pub struct ReservedZero(u8);
+
+impl<'de> Deserialize<'de> for ReservedZero {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        match u8::deserialize(deserializer)? {
+            0 => Ok(Self::default()),
+            _ => Err(Error::custom("nonzero reserved wire byte")),
+        }
+    }
+}
 
 pub fn map<'de, D, K, V>(deserializer: D) -> Result<BTreeMap<K, V>, D::Error>
 where

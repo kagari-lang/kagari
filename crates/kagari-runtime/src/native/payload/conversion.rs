@@ -24,14 +24,6 @@ impl<T: NativePayload> KagariType for Opaque<T> {
         registration.opaque::<T>()
     }
 
-    fn snapshot_field<'call>(
-        &self,
-        cx: &mut ConversionContext<'call>,
-        expected: &TypeArgument,
-    ) -> NativeResult<ValueView<'call>> {
-        cx.encode_value(expected, self.clone())
-    }
-
     fn check_type(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<()> {
         if !matches!(expected.ty(), Ty::NativeObject(_)) {
             return Err(RuntimeError::module_validation(

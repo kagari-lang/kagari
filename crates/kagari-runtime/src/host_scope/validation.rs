@@ -2,14 +2,13 @@
 use crate::{
     error::RuntimeError,
     execution::roots::Slots,
-    host::{HostBorrowKind, HostBorrowTable, HostRegistry},
+    host::HostRegistry,
     native::binding::NativeResult,
     resource::ResourceState,
     value::{
-        EphemeralValue,
         aggregates::tuples::TupleObject,
         carriers::ScopedValue,
-        host_values::{EphemeralObject, HostRootObject, paths::HostPathObject},
+        host_values::{HostRootObject, paths::HostPathObject},
         kind::ObjectKind,
         properties::ValueProperties,
         view::ValueView,
@@ -21,7 +20,6 @@ pub(super) fn values(
     slots: &mut Slots<'_, '_>,
     values: &[ValueView<'_>],
     registry: &HostRegistry,
-    borrows: &HostBorrowTable,
     resources: &ResourceState,
 ) -> Result<NativeResult<()>, GcError> {
     for (index, value) in values.iter().enumerate() {
@@ -32,7 +30,7 @@ pub(super) fn values(
             return Ok(Err(error));
         }
         let value = value.get(slots)?;
-        if let Err(error) = validate(slots.scope(), value, registry, borrows, resources)? {
+        if let Err(error) = validate(slots.scope(), value, registry, resources)? {
             return Ok(Err(error));
         }
     }
@@ -46,7 +44,6 @@ pub(super) fn validate<'gc>(
     cx: &Scope<'gc>,
     value: ScopedValue<'gc>,
     registry: &HostRegistry,
-    borrows: &HostBorrowTable,
     resources: &ResourceState,
 ) -> Result<NativeResult<()>, GcError> {
     let mut current = Some(value);
@@ -92,44 +89,9 @@ pub(super) fn validate<'gc>(
                     return Ok(Err(error));
                 }
             }
-            Some(ObjectKind::Ephemeral) if value.as_runtime_ephemeral().is_none() => {
-                let object =
-                    cx.downcast::<EphemeralObject>(value.object().ok_or(GcError::Representation)?)?;
-                let result = match cx.read(object, EphemeralObject::value) {
-                    EphemeralValue::HostRef(token) => {
-                        borrows.validate(token, HostBorrowKind::Shared)
-                    }
-                    EphemeralValue::HostMut(token) => {
-                        borrows.validate(token, HostBorrowKind::Unique)
-                    }
-                    EphemeralValue::HostView(view) => borrows.validate_scoped(view),
-                    EphemeralValue::Runtime(_) => Ok(()),
-                };
-                if let Err(error) = result {
-                    return Ok(Err(error));
-                }
-            }
             _ => {}
         }
         current = pending.pop();
     }
     Ok(Ok(()))
-}
-
-/// A successful scoped return or explicit Host escape cannot retain a borrowed
-/// Host/Runtime temporary, including one nested in an immutable tuple.
-pub(super) fn result<'gc>(
-    cx: &Scope<'gc>,
-    value: ScopedValue<'gc>,
-    registry: &HostRegistry,
-    borrows: &HostBorrowTable,
-    resources: &ResourceState,
-) -> Result<NativeResult<()>, GcError> {
-    let properties = ValueProperties::of(cx, value)?;
-    if properties.host_borrow || properties.ephemeral {
-        return Ok(Err(RuntimeError::host_borrow_escape(
-            "scoped execution result cannot retain an ephemeral value",
-        )));
-    }
-    validate(cx, value, registry, borrows, resources)
 }

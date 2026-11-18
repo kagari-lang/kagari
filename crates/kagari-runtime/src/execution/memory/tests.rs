@@ -6,12 +6,14 @@ use crate::{
             ValueBank, ValueLocation, pending::PendingSlots,
         },
     },
+    host::{HostObjectId, HostRootHandle, HostSchemaEpoch},
+    metadata::{AbiFingerprint, TypeId},
     resource::ResourceState,
+    value::host_values::HostRootObject,
     value::{
         aggregates::tuples::TupleObject,
         carriers::{RootedValue, ScopedValue, StoredValue},
         cells::CellObject,
-        ephemeral::EphemeralValueId,
         properties::ValueProperties,
         strings::StringObject,
         view::ValueView,
@@ -382,16 +384,9 @@ fn conversion_result_survives_child_scratch_and_host_retention() -> Result<(), G
             // metadata. Retiring scratch must clear this edge as well as values.
             let prepared = slots.push_dependency(execution, discarded)?;
             let text = StringObject::alloc(slots.scope(), "returned UTF-8 🙂".to_owned())?;
-            let temporary = ScopedValue::runtime_ephemeral(EphemeralValueId(7));
-            assert!(temporary.object().is_none());
-            assert!(temporary.scalar_payload().is_none());
             let result = TupleObject::alloc(
                 slots.scope(),
-                &[
-                    ScopedValue::managed(text),
-                    temporary,
-                    ScopedValue::from(u64::MAX),
-                ],
+                &[ScopedValue::managed(text), ScopedValue::from(u64::MAX)],
             )?;
             let value = ScopedValue::managed(result);
             let old_location = slots.push_local(execution, value)?;
@@ -423,11 +418,9 @@ fn conversion_result_survives_child_scratch_and_host_retention() -> Result<(), G
             let tuple = slots
                 .scope()
                 .downcast::<TupleObject>(value.object().unwrap())?;
-            assert_eq!(slots.scope().read(tuple, TupleObject::len), 3);
+            assert_eq!(slots.scope().read(tuple, TupleObject::len), 2);
             let facts = ValueProperties::of(slots.scope(), value)?;
-            assert!(!facts.storable);
-            assert!(facts.ephemeral);
-            assert!(!facts.host_borrow);
+            assert!(facts.storable);
             let text = TupleObject::get(slots.scope(), tuple, 0)?.object().unwrap();
             let text = slots.scope().downcast::<StringObject>(text)?;
             assert!(
@@ -435,10 +428,7 @@ fn conversion_result_survives_child_scratch_and_host_retention() -> Result<(), G
                     .scope()
                     .read(text, |text| text.as_str() == "returned UTF-8 🙂")
             );
-            let temporary = TupleObject::get(slots.scope(), tuple, 1)?;
-            assert_eq!(temporary.as_runtime_ephemeral(), Some(EphemeralValueId(7)));
-            assert!(temporary.object().is_none());
-            let number = TupleObject::get(slots.scope(), tuple, 2)?;
+            let number = TupleObject::get(slots.scope(), tuple, 1)?;
             assert_eq!(number.scalar_payload().unwrap().1, u64::MAX);
             // Nested Native pending cells own disjoint suffixes, including when
             // the outer result is managed and the inner result is a full scalar.
@@ -581,8 +571,17 @@ fn capture_cells_preserve_contracts_and_retire_cycles() -> Result<(), GcError> {
                 CellObject::get(slots.scope(), cell, ValueType::HeapObject),
                 Err(GcError::Representation)
             ));
-            let temporary = ScopedValue::runtime_ephemeral(EphemeralValueId(1));
-            let invalid = TupleObject::alloc(slots.scope(), &[temporary])?;
+            let temporary = HostRootObject::alloc(
+                slots.scope(),
+                HostRootHandle::new(
+                    Default::default(),
+                    HostObjectId(1),
+                    TypeId::new(0),
+                    HostSchemaEpoch::new(0),
+                    AbiFingerprint(1),
+                ),
+            )?;
+            let invalid = TupleObject::alloc(slots.scope(), &[ScopedValue::managed(temporary)])?;
             assert!(matches!(
                 CellObject::set(
                     slots.scope(),
@@ -604,7 +603,7 @@ fn capture_cells_preserve_contracts_and_retire_cycles() -> Result<(), GcError> {
             Ok(())
         })
     })?;
-    assert_eq!(memory.collect(resources)?.retired_owners, 1);
+    assert_eq!(memory.collect(resources)?.retired_owners, 2);
     assert_eq!(memory.stats().objects, 2);
     memory.scope(resources, |cx, roots| {
         ExecutionRoots::with(roots, cx, |slots| {

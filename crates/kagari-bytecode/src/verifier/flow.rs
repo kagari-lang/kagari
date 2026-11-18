@@ -42,19 +42,6 @@ pub(super) fn verify(
     function: &BytecodeFunction,
     budget: &mut FlowBudget,
 ) -> Result<FlowResult, Error> {
-    if function.metadata.effects.may_suspend
-        && function
-            .metadata
-            .semantic
-            .params
-            .values()
-            .any(Ty::contains_stored_reference)
-    {
-        return Err(Error::InvalidOperation {
-            function: function.id,
-            reason: "a scoped reference cannot be retained in a resume body",
-        });
-    }
     let registers = function.metadata.slots.len();
     if DebugAvailability::scratch_bytes(function.metadata.debug.local_live_ranges.len())
         > MAX_FLOW_BYTES
@@ -349,7 +336,7 @@ fn charge(function: &BytecodeFunction, budget: &mut FlowBudget, count: usize) ->
 
 pub(super) fn inline_host(ty: &Ty) -> bool {
     match ty {
-        Ty::Host(_) | Ty::Reference { .. } => true,
+        Ty::Host(_) => true,
         Ty::Tuple(items) => items.iter().any(inline_host),
         _ => false,
     }

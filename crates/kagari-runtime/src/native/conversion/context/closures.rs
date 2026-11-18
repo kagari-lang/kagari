@@ -104,7 +104,6 @@ impl<'call> ConversionContext<'call> {
             modules,
             resources,
             host,
-            host_borrows,
             ..
         } = &mut *self.runtime;
         let result = memory.scope(resources, |cx, roots| {
@@ -161,7 +160,6 @@ impl<'call> ConversionContext<'call> {
                                 content,
                                 expected.view(owner),
                                 host,
-                                host_borrows,
                                 resources,
                             )
                             .map_err(|error| match error {

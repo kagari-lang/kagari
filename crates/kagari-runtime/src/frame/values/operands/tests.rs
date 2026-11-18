@@ -21,7 +21,6 @@ fn unit_operands_neither_require_nor_alias_a_payload_cell() -> Result<(), GcErro
         operand: OperandSlot::unit(),
         representation: ValueType::Unit,
         semantic: Some(BuiltinType::Unit),
-        borrowed_receiver: false,
     };
     let retired_banks = memory.scope(resources, |cx, roots| {
         ExecutionRoots::with(roots, cx, |slots| {
@@ -41,7 +40,6 @@ fn unit_operands_neither_require_nor_alias_a_payload_cell() -> Result<(), GcErro
                 operand: OperandSlot::new(0, false),
                 representation: ValueType::U64,
                 semantic: Some(BuiltinType::U64),
-                borrowed_receiver: false,
             };
             assert!(read_operand(slots, child.banks(), scalar)?.is_unit());
             write_operand(slots, child.banks(), unit, ScopedValue::unit())?;

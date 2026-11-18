@@ -66,7 +66,6 @@ impl Control {
                     ValueType::I32
                 },
                 semantic: None,
-                borrowed_receiver: false,
             })
             .collect();
         Self {

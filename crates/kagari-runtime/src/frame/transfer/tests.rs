@@ -74,13 +74,11 @@ fn return_snapshots_survive_slot_changes_and_reject_frame_reuse() -> Result<(), 
         operand: OperandSlot::new(0, true),
         representation: ValueType::Str,
         semantic: None,
-        borrowed_receiver: false,
     };
     let scalar = Location {
         operand: OperandSlot::new(0, false),
         representation: ValueType::U64,
         semantic: None,
-        borrowed_receiver: false,
     };
     let (caller, frame, packet) = memory.scope(resources, |cx, roots| {
         ExecutionRoots::with(roots, cx, |slots| {

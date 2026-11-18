@@ -11,7 +11,7 @@ use crate::{
     typeck::{
         BodyTypeEnv, applications,
         body::{BodyChecker, LoopResult},
-        check, completion, interfaces,
+        completion, interfaces,
         ty::{TypeContext, display_type, display_type_id, resolve_type_in},
     },
     types::TypeId,
@@ -73,11 +73,6 @@ impl<'a> BodyChecker<'a> {
                             .with_span(self.lowered.module.type_ref(ty).origin.diagnostic_span()),
                         );
                     }
-                    check::validate_reference_position(
-                        &resolved,
-                        self.lowered.module.type_ref(ty).origin.diagnostic_span(),
-                        self.diagnostics,
-                    );
                     resolved
                 });
                 let initializer_ty =

@@ -1359,13 +1359,21 @@ access/runtime design, output/reflection extraction and broader LSP scheduling a
 three phases. Unpublished affected products are disposable; no compatibility reader, routine format/ABI bump or
 general provider installation redesign was added.
 
-**Next checkpoint, not implemented:** [remove script Ref/RefMut views](native-model-design.md#g-remove-script-reference-views).
-Remove the two built-in names and their scoped-view feature together, without placeholders. The plan
-orders standard-library/HIR removal, compiler/verifier and Runtime/SDK cleanup, then consumer and
-contract validation. Preserve independent Host/Opaque access and their checked loans. Until that
-checkpoint, existing scoped views and their safety checks still apply. Any replacement, including
-per-type view declarations and their Runtime invocation, remains deferred. This is not an activation
-of the former phases 4–5.
+**9G implementation:** [Remove script Ref/RefMut views](native-model-design.md#g-remove-script-reference-views).
+The two built-in names, their scoped-view behavior and SDK lending entrypoints are removed without
+placeholders. Independent Host/Opaque access and checked loans remain. Any replacement, including
+per-type view declarations and their Runtime invocation, remains deferred. This does not activate
+the former phases 4–5.
+
+Local 9G acceptance sampled each changed boundary: both declaration inputs and ordinary same-named
+user generics; valid source-free aggregates and SDK execution; manual Host roots and paths; and
+Opaque receiver access, reload, cancellation, and cleanup. Retired KBC/MIR representations were
+checked during migration without retaining historical-encoding tests. The affected unpublished
+fixture was regenerated from source for the source-free execution check. These regressions, the
+Opaque example, and the required structure, formatting, workspace all-target Clippy, and diff gates
+passed. The earlier baseline failures above
+were not revalidated. Full workspace tests and exhaustive feature/backend/platform matrices remain
+CI-only and were not run for 9G.
 
 ## Numeric standard library
 
@@ -1400,8 +1408,8 @@ second free-function math catalog.
 
 ## Host registration and interop delivery
 
-Unified registration, Rust DTO/Serde conversion, runtime-owned Opaque and scoped
-Ref/RefMut are implemented. Common NativeModule declarations, explicit bind and
+Unified registration, Rust DTO/Serde conversion, runtime-owned Opaque and checked
+external Host roots/paths are implemented. Common NativeModule declarations, explicit bind and
 atomic installation serve stdlib, application and live-host consumers. The former
 host aggregate/format and parallel registration/invocation APIs are removed.
 The HR01-HR03, RI00-RI05 and RF01-RF06 plans are retired; Git history retains their
@@ -1411,31 +1419,24 @@ Current contracts live in [host interop](spec/host-interop.md),
 [the embedding guide](spec/embedding-api.md#typed-native-registration),
 [runtime ownership](spec/runtime.md), [traits](spec/traits.md),
 [artifacts](spec/artifacts.md) and [reload](spec/module-activation.md).
-The [scoped SDK example](../crates/kagari/examples/scoped_host.rs) registers one
-method set for Opaque, Ref and RefMut and demonstrates checked read/edit loans
-and shared identity. [DTO/Opaque](../crates/kagari/examples/value_interop.rs),
+The [Opaque SDK example](../crates/kagari/examples/scoped_host.rs) registers shared
+and mutable Opaque methods and demonstrates checked read/edit loans and alias identity. [DTO/Opaque](../crates/kagari/examples/value_interop.rs),
 [optional Serde](../crates/kagari/examples/serde_interop.rs) and
 [cold source-free registration](../crates/kagari-runtime/examples/offline_host.rs)
 provide the other runnable boundary cases. No implicit Rust trait exposure or GC
 object reinterpretation supplies host references.
 
-Focused local declaration/proof/codec/installation, VM and SDK contract checks,
+Before 9G, focused local declaration/proof/codec/installation, VM and SDK contract checks,
 production lifetime compile-pass/compile-fail evidence and actual generated-field
 Miri passed. The final Miri selection used nightly-2026-07-27 on
 aarch64-apple-darwin with MIRIFLAGS unset and default target/profile/parallelism.
 Full workspace, feature/backend/platform and broader Miri acceptance remains
 CI-owned and unrun locally; focused checks are not complete CI acceptance.
-Focused interop review coverage includes cross-generation scoped native calls,
-borrow cleanup/ownership, source reflection diagnostics and applied reference
-signatures, with ordinary reflection and propagation as adjacent regression cases.
-No known selected local integration or safety failure remains.
+That review also covered the now-removed script wrapper path. Its results do not
+validate the 9G implementation.
 
-Remaining scope stays separate: general view trait forwarding, borrowed returns,
-reflective access to scoped views, retaining references across suspension,
-packed/union/variant/index projections,
-unrestricted editing/extraction of managed script-edge payloads and wider native
-reference execution are not implemented. Current unsupported native reference
-bodies select the interpreter before entry. Automatic derive/Serde supports the
+General Rust-backed projections, borrowed returns, unrestricted payload editing
+and payload extraction are not part of this delivery. Automatic derive/Serde supports the
 finite subset documented in the embedding guide. [Call preparation costs](review.md#call-boundary-cost-follow-up)
 remain a bounded follow-up with no speedup claim; NC and the Host API facade
 remain independently queued.
@@ -2117,7 +2118,7 @@ checked type environments, roots and pinned versions; no Any trait is added.
 The [runtime storage predecessor](#runtime-storage-redesign) is locally complete.
 Refresh DC01's implementation inventory against its shared descriptions before activation.
 Ordinary read-only interfaces may explicitly recover their concrete storage,
-while host access restrictions and scoped-reference exclusion remain intact.
+while Host access restrictions and scope-bound Host exclusions remain intact.
 
 DC01 closes intrinsic/member resolution, target eligibility and cross-version
 recovery/call provenance before implementation. Later phases own source-independent
@@ -2314,12 +2315,11 @@ Important ordering constraints and limits:
   NativeStorage/access API contract before NC changes to it. Reuse implemented
   host registration; do not require persistent borrowed returns for NC or expand
   its scope into host facade or call-cost work.
-- SA21 typed Rust `&T`/`&mut T` inputs and generated field projections have an
-  [execution contract](spec/host-interop.md#borrowed-host-values) for scoped
-  handles and disjoint mutable fields. It also owns the passing matrix and explicit
-  host method/trait registration. The bounded root/typed-call cost follow-up remains
-  queued at [SA21](review.md#call-boundary-cost-follow-up). Persistent borrowed
-  returns remain a separate extension.
+- SA21's retained [Host interop contract](spec/host-interop.md) owns Opaque receiver
+  loans, checked Host roots/paths and explicit host method/trait registration. The
+  bounded root/typed-call cost follow-up remains queued at
+  [SA21](review.md#call-boundary-cost-follow-up). 9G does not add borrowed returns
+  or replace the removed script reference views.
 - [Focused validation policy](../AGENTS.md#verification-and-tooling) applies
   throughout: reuse already implemented preparation. Coordinate any further
   preparation changes with the existing [test preparation task](test-preparation-plan.md),

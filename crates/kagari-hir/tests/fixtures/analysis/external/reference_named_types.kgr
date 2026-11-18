@@ -1,0 +1,7 @@
+pub native type Ref<T> {
+    pub val value: T,
+}
+
+pub native type RefMut<T, U> {
+    pub val value: U,
+}

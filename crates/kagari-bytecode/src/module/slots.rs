@@ -54,9 +54,7 @@ impl TypeShape {
                     pending.extend(params.iter().map(|ty| (ty, depth + 1)));
                     pending.push((result, depth + 1));
                 }
-                Ty::Range(item, _) | Ty::Array(item) | Ty::Reference { target: item, .. } => {
-                    pending.push((item, depth + 1))
-                }
+                Ty::Range(item, _) | Ty::Array(item) => pending.push((item, depth + 1)),
 
                 Ty::Struct(value)
                 | Ty::NativeObject(value)

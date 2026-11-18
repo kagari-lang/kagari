@@ -81,7 +81,7 @@ impl FileQueries<'_> {
                 self.analysis.definitions(),
                 &parameter.ty.instantiate(&substitution),
             );
-            if (expected.conflicts_with(&receiver) && !receiver.can_weaken_to(&expected))
+            if expected.conflicts_with(&receiver)
                 || !query.bounds_allow(&function.bounds, &substitution, None, true)
             {
                 continue;

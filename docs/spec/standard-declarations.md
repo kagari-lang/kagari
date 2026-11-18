@@ -382,17 +382,14 @@ not capture them. Genuine Native default declarations also remain supported.
 Native and Script fields share ownership, type, visibility and writeability
 checking. For `counter: Counter<i32>`, `counter.value = 1` type-checks, while
 `counter.value = false` does not. `val child` forbids rebinding that slot; reading
-it returns an ordinary Child object handle, not `Ref<Child>` or `RefMut<Child>`.
+it returns an ordinary Child object handle.
 It does not freeze the referent through other aliases. Scalar reads copy the
 scalar value. This frontend support creates no field adapter or storage authority;
 unsupported executable Native fields still reject at the compiler/runtime boundary.
 
-`Ref<T>` and `RefMut<T>` use ordinary type application syntax. Recognition comes
-from the explicit constructor declaration identity and shape, not a spelling test
-on arbitrary user types named Ref. Checked reference types retain their target and
-Shared/Mutable access. This model adds no borrowing, projection, conversion,
-implicit adaptation or method forwarding; existing reference restrictions and
-scoped runtime borrowing checks remain in force.
+The standard library does not provide script reference wrapper constructors.
+User declarations named `Ref` or `RefMut` follow ordinary type application rules
+and receive no special borrowing, projection or conversion behavior.
 
 ### Offline static metadata
 
@@ -403,14 +400,14 @@ not a new sidecar file format, exporter, watcher or provider product:
 | Input | Static meaning |
 | --- | --- |
 | Source, package alias, prelude and dependencies | Complete declarations/Script bodies, ownership, exposure and explicit library dependencies. |
-| `types` | Checked canonical constructor selection (including existing reference access) or Host category. Ordinary nominal Native types need no entry; physical storage layout is not an HIR sidecar. |
+| `types` | Checked canonical constructor selection or Host category. Ordinary nominal Native types need no entry; physical storage layout is not an HIR sidecar. |
 | `hosts` | Scoped `ExternalHost` root, complete schema closure (including the exact root) and checked paths. A Host category without its schema/path metadata rejects, rather than becoming an ordinary Native object. Parsed fields must match the schema. |
 | `conversions` | Scoped static conversion relationships attached to actual traits. Actual exposed targets and supported shapes are checked; additional supertraits/bounds unsupported by intrinsic derivation reject. Ordinary traits and language roles require no duplicate trait catalog. |
 | `enum_failures`, `import_namespaces` | Failure-origin flags on actual enum variants and namespace categories on exact named import leaves. |
 | `methods` | Exceptional receiver-access/override restrictions, targeted at the actual function or trait/impl member. Impl selectors count blocks in source order. |
 | `contracts` | `NativeContract` ordered selected operations and optional concrete interface result, with explicitly imported definition scopes. |
 
-Canonical String/Range and existing Ref/RefMut constructor identity, arity and
+Canonical String/Range constructor identity, arity and
 field shape are checked at common declaration preparation even if `types` is empty.
 [Reserved language roles](../../crates/kagari-hir/src/language/items.rs) require their
 canonical owners and independent visibility/binder/parent/member-shape checks,

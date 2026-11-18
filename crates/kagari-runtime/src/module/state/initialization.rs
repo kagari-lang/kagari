@@ -138,7 +138,6 @@ impl StaticCommit {
             memory,
             resources,
             host,
-            host_borrows,
             ..
         } = runtime;
         let result = memory.scope(resources, |cx, roots| {
@@ -152,7 +151,6 @@ impl StaticCommit {
                         &self.access.owner,
                         self.access.slot,
                         host,
-                        host_borrows,
                         resources,
                     )?;
                     resources.poll_closed()?;

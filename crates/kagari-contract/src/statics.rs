@@ -38,8 +38,6 @@ impl StaticContract {
         }) && !self.name.is_empty()
             && self.ty.is_concrete()
             && types_in_scope(slice::from_ref(&self.ty), &[], cancel, definitions)
-            && !self.ty.contains_stored_reference()
-            && self.ty.reference_position_valid()
     }
 
     /// Initializers have dedicated module-level function identities, never method

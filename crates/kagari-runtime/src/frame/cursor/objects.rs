@@ -17,9 +17,6 @@ impl ExecutionCursor<'_, '_, '_, '_> {
             .fields
             .get(index)
             .ok_or_else(|| self.invalid())?;
-        if operation.reference.is_some() {
-            return Ok(FieldContinuation::Prepare);
-        }
         let Some(layout) = self
             .links
             .and_then(|links| links.ready_field_layout(operation.layout_site))
@@ -31,7 +28,6 @@ impl ExecutionCursor<'_, '_, '_, '_> {
             operation,
             layout,
             self.host,
-            self.host_borrows,
             self.resources,
         )?;
         Ok(FieldContinuation::Complete)

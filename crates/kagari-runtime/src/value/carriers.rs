@@ -4,7 +4,7 @@ mod tests;
 
 use crate::{
     execution::roots::ValueLocation,
-    value::{ephemeral::EphemeralValueId, kind::ObjectKind, view::ValueView},
+    value::{kind::ObjectKind, view::ValueView},
 };
 use kagari_abi::representation::ValueType;
 use kagari_gc::{
@@ -34,7 +34,6 @@ pub(super) enum Representation<R> {
     U64(u64),
     F32(f32),
     F64(f64),
-    RuntimeEphemeral(EphemeralValueId),
     Managed { kind: ObjectKind, target: R },
 }
 
@@ -49,20 +48,13 @@ impl<R> Representation<R> {
             Self::U64(value) => (ValueType::U64, *value),
             Self::F32(value) => (ValueType::F32, u64::from(value.to_bits())),
             Self::F64(value) => (ValueType::F64, value.to_bits()),
-            Self::Managed { .. } | Self::RuntimeEphemeral(_) => return None,
+            Self::Managed { .. } => return None,
         })
     }
 
     pub(super) fn has_representation(&self, ty: ValueType) -> bool {
         if ty == ValueType::Generic {
-            return !matches!(
-                self,
-                Self::RuntimeEphemeral(_)
-                    | Self::Managed {
-                        kind: ObjectKind::Ephemeral,
-                        ..
-                    }
-            );
+            return true;
         }
         matches!(
             (self, ty),
@@ -83,7 +75,7 @@ impl<R> Representation<R> {
                 )
                 | (
                     Self::Managed {
-                        kind: ObjectKind::HostRoot | ObjectKind::HostPath | ObjectKind::Ephemeral,
+                        kind: ObjectKind::HostRoot | ObjectKind::HostPath,
                         ..
                     },
                     ValueType::HostHandle
@@ -119,7 +111,6 @@ impl<R> Representation<R> {
             Self::U64(value) => Representation::U64(*value),
             Self::F32(value) => Representation::F32(*value),
             Self::F64(value) => Representation::F64(*value),
-            Self::RuntimeEphemeral(value) => Representation::RuntimeEphemeral(*value),
             Self::Managed { kind, target } => Representation::Managed {
                 kind: *kind,
                 target: map(target)?,
@@ -160,17 +151,6 @@ impl<'gc> ScopedValue<'gc> {
         self.0.has_representation(ty)
     }
 
-    pub(crate) fn runtime_ephemeral(id: EphemeralValueId) -> Self {
-        Self(Representation::RuntimeEphemeral(id))
-    }
-
-    pub(crate) fn as_runtime_ephemeral(self) -> Option<EphemeralValueId> {
-        match self.0 {
-            Representation::RuntimeEphemeral(id) => Some(id),
-            _ => None,
-        }
-    }
-
     pub(crate) fn managed<T: ManagedRepresentation>(target: Gc<'gc, T>) -> Self {
         Self(Representation::Managed {
             kind: T::KIND,
@@ -188,7 +168,6 @@ impl<'gc> ScopedValue<'gc> {
     pub(crate) fn kind(self) -> Option<ObjectKind> {
         match self.0 {
             Representation::Managed { kind, .. } => Some(kind),
-            Representation::RuntimeEphemeral(_) => Some(ObjectKind::Ephemeral),
             _ => None,
         }
     }

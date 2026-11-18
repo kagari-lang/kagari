@@ -267,23 +267,7 @@ fn declaration_pattern_refutable_forms_remain_rejected() {
 }
 
 #[test]
-fn declaration_pattern_scoped_values_bind_without_decomposing() {
-    for receiver in ["Ref<Point>", "RefMut<Point>"] {
-        let source = format!(
-            "{POINT} fn read(input: {receiver}) -> i32 {{ val saved: {receiver} = input; val _ = saved; saved.x }}"
-        );
-        assert_pattern_diagnostics(&source, &[]);
-        let source =
-            format!("{POINT} fn bad(input: {receiver}) {{ val Point {{ x, .. }} = input; }}");
-        let diagnostics = check_source(&source);
-        assert!(
-            diagnostics.iter().any(|diagnostic| matches!(
-                &diagnostic.kind, DiagnosticKind::PatternTypeMismatch { found, .. }
-                    if found == "struct pattern `Point`"
-            )),
-            "{source}: {diagnostics:?}"
-        );
-    }
+fn declaration_pattern_host_values_bind_without_decomposing() {
     let context = DefinitionContext::new().unwrap();
     let mut module = ModuleDecl::new(ModuleIdentity {
         package: PackageId("host".into()),

@@ -102,13 +102,11 @@ impl HostCallPolicy {
                 .iter()
                 .zip(&function.params)
                 .all(|(passing, param)| {
-                    !param.ty.contains_reference()
-                        && (*passing == HostPassingStyle::Owned
-                            || matches!(param.ty, Ty::Host(_))
-                            || (*passing == HostPassingStyle::SharedBorrow
-                                && param.ty == Ty::Builtin(BuiltinType::String)))
+                    *passing == HostPassingStyle::Owned
+                        || matches!(param.ty, Ty::Host(_))
+                        || (*passing == HostPassingStyle::SharedBorrow
+                            && param.ty == Ty::Builtin(BuiltinType::String))
                 })
-            && !function.return_type.contains_reference()
             && (!self.effects.may_read_immutable_configuration
                 || (self
                     .passing
@@ -156,7 +154,6 @@ pub fn function_policy_valid(function: &FnDecl, table: &DefinitionTable) -> bool
                 pending.extend(params);
                 pending.push(result);
             }
-            Ty::Reference { target, .. } => pending.push(target),
             Ty::Array(item) | Ty::Range(item, _) => pending.push(item),
 
             Ty::Struct(nominal)

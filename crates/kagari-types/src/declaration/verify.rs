@@ -1,6 +1,6 @@
 //! Bounded declaration shape and binder checks, independent of linked execution.
 use crate::{
-    callable::CallableImplementation,
+    callable::{CallableImplementation, receiver_type_valid},
     declaration::{
         FnDecl, NativeDeclaration, TraitDef, TypeDef, TypeDefKind, host::function_policy_valid,
     },
@@ -149,12 +149,6 @@ pub fn validate_native_declarations(
         if !receiver_access_valid(function)
             || !parameter_names_valid(function)
             || !function_policy_valid(function, table)
-            || function.return_type.contains_stored_reference()
-            || !function.return_type.reference_position_valid()
-            || function
-                .params
-                .iter()
-                .any(|p| !p.ty.reference_position_valid())
             || !bounds_with(&function.bounds, &valid, &before)
             || declaration
                 .concrete_result
@@ -340,19 +334,12 @@ pub fn trait_valid(
 
 pub fn aggregate_shape_valid(ty: &TypeDef, cancel: &CancellationToken) -> bool {
     if ty.name.is_empty()
-        || ty.fields.iter().any(|field| {
-            field.ty.contains_stored_reference()
-                || match ty.kind {
-                    TypeDefKind::Host(_) => field
-                        .host_policy
-                        .is_none_or(|policy| !policy.valid_for(field)),
-                    _ => field.host_policy.is_some(),
-                }
+        || ty.fields.iter().any(|field| match ty.kind {
+            TypeDefKind::Host(_) => field
+                .host_policy
+                .is_none_or(|policy| !policy.valid_for(field)),
+            _ => field.host_policy.is_some(),
         })
-        || ty
-            .variants
-            .iter()
-            .any(|variant| variant.payload.iter().any(Ty::contains_stored_reference))
         || match ty.kind {
             TypeDefKind::Struct => !ty.variants.is_empty(),
             TypeDefKind::Enum => !ty.fields.is_empty(),
@@ -502,12 +489,6 @@ pub fn function_valid(
         || !parameter_names_valid(function)
         || !function_policy_valid(function, table)
         || function.name.is_empty()
-        || function.return_type.contains_stored_reference()
-        || !function.return_type.reference_position_valid()
-        || function
-            .params
-            .iter()
-            .any(|p| !p.ty.reference_position_valid())
         || !implementation_valid
         || (!function.method_policy.override_allowed && parent_kind != Some(DefinitionKind::Trait))
     {
@@ -520,7 +501,9 @@ pub fn function_valid(
                 .iter()
                 .map(|param| &param.ty)
                 .chain(iter::once(&function.return_type))
-                .all(|ty| type_valid(ty, &params, self_owner, cancel, table))
+                .all(|ty| {
+                    ty.within_wire_limits() && type_valid(ty, &params, self_owner, cancel, table)
+                })
     })
 }
 
@@ -536,7 +519,7 @@ fn receiver_access_valid(function: &FnDecl) -> bool {
     function.method_policy.receiver_access.is_none()
         || function.params.first().is_some_and(|receiver| {
             matches!(receiver.name.as_str(), "self" | "__receiver")
-                && receiver.ty.reference_target_valid()
+                && receiver_type_valid(&receiver.ty)
         })
 }
 
@@ -595,12 +578,6 @@ pub fn type_valid<S: BuildHasher>(
             return false;
         }
         match ty {
-            Ty::Reference { target, .. } => {
-                if !target.reference_target_valid() {
-                    return false;
-                }
-                pending.push(target);
-            }
             Ty::Projection {
                 receiver,
                 interface,

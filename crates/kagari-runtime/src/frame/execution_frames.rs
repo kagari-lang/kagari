@@ -373,7 +373,6 @@ fn invalid_prepared_argument_faults_without_publishing_another_frame() {
                 operand: OperandSlot::new(1, true),
                 representation: ValueType::HeapObject,
                 semantic: None,
-                borrowed_receiver: false,
             }];
             let error = stack
                 .push_admitted_arguments(

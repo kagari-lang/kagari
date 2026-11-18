@@ -12,7 +12,6 @@ use kagari_contract::{
     standard::RuntimePrimitive,
 };
 use kagari_types::{
-    reference::ReferenceAccess,
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
 };
@@ -120,7 +119,6 @@ pub struct FieldRef {
     pub structure: StructId,
     pub arguments: Vec<Ty>,
     pub slot: u32,
-    pub reference: Option<ReferenceAccess>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

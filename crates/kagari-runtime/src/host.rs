@@ -3,13 +3,11 @@ pub(crate) mod installation;
 mod path_calls;
 mod paths;
 mod registry;
-pub mod scoped;
 mod views;
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
-    host::borrows::BorrowObjectKey,
     host_scope::HostResourceScope,
     metadata::{AbiFingerprint, FieldMetadataId, TypeId},
     module::ExecutableModule,
@@ -589,33 +587,19 @@ pub struct FrameHostBorrowToken {
 struct FrameBorrowRecord {
     object_id: HostObjectId,
     borrow_kind: HostBorrowKind,
-    type_id: Option<TypeId>,
-    path: Arc<[DefinitionId]>,
+    type_id: TypeId,
 }
 
 #[derive(Debug)]
 struct ActiveBorrowFrame {
     epoch: BorrowEpoch,
     borrows: Vec<FrameBorrowRecord>,
-    roots: Vec<scoped::ScopedRoot>,
 }
 
 #[derive(Debug, Default)]
 struct ObjectBorrowState {
-    paths: Vec<PathBorrowState>,
-}
-
-#[derive(Debug)]
-struct PathBorrowState {
-    path: Arc<[DefinitionId]>,
     shared_count: usize,
-    unique_count: usize,
-}
-
-impl ObjectBorrowState {
-    fn is_empty(&self) -> bool {
-        self.paths.is_empty()
-    }
+    unique: bool,
 }
 
 #[derive(Debug, Default)]
@@ -623,7 +607,7 @@ struct HostBorrowState {
     next_frame_id: u64,
     next_epoch: u64,
     active_frames: HashMap<HostFrameId, ActiveBorrowFrame>,
-    object_borrows: HashMap<BorrowObjectKey, ObjectBorrowState>,
+    object_borrows: HashMap<HostObjectId, ObjectBorrowState>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

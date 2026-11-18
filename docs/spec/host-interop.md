@@ -80,8 +80,8 @@ only when the application chooses to capture shared state.
 or object storage. External root metadata, inherent methods and explicitly declared
 Kagari trait impls use the same native module and callable installation as ordinary
 registered APIs. A Rust struct's methods or trait impls are never inferred from a
-data schema. Runtime-owned `Opaque<T>` and branded `Ref<T>`/`RefMut<T>` have their
-own checked storage/lending adapters under this same callable contract.
+data schema. Runtime-owned `Opaque<T>` storage and external Host roots and paths
+use distinct checked adapters under the same callable contract.
 
 Catalog imports retain implicit field identities from the checked TypeDef under
 the canonical type owner, as they retain enum variant identities. Scoped type
@@ -489,13 +489,12 @@ The registered representation determines conversion and borrowing:
 | --- | --- | --- | --- |
 | Ordinary GC DTO | Independent schema-directed conversion | Rejected | Rejected |
 | Runtime-owned opaque target | No implicit move | Checked payload loan | Checked payload loan with installed editing capability |
-| `Ref<T>` | No implicit snapshot | Checked scoped loan | Rejected |
-| `RefMut<T>` | No implicit snapshot | Checked scoped loan | Checked scoped loan |
+| Registered Host root/path | No implicit snapshot | No generic Rust conversion; use the installed Host adapter | No generic Rust conversion; use the installed writable Host adapter |
 
 DTO schema registration exposes data fields only. Rust methods and Rust trait
 implementations supply no script members or Kagari trait evidence. Declare each
-host member once and bind its callback explicitly; supported opaque and external
-receivers use that same member according to its declared access. A separate DTO
+host member and bind its callback explicitly. Opaque and external Host declarations
+require bindings appropriate to their storage and declared access. A separate DTO
 snapshot and opaque representation use distinct explicit binding types. The
 [value conversion guide](embedding-api.md#typed-native-registration) describes
 the finite derive/Serde subset and directional converters.
@@ -564,38 +563,15 @@ result conversion finishes. The existing GC guard releases access before result
 allocation and on errors/unwind; completed writes remain visible. Mutable access
 requires the installed fixed-data proof, not merely the callback's `&mut T` type.
 Traced and managed registrations do not gain arbitrary editing.
-External scope and path adapters consume the same declaration and binding facts
-through the common invocation boundary described below.
+External Host path adapters enforce their declaration and binding facts through
+the independent Host access boundary described below.
 
-## Borrowed Host Values
-
-`core::host::Ref<T>` and `RefMut<T>` are declared through the ordinary native type
-constructor path and exported by the prelude. Their semantic record contains the
-target type and Shared/Mutable capability, never a Rust pointer, field offset or
-second nominal target declaration. The initial target subset is ordinary nominal
-structs and opaque native payload types; generic target binders are checked again
-after application. Collection, Future and Task storage does not grant this payload
-reference contract. Ordinary DTO values cannot implicitly become a Ref/RefMut.
-
-Direct view parameters and locals may be forwarded with their checked capability.
-An outer RefMut<T> may supply Ref<T> while retaining the same target; nested type
-parameters remain invariant. At native entry, a shared formal parameter (or a
-shared registered receiver) gets a distinct inert shared view. Raw callbacks,
-ValueHandle and ArgumentValues all see that capability; forwarding it to a mutable
-callback rejects before effects. The caller's original mutable view is unchanged.
-The restricted argument pack stays in protected execution storage across conversion,
-collection and reentry, and its call-scoped source suffix ends on return, error or
-unwind. Temporary argument transport does not create Host root leases. Calls
-without actual capability narrowing keep their existing borrowed frame/scalar
-argument representation and do not copy this parameter pack. An already shared
-capability still validates its live owner/frame/epoch before that fast return.
-Capability aliases use the Native call's source suffix rather than independent
-Host root leases; retaining an inert wrapper cannot extend the Host reservation.
+## Protected Native values
 
 Ordinary inferred Native callbacks return scalars through NativeScalar or return
 a ValueView with their Native call's lifetime. ValueHandle reads use the same
 protected view; root() explicitly requests ownership and rejects non-storable
-borrowed/runtime values. Raw payload reads lend a higher-ranked reference to the
+Host values. Raw payload reads lend a higher-ranked reference to the
 actual provider's retained codec, excluding Runtime execution and collection for
 that reference's duration. Operation guards keep source coordinates across
 reentry and release their active flag on normal return, error and unwind.
@@ -609,325 +585,33 @@ Diagnostic origin forwarding preserves the target's layout/payload and the origi
 carrier's detached trace. Runtime named-enum construction uses explicit owning
 inputs/results at the Host boundary instead of bare unrooted transport values.
 
-Explicitly loan-capable native inherent methods use
-the same registered member through Opaque, Ref and RefMut. Ordinary owned members
-do not acquire view support automatically. Call applications retain their logical
-nominal signature and carry checked required access for the actual storage view.
-MIR/source-free flow validates the target and capability; linking validates access
-against the original member declaration. This does not imply a Kagari trait impl
-for any view type or provide Rust access without an installed scope adapter.
-Views cannot be returned, captured, placed in owning fields/containers or retained
-across suspension; shared capability cannot upgrade to mutable capability. A
-function signature accepting a view is distinct from a function value capturing
-one. Source checking revalidates callable parameter and result positions after
-generic substitution and associated-type normalization. A generic identity
-function cannot return a view through an instantiated `T`, even when its caller
-immediately reads a field from that result; the diagnostic belongs to the call.
-Functions that accept views and return owned values remain valid callable values.
-Source-free verification checks targets, positions, flows and suspension
-independently. A valid schema/signature alone does not grant runtime Rust access:
-installed scope, target, owner/generation and loan capabilities are also required.
-
-The runtime entry `Runtime::with_host_scope` reserves the runtime exclusively and
-supplies a fresh invariant `HostScope`. `scope.borrow(&rust_type, &host_value)`
-and `borrow_mut` lend external storage without copying or taking ownership.
-`Runtime::bind_rust_type::<T>(&owner)` prepares a registered ordinary struct target;
-`NativeType<T>::rust_type()` supplies that same metadata-only descriptor for native
-storage. Both use one Rust target/owner/generation validator. External T needs
-Send + 'static, without NativePayload or a blanket Sync requirement. Runtime-owned
-creation still requires its storage proof.
-The original host loan lasts until scope exit even if its branded view is dropped.
-Scope/view values cannot transfer between threads. Execution stays within the scope;
-`Runtime::with_host_scope` and static `Runtime::execute_scoped` use explicit
-ExecutionContext and the ordinary checked public entry, validating concrete parameters
-before execution. They forward cancellation, inputs and observation, and reject
-unsupported JIT policies before entering the interpreter. Heap results remain in
-the complete execution source until scope exit; explicit scope.retain creates an
-owning handle when they must outlive that scope. Argument packs and temporary
-results create no Host root leases. A backend publishes its result through a linear
-ResultPlace before callee storage retires; the scope checks the returned publication
-proof and escape policy before promoting the result into its enclosing suffix.
-
-External addresses live in the existing host borrow frame owner. GC view headers
-contain only owner/frame/epoch/object/access identities, never an address. Rust
-type and nominal target checks precede access. A loan-capable method on an ordinary
-struct accepts an external Ref/RefMut, while owned GC structs retain DTO semantics
-and cannot call that Rust loan. Source and portable flow reject such reinterpretation. Compatible shared loans may
-nest; any overlapping loan involving a writer fails. Distinct zero-sized Rust places
-may share an address, so their reservations receive separate identities; aliases of
-one view retain its original identity and conflict normally. Reservation and an active
-native loan are distinct: lending a mutable root does not block its later methods.
-The same loan-capable binding decodes owned arguments first, selects runtime-owned
-or external storage, lends the receiver, and releases that loan before converting
-the owned result. External edits do not need the runtime-owned data edit flag,
-because their memory/accounting belongs to the host. Opaque edits retain that flag.
-Errors and supported Rust unwind release loans while preserving completed writes.
-Scope exit removes all external root records and revokes every old view identity;
-retaining an inert capability does not extend its Rust lifetime or permit access.
-Branded source views cannot escape their scope, and genuine ownership never grants
-authority to dereference revoked Host records.
-
-For derived ordinary inline structs, `Runtime::bind_rust_field::<T, F>(&target,
-"field")` resolves the generated field proof once. `view.field(scope, &field)`
-creates a branded child location with the parent's access capability, without
-constructing a Rust reference or caching its address. Nested descriptors use the
-registered child Rust target. Schema-only/Serde mappings and mismatched Rust field
-types cannot supply this proof. Opaque fields describe retained handle wrappers;
-they cannot reinterpret those wrappers as pointers to their payloads.
-
-The existing borrow table records generated field-identity paths. The empty path
-is the whole root; equal and prefix paths overlap, and divergent inline fields are
-disjoint. Any overlapping loan involving a writer rejects before constructing a
-Rust reference. Active ancestor/child loans block replacement; an idle view resolves
-the current reserved root and raw field chain on its next access. Generated code
-uses raw field addresses without creating an ancestor reference. Scope exit revokes
-child locations along with their root.
-
-Checked aggregate field operands distinguish GC fields from scoped receiver access.
-HIR and source-free verification share the result rule: nested ordinary structs
-produce child views; supported scalar/string and retained handle readers produce
-owned values. A read-only field downgrades its child capability to shared. Runtime
-access requires the root's generated direct field proof and leaf reader; schema-only
-or Serde metadata supplies neither. Arrays, tuples, enums and collection element
-projections remain unsupported. Rust owned containers have no implicit snapshot
-reader. Opaque field reads clone the owning wrapper and retain its payload identity;
-they cannot dereference the wrapper as a payload loan.
-
-Assignment captures the receiver identity before evaluating its RHS. Owned field
-decoding finishes before path acquisition, then the raw chain resolves current
-storage and replaces exactly that field. Compound assignment reads the current
-terminal value after the RHS, preserving ordinary assignment order. If the RHS
-replaces player.stats with hp=9 and returns 2, player.stats.hp += rhs commits hp=11.
-Rebinding the receiver local during the RHS does not retarget the prepared root.
-The displaced Rust value is destroyed after the exclusive path loan ends; completed
-RHS/conversion effects survive later conflicts. Active equal/ancestor loans block
-replacement while proven sibling paths remain usable during synchronous reentry.
-
-Roots retain their immutable local projector catalog and program lease. Unchanged
-complete layouts remain compatible across reload under the existing rule; changed
-registered schemas reject installation. Portable field records contain owner/type
-identities, slot and access, never an address, offset or Rust function. New child
-views and string/handle values retain execution roots through frame publication.
-These allocating/reentrant operations have conservative native effects. Ordinary
-GC struct field kernels retain their heap behavior.
-
-The common bind adapter supports one borrowed free-function input or two borrowed
-inputs in shared/mutable combinations, followed by owned inputs (at most twelve
-arguments total). The first input can also be an Opaque method receiver declared
-with the matching receiver access. Reference parameters require external locations;
-they cannot reinterpret ordinary GC structs or retained handle wrappers as payload
-pointers. Owned inputs convert before loan acquisition. The complete external pack
-is checked/acquired before raw projection or reference creation. Conflicting packs
-release partial acquisitions without callback entry; completed conversions/writes
-remain observable. Loans release before owned result conversion. Opaque's original
-GC payload loan remains active during its callback and does not acquire external
-reentry capabilities by analogy.
-
-Borrowed host values are the important case for low-copy interop.
-
-Model:
-
-- `&T` becomes a frame-scoped shared borrow handle
-- `&mut T` becomes a frame-scoped unique borrow handle
-
-These handles are script-visible only through host-boundary objects.
-They are not ordinary Kagari values that may live freely in the GC heap.
-
-This is the intended use case for:
-
-- large game state objects
-- ECS views
-- UI trees
-- simulation state
-- other long-lived Rust-owned data
-
-## Frame-Scoped Borrow Rule
-
-All Rust borrows passed into Kagari are scoped to the dynamic extent of a single host-to-script call.
-
-This is the core safety rule.
-
-Conceptually:
-
-```text
-HostCallGuard {
-  frame_id: FrameId,
-  borrow_table: BorrowTable
-}
-```
-
-Borrowed handles carry enough metadata to validate:
-
-- which frame created them
-- which runtime borrow table owns them
-- whether the borrow is shared or unique
-- which concrete host object they refer to
-
-## No-Escape Rule
-
-Borrowed Rust references must not escape the call frame that created them.
-
-That means they cannot be:
-
-- returned from script back as ordinary long-lived values
-- stored inside GC-managed script objects
-- stored in globals
-- captured by closures
-- carried across `yield`, `await`, coroutine suspension, or hot-reload boundaries
-
-This rule is enforced by the host interop layer and the semantic/runtime validation passes.
-
-## Enforcement Model
-
-The no-escape rule does not rely on a single mechanism.
-
-The enforcement model has three layers:
-
-1. representation restrictions
-2. static validation
-3. runtime guard checks
-
-This keeps the common case fast and makes failures easier to classify.
-
-### Representation Restrictions
-
-Borrowed host values are not modeled as ordinary freely storable script values.
-
-Instead, they are represented as a special frame-scoped kind of runtime handle.
-
-Conceptually:
-
-- ordinary script values may be stored in locals, fields, globals, closures, and GC objects
-- borrowed host handles are frame-scoped and non-storable by default
-
-The following are illegal at the representation level:
-
-- storing a borrowed host handle into a GC object field
-- storing a borrowed host handle into a global slot
-- placing a borrowed host handle into a closure environment
-
-The representation excludes invalid states before runtime recovery would be required.
-
-### Static Validation
-
-The front end rejects obvious escape paths before execution.
-
-Examples that produce diagnostics:
-
-- returning a borrowed host value
-- assigning a borrowed host value into a location that may outlive the current frame
-- capturing a borrowed host value in a closure
-- holding a borrowed host value across `yield`, `await`, or other suspension points
-
-This does not require a full Rust-style borrow checker.
-It only requires tracking which values are frame-scoped host borrows and which operations would cause them to escape.
-
-### Runtime Guard Checks
-
-Runtime checks are still necessary as a final line of defense.
-
-Each frame-scoped host borrow token carries enough metadata to validate:
-
-- which call frame created it
-- whether the handle is still valid
-- whether the current operation is compatible with the borrow kind
-
-Metadata:
-
-```text
-FrameHostBorrowToken {
-  frame_id: FrameId,
-  object_id: HostObjectId,
-  borrow_kind: Shared | Unique,
-  type_id: TypeId,
-  epoch: BorrowEpoch
-}
-```
-
-Whenever a host borrow is dereferenced, the runtime verifies:
-
-- the current frame matches `frame_id`
-- the handle has not expired
-- unique-versus-shared rules are respected
-
-These checks prevent front-end omissions from turning into Rust undefined behavior.
-
-## Failure Classification
-
-[Failure semantics](failure-semantics.md) is authoritative for cleanup, resource
-termination, partial business effects, and runtime reuse.
-
-Violations of host-borrow rules are not normally handled with `panic!`.
-
-Failure model:
-
-- compile-time detectable escape: diagnostic error
-- runtime misuse caused by script execution state: script trap or runtime error
-- violated engine invariant: panic or debug assertion
-
-Examples:
-
-- `return borrowed_player` is a compile-time error
-- using a host borrow after its frame expired is a runtime error
-- dereferencing an already-invalid internal borrow handle without checking is an engine bug
-
-This distinction matters because script mistakes are user-facing errors, while panics are reserved for Kagari implementation bugs.
-
-## Suspension Boundaries
-
-Borrowed host values are explicitly non-suspendable across `.await`.
-
-Rule:
-
-- a suspension point is illegal if any live local is a borrowed host handle
-
-This can be enforced through a targeted liveness check rather than a full general borrow analysis.
-
-## GC Interaction
-
-Borrowed host values are not representable as ordinary GC-managed field values.
-
-Rule:
-
-- GC object layouts accept only storable script values
-- frame-scoped borrowed host handles are excluded from that set
-
-This provides a strong structural guarantee that host borrows cannot silently persist in heap state.
-
-## Alias Checking at the Host Boundary
-
-Even if Kagari itself does not implement Rust-style borrow checking internally, the host boundary still must preserve Rust's aliasing rules.
-
-In particular:
-
-- the same Rust object must not be exposed as two simultaneous unique borrows
-- the same Rust object must not be exposed as both a shared borrow and a unique borrow at the same time
-
-These conflicts are checked when arguments are marshaled into a host-call frame.
-
-This rule applies to actual frame-scoped host borrows.
-It does not forbid multiple script-visible host path views that share the same root, because path views are root-plus-path handles rather than live Rust borrows.
-Conflicts for path operations are handled when each checked path read or mutation is executed.
-
-## Runtime Representation
-
-The runtime representation uses the host value categories present in [value.rs](../../crates/kagari-runtime/src/value.rs):
-
-- `HostRef`
-- `HostMut`
-
-They are frame-scoped handles rather than unconstrained runtime values.
-
-Conceptually:
-
-```text
-FrameHostBorrowToken {
-  frame_id: FrameId,
-  object_id: HostObjectId,
-  borrow_kind: Shared | Unique,
-  type_id: TypeId
-}
-```
+## External Host access and scope
+
+Host-owned state stays outside runtime-owned payload storage. A script receives a
+registered Host root or typed path capability, not a Rust reference. Installation
+and invocation check owner, generation, schema, path and access before entering
+an adapter. A shared receiver does not grant write authority. Path identities do
+not constitute active Rust loans: multiple handles may refer to the same root.
+Conflicts involving active loans are checked at invocation or path access before
+lending Rust storage. Compatible shared access may overlap; incompatible writes
+reject. No metadata, DTO or handle can bypass those rules.
+
+`Runtime::with_host_scope` and `Runtime::execute_scoped` support these independent
+Host calls. Import a rooted Host value into the scope and invoke the checked entry
+with an explicit `ExecutionContext`. The scope protects argument and result views
+without creating owning roots for temporary transport. Scope-bound views cannot
+outlive their scope; use `scope.retain` for a storable result that must survive it.
+The same Host validation applies before and after reload. Retaining a code generation
+or copying a transport value cannot restore expired or revoked access.
+
+Host capabilities subject to frame or scope restrictions are not ordinary storable
+values. Source and executable validation independently reject their prohibited
+escapes, including durable storage, captures and suspension. Runtime checks actual
+ownership, lifetime and access at use. Scope and call cleanup release protected
+values and active loans on success, error or supported Rust unwind. Completed
+writes are not rolled back. See [failure semantics](failure-semantics.md),
+[scoped entry](embedding-api.md#scoped-external-host-entry) and the
+[manual adapter tests](../../crates/kagari-stdlib/src/tests/execution/native_boundary/native_boundary_conversion/host_adapter.rs).
 
 ## Kagari-Side Semantics
 
@@ -939,7 +623,7 @@ Rules:
 - host metadata determines the host passing style
 - script code uses normal calls and member access
 - host-backed field and index chains lower to typed path operations where appropriate
-- frame-scoped host borrow handles are not the script-visible model for nested field access
+- a typed path describes checked access, not a retained Rust loan
 
 `HostPathDeclaration` accepts `HostPathSegmentDeclaration`. Its `Field`
 variant contains only a field declaration identity. Registration resolves that
@@ -1045,7 +729,7 @@ It does not require the script runtime to store a Rust `&mut Player` or `&mut pl
 This keeps Kagari syntax clean while still allowing efficient Rust-backed mutation.
 
 Typed path mutation is the normal model for ergonomic field-style access to Rust-owned game state.
-Frame-scoped host borrows remain useful for host function calls that require temporary `&T` or `&mut T` access, but they are not used to represent long-lived script field views.
+Adapters may acquire short checked Rust loans when an operation executes; a retained path view does not keep such a loan live.
 
 ## Registration of Generic Rust Functions
 
@@ -1108,9 +792,9 @@ data or a retaining handle. Input views cannot become borrowed Rust output.
 
 Composite conversions share checked child types, bounded recursion/work and
 source-local protection. Fixed mappings are separate from per-value conversion
-effects. Scoped Ref/RefMut arguments use the distinct Host borrow protocol rather
-than a blanket conversion from arbitrary Rust references. Native callbacks decode
-one prepared argument pack and stage their result through NativeCall.
+effects. Neither Host access nor Opaque receiver loans provide blanket conversions
+from arbitrary Rust references. Native callbacks decode one prepared argument
+pack and stage their result through NativeCall.
 
 ## Guarded Call Boundary
 
@@ -1243,41 +927,13 @@ Behavior:
 
 Security behavior is defined in [security.md](security.md).
 
-## V1 Feature Set
+## Host interop scope
 
-The first usable host interop version includes:
-
-- explicit type registration
-- explicit function registration
-- owned, shared-borrow, and unique-borrow passing styles
-- frame-scoped host borrow handles
-- borrow conflict checks at the call boundary
-- no-escape enforcement for borrowed values
-- concrete registration of Rust generic instantiations
-
-## V1 Exclusions
-
-The first usable host interop version excludes:
-
-- arbitrary open generic registration
-- escaping borrowed host values into script-owned storage
-- cross-yield borrowed host handles
-- automatic reflection for all host types
-- unrestricted host mutation without registration and policy checks
-
-## Implementation Order
-
-Incremental implementation order:
-
-1. explicit host type and function registration
-2. owned-value marshaling
-3. frame-scoped shared-borrow support
-4. frame-scoped unique-borrow support
-5. borrow conflict checks
-6. no-escape validation
-7. concrete generic-instantiation registration
-
-This gives Kagari a practical embedded scripting model early, especially for the "Rust owns the data, Kagari patches the behavior" use case.
+The implemented boundary includes explicit type and function registration, owned
+value conversion, runtime-owned Opaque and checked Host root/path access. These
+contracts do not grant arbitrary open Rust generic registration, automatic
+reflection, borrowed returns or unrestricted Host mutation. Scope-bound Host
+values cannot escape into script-owned storage or across suspension.
 
 ## Native async producers
 

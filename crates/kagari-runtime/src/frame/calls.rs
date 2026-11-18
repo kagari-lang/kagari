@@ -18,7 +18,6 @@ use crate::{
         linked_execution::calls::LinkedCall, managed::source::RevisionSource,
     },
     native::{context::ScriptInvoker, conversion::context::ConversionContext},
-    value::{EphemeralValue, host_values::EphemeralObject, kind::ObjectKind},
     value_check::scoped::{self, CheckError},
 };
 
@@ -425,7 +424,6 @@ fn shared_arguments(
     let Runtime {
         memory,
         host,
-        host_borrows,
         resources,
         ..
     } = runtime;
@@ -436,33 +434,7 @@ fn shared_arguments(
                 for (index, expected) in contract.signature.params.iter().enumerate() {
                     let value = arguments.get(slots, index)?;
                     let expected = TypeView::new(expected, owner, environment);
-                    if scoped::matches(
-                        slots.scope(),
-                        value,
-                        expected,
-                        host,
-                        host_borrows,
-                        resources,
-                    )? {
-                        continue;
-                    }
-                    let Some(access) = contract.receiver_access.filter(|_| index == 0) else {
-                        return Ok(false);
-                    };
-                    if value.kind() != Some(ObjectKind::Ephemeral)
-                        || value.as_runtime_ephemeral().is_some()
-                    {
-                        return Ok(false);
-                    }
-                    let object = slots.scope().downcast::<EphemeralObject>(
-                        value.object().ok_or(GcError::Representation)?,
-                    )?;
-                    let EphemeralValue::HostView(view) =
-                        slots.scope().read(object, EphemeralObject::value)
-                    else {
-                        return Ok(false);
-                    };
-                    if !host_borrows.scoped_matches_view(view, expected, access) {
+                    if !scoped::matches(slots.scope(), value, expected, host, resources)? {
                         return Ok(false);
                     }
                 }

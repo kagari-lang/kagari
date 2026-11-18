@@ -106,9 +106,7 @@ fn validate_type_access(
                 pending.extend(arguments);
             }
             Ty::Host(id) => type_head(*id)?,
-            Ty::Reference { target, .. } | Ty::Array(target) | Ty::Range(target, _) => {
-                pending.push(target)
-            }
+            Ty::Array(target) | Ty::Range(target, _) => pending.push(target),
             Ty::Tuple(items) => pending.extend(items),
             Ty::Function { params, result } => {
                 pending.extend(params);
@@ -247,9 +245,7 @@ fn mentions_binder(ty: &TypeId, owner: DefinitionId) -> bool {
                 pending.extend(&interface.arguments);
                 pending.extend(interface.associated_types.values());
             }
-            TypeId::Reference { target, .. } | TypeId::Array(target) | TypeId::Range(target, _) => {
-                pending.push(target)
-            }
+            TypeId::Array(target) | TypeId::Range(target, _) => pending.push(target),
             TypeId::Tuple(items) => pending.extend(items),
             TypeId::Function { params, result } => {
                 pending.extend(params);
@@ -325,7 +321,13 @@ pub(super) fn validate(
                 || !signature.params.first().is_some_and(|param| {
                     param.name == "self"
                         && !param.ty.is_unresolved()
-                        && lower_type(&param.ty).reference_target_valid()
+                        && matches!(
+                            param.ty,
+                            TypeId::Struct(_)
+                                | TypeId::NativeObject(_)
+                                | TypeId::Generic(_)
+                                | TypeId::SelfType(_)
+                        )
                 }))
         {
             diagnostics.push(
@@ -439,9 +441,7 @@ pub(super) fn validate(
                 });
         }
         let valid = |ty: &Ty| {
-            if !ty.within_wire_limits()
-                || !ty.reference_position_valid()
-                || !type_valid(ty, &params, self_owner, cancel, definitions)
+            if !ty.within_wire_limits() || !type_valid(ty, &params, self_owner, cancel, definitions)
             {
                 return Err("invalid type scope or shape");
             }
@@ -508,8 +508,6 @@ pub(super) fn validate(
         }
         if let Some(result) = &contract.concrete_result {
             malformed |= !matches!(signature.return_type, TypeId::Trait(_))
-                || result.contains_stored_reference()
-                || !result.reference_position_valid()
                 || !check_application(result, None);
         }
         if !malformed {

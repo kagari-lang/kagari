@@ -90,33 +90,12 @@ signatures is also incompatible, not an invitation to repair callers at runtime.
 
 ## Distinguish live bindings from retained computations
 
-Existing live handles observe the current publication. The focused SDK test
-<a href={source('crates/kagari/src/runtime/tests/embedding/scoped_calls.rs')}>`scoped_native_calls_accept_compatible_reloaded_descriptors`</a>
-provides a second concrete scenario. Its `prepare(offset)` helper compiles public
-`direct`, `native` and `heal` wrappers. The native wrapper adds the offset to a
-registered read of host-owned `Stats.hp`. This exact **excerpt** shows the handoff:
-
-```rust
-    let context = ExecutionContext::default();
-    let mut runtime = engine.runtime(context.clone());
-    let old = runtime
-        .load_program(&prepare(0), Default::default())
-        .unwrap();
-    let descriptor = runtime
-        .runtime()
-        .bind_rust_type::<Stats>(&old.root())
-        .unwrap();
-    runtime
-        .reload_program(&old, &prepare(100), Default::default())
-        .unwrap();
-    let current = old.clone();
-```
-
-The surrounding test registers the type/functions explicitly. With hp starting
-at 40, it calls through `old`, `current`, then `old` in a host scope. The native
-wrapper returns 140, 141, then 142 because all three calls use current code adding
-100, and each round also heals by one. Final host hp is 43. The rule changed without
-copying or migrating that Rust object. Read the linked test for the checked scope.
+Existing live handles observe the current publication. For example, if a public
+`heal` wrapper keeps its signature but changes the amount it passes to a registered
+method, the next ordinary call uses the new amount. It does not copy an Opaque
+payload or move an external Host object into script storage. Publication still
+checks the relevant storage or path contract; old code cannot make a revoked Host
+capability valid again.
 
 Ordinary named `Function` bindings, direct calls, interface calls and native callback
 calls select current implementations of their checked declarations. Created closures,

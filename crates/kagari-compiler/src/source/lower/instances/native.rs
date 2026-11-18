@@ -167,7 +167,7 @@ impl InstancePlanner<'_> {
                         ));
                     }
                 }
-                Ty::Reference { target, .. } => pending.push(target),
+
                 Ty::Struct(nominal)
                 | Ty::Enum(nominal)
                 | Ty::NativeObject(nominal)

@@ -493,13 +493,6 @@ impl<'a> DeclarationView<'a> {
             })?,
             Ty::Parameter { owner, position } => self.parameter_spelling(*owner, *position)?,
             Ty::SelfType(_) => "Self".into(),
-            Ty::Reference { target, access } => {
-                let name = self.representation_name(
-                    NativeTypeConstructor::Reference(*access),
-                    access.name(),
-                )?;
-                format!("{name}<{}>", self.spell(target)?)
-            }
             Ty::Array(item) => format!("[{}]", self.spell(item)?),
 
             Ty::Tuple(items) => format!(

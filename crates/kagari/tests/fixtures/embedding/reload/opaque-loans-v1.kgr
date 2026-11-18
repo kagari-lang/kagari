@@ -1,0 +1,9 @@
+use game::reload::Stats;
+
+pub fn inspect(stats: Stats) -> i32 {
+    stats.read()
+}
+
+pub fn heal(stats: Stats) -> i32 {
+    stats.heal()
+}

@@ -168,51 +168,6 @@ fn static_annotations_initializers_and_rebinding_are_fully_checked() {
 }
 
 #[test]
-fn static_storage_contract_rejects_views_but_allows_callable_view_inputs() {
-    let callbacks = analyze(
-        "struct Point { val x: i32 }
-         static val read: fn(Ref<Point>) -> i32 = |value| value.x;
-         static val read_mut: fn(RefMut<Point>) -> i32 = |value| value.x;",
-    );
-    assert!(
-        callbacks.diagnostics().is_empty(),
-        "{:?}",
-        callbacks.diagnostics()
-    );
-    assert!(callbacks.into_codegen().is_ok());
-
-    let mut accepted = Vec::new();
-    for view in ["Ref<Point>", "RefMut<Point>"] {
-        let text = format!(
-            "struct Point {{ val x: i32 }} static var saved: {view} = loop {{}};
-             fn save(value: {view}) {{ saved = value; }}"
-        );
-        let result = analyze(&text);
-        if result.clone().into_codegen().is_ok() {
-            accepted.push(view);
-            continue;
-        }
-        let annotation = result.facts().lowered.module.statics[0].ty.unwrap();
-        let span = result
-            .facts()
-            .lowered
-            .module
-            .type_ref(annotation)
-            .origin
-            .diagnostic_span();
-        assert!(
-            result.diagnostics().iter().any(|diagnostic| {
-                matches!(diagnostic.kind, DiagnosticKind::InvalidReference { .. })
-                    && diagnostic.span == Some(span)
-            }),
-            "{view}: {:?}",
-            result.diagnostics()
-        );
-    }
-    assert!(accepted.is_empty(), "accepted stored views: {accepted:?}");
-}
-
-#[test]
 fn static_storage_contract_applies_contextual_interface_coercion() {
     let declarations = "trait Read { fn read(self) -> i32; }
         struct Number { val value: i32 }

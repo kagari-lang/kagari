@@ -947,7 +947,7 @@ same coherent checkpoint. Include these existing coupled consumers explicitly:
 
 - [Access verification](../crates/kagari-bytecode/src/access.rs) currently assumes fixed
   register identities and tracks constants used for tuple indexing. Replace that
-  assumption for mutable slots; preserve readonly/scoped-reference restrictions and
+  assumption for mutable slots; preserve readonly and independent Host restrictions and
   invalidation/join rules, rather than relying on initialization verification alone.
 - [Compiler emission](../crates/kagari-compiler/src/bytecode.rs) currently uses MIR
   block offsets and clones semantic slot metadata. Rebuild destination offsets and

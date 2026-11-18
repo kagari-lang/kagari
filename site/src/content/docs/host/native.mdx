@@ -103,10 +103,9 @@ surrounding fallible closure are omitted here, not replaced by an invented host.
 
 The declaration requires mutable receiver access. The borrowed callback's first
 tuple element supplies that receiver; `LoanContext` permits polling but not script
-invocation or heap allocation while the Rust loan is active. The binding serves
-both a runtime-owned opaque Player and a scoped `RefMut<Player>` through checked
-adapters. A `Ref<Player>` can call the separately declared shared `inspect` method,
-not upgrade itself to call `heal`.
+invocation or heap allocation while the Rust loan is active. The binding edits
+runtime-owned Opaque storage with an installed fixed-data proof. The separately
+declared `inspect` method uses a shared loan of that same payload.
 
 ## Keep schemas, traits and access separate
 
@@ -117,9 +116,9 @@ methods and trait impls still need explicit declarations and bindings; implement
 a same-named Rust trait does not satisfy a script trait bound automatically.
 
 Choose a DTO when independent owned conversion is intended, an `Opaque<T>` when
-identity-preserving runtime storage is intended, or a scoped view when Rust keeps
-the external object. Continue with
-<a href={page('host/ownership')}>ownership and scoped access</a> before lending one.
+identity-preserving runtime storage is intended. When Rust keeps the external
+object, expose operations through explicit Host adapters. Continue with
+<a href={page('host/ownership')}>ownership and scoped access</a> for the distinction.
 The <a href={source('docs/spec/host-interop.md')}>host interop contract</a> and
 <a href={source('docs/spec/embedding-api.md#typed-native-registration')}>typed conversion rules</a>
 define the supported forms and failure boundaries beyond these two examples.

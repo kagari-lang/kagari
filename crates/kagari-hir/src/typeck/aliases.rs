@@ -14,7 +14,7 @@ use crate::{
     lower::LoweredModule,
     resolver::resolved::ResolvedName,
     typeck::{
-        GenericBounds, ModuleSignatures, applications, associated, check, constraints, interfaces,
+        GenericBounds, ModuleSignatures, applications, associated, constraints, interfaces,
         state::TypeCheckState,
         table::{ResolvedTypeTarget, TypeTable},
         ty::{TypeContext, resolve_type_in},
@@ -169,9 +169,7 @@ pub(crate) fn expansion_size(
                 params.iter().for_each(&mut push);
                 push(result);
             }
-            TypeId::Array(item)
-            | TypeId::Range(item, _)
-            | TypeId::Reference { target: item, .. } => push(item),
+            TypeId::Array(item) | TypeId::Range(item, _) => push(item),
 
             TypeId::Struct(nominal)
             | TypeId::Enum(nominal)
@@ -338,7 +336,6 @@ impl AliasValidation<'_> {
             let span = self.lowered.module.type_aliases[alias.id.index()]
                 .origin
                 .diagnostic_span();
-            check::validate_reference_position(&template.target, span, diagnostics);
             interfaces::validate_type(
                 self.declarations.definitions(),
                 &template.target,

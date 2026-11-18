@@ -759,7 +759,7 @@ Additional GC and safepoint metadata planned for later backends includes:
 
 - which logical values contain GC-managed references at safepoints
 - which logical values contain host handles or path views
-- which values are ephemeral and must not cross suspension points
+- which Host capabilities must not cross suspension points
 - call boundary metadata for host calls and runtime helpers
 
 Machine-code backends require equivalent stack maps or root maps.
@@ -823,7 +823,7 @@ It is instruction inspection, not source reconstruction. Full output contains an
 artifact summary, referenced descriptors and selected function bodies; directory
 mode retains only the summary and compact headers.
 
-### Instructions and scoped references
+### Instructions and artifact-local references
 
 Every selected instruction is printed once in stored order, including unreachable
 instructions. Its number is a **zero-based function-local instruction index**, not

@@ -39,7 +39,7 @@ use kagari_types::{
 };
 use std::sync::{
     Arc,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicI32, AtomicUsize, Ordering},
 };
 
 #[test]
@@ -545,6 +545,148 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
         .is_err()
     );
     assert_eq!(state.load(Ordering::SeqCst), 25);
+}
+
+#[test]
+fn host_argument_pack_rolls_back_partial_loans_without_rolling_back_callback_writes() {
+    let catalog = crate::declarations::StandardDeclarations::default()
+        .catalog()
+        .unwrap();
+    let mut builder = ModuleBuilder::new("example::host_pairs", &catalog).unwrap();
+    let mut account = builder.define_type("Account").unwrap();
+    account
+        .external(HostTypePolicy {
+            ownership: HostTypeOwnership::HostRoot,
+            reflection: HostReflectionPolicy::Hidden,
+            path_access: PathAccess::ReadWrite,
+        })
+        .unwrap();
+    let account = account.finish().unwrap().apply([]).unwrap();
+    let transfer = builder
+        .define_function(
+            FunctionDecl::new("transfer")
+                .parameter("first", account.clone())
+                .parameter("second", account)
+                .parameter("amount", Type::i32())
+                .returns(Type::scalar(BuiltinType::String))
+                .host_policy(HostCallPolicy {
+                    passing: vec![
+                        HostPassingStyle::UniqueBorrow,
+                        HostPassingStyle::UniqueBorrow,
+                        HostPassingStyle::Owned,
+                    ],
+                    effects: HostFunctionEffects {
+                        may_allocate: true,
+                        may_mutate_host_state: true,
+                        may_trap: true,
+                        ..Default::default()
+                    },
+                }),
+        )
+        .unwrap();
+    let balances = Arc::new([AtomicI32::new(40), AtomicI32::new(25)]);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let edited = balances.clone();
+    let called = calls.clone();
+    builder
+        .bind(
+            transfer,
+            host::callback(move |cx, values| {
+                called.fetch_add(1, Ordering::SeqCst);
+                let amount = values[2].as_i32().expect("checked amount");
+                let first = edited[0].fetch_add(amount, Ordering::SeqCst) + amount;
+                let second = edited[1].fetch_sub(amount, Ordering::SeqCst) - amount;
+                if amount < 0 {
+                    return Err(HostError::new("completed writes"));
+                }
+                cx.allocate_string(format!("{first}:{second}"))
+                    .map_err(|error| HostError::new(error.to_string()))
+            }),
+        )
+        .unwrap();
+    let (mut vm, program) = source_free_vm(
+        include_str!("../../../../../tests/fixtures/native/host-pair-loans.kgr"),
+        &builder.finish().unwrap(),
+    );
+    let owner = vm.select_program(&program).unwrap();
+    let ty = vm
+        .types()
+        .get_by_name("example::host_pairs::Account")
+        .unwrap()
+        .id;
+    let [first, second] = [1, 2].map(|id| {
+        let root = vm
+            .register_host_root(HostObjectId(id), ty, HostSchemaEpoch::new(0))
+            .unwrap();
+        vm.host_root_value(root).unwrap()
+    });
+    let balances = || {
+        balances
+            .each_ref()
+            .map(|value| value.load(Ordering::SeqCst))
+    };
+    vm.with_host_scope(|scope| {
+        let first = scope.import(&first)?;
+        let second = scope.import(&second)?;
+        let context = Default::default();
+        assert_eq!(
+            Runtime::execute_scoped(
+                scope,
+                &program,
+                "run",
+                &[first, first, ValueView::from(5i32)],
+                &context,
+            )
+            .unwrap_err()
+            .kind(),
+            RuntimeErrorKind::HostBorrowConflict
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert_eq!(balances(), [40, 25]);
+
+        // Reuse the first root immediately: rejecting the second loan released the first.
+        let text = Runtime::execute_scoped(
+            scope,
+            &program,
+            "run",
+            &[first, second, ValueView::from(5i32)],
+            &context,
+        )?;
+        assert_eq!(balances(), [45, 20]);
+        assert_eq!(
+            Runtime::execute_scoped(
+                scope,
+                &program,
+                "run",
+                &[first, second, ValueView::from(-1i32)],
+                &context,
+            )
+            .unwrap_err()
+            .kind(),
+            RuntimeErrorKind::HostCallFailure
+        );
+        assert_eq!(balances(), [44, 21]);
+        let retry = Runtime::execute_scoped(
+            scope,
+            &program,
+            "run",
+            &[first, second, ValueView::from(5i32)],
+            &context,
+        )?;
+        assert_eq!(balances(), [49, 16]);
+        scope.execute(&[text, retry], |runtime, arguments, result| {
+            runtime.collect_garbage()?;
+            let mut cx = ConversionContext::new(runtime, &owner)?;
+            let first = arguments.get(&mut cx, 0)?;
+            let retry = arguments.get(&mut cx, 1)?;
+            cx.read_string(&first, |text| assert_eq!(text, "45:20"))?;
+            cx.read_string(&retry, |text| assert_eq!(text, "49:16"))?;
+            result.publish(cx.runtime_mut(), &ValueView::unit())
+        })?;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
 }
 
 fn assert_external_argument(

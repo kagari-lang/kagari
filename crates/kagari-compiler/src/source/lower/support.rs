@@ -189,10 +189,7 @@ impl FunctionLowerer<'_, '_> {
                 "Native type field access requires runtime field adapters",
             ));
         }
-        let (receiver, reference) = match receiver {
-            TypeId::Reference { target, access } => (target.as_ref(), Some(*access)),
-            _ => (receiver, None),
-        };
+
         let owner = self.nominal_instance(receiver)?;
         if owner.declaration != field.owner {
             return Err(MirLoweringError::MissingBinding("field instance owner"));
@@ -200,7 +197,6 @@ impl FunctionLowerer<'_, '_> {
         Ok(AggregateFieldRef {
             owner,
             slot: field.slot,
-            reference,
         })
     }
 

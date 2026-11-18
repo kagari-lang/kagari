@@ -52,7 +52,6 @@ impl<'runtime> ConversionContext<'runtime> {
             memory,
             resources,
             host,
-            host_borrows,
             ..
         } = &mut *self.runtime;
         let result = memory.scope(resources, |cx, roots| {
@@ -71,7 +70,6 @@ impl<'runtime> ConversionContext<'runtime> {
                         value,
                         contract.view(),
                         host,
-                        host_borrows,
                         resources,
                     ) {
                         Ok(matched) => matched,
@@ -116,24 +114,17 @@ impl<'runtime> ConversionContext<'runtime> {
             memory,
             resources,
             host,
-            host_borrows,
             ..
         } = &mut *self.runtime;
         let result = memory.scope(resources, |cx, roots| {
             ExecutionRoots::with(roots, cx, |slots| {
                 let value = input.get(slots)?;
-                let matched = match scoped::matches(
-                    slots.scope(),
-                    value,
-                    contract.view(),
-                    host,
-                    host_borrows,
-                    resources,
-                ) {
-                    Ok(matched) => matched,
-                    Err(CheckError::Storage(error)) => return Err(error),
-                    Err(CheckError::Execution(error)) => return Ok(Err(error)),
-                };
+                let matched =
+                    match scoped::matches(slots.scope(), value, contract.view(), host, resources) {
+                        Ok(matched) => matched,
+                        Err(CheckError::Storage(error)) => return Err(error),
+                        Err(CheckError::Execution(error)) => return Ok(Err(error)),
+                    };
                 if !matched {
                     return Ok(Err(RuntimeError::from(
                         TrapReason::InvalidArrayTargetOrPayload,
@@ -218,7 +209,6 @@ impl<'runtime> ConversionContext<'runtime> {
         let Runtime {
             memory,
             host,
-            host_borrows,
             resources,
             ..
         } = &mut *self.runtime;
@@ -230,14 +220,7 @@ impl<'runtime> ConversionContext<'runtime> {
                 let value = value.get(slots)?;
                 let cx: &Scope<'_> = slots.scope();
                 let valid = match cx.read(array, |array| {
-                    scoped::matches(
-                        cx,
-                        value,
-                        array.contract().view(),
-                        host,
-                        host_borrows,
-                        resources,
-                    )
+                    scoped::matches(cx, value, array.contract().view(), host, resources)
                 }) {
                     Ok(valid) => valid,
                     Err(CheckError::Storage(error)) => return Err(error),
@@ -277,7 +260,6 @@ impl<'runtime> ConversionContext<'runtime> {
             memory,
             resources,
             host,
-            host_borrows,
             ..
         } = &mut *self.runtime;
         let result = memory.scope(resources, |cx, roots| {
@@ -288,14 +270,7 @@ impl<'runtime> ConversionContext<'runtime> {
                 let value = value.get(slots)?;
                 let cx: &Scope<'_> = slots.scope();
                 let valid = match cx.read(array, |array| {
-                    scoped::matches(
-                        cx,
-                        value,
-                        array.contract().view(),
-                        host,
-                        host_borrows,
-                        resources,
-                    )
+                    scoped::matches(cx, value, array.contract().view(), host, resources)
                 }) {
                     Ok(valid) => valid,
                     Err(CheckError::Storage(error)) => return Err(error),

@@ -158,11 +158,8 @@ impl<'call> HostCallContext<'call> {
             .ok_or_else(|| invalid("path descriptor does not support reads"))?;
         let value = read(self, &context)
             .map_err(|error| invalid(format!("host path read failed: {error}")))?;
-        // Protection validates the returned source after callback/reentry; result
-        // escape checks happen before the enclosing scope or frame retires it.
-        let value = self.protect(&value).map_err(path_scope_error)?;
-        self.scope.validate_result(&value)?;
-        Ok(value)
+        // Validate and protect the returned source after callback/reentry.
+        self.protect(&value).map_err(path_scope_error)
     }
 
     pub(crate) fn set_path(

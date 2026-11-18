@@ -1,11 +1,13 @@
 use crate::{
     declarations::StandardDeclarations,
     tests::{
-        execution::native_boundary::{compile_program, native_boundary_functions::fixture},
+        execution::native_boundary::{
+            compile_program, native_boundary_functions::fixture, support::round_trip_program,
+        },
         support::bytecode::reload_bytecode,
     },
 };
-mod scoped;
+mod loans;
 use super::PlayerState;
 
 use kagari_runtime::native::{
@@ -22,11 +24,11 @@ use kagari_runtime::native::{
 };
 
 use kagari_bytecode::program::verify_program;
-use kagari_contract::types::PublicItem;
-use kagari_hir::analyze_source;
-use kagari_source::source::SourceFile;
 
-use kagari_types::{reference::ReferenceAccess, scalar::BuiltinType, ty::Ty};
+use kagari_hir::analyze_source;
+use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile};
+
+use kagari_types::{reference::ReferenceAccess, scalar::BuiltinType};
 use std::sync::Arc;
 
 trait HostDescribe {
@@ -167,27 +169,33 @@ const SOURCE: &str =
     include_str!("../../../../../tests/fixtures/native/payload-registered-methods.kgr");
 
 #[test]
-fn scoped_members_reject_capability_forgery_and_unregistered_rust_traits() {
+fn rust_trait_implementations_do_not_supply_implicit_script_traits() {
     let (module, _, _) = registration();
     let mut providers = crate::catalog::shared().unwrap();
     providers.push(Arc::new(module.to_declaration()));
-    for source in [
-        "fn reject(value: Ref<Player>) -> i32 { value.damage(1) }",
-        "fn reject(value: RefMut<Player>) -> i32 { value.echo::<i32>(1) }",
-        "fn need<T: Describe>(value: T) -> String { value.describe() } fn reject(value: Other) -> String { need(value) }",
-    ] {
-        let analysis = analyze_source(
-            &SourceFile::new(
-                "reject.kgr",
-                format!("use example::methods::{{Player, Other, Describe}}; {source}"),
-            ),
-            providers.clone(),
-        )
-        .unwrap();
-        assert!(!analysis.diagnostics().is_empty(), "{source}");
-    }
+    let analysis = analyze_source(
+        &SourceFile::new(
+            "reject.kgr",
+            "use example::methods::{Other, Describe};\n             fn need<T: Describe>(value: T) -> String { value.describe() }\n             fn reject(value: Other) -> String { need(value) }",
+        ),
+        providers,
+    )
+    .unwrap();
+    assert!(
+        analysis.diagnostics().iter().any(|diagnostic| matches!(
+            &diagnostic.kind,
+            DiagnosticKind::GenericBoundNotSatisfied { type_name, trait_name }
+                if type_name.ends_with("Other") && trait_name.ends_with("Describe")
+        )),
+        "{:?}",
+        analysis.diagnostics()
+    );
+}
 
-    let program = compile_program(SOURCE, Some(&module));
+#[test]
+fn opaque_method_import_rejects_forged_receiver_access() {
+    let (module, _, _) = registration();
+    let program = round_trip_program(compile_program(SOURCE, Some(&module)));
     let root = program.records().root.index();
     let mut forged = program.records().clone();
     let inspect = forged.modules[root]
@@ -202,39 +210,8 @@ fn scoped_members_reject_capability_forgery_and_unregistered_rust_traits() {
                 .is_some_and(|part| part.name == "inspect")
         })
         .unwrap();
+    assert_eq!(inspect.receiver_access, Some(ReferenceAccess::Shared));
     inspect.receiver_access = Some(ReferenceAccess::Mutable);
-    assert!(verify_program(&forged, program.definitions(), &Default::default()).is_err());
-
-    let mut forged = program.records().clone();
-    let module = &mut forged.modules[root];
-    let damage = module
-        .functions
-        .iter_mut()
-        .find(|function| function.name == "scoped_damage")
-        .unwrap();
-    for ty in damage
-        .metadata
-        .semantic
-        .params
-        .values_mut()
-        .chain(damage.metadata.semantic.slots.values_mut())
-    {
-        if let Ty::Reference { access, .. } = ty {
-            *access = ReferenceAccess::Shared;
-        }
-    }
-    let abi = module
-        .public_items
-        .iter_mut()
-        .find_map(|item| match item {
-            PublicItem::Function(abi) if abi.name.ends_with("scoped_damage") => Some(abi),
-            _ => None,
-        })
-        .unwrap();
-    let Ty::Reference { access, .. } = &mut abi.params[0].ty else {
-        panic!("view parameter")
-    };
-    *access = ReferenceAccess::Shared;
     assert!(verify_program(&forged, program.definitions(), &Default::default()).is_err());
 }
 
@@ -437,18 +414,7 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
         .unwrap();
     let module = module.finish().unwrap();
     let (mut vm, owner) = fixture(
-        r#"
-        use example::generic_methods::Holder;
-        pub fn make() -> Holder<i32> { Holder::new::<i32>() }
-        pub fn other() -> Holder<String> { Holder::new::<String>() }
-        pub fn scoped<T>(holder: Ref<Holder<T>>) -> i32 { holder.state() }
-        pub fn external(holder: Ref<Holder<i32>>) -> i32 { scoped(holder) }
-        pub fn evidence() -> String {
-            val holder = make();
-            val previous = holder.exchange(12);
-            holder.choose::<String>(previous, "selected")
-        }
-    "#,
+        include_str!("../../../../../tests/fixtures/native/payload-generic-methods.kgr"),
         Some(&module),
     );
     let _owner_program = owner;
@@ -500,29 +466,18 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
             .bind_method::<(i32, String), String>(&ty, "choose")
             .is_err()
     );
-    drop(cx);
-    drop(conversion);
-    let external = PlayerState {
-        hp: 17,
-        position: [0.0; 3],
-    };
-    runtime
-        .with_host_scope(|scope| {
-            let view = scope.borrow(ty.rust_type(), &external)?;
-            assert_eq!(
-                kagari_runtime::Runtime::execute_scoped(
-                    scope,
-                    &_owner_program,
-                    "external",
-                    &[view.value()],
-                    &Default::default()
-                )?
-                .as_i32(),
-                Some(17)
-            );
+    value
+        .edit(&mut cx, |state| {
+            state.hp = 17;
             Ok(())
         })
         .unwrap();
+    assert_eq!(
+        cx.runtime_mut()
+            .execute_typed::<_, i32>(&_owner_program, "read", (value,), &Default::default())
+            .unwrap(),
+        17
+    );
 }
 
 #[test]

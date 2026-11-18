@@ -49,12 +49,6 @@ impl TypeId {
             match part {
                 Part::Text(text) => output.push_str(text),
                 Part::Type(ty) => match ty {
-                    Self::Reference { target, access } => {
-                        output.push_str(access.name());
-                        output.push('<');
-                        pending.push(Part::Text(">"));
-                        pending.push(Part::Type(target));
-                    }
                     Self::Inference(_) => output.push('_'),
                     Self::Unknown => output.push_str("<unknown>"),
                     Self::Error => output.push_str("<error>"),

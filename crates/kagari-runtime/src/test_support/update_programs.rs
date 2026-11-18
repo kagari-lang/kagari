@@ -14,7 +14,7 @@ use kagari_bytecode::{
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_common::identity::{
-    ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
+    ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
 };
 use kagari_compiler::{
     bytecode::lower_program_to_bytecode,
@@ -38,13 +38,16 @@ pub(crate) fn bytecode(
         .set("exports.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    // Captures use the core String representation through an application-owned
-    // constructor declaration, not an implicitly installed standard library.
+    // Use the canonical String constructor without installing the full library.
     let mut providers = ModuleSetBuilder::new(&Default::default()).unwrap();
     providers
         .add(ModuleDefinition::new(
-            ModuleIdentity::single_file("capture-text"),
+            ModuleIdentity {
+                package: PackageId("kagari-alloc".into()),
+                path: vec!["string".into()],
+            },
             |module| {
+                module.package_alias("alloc");
                 module.prelude(true);
                 module.define_constructor("String", NativeTypeConstructor::String)?;
                 Ok(())

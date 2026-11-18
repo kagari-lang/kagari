@@ -36,7 +36,6 @@ mod tests {
     };
     use kagari_types::{
         declaration::AssociatedTypeFamily,
-        reference::ReferenceAccess,
         scalar::BuiltinType,
         ty::{GenericParam, matching::projection_output},
     };
@@ -47,61 +46,6 @@ mod tests {
             .intern_root(&ModuleIdentity::single_file("match.kgr"))
             .unwrap();
         context.intern_child(root, kind, name, 0).unwrap()
-    }
-
-    fn applied(declaration: DefinitionId, arguments: Vec<Ty>) -> NominalTy {
-        NominalTy {
-            declaration,
-            arguments,
-            associated_types: Default::default(),
-        }
-    }
-
-    #[test]
-    fn implementation_receivers_preserve_exact_reference_access() {
-        let context = DefinitionContext::new().unwrap();
-        let integer = Ty::Builtin(BuiltinType::I32);
-        let parameter = GenericParam {
-            owner: id(&context, DefinitionKind::Impl, ""),
-            position: 0,
-        };
-        let custom = id(&context, DefinitionKind::Trait, "CustomSet");
-        let interface = applied(custom, vec![integer.clone()]);
-        let mut table = InterfaceTable {
-            method_origins: Vec::new(),
-            declaration: parameter.owner,
-            name: "Set".into(),
-            generic_params: vec![parameter.clone()],
-            bounds: vec![],
-            methods: vec![],
-            associated_consts: vec![],
-            for_type: Ty::Reference {
-                target: Box::new(parameter.as_type()),
-                access: ReferenceAccess::Mutable,
-            },
-            trait_type: Ty::Trait(applied(custom, vec![parameter.as_type()])),
-            associated_type_families: vec![],
-            bridge: None,
-        };
-        let cancel = CancellationToken::default();
-        for declared in [ReferenceAccess::Mutable, ReferenceAccess::Shared] {
-            table.for_type = Ty::Reference {
-                target: Box::new(parameter.as_type()),
-                access: declared,
-            };
-            for requested in [ReferenceAccess::Mutable, ReferenceAccess::Shared] {
-                let receiver = Ty::Reference {
-                    target: Box::new(integer.clone()),
-                    access: requested,
-                };
-                assert_eq!(
-                    match_implementation(&table, &interface, &receiver, &cancel)
-                        .unwrap()
-                        .is_some(),
-                    declared == requested
-                );
-            }
-        }
     }
 
     #[test]

@@ -2,7 +2,6 @@
 
 use crate::{
     range::RangeKind,
-    reference::ReferenceAccess,
     scalar::BuiltinType,
     ty::{
         NominalTy, Ty,
@@ -55,7 +54,7 @@ enum Node<I> {
         #[serde(deserialize_with = "crate::decode_limits::nested")]
         bindings: Vec<I>,
     },
-    Reference(ReferenceAccess),
+    // The retired reference node occupied tag 13. Leave it unassigned.
 }
 
 /// Codec-owned flat records. References are local to the enclosing file table.
@@ -139,10 +138,6 @@ impl Ty {
             }
             budget.enter(ty, depth)?;
             let node = match ty {
-                Self::Reference { target, access } => {
-                    pending.push((target, depth + 1));
-                    Node::Reference(*access)
-                }
                 Self::Host(id) => Node::Host(convert(id)?),
                 Self::SelfType(id) => Node::SelfType(convert(id)?),
                 Self::Parameter { owner, position } => Node::Parameter {
@@ -240,10 +235,6 @@ fn build(
     }
     let next = nodes.next().ok_or(TypeTransformError::InvalidContract)?;
     Ok(match next {
-        Node::Reference(access) => Ty::Reference {
-            target: Box::new(build(nodes, depth + 1, convert, cancel)?),
-            access,
-        },
         Node::Host(id) => Ty::Host(convert(id)?),
         Node::SelfType(id) => Ty::SelfType(convert(id)?),
         Node::Parameter { owner, position } => Ty::Parameter {

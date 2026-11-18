@@ -276,7 +276,6 @@ pub(super) fn closure_inputs(
     let Runtime {
         memory,
         host,
-        host_borrows,
         resources,
         ..
     } = runtime;
@@ -332,7 +331,6 @@ pub(super) fn closure_inputs(
                             value,
                             expected.view(&closure.implementation),
                             host,
-                            host_borrows,
                             resources,
                         )? {
                             return Err(RuntimeError::module_validation(

@@ -417,42 +417,9 @@ impl<'a> BodyChecker<'a> {
         site: ExprId,
         signature: AppliedCallSignature,
     ) -> TypeId {
-        self.check_applied_reference_positions(site, &signature);
         let result = signature.return_type.clone();
         self.type_table.insert_call_signature(site, signature);
         result
-    }
-
-    /// Declaration checks cannot see references introduced by substitution. Check
-    /// the final inferred application, including callbacks and associated outputs,
-    /// using the same position rules as the shared semantic type model.
-    pub(super) fn check_applied_reference_positions(
-        &mut self,
-        site: ExprId,
-        signature: &AppliedCallSignature,
-    ) {
-        if self.solving {
-            return;
-        }
-        let result = self.solver.resolve(&signature.return_type);
-        let reason = if !result.is_unresolved() && result.contains_stored_reference() {
-            Some("a scoped view cannot be returned")
-        } else if !result.reference_position_valid()
-            || signature
-                .params
-                .iter()
-                .any(|ty| !self.solver.resolve(ty).reference_position_valid())
-        {
-            Some("views require a nominal target and cannot be nested in owning values")
-        } else {
-            None
-        };
-        if let Some(reason) = reason {
-            self.diagnostics.push(
-                Diagnostic::error(DiagnosticKind::InvalidReference { reason })
-                    .with_span(self.lowered.module.expr(site).origin.diagnostic_span()),
-            );
-        }
     }
 
     pub(super) fn check_generic_call_bounds(

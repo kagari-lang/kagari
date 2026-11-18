@@ -167,7 +167,25 @@ fn standard_default_inventory_has_owned_bindings_and_unbounded_elements() {
 fn canonical_foundation_contracts_survive_scoped_publication_and_installation() {
     let first = catalog::declarations().unwrap();
     let second = catalog::declarations().unwrap();
-    assert_eq!(first.len(), 38);
+    // Collection detachment removed the Vec owner and facade; 9G removed the reference owner and facade.
+    assert_eq!(first.len(), 34);
+    for retired in [
+        namespaces::module("core", "host"),
+        namespaces::module("std", "host"),
+    ] {
+        assert!(
+            first
+                .iter()
+                .all(|module| module.records().identity != retired)
+        );
+    }
+    for name in ["Ref", "RefMut"] {
+        let export = ExportName::new(NameNamespace::Type, name);
+        for module in &first {
+            assert!(!module.records().exports.contains_key(&export));
+            assert!(module.records().types.iter().all(|ty| ty.name != name));
+        }
+    }
     let array_facade = first
         .iter()
         .find(|module| module.records().identity == namespaces::module("std", "array"))
@@ -183,7 +201,8 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
             .iter()
             .map(|module| module.records().types.len())
             .sum::<usize>(),
-        34
+        // Four concrete collection/cursor types were already gone before 9G removed Ref and RefMut.
+        28
     );
     assert_eq!(
         first
@@ -197,15 +216,16 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
             .iter()
             .map(|module| module.records().implementations.len())
             .sum::<usize>(),
-        // Includes integer/float policies and the four character construction/conversion impls.
-        242
+        // Collection detachment removed collection and built-in traversal implementations before 9G.
+        180
     );
     assert_eq!(
         first
             .iter()
             .map(|module| module.records().exports.len())
             .sum::<usize>(),
-        94
+        // Collection detachment removed three exports; 9G removed four facade/prelude re-exports.
+        87
     );
     assert_eq!(
         first
@@ -217,18 +237,12 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
                 .filter(|requirements| !requirements.is_empty())
                 .count())
             .sum::<usize>(),
-        // SR01 had 92 entries, five empty; fluent inherent methods add fourteen
-        // empty entries, not new selected-call obligations.
-        87
-    );
-    assert_eq!(
-        first
-            .iter()
-            .map(|module| module.records().concrete_results.len())
-            .sum::<usize>(),
-        11
+        // The retired collection implementations and defaults carried selected-call obligations.
+        42
     );
     for module in &first {
+        // Concrete result metadata for the retired collection defaults is no longer published.
+        assert!(module.records().concrete_results.is_empty());
         let owner = &module.records().identity;
         assert_ne!(owner.path, ["__foundation"]);
         if owner.package.0 == "std" {

@@ -47,9 +47,7 @@ fn type_nodes(
     budget.records(1)?;
     match ty {
         Ty::Host(_) | Ty::SelfType(_) | Ty::Parameter { .. } | Ty::Builtin(_) => {}
-        Ty::Reference { target, .. } | Ty::Range(target, _) | Ty::Array(target) => {
-            type_nodes(target, depth + 1, left, budget)?
-        }
+        Ty::Range(target, _) | Ty::Array(target) => type_nodes(target, depth + 1, left, budget)?,
 
         Ty::Tuple(elements) => {
             for ty in elements {

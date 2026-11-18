@@ -318,7 +318,6 @@ impl BytecodeLoweringContext<'_> {
             structure: self.structure_id(&field.owner),
             arguments: field.owner.arguments.clone(),
             slot: field.slot as u32,
-            reference: field.reference,
         }
     }
 

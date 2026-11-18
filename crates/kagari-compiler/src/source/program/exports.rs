@@ -134,9 +134,7 @@ pub(super) fn layout_requests(
                     pending.extend(params);
                     pending.push(result);
                 }
-                Ty::Reference { target, .. } | Ty::Array(target) | Ty::Range(target, _) => {
-                    pending.push(target)
-                }
+                Ty::Array(target) | Ty::Range(target, _) => pending.push(target),
 
                 Ty::Builtin(_) | Ty::Host(_) => {}
                 Ty::Parameter { .. } | Ty::SelfType(_) | Ty::Projection { .. } => {

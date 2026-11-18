@@ -462,27 +462,21 @@ It does not imply script-state snapshot/restore or migration APIs.
 For host interop changes, select the affected owner: runtime `native_schema` for
 DTO/derive/Serde, runtime `native::tests::host_registration` and stdlib
 `tests::runtime_boundary::installation_access` for exact contracts,
-VM `native_boundary` for Opaque retention, scoped method/argument and portable reference
-semantics, and SDK `scoped_calls` for execution-context integration. Production
-scope and callback lifetime proofs live beside their API as rustdoc tests; the
-standalone prototype is retired. A focused selection is:
+stdlib [`native_boundary`](../crates/kagari-stdlib/src/tests/execution/native_boundary.rs)
+for Opaque retention and receiver loans or checked Host root/path invocation.
+Exercise source-free verification and actual adapter calls at their respective
+owners. Production scope and callback lifetime proofs live beside their API as
+rustdoc tests. A focused lifetime selection is:
 
 ```text
 cargo test -p kagari-runtime --doc -- host_scope::scoped native::typed::loans
 ```
 
-Raw projection changes also need actual-pointer Miri coverage. The runtime library
-case `executable_inline_field_codecs` exercises generated nested access, replacement,
-disjoint paths and rooted results without a frontend execution workload:
-
-```text
-cargo +nightly-2026-07-27 miri test -p kagari-runtime --lib executable_inline_field_codecs -- --nocapture
-```
-
-Use a supported runner, default Miri target/profile/parallelism and no flags that
-disable alias validation. Select other pointer kernels when their mechanism changes;
-do not run the VM or workspace suite under Miri as a substitute. Broader platform
-and feature/backend acceptance remains CI-owned.
+Changes to an unsafe Host or Opaque loan kernel need Miri coverage that exercises
+its actual pointer access. Use a supported runner, default Miri target/profile/
+parallelism and no flags that disable alias validation. Do not run the VM or
+workspace suite under Miri as a substitute. Broader platform and feature/backend
+acceptance remains CI-owned.
 
 ## Prepare once, execute with fresh state
 

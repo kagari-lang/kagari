@@ -284,7 +284,7 @@ fragments and invalid examples explicitly. `result` can describe a value or
 observable effect and must not pretend a value is printed when it is not.
 
 The first complete host program is `crates/kagari/examples/typed_native.rs`.
-`scoped_host.rs` and the reload tests own the more advanced boundary examples;
+The Opaque example (`scoped_host.rs`) and the reload tests cover more advanced boundaries;
 benchmark examples are not beginner embedding programs.
 
 Only regular `.kgr` and `.rs` files beneath `examples/` or

@@ -14,13 +14,8 @@ use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::{
-        TypeDefKind,
-        native::{NativeStorageLayout, NativeTypeConstructor},
-        verify::validate_native_declarations,
-    },
+    declaration::{TypeDefKind, native::NativeStorageLayout, verify::validate_native_declarations},
     language::Protocol,
-    reference::ReferenceAccess,
     scalar::IntegerType,
     ty::{NominalTy, Ty, inheritance::trait_closure},
 };
@@ -106,7 +101,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
     let snapshot = analysis_database()
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
-    let mut seen_references = BTreeMap::new();
+
     let mut seen_result = false;
     let mut seen_spawn_error = false;
     let mut seen_char_error = false;
@@ -129,6 +124,9 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
             .unwrap();
         let input = compilation(&program);
         let abi = collect_module_abi(input.module(input.root()).unwrap());
+        assert!(!abi.public_items.iter().any(|item| {
+            matches!(item, PublicItem::Type(ty) if matches!(ty.name.as_str(), "Ref" | "RefMut"))
+        }));
         let native: Vec<_> = abi.public_items.into_iter().filter(|item| {
             matches!(item, PublicItem::Type(ty) if matches!(ty.kind, TypeDefKind::Native(_) | TypeDefKind::Enum | TypeDefKind::NativeStorage(NativeStorageLayout::Opaque)))
         }).collect();
@@ -145,16 +143,6 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
             };
             assert!(ty.fields.is_empty());
             match ty.kind {
-                TypeDefKind::Native(NativeTypeConstructor::Reference(access)) => {
-                    assert_eq!(ty.name, access.name());
-                    assert_eq!(ty.generic_params.len(), 1);
-                    assert!(ty.variants.is_empty());
-                    let owner = declared.source().module_identity();
-                    assert_eq!(owner.package.0, "kagari-core");
-                    assert_eq!(owner.path, ["host"]);
-                    assert!(seen_references.insert(ty.name.clone(), access).is_none());
-                }
-
                 TypeDefKind::Enum if ty.name == "Result" => {
                     assert_eq!(ty.name, "Result");
                     assert_eq!(ty.generic_params.len(), 2);
@@ -195,13 +183,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
             }
         }
     }
-    assert_eq!(
-        seen_references,
-        BTreeMap::from([
-            ("Ref".into(), ReferenceAccess::Shared),
-            ("RefMut".into(), ReferenceAccess::Mutable),
-        ])
-    );
+
     assert!(seen_result && seen_spawn_error && seen_char_error);
 }
 

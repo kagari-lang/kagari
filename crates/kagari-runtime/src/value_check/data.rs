@@ -26,7 +26,7 @@ use crate::{
         carriers::{RootedValue, ScopedValue},
         cells::CellObject,
         closures::ClosureObject,
-        host_values::{EphemeralObject, HostRootObject, paths::HostPathObject},
+        host_values::{HostRootObject, paths::HostPathObject},
         interfaces::InterfaceObject,
         native::NativeObject,
         properties::ValueProperties,
@@ -121,7 +121,7 @@ fn async_inputs<'gc>(
 }
 
 /// Ordinary async data may contain durable Future/Task values. It cannot hide
-/// external descriptors or ephemeral capabilities behind mutable/erased fields.
+/// external Host descriptors behind mutable/erased fields.
 /// The whole walk borrows a closed scope: no collection, mutation or executing
 /// callback can invalidate its visited set. No admission result is cached.
 pub(crate) fn async_scoped<'gc>(
@@ -354,10 +354,7 @@ impl<'gc> DataWalk<'gc> {
             if !self.seen.insert(object) {
                 continue;
             }
-            if is::<HostRootObject>(cx, object)?
-                || is::<HostPathObject>(cx, object)?
-                || is::<EphemeralObject>(cx, object)?
-            {
+            if is::<HostRootObject>(cx, object)? || is::<HostPathObject>(cx, object)? {
                 return Ok(false);
             }
             match cx.downcast::<TupleObject>(object) {
@@ -410,22 +407,16 @@ pub(crate) fn candidate_access<'gc>(
     value: ScopedValue<'gc>,
     resources: &ResourceState,
 ) -> Result<(), CheckError> {
-    if value.object().is_none() && value.as_runtime_ephemeral().is_none() {
+    let Some(object) = value.object() else {
         return Ok(());
-    }
+    };
     let Some(owner) = resources.candidate_owner() else {
         return Ok(());
     };
-    let valid = ValueProperties::of(cx, value)?.storable;
-    let valid = if let Some(object) = value.object() {
-        valid
-            && !is::<HostRootObject>(cx, object)?
-            && !is::<HostPathObject>(cx, object)?
-            && !is::<EphemeralObject>(cx, object)?
-            && candidate_object(cx, object, owner)?
-    } else {
-        valid
-    };
+    let valid = ValueProperties::of(cx, value)?.storable
+        && !is::<HostRootObject>(cx, object)?
+        && !is::<HostPathObject>(cx, object)?
+        && candidate_object(cx, object, owner)?;
     if !valid {
         return Err(
             RuntimeError::execution_phase_violation("external object in candidate access").into(),
@@ -506,18 +497,16 @@ pub(crate) fn async_result(
     let Runtime {
         memory,
         host,
-        host_borrows,
         resources,
         ..
     } = &mut *runtime;
     let result = memory.scope(resources, |cx, _| {
         let value = root.get(cx)?;
-        let matched =
-            match scoped::matches(cx, value, output.view(owner), host, host_borrows, resources) {
-                Ok(matched) => matched,
-                Err(CheckError::Storage(error)) => return Err(error),
-                Err(CheckError::Execution(error)) => return Ok(Err(error)),
-            };
+        let matched = match scoped::matches(cx, value, output.view(owner), host, resources) {
+            Ok(matched) => matched,
+            Err(CheckError::Storage(error)) => return Err(error),
+            Err(CheckError::Execution(error)) => return Ok(Err(error)),
+        };
         if !matched {
             return Ok(Err(RuntimeError::module_validation("async result type")));
         }

@@ -78,7 +78,6 @@ fn location(index: usize, representation: ValueType, semantic: BuiltinType) -> L
         operand: OperandSlot::new(index, representation == ValueType::Str),
         representation,
         semantic: Some(semantic),
-        borrowed_receiver: false,
     }
 }
 

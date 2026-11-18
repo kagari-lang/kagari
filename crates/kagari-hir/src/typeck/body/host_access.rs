@@ -180,15 +180,6 @@ impl<'a> BodyChecker<'a> {
             receiver,
             self.cancel,
         )?;
-        if completes && matches!(ty, TypeId::Reference { .. }) {
-            self.diagnostics.push(
-                Diagnostic::error(DiagnosticKind::InvalidReference {
-                    reason: "reflection helpers do not accept scoped views; use typed field access",
-                })
-                .with_span(self.lowered.module.expr(receiver).origin.diagnostic_span()),
-            );
-            return Ok(Some(TypeId::Error));
-        }
         Ok(completes.then_some(ty))
     }
 

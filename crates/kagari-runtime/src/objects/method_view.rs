@@ -138,7 +138,6 @@ impl MethodFacts {
         let Runtime {
             memory,
             host,
-            host_borrows,
             resources,
             ..
         } = runtime;
@@ -161,14 +160,7 @@ impl MethodFacts {
                                 None,
                             ),
                         };
-                        if !scoped::matches(
-                            slots.scope(),
-                            value,
-                            expected,
-                            host,
-                            host_borrows,
-                            resources,
-                        )? {
+                        if !scoped::matches(slots.scope(), value, expected, host, resources)? {
                             return Ok(false);
                         }
                     }
@@ -201,7 +193,6 @@ impl MethodFacts {
         let Runtime {
             memory,
             host,
-            host_borrows,
             resources,
             ..
         } = runtime;
@@ -215,14 +206,7 @@ impl MethodFacts {
                             TypeView::new(self.return_type(), self.proof_implementation(), None)
                         }
                     };
-                    scoped::matches(
-                        slots.scope(),
-                        result,
-                        expected,
-                        host,
-                        host_borrows,
-                        resources,
-                    )
+                    scoped::matches(slots.scope(), result, expected, host, resources)
                 })())
             })
         });

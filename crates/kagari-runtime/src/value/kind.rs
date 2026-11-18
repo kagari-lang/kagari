@@ -7,7 +7,6 @@ pub enum ObjectKind {
     Range,
     HostRoot,
     HostPath,
-    Ephemeral,
     Native,
 
     Array,

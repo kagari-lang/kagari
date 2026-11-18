@@ -4,7 +4,7 @@ use crate::{
     error::{RuntimeError, fault::EngineFault, trap::TrapReason},
     execution::roots::{ExecutionRoots, Slots},
     frame::{FrameStack, types::compatibility::TypeView, values::FrameSlots},
-    host::{HostBorrowTable, HostRegistry},
+    host::HostRegistry,
     module::execution::layout::Location,
     resource::ResourceState,
     value::{carriers::ScopedValue, properties::ValueProperties, view::ValueView},
@@ -31,7 +31,6 @@ pub(super) struct InstructionScope<'access, 'source, 'gc, 'runtime> {
     pub(super) slots: &'access mut Slots<'source, 'gc>,
     inputs: &'runtime Inputs,
     pub(super) host: &'runtime HostRegistry,
-    pub(super) borrows: &'runtime HostBorrowTable,
     pub(super) resources: &'runtime ResourceState,
 }
 
@@ -123,7 +122,6 @@ impl Inputs {
         let Runtime {
             memory,
             host,
-            host_borrows,
             resources,
             ..
         } = runtime;
@@ -135,7 +133,6 @@ impl Inputs {
                         slots,
                         inputs: self,
                         host,
-                        borrows: host_borrows,
                         resources,
                     })
                 })())
@@ -243,7 +240,6 @@ impl<'gc> InstructionScope<'_, '_, 'gc, '_> {
             value,
             expected,
             self.host,
-            self.borrows,
             self.resources,
         )? || !ValueProperties::of(self.slots.scope(), value)?.storable
         {

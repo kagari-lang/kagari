@@ -1,7 +1,6 @@
 //! Access-flow validation runs after physical operand and layout validation.
 mod interfaces;
 mod scalar;
-use kagari_abi::representation::ValueType;
 use kagari_common::identity::table::DefinitionTable;
 use kagari_contract::ids::FunctionRef;
 use kagari_contract::representation::builtin_representation;
@@ -19,7 +18,7 @@ use crate::{
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_contract::{
-    callable::receiver::{accepts_owned, accepts_view},
+    callable::receiver::accepts_owned,
     standard::RuntimePrimitive as S,
     types::{
         PublicItem,
@@ -28,7 +27,7 @@ use kagari_contract::{
     },
 };
 use kagari_types::{
-    reference::{ReferenceAccess, field_read_type},
+    reference::ReferenceAccess,
     scalar::BuiltinType as B,
     ty::{NominalTy, Ty, access, substitution::MAX_TYPE_NODES},
 };
@@ -42,12 +41,6 @@ struct Fact {
 }
 
 impl Fact {
-    fn holds_reference(&self) -> bool {
-        self.ty
-            .as_deref()
-            .is_some_and(Ty::contains_stored_reference)
-    }
-
     fn typed(ty: Ty) -> Self {
         Self {
             ty: Some(Arc::new(ty)),
@@ -102,9 +95,6 @@ impl TypeBudget<'_> {
             .ok_or_else(|| self.invalid("access flow type shape limit"))?;
         self.work(shape.nodes)?;
         self.space(shape.bytes)?;
-        if !ty.reference_position_valid() {
-            return Err(self.invalid("invalid collection access flow"));
-        }
         // Cumulative new allocation bounds peak retained trees without an identity
         // cache. Moves, joins and CFG-state clones share already charged Arcs.
         self.bytes += shape.bytes;
@@ -119,26 +109,15 @@ fn flows(source: &Fact, target: &Ty) -> bool {
         return false;
     }
 
-    match source.ty.as_deref() {
-        Some(source) => source == target || source.can_weaken_to(target),
-        None => !target.contains_stored_reference(),
-    }
+    source.ty.as_deref().is_none_or(|source| source == target)
 }
 
 fn call_argument_flows(
     source: &Fact,
     target: &Ty,
     receiver_access: Option<ReferenceAccess>,
-    physical: ValueType,
 ) -> bool {
-    if receiver_access.is_some() && physical == ValueType::HostHandle {
-        source
-            .ty
-            .as_deref()
-            .is_some_and(|actual| accepts_view(receiver_access, target, actual))
-    } else {
-        accepts_owned(receiver_access, target) && flows(source, target)
-    }
+    accepts_owned(receiver_access, target) && flows(source, target)
 }
 
 fn join(left: Option<&Fact>, right: Option<&Fact>, declared: Option<&Fact>) -> Option<Fact> {
@@ -155,19 +134,7 @@ fn join(left: Option<&Fact>, right: Option<&Fact>, declared: Option<&Fact>) -> O
             .is_some_and(|ty| flows(left, ty) && flows(right, ty))
     });
     let incompatible = left.ty != right.ty && compatible.is_none();
-    // Do not lose a scoped-reference prohibition when unlike incoming facts meet.
-    let mut fact = compatible
-        .or_else(|| {
-            if left.holds_reference() {
-                Some(left)
-            } else if right.holds_reference() {
-                Some(right)
-            } else {
-                None
-            }
-        })
-        .cloned()
-        .unwrap_or_default();
+    let mut fact = compatible.cloned().unwrap_or_default();
     fact.conflict = left.conflict || right.conflict || incompatible;
     Some(fact)
 }
@@ -432,11 +399,6 @@ pub(super) fn verify(
                                 produced = Some((*dst, value));
                             }
                         }
-                        I::StoreModule { src, .. } => {
-                            if get(*src).is_some_and(|value| value.holds_reference()) {
-                                return Err(invalid());
-                            }
-                        }
                         I::RangeBound {
                             dst,
                             value,
@@ -547,47 +509,27 @@ pub(super) fn verify(
                                 .apply(&field.arguments, &Default::default())
                                 .ok_or_else(invalid)?;
                             let target = &layout.fields[field.slot as usize];
-                            let nominal = Ty::Struct(NominalTy {
+                            let receiver = Ty::Struct(NominalTy {
                                 declaration: layout.declaration,
                                 arguments: layout.arguments.clone(),
                                 associated_types: Default::default(),
                             });
-                            let receiver =
-                                field
-                                    .reference
-                                    .map_or(nominal.clone(), |access| Ty::Reference {
-                                        target: Box::new(nominal),
-                                        access,
-                                    });
                             if let Some(base) = get(*base)
                                 && !flows(&base, &receiver)
                             {
                                 return Err(invalid());
                             }
-                            let ty = if let Some(access) = field.reference {
-                                field_read_type(&target.ty, access, target.mutable)
-                                    .ok_or_else(invalid)?
-                            } else {
-                                target.ty.clone()
-                            };
-                            produced = Some((*dst, Fact::typed(ty)));
+                            produced = Some((*dst, Fact::typed(target.ty.clone())));
                         }
                         I::WriteAggregateField { base, field, value } => {
                             let layout = module.structures[field.structure.index()]
                                 .apply(&field.arguments, &Default::default())
                                 .ok_or_else(invalid)?;
-                            let nominal = Ty::Struct(NominalTy {
+                            let receiver = Ty::Struct(NominalTy {
                                 declaration: layout.declaration,
                                 arguments: layout.arguments.clone(),
                                 associated_types: Default::default(),
                             });
-                            let receiver =
-                                field
-                                    .reference
-                                    .map_or(nominal.clone(), |access| Ty::Reference {
-                                        target: Box::new(nominal),
-                                        access,
-                                    });
                             if let Some(base) = get(*base)
                                 && !flows(&base, &receiver)
                             {
@@ -727,9 +669,6 @@ pub(super) fn verify(
                         } => {
                             let signature = &module.functions[target.index()].metadata.semantic;
                             for (index, argument) in arguments.iter().enumerate() {
-                                if get(*argument).is_some_and(|fact| fact.holds_reference()) {
-                                    return Err(invalid());
-                                }
                                 if let (Some(value), Some(expected)) =
                                     (get(*argument), signature.params.get(&index))
                                     && !flows(&value, expected)
@@ -747,9 +686,6 @@ pub(super) fn verify(
                             let target = &module.functions[target.index()];
                             let signature = &target.metadata.semantic;
                             for (index, capture) in captures.iter().enumerate() {
-                                if get(*capture).is_some_and(|fact| fact.holds_reference()) {
-                                    return Err(invalid());
-                                }
                                 if let (Some(value), Some(expected)) =
                                     (get(*capture), signature.params.get(&index))
                                     && !flows(&value, expected)
@@ -786,9 +722,6 @@ pub(super) fn verify(
                         | I::MakePathView { dst, .. } => produced = Some((*dst, Fact::default())),
                         I::MakeInterface { dst, value, target } => {
                             let input = get(*value);
-                            if input.as_ref().is_some_and(|value| value.holds_reference()) {
-                                return Err(invalid());
-                            }
                             let types = interfaces::construction_types(
                                 target,
                                 function,
@@ -878,9 +811,6 @@ pub(super) fn verify(
                         }
                         I::MakeCell { dst, value } => {
                             if let Some(value) = get(*value) {
-                                if value.holds_reference() {
-                                    return Err(invalid());
-                                }
                                 produced = Some((*dst, value));
                             }
                         }
@@ -890,9 +820,6 @@ pub(super) fn verify(
                             }
                         }
                         I::WriteCell { cell, value } => {
-                            if get(*value).is_some_and(|value| value.holds_reference()) {
-                                return Err(invalid());
-                            }
                             if let (Some(cell), Some(value)) = (get(*cell), get(*value))
                                 && let Some(ty) = cell.ty
                                 && !flows(&value, &ty)
@@ -930,7 +857,6 @@ pub(super) fn verify(
                                             value,
                                             ty,
                                             contract.receiver_access.filter(|_| index == 0),
-                                            function.metadata.slots[args[index].index()],
                                         ) {
                                             return Err(invalid());
                                         }
@@ -952,11 +878,9 @@ pub(super) fn verify(
                                     let target =
                                         &target_module.functions[target.index()].metadata.semantic;
                                     for (index, value) in facts.iter().enumerate() {
-                                        if let Some(ty) = target.params.get(&index) {
-                                            if !flows(value, ty) {
-                                                return Err(invalid());
-                                            }
-                                        } else if value.holds_reference() {
+                                        if let Some(ty) = target.params.get(&index)
+                                            && !flows(value, ty)
+                                        {
                                             return Err(invalid());
                                         }
                                     }
@@ -1021,7 +945,6 @@ pub(super) fn verify(
                                             value,
                                             parameter,
                                             target.receiver_access.filter(|_| index == 0),
-                                            function.metadata.slots[args[index].index()],
                                         ) {
                                             return Err(invalid());
                                         }
@@ -1090,9 +1013,6 @@ pub(super) fn verify(
                             }
                         }
                         I::Return(Some(value)) => {
-                            if get(*value).is_some_and(|value| value.holds_reference()) {
-                                return Err(invalid());
-                            }
                             if let (Some(value), Some(expected)) =
                                 (get(*value), semantic.result.as_ref())
                                 && !flows(&value, expected)

@@ -1064,19 +1064,18 @@ visibility, category, exact arity and bounds still apply in the common checker.
 [NativeTypeDeclaration](../../crates/kagari-hir/src/hir/item/adt.rs) owns nominal
 interface fields with ordinary `FieldId`, visibility, type and `Var`/`Val` writeability.
 Field reads preserve the declared value type: a scalar remains a scalar, while an
-ordinary managed object field yields an object handle, not a reference wrapper.
+ordinary managed object field yields an object handle.
 These frontend facts supply no Rust offsets or field adapters. Unsupported Native
 field execution remains rejected by executable lowering/admission; existing checked
 Host path routes remain distinct. Declaring a field does not enable a new Runtime route.
 
 Builtin interpretation belongs to the [language/type owner](../../crates/kagari-hir/src/language/types.rs),
 not a mixed registration/storage classification. Exact canonical constructor
-identities select String, Range and the existing `Ref<T>`/`RefMut<T>` semantics.
+identities select String and Range semantics.
 [Common declaration preparation](../../crates/kagari-hir/src/analysis/declarations.rs)
 checks constructor arity, fields and Host-category conflicts even without a sidecar.
-Reference types still retain their target and `Shared`/`Mutable` access. Existing
-no-escape, target-eligibility and scoped-borrow restrictions remain; ordinary storable
-reference wrappers and new reference operations are not implemented by this boundary.
+Ordinary nominal types do not acquire borrowing semantics. Independent Host access
+and escape rules still apply to their own checked values.
 
 ### Offline source and scoped static sidecars
 
@@ -1104,7 +1103,7 @@ facts absent from syntax:
   validation rejects additional supertraits/bounds unsupported by intrinsic derivation.
 - [ExternalHost](../../crates/kagari-hir/src/analysis/external/evidence.rs) carries an
   explicit Host root and complete schema/path closure. It preserves Host identity,
-  field/path access and existing async/reference restrictions instead of treating
+  field/path access and Host-specific escape and suspension restrictions instead of treating
   Host values as ordinary owning Native objects. Parsed fields must match the schema;
   shared schemas must agree across the mixed scope.
 - Exceptional method policies and scoped `NativeContract` records preserve receiver/

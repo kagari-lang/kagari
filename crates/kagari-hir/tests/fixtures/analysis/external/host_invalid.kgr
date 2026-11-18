@@ -2,8 +2,6 @@ use host::Player;
 
 async fn capture(player: Player) {}
 
-fn references(shared: Ref<Player>, mutable: RefMut<Player>) {}
-
 fn denied(player: Player) {
     player.rank = 3;
     player.hidden;

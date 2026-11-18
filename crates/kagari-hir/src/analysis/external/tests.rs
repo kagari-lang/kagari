@@ -13,7 +13,16 @@ use kagari_source::{
     diagnostic::{DiagnosticKind, Severity},
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_types::{range::RangeKind, reference::ReferenceAccess, scalar::BuiltinType};
+use kagari_types::{
+    declaration::{
+        FieldDef, TypeDef, TypeDefKind, module::ModuleDecl, native::NativeStorageLayout,
+    },
+    range::RangeKind,
+    reference::ReferenceAccess,
+    scalar::BuiltinType,
+    ty::GenericParam,
+    visibility::Visibility,
+};
 
 const LIBRARY: &str = include_str!("../../../tests/fixtures/analysis/external/library.kgr");
 const CLIENT: &str = include_str!("../../../tests/fixtures/analysis/external/client.kgr");
@@ -41,13 +50,10 @@ fn input(text: &str) -> ExternalModule {
 
 fn analyze(input: ExternalModule, text: &str) -> (AnalysisDatabase, AnalysisSnapshot, FileId) {
     let mut db = AnalysisDatabase::new("/project").unwrap();
-    let mut inputs = if input
-        .dependencies
-        .contains(&kagari_stdlib::namespaces::module("core", "host"))
-    {
-        super::foundation::exported(&kagari_stdlib::catalog::shared().unwrap())
-    } else {
+    let mut inputs = if input.dependencies.is_empty() {
         Vec::new()
+    } else {
+        super::foundation::exported(&kagari_stdlib::catalog::shared().unwrap())
     };
     inputs.push(input);
     db.set_external_modules(inputs);
@@ -93,7 +99,6 @@ fn external_source_preserves_fields_members_and_complete_script_definitions_with
         .field_type(counter.fields[1].id)
         .unwrap();
     assert!(matches!(child_type, TypeId::Struct(_)), "{child_type:?}");
-    assert!(!child_type.contains_reference());
     for name in ["defaulted", "embedded", "script_identity"] {
         let function = facts
             .lowered
@@ -260,7 +265,6 @@ fn external_native_fields_and_calls_enforce_mutability_visibility_bounds_and_ari
 fn constructors() -> ExternalModule {
     let mut module = input(CONSTRUCTORS);
     module.dependencies.extend([
-        kagari_stdlib::namespaces::module("core", "host"),
         kagari_stdlib::namespaces::module("core", "ops"),
         kagari_stdlib::namespaces::module("alloc", "string"),
     ]);
@@ -333,25 +337,6 @@ fn external_constructor_metadata_recognizes_identity_without_spelling_or_runtime
     );
     let signatures = snapshot.file(id).unwrap().signatures().facts();
     let functions = signatures.functions();
-    let references = functions
-        .iter()
-        .find(|function| function.name == "references")
-        .unwrap();
-    let TypeId::Reference {
-        target,
-        access: ReferenceAccess::Shared,
-    } = &references.params[0].ty
-    else {
-        panic!("shared reference: {:?}", references.params);
-    };
-    assert!(matches!(target.as_ref(), TypeId::NativeObject(_)));
-    assert_eq!(
-        references.params[1].ty,
-        TypeId::Reference {
-            target: target.clone(),
-            access: ReferenceAccess::Mutable
-        }
-    );
     let text = functions
         .iter()
         .find(|function| function.name == "text")
@@ -392,55 +377,142 @@ fn external_constructor_metadata_recognizes_identity_without_spelling_or_runtime
 }
 
 #[test]
-fn references_preserve_target_eligibility_and_storage_return_restrictions() {
+fn foundation_reference_names_are_absent_in_both_declaration_routes() {
+    let providers = kagari_stdlib::catalog::shared().unwrap();
+    for structured in [true, false] {
+        let mut db = AnalysisDatabase::new("/project").unwrap();
+        if structured {
+            db.set_native_modules(providers.clone());
+        } else {
+            db.set_external_modules(super::foundation::exported(&providers));
+        }
+        let source = Arc::new(SourceFile::new(
+            "/project/main.kgr",
+            "fn former_shared(value: Ref<i32>) {} fn former_mutable(value: RefMut<i32>) {}",
+        ));
+        let root = source.id();
+        let snapshot = db
+            .snapshot(SourceSnapshot::single_file(source), &Default::default())
+            .unwrap();
+        let diagnostics = snapshot.file(root).unwrap().result().diagnostics();
+        for name in ["former_shared", "former_mutable"] {
+            assert!(
+                diagnostics.iter().any(|d| matches!(
+                    &d.kind,
+                    DiagnosticKind::UnknownType { function_name, .. } if function_name == name
+                )),
+                "{name}: {diagnostics:?}"
+            );
+        }
+    }
+}
+
+fn reference_named_registration(identity: ModuleIdentity) -> Arc<DefinitionMetadata<ModuleDecl>> {
+    let context = DefinitionContext::new().unwrap();
+    let root = context.intern_root(&identity).unwrap();
+    let mut module = ModuleDecl::new(identity);
+    module.package_alias = Some("core".into());
+    for (name, arity) in [("Ref", 1), ("RefMut", 2)] {
+        let owner = context
+            .intern_child(root, DefinitionKind::AssociatedType, name, 0)
+            .unwrap();
+        let generic_params = (0..arity)
+            .map(|position| GenericParam { owner, position })
+            .collect::<Vec<_>>();
+        module.types.push(TypeDef {
+            name: name.into(),
+            kind: TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
+            fields: vec![FieldDef {
+                name: "value".into(),
+                visibility: Visibility::Public,
+                ty: generic_params.last().unwrap().as_type(),
+                mutable: false,
+                host_policy: None,
+            }],
+            generic_params,
+            bounds: vec![],
+            variants: vec![],
+        });
+    }
+    let definitions = module.collect_definitions(&context).unwrap();
+    Arc::new(DefinitionMetadata::checked(definitions, module, &Default::default()).unwrap())
+}
+
+#[test]
+fn former_reference_owner_admits_ordinary_natives_in_both_declaration_routes() {
+    let identity = kagari_stdlib::namespaces::module("core", "host");
     let mut sources = SourceDatabase::new("/exports").unwrap();
-    sources
-        .bind_module(
-            "invalid.kgr",
-            ModuleIdentity {
-                package: PackageId("invalid".into()),
-                path: vec![],
-            },
-        )
-        .unwrap();
-    let invalid = sources
+    sources.bind_module("host.kgr", identity.clone()).unwrap();
+    let id = sources
         .set(
-            "invalid.kgr",
-            include_str!("../../../tests/fixtures/analysis/external/invalid_references.kgr").into(),
+            "host.kgr",
+            include_str!("../../../tests/fixtures/analysis/external/reference_named_types.kgr")
+                .into(),
             SourceLayer::Base,
         )
         .unwrap();
-    let mut invalid_input = ExternalModule::new(sources.snapshot().file(invalid).unwrap().clone());
-    invalid_input.dependencies.insert(ModuleIdentity {
-        package: PackageId("api".into()),
-        path: vec![],
-    });
-    let mut db = AnalysisDatabase::new("/project").unwrap();
-    let mut inputs = super::foundation::exported(&kagari_stdlib::catalog::shared().unwrap());
-    inputs.extend([constructors(), invalid_input]);
-    db.set_external_modules(inputs);
-    let snapshot = db
-        .snapshot(SourceSnapshot::default(), &Default::default())
-        .unwrap();
-    let diagnostics = snapshot.file(invalid).unwrap().result().diagnostics();
-    for reason in [
-        "views require a nominal target and cannot be nested in owning values",
-        "a scoped view cannot be returned",
-        "a scoped view cannot be stored in a field",
-    ] {
-        assert!(diagnostics.iter().any(|diagnostic| matches!(diagnostic.kind, DiagnosticKind::InvalidReference { reason: actual } if actual == reason)), "{reason}: {diagnostics:?}");
+    let mut declarations = ExternalModule::new(sources.snapshot().file(id).unwrap().clone());
+    declarations.package_alias = Some("core".into());
+    let source = Arc::new(SourceFile::new(
+        "/project/main.kgr",
+        include_str!("../../../tests/fixtures/analysis/external/reference_named_client.kgr"),
+    ));
+    let root = source.id();
+    for structured in [true, false] {
+        let mut db = AnalysisDatabase::new("/project").unwrap();
+        if structured {
+            db.set_native_modules(vec![reference_named_registration(identity.clone())]);
+        } else {
+            db.set_external_modules(vec![declarations.clone()]);
+        }
+        let snapshot = db
+            .snapshot(
+                SourceSnapshot::single_file(source.clone()),
+                &Default::default(),
+            )
+            .unwrap();
+        let file = snapshot.file(root).unwrap();
+        let diagnostics = file.result().diagnostics();
+        let errors = diagnostics
+            .iter()
+            .filter(|d| d.severity == Severity::Error)
+            .collect::<Vec<_>>();
+        assert!(
+            matches!(errors.as_slice(), [diagnostic] if matches!(
+                &diagnostic.kind,
+                DiagnosticKind::UnknownType { function_name, .. } if function_name == "invalid"
+            )),
+            "structured={structured}: {diagnostics:?}"
+        );
+        let store = file
+            .signatures()
+            .facts()
+            .functions()
+            .iter()
+            .find(|function| function.name == "store")
+            .unwrap();
+        let TypeId::NativeObject(outer) = &store.params[0].ty else {
+            panic!(
+                "expected an ordinary native object: {:?}",
+                store.params[0].ty
+            );
+        };
+        let TypeId::NativeObject(inner) = &store.return_type else {
+            panic!(
+                "expected an ordinary native object: {:?}",
+                store.return_type
+            );
+        };
+        assert_ne!(outer.declaration, inner.declaration);
+        assert_eq!(
+            outer.arguments,
+            [
+                TypeId::Builtin(BuiltinType::Bool),
+                store.return_type.clone()
+            ]
+        );
+        assert_eq!(inner.arguments, [TypeId::Builtin(BuiltinType::I32)]);
     }
-    for name in ["mutable", "plain"] {
-        assert!(diagnostics.iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::UnknownName { name: actual } if actual == name)), "{name}: {diagnostics:?}");
-    }
-    for name in ["missing", "arity"] {
-        assert!(diagnostics.iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::UnknownType { function_name, .. } if function_name == name)), "{name}: {diagnostics:?}");
-    }
-    assert!(
-        snapshot
-            .check_program(invalid, &Default::default())
-            .is_err()
-    );
 }
 
 #[test]
@@ -528,7 +600,7 @@ fn missing_dependencies_and_invalid_external_metadata_are_not_admitted() {
     let mut malformed = library;
     malformed.types.insert(
         "Target".into(),
-        ExternalType::Constructor(NativeTypeConstructor::Reference(ReferenceAccess::Shared)),
+        ExternalType::Constructor(NativeTypeConstructor::String),
     );
     db.set_external_modules(vec![malformed]);
     assert!(matches!(
@@ -564,15 +636,6 @@ fn missing_dependencies_and_invalid_external_metadata_are_not_admitted() {
             "pub native type RangeFull;",
             "pub native type RangeFull<T>;",
             "pub native type RangeFull { pub val value: i32 }",
-        ),
-        (
-            "core",
-            "host",
-            "Ref",
-            NativeTypeConstructor::Reference(ReferenceAccess::Shared),
-            "pub native type Ref<T>;",
-            "pub native type Ref;",
-            "pub native type Ref<T> { pub val value: i32 }",
         ),
     ] {
         for (text, accepted) in [(valid, true), (wrong_arity, false), (fields, false)] {

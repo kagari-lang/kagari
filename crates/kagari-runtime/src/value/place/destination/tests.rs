@@ -21,13 +21,11 @@ fn native_publication_writes_caller_banks_before_suffix_retirement() -> Result<(
         operand: OperandSlot::new(0, false),
         representation: ValueType::I32,
         semantic: Some(BuiltinType::I32),
-        borrowed_receiver: false,
     };
     let managed = Location {
         operand: OperandSlot::new(0, true),
         representation: ValueType::Str,
         semantic: Some(BuiltinType::String),
-        borrowed_receiver: false,
     };
     let frame = memory.scope(resources, |cx, roots| {
         ExecutionRoots::with(roots, cx, |slots| {

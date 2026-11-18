@@ -26,7 +26,6 @@ use kagari_contract::{
 };
 use kagari_types::{
     declaration::{TypeDefKind, native::NativeStorageLayout, verify::types_in_scope},
-    reference::{ReferenceAccess, field_read_type},
     ty::Ty,
 };
 
@@ -675,54 +674,24 @@ pub(super) fn verify_instruction(
             }
         }
         BytecodeInstruction::ReadAggregateField { dst, base, field } => {
-            let reference = field.reference;
             let field = field_layout(module, function, field)?;
-            let ty = if let Some(access) = reference {
-                field_read_type(&field.ty, access, field.mutable).ok_or(
-                    BytecodeVerificationError::InvalidOperation {
-                        function: function.id,
-                        reason: "unsupported inline field read",
-                    },
-                )?
-            } else {
-                field.ty
-            };
             expect_register_ty(
                 function,
                 *dst,
-                semantic_representation(&ty),
+                semantic_representation(&field.ty),
                 "aggregate field dst",
             )?;
-            expect_register_ty(
-                function,
-                *base,
-                if reference.is_some() {
-                    ValueType::HostHandle
-                } else {
-                    ValueType::HeapObject
-                },
-                "field base",
-            )?;
+            expect_register_ty(function, *base, ValueType::HeapObject, "field base")?;
         }
         BytecodeInstruction::WriteAggregateField { base, field, value } => {
-            let reference = field.reference;
             let field = field_layout(module, function, field)?;
-            if !field.mutable || reference == Some(ReferenceAccess::Shared) {
+            if !field.mutable {
                 return Err(BytecodeVerificationError::InvalidOperation {
                     function: function.id,
                     reason: "write to read-only field",
                 });
             }
-            expect_register_ty(
-                function,
-                *base,
-                if reference.is_some() {
-                    ValueType::HostHandle
-                } else {
-                    ValueType::HeapObject
-                },
-                "field base",
-            )?;
+            expect_register_ty(function, *base, ValueType::HeapObject, "field base")?;
             expect_register_ty(
                 function,
                 *value,
@@ -889,14 +858,7 @@ pub(super) fn verify_call(
             {
                 return Err(invalid());
             }
-            for (index, (arg, ty)) in args.iter().zip(&contract.signature.params).enumerate() {
-                if index == 0
-                    && contract.receiver_access.is_some()
-                    && register_ty(function, *arg)? == ValueType::HostHandle
-                {
-                    // Access-flow checks the exact target and capability.
-                    continue;
-                }
+            for (arg, ty) in args.iter().zip(&contract.signature.params) {
                 expect_register_ty(
                     function,
                     *arg,

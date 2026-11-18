@@ -91,19 +91,13 @@ fn shared_host_declarations_keep_external_identity_without_rust_reference_admiss
         .find(|function| function.name == "forward")
         .unwrap();
     assert!(matches!(function.params[0].ty, TypeId::Host(_)));
-    for body in [
-        "fn reject(player: Ref<Player>) {}",
-        "fn reject(player: RefMut<Player>) {}",
-        "fn reject(player: Player) { player.unregistered(); }",
-    ] {
-        let analysis = analyze_source(
-            &SourceFile::new(
-                "root-reject.kgr",
-                format!("use example::roots::Player; {body}"),
-            ),
-            providers.clone(),
-        )
-        .unwrap();
-        assert!(!analysis.diagnostics().is_empty(), "{body}");
-    }
+    let analysis = analyze_source(
+        &SourceFile::new(
+            "root-reject.kgr",
+            "use example::roots::Player; fn reject(player: Player) { player.unregistered(); }",
+        ),
+        providers,
+    )
+    .unwrap();
+    assert!(!analysis.diagnostics().is_empty());
 }

@@ -67,7 +67,7 @@ pub struct ExternalModule {
     /// Exact named-import path/alias selectors with an explicit namespace category.
     pub import_namespaces: BTreeMap<(Vec<String>, Option<String>), NameNamespace>,
     /// Constructors are keyed by the exact local Native type declaration, not by
-    /// use-site spelling. A user type named `Ref` or `String` is not a builtin.
+    /// use-site spelling. A user type named `String` is not a builtin.
     pub types: BTreeMap<String, ExternalType>,
     /// Host category requires a complete scoped schema/path closure, not a nominal fallback.
     pub hosts: BTreeMap<String, Arc<DefinitionMetadata<evidence::ExternalHost>>>,

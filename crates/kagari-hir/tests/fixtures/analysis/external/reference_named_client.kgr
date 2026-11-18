@@ -1,0 +1,7 @@
+use core::host::{ Ref, RefMut };
+
+fn store(value: RefMut<bool, Ref<i32>>) -> Ref<i32> {
+    value.value
+}
+
+fn invalid(value: RefMut<i32>) {}

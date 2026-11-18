@@ -125,6 +125,55 @@ fn main() -> i32 { add(1, 2) }
 }
 
 #[test]
+fn user_reference_names_lower_as_ordinary_aggregates_in_source_free_bytecode() {
+    let bytes = {
+        let context = DefinitionContext::new().unwrap();
+        let program = common::adopt_bytecode(
+            &context,
+            common::bytecode_ok(include_str!(
+                "../../../tests/fixtures/reference_named_aggregates.kgr"
+            )),
+        );
+        KbcArtifact::from_program(program, Default::default(), &context, &Default::default())
+            .unwrap()
+            .to_bytes(&context.snapshot())
+            .unwrap()
+    };
+    let context = DefinitionContext::new().unwrap();
+    let artifact = KbcArtifact::from_bytes(&bytes)
+        .unwrap()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    assert!(artifact.source.is_none());
+    let verified = artifact
+        .into_verified(&Default::default(), &context, &Default::default())
+        .unwrap()
+        .into_bytecode();
+    let program = verified.program();
+    let module = &program.modules[program.root.index()];
+    let main = module.functions.iter().find(|f| f.name == "main").unwrap();
+    assert_eq!(main.metadata.params.as_slice(), [ValueType::HeapObject]);
+    assert_eq!(main.metadata.return_type, ValueType::I32);
+    assert!(
+        main.instructions.iter().any(|instruction| matches!(
+            instruction,
+            BytecodeInstruction::WriteAggregateField { .. }
+        ))
+    );
+    assert_eq!(
+        main.instructions
+            .iter()
+            .filter(|instruction| matches!(
+                instruction,
+                BytecodeInstruction::ReadAggregateField { .. }
+            ))
+            .count(),
+        2
+    );
+}
+
+#[test]
 fn disassembles_compiler_generated_artifact_without_runtime() {
     // Reuse the generic interface fixture from bytecode/interfaces.rs, aggregates
     // from lower.rs, captured cells from patterns.rs and the loop from analysis.rs.

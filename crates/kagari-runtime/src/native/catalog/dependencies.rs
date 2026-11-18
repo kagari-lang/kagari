@@ -64,7 +64,6 @@ impl References {
         while let Some(ty) = pending.pop() {
             match ty {
                 Ty::Host(id) => self.pending.push(Reference::External(*id)),
-                Ty::Reference { target, .. } => pending.push(target),
                 Ty::NativeObject(nominal)
                 | Ty::Trait(nominal)
                 | Ty::Struct(nominal)

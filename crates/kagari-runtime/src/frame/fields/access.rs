@@ -5,7 +5,7 @@ use crate::{
         cursor::kernel::RegionError, types::compatibility::TypeView,
         values::operands::OperandWindow,
     },
-    host::{HostBorrowTable, HostRegistry},
+    host::HostRegistry,
     module::{
         StructLayoutRef,
         execution::fields::{FieldAccess, PreparedFieldOperation},
@@ -29,7 +29,6 @@ pub(in crate::frame) fn execute(
     operation: &PreparedFieldOperation,
     layout: &StructLayoutRef,
     host: &HostRegistry,
-    host_borrows: &HostBorrowTable,
     resources: &ResourceState,
 ) -> Result<(), RegionError> {
     let input = admit_input(values, operation)?;
@@ -114,7 +113,6 @@ pub(in crate::frame) fn execute(
                     value,
                     TypeView::new(ty, layout.module(), environment),
                     host,
-                    host_borrows,
                     resources,
                 )
                 .map_err(RegionError::from)?

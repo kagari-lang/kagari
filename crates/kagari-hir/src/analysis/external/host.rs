@@ -164,12 +164,6 @@ fn host_exports_preserve_identity_paths_async_and_reference_restrictions() {
             assert!(
                 diagnostics
                     .iter()
-                    .any(|d| matches!(d.kind, DiagnosticKind::InvalidReference { .. })),
-                "{diagnostics:?}"
-            );
-            assert!(
-                diagnostics
-                    .iter()
                     .any(|d| matches!(d.kind, DiagnosticKind::InvalidHostPath { .. })),
                 "{diagnostics:?}"
             );

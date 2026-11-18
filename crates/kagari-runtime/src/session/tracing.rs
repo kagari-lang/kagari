@@ -42,9 +42,6 @@ impl TraceValue {
         let Some(kind) = value.kind() else {
             return Err(GcError::Representation);
         };
-        if value.as_runtime_ephemeral().is_some() {
-            return Ok(Self::Opaque("ephemeral".into()));
-        }
         let object = value.object().ok_or(GcError::Representation)?;
         Ok(match kind {
             ObjectKind::String => {
@@ -71,7 +68,6 @@ impl TraceValue {
             ObjectKind::Tuple => Self::Opaque("tuple depth limit".into()),
             ObjectKind::HostRoot => Self::Opaque("host root".into()),
             ObjectKind::HostPath => Self::Opaque("host path".into()),
-            ObjectKind::Ephemeral => Self::Opaque("ephemeral".into()),
             ObjectKind::Range => {
                 let object = cx.downcast::<RangeValue>(object)?;
                 cx.read(object, |range| Self::Opaque(format!("{range:?}")))

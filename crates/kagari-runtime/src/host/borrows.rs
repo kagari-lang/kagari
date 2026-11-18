@@ -3,29 +3,13 @@ use crate::{
     host::{
         ActiveBorrowFrame, BorrowEpoch, FrameBorrowRecord, FrameHostBorrowToken, HostBorrowKind,
         HostBorrowOwner, HostBorrowTable, HostCallGuard, HostFrameAccess, HostFrameId,
-        HostFrameMark, HostObjectId, PathBorrowState,
+        HostFrameMark, HostObjectId,
     },
     metadata::TypeId,
     resource::ResourceState,
 };
 
-use kagari_common::identity::table::DefinitionId;
-use std::sync::Arc;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) enum BorrowObjectKey {
-    Installed(HostObjectId),
-    External(HostObjectId),
-}
-
 impl FrameHostBorrowToken {
-    pub(super) fn shared(self) -> Self {
-        Self {
-            borrow_kind: HostBorrowKind::Shared,
-            ..self
-        }
-    }
-
     fn new(
         owner: HostBorrowOwner,
         frame_id: HostFrameId,
@@ -66,19 +50,10 @@ impl FrameHostBorrowToken {
 }
 
 impl FrameBorrowRecord {
-    fn object_key(&self) -> BorrowObjectKey {
-        if self.type_id.is_some() {
-            BorrowObjectKey::Installed(self.object_id)
-        } else {
-            BorrowObjectKey::External(self.object_id)
-        }
-    }
-
     fn matches(&self, token: FrameHostBorrowToken) -> bool {
         self.object_id == token.object_id
             && self.borrow_kind.satisfies(token.borrow_kind)
-            && self.type_id == Some(token.type_id)
-            && self.path.is_empty()
+            && self.type_id == token.type_id
     }
 }
 
@@ -116,7 +91,6 @@ impl HostBorrowTable {
             ActiveBorrowFrame {
                 epoch,
                 borrows: Vec::new(),
-                roots: Vec::new(),
             },
         );
         Ok(HostCallGuard {
@@ -171,35 +145,6 @@ impl HostBorrowTable {
         borrow_kind: HostBorrowKind,
         type_id: TypeId,
     ) -> Result<FrameHostBorrowToken, RuntimeError> {
-        self.borrow_record(
-            frame,
-            FrameBorrowRecord {
-                object_id,
-                borrow_kind,
-                type_id: Some(type_id),
-                path: Arc::default(),
-            },
-        )?;
-        Ok(FrameHostBorrowToken::new(
-            self.owner,
-            frame.frame_id(),
-            object_id,
-            borrow_kind,
-            type_id,
-            frame.epoch(),
-        ))
-    }
-
-    pub(super) fn borrow_record(
-        &self,
-        frame: &HostCallGuard<'_>,
-        record: FrameBorrowRecord,
-    ) -> Result<(), RuntimeError> {
-        let FrameBorrowRecord {
-            object_id,
-            borrow_kind,
-            ..
-        } = record;
         let frame_id = frame.frame_id();
         let epoch = frame.epoch();
         let resources = frame.resources;
@@ -231,43 +176,20 @@ impl HostBorrowTable {
             .object_borrows
             .try_reserve(1)
             .map_err(|_| capacity_error(resources))?;
-        let object_state = state.object_borrows.entry(record.object_key()).or_default();
-        if object_state.paths.iter().any(|active| {
-            paths_overlap(&active.path, &record.path)
-                && (active.unique_count > 0
-                    || (borrow_kind == HostBorrowKind::Unique && active.shared_count > 0))
-        }) {
+        let object = state.object_borrows.entry(object_id).or_default();
+        if object.unique || (borrow_kind == HostBorrowKind::Unique && object.shared_count != 0) {
             return Err(RuntimeError::host_borrow_conflict(format!(
-                "host object {} has an overlapping incompatible borrow",
+                "host object {} has an incompatible borrow",
                 object_id.0
             )));
         }
-        let slot = object_state
-            .paths
-            .iter()
-            .position(|path| path.path == record.path);
-        let slot = if let Some(slot) = slot {
-            slot
-        } else {
-            object_state
-                .paths
-                .try_reserve(1)
-                .map_err(|_| capacity_error(resources))?;
-            object_state.paths.push(PathBorrowState {
-                path: record.path.clone(),
-                shared_count: 0,
-                unique_count: 0,
-            });
-            object_state.paths.len() - 1
-        };
-        let path = &mut object_state.paths[slot];
         match borrow_kind {
             HostBorrowKind::Shared => {
-                path.shared_count = path.shared_count.checked_add(1).ok_or_else(|| {
+                object.shared_count = object.shared_count.checked_add(1).ok_or_else(|| {
                     invariant(resources, EngineFault::HostSharedBorrowCountExhausted)
-                })?
+                })?;
             }
-            HostBorrowKind::Unique => path.unique_count += 1,
+            HostBorrowKind::Unique => object.unique = true,
         }
 
         state
@@ -275,8 +197,19 @@ impl HostBorrowTable {
             .get_mut(&frame_id)
             .expect("checked active host borrow frame before recording token")
             .borrows
-            .push(record);
-        Ok(())
+            .push(FrameBorrowRecord {
+                object_id,
+                borrow_kind,
+                type_id,
+            });
+        Ok(FrameHostBorrowToken::new(
+            self.owner,
+            frame_id,
+            object_id,
+            borrow_kind,
+            type_id,
+            epoch,
+        ))
     }
 
     pub(super) fn leave_frame(
@@ -301,41 +234,32 @@ impl HostBorrowTable {
         }
 
         for record in frame.borrows {
-            let mut remove_object = false;
-            if let Some(object_state) = state.object_borrows.get_mut(&record.object_key()) {
-                if let Some(slot) = object_state
-                    .paths
-                    .iter()
-                    .position(|path| path.path == record.path)
-                {
-                    let path = &mut object_state.paths[slot];
-                    let count = match record.borrow_kind {
-                        HostBorrowKind::Shared => &mut path.shared_count,
-                        HostBorrowKind::Unique => &mut path.unique_count,
-                    };
-                    *count = count.checked_sub(1).unwrap_or_else(|| {
-                        invariant(resources, EngineFault::HostPathBorrowCountUnderflow);
-                        0
-                    });
-                    if path.shared_count == 0 && path.unique_count == 0 {
-                        object_state.paths.swap_remove(slot);
-                    }
-                } else {
-                    invariant(
-                        resources,
-                        EngineFault::HostPathBorrowDisappearedDuringCleanup,
-                    );
-                }
-
-                remove_object = object_state.is_empty();
-            } else {
+            let Some(object) = state.object_borrows.get_mut(&record.object_id) else {
                 invariant(
                     resources,
                     EngineFault::HostObjectBorrowDisappearedDuringCleanup,
                 );
+                continue;
+            };
+            match record.borrow_kind {
+                HostBorrowKind::Shared => {
+                    object.shared_count = object.shared_count.checked_sub(1).unwrap_or_else(|| {
+                        invariant(resources, EngineFault::HostSharedBorrowCountUnderflow);
+                        0
+                    });
+                }
+                HostBorrowKind::Unique => {
+                    if !object.unique {
+                        invariant(
+                            resources,
+                            EngineFault::HostUniqueBorrowDisappearedDuringCleanup,
+                        );
+                    }
+                    object.unique = false;
+                }
             }
-            if remove_object {
-                state.object_borrows.remove(&record.object_key());
+            if object.shared_count == 0 && !object.unique {
+                state.object_borrows.remove(&record.object_id);
             }
         }
     }
@@ -353,10 +277,4 @@ fn capacity_error(resources: Option<&ResourceState>) -> RuntimeError {
         || RuntimeError::resource_limit("host borrow capacity"),
         |resources| resources.limit("host borrow capacity"),
     )
-}
-
-/// Paths are generated inline field identities. Equal/prefix paths overlap;
-/// divergent structural fields are disjoint. Empty is the whole reserved root.
-fn paths_overlap(left: &[DefinitionId], right: &[DefinitionId]) -> bool {
-    left.starts_with(right) || right.starts_with(left)
 }

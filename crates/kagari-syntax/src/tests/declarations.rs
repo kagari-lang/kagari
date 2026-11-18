@@ -141,8 +141,8 @@ fn native_declarations_mix_with_complete_script_definitions() {
         ParameterType::Receiver
     ));
     let parameters = methods[1].param_list().params().collect::<Vec<_>>();
-    assert_eq!(parameters[1].ty().unwrap().source_text(), "Ref<T>");
-    assert_eq!(parameters[2].ty().unwrap().source_text(), "RefMut<T>");
+    assert_eq!(parameters[1].ty().unwrap().source_text(), "List<T>");
+    assert_eq!(parameters[2].ty().unwrap().source_text(), "Counter<T>");
     let ItemView::ImplBlock(implementation) = items[7] else {
         panic!("expected trait impl")
     };
@@ -158,14 +158,14 @@ fn native_declarations_mix_with_complete_script_definitions() {
         "T"
     );
     assert!(implementation.methods().next().unwrap().is_native());
-    let ItemView::FnDef(borrow) = items[8] else {
+    let ItemView::FnDef(collect) = items[8] else {
         panic!("expected generic Native function")
     };
     assert_eq!(
-        borrow.generic_params().unwrap().source_text(),
+        collect.generic_params().unwrap().source_text(),
         "<T: Read<Item = i32>>"
     );
-    assert_eq!(borrow.return_type().unwrap().source_text(), "RefMut<T>");
+    assert_eq!(collect.return_type().unwrap().source_text(), "List<T>");
     let ItemView::ModuleDef(nested) = items[9] else {
         panic!("expected nested module")
     };

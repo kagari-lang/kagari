@@ -61,12 +61,9 @@ The runtime is organized around these subsystems:
 
 ## Value Model
 
-Kagari values are split into two broad categories:
-
-1. storable script values
-2. frame-scoped ephemeral values
-
-This distinction is important for host interop and safety.
+Script values carry scalars or checked managed identities. Host roots and typed
+path views are managed descriptors, not Rust references. Checked loans of external
+state and Native payloads are execution resources, not script values.
 
 ### Storable Script Values
 
@@ -95,19 +92,11 @@ Borrowed host handles and path views are not valid closure captures.
 This category describes runtime values in general, not `const` item eligibility.
 In the current module model, `const` items are compile-time by-value scalars only and do not materialize frozen GC-backed objects.
 
-### Ephemeral Values
+### Scoped Host Access
 
-Ephemeral values are runtime values that must not escape a frame boundary.
-
-Examples:
-
-- borrowed host references
-- certain temporary VM handles
-- future non-suspendable runtime resources
-
-The key property is:
-
-- ephemeral values are not legal heap payloads
+Host capabilities remain subject to the installed access contract. Borrow state
+belongs to the active call and is not a value that can be put into the heap or
+carried across suspension. See [external Host access](host-interop.md#external-host-access-and-scope).
 
 ## Machine and resource boundaries
 
@@ -192,7 +181,7 @@ Runtime/NativeCall. Stored edges are not Copy, public constructors cannot forge 
 managed tag, and copying a view/coordinate does not create a root.
 
 The physical categories include scalars, String/tuple/range/fixed array/enum/struct,
-Native identity, closure/cell/interface, Host root/path and ephemeral descriptors.
+Native identity, closure/cell/interface, and Host root/path descriptors.
 There are no privileged Vec/Map/Set value families. Scalar banks use eight-byte
 payloads plus initialization flags; traced cells use StoredValue. Layout sizes
 are implementation observations, not portable ABI guarantees. Physical GC kind
@@ -332,13 +321,13 @@ traced managed fields have separate providers. Collection destroys unreachable
 payloads exactly once; shutdown releases Runtime-owned storage even if public
 leases survive. There is no payload extraction/take capability.
 
-External Ref/RefMut reserves Host-owned Rust state under invariant scope authority.
-Managed descriptors contain checked views, never unrestricted Rust references.
-Scope exit revokes all children before the Rust loan ends on success, trap,
-cancellation or supported unwind. Such views cannot escape to durable managed
-fields, closure captures or suspension. Native/Host registrations and factories
-are Send + Sync; Runtime-owned payloads and observers need Send. Runtime itself is
-Send, not Sync, and transfers only between inactive execution/borrow scopes.
+Registered Host roots and paths carry checked identities, not Rust references.
+Adapters keep host ownership and validate access before taking a short loan.
+Scope-bound Host values cannot escape to durable managed fields, closure captures
+or suspension; success, trap, cancellation and supported unwind release active
+loans and temporary protection. Native/Host registrations and factories are Send +
+Sync; Runtime-owned payloads and observers need Send. Runtime itself is Send, not
+Sync, and transfers only between inactive execution/borrow scopes.
 
 ### Executable state and publication
 
@@ -489,9 +478,8 @@ This table rejects:
 
 ## Frame-Scoped Host Borrow Tokens
 
-Borrowed host values used during host calls are represented explicitly.
-
-The model is:
+Host adapters use frame-local borrow tokens to validate access to registered state.
+These tokens are not script reference wrappers. The model is:
 
 ```text
 FrameHostBorrowToken {
@@ -648,8 +636,8 @@ initialization, fixed recipes, compatibility and transactional publication.
 
 The initializer commit and ordinary stores validate the complete semantic value,
 not just its physical representation. Validation includes applied aggregate,
-interface, native, callable and durable-storage contracts. Scoped borrows and
-other ephemeral capabilities cannot escape into cells. A normal store requires a
+interface, native, callable and durable-storage contracts. Non-storable Host
+capabilities cannot be placed in cells. A normal store requires a
 Ready mutable cell; only initializer completion may establish the first value,
 including for `static val`. Public runtime reads/writes are Ready-only and never
 execute a recipe. Diagnostic snapshots report the state without forcing it;
@@ -711,19 +699,10 @@ Epoch changes do not migrate values, reset static cells or implement state
 snapshot/restore. [Compatible publication](module-activation.md#compatible-declaration-changes)
 preserves existing values and frozen declaration contracts.
 
-## Suspension and Ephemerality
+## Suspension and Host Access
 
-At `.await` suspension points, the runtime distinguishes:
-
-- suspendable values
-- non-suspendable ephemeral values
-
-Borrowed host handles are explicitly non-suspendable.
-
-This means:
-
-- a frame with live borrowed host handles must not be suspended
-- runtime stack snapshots must reject non-suspendable values
+At `.await`, a frame must not suspend with live Host loans or non-suspendable
+Host capabilities. Runtime stack snapshots likewise reject non-suspendable values.
 
 The [parking transition contract](execution.md#owned-interpreter-driving) validates
 actual reachable values under the collection guard, not just their static types.
@@ -756,7 +735,7 @@ The first runtime version includes:
 - GC handle values
 - host function registry
 - explicit host passing styles
-- frame-scoped host borrow handles
+- checked Host root/path access and runtime-owned Opaque payloads
 - type registry with stable `TypeId`
 - root cancellation and execution phase
 - module epochs

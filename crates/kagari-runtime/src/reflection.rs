@@ -6,7 +6,7 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind, reason::IndexError, trap::TrapReason},
     execution::roots::ExecutionRoots,
     frame::{arguments::FrameArguments, types::compatibility::TypeView},
-    host::{HostBorrowTable, HostRegistry},
+    host::HostRegistry,
     module::StructLayoutRef,
     native::conversion::arguments::ArgumentValues,
     range::RangeValue,
@@ -126,7 +126,6 @@ pub(crate) fn invoke<'result>(
     let Runtime {
         memory,
         host,
-        host_borrows,
         resources,
         ..
     } = runtime;
@@ -137,14 +136,7 @@ pub(crate) fn invoke<'result>(
             for (index, input) in inputs.iter_mut().take(arguments.len()).enumerate() {
                 *input = arguments.scoped(slots, index)?;
             }
-            match apply(
-                slots.scope(),
-                operation,
-                &inputs,
-                host,
-                host_borrows,
-                resources,
-            ) {
+            match apply(slots.scope(), operation, &inputs, host, resources) {
                 Ok(value) => destination.publish_scoped(slots, value).map(Ok),
                 Err(error) => Ok(Err(error)),
             }
@@ -166,7 +158,6 @@ fn apply<'gc>(
     operation: Operation<'_>,
     inputs: &[ScopedValue<'gc>; 3],
     host: &HostRegistry,
-    borrows: &HostBorrowTable,
     resources: &ResourceState,
 ) -> Result<ScopedValue<'gc>, CheckError> {
     resources.poll_closed()?;
@@ -208,7 +199,6 @@ fn apply<'gc>(
                     value,
                     TypeView::new(ty, layout.module(), environment),
                     host,
-                    borrows,
                     resources,
                 )?
             {
@@ -236,14 +226,7 @@ fn apply<'gc>(
                 Some(ObjectKind::Array) => {
                     let array = object::<ArrayObject>(cx, inputs[0])?;
                     let valid = cx.read(array, |array| {
-                        scoped::matches(
-                            cx,
-                            value,
-                            array.contract().view(),
-                            host,
-                            borrows,
-                            resources,
-                        )
+                        scoped::matches(cx, value, array.contract().view(), host, resources)
                     })?;
                     if !valid {
                         return Err(
@@ -370,7 +353,6 @@ fn type_name<'gc>(cx: &Scope<'gc>, value: ScopedValue<'gc>) -> Result<String, Gc
         Some(ObjectKind::Cell) => "cell",
         Some(ObjectKind::HostRoot) => "host_root",
         Some(ObjectKind::HostPath) => "host_path_view",
-        Some(ObjectKind::Ephemeral) => "ephemeral",
         Some(ObjectKind::Enum) => {
             return cx.read(object::<EnumObject>(cx, value)?, |value| {
                 let layout = value.layout();
@@ -420,7 +402,6 @@ impl Runtime {
         let Runtime {
             memory,
             host,
-            host_borrows,
             resources,
             ..
         } = self;
@@ -429,7 +410,7 @@ impl Runtime {
             for (input, value) in inputs.iter_mut().zip(values) {
                 *input = value.get(cx)?;
             }
-            match apply(cx, operation, &inputs, host, host_borrows, resources) {
+            match apply(cx, operation, &inputs, host, resources) {
                 Ok(value) => {
                     // A successful mutable setter returns its exact receiver.
                     // Reuse the original genuine lease, without another registration.

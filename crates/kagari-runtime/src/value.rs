@@ -3,7 +3,6 @@ pub(crate) mod arrays;
 pub mod carriers;
 pub(crate) mod cells;
 pub(crate) mod closures;
-pub mod ephemeral;
 pub(crate) mod host_values;
 pub(crate) mod interfaces;
 pub mod kind;
@@ -14,11 +13,7 @@ pub(crate) mod scalar;
 pub(crate) mod strings;
 pub mod view;
 
-use crate::{
-    host::{FrameHostBorrowToken, scoped::ScopedHostView},
-    module::EnumVariantRef,
-    value::ephemeral::EphemeralValueId,
-};
+use crate::module::EnumVariantRef;
 
 /// A declared enum layout used for checked Host construction. Payload storage
 /// belongs to the actual EnumObject provider, never an unrooted value snapshot.
@@ -45,12 +40,4 @@ impl EnumTag {
                 .expect("variant declaration"),
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum EphemeralValue {
-    HostRef(FrameHostBorrowToken),
-    HostMut(FrameHostBorrowToken),
-    Runtime(EphemeralValueId),
-    HostView(ScopedHostView),
 }

@@ -1240,9 +1240,9 @@ host/runtime handles are not portable data by default.
 ## 14. Host services and tooling
 
 **Implemented boundary, not ordinary generic library declarations:** typed Native
-registration, scoped Ref/RefMut host access, retained opaque objects and host waits.
-The composition installs core::host/std::host and prelude Ref/RefMut. This does not
-install a filesystem, network stack or unrestricted Rust references.
+registration, checked Host root/path access, retained opaque objects and host waits.
+The standard library does not install generic script reference wrappers, a filesystem,
+a network stack or unrestricted Rust references.
 
 Existing compiler/host bridges, shown separately to avoid inventing generic methods:
 

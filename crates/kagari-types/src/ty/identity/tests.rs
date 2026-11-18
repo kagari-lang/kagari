@@ -61,13 +61,7 @@ fn fixture(builder: &mut DefinitionTableBuilder) -> Vec<Ty> {
         Ty::Struct(plain.clone()),
         Ty::Enum(plain.clone()),
         Ty::NativeObject(plain),
-        Ty::Tuple(vec![
-            Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
-            Ty::Reference {
-                target: Box::new(Ty::Array(Box::new(Ty::Builtin(BuiltinType::I64)))),
-                access: crate::reference::ReferenceAccess::Mutable,
-            },
-        ]),
+        Ty::Tuple(vec![Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)))]),
         Ty::Function {
             params: vec![Ty::Parameter {
                 owner: function,

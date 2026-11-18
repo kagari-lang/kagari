@@ -386,9 +386,8 @@ canonical ScriptExpr and function contract, applying binders and normalizing ass
 outputs through the checked impl. Final Script library methods without that canonical
 expression fail closed; origins, matching signatures or artifact-supplied digests do
 not authorize them. See [checked contracts](spec/standard-declarations.md#checked-executable-contracts).
-Native field support is frontend typing, not a new Runtime field adapter. Ref/RefMut
-retain their special target/access, no-escape and scoped-borrow restrictions; ordinary
-storable wrappers and new reference operations remain deferred.
+Native field support is frontend typing, not a new Runtime field adapter.
+Checked Host paths and Opaque receiver loans use independent installed adapters.
 
 [ImportEnvironment](../crates/kagari-hir/src/imports/environment.rs) separately supplies
 package aliases, dependencies and selected preludes, with producer/package defaults

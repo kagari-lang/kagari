@@ -20,7 +20,7 @@ use crate::{
     execution::roots::{ExecutionRoots, LocalMark, SessionId, Slots, ValueBank},
     execution_metadata::managed::sources::MetadataSource,
     frame::types::arguments::TypeArgument,
-    module::{ExecutableModule, managed::source::RevisionSource, retention::ProgramLease},
+    module::{ExecutableModule, managed::source::RevisionSource},
     native::{
         binding::NativeResult,
         context::NativeCall,
@@ -29,9 +29,7 @@ use crate::{
     },
     publication::ActivationMark,
     value::{
-        EphemeralValue,
         carriers::{RootedValue, ScopedValue},
-        host_values::EphemeralObject,
         kind::ObjectKind,
         strings::StringObject,
         view::ValueView,
@@ -174,17 +172,6 @@ impl<'runtime> ConversionContext<'runtime> {
         owner: &'runtime ExecutableModule,
     ) -> NativeResult<Self> {
         Self::with_limits(runtime, owner, ConversionLimits::default())
-    }
-
-    /// Borrow the Host descriptor's exact revision, including after publication changes.
-    pub(crate) fn retained(
-        runtime: &'runtime mut Runtime,
-        owner: &'runtime ExecutableModule,
-        lease: &'runtime ProgramLease,
-    ) -> NativeResult<Self> {
-        let mut context = Self::new(runtime, owner)?;
-        context.origin = RevisionSource::Host(lease.revision());
-        Ok(context)
     }
 
     pub fn with_limits(
@@ -471,24 +458,6 @@ impl<'runtime> ConversionContext<'runtime> {
             let object = StringObject::alloc(slots.scope(), text)?;
             let value = ScopedValue::managed(object);
             slots.protect_local(execution, value)
-        })
-    }
-
-    /// Publish an inert scoped Host capability into this conversion's suffix.
-    /// The Host loan still controls access and expires independently of GC.
-    pub(crate) fn allocate_ephemeral(
-        &mut self,
-        capability: EphemeralValue,
-    ) -> NativeResult<ValueView<'runtime>> {
-        let execution = self.execution_id()?;
-        self.with_values(|slots| {
-            let value = EphemeralObject::alloc(slots.scope(), capability)?;
-            let location = if value.object().is_some() {
-                Some(slots.push_local(execution, value)?)
-            } else {
-                None
-            };
-            ValueView::protected(value, location)
         })
     }
 

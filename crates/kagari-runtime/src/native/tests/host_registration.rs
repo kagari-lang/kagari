@@ -6,7 +6,6 @@ use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
-    execution::roots::ExecutionRoots,
     host::{HostCallContext, HostError, HostObjectId, HostSchemaEpoch},
     metadata::{AbiFingerprint, TypeKind},
     native::{
@@ -16,11 +15,7 @@ use crate::{
         types::{Type, TypeRef},
     },
     value::{
-        EphemeralValue,
-        carriers::RootedValue,
-        host_values::{EphemeralObject, HostRootObject},
-        kind::ObjectKind,
-        view::ValueView,
+        carriers::RootedValue, host_values::HostRootObject, kind::ObjectKind, view::ValueView,
     },
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
@@ -81,7 +76,7 @@ fn root(runtime: &mut Runtime) -> RootedValue {
 }
 
 #[test]
-fn callback_context_releases_borrows_and_rejects_borrowed_results() {
+fn callback_context_releases_borrows_after_result_type_failure() {
     let mut module = ModuleBuilder::new("game", &Default::default()).unwrap();
     let player = player(&mut module, HostReflectionPolicy::Hidden, false);
     let function = module
@@ -107,27 +102,11 @@ fn callback_context_releases_borrows_and_rejects_borrowed_results() {
                     .get_by_name("game::Player")
                     .unwrap()
                     .id;
-                let token = context
+                context
                     .borrows()
                     .borrow_unique(HostObjectId(1), ty)
                     .unwrap();
-                let execution = context.runtime().resources.active_session().unwrap().id;
-                {
-                    let Runtime {
-                        memory, resources, ..
-                    } = context.runtime_mut();
-                    memory.scope(resources, |cx, roots| {
-                        ExecutionRoots::with(roots, cx, |slots| {
-                            let value = EphemeralObject::alloc(
-                                slots.scope(),
-                                EphemeralValue::HostMut(token),
-                            )?;
-                            let location = slots.push_local(execution, value)?;
-                            ValueView::protected(value, Some(location))
-                        })
-                    })
-                }
-                .map_err(|error| HostError::new(error.to_string()))
+                Ok(ValueView::unit())
             }),
         )
         .unwrap();
@@ -141,7 +120,7 @@ fn callback_context_releases_borrows_and_rejects_borrowed_results() {
     let baseline = runtime.gc_stats().root_registrations;
     assert_eq!(
         invoke(&mut runtime, &loaded, 0, &[]).unwrap_err().kind(),
-        RuntimeErrorKind::HostBorrowEscape
+        RuntimeErrorKind::HostCallFailure
     );
     let ty = runtime.types().get_by_name("game::Player").unwrap().id;
     let resources = runtime.host_scope(&[]).unwrap();

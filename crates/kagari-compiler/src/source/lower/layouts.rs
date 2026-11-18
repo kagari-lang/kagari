@@ -352,9 +352,7 @@ impl Layouts {
                     pending.extend(params.into_iter().map(|ty| (ty, span)));
                     pending.push_back((*result, span));
                 }
-                TypeId::Array(ty) | TypeId::Range(ty, _) | TypeId::Reference { target: ty, .. } => {
-                    pending.push_back((*ty, span))
-                }
+                TypeId::Array(ty) | TypeId::Range(ty, _) => pending.push_back((*ty, span)),
 
                 TypeId::NativeObject(nominal) | TypeId::Trait(nominal) => {
                     pending.extend(nominal.arguments.into_iter().map(|ty| (ty, span)));

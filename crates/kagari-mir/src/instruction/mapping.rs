@@ -21,7 +21,6 @@ impl RemapDefinitions for AggregateFieldRef {
         Ok(AggregateFieldRef {
             owner: self.owner.remap_definitions(mapper)?,
             slot: self.slot,
-            reference: self.reference,
         })
     }
 }

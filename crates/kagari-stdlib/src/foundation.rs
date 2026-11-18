@@ -4,7 +4,7 @@ mod character;
 mod comparison;
 pub(crate) mod enumerations;
 mod future;
-mod host;
+
 mod iteration;
 mod numeric;
 mod propagation;
@@ -47,9 +47,7 @@ pub(crate) fn contribute(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         comparison::public_functions(module)?;
         comparison::interface_debug(module)?;
     }
-    if owner == namespaces::module("core", "host") {
-        host::declare(module)?;
-    }
+
     if owner == namespaces::module("core", "future") {
         future::declare(module)?;
     }
@@ -99,17 +97,13 @@ pub(crate) fn public_types() -> Vec<(ModuleIdentity, DefinitionKind, String)> {
             )
         }));
     }
-    types.extend(
-        ["Ref", "RefMut", "Future", "Task", "TaskScope"]
-            .into_iter()
-            .map(|name| {
-                (
-                    namespaces::type_owner(name),
-                    DefinitionKind::AssociatedType,
-                    name.into(),
-                )
-            }),
-    );
+    types.extend(["Future", "Task", "TaskScope"].into_iter().map(|name| {
+        (
+            namespaces::type_owner(name),
+            DefinitionKind::AssociatedType,
+            name.into(),
+        )
+    }));
 
     types.push((
         namespaces::type_owner("String"),
@@ -258,7 +252,6 @@ pub(crate) const MODULES: &[(&str, &str, (&str, &str))] = &[
     ("core", "fmt", protocols::FMT_MODULE_DOCS),
     ("core", "future", future::MODULE_DOCS),
     ("core", "task", tasks::MODULE_DOCS),
-    ("core", "host", host::MODULE_DOCS),
     ("core", "convert", protocols::CONVERT_MODULE_DOCS),
     ("core", "default", protocols::DEFAULT_MODULE_DOCS),
     ("core", "num", numeric::MODULE_DOCS),

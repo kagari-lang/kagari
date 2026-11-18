@@ -245,7 +245,6 @@ fn cancellation_is_sticky_until_all_scopes_exit_and_next_root_can_run() {
             memory,
             resources,
             host,
-            host_borrows,
             ..
         } = session.runtime_mut();
         let id = resources.active_session().unwrap().id;
@@ -260,7 +259,6 @@ fn cancellation_is_sticky_until_all_scopes_exit_and_next_root_can_run() {
                         actual,
                         TypeView::new(&expected, &module, None),
                         host,
-                        host_borrows,
                         resources,
                     ))
                 })

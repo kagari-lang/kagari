@@ -13,7 +13,6 @@ use crate::{
     },
     value::{
         carriers::ScopedValue,
-        kind::ObjectKind,
         scalar::{self, domain},
         view::ValueView,
     },
@@ -88,7 +87,7 @@ impl<'call> ArgumentValues<'call> {
     }
 
     /// The sealed scalar pack owner lends its Rust stack buffer synchronously.
-    /// Admission below independently rejects managed/ephemeral carriers.
+    /// Admission below independently rejects managed carriers.
     pub(crate) fn scalars(values: &'call [ValueView<'static>]) -> Self {
         Self {
             storage: ArgumentStorage::Scalars(values),
@@ -216,12 +215,7 @@ impl<'call> ArgumentValues<'call> {
                 if location.operand.managed() {
                     let source = self.location(index).ok_or(GcError::Index)?;
                     let value = slots.get(source)?;
-                    let borrowed = location.borrowed_receiver
-                        && matches!(
-                            value.kind(),
-                            Some(ObjectKind::Ephemeral | ObjectKind::HostPath)
-                        );
-                    if !borrowed && !value.has_representation(location.representation) {
+                    if !value.has_representation(location.representation) {
                         return Err(GcError::Representation);
                     }
                     return Ok(value);

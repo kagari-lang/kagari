@@ -16,7 +16,6 @@ use crate::{
         },
         typed::receiver::ReceiverArguments,
     },
-    value::kind::ObjectKind,
 };
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_gc::heap::CollectionReport;
@@ -161,26 +160,12 @@ fn invoke<A: FromKagariArguments, R: IntoKagari>(
             function: Some(function),
         };
         context.conversion.check_elements(values.len())?;
-        loans::check_receiver_storage(
-            &mut context,
-            function.binding.receiver_access,
-            types,
-            values.reborrow(),
-        )?;
-        // Prepared mappings belong to the binding. The receiver owner admits
-        // scoped external receivers separately; the ordinary matcher must not
-        // broaden an owned Native/struct type to make that case pass globally.
+        loans::check_receiver_storage(&context, function.binding.receiver_access, types)?;
         for (index, ty) in types.iter().enumerate() {
             if index != 0 && index.is_multiple_of(1024) {
                 context.poll()?;
             }
             let value = values.get(&mut context.conversion, index)?;
-            if index == 0
-                && function.binding.receiver_access.is_some()
-                && value.kind() == Some(ObjectKind::Ephemeral)
-            {
-                continue;
-            }
             context.conversion.check_value(ty, &value)?;
         }
         let arguments = PreparedArguments::<A>::from_binding(&context.conversion, types)

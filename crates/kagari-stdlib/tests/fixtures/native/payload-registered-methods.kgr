@@ -32,19 +32,7 @@ pub fn ordinary() -> String {
     ScriptPlayer {}.describe()
 }
 
-pub fn scoped_inspect(player: Ref<Player>) -> String {
-    player.inspect()
-}
-
-pub fn scoped_damage(player: RefMut<Player>) -> i32 {
-    player.damage(1)
-}
-
-pub fn scoped_read_mut(player: RefMut<Player>) -> String {
-    player.inspect()
-}
-
-pub fn scoped_recurse(player: RefMut<Player>) -> i32 {
+pub fn recurse(player: Player) -> i32 {
     player.damage(1);
-    scoped_recurse(player)
+    recurse(player)
 }

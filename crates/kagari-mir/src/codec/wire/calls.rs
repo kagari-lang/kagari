@@ -18,9 +18,9 @@ use kagari_contract::{
     native_import::wire::NativeImportRecord,
     standard::RuntimePrimitive,
 };
-use kagari_types::reference::ReferenceAccess;
 use kagari_types::{
     declaration::wire::{leaf::NominalTyRecord, path::PathDeclarationRecord},
+    decode_limits::ReservedZero,
     ty::wire::WireType,
 };
 use serde::{Deserialize, Serialize};
@@ -30,7 +30,8 @@ use serde::{Deserialize, Serialize};
 pub(crate) struct AggregateFieldRefRecord {
     owner: NominalTyRecord,
     slot: usize,
-    reference: Option<ReferenceAccess>,
+    // The retired reference access option occupied this byte. Only zero is valid.
+    reserved: ReservedZero,
 }
 
 impl AggregateFieldRefRecord {
@@ -45,7 +46,7 @@ impl AggregateFieldRefRecord {
         Ok(Self {
             owner: NominalTyRecord::encode(&value.owner, encoding, cancel)?,
             slot: value.slot,
-            reference: value.reference,
+            reserved: ReservedZero::default(),
         })
     }
 
@@ -60,7 +61,6 @@ impl AggregateFieldRefRecord {
         Ok(AggregateFieldRef {
             owner: self.owner.decode(decoding, cancel)?,
             slot: self.slot,
-            reference: self.reference,
         })
     }
 }

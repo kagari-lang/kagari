@@ -182,19 +182,6 @@ pub(crate) fn check_signatures(
                     .with_span(lowered.module.type_ref(field.ty).origin.diagnostic_span()),
                 );
             }
-            validate_reference_position(
-                &ty,
-                lowered.module.type_ref(field.ty).origin.diagnostic_span(),
-                &mut diagnostics,
-            );
-            if ty.contains_stored_reference() {
-                diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::InvalidReference {
-                        reason: "a scoped view cannot be stored in a field",
-                    })
-                    .with_span(lowered.module.type_ref(field.ty).origin.diagnostic_span()),
-                );
-            }
             type_table.insert_field_type(field.id, ty);
         }
     }
@@ -203,7 +190,7 @@ pub(crate) fn check_signatures(
         for variant in &enumeration.variants {
             for payload in &variant.payload {
                 cancel.check()?;
-                match resolve_type_in(
+                let ty = resolve_type_in(
                     &lowered.module,
                     *payload,
                     TypeContext {
@@ -214,37 +201,14 @@ pub(crate) fn check_signatures(
                     },
                     &mut type_table,
                     cancel,
-                ) {
-                    ty if !ty.is_unresolved() => {
-                        if ty.contains_stored_reference() {
-                            diagnostics.push(
-                                Diagnostic::error(DiagnosticKind::InvalidReference {
-                                    reason: "a scoped view cannot be stored in an enum payload",
-                                })
-                                .with_span(
-                                    lowered.module.type_ref(*payload).origin.diagnostic_span(),
-                                ),
-                            );
-                        }
-                        validate_reference_position(
-                            &ty,
-                            lowered.module.type_ref(*payload).origin.diagnostic_span(),
-                            &mut diagnostics,
-                        );
-                    }
-                    ty => {
-                        validate_reference_position(
-                            &ty,
-                            lowered.module.type_ref(*payload).origin.diagnostic_span(),
-                            &mut diagnostics,
-                        );
-                        diagnostics.push(
-                            Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
-                                type_name: display_type(&lowered.module, *payload),
-                            })
-                            .with_span(lowered.module.type_ref(*payload).origin.diagnostic_span()),
-                        );
-                    }
+                );
+                if ty.is_unresolved() {
+                    diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
+                            type_name: display_type(&lowered.module, *payload),
+                        })
+                        .with_span(lowered.module.type_ref(*payload).origin.diagnostic_span()),
+                    );
                 }
             }
         }
@@ -313,11 +277,6 @@ pub(crate) fn check_signatures(
             } else {
                 resolve_type_in(&lowered.module, param.ty, context, &mut type_table, cancel)
             };
-            validate_reference_position(
-                &param_type,
-                lowered.module.type_ref(param.ty).origin.diagnostic_span(),
-                &mut diagnostics,
-            );
             if param_type.is_unresolved() {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::UnknownType {
@@ -348,19 +307,6 @@ pub(crate) fn check_signatures(
             Some(ty_ref) => {
                 let ty =
                     resolve_type_in(&lowered.module, *ty_ref, context, &mut type_table, cancel);
-                if ty.contains_stored_reference() {
-                    diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::InvalidReference {
-                            reason: "a scoped view cannot be returned",
-                        })
-                        .with_span(lowered.module.type_ref(*ty_ref).origin.diagnostic_span()),
-                    );
-                }
-                validate_reference_position(
-                    &ty,
-                    lowered.module.type_ref(*ty_ref).origin.diagnostic_span(),
-                    &mut diagnostics,
-                );
                 if ty.is_unresolved() {
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::UnknownType {
@@ -547,43 +493,28 @@ pub(crate) fn check_bodies_controlled(
                 let Some(ty_ref) = const_item.ty else {
                     continue;
                 };
-                let ty = match resolve_type(
+                let ty = resolve_type(
                     &lowered.module,
                     ty_ref,
                     declarations,
                     &mut type_table,
                     cancel,
-                ) {
-                    ty if !ty.is_unresolved() => {
-                        validate_reference_position(
-                            &ty,
-                            lowered.module.type_ref(ty_ref).origin.diagnostic_span(),
-                            &mut diagnostics,
-                        );
-                        ty
-                    }
-                    ty => {
-                        validate_reference_position(
-                            &ty,
-                            lowered.module.type_ref(ty_ref).origin.diagnostic_span(),
-                            &mut diagnostics,
-                        );
-                        diagnostics.push(
-                            Diagnostic::error(DiagnosticKind::UnknownConstType {
-                                const_name: const_item.name.clone(),
-                                type_name: display_type(&lowered.module, ty_ref),
-                            })
-                            .with_span(
-                                lowered
-                                    .module
-                                    .constant(const_item.id)
-                                    .origin
-                                    .diagnostic_span(),
-                            ),
-                        );
-                        ty
-                    }
-                };
+                );
+                if ty.is_unresolved() {
+                    diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::UnknownConstType {
+                            const_name: const_item.name.clone(),
+                            type_name: display_type(&lowered.module, ty_ref),
+                        })
+                        .with_span(
+                            lowered
+                                .module
+                                .constant(const_item.id)
+                                .origin
+                                .diagnostic_span(),
+                        ),
+                    );
+                }
                 applications::validate(
                     applications::ApplicationContext {
                         definitions: declarations.definitions(),
@@ -975,21 +906,6 @@ pub(crate) fn possibly_overlapping_impls(left: &TypeId, right: &TypeId) -> bool 
 
         (TypeId::Array(_), TypeId::Array(_)) => true,
         _ => false,
-    }
-}
-
-pub(super) fn validate_reference_position(
-    ty: &TypeId,
-    span: Span,
-    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
-) {
-    if !ty.reference_position_valid() {
-        diagnostics.push(
-            Diagnostic::error(DiagnosticKind::InvalidReference {
-                reason: "views require a nominal target and cannot be nested in owning values",
-            })
-            .with_span(span),
-        );
     }
 }
 

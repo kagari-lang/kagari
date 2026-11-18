@@ -109,7 +109,6 @@ impl FrameStack {
                 &access.owner,
                 slot,
                 cx.host,
-                cx.borrows,
                 cx.resources,
             )?;
             Ok(value)
@@ -135,7 +134,6 @@ impl FrameStack {
                 &access.owner,
                 slot,
                 cx.host,
-                cx.borrows,
                 cx.resources,
             )?;
             let value = cx.field(0)?;
@@ -145,7 +143,6 @@ impl FrameStack {
                 &access.owner,
                 slot,
                 cx.host,
-                cx.borrows,
                 cx.resources,
             )?;
             cx.resources.poll_closed()?;

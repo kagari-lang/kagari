@@ -1,5 +1,6 @@
 //! RR00 internal calls: one warmed Host activation runs a complete script loop.
 use crate::{bytecode_fixture::load_bytecode, native_allocations_counter::measured};
+use kagari_bytecode::program::verified::VerifiedBytecodeProgram;
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
@@ -46,10 +47,11 @@ pub(super) fn string_provider() -> NativeModule {
     modules
         .add(ModuleDefinition::new(
             ModuleIdentity {
-                package: PackageId("example".into()),
-                path: vec!["strings".into()],
+                package: PackageId("kagari-alloc".into()),
+                path: vec!["string".into()],
             },
             |module| {
+                module.package_alias("alloc");
                 module.define_constructor("String", NativeTypeConstructor::String)?;
                 Ok(())
             },
@@ -193,12 +195,7 @@ fn provider(count: &Arc<AtomicUsize>) -> (NativeModule, NativeModule) {
     (strings, builder.finish().unwrap())
 }
 
-#[test]
-#[ignore = "manual internal-call baseline; prepare outside timing; run release serially"]
-fn internal_script_and_native_calls() {
-    let preparation = Instant::now();
-    let count = Arc::new(AtomicUsize::new(0));
-    let (strings, provider) = provider(&count);
+fn compile_fixture(strings: &NativeModule, provider: &NativeModule) -> VerifiedBytecodeProgram {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set(
@@ -221,7 +218,45 @@ fn internal_script_and_native_calls() {
         &Default::default(),
     )
     .unwrap();
-    let code = lower_program_to_bytecode(&mir, &Default::default()).unwrap();
+    lower_program_to_bytecode(&mir, &Default::default()).unwrap()
+}
+
+#[test]
+fn scoped_entry_invokes_shared_opaque_receiver() {
+    let count = Arc::new(AtomicUsize::new(0));
+    let (strings, provider) = provider(&count);
+    let code = compile_fixture(&strings, &provider);
+    let mut runtime = Runtime::default();
+    strings.install(&mut runtime).unwrap();
+    provider.install(&mut runtime).unwrap();
+    let program = load_bytecode(&mut runtime, "opaque-receiver", code.into_unverified()).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats().root_registrations;
+    runtime
+        .with_host_scope(|scope| {
+            let value = Runtime::execute_scoped(
+                scope,
+                &program,
+                "borrowed",
+                &[ValueView::from(2i32)],
+                &Default::default(),
+            )?;
+            assert_eq!(value.as_i32(), Some(14));
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(count.load(Ordering::Relaxed), 2);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, baseline);
+}
+
+#[test]
+#[ignore = "manual internal-call baseline; prepare outside timing; run release serially"]
+fn internal_script_and_native_calls() {
+    let preparation = Instant::now();
+    let count = Arc::new(AtomicUsize::new(0));
+    let (strings, provider) = provider(&count);
+    let code = compile_fixture(&strings, &provider);
     let compilation = preparation.elapsed();
     let installation = Instant::now();
     let mut runtime = Runtime::default();

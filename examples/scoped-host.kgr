@@ -4,10 +4,6 @@ pub fn owned(player: Player) -> i32 {
     player.heal(10)
 }
 
-pub fn borrowed(player: RefMut<Player>) -> i32 {
-    player.heal(10)
-}
-
-pub fn inspect(player: Ref<Player>) -> i32 {
+pub fn inspect(player: Player) -> i32 {
     player.inspect()
 }

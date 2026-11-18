@@ -74,7 +74,6 @@ impl<'call> ValueView<'call> {
     pub fn kind(self) -> Option<ObjectKind> {
         match self.representation {
             Representation::Managed { kind, .. } => Some(kind),
-            Representation::RuntimeEphemeral(_) => Some(ObjectKind::Ephemeral),
             _ => None,
         }
     }

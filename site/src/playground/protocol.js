@@ -73,7 +73,7 @@ function validResult(value) {
     case 'i32': case 'i64': case 'u64': return text(value.value, 32) && /^-?\d+$/u.test(value.value);
     case 'f32': case 'f64': return text(value.value, 128);
     case 'string': return text(value.value, LIMITS.resultBytes) && typeof value.truncated === 'boolean';
-    case 'opaque': return ['tuple', 'range', 'array', 'map', 'set', 'enum', 'struct', 'gc_handle', 'interface', 'closure', 'cell', 'host_root', 'host_path_view', 'ephemeral'].includes(value.kind);
+    case 'opaque': return ['tuple', 'range', 'array', 'map', 'set', 'enum', 'struct', 'gc_handle', 'interface', 'closure', 'cell', 'host_root', 'host_path_view'].includes(value.kind);
     default: return false;
   }
 }

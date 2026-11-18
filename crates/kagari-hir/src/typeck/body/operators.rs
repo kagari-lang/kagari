@@ -447,9 +447,7 @@ impl<'a> BodyChecker<'a> {
                 TypeId::Builtin(BuiltinType::Bool)
             }
             BinaryOp::Eq | BinaryOp::NotEq => {
-                if (lhs_ty.conflicts_with(&rhs_ty)
-                    && !lhs_ty.can_weaken_to(&rhs_ty)
-                    && !rhs_ty.can_weaken_to(&lhs_ty))
+                if lhs_ty.conflicts_with(&rhs_ty)
                     || [&lhs_ty, &rhs_ty].into_iter().any(|ty| {
                         !matches!(ty, TypeId::Unknown | TypeId::Error)
                             && !traits::intrinsic_holds(

@@ -86,10 +86,6 @@ impl BodyChecker<'_> {
                 } else {
                     if !then_completes {
                         then_ty = else_ty;
-                    } else if else_completes
-                        && (then_ty.can_weaken_to(&else_ty) || else_ty.can_weaken_to(&then_ty))
-                    {
-                        then_ty = then_ty.read_only_view().expect("collection branch join");
                     } else if else_completes && then_ty.conflicts_with(&else_ty) {
                         self.diagnostics.push(
                             Diagnostic::error(DiagnosticKind::IfBranchTypeMismatch {
@@ -188,24 +184,12 @@ impl BodyChecker<'_> {
             }
             completing.push((arm.expr, found, arm_env));
         }
-        let Some(mut result) = hint else {
+        let Some(result) = hint else {
             return TypeId::Builtin(BuiltinType::Unit);
         };
-        let inputs = completing
-            .iter()
-            .map(|(_, ty, _)| ty.clone())
-            .collect::<Vec<_>>();
-        let host_view = result.read_only_view().filter(|target| {
-            inputs.iter().any(|input| input != &result)
-                && inputs
-                    .iter()
-                    .all(|input| input == target || input.can_weaken_to(target))
-        });
-        if let Some(view) = host_view {
-            result = view;
-        }
+
         for (expr, found, mut arm_env) in completing {
-            if found.conflicts_with(&result) && !found.can_weaken_to(&result) {
+            if found.conflicts_with(&result) {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::MatchArmTypeMismatch {
                         expected: display_type_id(self.declarations.definitions(), &result),

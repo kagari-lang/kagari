@@ -28,7 +28,7 @@ pub trait Read {
 
 impl<T> Counter<T> where T: Read {
     pub native fn new(value: T) -> Counter<T>;
-    pub native fn inspect(self, shared: Ref<T>, mutable: RefMut<T>) -> T;
+    pub native fn inspect(self, first: List<T>, second: Counter<T>) -> T;
 }
 
 impl<T> Read for Counter<T> where T: Read {
@@ -36,7 +36,7 @@ impl<T> Read for Counter<T> where T: Read {
     native fn read(self) -> T;
 }
 
-pub native fn borrow<T: Read<Item = i32>>(value: Ref<T>) -> RefMut<T>;
+pub native fn collect<T: Read<Item = i32>>(value: Counter<T>) -> List<T>;
 
 mod nested {
     native type Handle;

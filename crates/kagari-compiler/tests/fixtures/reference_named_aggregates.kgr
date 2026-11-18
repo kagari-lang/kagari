@@ -1,0 +1,12 @@
+struct Ref<T> {
+    val value: T,
+}
+
+struct RefMut<T> {
+    var value: T,
+}
+
+fn main(input: RefMut<Ref<i32>>) -> i32 {
+    input.value = Ref { value: 42 };
+    input.value.value
+}

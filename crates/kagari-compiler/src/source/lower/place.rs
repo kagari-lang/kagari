@@ -117,11 +117,7 @@ impl FunctionLowerer<'_, '_> {
                 let root = if projected
                     && matches!(
                         self.semantic_type(&root_type)?,
-                        Ty::Trait(_)
-                            | Ty::Reference { .. }
-                            | Ty::NativeObject(_)
-                            | Ty::Struct(_)
-                            | Ty::Array(_)
+                        Ty::Trait(_) | Ty::NativeObject(_) | Ty::Struct(_) | Ty::Array(_)
                     ) {
                     let dst = self.alloc_temp(ty);
                     if is_cell {

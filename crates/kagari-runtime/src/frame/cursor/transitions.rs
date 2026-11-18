@@ -34,7 +34,7 @@ impl FrameStack {
                 .execute_interface_upcast(runtime, index)
                 .map(|()| RegionExit::Safepoint)
                 .map_err(RegionError::from),
-            PreparedTransition::Field { index } => self.execute_scoped_field(runtime, index),
+            PreparedTransition::Field { index } => self.execute_prepared_field(runtime, index),
             PreparedTransition::TupleWrite { operation, index } => {
                 self.replace_tuple(runtime, operation, index)
             }

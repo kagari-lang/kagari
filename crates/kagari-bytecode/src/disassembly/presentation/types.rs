@@ -86,9 +86,6 @@ impl DisplayContext<'_> {
                 output.push_str("trait ");
                 self.push_nominal(output, nominal);
             }
-            Ty::Reference { target, access } => {
-                self.push_unary(output, access.name(), target);
-            }
         }
     }
 

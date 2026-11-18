@@ -6,18 +6,17 @@ use crate::{
         arguments::ArgumentError,
         types::{arguments::TypeArgument, compatibility::TypeView},
     },
-    host::{HostBorrowKind, HostBorrowTable, HostRegistry},
+    host::HostRegistry,
     metadata::TypeId,
     module::ExecutableModule,
     range::RangeValue,
     resource::ResourceState,
     value::{
-        EphemeralValue,
         aggregates::{enumerations::EnumObject, structures::StructObject, tuples::TupleObject},
         arrays::ArrayObject,
         carriers::ScopedValue,
         closures::ClosureObject,
-        host_values::{EphemeralObject, HostRootObject, paths::HostPathObject},
+        host_values::{HostRootObject, paths::HostPathObject},
         interfaces::InterfaceObject,
         kind::ObjectKind,
         native::NativeObject,
@@ -95,12 +94,11 @@ pub(crate) fn matches_argument<'gc>(
     expected: &TypeArgument,
     owner: &ExecutableModule,
     host: &HostRegistry,
-    borrows: &HostBorrowTable,
     resources: &ResourceState,
 ) -> Result<bool, CheckError> {
     match expected.matches_admitted_scoped(cx, value, owner, resources)? {
         Some(matched) => Ok(matched),
-        None => matches(cx, value, expected.view(owner), host, borrows, resources),
+        None => matches(cx, value, expected.view(owner), host, resources),
     }
 }
 
@@ -111,7 +109,6 @@ pub(crate) fn matches<'gc>(
     value: ScopedValue<'gc>,
     expected: TypeView<'_>,
     host: &HostRegistry,
-    borrows: &HostBorrowTable,
     resources: &ResourceState,
 ) -> Result<bool, CheckError> {
     let mut current = Some((value, expected));
@@ -124,7 +121,7 @@ pub(crate) fn matches<'gc>(
                 resources.poll_closed()?;
             }
             work += 1;
-            match single(cx, value, expected, host, borrows, resources)? {
+            match single(cx, value, expected, host, resources)? {
                 Match::Leaf(false) => return Ok(false),
                 Match::Leaf(true) => {}
                 Match::Tuple(child) => {
@@ -168,7 +165,6 @@ fn single<'gc, 'ty>(
     value: ScopedValue<'gc>,
     expected: TypeView<'ty>,
     host: &HostRegistry,
-    borrows: &HostBorrowTable,
     resources: &ResourceState,
 ) -> Result<Match<'gc, 'ty>, CheckError> {
     let Some(expected) = expected.normalized() else {
@@ -238,30 +234,13 @@ fn single<'gc, 'ty>(
             cx.read(object, |object| object.record().matches_view(expected))
         }
         Ty::Host(id) => match expected.owner.host_type(*id) {
-            Some(ty) => host_matches(cx, value, ty, host, borrows, resources)?,
+            Some(ty) => host_matches(cx, value, ty, host, resources)?,
             None => false,
         },
-        Ty::Reference { access, .. }
-            if value.kind() == Some(ObjectKind::Ephemeral)
-                && value.as_runtime_ephemeral().is_none() =>
-        {
-            let object = object::<EphemeralObject>(cx, value)?;
-            match cx.read(object, EphemeralObject::value) {
-                EphemeralValue::HostView(view) => expected
-                    .reference_target()
-                    .is_some_and(|target| borrows.scoped_matches_view(view, target, *access)),
-                _ => false,
-            }
-        }
         Ty::Projection { .. } | Ty::SelfType(_) => match expected.closed() {
-            Some(closed) if closed.is_concrete() => matches(
-                cx,
-                value,
-                expected.resolved(&closed),
-                host,
-                borrows,
-                resources,
-            )?,
+            Some(closed) if closed.is_concrete() => {
+                matches(cx, value, expected.resolved(&closed), host, resources)?
+            }
             _ => false,
         },
         _ => false,
@@ -274,7 +253,6 @@ fn host_matches<'gc>(
     value: ScopedValue<'gc>,
     expected: TypeId,
     host: &HostRegistry,
-    borrows: &HostBorrowTable,
     resources: &ResourceState,
 ) -> Result<bool, CheckError> {
     Ok(match value.kind() {
@@ -289,20 +267,6 @@ fn host_matches<'gc>(
                 return Ok(false);
             }
             valid_capability(host.validate_path_scoped(cx, object, resources)?)?
-        }
-        Some(ObjectKind::Ephemeral) if value.as_runtime_ephemeral().is_none() => {
-            let object = object::<EphemeralObject>(cx, value)?;
-            match cx.read(object, EphemeralObject::value) {
-                EphemeralValue::HostRef(token) => {
-                    token.type_id() == expected
-                        && valid_capability(borrows.validate(token, HostBorrowKind::Shared))?
-                }
-                EphemeralValue::HostMut(token) => {
-                    token.type_id() == expected
-                        && valid_capability(borrows.validate(token, HostBorrowKind::Unique))?
-                }
-                _ => false,
-            }
         }
         _ => false,
     })

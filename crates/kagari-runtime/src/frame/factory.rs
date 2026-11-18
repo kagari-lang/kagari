@@ -242,7 +242,6 @@ impl FrameStack {
         runtime.resources().poll_execution()?;
         let owner = self.session_state(runtime).root.clone();
         let host = &runtime.host;
-        let borrows = &runtime.host_borrows;
         let resources = &runtime.resources;
         let matches = runtime
             .memory
@@ -254,7 +253,6 @@ impl FrameStack {
                         actual,
                         future.view(&owner),
                         host,
-                        borrows,
                         resources,
                     ))
                 })

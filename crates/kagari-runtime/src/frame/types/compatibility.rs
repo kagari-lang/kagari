@@ -195,21 +195,6 @@ impl<'a> TypeView<'a> {
             .all(|((a_id, a), (b_id, b))| a_id == b_id && test(a, b))
     }
 
-    pub(crate) fn reference_target(self) -> Option<Self> {
-        let view = self.normalized()?;
-        let Ty::Reference { target, .. } = view.ty else {
-            return None;
-        };
-        Some(Self {
-            ty: target,
-            prepared: view.prepared.and_then(|ty| match ty {
-                Ty::Reference { target, .. } => Some(target.as_ref()),
-                _ => None,
-            }),
-            ..view
-        })
-    }
-
     pub(crate) fn function_parameter(self, index: usize) -> Option<Self> {
         let view = self.normalized()?;
         let Ty::Function { params, .. } = view.ty else {
@@ -661,9 +646,7 @@ fn children_match<'a>(
                     .all(|(a, b)| test(a, b))
         }
         (Ty::Tuple(a), Ty::Tuple(b)) => a.iter().zip(b).all(|(a, b)| test(a, b)),
-        (Ty::Array(a), Ty::Array(b))
-        | (Ty::Reference { target: a, .. }, Ty::Reference { target: b, .. })
-        | (Ty::Range(a, _), Ty::Range(b, _)) => test(a, b),
+        (Ty::Array(a), Ty::Array(b)) | (Ty::Range(a, _), Ty::Range(b, _)) => test(a, b),
 
         (
             Ty::Function {

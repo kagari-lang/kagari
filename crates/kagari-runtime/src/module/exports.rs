@@ -541,10 +541,6 @@ mod tests {
                     .bind_native_type_declaration::<i32>(owner, native, &definitions, &[])
                     .map(|_| ()),
             ),
-            (
-                "Rust mapping",
-                runtime.bind_rust_type::<i32>(owner).map(|_| ()),
-            ),
         ];
         for (name, result) in results {
             assert_eq!(

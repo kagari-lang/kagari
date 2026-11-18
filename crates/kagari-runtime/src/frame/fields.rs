@@ -1,4 +1,4 @@
-//! Cold field preparation ends control/source loans before Host conversion.
+//! Cold field preparation ends control/source loans before opening the operand source.
 pub(super) mod access;
 use crate::{
     Runtime,
@@ -8,8 +8,7 @@ use crate::{
         ExecutionFrame, FrameStack,
         cursor::kernel::{RegionError, RegionExit},
     },
-    module::execution::fields::{FieldAccess, PreparedFieldOperation},
-    value::place::ResultPlace,
+    module::execution::fields::PreparedFieldOperation,
 };
 use kagari_bytecode::module::CallableTarget;
 
@@ -28,7 +27,7 @@ impl ExecutionFrame {
 }
 
 impl FrameStack {
-    pub(super) fn execute_scoped_field(
+    pub(super) fn execute_prepared_field(
         &self,
         runtime: &mut Runtime,
         index: usize,
@@ -56,65 +55,26 @@ impl FrameStack {
         let layout = self
             .current(runtime)?
             .field_layout(runtime, operation.layout_site)?;
-        if let Some(access) = operation.reference {
-            let (base, input) = runtime
-                .memory
-                .scope(&runtime.resources, |cx, roots| {
-                    ExecutionRoots::with(roots, cx, |slots| {
-                        let base = frame_slots.view(slots, operation.base)?;
-                        let input = match operation.access {
-                            FieldAccess::Read { .. } => None,
-                            FieldAccess::Write { value } => Some(frame_slots.view(slots, value)?),
-                        };
-                        Ok((base, input))
-                    })
-                })
-                .map_err(RegionError::storage)?;
-            let view = runtime.scoped_view(&base)?;
-            match operation.access {
-                FieldAccess::Read { dst } => {
-                    let published = runtime.read_scoped_field(
-                        view,
+        let Runtime {
+            memory,
+            host,
+            resources,
+            ..
+        } = runtime;
+        memory
+            .scope(resources, |cx, roots| {
+                ExecutionRoots::with(roots, cx, |slots| {
+                    let mut values = frame_slots.operands(slots)?;
+                    Ok(access::execute(
+                        &mut values,
+                        &operation,
                         &layout,
-                        operation.slot as usize,
-                        access,
-                        ResultPlace::frame(&frame_slots, Some(&dst)),
-                    )?;
-                    published.admit_frame(&frame_slots, Some(&dst))?;
-                }
-                FieldAccess::Write { .. } => {
-                    runtime.write_scoped_field(
-                        view,
-                        &layout,
-                        operation.slot as usize,
-                        &input.expect("prepared write input"),
-                    )?;
-                }
-            }
-        } else {
-            let Runtime {
-                memory,
-                host,
-                host_borrows,
-                resources,
-                ..
-            } = runtime;
-            memory
-                .scope(resources, |cx, roots| {
-                    ExecutionRoots::with(roots, cx, |slots| {
-                        let mut values = frame_slots.operands(slots)?;
-                        Ok(access::execute(
-                            &mut values,
-                            &operation,
-                            &layout,
-                            host,
-                            host_borrows,
-                            resources,
-                        ))
-                    })
+                        host,
+                        resources,
+                    ))
                 })
-                .map_err(RegionError::storage)??;
-        }
+            })
+            .map_err(RegionError::storage)??;
         self.complete_source_write(runtime);
         Ok(RegionExit::Safepoint)
     }

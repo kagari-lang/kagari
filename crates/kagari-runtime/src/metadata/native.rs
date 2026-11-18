@@ -207,7 +207,7 @@ struct Builder<'registry> {
 
 impl Builder<'_> {
     fn intern(&mut self, ty: &Ty, depth: usize) -> Result<TypeId, RuntimeError> {
-        if depth > MAX_TYPE_DEPTH || !ty.within_wire_limits() || ty.contains_reference() {
+        if depth > MAX_TYPE_DEPTH || !ty.within_wire_limits() {
             return Err(conflict(
                 "external metadata requires a bounded owned value type",
             ));

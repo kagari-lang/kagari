@@ -359,16 +359,16 @@ this distinction does not grant arbitrary mutable access to traced Rust payloads
 
 ### Opaque registration and public categories
 
-Accepted API direction, 2026-10-26; not implemented. Keep the existing public
-vocabulary: `Ref<T>` is a scoped shared borrow, `RefMut<T>` is a scoped mutable
-borrow, and `Opaque<T>` is a retained handle to an opaque Native object. Opaque
+Accepted API direction, 2026-10-26; not implemented. Keep `Opaque<T>` as the
+retained handle to an opaque Native object. The
+[9G removal](native-model-design.md#g-remove-script-reference-views) means this plan
+does not retain or replace generic script reference views. Opaque
 describes access to a Rust representation that is not exposed as script fields;
 it does not mean that the collector cannot trace the representation. Current
 runtime-owned payloads use GC for their lifetime, but that implementation choice
 must not introduce a separate public "GC type" category or `define_gc_type` API.
-Host-owned instances remain host-owned when borrowed; registering a type does not
-by itself transfer an instance into runtime storage. Borrowing still follows the
-existing access and lifetime contracts.
+Independent Host adapters retain their own access and lifetime contracts;
+registering a type does not transfer an external instance into runtime storage.
 
 Ordinary opaque registration must associate the script declaration with its Rust
 payload type once. Derive the storage descriptor from that association and the
@@ -405,7 +405,7 @@ Selected direction, 2026-10-26: paged precise tracing with incremental collectio
 Opaque payloads may contain traced StoredValue/Edge fields and ordinary Rust
 containers through the reviewed unsafe GcObject provider contract. Native entry does not disable GC. This supersedes the provisional
 counted-Value/cycle-collector proposal and its untraced detached-buffer sorting path.
-Keep Ref<T>, RefMut<T> and Opaque<T> as the public ownership/borrowing categories.
+Keep `Opaque<T>` for retained Native payloads and preserve checked Host and payload loans.
 This records design scope only; implementation is not activated. Examples below are
 pseudocode, not final callable signatures. The
 [GC design](gc-implementation-design.md#mutation-and-scanner-coordination) owns
@@ -414,7 +414,7 @@ roots, barriers, scan progress and reclamation.
 | Audience | Proposed surface | Responsibility |
 | --- | --- | --- |
 | Type author | define_opaque::<T>(name), existing generic/method builders | Associate declaration and Rust payload once through an unsafe provider contract; no automatic safe admission of arbitrary T |
-| Host borrowing | Existing Ref<T> / RefMut<T> and host scopes | Host owns Rust state; scoped access does not move it into the heap |
+| External Host access | Existing checked Host root/path adapters | Host owns Rust state; checked access does not move it into runtime-owned payload storage |
 | Ordinary Native code | Retained dynamic/typed values, Opaque<T>, Object and library handles | Safe arguments/results remain rooted across allocation and script calls; no manual rooting for each ordinary field/collection operation |
 | Storage provider | Reviewed GcObject/NativePayload integration and scoped payload/mutation services | Trace internal edges, publish writes, account backing and protect extracted values; no collection or script execution during conflicting payload loans |
 | Callback-bearing algorithm | Generic operation protection, temporary roots or traced work state | Keep every live temporary visible at collecting boundaries; end loans before callbacks and restore valid storage on all exits |
@@ -473,7 +473,7 @@ can remain non-rooting under its protected execution contract.
 | Internal Value | Compact scalar/object representation; an object ID alone is not a root or an owning reference count |
 | Retained dynamic/typed Native value | Runtime-owned root protection, with existing owner/type/conversion checks; reusable across collecting calls |
 | Opaque<T> | Retained typed handle to an opaque Rust payload; hidden representation does not imply edge-free data |
-| Ref<T> / RefMut<T> | Scoped access to host-owned Rust state, not a general heap-loan bypass |
+| Host root/path adapters | Independent checked access to host-owned state, not a general heap-loan bypass |
 | NativeContext | Checked calls, conversion and GC at valid boundaries |
 | NativeType<T> | Existing prepared concrete type/application and checked creation evidence |
 
@@ -938,9 +938,9 @@ CI acceptance. Planning-only edits need content/link/diff checks, not builds.
   2026-10-18; NC implementation and activation remain separate.
 - [x] Clarify ordinary Native GC handle operations versus collection-provider
   storage access and link the shared GC API contract, 2026-10-26.
-- [x] Record the accepted opaque registration adjustment: preserve Ref/RefMut/Opaque
-  categories, infer the underlying storage descriptor from one payload association,
-  with NC01/NC02 detailing the API work within the GC replacement, 2026-10-26.
+- [x] Record the accepted opaque registration adjustment: preserve the Opaque handle
+  and infer the storage descriptor from one payload association, with NC01/NC02
+  detailing the API work. The 9G removal supersedes the original wrapper direction.
 - [x] Couple opaque API and general payload changes with GC implementation;
   require removal of special collection collector/storage paths before joint
   acceptance, 2026-10-26.

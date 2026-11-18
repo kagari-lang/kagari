@@ -13,9 +13,7 @@ use crate::{
     resource::ResourceState,
     session::{ExecutionEntry, ExecutionSession, SessionScope},
     value::{
-        EphemeralValue,
         carriers::{RootedValue, ScopedValue},
-        host_values::EphemeralObject,
         place::{PublishedResult, ResultPlace},
         strings::StringObject,
         view::ValueView,
@@ -24,7 +22,7 @@ use crate::{
 use kagari_gc::{error::GcError, heap::Phase};
 use std::slice;
 
-/// One temporary source suffix and Host reservation. Teardown revokes Host views
+/// One temporary source suffix and Host reservation. Teardown releases Host loans
 /// before retiring temporary values and the surrounding execution admission.
 #[must_use]
 pub struct HostResourceScope<'a> {
@@ -104,7 +102,6 @@ impl<'a> HostResourceScope<'a> {
         let Runtime {
             memory,
             host,
-            host_borrows,
             resources,
             ..
         } = &mut *scope.runtime;
@@ -118,8 +115,7 @@ impl<'a> HostResourceScope<'a> {
                         return Ok(Err(error));
                     }
                     let value = value.get(slots.scope())?;
-                    if let Err(error) =
-                        validation::validate(slots.scope(), value, host, host_borrows, resources)?
+                    if let Err(error) = validation::validate(slots.scope(), value, host, resources)?
                     {
                         return Ok(Err(error));
                     }
@@ -189,16 +185,13 @@ impl<'a> HostResourceScope<'a> {
         let Runtime {
             memory,
             host,
-            host_borrows,
             resources,
             ..
         } = &mut *self.runtime;
         let result = memory.scope(resources, |cx, roots| {
             ExecutionRoots::with(roots, cx, |slots| {
                 let value = root.get(slots.scope())?;
-                if let Err(error) =
-                    validation::validate(slots.scope(), value, host, host_borrows, resources)?
-                {
+                if let Err(error) = validation::validate(slots.scope(), value, host, resources)? {
                     return Ok(Err(error));
                 }
                 let location = if value.object().is_some() {
@@ -214,23 +207,19 @@ impl<'a> HostResourceScope<'a> {
             .map_err(|error| self.runtime.resources.admit_execution_error(error))
     }
 
-    /// Explicitly retain an ordinary result beyond this scope. Scoped Host and
-    /// Runtime temporaries reject before registration; scalar escapes stay inline.
+    /// Explicitly retain a validated result beyond this scope. Scalars stay inline.
     pub fn retain(&mut self, value: &ValueView<'_>) -> NativeResult<RootedValue> {
         self.runtime.resources.ensure_execution_allowed()?;
         let Runtime {
             memory,
             host,
-            host_borrows,
             resources,
             ..
         } = &mut *self.runtime;
         let result = memory.scope(resources, |cx, roots| {
             ExecutionRoots::with(roots, cx, |slots| {
                 let value = value.get(slots)?;
-                if let Err(error) =
-                    validation::result(slots.scope(), value, host, host_borrows, resources)?
-                {
+                if let Err(error) = validation::validate(slots.scope(), value, host, resources)? {
                     return Ok(Err(error));
                 }
                 Ok(Ok(value.retain(slots.scope())?))
@@ -279,13 +268,12 @@ impl<'a> HostResourceScope<'a> {
         let Runtime {
             memory,
             host,
-            host_borrows,
             resources,
             ..
         } = &mut *self.runtime;
         let result = memory.scope(resources, |cx, roots| {
             ExecutionRoots::with(roots, cx, |slots| {
-                validation::values(slots, values, host, host_borrows, resources)
+                validation::values(slots, values, host, resources)
             })
         });
         result
@@ -297,14 +285,13 @@ impl<'a> HostResourceScope<'a> {
         let Runtime {
             memory,
             host,
-            host_borrows,
             resources,
             ..
         } = &mut *self.runtime;
         let result = memory.scope(resources, |cx, roots| {
             ExecutionRoots::with(roots, cx, |slots| {
                 let value = value.get(slots)?;
-                validation::result(slots.scope(), value, host, host_borrows, resources)
+                validation::validate(slots.scope(), value, host, resources)
             })
         });
         result
@@ -320,15 +307,12 @@ impl<'a> HostResourceScope<'a> {
         let Runtime {
             memory,
             host,
-            host_borrows,
             resources,
             ..
         } = &mut *self.runtime;
         let result = memory.scope(resources, |cx, roots| {
             ExecutionRoots::with(roots, cx, |slots| {
-                if let Err(error) =
-                    validation::values(slots, values, host, host_borrows, resources)?
-                {
+                if let Err(error) = validation::values(slots, values, host, resources)? {
                     return Ok(Err(error));
                 }
                 let start = slots.len(execution, ValueBank::Local)?;
@@ -362,26 +346,6 @@ impl<'a> HostResourceScope<'a> {
                 ExecutionRoots::with(roots, cx, |slots| {
                     let value = slots.get(location)?;
                     ValueView::protected(value, Some(location))
-                })
-            });
-        result.map_err(|error| self.gc_error(error))
-    }
-
-    fn ephemeral(&mut self, value: EphemeralValue) -> NativeResult<ValueView<'a>> {
-        self.runtime.resources.ensure_execution_allowed()?;
-        let execution = self.execution.expect("live Host source");
-        let result = self
-            .runtime
-            .memory
-            .scope(&self.runtime.resources, |cx, roots| {
-                ExecutionRoots::with(roots, cx, |slots| {
-                    let value = EphemeralObject::alloc(slots.scope(), value)?;
-                    let location = if value.object().is_some() {
-                        Some(slots.push_local(execution, value)?)
-                    } else {
-                        None
-                    };
-                    ValueView::protected(value, location)
                 })
             });
         result.map_err(|error| self.gc_error(error))
@@ -516,16 +480,13 @@ impl<'runtime> HostInvocation<'_, 'runtime> {
         let Runtime {
             memory,
             host,
-            host_borrows,
             resources,
             ..
         } = &mut *self.scope.runtime;
         let result = memory.scope(resources, |cx, roots| {
             ExecutionRoots::with(roots, cx, |slots| {
                 let value = slots.get(result)?;
-                if let Err(error) =
-                    validation::result(slots.scope(), value, host, host_borrows, resources)?
-                {
+                if let Err(error) = validation::validate(slots.scope(), value, host, resources)? {
                     return Ok(Err(error));
                 }
                 let location = slots.preserve_local(mark, value)?;

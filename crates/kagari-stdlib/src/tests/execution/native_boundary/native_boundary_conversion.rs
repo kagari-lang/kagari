@@ -1,10 +1,9 @@
 #[cfg(test)]
 use crate::tests::support::bytecode::load_bytecode;
 mod dto;
+mod dto_loans;
 mod host_adapter;
-mod scoped_capabilities;
-mod scoped_pairs;
-mod scoped_struct;
+
 use crate::{
     declarations::StandardDeclarations,
     tests::execution::native_boundary::{

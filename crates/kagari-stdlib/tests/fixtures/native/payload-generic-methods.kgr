@@ -1,0 +1,23 @@
+use example::generic_methods::Holder;
+
+pub fn make() -> Holder<i32> {
+    Holder::new::<i32>()
+}
+
+pub fn other() -> Holder<String> {
+    Holder::new::<String>()
+}
+
+fn state<T>(holder: Holder<T>) -> i32 {
+    holder.state()
+}
+
+pub fn read(holder: Holder<i32>) -> i32 {
+    state(holder)
+}
+
+pub fn evidence() -> String {
+    val holder = make();
+    val previous = holder.exchange(12);
+    holder.choose::<String>(previous, "selected")
+}

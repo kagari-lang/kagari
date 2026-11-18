@@ -99,7 +99,6 @@ impl ConstructionRequirement {
         };
         self.receiver.within_wire_limits()
             && Ty::Trait(interface.clone()).within_wire_limits()
-            && !self.receiver.contains_stored_reference()
             && types_in_scope(
                 [&self.receiver, &Ty::Trait(interface)],
                 parameters,

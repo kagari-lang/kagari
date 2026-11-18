@@ -1,6 +1,6 @@
-use example::scratch::reduce;
+use alloc::string::String;
 
-use example::strings::String;
+use example::scratch::reduce;
 
 pub fn run(value: String, count: u64) -> String {
     reduce(value, count)

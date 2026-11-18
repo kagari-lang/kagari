@@ -75,7 +75,6 @@ pub(crate) fn entry_arguments(
         memory,
         resources,
         host,
-        host_borrows,
         ..
     } = runtime;
     let result = memory.scope(resources, |cx, _| {
@@ -90,7 +89,7 @@ pub(crate) fn entry_arguments(
                 }
                 let expected =
                     TypeView::new(&function.metadata.semantic.params[&index], owner, None);
-                if !scoped::matches(cx, value, expected, host, host_borrows, resources)? {
+                if !scoped::matches(cx, value, expected, host, resources)? {
                     return Ok(false);
                 }
             }
@@ -253,20 +252,13 @@ pub(crate) fn matches_rooted(
     let Runtime {
         memory,
         host,
-        host_borrows,
         resources,
         ..
     } = runtime;
     let result = memory.scope(resources, |cx, _| {
         let value = value.get(cx)?;
         Ok(scoped::matches_argument(
-            cx,
-            value,
-            expected,
-            owner,
-            host,
-            host_borrows,
-            resources,
+            cx, value, expected, owner, host, resources,
         ))
     });
     result
@@ -301,7 +293,6 @@ pub(crate) fn matches_protected(
     let Runtime {
         memory,
         host,
-        host_borrows,
         resources,
         ..
     } = runtime;
@@ -314,7 +305,6 @@ pub(crate) fn matches_protected(
                 expected,
                 owner,
                 host,
-                host_borrows,
                 resources,
             ))
         })

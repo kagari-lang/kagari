@@ -350,10 +350,7 @@ fn resolve(
 }
 
 fn value_valid(ty: &Ty, definitions: &DefinitionTable) -> Result<(), DefinitionMappingError> {
-    if !verify::concrete_type_valid(ty, &Default::default(), definitions)
-        || !ty.is_concrete()
-        || ty.contains_reference()
-    {
+    if !verify::concrete_type_valid(ty, &Default::default(), definitions) || !ty.is_concrete() {
         return Err(DefinitionMappingError::InvalidContract);
     }
     Ok(())

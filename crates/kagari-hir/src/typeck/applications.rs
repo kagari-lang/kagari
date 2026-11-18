@@ -9,7 +9,6 @@ use crate::{
         },
     },
     declarations::Declarations,
-    language::types::payload_reference_eligible,
     lower::LoweredModule,
     typeck::{
         GenericBounds, ModuleSignatures,
@@ -159,10 +158,6 @@ fn validate_shape(
                 }) {
                     return Err("host type is missing its declared Host representation");
                 }
-                None
-            }
-            TypeId::Reference { target, .. } => {
-                pending.push(target);
                 None
             }
             TypeId::Tuple(items) => {
@@ -438,19 +433,6 @@ fn validate_inner(
             );
         }
         match ty {
-            TypeId::Reference { target, .. } => {
-                if let TypeId::NativeObject(nominal) = target.as_ref()
-                    && !payload_reference_eligible(nominal.declaration, definitions)
-                {
-                    diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::InvalidReference {
-                            reason: "this native storage has no host payload reference contract",
-                        })
-                        .with_span(span),
-                    );
-                }
-                pending.push((target, None));
-            }
             TypeId::Projection {
                 receiver,
                 interface,
@@ -656,15 +638,6 @@ pub(crate) fn validate_signatures(
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
                     type_name: normalized.display_name(definitions),
-                })
-                .with_span(span),
-            );
-        }
-        check::validate_reference_position(&normalized, span, diagnostics);
-        if normalized.contains_stored_reference() {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::InvalidReference {
-                    reason: "a scoped view cannot be stored in a static",
                 })
                 .with_span(span),
             );

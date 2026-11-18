@@ -30,17 +30,7 @@ impl<'a> BodyChecker<'a> {
         expected: Option<&TypeId>,
     ) -> TypeId {
         let source = self.infer_expr_type_expected(expr_id, env, expected);
-        // Coercion belongs to this expression boundary, never to nested type arguments.
-        // Keep the actual Never fact in the table for control-flow lowering.
-        if source.is_never() {
-            return expected.cloned().unwrap_or(source);
-        }
-        if expected.is_some_and(|target| source.can_weaken_to(target)) {
-            let view = source.read_only_view().expect("checked readonly view");
-            self.type_table.insert_expr(expr_id, view.clone());
-            env.exprs.insert(expr_id, view.clone());
-            return view;
-        }
+
         self.apply_interface_coercion(expr_id, source, expected, env)
     }
 
@@ -51,6 +41,7 @@ impl<'a> BodyChecker<'a> {
         expected: Option<&TypeId>,
         env: &BodyTypeEnv,
     ) -> TypeId {
+        // Keep the actual Never fact in the table for control-flow lowering.
         if source.is_never() {
             return expected.cloned().unwrap_or(source);
         }
@@ -330,16 +321,7 @@ impl<'a> BodyChecker<'a> {
         let mut all_args = Vec::with_capacity(arg_tys.len() + 1);
         all_args.push((receiver, receiver_ty));
         all_args.extend(arg_tys);
-        if matches!(all_args[0].1, TypeId::Reference { .. }) {
-            // Selection already checked the native member's target/capability.
-            // Keep its logical nominal call signature; only this argument check
-            // uses the admitted storage view, which executable facts revalidate.
-            let mut viewed = function.clone();
-            viewed.params[0].ty = all_args[0].1.clone();
-            self.check_function_arguments(&viewed, &substitution, callee, &all_args, 1);
-        } else {
-            self.check_function_arguments(&function, &substitution, callee, &all_args, 1);
-        }
+        self.check_function_arguments(&function, &substitution, callee, &all_args, 1);
         Some(self.record_callable_application(call_expr, &function, &substitution))
     }
 

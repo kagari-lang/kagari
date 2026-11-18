@@ -2,13 +2,7 @@ use super::*;
 #[cfg(test)]
 use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
-use crate::{
-    execution::roots::ExecutionRoots,
-    value::{
-        EphemeralValue, arrays::ArrayObject, carriers::RootedValue, host_values::EphemeralObject,
-        view::ValueView,
-    },
-};
+use crate::value::{arrays::ArrayObject, carriers::RootedValue, view::ValueView};
 use kagari_abi::representation::ValueType;
 use kagari_common::cancellation::CancellationToken;
 use std::sync::{
@@ -82,7 +76,7 @@ fn host_borrows_and_path_operations_share_conflicts_and_release_before_retry() {
 }
 
 #[test]
-fn path_callback_borrows_cannot_escape_in_read_results() {
+fn path_callback_releases_its_own_and_automatic_borrows_after_failure() {
     let mut runtime = path_mutation_runtime();
     let scalar = register_i32(&runtime);
     let owner = register_host_root_type(&mut runtime, "game::Player", PathAccess::ReadWrite);
@@ -94,27 +88,10 @@ fn path_callback_borrows_cannot_escape_in_read_results() {
         .register_host_path_adapter(
             descriptor,
             HostPathAdapter::new().with_read(move |call, _| {
-                let token = call
-                    .borrows()
+                call.borrows()
                     .borrow_shared(HostObjectId(2), owner)
                     .unwrap();
-                let execution = call.scope.execution_id();
-                {
-                    let Runtime {
-                        memory, resources, ..
-                    } = call.runtime_mut();
-                    memory.scope(resources, |cx, roots| {
-                        ExecutionRoots::with(roots, cx, |slots| {
-                            let value = EphemeralObject::alloc(
-                                slots.scope(),
-                                EphemeralValue::HostRef(token),
-                            )?;
-                            let location = slots.push_local(execution, value)?;
-                            ValueView::protected(value, Some(location))
-                        })
-                    })
-                }
-                .map_err(|error| HostError::new(error.to_string()))
+                Err(HostError::new("read failed after reservation"))
             }),
         )
         .unwrap();
@@ -125,7 +102,7 @@ fn path_callback_borrows_cannot_escape_in_read_results() {
             .read_host_path(&root_value, descriptor, &[])
             .unwrap_err()
             .kind(),
-        RuntimeErrorKind::HostBorrowEscape
+        RuntimeErrorKind::TypedPathValidation
     );
     let scope = runtime.host_scope(&[]).unwrap();
     scope

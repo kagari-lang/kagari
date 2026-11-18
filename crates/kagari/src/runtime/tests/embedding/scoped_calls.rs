@@ -1,70 +1,76 @@
-#![cfg(feature = "source")]
 use crate::{
+    BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
     program::Program,
     runtime::Runtime,
 };
-use kagari_derive::KagariValue;
-use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
-    Runtime as CoreRuntime,
-    error::RuntimeError,
+    error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionFrame,
+    host::{HostObjectId, HostSchemaEpoch},
     native::{
         builder::ModuleBuilder,
         declarations::{FunctionDecl, MethodDecl},
-        typed::loans::LoanContext,
+        host,
+        storage::NativeStorage,
+        typed::{NativeContext, loans::LoanContext},
         types::Type,
     },
+    reload::ReloadValidationError,
     session::{ExecutionEvent, ExecutionObserver},
+    value::view::ValueView,
 };
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
-use kagari_types::reference::ReferenceAccess;
+use kagari_types::{
+    declaration::host::{
+        HostCallPolicy, HostFunctionEffects, HostPassingStyle, HostReflectionPolicy,
+        HostTypeOwnership, HostTypePolicy, PathAccess,
+    },
+    reference::ReferenceAccess,
+};
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
 };
 
-#[derive(KagariValue)]
-struct Stats {
-    hp: i32,
+fn decoded_program(engine: &KagariEngine, filename: &str, source: &str) -> Program {
+    let artifact = engine
+        .compile_to_artifact(SourceFile::new(filename, source), Default::default())
+        .unwrap();
+    let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
+    Program::from_artifact(
+        BytecodeArtifact::from_bytes(&bytes).unwrap(),
+        &Default::default(),
+        &Default::default(),
+    )
+    .unwrap()
 }
 
-#[derive(KagariValue)]
-struct Inventory {
-    gold: i32,
-}
-
-#[derive(KagariValue)]
-struct Player {
-    stats: Stats,
-    inventory: Inventory,
-}
+kagari_runtime::native_data! { struct Stats { hp: i32 } }
 
 #[test]
-fn scoped_native_calls_accept_compatible_reloaded_descriptors() {
+fn opaque_loans_accept_compatible_reloaded_descriptors() {
     let mut engine = KagariEngine::builder().unwrap();
     engine.install_all(stdlib::modules().unwrap()).unwrap();
     let mut module = ModuleBuilder::new("game::reload", engine.declarations()).unwrap();
-    module.register_type::<Stats>().unwrap();
-    let stats = module.declarations().rust_type::<Stats>().unwrap();
-    let read = module
-        .define_function(
-            FunctionDecl::new("read")
-                .parameter("stats", Type::ref_(stats.clone()))
-                .returns(Type::i32()),
-        )
+    let mut stats = module.define_type("Stats").unwrap();
+    stats
+        .native_storage(NativeStorage::data::<Stats>())
         .unwrap();
+    let stats = stats.finish().unwrap();
     module
-        .bind(read, |_: &mut LoanContext<'_>, (stats,): (&Stats,)| {
-            Ok(stats.hp)
-        })
-        .unwrap();
-    module
-        .implement(stats, |implementation| {
+        .implement(stats.clone(), |implementation| {
             implementation.inherent_impl(|methods| {
+                let read = methods.define_method(
+                    MethodDecl::instance("read")
+                        .receiver_access(ReferenceAccess::Shared)
+                        .returns(Type::i32()),
+                )?;
+                methods.bind(read, |_: &mut LoanContext<'_>, (stats,): (&Stats,)| {
+                    Ok(stats.hp)
+                })?;
                 let heal = methods.define_method(
                     MethodDecl::instance("heal")
                         .receiver_access(ReferenceAccess::Mutable)
@@ -79,80 +85,80 @@ fn scoped_native_calls_accept_compatible_reloaded_descriptors() {
         .unwrap();
     engine.install(module.finish().unwrap()).unwrap();
     let engine = engine.build().unwrap();
-    let prepare = |offset| {
-        let artifact = engine
-            .compile_to_artifact(
-                SourceFile::new(
-                    "scoped-reload.kgr",
-                    format!(
-                        r#"
-            use game::reload::{{Stats, read}};
-            pub fn direct(stats: Ref<Stats>) -> i32 {{ stats.hp }}
-            pub fn through_native(stats: Ref<Stats>) -> i32 {{ read(stats) + {offset} }}
-            pub fn heal(stats: RefMut<Stats>) -> i32 {{ stats.heal() }}
-        "#
-                    ),
-                ),
-                Default::default(),
-            )
-            .unwrap();
-        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
-    };
+    let initial = decoded_program(
+        &engine,
+        "scoped-reload.kgr",
+        include_str!("../../../../tests/fixtures/embedding/reload/opaque-loans-v1.kgr"),
+    );
+    let replacement = decoded_program(
+        &engine,
+        "scoped-reload.kgr",
+        include_str!("../../../../tests/fixtures/embedding/reload/opaque-loans-v2.kgr"),
+    );
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let old = runtime
-        .load_program(&prepare(0), Default::default())
+    let loaded = runtime.load_program(&initial, Default::default()).unwrap();
+    let current = loaded.clone();
+    let before = runtime.select_program(&loaded).unwrap();
+    let descriptor = runtime
+        .bind_native_type::<Stats>(&loaded.root(), &stats, &[])
         .unwrap();
-    let descriptor = runtime.bind_rust_type::<Stats>(&old.root()).unwrap();
+    let value = descriptor
+        .create(
+            &mut NativeContext::new(&mut runtime, &before).unwrap(),
+            Stats { hp: 40 },
+        )
+        .unwrap();
+    let alias = value.clone();
+    assert_eq!(
+        runtime
+            .execute_typed::<_, i32>(&loaded, "inspect", (alias.clone(),), &context)
+            .unwrap(),
+        40
+    );
+
     runtime
-        .program(&old)
+        .program(&loaded)
         .map_err(ReloadValidationError::Runtime)
-        .and_then(|base| base.prepare_replacement(&prepare(100), &Default::default()))
-        .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
+        .and_then(|base| base.prepare_replacement(&replacement, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
         .unwrap();
-    let current = old.clone();
-    let mut stats = Stats { hp: 40 };
-    runtime
-        .with_host_scope(|scope| {
-            let view = scope.borrow_mut(&descriptor, &mut stats)?;
-            for (loaded, hp) in [(&old, 40), (&current, 41), (&old, 42)] {
-                for (entry, expected) in [
-                    ("direct", hp),
-                    ("through_native", hp + 100),
-                    ("heal", hp + 1),
-                ] {
-                    assert_eq!(
-                        Runtime::execute_scoped(scope, loaded, entry, &[view.value()], &context)?
-                            .as_i32(),
-                        Some(expected)
-                    );
-                }
-            }
-            Ok(())
-        })
-        .unwrap();
-    assert_eq!(stats.hp, 43);
-    runtime
-        .with_host_scope(|scope| {
-            let view = scope.borrow(&descriptor, &stats)?;
-            assert_eq!(
-                Runtime::execute_scoped(
-                    scope,
-                    &current,
-                    "through_native",
-                    &[view.value()],
-                    &context
-                )?
-                .as_i32(),
-                Some(143)
-            );
-            assert!(
-                Runtime::execute_scoped(scope, &current, "heal", &[view.value()], &context)
-                    .is_err()
-            );
-            Ok(())
-        })
-        .unwrap();
+    let after = runtime.select_program(&current).unwrap();
+    assert_ne!(before.epoch, after.epoch);
+    for (entry, expected) in [
+        ("inspect", 140),
+        ("heal", 41),
+        ("inspect", 141),
+        ("heal", 42),
+    ] {
+        let (program, argument) = if entry == "inspect" {
+            (&loaded, &alias)
+        } else {
+            (&current, &value)
+        };
+        assert_eq!(
+            runtime
+                .execute_typed::<_, i32>(program, entry, (argument.clone(),), &context)
+                .unwrap(),
+            expected
+        );
+    }
+    {
+        let mut cx = NativeContext::new(&mut runtime, &after).unwrap();
+        assert_eq!(value.read(&mut cx, |stats| Ok(stats.hp)).unwrap(), 42);
+        alias
+            .edit(&mut cx, |stats| {
+                stats.hp += 1;
+                Ok(())
+            })
+            .unwrap();
+    }
+    assert_eq!(
+        runtime
+            .execute_typed::<_, i32>(&loaded, "inspect", (value,), &context)
+            .unwrap(),
+        143
+    );
 }
 
 #[derive(Debug)]
@@ -161,7 +167,7 @@ struct ContextObserver(Arc<AtomicUsize>);
 impl ExecutionObserver for ContextObserver {
     fn observe(
         &mut self,
-        runtime: &CoreRuntime,
+        runtime: &Runtime,
         _: ExecutionEvent,
         _: &[ExecutionFrame],
     ) -> Result<(), RuntimeError> {
@@ -173,52 +179,110 @@ impl ExecutionObserver for ContextObserver {
 }
 
 #[test]
-fn scoped_entries_use_explicit_sdk_context_and_the_common_pack_adapter() {
+fn scoped_host_entries_use_explicit_context_and_release_argument_loans() {
+    const HP: HostObjectId = HostObjectId(1);
+    const GOLD: HostObjectId = HostObjectId(2);
+
     let mut engine = KagariEngine::builder().unwrap();
     engine.install_all(stdlib::modules().unwrap()).unwrap();
     let mut module = ModuleBuilder::new("game::scoped", engine.declarations()).unwrap();
-    module.register_type::<Player>().unwrap();
-    let stats = module.declarations().rust_type::<Stats>().unwrap();
-    let inventory = module.declarations().rust_type::<Inventory>().unwrap();
+    let mut counter = module.define_type("Counter").unwrap();
+    counter
+        .external(HostTypePolicy {
+            ownership: HostTypeOwnership::HostRoot,
+            reflection: HostReflectionPolicy::Hidden,
+            path_access: PathAccess::ReadWrite,
+        })
+        .unwrap();
+    let counter = counter.finish().unwrap().apply([]).unwrap();
+    let state = Arc::new(Mutex::new((40, 25)));
     let heal = module
         .define_function(
             FunctionDecl::new("heal")
-                .parameter("stats", Type::ref_mut(stats))
-                .parameter("inventory", Type::ref_mut(inventory))
-                .returns(Type::i32()),
+                .parameter("hp", counter.clone())
+                .parameter("gold", counter.clone())
+                .returns(Type::i32())
+                .host_policy(HostCallPolicy {
+                    passing: vec![HostPassingStyle::UniqueBorrow; 2],
+                    effects: HostFunctionEffects {
+                        may_mutate_host_state: true,
+                        ..Default::default()
+                    },
+                }),
         )
         .unwrap();
+    let write = state.clone();
     module
         .bind(
             heal,
-            |cx: &mut LoanContext<'_>, (stats, inventory): (&mut Stats, &mut Inventory)| {
-                cx.poll()?;
-                stats.hp += 30;
-                inventory.gold -= 5;
-                Ok(stats.hp)
-            },
+            host::callback(move |cx, _| {
+                for id in [HP, GOLD] {
+                    let root = cx.runtime().host().root(id).unwrap();
+                    assert_eq!(
+                        cx.borrows()
+                            .borrow_shared(id, root.type_id())
+                            .unwrap_err()
+                            .kind(),
+                        RuntimeErrorKind::HostBorrowConflict
+                    );
+                }
+                let mut state = write.lock().unwrap();
+                state.0 += 30;
+                state.1 -= 5;
+                Ok(ValueView::from(state.0))
+            }),
+        )
+        .unwrap();
+    let read = module
+        .define_function(
+            FunctionDecl::new("read")
+                .parameter("hp", counter)
+                .returns(Type::i32())
+                .host_policy(HostCallPolicy {
+                    passing: vec![HostPassingStyle::SharedBorrow],
+                    effects: Default::default(),
+                }),
+        )
+        .unwrap();
+    let inspect = state.clone();
+    module
+        .bind(
+            read,
+            host::callback(move |cx, _| {
+                let root = cx.runtime().host().root(HP).unwrap();
+                assert_eq!(
+                    cx.borrows()
+                        .borrow_unique(HP, root.type_id())
+                        .unwrap_err()
+                        .kind(),
+                    RuntimeErrorKind::HostBorrowConflict
+                );
+                Ok(ValueView::from(inspect.lock().unwrap().0))
+            }),
         )
         .unwrap();
     engine.install(module.finish().unwrap()).unwrap();
     let engine = engine.build().unwrap();
-    let artifact = engine
-        .compile_to_artifact(
-            SourceFile::new(
-                "scoped-sdk.kgr",
-                r#"
-        use game::scoped::{Player, heal};
-        pub fn tick(player: RefMut<Player>) -> i32 { heal(player.stats, player.inventory) }
-        pub fn inspect(player: Ref<Player>) -> i32 { player.stats.hp }
-    "#,
-            ),
-            Default::default(),
-        )
-        .unwrap();
-    let program =
-        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let program = decoded_program(
+        &engine,
+        "scoped-sdk.kgr",
+        include_str!("../../../../tests/fixtures/embedding/host/scoped-context.kgr"),
+    );
     let mut runtime = engine.runtime(ExecutionContext::default());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
-    let player_type = runtime.bind_rust_type::<Player>(&loaded.root()).unwrap();
+    let counter = runtime
+        .types()
+        .get_by_name("game::scoped::Counter")
+        .unwrap()
+        .id;
+    let [hp, gold] = [HP, GOLD].map(|id| {
+        let root = runtime
+            .register_host_root(id, counter, HostSchemaEpoch::new(0))
+            .unwrap();
+        runtime.host_root_value(root).unwrap()
+    });
+    runtime.collect_garbage().unwrap();
+    let baseline_roots = runtime.gc_stats().root_registrations;
     let observations = Arc::new(AtomicUsize::new(0));
     runtime
         .set_execution_observer(ContextObserver(observations.clone()))
@@ -228,52 +292,61 @@ fn scoped_entries_use_explicit_sdk_context_and_the_common_pack_adapter() {
         ..Default::default()
     };
     context.inputs.unix_time_millis = 123;
-    let mut player = Player {
-        stats: Stats { hp: 40 },
-        inventory: Inventory { gold: 25 },
-    };
     runtime
         .with_host_scope(|scope| {
-            let player = scope.borrow_mut(&player_type, &mut player)?;
+            let hp = scope.import(&hp)?;
+            let gold = scope.import(&gold)?;
+            let args = [hp, gold];
             let unsupported = ExecutionContext {
                 jit_policy: JitPolicy::Enabled,
                 ..context.clone()
             };
-            assert!(
-                Runtime::execute_scoped(scope, &loaded, "tick", &[player.value()], &unsupported)
-                    .is_err()
+            assert_eq!(
+                Runtime::execute_scoped(scope, &loaded, "tick", &args, &unsupported)
+                    .unwrap_err()
+                    .kind(),
+                RuntimeErrorKind::UnsupportedExecution
             );
-            let cancelled = context.clone();
-            cancelled.cancellation.cancel();
-            assert!(
-                Runtime::execute_scoped(scope, &loaded, "tick", &[player.value()], &cancelled)
-                    .is_err()
-            );
-            // CancellationToken clones share cancellation. A fresh context establishes
-            // a new root; failure cannot leave loans or observer/session state behind.
-            let context = ExecutionContext {
+            let cancelled = ExecutionContext {
                 cancellation: Default::default(),
                 ..context.clone()
             };
+            cancelled.cancellation.cancel();
             assert_eq!(
-                Runtime::execute_scoped(scope, &loaded, "inspect", &[player.value()], &context)?
-                    .as_i32(),
+                Runtime::execute_scoped(scope, &loaded, "tick", &args, &cancelled)
+                    .unwrap_err()
+                    .kind(),
+                RuntimeErrorKind::Cancelled
+            );
+            assert_eq!(*state.lock().unwrap(), (40, 25));
+
+            // The first unique reservation must be released when the second argument aliases it.
+            assert_eq!(
+                Runtime::execute_scoped(scope, &loaded, "tick", &[hp, hp], &context)
+                    .unwrap_err()
+                    .kind(),
+                RuntimeErrorKind::HostBorrowConflict
+            );
+            assert_eq!(
+                Runtime::execute_scoped(scope, &loaded, "inspect", &[hp], &context)?.as_i32(),
                 Some(40)
             );
             assert_eq!(
-                Runtime::execute_scoped(scope, &loaded, "tick", &[player.value()], &context)?
-                    .as_i32(),
+                Runtime::execute_scoped(scope, &loaded, "tick", &args, &context)?.as_i32(),
                 Some(70)
             );
             assert_eq!(
-                Runtime::execute_scoped(scope, &loaded, "inspect", &[player.value()], &context)?
-                    .as_i32(),
+                Runtime::execute_scoped(scope, &loaded, "inspect", &[hp], &context)?.as_i32(),
                 Some(70)
             );
             Ok(())
         })
         .unwrap();
-    assert_eq!(player.stats.hp, 70);
-    assert_eq!(player.inventory.gold, 20);
+    assert_eq!(*state.lock().unwrap(), (70, 20));
     assert!(observations.load(Ordering::Relaxed) > 0);
+    assert!(runtime.execution_root().is_none());
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, baseline_roots);
+    assert!(!runtime.is_quarantined());
 }

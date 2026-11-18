@@ -9,7 +9,7 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_contract::{
-    callable::receiver::{accepts_owned, accepts_view},
+    callable::receiver::accepts_owned,
     contracts,
     contracts::{ContractError, RuntimeHelperKind},
     numeric::NumericSignature,
@@ -22,7 +22,6 @@ use kagari_types::{
     declaration::{
         TypeDefKind, host::PathAccess, native::NativeStorageLayout, verify::types_in_scope,
     },
-    reference::{ReferenceAccess, field_read_type},
     ty::Ty,
 };
 use std::collections::HashSet;
@@ -311,20 +310,6 @@ pub(super) fn verify(
                     }));
                 }
                 for (index, (arg, param)) in args.iter().zip(&call.signature.params).enumerate() {
-                    if index == 0
-                        && arg.ty == ValueType::HostHandle
-                        && call.receiver_access.is_some()
-                    {
-                        if !function
-                            .semantic
-                            .registers
-                            .get(&arg.temp.index())
-                            .is_some_and(|actual| accepts_view(call.receiver_access, param, actual))
-                        {
-                            return Err(context.error(Error::UnsupportedCall));
-                        }
-                        continue;
-                    }
                     if index == 0 && !accepts_owned(call.receiver_access, param) {
                         return Err(context.error(Error::UnsupportedCall));
                     }
@@ -428,20 +413,6 @@ pub(super) fn verify(
             )
             .map_err(contract)?,
             CallTarget::Native(import) => {
-                if let Some(receiver) = args.first()
-                    && receiver.ty == ValueType::HostHandle
-                    && import.receiver_access.is_some()
-                    && !function
-                        .semantic
-                        .registers
-                        .get(&receiver.temp.index())
-                        .zip(import.signature.params.first())
-                        .is_some_and(|(actual, target)| {
-                            accepts_view(import.receiver_access, target, actual)
-                        })
-                {
-                    return Err(context.error(Error::UnsupportedCall));
-                }
                 contracts::verify_native_call(
                     dst.map(|v| v.ty),
                     import,
@@ -792,40 +763,15 @@ pub(super) fn verify(
             }
         }
         Instruction::ReadAggregateField { dst, base, field } => {
-            context.expect(
-                base.ty,
-                if field.reference.is_some() {
-                    ValueType::HostHandle
-                } else {
-                    ValueType::HeapObject
-                },
-                "field base",
-            )?;
+            context.expect(base.ty, ValueType::HeapObject, "field base")?;
             let target = module
                 .structure(&field.owner)
                 .and_then(|layout| layout.fields.get(field.slot).cloned())
                 .ok_or_else(|| context.error(Error::InvalidField))?;
-            let ty = if let Some(access) = field.reference {
-                field_read_type(&target.ty, access, target.mutable)
-                    .ok_or_else(|| context.error(Error::InvalidField))?
-            } else {
-                target.ty
-            };
-            context.expect(dst.ty, semantic_representation(&ty), "field read")?;
+            context.expect(dst.ty, semantic_representation(&target.ty), "field read")?;
         }
         Instruction::WriteAggregateField { base, field, value } => {
-            context.expect(
-                base.ty,
-                if field.reference.is_some() {
-                    ValueType::HostHandle
-                } else {
-                    ValueType::HeapObject
-                },
-                "field base",
-            )?;
-            if field.reference == Some(ReferenceAccess::Shared) {
-                return Err(context.error(Error::ReadOnlyField));
-            }
+            context.expect(base.ty, ValueType::HeapObject, "field base")?;
             let target = module
                 .structure(&field.owner)
                 .and_then(|layout| layout.fields.get(field.slot).cloned())

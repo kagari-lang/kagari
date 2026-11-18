@@ -17,8 +17,7 @@ use kagari_contract::{
     ids::FunctionRef,
     standard::RuntimePrimitive,
 };
-use kagari_types::reference::ReferenceAccess;
-use kagari_types::ty::wire::WireType;
+use kagari_types::{decode_limits::ReservedZero, ty::wire::WireType};
 use serde::{Deserialize, Serialize};
 
 /// File-local FieldRef facts; no verification evidence is serialized.
@@ -28,7 +27,8 @@ pub(in crate::artifact) struct FieldRefRecord {
     #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
     arguments: Vec<WireType>,
     slot: u32,
-    reference: Option<ReferenceAccess>,
+    // The retired reference access option occupied this byte. Only zero is valid.
+    reserved: ReservedZero,
 }
 
 impl FieldRefRecord {
@@ -50,7 +50,7 @@ impl FieldRefRecord {
                 })
                 .collect::<Result<_, _>>()?,
             slot: value.slot,
-            reference: value.reference,
+            reserved: ReservedZero::default(),
         })
     }
 
@@ -70,7 +70,6 @@ impl FieldRefRecord {
                 .map(|value| Ok::<_, DefinitionMappingError>(value.decode(decoding, cancel)?))
                 .collect::<Result<_, _>>()?,
             slot: self.slot,
-            reference: self.reference,
         })
     }
 }

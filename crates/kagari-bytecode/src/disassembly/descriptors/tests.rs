@@ -219,7 +219,6 @@ fn layouts_and_module_slots_have_access_types_and_nested_dependencies() {
                 structure: StructId::new(0),
                 arguments: vec![],
                 slot: 0,
-                reference: None,
             },
         },
     ]));
@@ -626,7 +625,6 @@ fn every_direct_table_operand_is_collected_without_rendering_unselected_bodies()
         structure: StructId::new(0),
         arguments: vec![],
         slot: 0,
-        reference: None,
     };
     let mut owner = module("operands");
     // Only the referenced categories whose closure is inspected need records.

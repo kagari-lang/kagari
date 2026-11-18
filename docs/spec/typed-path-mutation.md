@@ -394,13 +394,9 @@ Old-value capture is controlled by host policy because it may affect performance
 
 ## Relationship to Host Borrowing
 
-Typed path mutation is distinct from frame-scoped host borrowing.
-
-Frame-scoped host borrows are runtime or host ABI values used when entering functions that require temporary `&T` or `&mut T` access.
-They are non-storable and must not escape their call frame.
-
-Typed path mutation is the normal mechanism for script-visible nested field access over host-owned state.
-It does not expose or store Rust borrows.
+Typed path mutation is the normal mechanism for script-visible nested field access over
+host-owned state. An installed adapter can acquire a short checked Rust loan while
+executing an operation. The path itself does not expose, store or extend that loan.
 
 This split preserves Rust-side safety without making Rust's borrow checker part of the script language.
 
