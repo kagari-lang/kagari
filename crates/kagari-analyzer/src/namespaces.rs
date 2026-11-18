@@ -58,10 +58,12 @@ impl SnapshotQueries<'_> {
             .imports
             .directives
             .iter()
-            .filter(|directive| {
-                directive.span.range.start <= offset && offset < directive.span.range.end
+            .filter_map(|directive| {
+                let span = directive.span?.range;
+                (span.start <= offset && offset < span.end).then_some((directive, span))
             })
-            .min_by_key(|directive| directive.span.range.end - directive.span.range.start)
+            .min_by_key(|(_, span)| span.end - span.start)
+            .map(|(directive, _)| directive)
         else {
             return vec![];
         };

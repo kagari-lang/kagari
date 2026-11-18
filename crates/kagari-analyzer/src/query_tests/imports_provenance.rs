@@ -43,17 +43,17 @@ fn grouped_directives_keep_leaf_root_ranges_and_explicit_aliases() {
     assert!(matches!(&first.kind, ImportKind::Named { alias: Some(name) } if name.as_str() == "v"));
     assert!(matches!(second.kind, ImportKind::Named { alias: None }));
     assert!(matches!(third.kind, ImportKind::Named { alias: None }));
+    let first_leaf = first.span.expect("written leaf site").range;
+    let second_leaf = second.span.expect("written leaf site").range;
     assert_eq!(
-        &text[first.span.range.start..first.span.range.end],
+        &text[first_leaf.start..first_leaf.end],
         "nested::value as v"
     );
-    assert_eq!(
-        &text[second.span.range.start..second.span.range.end],
-        "nested::Data"
-    );
+    assert_eq!(&text[second_leaf.start..second_leaf.end], "nested::Data");
     assert_eq!(first.root_span, second.root_span);
+    let use_tree = first.root_span.expect("written use-tree site").range;
     assert_eq!(
-        &text[first.root_span.range.start..first.root_span.range.end],
+        &text[use_tree.start..use_tree.end],
         "pkg::m::{nested::value as v, nested::Data}"
     );
     for path in ["m::nested::Data", "m::nested::value()"] {

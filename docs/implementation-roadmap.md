@@ -726,13 +726,24 @@ generic records own names and binder bounds, and each trait method ID selects an
 slot. Structured input retains scoped attribution and goes through definition-reference validation.
 Reuse still matches owners and ordered ranges. See [HIR storage and IDs](architecture/hir.md#storage-and-ids).
 [Reverse lookup and remapping scans](hir-model-review.md#deferred-reverse-lookup-and-remapping-scans)
-remain deferred.
+remain deferred. The [visibility follow-up](hir-model-review.md#hir-visibility-follow-up) records
+candidate API restrictions; the origin identity fix rejects foreign IDs in source-backed records
+without changing those APIs.
 
 Structure, workspace formatting, workspace all-target Clippy and diff checks pass. Final
 focused validation has 12 passing test executions covering HIR admission and reuse, structured
 origin validation, analyzer name navigation, actual Native reload, closure captures and execution
 of the same artifact with and without SDK source support. All four HIR doctests and strict
 HIR/analyzer rustdoc pass. Full workspace and exhaustive matrices remain CI scope.
+
+Import provenance now leaves physical sites absent for source-less declarations and re-exports.
+The focused HIR import selection passes (46 passed, one measurement ignored), including both a
+written import with an exact site and its resolved source-less standard-library re-export.
+`cargo test -p kagari-analyzer --lib imports_provenance` reports two passes and two existing
+navigation failures, also reproduced with a retained pre-change test binary. The grouped-directive
+and repeated-`super` tests return hits where a prefix should have none; the grouped-directive test's
+exact leaf/root ranges pass before its navigation assertion fails. Analyzer prefix navigation is
+separate follow-up; those assertions were not changed by the location migration.
 
 The compiler's `aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions` hits
 `CompileLimitExceeded` at limit 4. It also fails on clean `4665f274c`. The

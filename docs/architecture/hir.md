@@ -763,7 +763,10 @@ real `(DirectiveId, NameNamespace)` keys; lookup excludes a derivation containin
 its own directive/category. Type and Value are distinct here: a Value lookup may
 legitimately use a Type alias from the same import. Prefix/glob proofs compose;
 equal-target origins remain available, with the shortest valid derivation retained.
-Proofs are solver evidence, not definition identity or cache equivalence.
+Proofs are solver evidence, not definition identity or cache equivalence. Binding provenance
+and physical locations are separate: source-less structured re-exports retain directives and
+resolved targets but have no leaf/root source sites. Only source-backed records contribute
+physical candidate locations; a zero-width source recovery site is still a real range.
 
 The work limit counts module evaluations and produced binding contributions,
 derived from input modules, use leaves and seeded spellings. An eight-entry

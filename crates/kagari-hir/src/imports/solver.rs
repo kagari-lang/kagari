@@ -6,7 +6,7 @@ use crate::{
         BindingOrigin, DirectiveId, DirectiveResolution, LocalName, ModuleImportFacts, NamespaceId,
         SourceUnit,
         bindings::LookupOutcome,
-        builder::{candidate, location},
+        builder::{candidate, source_location},
         catalog::NamespaceCatalog,
         resolve::{ResolutionInputs, resolve_imports},
     },
@@ -323,7 +323,7 @@ fn reserve(
             None,
             origin,
             import.visibility,
-            Some(location(module, import.span)),
+            source_location(module, Some(import.span)),
         );
         binding.resolution = LookupOutcome::Pending;
         if let Some(name) = import.local_name().and_then(LocalName::new) {
@@ -371,7 +371,7 @@ fn failure_sites(
                 .module
                 .imports
                 .iter()
-                .map(move |import| location(module, import.span))
+                .filter_map(move |import| source_location(module, Some(import.span)))
         })
         .take(16)
         .collect()

@@ -281,12 +281,8 @@ impl ModuleGraph {
     }
 }
 
-pub(super) fn location(module: &LoweredModule, span: Span) -> FileSpan {
-    module.source.span(span).unwrap_or(FileSpan {
-        file: module.source.origin_id(),
-        revision: module.source.revision(),
-        range: span,
-    })
+pub(super) fn source_location(module: &LoweredModule, span: Option<Span>) -> Option<FileSpan> {
+    module.source_surface()?.span(span?)
 }
 
 pub(super) fn candidate(
@@ -312,7 +308,7 @@ fn add_source(
     name: &str,
     item: SourceItem,
     visibility: Visibility,
-    location: FileSpan,
+    location: Option<FileSpan>,
 ) {
     if let Some(name) = LocalName::new(name) {
         let source = SourceDeclRef {
@@ -327,7 +323,7 @@ fn add_source(
                 Some(ResolvedTarget::Source(source.clone())),
                 BindingOrigin::Declaration(source),
                 visibility,
-                Some(location),
+                location,
             ),
         );
     }
@@ -349,12 +345,7 @@ fn add_declarations(
                 &item.name,
                 SourceItem::Function(item.id),
                 item.visibility,
-                location(
-                    module,
-                    module.module.functions[item.id.index()]
-                        .origin
-                        .diagnostic_span(),
-                ),
+                source_location(module, item.origin.source_span()),
             );
         }
     }
@@ -367,10 +358,7 @@ fn add_declarations(
                 &item.name,
                 SourceItem::Const(item.id),
                 item.visibility,
-                location(
-                    module,
-                    module.module.constant(item.id).origin.diagnostic_span(),
-                ),
+                source_location(module, item.origin.source_span()),
             );
         }
     }
@@ -382,10 +370,7 @@ fn add_declarations(
             &item.name,
             SourceItem::Static(item.id),
             item.visibility,
-            location(
-                module,
-                module.module.static_item(item.id).origin.diagnostic_span(),
-            ),
+            source_location(module, item.origin.source_span()),
         );
     }
     for item in &module.module.structs {
@@ -396,12 +381,7 @@ fn add_declarations(
             &item.name,
             SourceItem::Struct(item.id),
             item.visibility,
-            location(
-                module,
-                module.module.structs[item.id.index()]
-                    .origin
-                    .diagnostic_span(),
-            ),
+            source_location(module, item.origin.source_span()),
         );
     }
     for item in &module.module.enums {
@@ -412,12 +392,7 @@ fn add_declarations(
             &item.name,
             SourceItem::Enum(item.id),
             item.visibility,
-            location(
-                module,
-                module.module.enums[item.id.index()]
-                    .origin
-                    .diagnostic_span(),
-            ),
+            source_location(module, item.origin.source_span()),
         );
     }
     for item in &module.module.native_types {
@@ -428,12 +403,7 @@ fn add_declarations(
             &item.name,
             SourceItem::NativeType(item.id),
             item.visibility,
-            location(
-                module,
-                module.module.native_types[item.id.index()]
-                    .origin
-                    .diagnostic_span(),
-            ),
+            source_location(module, item.origin.source_span()),
         );
     }
     for item in &module.module.type_aliases {
@@ -444,12 +414,7 @@ fn add_declarations(
             &item.name,
             SourceItem::TypeAlias(item.id),
             item.visibility,
-            location(
-                module,
-                module.module.type_aliases[item.id.index()]
-                    .origin
-                    .diagnostic_span(),
-            ),
+            source_location(module, item.origin.source_span()),
         );
     }
     for item in &module.module.traits {
@@ -460,12 +425,7 @@ fn add_declarations(
             &item.name,
             SourceItem::Trait(item.id),
             item.visibility,
-            location(
-                module,
-                module.module.traits[item.id.index()]
-                    .origin
-                    .diagnostic_span(),
-            ),
+            source_location(module, item.origin.source_span()),
         );
     }
     for item in &module.module.modules {
@@ -500,12 +460,7 @@ fn add_declarations(
                             module: item.id,
                         },
                         item.visibility,
-                        Some(location(
-                            module,
-                            module.module.modules[item.id.index()]
-                                .origin
-                                .diagnostic_span(),
-                        )),
+                        source_location(module, item.origin.source_span()),
                     ),
                 );
             }
@@ -547,9 +502,12 @@ fn add_declarations(
                 &variant.name,
                 SourceItem::Variant(variant.id),
                 item.visibility,
-                location(
+                source_location(
                     module,
-                    module.module.variant(variant.id).diagnostic_name_span(),
+                    variant
+                        .origin
+                        .source_span()
+                        .map(|span| variant.name_span.unwrap_or(span)),
                 ),
             );
         }
@@ -589,12 +547,7 @@ fn add_declarations(
                 &method.name,
                 SourceItem::Function(function.id),
                 function.visibility,
-                location(
-                    module,
-                    module.module.functions[function.id.index()]
-                        .origin
-                        .diagnostic_span(),
-                ),
+                source_location(module, function.origin.source_span()),
             );
         }
     }

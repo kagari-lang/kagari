@@ -276,7 +276,7 @@ impl DirectiveResolution {
     }
 }
 
-/// One source use leaf with its resolution, origin sites and direct dependencies.
+/// One import leaf with its resolution, optional source sites and direct dependencies.
 ///
 /// The builder recreates these facts during each fixed-point pass. A named directive
 /// can create one binding per category; a glob creates multiple candidates. Descending
@@ -290,10 +290,10 @@ pub struct ImportDirective {
     pub segments: Vec<String>,
     /// Named leaf with optional explicit alias, or glob.
     pub kind: ImportKind,
-    /// Physical source site of this leaf.
-    pub span: FileSpan,
-    /// Physical root use-tree site shared by its leaves.
-    pub root_span: FileSpan,
+    /// Physical source site of this leaf, absent for a source-less re-export.
+    pub span: Option<FileSpan>,
+    /// Physical root use-tree site shared by its written leaves, if present.
+    pub root_span: Option<FileSpan>,
     /// Visibility assigned to bindings created by this use.
     pub visibility: Visibility,
     /// Last pass's canonical result; publication has no pending directives.
@@ -314,7 +314,7 @@ pub enum BindingOrigin {
         /// Parent-local header slot, not the target namespace identity.
         module: ModuleId,
     },
-    /// A real explicit named use leaf.
+    /// A named import leaf, including a source-less structured re-export.
     NamedImport(DirectiveId),
     /// A real glob use leaf that contributed this member.
     GlobImport(DirectiveId),

@@ -1,4 +1,4 @@
-//! Reference coverage for attached registration facts; source arenas remain unchanged.
+//! Scoped definition references retained by lowered records.
 
 use crate::{
     hir::{
@@ -37,17 +37,16 @@ impl DefinitionReferences for LoweredModule {
                 contract.visit_definition_ids(visit, cancel)?;
             }
         }
-        if self.source_surface().is_none() {
-            for origin in self
-                .module
-                .nodes
-                .origins()
-                .chain(declaration_origins(&self.module))
-            {
-                check_cancel(cancel)?;
-                if let NodeOrigin::Structured { declaration } = origin {
-                    visit(declaration)?;
-                }
+        // The module input kind describes its source surface, not the IDs held by its records.
+        for origin in self
+            .module
+            .nodes
+            .origins()
+            .chain(declaration_origins(&self.module))
+        {
+            check_cancel(cancel)?;
+            if let NodeOrigin::Structured { declaration } = origin {
+                visit(declaration)?;
             }
         }
         for item in &self.module.native_types {

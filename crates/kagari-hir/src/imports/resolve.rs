@@ -6,7 +6,7 @@ use crate::{
         BindingOrigin, DirectiveId, DirectiveResolution, ImportDirective, ImportKind, LocalName,
         ModuleImportFacts, NamespaceId, ResolvedTarget, SourceUnit,
         bindings::{LookupOutcome, PerNamespace},
-        builder::{candidate, location},
+        builder::{candidate, source_location},
         catalog::{LookupContext, LookupHit, LookupResult, NamespaceCatalog, NamespaceResult},
         solver::Observation,
     },
@@ -18,7 +18,10 @@ use kagari_common::{
     identity::table::module::ModuleHandle,
     span::Span,
 };
-use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_source::{
+    diagnostic::{Diagnostic, DiagnosticKind},
+    identity::FileSpan,
+};
 use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
 use std::{cell::RefCell, collections::BTreeSet, slice, sync::Arc};
 
@@ -85,8 +88,8 @@ pub(super) fn resolve_imports(
             id: id.clone(),
             segments: import.segments.clone(),
             kind,
-            span: location(module, import.span),
-            root_span: location(module, import.root_span),
+            span: source_location(module, Some(import.span)),
+            root_span: source_location(module, Some(import.root_span)),
             visibility: import.visibility,
             resolution: match import.kind {
                 ImportLeaf::Named { .. } => DirectiveResolution::Named(PerNamespace {
@@ -178,7 +181,7 @@ pub(super) fn resolve_imports(
                     None,
                     BindingOrigin::NamedImport(id.clone()),
                     import.visibility,
-                    Some(directive.span),
+                    directive.span,
                 );
                 binding.resolution = outcome.clone();
                 binding.support = support;
@@ -190,7 +193,7 @@ pub(super) fn resolve_imports(
                     None,
                     BindingOrigin::GlobImport(id.clone()),
                     import.visibility,
-                    Some(directive.span),
+                    directive.span,
                 );
                 binding.resolution = LookupOutcome::Pending;
                 names.pending_globs.push(binding);
@@ -242,7 +245,7 @@ pub(super) fn resolve_imports(
         result.diagnostics.extend(
             failures
                 .into_iter()
-                .map(|kind| Diagnostic::error(kind).with_span(directive.span.range)),
+                .map(|kind| import_error(kind, directive.span)),
         );
         // Prefix lookup observes namespaces even when the terminal fails (including
         // relative-root underflow). Keep those watcher inputs, not navigation hits.
@@ -319,12 +322,12 @@ fn expand_glob(
                 .collect()
         }
         _ => {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::InvalidGlobTarget {
+            diagnostics.push(import_error(
+                DiagnosticKind::InvalidGlobTarget {
                     path: directive.segments.join("::"),
-                })
-                .with_span(directive.span.range),
-            );
+                },
+                directive.span,
+            ));
             return Ok(false);
         }
     };
@@ -348,7 +351,7 @@ fn expand_glob(
                     None,
                     BindingOrigin::GlobImport(directive.id.clone()),
                     directive.visibility,
-                    Some(directive.span),
+                    directive.span,
                 );
                 binding.resolution = LookupOutcome::Ambiguous;
                 names.add(
@@ -365,7 +368,7 @@ fn expand_glob(
                     Some(member.target),
                     BindingOrigin::GlobImport(directive.id.clone()),
                     directive.visibility,
-                    Some(directive.span),
+                    directive.span,
                 );
                 binding.support = member.support;
                 binding.support.extend(hit.support.iter().cloned());
@@ -381,6 +384,13 @@ fn expand_glob(
         }
     }
     Ok(pending)
+}
+
+fn import_error(kind: DiagnosticKind, site: Option<FileSpan>) -> Diagnostic {
+    Diagnostic {
+        span: site.map(|site| site.range),
+        ..Diagnostic::error(kind)
+    }
 }
 
 fn diagnose_bindings(
@@ -411,19 +421,17 @@ fn diagnose_bindings(
                     .any(|c| matches!(c.origin, BindingOrigin::NamedImport(_)))
             };
             if conflict && imported {
-                result.diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::DuplicateImport {
+                let site = entry
+                    .strong
+                    .last()
+                    .or(entry.globs.last())
+                    .and_then(|c| c.location);
+                result.diagnostics.push(import_error(
+                    DiagnosticKind::DuplicateImport {
                         name: name.as_str().into(),
-                    })
-                    .with_span(
-                        entry
-                            .strong
-                            .last()
-                            .or(entry.globs.last())
-                            .and_then(|c| c.location)
-                            .map_or(Span::default(), |site| site.range),
-                    ),
-                );
+                    },
+                    site,
+                ));
             }
             for candidate in &mut entry.strong {
                 if strong_conflict
@@ -440,16 +448,12 @@ fn diagnose_bindings(
                     {
                         dependencies.insert(child.module);
                     } else {
-                        result.diagnostics.push(
-                            Diagnostic::error(DiagnosticKind::UnknownName {
+                        result.diagnostics.push(import_error(
+                            DiagnosticKind::UnknownName {
                                 name: name.as_str().into(),
-                            })
-                            .with_span(
-                                candidate
-                                    .location
-                                    .map_or(Span::default(), |site| site.range),
-                            ),
-                        );
+                            },
+                            candidate.location,
+                        ));
                     }
                 }
             }

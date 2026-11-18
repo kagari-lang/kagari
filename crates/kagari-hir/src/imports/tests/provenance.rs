@@ -200,6 +200,11 @@ fn recovered_import_leaves_preserve_names_and_physical_sites() {
         let facts = graph
             .imports_for(&SourceUnit::of(&lowered, &graph.catalog.definitions))
             .unwrap();
+        let [directive] = facts.directives.as_slice() else {
+            panic!("one recovered directive expected for {text}");
+        };
+        assert_eq!(directive.span, source.span(import.span));
+        assert_eq!(directive.root_span, source.span(import.root_span));
         assert_eq!(
             facts
                 .diagnostics
@@ -213,6 +218,67 @@ fn recovered_import_leaves_preserve_names_and_physical_sites() {
             assert!(facts.scope.lookup(path, namespace).is_none());
         }
     }
+}
+
+#[test]
+fn source_less_reexport_resolves_without_physical_import_sites() {
+    let mut sources = SourceDatabase::default();
+    let text = "use core::option::Some;";
+    let root = insert(&mut sources, "root", text);
+    let snapshot = analyze(&sources);
+    let graph = snapshot.module_graph();
+    let owner = kagari_stdlib::namespaces::type_owner("Option");
+    let owner = graph.catalog.definitions.lookup_module(&owner).unwrap();
+    let provider = graph.node(&owner).unwrap();
+    let analysis = snapshot.file(provider.file).unwrap();
+    let lowered = &analysis.result().facts().lowered;
+    assert!(lowered.source_surface().is_none());
+    let name = LocalName::new("Some").unwrap();
+    let reexport = provider
+        .imports
+        .directives
+        .iter()
+        .find(|directive| directive.segments == ["self", "Option", "Some"])
+        .expect("structured re-export of Option::Some");
+    assert_eq!(reexport.span, None);
+    assert_eq!(reexport.root_span, None);
+    let target = reexport.resolution.target().expect("resolved re-export");
+    assert!(matches!(target, ResolvedTarget::Source(source) if source.unit.module == owner));
+    let [binding] = provider.imports.scope.entries[&name][NameNamespace::Value]
+        .strong
+        .as_slice()
+    else {
+        panic!("one re-export binding");
+    };
+    assert_eq!(binding.resolution.target(), Some(target));
+    assert_eq!(binding.location, None);
+    let declared = LocalName::new("Option").unwrap();
+    let [declaration] = provider.imports.scope.entries[&declared][NameNamespace::Type]
+        .strong
+        .as_slice()
+    else {
+        panic!("one declaration binding");
+    };
+    assert!(declaration.resolution.target().is_some());
+    assert_eq!(declaration.location, None);
+
+    let imported = snapshot.file(root).unwrap();
+    let [written] = imported
+        .result()
+        .facts()
+        .names
+        .imports
+        .directives
+        .as_slice()
+    else {
+        panic!("one written import");
+    };
+    assert_eq!(written.resolution.target(), Some(target));
+    let site = imported.source().span(Span::new(4, text.len() - 1));
+    assert!(site.is_some());
+    assert_eq!(written.span, site);
+    assert_eq!(written.root_span, site);
+    assert!(imported.result().diagnostics().is_empty());
 }
 
 #[test]

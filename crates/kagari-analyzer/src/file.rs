@@ -141,7 +141,8 @@ impl<'a> FileQueries<'a> {
             })
             .or_else(|| {
                 facts.names.imports.directives.iter().find_map(|import| {
-                    (import.span.range.start <= offset && offset < import.span.range.end)
+                    let span = import.span?.range;
+                    (span.start <= offset && offset < span.end)
                         .then(|| {
                             facts.imported_functions.get(
                                 import

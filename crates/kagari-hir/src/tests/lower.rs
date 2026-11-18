@@ -10,6 +10,7 @@ use crate::{
             Item,
             function::{FunctionImplementation, FunctionKind},
         },
+        origin::NodeOrigin,
         pattern::PatternKind,
         place::PlaceKind,
         stmt::StmtKind,
@@ -18,6 +19,10 @@ use crate::{
     },
     tests::common,
 };
+use kagari_common::identity::{
+    map::DefinitionContext, mapping::DefinitionMappingError, metadata::DefinitionMetadata,
+    table::DefinitionTableError,
+};
 use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile};
 use kagari_syntax::{
     ast::views::ItemView,
@@ -25,6 +30,44 @@ use kagari_syntax::{
 };
 use kagari_types::visibility::Visibility;
 use std::sync::Arc;
+
+#[test]
+fn source_lowering_rejects_foreign_ids_in_record_origins() {
+    let lowered = common::lower_ok("fn f() -> i32 { 1 }");
+    assert!(lowered.source_surface().is_some());
+    let owner = DefinitionContext::new().unwrap();
+    owner.intern_root(lowered.source.module_identity()).unwrap();
+    let foreign = DefinitionContext::new()
+        .unwrap()
+        .intern_root(lowered.source.module_identity())
+        .unwrap();
+    let definitions = owner.snapshot();
+    let cancel = Default::default();
+    DefinitionMetadata::checked(definitions.clone(), lowered.clone(), &cancel).unwrap();
+
+    let origin = NodeOrigin::Structured {
+        declaration: foreign,
+    };
+    let mut wrong_function = lowered.clone();
+    wrong_function.module.functions[0].origin = origin;
+
+    let mut wrong_expression = lowered;
+    let function = &wrong_expression.module.functions[0];
+    let block = function.implementation.script_body().unwrap();
+    let tail = wrong_expression.module.block(block).tail_expr.unwrap();
+    wrong_expression.module.nodes.exprs[tail.index()].1.origin = origin;
+
+    for (site, corrupted) in [
+        ("function", wrong_function),
+        ("expression", wrong_expression),
+    ] {
+        assert_eq!(
+            DefinitionMetadata::checked(definitions.clone(), corrupted, &cancel).unwrap_err(),
+            DefinitionMappingError::Identity(DefinitionTableError::ForeignTable),
+            "{site} origin"
+        );
+    }
+}
 
 #[test]
 fn declaration_only_functions_do_not_acquire_script_bodies() {

@@ -122,6 +122,34 @@ review can evaluate enumeration from the known function to its ordered node IDs.
 cost on a representative edit workload and preserve owner, relative-range and repeated-occurrence
 checks.
 
+## HIR visibility follow-up
+
+Origin validation follows the IDs carried by each record, not the owning module's input
+kind. This is scoped identity validation; it does not define a new mixed-origin policy.
+The visibility changes below are review candidates, not part of the origin fix:
+
+- **Internal helpers:** restrict `typeck::reuse` and `BodyReuse` to HIR; narrow restore
+  helpers to their actual callers. `CheckedAnalysis::to_unverified` has only HIR admission
+  test callers; keep `FileAnalysis::to_unverified` separate because analyzer/compiler
+  tests use it. `ModuleSignatures::type_bounds` and `statics` have only HIR callers.
+- **ID construction:** make plain local HIR ID constructors crate-visible after moving
+  the analyzer test from `StructId::new(0)` to the ID of the actual lowered declaration.
+  Keep public ID types and accessors. Plain IDs still require the matching module.
+- **Coupled storage:** keep `LoweredModule` source, input kind and module together. Give
+  consumers shared access to `Module` declaration slices and node lookup, not writable
+  vectors or independent replacement of `HirNodes`. Keep record origins/name ranges,
+  IDs, binder lists and body/initializer roots writable only on the construction side.
+  Check `DeclarationHeaders` and its binder access when migrating these readers.
+- **Published analysis:** `AnalyzedModule.signatures` already has external read routes
+  through file-stage APIs. Other facts have actual external readers; preserve those
+  reads through the owning views before restricting fields. Keep checked admission
+  and owner-scoped body access intact. Public read-only enums and ID accessors do not
+  require a replacement model.
+
+Confirm the changes against compiler, analyzer, lint, SDK examples and benchmarks;
+workspace-only caller evidence does not establish downstream compatibility. Do not add
+mutable accessors or another HIR model just to preserve field access.
+
 ## Native model
 
 Phases 1–3 remove the registration-dependent frontend split, dedicated default recipes and mixed
