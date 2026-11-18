@@ -6,8 +6,12 @@ use kagari_syntax::ast::{borrow::AstNode, expr::BinaryOp as AstBinaryOp};
 use crate::{
     hir::{
         expr::{ExprData, ExprKind, ops::BinaryOp},
-        ids::{BlockId, ExprId, FunctionId, LocalId, PatternId, PlaceId, StmtId, TypeRefId},
-        item::{Module, function::Function},
+        ids::{
+            BlockId, ExprId, FunctionId, GenericParamId, LocalId, PatternId, PlaceId, StmtId,
+            TypeRefId,
+        },
+        item::{Module, behavior::GenericParam, function::Function},
+        nodes::Local,
         pattern::{PatternData, PatternKind},
         place::{PlaceData, PlaceKind},
         stmt::{BlockData, StmtData},
@@ -65,9 +69,9 @@ impl Lowerer {
 
     /// Reserves a source identity and its matching private function slot before children.
     pub(crate) fn reserve_function(&mut self, span: Span) -> FunctionId {
-        let id = self.source_map.push_function(span);
-        assert_eq!(id.index(), self.functions.len());
+        let id = FunctionId::new(self.functions.len());
         self.functions.push(None);
+        self.source_map.insert_function(id, span);
         id
     }
 
@@ -106,9 +110,25 @@ impl Lowerer {
         id
     }
 
-    /// Allocates a local binding identity and span; the binding payload lives at its syntax owner.
-    pub(crate) fn alloc_local_id(&mut self, span: Span) -> LocalId {
-        self.source_map.push_local(span)
+    pub(crate) fn alloc_generic_param(
+        &mut self,
+        span: Span,
+        record: GenericParam,
+    ) -> GenericParamId {
+        let id = GenericParamId::new(self.module.generic_params.len());
+        self.module.generic_params.push(record);
+        self.source_map.insert_generic_param(id, span);
+        id
+    }
+
+    /// Allocates an authoritative name record for a provisional local.
+    pub(crate) fn alloc_local(&mut self, span: Span, name: String) -> LocalId {
+        let nodes = &mut self.module.nodes;
+        let owner = self.source_map.owner();
+        let id = LocalId::new(nodes.arena(), owner, nodes.locals.len());
+        nodes.locals.push((owner, Local { name }));
+        self.source_map.insert_local(id, span);
+        id
     }
 
     /// Allocates a source-map ID and appends its owner-tagged place payload at the matching index.
@@ -136,14 +156,11 @@ impl Lowerer {
     }
 
     pub(crate) fn synthetic_name_pattern(&mut self, name: &str) -> PatternId {
-        let local = self.alloc_local_id(Span::default());
+        let local = self.alloc_local(Span::default(), name.to_string());
         self.alloc_pattern(
             Span::default(),
             PatternData {
-                kind: PatternKind::Name {
-                    name: name.to_string(),
-                    local,
-                },
+                kind: PatternKind::Name { local },
             },
         )
     }

@@ -4,14 +4,14 @@ use crate::hir::{
     attribute::AttributeFact,
     expr::ExprData,
     ids::{
-        BlockId, BodyOwner, ConstId, EnumId, ExprId, FieldId, FieldOwner, FunctionId, HirOwner,
-        ImplId, ModuleId, NativeTypeId, ParamId, PatternId, PlaceId, StaticId, StmtId, StructId,
-        TraitId, TypeAliasId, TypeRefId, VariantId,
+        BlockId, BodyOwner, ConstId, EnumId, ExprId, FieldId, FieldOwner, FunctionId,
+        GenericParamId, HirOwner, ImplId, ModuleId, NativeTypeId, ParamId, PatternId, PlaceId,
+        StaticId, StmtId, StructId, TraitId, TraitMethodId, TypeAliasId, TypeRefId, VariantId,
     },
     item::{
         adt::{Enum, Field, NativeTypeDeclaration, Struct, Variant},
         alias::TypeAlias,
-        behavior::{Impl, TraitDef},
+        behavior::{GenericParam, Impl, TraitDef, TraitMethod},
         function::{Function, FunctionKind, Param},
         module::{Import, ModuleDecl, UseDecl},
         storage::{ConstItem, StaticItem},
@@ -94,9 +94,28 @@ pub struct Module {
     pub impls: Vec<Impl>,
     /// Shared node storage for declaration types and all body owners.
     pub nodes: HirNodes,
+    /// Authored generic binder records shared by effective declaration lists.
+    pub(crate) generic_params: Vec<GenericParam>,
 }
 
 impl Module {
+    /// Borrows the authored binder for this module-local ID.
+    ///
+    /// Panics if the slot is out of bounds. The ID belongs to the matching lowering.
+    pub fn generic_parameter(&self, id: GenericParamId) -> &GenericParam {
+        &self.generic_params[id.index()]
+    }
+
+    /// Borrows a method from its trait's inline list.
+    ///
+    /// Panics for a foreign lowering or invalid trait/method slot.
+    pub fn trait_method(&self, id: TraitMethodId) -> &TraitMethod {
+        assert_eq!(id.arena(), self.nodes.arena(), "foreign HIR trait method");
+        let method = &self.traits[id.owner().index()].methods[id.slot()];
+        assert_eq!(method.id, id, "trait method slot mismatch");
+        method
+    }
+
     pub(crate) fn static_initializer_for_function(&self, mut id: FunctionId) -> Option<StaticId> {
         while let FunctionKind::Local { block } = self.functions[id.index()].kind {
             match block.owner() {

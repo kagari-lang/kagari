@@ -216,7 +216,7 @@ fn applied_constraints_preserve_type_arguments() {
         .find(|function| function.name == "read")
         .unwrap();
     assert!(
-        matches!(facts.typed.type_table.constraint(read.generic_params[0].bounds[0].ty),
+        matches!(facts.typed.type_table.constraint(facts.lowered.module.generic_parameter(read.generic_params[0]).bounds[0].ty),
         Some(instance)
             if instance.arguments == [crate::types::TypeId::Builtin(kagari_types::scalar::BuiltinType::I32)])
     );

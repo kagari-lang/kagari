@@ -164,7 +164,7 @@ impl BodyChecker<'_> {
                         } else if owner == "Self" {
                             env.self_type.clone().unwrap_or(TypeId::Error)
                         } else {
-                            ty::resolve_named_type(owner, context).ty
+                            ty::resolve_named_type(&self.lowered.module, owner, context).ty
                         };
                         (receiver, member.to_owned(), None)
                     }

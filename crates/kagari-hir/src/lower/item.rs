@@ -9,8 +9,8 @@ use crate::{
     hir::{
         attribute::{AssociatedOwner, AttributeTarget},
         ids::{
-            BodyOwner, FieldId, FieldOwner, FunctionId, HirOwner, ParamId, TypeRefId, UseId,
-            VariantId,
+            BodyOwner, FieldId, FieldOwner, FunctionId, GenericParamId, HirOwner, ParamId, TraitId,
+            TraitMethodId, TypeRefId, UseId, VariantId,
         },
         item::{
             Item,
@@ -271,7 +271,8 @@ impl Lowerer {
             .unwrap_or_default();
         let methods = trait_def
             .methods()
-            .map(|method| self.lower_trait_method(&method, &generic_params))
+            .enumerate()
+            .map(|(slot, method)| self.lower_trait_method(&method, &generic_params, id, slot))
             .collect::<Vec<_>>();
         TraitDef {
             conversion_adapter: None,
@@ -383,11 +384,14 @@ impl Lowerer {
     fn lower_trait_method(
         &mut self,
         method: &Ast<'_, MethodDef>,
-        inherited_generics: &[GenericParam],
+        inherited_generics: &[GenericParamId],
+        owner: TraitId,
+        slot: usize,
     ) -> TraitMethod {
         let function =
             self.lower_method_function(method, FunctionKind::TraitMethod, None, inherited_generics);
-        let id = self.source_map.push_trait_method(syntax_span(method));
+        let id = TraitMethodId::new(self.module.nodes.arena(), owner, slot);
+        self.source_map.insert_trait_method(id, syntax_span(method));
         let function_id = function.id;
         self.finish_function(function);
         TraitMethod {
@@ -403,7 +407,7 @@ impl Lowerer {
         &mut self,
         method: &Ast<'_, MethodDef>,
         receiver_ty: Option<TypeRefId>,
-        inherited_generics: &[GenericParam],
+        inherited_generics: &[GenericParamId],
     ) -> ImplMethod {
         let function = self.lower_method_function(
             method,
@@ -425,7 +429,7 @@ impl Lowerer {
         method: &Ast<'_, MethodDef>,
         kind: FunctionKind,
         receiver_ty: Option<TypeRefId>,
-        inherited_generics: &[GenericParam],
+        inherited_generics: &[GenericParamId],
     ) -> Function {
         let id = self.reserve_function(syntax_span(method));
         self.attach_attributes(*method, AttributeTarget::Item(Item::Function(id)));
@@ -581,23 +585,22 @@ impl Lowerer {
         id
     }
 
-    fn lower_generic_params(&mut self, params: &Ast<'_, GenericParamList>) -> Vec<GenericParam> {
+    fn lower_generic_params(&mut self, params: &Ast<'_, GenericParamList>) -> Vec<GenericParamId> {
         params
             .params()
-            .map(|param| GenericParam {
-                id: self.source_map.push_generic_param(
-                    param
-                        .name()
-                        .map(|name| token_span(&name))
-                        .unwrap_or_else(|| syntax_span(&param)),
-                ),
-                name: param.name_text().unwrap_or_default(),
-                bounds: param
+            .map(|param| {
+                let span = param
+                    .name()
+                    .map(|name| token_span(&name))
+                    .unwrap_or_else(|| syntax_span(&param));
+                let name = param.name_text().unwrap_or_default();
+                let bounds = param
                     .bounds()
                     .map(|bounds| self.lower_trait_refs(bounds.bounds()))
-                    .unwrap_or_default(),
+                    .unwrap_or_default();
+                self.alloc_generic_param(span, GenericParam { name, bounds })
             })
-            .collect::<Vec<_>>()
+            .collect()
     }
 
     fn lower_where_clause(&mut self, where_clause: &Ast<'_, WhereClause>) -> Vec<TraitBound> {

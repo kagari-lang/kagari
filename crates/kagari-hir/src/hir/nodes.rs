@@ -9,6 +9,13 @@ use crate::hir::{
     ty::TypeData,
 };
 
+/// A name declared by a pattern or closure parameter.
+#[derive(Debug, Clone)]
+pub struct Local {
+    /// Written name, or the lowering's recovery name.
+    pub name: String,
+}
+
 /// Node storage shared by all declarations and function/constant bodies in a module.
 ///
 /// The internal `Lowerer` appends a source-map entry and a node row at
@@ -33,17 +40,17 @@ use crate::hir::{
 /// ```
 ///
 /// Name resolution, semantic types and source spans are separate tables keyed by
-/// these IDs. Parameters are held by functions and local bindings by pattern
-/// leaves or closure parameters; neither has its own vector in `HirNodes`.
+/// these IDs. Functions own their parameters. Pattern leaves and closure
+/// parameters link to the provisional name records in `locals`.
 ///
 /// For the example above, `blocks` contains the function's block, `exprs` contains
 /// both operand occurrences and the addition, `types` contains the parameter and
 /// result i32 syntax, and `stmts`/`places`/`patterns` are empty. Adding `val y = x;`
 /// creates statement and pattern rows; `y = x;` creates a place row;
 /// `match x { n => n }` creates pattern rows. Every vector row stores
-/// `(allocation_owner, payload)`. Parameters/locals still live inline in
-/// declaration, pattern or closure records. ParamId indexes its owning function's
-/// parameter list; LocalId still addresses source-map slots and semantic binding maps.
+/// `(allocation_owner, payload)`. ParamId indexes its owning function's
+/// parameter list. LocalId indexes the module-wide local name records and keys
+/// semantic binding maps.
 ///
 /// The historic `arena` field stores the lowering identity shared with SourceMap, not
 /// written in source. `HirOwner::Declaration` marks nodes outside function/constant
@@ -60,7 +67,7 @@ use crate::hir::{
 /// errors. Retain the matching [`crate::lower::LoweredModule`] when retaining IDs.
 #[derive(Debug, Clone, Default)]
 pub struct HirNodes {
-    /// Lowering identity shared with the source map that assigned these row IDs.
+    /// Lowering identity shared with the matching source map.
     pub(crate) arena: LoweringId,
     /// Block rows paired with their allocation owners.
     pub(crate) blocks: Vec<(HirOwner, BlockData)>,
@@ -74,6 +81,8 @@ pub struct HirNodes {
     pub(crate) patterns: Vec<(HirOwner, PatternData)>,
     /// Type-syntax rows; resolved types are stored in the type checker.
     pub(crate) types: Vec<(HirOwner, TypeData)>,
+    /// Provisional local names, in lowering order.
+    pub(crate) locals: Vec<(HirOwner, Local)>,
 }
 
 impl HirNodes {
@@ -170,6 +179,16 @@ impl HirNodes {
         node
     }
 
+    /// Borrows a local name in the matching lowering and owner.
+    ///
+    /// See the [storage checks](Self#panics).
+    pub fn local(&self, id: LocalId) -> &Local {
+        assert_eq!(id.arena(), self.arena, "foreign HIR local");
+        let (owner, node) = &self.locals[id.index()];
+        assert_eq!(id.owner(), *owner, "foreign HIR body node");
+        node
+    }
+
     /// Collects a declaration pattern's provisional name leaves in source order.
     ///
     /// Traversal is depth-first through tuples, struct fields (not declaration
@@ -190,7 +209,9 @@ impl HirNodes {
         let mut work = vec![pattern];
         while let Some(pattern) = work.pop() {
             match &self.pattern(pattern).kind {
-                PatternKind::Name { local, name } => bindings.push((*local, name.as_str())),
+                PatternKind::Name { local } => {
+                    bindings.push((*local, self.local(*local).name.as_str()))
+                }
                 PatternKind::Or(alternatives) => work.extend(alternatives.first().copied()),
                 PatternKind::Tuple(elements)
                 | PatternKind::EnumVariant {

@@ -195,9 +195,11 @@ impl AggregateCatalog {
             for param in &item.generic_params {
                 cancel.check()?;
                 let identity = declarations
-                    .generic_type(param.id)
+                    .generic_type(*param)
                     .expect("trait parameter identity");
-                let constraints = param
+                let constraints = lowered
+                    .module
+                    .generic_parameter(*param)
                     .bounds
                     .iter()
                     .filter_map(|reference| signatures.type_table().constraint(reference.ty))

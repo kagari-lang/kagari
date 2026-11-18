@@ -311,7 +311,7 @@ pub enum ExprKind {
 /// if val Some(x) = value { use_value(x); }
 /// -> Condition::Binding { pattern: p, initializer: e_value }
 /// p -> HirNodes.pattern -> EnumVariant { path: "Some", fields: [p_x] }
-/// p_x -> Name { name: "x", local: l }
+/// p_x -> Name { local: l }
 /// e_value -> HirNodes.expr -> Name { name: "value", explicit_type: None }
 /// ```
 ///
@@ -383,15 +383,13 @@ pub struct FieldInit {
 
 /// An inline closure binder, using LocalId rather than a function ParamId.
 ///
-/// `|x: i32| x + 1` gives ClosureParam { name: "x", local: l, ty: Some(t) },
+/// `|x: i32| x + 1` gives ClosureParam { local: l, ty: Some(t) },
 /// where t enters HirNodes.types as Named("i32") and l keys local binding/type facts.
 /// With contextual `fn(i32) -> i32` typing, `|x| x + 1` stores `ty: None`.
 /// The ID is allocated; the name/annotation are source syntax. Closure resolution
 /// distinguishes parameter bindings from later-discovered captured outer locals.
 #[derive(Debug, Clone)]
 pub struct ClosureParam {
-    /// Parameter name as written.
-    pub name: String,
     /// Local binding identity, unlike a declared function's `ParamId`.
     pub local: LocalId,
     /// Explicit type annotation, or absent for inference.

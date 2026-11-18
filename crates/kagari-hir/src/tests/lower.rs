@@ -482,7 +482,7 @@ fn lowers_function_body_expressions_and_statements() {
             assert_eq!(*writeability, Writeability::Val);
             assert!(matches!(
                 &lowered.module.pattern(*pattern).kind,
-                PatternKind::Name { name, .. } if name == "next"
+                PatternKind::Name { local } if lowered.module.nodes.local(*local).name == "next"
             ));
             assert!(matches!(
                 ty.map(|ty| &lowered.module.type_ref(ty).kind),
@@ -563,7 +563,7 @@ fn lowers_var_binding() {
             assert_eq!(*writeability, Writeability::Var);
             assert!(matches!(
                 &lowered.module.pattern(*pattern).kind,
-                PatternKind::Name { name, .. } if name == "value"
+                PatternKind::Name { local } if lowered.module.nodes.local(*local).name == "value"
             ));
         }
         other => panic!("unexpected stmt kind: {other:?}"),
@@ -702,7 +702,13 @@ fn local_function_rows_preserve_owners_and_module_membership() {
         );
     }
     assert_eq!(functions[1].generic_params.len(), 1);
-    assert_eq!(functions[1].generic_params[0].name, "U");
+    assert_eq!(
+        lowered
+            .module
+            .generic_parameter(functions[1].generic_params[0])
+            .name,
+        "U"
+    );
     assert!(functions[2].generic_params.is_empty());
     assert_eq!(lowered.module.impls[0].methods[0].function, functions[4].id);
 }

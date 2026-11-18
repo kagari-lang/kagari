@@ -1,8 +1,8 @@
 //! Function declarations, inline parameters and method origin tags.
 
 use crate::hir::{
-    ids::{BlockId, FunctionId, ParamId, TypeRefId},
-    item::behavior::{GenericParam, TraitBound},
+    ids::{BlockId, FunctionId, GenericParamId, ParamId, TypeRefId},
+    item::behavior::TraitBound,
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -25,7 +25,7 @@ use kagari_types::{
 /// pub fn echo<T: PartialEq>(x: T) -> T where T: Eq { x }
 /// Function {
 ///     id: f, kind: User, is_async: false, visibility: Public, name: "echo",
-///     generic_params: [GenericParam { id: g, name: "T", bounds: [partial_eq_ref] }],
+///     generic_params: [g],
 ///     bounds: [TraitBound { target: "T", target_ref: t_where, traits: [eq_ref] }],
 ///     params: [Param { id: p, name: "x", ty: t_param }],
 ///     return_type: Some(t_result), implementation: Script(b),
@@ -71,7 +71,7 @@ pub struct Function {
     /// Declared name; may be empty in recovered syntax.
     pub name: String,
     /// Generic binders; method lowering can prepend inherited binders.
-    pub generic_params: Vec<GenericParam>,
+    pub generic_params: Vec<GenericParamId>,
     /// Where-clause requirements before trait/type resolution.
     pub bounds: Vec<TraitBound>,
     /// Inline parameter records in call order.

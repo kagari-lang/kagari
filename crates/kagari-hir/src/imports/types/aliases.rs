@@ -95,7 +95,7 @@ impl TypeCatalog<'_> {
                 if alias
                     .generic_params
                     .iter()
-                    .any(|parameter| parameter.name == *name)
+                    .any(|id| module.lowered.module.generic_parameter(*id).name == *name)
                 {
                     continue;
                 }
@@ -177,7 +177,7 @@ impl TypeCatalog<'_> {
                 if alias
                     .generic_params
                     .iter()
-                    .any(|parameter| parameter.name == *name)
+                    .any(|id| module.lowered.module.generic_parameter(*id).name == *name)
                 {
                     continue;
                 }
@@ -322,7 +322,7 @@ pub(crate) fn alias_references(
         alias
             .generic_params
             .iter()
-            .flat_map(|param| &param.bounds)
+            .flat_map(|id| &module.generic_parameter(*id).bounds)
             .map(|bound| bound.ty),
     );
     for bound in &alias.bounds {

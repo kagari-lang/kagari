@@ -104,7 +104,7 @@ impl<'a, 'c> Builder<'a, 'c> {
                     "missing callable parameters",
                 )?
                 .iter()
-                .map(|parameter| self.local(parameter.local, parameter.name.clone(), span))
+                .map(|parameter| self.local(parameter.local, span))
                 .collect::<Result<_, _>>()?;
             self.body.callable = Some(CallableBody {
                 span,

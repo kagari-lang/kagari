@@ -3,7 +3,7 @@ use super::StructuredLowerer;
 use crate::{
     collections::HashMap,
     hir::{
-        ids::TypeRefId,
+        ids::{GenericParamId, TypeRefId},
         item::behavior::{GenericParam, TraitBound, TraitRef},
         ty::{TypeBuffer, TypeData, TypeKind},
     },
@@ -134,7 +134,7 @@ impl StructuredLowerer<'_> {
     pub(super) fn generics(
         &mut self,
         parameters: &[RegisteredParameter],
-    ) -> Result<Vec<GenericParam>, DeclarationError> {
+    ) -> Result<Vec<GenericParamId>, DeclarationError> {
         parameters
             .iter()
             .map(|parameter| {
@@ -145,11 +145,13 @@ impl StructuredLowerer<'_> {
                     .ok_or_else(|| {
                         DeclarationError("unbound registered generic parameter".into())
                     })?;
-                Ok(GenericParam {
-                    id: self.lowerer.source_map.push_generic_param(Span::default()),
-                    name,
-                    bounds: vec![],
-                })
+                Ok(self.lowerer.alloc_generic_param(
+                    Span::default(),
+                    GenericParam {
+                        name,
+                        bounds: Vec::new(),
+                    },
+                ))
             })
             .collect()
     }
@@ -160,8 +162,8 @@ impl StructuredLowerer<'_> {
         &mut self,
         parameters: &[RegisteredParameter],
         bounds: &[GenericBound],
-    ) -> Result<Vec<GenericParam>, DeclarationError> {
-        let mut generic_params = self.generics(parameters)?;
+    ) -> Result<Vec<GenericParamId>, DeclarationError> {
+        let generic_params = self.generics(parameters)?;
         for bound in bounds {
             let Ty::Parameter { owner, position } = bound.ty else {
                 return Err(DeclarationError(
@@ -174,9 +176,10 @@ impl StructuredLowerer<'_> {
                 .ok_or_else(|| {
                     DeclarationError("header bound target is not a declared binder".into())
                 })?;
-            generic_params[index]
+            let constraints = self.constraints(&bound.constraints)?;
+            self.lowerer.module.generic_params[generic_params[index].index()]
                 .bounds
-                .extend(self.constraints(&bound.constraints)?);
+                .extend(constraints);
         }
         Ok(generic_params)
     }

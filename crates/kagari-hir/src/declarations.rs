@@ -12,7 +12,7 @@ use crate::{
             BodyOwner, FieldId, GenericParamId, HirOwner, ImplId, NativeTypeId, TypeRefId,
             VariantId,
         },
-        item::{Item, behavior::GenericParam, function::FunctionKind},
+        item::{Item, Module, function::FunctionKind},
         ty::DefinitionExposure,
     },
     imports::{
@@ -260,6 +260,7 @@ impl Declarations {
         let mut builder = Builder {
             source,
             map: &lowered.source_map,
+            module: &lowered.module,
             cancel,
             result: Self::empty(lowered, names, context),
             occurrences: HashMap::default(),
@@ -283,7 +284,7 @@ impl Declarations {
                 &item.name,
                 map.item_declaration_span(Item::Function(item.id)),
             )?;
-            builder.generic_params(&owner, &item.generic_params, map);
+            builder.generic_params(&owner, &item.generic_params);
         }
         for item in &module.consts {
             if item.owner.is_some() {
@@ -335,7 +336,7 @@ impl Declarations {
                 &item.name,
                 map.item_declaration_span(Item::TypeAlias(item.id)),
             )?;
-            builder.generic_params(&owner, &item.generic_params, map);
+            builder.generic_params(&owner, &item.generic_params);
         }
         for item in &module.native_types {
             cancel
@@ -352,7 +353,7 @@ impl Declarations {
                 &item.name,
                 map.item_declaration_span(Item::NativeType(item.id)),
             )?;
-            builder.generic_params(&owner, &item.generic_params, map);
+            builder.generic_params(&owner, &item.generic_params);
             for field in &item.fields {
                 cancel
                     .check()
@@ -377,7 +378,7 @@ impl Declarations {
                 &item.name,
                 map.item_declaration_span(Item::Struct(item.id)),
             )?;
-            builder.generic_params(&owner, &item.generic_params, map);
+            builder.generic_params(&owner, &item.generic_params);
             for field in &item.fields {
                 cancel
                     .check()
@@ -402,7 +403,7 @@ impl Declarations {
                 &item.name,
                 map.item_declaration_span(Item::Enum(item.id)),
             )?;
-            builder.generic_params(&owner, &item.generic_params, map);
+            builder.generic_params(&owner, &item.generic_params);
             for variant in &item.variants {
                 cancel
                     .check()
@@ -427,7 +428,7 @@ impl Declarations {
                 &item.name,
                 map.item_declaration_span(Item::Trait(item.id)),
             )?;
-            builder.generic_params(&owner, &item.generic_params, map);
+            builder.generic_params(&owner, &item.generic_params);
             for method in &item.methods {
                 cancel
                     .check()
@@ -444,7 +445,7 @@ impl Declarations {
                     .iter()
                     .find(|function| function.id == method.function)
                     .expect("trait method function");
-                builder.generic_params(&method_owner, &function.generic_params, map);
+                builder.generic_params(&method_owner, &function.generic_params);
             }
         }
         for item in &module.impls {
@@ -453,7 +454,7 @@ impl Declarations {
                 .map_err(|_| DefinitionMappingError::Cancelled)?;
             let owner = builder.identity(root, DefinitionKind::Impl, "")?;
             builder.result.impl_identities.insert(item.id, owner);
-            builder.generic_params(&owner, &item.generic_params, map);
+            builder.generic_params(&owner, &item.generic_params);
             for method in &item.methods {
                 cancel
                     .check()
@@ -470,7 +471,7 @@ impl Declarations {
                     .iter()
                     .find(|function| function.id == method.function)
                     .expect("impl method function");
-                builder.generic_params(&method_owner, &function.generic_params, map);
+                builder.generic_params(&method_owner, &function.generic_params);
             }
         }
         for (members, owner) in module
@@ -537,7 +538,7 @@ impl Declarations {
                 &function.name,
                 map.item_declaration_span(Item::Function(function.id)),
             )?;
-            builder.generic_params(&owner, &function.generic_params, map);
+            builder.generic_params(&owner, &function.generic_params);
         }
         for (members, owner) in module
             .traits
@@ -569,7 +570,7 @@ impl Declarations {
                     &member.name,
                     map.type_span(member.name_ref),
                 );
-                builder.generic_params(&id, &member.generic_params, map);
+                builder.generic_params(&id, &member.generic_params);
             }
         }
         cancel
@@ -602,6 +603,7 @@ impl Declarations {
         let mut builder = Builder {
             source: &lowered.source,
             map: &lowered.source_map,
+            module: &lowered.module,
             cancel,
             result: self,
             occurrences: HashMap::default(),
@@ -643,19 +645,20 @@ impl Declarations {
 struct Builder<'a> {
     source: &'a SourceFile,
     map: &'a SourceMap,
+    module: &'a Module,
     cancel: &'a CancellationToken,
     result: Declarations,
     occurrences: HashMap<(DefinitionId, DefinitionKind, String), u32>,
 }
 
 impl Builder<'_> {
-    fn generic_params(&mut self, owner: &DefinitionId, params: &[GenericParam], map: &SourceMap) {
+    fn generic_params(&mut self, owner: &DefinitionId, params: &[GenericParamId]) {
         let mut position = 0;
         for param in params {
             if self.cancel.check().is_err() {
                 break;
             }
-            let key = DeclarationKey::GenericParameter(param.id);
+            let key = DeclarationKey::GenericParameter(*param);
             // Inherited parameters keep the identity of their trait/impl declaration.
             if self.result.targets.contains_key(&key) {
                 continue;
@@ -666,8 +669,8 @@ impl Builder<'_> {
                     owner: *owner,
                     position,
                 },
-                &param.name,
-                map.generic_param_span(param.id),
+                &self.module.generic_parameter(*param).name,
+                self.map.generic_param_span(*param),
             );
             position += 1;
         }

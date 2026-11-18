@@ -10,7 +10,7 @@ use crate::hir::{
 /// ```text
 /// match pair { (x, _) => x }
 /// outer -> PatternData { kind: Tuple([p0, p1]) }
-/// p0 -> PatternData { kind: Name { name: "x", local: l } }
+/// p0 -> PatternData { kind: Name { local: l } }
 /// p1 -> PatternData { kind: Wildcard }
 /// l -> provisional binding identity used by resolution/type facts
 /// ```
@@ -32,7 +32,7 @@ pub struct PatternData {
 /// | `_` | `Wildcard` |
 /// | `1 \| 2` | `Or([one_pattern, two_pattern])` |
 /// | `1..=LIMIT` | `Range { start: Literal(number_one), end: Path("LIMIT"), inclusive: true }` |
-/// | `x` | `Name { name: "x", local: l }` |
+/// | `x` | `Name { local: l }` |
 /// | `42` | `Literal(Literal { kind: Number, text: "42" })` |
 /// | `(x, _)` / `()` | `Tuple([x_pattern, wildcard])` / `Tuple([])` |
 /// | `Point { x: n, y }` | `Struct { path: "Point", fields: [PatternField { name: "x", pattern: n_pattern }, PatternField { name: "y", pattern: y_pattern }], has_rest: false }` |
@@ -44,7 +44,7 @@ pub struct PatternData {
 /// records linking to subpatterns. Range endpoints are inline PatternBound values,
 /// not ExprIds, and `..` sets `inclusive: false`. Bare names receive provisional
 /// LocalIds: outside ordinary declarations, a visible unit variant can later
-/// resolve as a constructor instead of a binding. Declaration bare names always bind. Struct shorthand `y` creates a nested Name { name: "y", local }
+/// resolve as a constructor instead of a binding. Declaration bare names always bind. Struct shorthand `y` creates a nested Name { local }
 /// pattern. Struct rest is a presence flag, not a field or child pattern; without
 /// it, checking requires every field of the nominal declaration, including private
 /// fields. Semantic tables own alternative-binding consistency and constructor
@@ -66,9 +66,7 @@ pub enum PatternKind {
     },
     /// A bare identifier with a provisional local binding identity.
     Name {
-        /// Source identifier, or a recovery placeholder.
-        name: String,
-        /// Identity used if this name introduces a binding.
+        /// Provisional local whose record retains the written name.
         local: LocalId,
     },
     /// A literal pattern whose value/type is checked later.
@@ -114,8 +112,8 @@ pub enum PatternBound {
 /// Point { x: n, y }
 /// PatternField { name: "x", pattern: n_pattern }
 /// PatternField { name: "y", pattern: y_pattern }
-/// n_pattern -> HirNodes.pattern -> Name { name: "n", local: n_local }
-/// y_pattern -> HirNodes.pattern -> Name { name: "y", local: y_local } // synthesized shorthand
+/// n_pattern -> HirNodes.pattern -> Name { local: n_local }
+/// y_pattern -> HirNodes.pattern -> Name { local: y_local } // synthesized shorthand
 /// ```
 ///
 /// `name` selects the matched object's field; the nested pattern can bind a

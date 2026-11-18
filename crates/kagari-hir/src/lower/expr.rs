@@ -349,11 +349,13 @@ impl Lowerer {
                 params: closure
                     .params()
                     .map(|param| ClosureParam {
-                        name: param
-                            .name()
-                            .and_then(|name| name.text())
-                            .unwrap_or_default(),
-                        local: self.alloc_local_id(syntax_span(&param)),
+                        local: self.alloc_local(
+                            syntax_span(&param),
+                            param
+                                .name()
+                                .and_then(|name| name.text())
+                                .unwrap_or_default(),
+                        ),
                         ty: param.ty().map(|ty| self.lower_type(&ty)),
                     })
                     .collect(),

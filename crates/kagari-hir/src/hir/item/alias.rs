@@ -1,8 +1,8 @@
 //! Transparent script type declarations, separate from native opaque types.
 
 use crate::hir::{
-    ids::{TypeAliasId, TypeRefId},
-    item::behavior::{GenericParam, TraitBound},
+    ids::{GenericParamId, TypeAliasId, TypeRefId},
+    item::behavior::TraitBound,
 };
 use kagari_types::visibility::Visibility;
 
@@ -28,7 +28,7 @@ pub struct TypeAlias {
     /// Source declaration spelling.
     pub name: String,
     /// Ordered alias-owned generic binders.
-    pub generic_params: Vec<GenericParam>,
+    pub generic_params: Vec<GenericParamId>,
     /// Where-clause requirements checked alongside inline parameter bounds.
     pub bounds: Vec<TraitBound>,
     /// Written target type, absent only during recovery.

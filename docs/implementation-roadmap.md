@@ -720,14 +720,14 @@ reuse while preserving transitive invalidation and a fresh-analysis oracle. Curr
 quality gates and directly affected regressions pass. Full workspace and exhaustive feature/backend/
 platform coverage remain CI-only and pending; local acceptance is not a full CI claim.
 
-**Queued origin ownership follow-up:** the
+**Active origin ownership follow-up:** the
 [SO00–SO03 plan](hir-model-review.md#node-owned-origins-and-record-based-ids) moves source/structured
 origins onto actual HIR records and allocates IDs from authoritative category slots. Keep owned
 vectors, typed links and current lowering/owner validity checks; no universal counter or arena
 migration. Real local/generic records and trait-relative method IDs replace the remaining
 source-map-issued identities. Migrate reuse, exact name/static-initializer ranges and checked
-source-free provenance with their consumers, then remove SourceMap. Design is recorded;
-implementation has not started and no implementation validation is claimed.
+source-free provenance with their consumers, then remove SourceMap. The review tracks
+phase progress and validation.
 
 **Pending source-walkthrough review:** [analysis flow and naming](hir-model-review.md#analysis-flow-and-naming-review)
 records stage discoverability, orchestration placement and stage-result/fact/query naming concerns.

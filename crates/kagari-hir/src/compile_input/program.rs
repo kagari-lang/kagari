@@ -125,6 +125,7 @@ impl<'a> CheckedModule<'a> {
                 ImplementationInput::trait_implementation(signature)
             } else {
                 ImplementationInput::inherent(
+                    &module.lowered.module,
                     implementation,
                     &module.declarations,
                     module.typed.type_table(),

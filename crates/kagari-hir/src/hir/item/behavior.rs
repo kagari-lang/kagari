@@ -15,7 +15,7 @@ use kagari_types::{declaration::conversion::ConversionAdapter, visibility::Visib
 /// }
 /// TraitDef {
 ///     id: r, visibility: Public, name: "Reader",
-///     generic_params: [GenericParam { id: g, name: "T", bounds: [] }],
+///     generic_params: [g],
 ///     supertraits: [TraitRef { ty: parent_type }],
 ///     associated_consts: [limit], associated_types: [item], methods: [read],
 /// }
@@ -48,7 +48,7 @@ pub struct TraitDef {
     /// Trait name.
     pub name: String,
     /// Declared generic binders.
-    pub generic_params: Vec<GenericParam>,
+    pub generic_params: Vec<GenericParamId>,
     /// Unresolved parent trait requirements.
     pub supertraits: Vec<TraitRef>,
     /// Inline method surfaces pointing to function slots.
@@ -109,7 +109,7 @@ pub struct AssociatedConst {
 ///
 /// ```text
 /// type Item<T: PartialEq>: PartialEq where T: Display;
-/// generic_params = [GenericParam { id: g, name: "T", bounds: [partial_eq_ref] }]
+/// generic_params = [g]
 /// parameter_bounds = [TraitBound { target: "T", target_ref: t, traits: [display_ref] }]
 /// bounds = [partial_eq_ref_for_output]
 /// ty = None; name = "Item"; name_ref = synthetic_item_name
@@ -127,7 +127,7 @@ pub struct AssociatedConst {
 #[derive(Debug, Clone)]
 pub struct AssociatedType {
     /// Member-level generic binders.
-    pub generic_params: Vec<GenericParam>,
+    pub generic_params: Vec<GenericParamId>,
     /// Where constraints on member binders.
     pub parameter_bounds: Vec<TraitBound>,
     /// Associated member name.
@@ -177,7 +177,7 @@ pub struct TraitMethod {
 ///     fn read(self) -> T { self.value }
 /// }
 /// Impl {
-///     id: i, generic_params: [GenericParam { id: g, name: "T", bounds: [] }],
+///     id: i, generic_params: [g],
 ///     trait_ref: Some(TraitRef { ty: reader_type }), for_type: Some(box_type),
 ///     bounds: [TraitBound { target: "T", target_ref: t, traits: [display_ref] }],
 ///     associated_consts: [limit], associated_types: [item],
@@ -206,7 +206,7 @@ pub struct Impl {
     /// Slot in `Module.impls`.
     pub id: ImplId,
     /// Implementation-level generic binders.
-    pub generic_params: Vec<GenericParam>,
+    pub generic_params: Vec<GenericParamId>,
     /// Implemented trait, absent for an inherent implementation.
     pub trait_ref: Option<TraitRef>,
     /// Target type syntax, possibly absent after recovery.
@@ -243,7 +243,7 @@ pub struct ImplMethod {
 ///
 /// ```text
 /// fn consume<T: Display + Copy>(x: T) {}
-/// GenericParam { id: g, name: "T", bounds: [display_ref, copy_ref] }
+/// GenericParam { name: "T", bounds: [display_ref, copy_ref] }
 /// display_ref.ty -> HirNodes.type_ref -> Named("Display")
 /// copy_ref.ty -> HirNodes.type_ref -> Named("Copy")
 /// g -> SourceMap.generic_param_span(g)
@@ -256,8 +256,6 @@ pub struct ImplMethod {
 /// unresolved until that stage.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenericParam {
-    /// Source-map-wide generic-parameter slot.
-    pub id: GenericParamId,
     /// Binder name as written.
     pub name: String,
     /// Inline unresolved trait references.

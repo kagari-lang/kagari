@@ -4,14 +4,13 @@ use crate::hir::{
     attribute::{AttributeFact, AttributeForm, AttributeTarget, AttributeValue},
     expr::{ExprData, ExprKind},
     ids::{
-        BodyOwner, ExprId, FieldId, FieldOwner, FunctionId, HirOwner, ParamId, TypeRefId, VariantId,
+        BodyOwner, ExprId, FieldId, FieldOwner, FunctionId, GenericParamId, HirOwner, ParamId,
+        TraitMethodId, TypeRefId, VariantId,
     },
     item::{
         Item,
         adt::{Enum, Field, NativeTypeDeclaration, Struct, Variant},
-        behavior::{
-            AssociatedType, GenericParam, Impl, ImplMethod, TraitDef, TraitMethod, TraitRef,
-        },
+        behavior::{AssociatedType, Impl, ImplMethod, TraitDef, TraitMethod, TraitRef},
         function::{Function, FunctionImplementation, FunctionKind, Param},
         module::{Import, ImportLeaf},
     },
@@ -64,9 +63,14 @@ impl StructuredLowerer<'_> {
                     None,
                 )?;
                 self.lowerer.source_map.set_structured_origin(owner);
+                let method_id =
+                    TraitMethodId::new(self.lowerer.module.nodes.arena(), id, methods.len());
+                self.lowerer
+                    .source_map
+                    .insert_trait_method(method_id, Span::default());
                 methods.push(TraitMethod {
                     override_allowed: method.method_policy.override_allowed,
-                    id: self.lowerer.source_map.push_trait_method(Span::default()),
+                    id: method_id,
                     name: method.name.clone(),
                     function,
                     has_default: matches!(
@@ -363,7 +367,7 @@ impl StructuredLowerer<'_> {
         declaration: DefinitionId,
         function: &FnDecl,
         kind: FunctionKind,
-        inherited: &[GenericParam],
+        inherited: &[GenericParamId],
         receiver: Option<TypeRefId>,
     ) -> Result<FunctionId, DeclarationError> {
         self.lowerer.source_map.set_structured_origin(declaration);

@@ -161,13 +161,9 @@ impl Builder<'_, '_> {
         Ok(())
     }
 
-    pub(super) fn local(
-        &self,
-        id: LocalId,
-        name: String,
-        span: Span,
-    ) -> Result<CheckedLocal, ElaborationError> {
+    pub(super) fn local(&self, id: LocalId, span: Span) -> Result<CheckedLocal, ElaborationError> {
         let ty = self.require(self.input.local_type(id), Some(span), "missing local type")?;
+        let local = self.require(self.input.local(id), Some(span), "missing local record")?;
         Ok(CheckedLocal {
             id,
             span: self.require(
@@ -175,7 +171,7 @@ impl Builder<'_, '_> {
                 Some(span),
                 "missing local origin",
             )?,
-            name,
+            name: local.name.clone(),
             ty: self.valid_type(ty, Some(span))?,
         })
     }
@@ -212,8 +208,8 @@ impl Builder<'_, '_> {
         } else {
             match node.kind {
                 PatternKind::Wildcard => CheckedPatternKind::Wildcard,
-                PatternKind::Name { local, name } => {
-                    CheckedPatternKind::Binding(self.local(local, name, span)?)
+                PatternKind::Name { local } => {
+                    CheckedPatternKind::Binding(self.local(local, span)?)
                 }
                 PatternKind::Range { inclusive, .. } => {
                     let (start, end) =

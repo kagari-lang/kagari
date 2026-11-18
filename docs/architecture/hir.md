@@ -92,8 +92,9 @@ reviewed inline capacities; ID checks and allocation behavior are unchanged.
 | `FunctionId`, `ConstId`, `StaticId`, other plain declaration IDs | Index the matching collection in the same module; no arena is carried. |
 | `ExprId`, `StmtId`, `BlockId`, `PlaceId`, `PatternId`, `TypeRefId` | Carry `LoweringId`, owner and an allocation-wide index; `HirNodes` checks lowering/owner and indexes its vector. |
 | `ParamId` | Carries lowering/owner and a position in `Function.params`; `Module::parameter` checks the function and stored identity. `SourceMap` explicitly registers the complete ID's span. |
-| `LocalId` | Carries lowering/owner and a source-map-wide index. Binding syntax lives in patterns or closure parameters; semantic maps use the complete ID. |
-| `FieldId`, `VariantId` | Carry lowering, enclosing declaration owner and member slot; fields belong to a struct or Native type, variants to an enum. Look up the owner's nested member vector. |
+| `LocalId` | Carries lowering/owner and a module-wide slot in `HirNodes.locals`; pattern leaves and closure parameters link to that name record. |
+| `GenericParamId` | Indexes an authored binder in `Module.generic_params`. Inherited method lists reuse the enclosing declaration's IDs. |
+| `FieldId`, `VariantId`, `TraitMethodId` | Carry lowering, enclosing declaration owner and member slot. Look up the owner's nested field, variant or method vector. |
 | `UseId` | Selects one authored declaration in Module.uses, including recovery with no import leaves. Its range selects Module.imports leaves without changing resolution. |
 | `AttributeTarget` | Item/member/use identity in the matching module. Methods name FunctionId; inline associated members name trait/impl plus category-list position. It is not a cross-lowering identity. |
 | `SourceDeclRef` | Carries a full `SourceUnit` plus a declaration handle for cross-module access. Do not index the importing module with it. |

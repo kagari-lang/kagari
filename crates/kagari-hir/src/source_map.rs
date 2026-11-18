@@ -71,7 +71,7 @@ pub struct SourceMap {
     static_initializer_spans: HashMap<StaticId, Span>,
     module_spans: Vec<Span>,
     trait_spans: Vec<Span>,
-    trait_method_spans: Vec<Span>,
+    trait_method_spans: HashMap<TraitMethodId, Span>,
     impl_spans: Vec<Span>,
     param_spans: HashMap<ParamId, Span>,
     local_spans: Vec<Span>,
@@ -206,11 +206,10 @@ impl SourceMap {
         self.arena
     }
 
-    pub(crate) fn push_generic_param(&mut self, span: Span) -> GenericParamId {
-        let id = GenericParamId::new(self.generic_param_spans.len());
+    pub(crate) fn insert_generic_param(&mut self, id: GenericParamId, span: Span) {
+        assert_eq!(id.index(), self.generic_param_spans.len());
         self.generic_param_spans.push(span);
         self.record_origin(OriginTarget::GenericParam(id));
-        id
     }
 
     /// Returns the generic parameter byte range; see the [ID validity requirements](Self#panics).
@@ -264,11 +263,10 @@ impl SourceMap {
         &self.place_spans
     }
 
-    pub(crate) fn push_function(&mut self, span: Span) -> FunctionId {
-        let id = FunctionId::new(self.function_spans.len());
+    pub(crate) fn insert_function(&mut self, id: FunctionId, span: Span) {
+        assert_eq!(id.index(), self.function_spans.len());
         self.function_spans.push(span);
         self.record_origin(OriginTarget::Item(Item::Function(id)));
-        id
     }
 
     pub(crate) fn push_static(&mut self, span: Span) -> StaticId {
@@ -299,11 +297,10 @@ impl SourceMap {
         id
     }
 
-    pub(crate) fn push_trait_method(&mut self, span: Span) -> TraitMethodId {
-        let id = TraitMethodId::new(self.trait_method_spans.len());
-        self.trait_method_spans.push(span);
+    pub(crate) fn insert_trait_method(&mut self, id: TraitMethodId, span: Span) {
+        assert_eq!(id.arena(), self.arena);
+        assert!(self.trait_method_spans.insert(id, span).is_none());
         self.record_origin(OriginTarget::TraitMethod(id));
-        id
     }
 
     pub(crate) fn push_impl(&mut self, span: Span) -> ImplId {
@@ -324,12 +321,16 @@ impl SourceMap {
         self.record_origin(OriginTarget::Param(id));
     }
 
-    pub(crate) fn push_local(&mut self, span: Span) -> LocalId {
-        let id = LocalId::new(self.arena, self.owner, self.local_spans.len());
+    pub(crate) fn owner(&self) -> HirOwner {
+        self.owner
+    }
+
+    pub(crate) fn insert_local(&mut self, id: LocalId, span: Span) {
+        assert_eq!(id.arena(), self.arena);
+        assert_eq!(id.index(), self.local_spans.len());
         self.local_spans.push(span);
-        self.local_owners.push(self.owner);
+        self.local_owners.push(id.owner());
         self.record_origin(OriginTarget::Local(id));
-        id
     }
 
     pub(crate) fn push_struct(&mut self, span: Span) -> StructId {
@@ -426,7 +427,7 @@ impl SourceMap {
 
     /// Returns the trait method byte range; see the [ID validity requirements](Self#panics).
     pub fn trait_method_span(&self, id: TraitMethodId) -> Span {
-        self.trait_method_spans[id.index()]
+        self.trait_method_spans[&id]
     }
 
     /// Returns the implementation block byte range; see the [ID validity requirements](Self#panics).

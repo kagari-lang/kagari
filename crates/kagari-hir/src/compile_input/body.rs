@@ -5,8 +5,10 @@ use crate::{
     compile_input::{environment::CheckedEnvironment, program::AdmissionError},
     hir::{
         expr::{ClosureParam, ExprData, ExprKind},
-        ids::{BlockId, BodyOwner, ExprId, HirOwner, LoweringId, PatternId, PlaceId, StmtId},
-        nodes::HirNodes,
+        ids::{
+            BlockId, BodyOwner, ExprId, HirOwner, LocalId, LoweringId, PatternId, PlaceId, StmtId,
+        },
+        nodes::{HirNodes, Local},
         pattern::PatternData,
         place::PlaceData,
         stmt::{BlockData, StmtData},
@@ -162,6 +164,12 @@ impl<'a> CheckedBodyInput<'a> {
     /// Borrows a pattern from this body with its binding and alternative structure.
     pub fn pattern(self, id: PatternId) -> Option<&'a PatternData> {
         let (owner, node) = self.nodes.patterns.get(id.index())?;
+        (self.owns(id.arena(), id.owner()) && *owner == id.owner()).then_some(node)
+    }
+
+    /// Borrows a local record belonging to this body.
+    pub fn local(self, id: LocalId) -> Option<&'a Local> {
+        let (owner, node) = self.nodes.locals.get(id.index())?;
         (self.owns(id.arena(), id.owner()) && *owner == id.owner()).then_some(node)
     }
 

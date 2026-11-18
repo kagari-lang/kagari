@@ -1,8 +1,8 @@
 //! Nominal struct, enum and native-backed type declarations; no runtime object storage.
 
 use crate::hir::{
-    ids::{EnumId, FieldId, ImplId, NativeTypeId, StructId, TypeRefId, VariantId},
-    item::behavior::{GenericParam, TraitBound, TraitRef},
+    ids::{EnumId, FieldId, GenericParamId, ImplId, NativeTypeId, StructId, TypeRefId, VariantId},
+    item::behavior::{TraitBound, TraitRef},
     writeability::Writeability,
 };
 use kagari_common::identity::table::DefinitionId;
@@ -18,7 +18,7 @@ use std::sync::Arc;
 /// pub native type Handle<T: Display> { pub var value: T }
 /// NativeTypeDeclaration {
 ///     id: n, visibility: Public, name: "Handle",
-///     generic_params: [GenericParam { id: g, name: "T", bounds: [display_ref] }],
+///     generic_params: [g],
 ///     bounds: [], trait_bounds: [],
 ///     fields: [Field { id: f, visibility: Public, writeability: Var, name: "value", ty: t }],
 /// }
@@ -45,7 +45,7 @@ pub struct NativeTypeDeclaration {
     /// Declared nominal type name.
     pub name: String,
     /// Generic binders in declaration order.
-    pub generic_params: Vec<GenericParam>,
+    pub generic_params: Vec<GenericParamId>,
     /// Where-clause constraints before semantic resolution.
     pub bounds: Vec<TraitBound>,
     /// Declared trait requirements on the type surface.
@@ -61,7 +61,7 @@ pub struct NativeTypeDeclaration {
 /// pub struct Point<T> { pub var x: T, val label: String }
 /// Struct {
 ///     id: s, visibility: Public, name: "Point",
-///     generic_params: [GenericParam { id: g, name: "T", bounds: [] }],
+///     generic_params: [g],
 ///     fields: [x_field, label_field], impls: [],
 /// }
 /// x_field = Field { id: x, visibility: Public, writeability: Var, name: "x", ty: t }
@@ -86,7 +86,7 @@ pub struct Struct {
     /// Nominal struct name.
     pub name: String,
     /// Generic binders in source order.
-    pub generic_params: Vec<GenericParam>,
+    pub generic_params: Vec<GenericParamId>,
     /// Inline fields addressed by arena, struct owner and slot.
     pub fields: Vec<Field>,
     /// Unpopulated impl links; inspect `Module.impls` and checked lookup facts instead.
@@ -128,7 +128,7 @@ pub struct Field {
 /// pub enum Choice<T> { None, Some(T) }
 /// Enum {
 ///     id: e, visibility: Public, name: "Choice",
-///     generic_params: [GenericParam { id: g, name: "T", bounds: [] }],
+///     generic_params: [g],
 ///     variants: [Variant { id: none_id, name: "None", payload: [] },
 ///                Variant { id: some_id, name: "Some", payload: [t] }],
 ///     impls: [],
@@ -152,7 +152,7 @@ pub struct Enum {
     /// Nominal enum name.
     pub name: String,
     /// Generic binders in source order.
-    pub generic_params: Vec<GenericParam>,
+    pub generic_params: Vec<GenericParamId>,
     /// Inline variants addressed by arena, enum owner and slot.
     pub variants: Vec<Variant>,
     /// Unpopulated impl links; inspect `Module.impls` and checked lookup facts instead.

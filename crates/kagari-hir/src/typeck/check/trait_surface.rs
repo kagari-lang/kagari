@@ -148,9 +148,10 @@ pub(super) fn validate_trait_surface(
         let parameters = impl_block
             .generic_params
             .iter()
-            .filter_map(|parameter| declarations.generic_type(parameter.id))
+            .filter_map(|parameter| declarations.generic_type(*parameter))
             .collect();
-        let bounds = constraints::implementation_bounds(impl_block, declarations, table);
+        let bounds =
+            constraints::implementation_bounds(&lowered.module, impl_block, declarations, table);
         table.insert_implementation(
             *declarations
                 .impl_identity(impl_block.id)

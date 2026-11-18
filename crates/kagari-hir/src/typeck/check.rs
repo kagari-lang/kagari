@@ -133,7 +133,7 @@ pub(crate) fn check_signatures(
         let id = *declarations.definition(target).expect("type declaration");
         type_bounds.insert(
             id,
-            constraints::parameter_bounds(params, declarations, &type_table),
+            constraints::parameter_bounds(&lowered.module, params, declarations, &type_table),
         );
     }
 
@@ -401,7 +401,7 @@ pub(crate) fn check_signatures(
             generic_params: function
                 .generic_params
                 .iter()
-                .filter_map(|parameter| declarations.generic_type(parameter.id))
+                .filter_map(|parameter| declarations.generic_type(*parameter))
                 .collect(),
             id: function.id,
             name: function_name,

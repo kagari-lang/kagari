@@ -78,7 +78,15 @@ fn generic_binders_and_explicit_traits_use_ordinary_constraint_names() {
             .facts()
             .typed
             .type_table
-            .constraint(function.generic_params[0].bounds[0].ty)
+            .constraint(
+                facts
+                    .facts()
+                    .lowered
+                    .module
+                    .generic_parameter(function.generic_params[0])
+                    .bounds[0]
+                    .ty
+            )
             .is_some()
     );
 }

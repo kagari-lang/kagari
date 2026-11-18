@@ -55,7 +55,8 @@ pub(crate) fn prepare(
         .target
         .map(|target| resolve_type_in(&lowered.module, target, context, &mut table, cancel))
         .unwrap_or(TypeId::Error);
-    let mut bounds = constraints::parameter_bounds(&alias.generic_params, declarations, &table);
+    let mut bounds =
+        constraints::parameter_bounds(&lowered.module, &alias.generic_params, declarations, &table);
     for bound in &alias.bounds {
         if let Some(target) = table.type_ref(bound.target_ref) {
             bounds.entry(target.ty.clone()).or_default().extend(
@@ -387,6 +388,7 @@ impl AliasValidation<'_> {
         for item in &self.lowered.module.structs {
             if contains(self.lowered.source_map.struct_span(item.id)) {
                 return constraints::parameter_bounds(
+                    &self.lowered.module,
                     &item.generic_params,
                     self.declarations,
                     self.table,
@@ -396,6 +398,7 @@ impl AliasValidation<'_> {
         for item in &self.lowered.module.enums {
             if contains(self.lowered.source_map.enum_span(item.id)) {
                 return constraints::parameter_bounds(
+                    &self.lowered.module,
                     &item.generic_params,
                     self.declarations,
                     self.table,
@@ -404,8 +407,12 @@ impl AliasValidation<'_> {
         }
         for item in &self.lowered.module.impls {
             if contains(self.lowered.source_map.impl_span(item.id)) {
-                let mut bounds =
-                    constraints::implementation_bounds(item, self.declarations, self.table);
+                let mut bounds = constraints::implementation_bounds(
+                    &self.lowered.module,
+                    item,
+                    self.declarations,
+                    self.table,
+                );
                 self.member_bounds(&item.associated_types, span, &mut bounds);
                 return bounds;
             }
@@ -413,6 +420,7 @@ impl AliasValidation<'_> {
         for item in &self.lowered.module.traits {
             if contains(self.lowered.source_map.trait_span(item.id)) {
                 let mut bounds = constraints::parameter_bounds(
+                    &self.lowered.module,
                     &item.generic_params,
                     self.declarations,
                     self.table,
@@ -434,7 +442,7 @@ impl AliasValidation<'_> {
                     member
                         .generic_params
                         .iter()
-                        .flat_map(|parameter| &parameter.bounds)
+                        .flat_map(|id| &self.lowered.module.generic_parameter(*id).bounds)
                         .map(|bound| bound.ty),
                 )
                 .chain(member.parameter_bounds.iter().flat_map(|bound| {
@@ -444,8 +452,13 @@ impl AliasValidation<'_> {
                 let owner = self.lowered.source_map.type_span(reference);
                 owner.start <= span.start && span.end <= owner.end
             }) {
-                for (subject, requirements) in
-                    associated::family_inputs(member, self.declarations, self.table).bounds
+                for (subject, requirements) in associated::family_inputs(
+                    &self.lowered.module,
+                    member,
+                    self.declarations,
+                    self.table,
+                )
+                .bounds
                 {
                     bounds.entry(subject).or_default().extend(requirements);
                 }

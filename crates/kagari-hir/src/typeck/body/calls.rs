@@ -174,6 +174,7 @@ impl<'a> BodyChecker<'a> {
             return None;
         }
         let ty = resolve_named_type(
+            &self.lowered.module,
             owner,
             TypeContext {
                 declarations: self.declarations,

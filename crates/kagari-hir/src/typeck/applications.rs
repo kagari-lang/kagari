@@ -750,8 +750,12 @@ pub(crate) fn validate_signatures(
         else {
             continue;
         };
-        let available =
-            constraints::implementation_bounds(impl_block, declarations, signatures.type_table());
+        let available = constraints::implementation_bounds(
+            &lowered.module,
+            impl_block,
+            declarations,
+            signatures.type_table(),
+        );
         validate(
             ApplicationContext {
                 definitions,

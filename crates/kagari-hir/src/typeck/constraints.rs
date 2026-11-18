@@ -3,9 +3,10 @@
 use crate::{
     declarations::Declarations,
     hir::{
+        ids::GenericParamId,
         item::{
             Module,
-            behavior::{GenericParam, Impl, TraitBound, TraitRef},
+            behavior::{Impl, TraitBound, TraitRef},
             function::Function,
         },
         ty::TypeKind,
@@ -126,7 +127,7 @@ pub(super) fn resolve_constraints(
 
 pub(super) fn resolve_owner(
     lowered: &LoweredModule,
-    generics: &[GenericParam],
+    generics: &[GenericParamId],
     bounds: &[TraitBound],
     declarations: &Declarations,
     table: &mut TypeCheckState,
@@ -151,8 +152,8 @@ pub(super) fn resolve_owner_in(
     cancel: &CancellationToken,
 ) {
     let generics = context.generics;
-    for param in generics {
-        for reference in &param.bounds {
+    for &id in generics {
+        for reference in &lowered.module.generic_parameter(id).bounds {
             resolve_constraint(lowered, reference, context, table, diagnostics, cancel);
         }
     }
@@ -209,7 +210,7 @@ pub(super) fn resolve_constraint(
             .cloned()
             .expect("resolved trait application")
     } else {
-        ty::resolve_named_type(name, context)
+        ty::resolve_named_type(&lowered.module, name, context)
     };
     if applied
         && let TypeKind::Generic { args, .. } | TypeKind::Definition { args, .. } =
@@ -287,7 +288,7 @@ pub(super) fn function_bounds(
     declarations: &Declarations,
     table: &TypeTable,
 ) -> super::GenericBounds {
-    let mut result = parameter_bounds(&function.generic_params, declarations, table);
+    let mut result = parameter_bounds(module, &function.generic_params, declarations, table);
     let inherited = module
         .impls
         .iter()
@@ -316,11 +317,12 @@ pub(super) fn function_bounds(
 }
 
 pub(crate) fn implementation_bounds(
+    module: &Module,
     implementation: &Impl,
     declarations: &Declarations,
     table: &TypeTable,
 ) -> super::GenericBounds {
-    let mut result = parameter_bounds(&implementation.generic_params, declarations, table);
+    let mut result = parameter_bounds(module, &implementation.generic_params, declarations, table);
     for bound in &implementation.bounds {
         let Some(parameter) = table
             .type_ref(bound.target_ref)
@@ -339,7 +341,8 @@ pub(crate) fn implementation_bounds(
 }
 
 pub(super) fn parameter_bounds(
-    params: &[GenericParam],
+    module: &Module,
+    params: &[GenericParamId],
     declarations: &Declarations,
     table: &TypeTable,
 ) -> super::GenericBounds {
@@ -347,8 +350,9 @@ pub(super) fn parameter_bounds(
         .iter()
         .filter_map(|param| {
             Some((
-                TypeId::Generic(declarations.generic_type(param.id)?),
-                param
+                TypeId::Generic(declarations.generic_type(*param)?),
+                module
+                    .generic_parameter(*param)
                     .bounds
                     .iter()
                     .filter_map(|reference| table.constraint(reference.ty))

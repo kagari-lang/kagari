@@ -58,7 +58,7 @@ pub(super) fn prepare(
             }
             let mut parameter_names = HashSet::default();
             for parameter in &member.generic_params {
-                if !parameter_names.insert(&parameter.name) {
+                if !parameter_names.insert(&lowered.module.generic_parameter(*parameter).name) {
                     diagnostics.push(error(member, "duplicate generic parameter"));
                 }
             }
@@ -82,7 +82,7 @@ pub(super) fn prepare(
                 cancel,
             );
             if !member.generic_params.is_empty() {
-                let inputs = family_inputs(member, declarations, table);
+                let inputs = family_inputs(&lowered.module, member, declarations, table);
                 table.associated_type_parameters.insert(member_id, inputs);
             } else if !member.parameter_bounds.is_empty() {
                 diagnostics.push(error(
@@ -182,7 +182,7 @@ pub(super) fn prepare(
             }
             let mut parameter_names = HashSet::default();
             for parameter in &member.generic_params {
-                if !parameter_names.insert(&parameter.name) {
+                if !parameter_names.insert(&lowered.module.generic_parameter(*parameter).name) {
                     diagnostics.push(error(member, "duplicate generic parameter"));
                 }
             }
@@ -232,7 +232,7 @@ pub(super) fn prepare(
                         interface.associated_types.insert(target, value);
                     }
                 } else {
-                    let inputs = family_inputs(member, declarations, table);
+                    let inputs = family_inputs(&lowered.module, member, declarations, table);
                     table
                         .associated_type_families
                         .insert(member_id, AssociatedTypeFamily { inputs, value });
@@ -255,11 +255,13 @@ pub(super) fn prepare(
 }
 
 pub(super) fn family_inputs(
+    module: &Module,
     member: &AssociatedType,
     declarations: &Declarations,
     table: &TypeTable,
 ) -> AssociatedTypeParameters {
-    let mut bounds = constraints::parameter_bounds(&member.generic_params, declarations, table);
+    let mut bounds =
+        constraints::parameter_bounds(module, &member.generic_params, declarations, table);
     for bound in &member.parameter_bounds {
         if let Some(target) = table.type_ref(bound.target_ref) {
             bounds.entry(target.ty.clone()).or_default().extend(
@@ -274,7 +276,7 @@ pub(super) fn family_inputs(
         parameters: member
             .generic_params
             .iter()
-            .filter_map(|param| declarations.generic_type(param.id))
+            .filter_map(|param| declarations.generic_type(*param))
             .collect(),
         bounds,
     }
@@ -418,7 +420,7 @@ pub(super) fn resolve_projection_name(
         );
         return projection_reference(ty, id);
     }
-    let receiver = resolve_named_type(base, context).ty;
+    let receiver = resolve_named_type(module, base, context).ty;
     let mut candidates = Vec::new();
     if let TypeId::SelfType(owner) = &receiver {
         candidates.push(NominalType {
@@ -434,8 +436,8 @@ pub(super) fn resolve_projection_name(
     }
     if let TypeId::Generic(parameter) = &receiver {
         let Some(param) =
-            context.generics.iter().rev().find(|param| {
-                context.declarations.generic_type(param.id).as_ref() == Some(parameter)
+            context.generics.iter().rev().copied().find(|param| {
+                context.declarations.generic_type(*param).as_ref() == Some(parameter)
             })
         else {
             return ResolvedTypeRef {
@@ -444,7 +446,8 @@ pub(super) fn resolve_projection_name(
                 target: None,
             };
         };
-        let references = param
+        let references = module
+            .generic_parameter(param)
             .bounds
             .iter()
             .chain(owner_predicates(module, context, base));
@@ -582,8 +585,9 @@ pub(super) fn qualified_projection(
         let references = context
             .generics
             .iter()
-            .filter(|param| context.declarations.generic_type(param.id).as_ref() == Some(parameter))
-            .flat_map(|param| &param.bounds)
+            .copied()
+            .filter(|param| context.declarations.generic_type(*param).as_ref() == Some(parameter))
+            .flat_map(|id| &module.generic_parameter(id).bounds)
             .chain(owner_predicates(module, context, &parameter.name))
             .collect::<Vec<_>>();
         let mut justified = None;
@@ -663,7 +667,7 @@ pub(super) fn qualified_projection(
             let parameters = item
                 .generic_params
                 .iter()
-                .filter_map(|param| context.declarations.generic_type(param.id))
+                .filter_map(|param| context.declarations.generic_type(*param))
                 .collect::<Vec<_>>();
             // Associated bindings are outputs. Select by receiver and trait inputs,
             // then check the requested output rather than selecting another impl.
@@ -695,7 +699,7 @@ pub(super) fn qualified_projection(
                 member_definition
                     .generic_params
                     .iter()
-                    .filter_map(|param| context.declarations.generic_type(param.id))
+                    .filter_map(|param| context.declarations.generic_type(*param))
                     .zip(arguments.iter().cloned()),
             );
             let value = resolve_type_in(
@@ -764,7 +768,7 @@ fn inherited_traits(
             let params = item
                 .generic_params
                 .iter()
-                .filter_map(|param| declarations.generic_type(param.id))
+                .filter_map(|param| declarations.generic_type(*param))
                 .collect();
             let parents = item
                 .supertraits

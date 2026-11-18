@@ -114,7 +114,7 @@ products stay deferred.
 
 ## Node-owned origins and record-based IDs
 
-**Status: queued; design selected, implementation not started.** Keep owned category vectors
+**Status: active.** Keep owned category vectors
 and ID links. Move ranges/origins onto the records they describe; allocate IDs from actual record
 slots. This is an ownership cleanup, not a demonstrated correctness bug or performance win.
 The [roadmap](implementation-roadmap.md#hir-storage-and-attribute-refactor) owns scheduling.
@@ -262,6 +262,22 @@ receivers and Host path roots/dynamic arguments must refer to the destination lo
 generic correspondence from matched binder lists and require consistency when inherited IDs recur.
 Definition-table remapping is not a substitute for lowering-local ID remapping.
 
+#### Deferred reverse lookup and remapping scans
+
+`SourceMap` supports direct ID-to-span lookup. A general reverse lookup would return candidate
+IDs because distinct records can share a range. Body reuse already knows the target function.
+For each function that reaches remapping, it scans five module-wide tables in each lowering
+(expressions, locals, places, patterns and type references), filters by the function's source
+range and pairs entries in slot order using relative spans. Signature reuse scans the old and
+new type-reference tables once per attempt and pairs ordered ID lists by projected span.
+See [body remapping](../crates/kagari-hir/src/typeck/table.rs) and
+[signature remapping](../crates/kagari-hir/src/typeck/signature_reuse.rs).
+
+Moving origins into records still incurs a module-wide scan when remapping enumerates those
+tables. Defer both a general span-to-node index and scan reduction until after SO00–SO03. For
+body reuse, a later review can evaluate enumeration from the known function to its ordered
+node IDs while preserving relative-range checks and repeated occurrences.
+
 ### Execution checkpoints
 
 Each checkpoint must build affected consumers and preserve working behavior. Move a category's
@@ -274,6 +290,21 @@ forwarding APIs. During the migration `SourceMap` may retain only categories not
 | SO01 — Node-owned origins | Relocate `NodeOrigin` to `hir/origin.rs`; add origins to node/local records; allocate ordinary node IDs from their payload vectors. Migrate diagnostics, iteration, body/signature remapping and compiler/analyzer reads for these categories; remove their source-map vectors/owner copies. |
 | SO02 — Declaration-owned origins | Move remaining declaration/member/name/initializer ranges and generic origins; migrate both input routes, attribute target lookup, structured identity validation and source provenance consumers. Move construction context into Lowerer, preserve input-kind/source-surface behavior, then delete SourceMap, its LoweredModule field and obsolete OriginTarget dispatch. |
 | SO03 — Integration and documentation | Complete selected downstream regressions and required quality gates; update architecture/rustdoc examples. Remove this execution detail after lasting contracts reach architecture owners; keep unresolved work in the roadmap. |
+
+SO00 moves local names and generic binders into record tables. Effective generic lists share
+authored binder IDs, and trait method IDs carry the enclosing trait and member slot. Function
+IDs come from the private reservation vector before nested lowering. SourceMap temporarily
+retains the associated spans under the record-issued IDs.
+
+SO00 local checks: structure, workspace formatting, workspace all-target Clippy and diff
+checks pass. The selected HIR, analyzer and compiler library run has 45 passing tests covering
+record lookup, owner isolation, nested slots, generic navigation and shadowing, Native parity,
+body reuse and capture elaboration. The compiler test `aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions`
+also ran through the lower-module filter and fails with `CompileLimitExceeded` at generic
+instance limit 4. The same failure reproduces in a compiler test binary built before SO00.
+Compiler generic-instance accounting owns the follow-up. Reproduce with
+`cargo test -p kagari-compiler --lib tests::lower::aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions -- --exact`.
+Full workspace and backend/platform matrices remain CI scope.
 
 No compatibility exports, old/new access paths, version bumps or artifact regeneration solely
 for unpublished API changes. If a checkpoint cannot build through the intended boundary, repair

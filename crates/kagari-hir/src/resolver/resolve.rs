@@ -316,7 +316,7 @@ impl<'a> BodyResolver<'a> {
         self.push_child_scope();
         for param in params {
             self.bind_name(
-                &param.name,
+                &self.module.nodes.local(param.local).name,
                 ResolvedName::Local(param.local),
                 Writeability::Val,
             );
@@ -338,8 +338,8 @@ impl<'a> BodyResolver<'a> {
             return;
         }
         match self.module.pattern(pattern).kind.clone() {
-            PatternKind::Name { name, .. } if bare_variants => {
-                self.record_pattern_variant(pattern, &name);
+            PatternKind::Name { local } if bare_variants => {
+                self.record_pattern_variant(pattern, &self.module.nodes.local(local).name);
             }
             PatternKind::EnumVariant { path, fields } => {
                 self.record_pattern_variant(pattern, &path);
@@ -378,13 +378,14 @@ impl<'a> BodyResolver<'a> {
                     self.bind_pattern_locals(*first);
                 }
             }
-            PatternKind::Name { name, local } if !name.is_empty() && name != "<missing>" => {
-                if self.resolved.pattern_variants.contains_key(&pattern) {
-                    return;
+            PatternKind::Name { local } => {
+                let name = &self.module.nodes.local(*local).name;
+                if !name.is_empty()
+                    && name != "<missing>"
+                    && !self.resolved.pattern_variants.contains_key(&pattern)
+                {
+                    self.bind_name(name, ResolvedName::Local(*local), Writeability::Val);
                 }
-                let name = name.clone();
-                let local = *local;
-                self.bind_name(&name, ResolvedName::Local(local), Writeability::Val);
             }
             PatternKind::Tuple(elements) => {
                 let elements = elements.clone();

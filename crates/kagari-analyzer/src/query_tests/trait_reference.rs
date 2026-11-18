@@ -145,7 +145,12 @@ fn imported_generic_traits_require_arguments_and_keep_their_navigation_target() 
         let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
         let facts = authoring_facts.records().facts();
         for function in &facts.lowered.module.functions {
-            let bound = function.generic_params[0].bounds[0].ty;
+            let bound = facts
+                .lowered
+                .module
+                .generic_parameter(function.generic_params[0])
+                .bounds[0]
+                .ty;
             assert_eq!(
                 facts.typed.type_table().constraint(bound).is_some(),
                 function.name == "good"

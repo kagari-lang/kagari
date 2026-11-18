@@ -25,8 +25,7 @@ use crate::{
     collections::HashMap,
     declarations::Declarations,
     hir::{
-        ids::{BodySelection, ConstId, ExprId, LocalId, ParamId, StaticId},
-        item::behavior::GenericParam,
+        ids::{BodySelection, ConstId, ExprId, GenericParamId, LocalId, ParamId, StaticId},
         writeability::Writeability,
     },
     imports::{
@@ -145,7 +144,7 @@ pub(crate) struct BodyTypeEnv {
     pub(crate) local_writeability: HashMap<LocalId, Writeability>,
     /// Previously inferred expression types in the current body environment.
     pub(crate) exprs: HashMap<ExprId, TypeId>,
-    pub(crate) generics: Vec<GenericParam>,
+    pub(crate) generics: Vec<GenericParamId>,
     /// Assumed constraints for generic parameters and associated projections.
     pub(crate) generic_bounds: HashMap<TypeId, Vec<NominalType>>,
 }

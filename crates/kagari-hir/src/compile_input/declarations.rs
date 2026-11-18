@@ -148,6 +148,7 @@ impl<'a> ImplementationInput<'a> {
     }
 
     pub(super) fn inherent(
+        module: &Module,
         header: &Impl,
         declarations: &Declarations,
         types: &'a TypeTable,
@@ -163,12 +164,8 @@ impl<'a> ImplementationInput<'a> {
         }
         let mut parameters = Vec::with_capacity(header.generic_params.len());
         for parameter in &header.generic_params {
-            parameters.push(
-                declarations
-                    .generic_type(parameter.id)
-                    .ok_or_else(invalid)?,
-            );
-            for bound in &parameter.bounds {
+            parameters.push(declarations.generic_type(*parameter).ok_or_else(invalid)?);
+            for bound in &module.generic_parameter(*parameter).bounds {
                 types.constraint(bound.ty).ok_or_else(invalid)?;
             }
         }
@@ -187,6 +184,7 @@ impl<'a> ImplementationInput<'a> {
             interface: None,
             generic_params: Cow::Owned(parameters),
             bounds: Cow::Owned(constraints::implementation_bounds(
+                module,
                 header,
                 declarations,
                 types,

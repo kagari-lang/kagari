@@ -1,5 +1,12 @@
 use crate::analysis::*;
-use crate::{hir::stmt::StmtKind, resolver::resolved::ResolvedName, tests::test_analysis};
+use crate::{
+    hir::{
+        ids::{HirOwner, LocalId},
+        stmt::StmtKind,
+    },
+    resolver::resolved::ResolvedName,
+    tests::test_analysis,
+};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 fn analyze(db: &mut AnalysisDatabase, source: &SourceDatabase) -> AnalysisSnapshot {
@@ -89,6 +96,12 @@ fn identical_local_slots_from_different_lowerings_cannot_resolve() {
     assert_eq!(left_local.index(), right_local.index());
     assert_ne!(left_local, right_local);
     assert!(right.typed.type_table.local_type(left_local).is_none());
+    let nodes = &left.lowered.module.nodes;
+    let (id, name) = nodes.pattern_bindings(left_pattern)[0];
+    assert_eq!(nodes.local(id).name, name);
+    assert!(std::panic::catch_unwind(|| right.lowered.module.nodes.local(id)).is_err());
+    let wrong_owner = LocalId::new(id.arena(), HirOwner::Declaration, id.index());
+    assert!(std::panic::catch_unwind(|| nodes.local(wrong_owner)).is_err());
     // Internal node/span access rejects foreign IDs before indexing by the slot.
     assert!(
         std::panic::catch_unwind(|| right

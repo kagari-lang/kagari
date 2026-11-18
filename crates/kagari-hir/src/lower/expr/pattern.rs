@@ -63,14 +63,11 @@ impl Lowerer {
                         } else {
                             let field_span =
                                 field.name().map(|name| token_span(&name)).unwrap_or(span);
-                            let local = self.alloc_local_id(field_span);
+                            let local = self.alloc_local(field_span, name.clone());
                             self.alloc_pattern(
                                 field_span,
                                 PatternData {
-                                    kind: PatternKind::Name {
-                                        name: name.clone(),
-                                        local,
-                                    },
+                                    kind: PatternKind::Name { local },
                                 },
                             )
                         };
@@ -111,16 +108,14 @@ impl Lowerer {
                     .map(|name| token_span(&name))
                     .unwrap_or(span);
                 PatternKind::Name {
-                    name,
-                    local: self.alloc_local_id(binding_span),
+                    local: self.alloc_local(binding_span, name),
                 }
             }
         } else if let Some(literal) = pattern.literal() {
             PatternKind::Literal(self.lower_literal(&literal))
         } else {
             PatternKind::Name {
-                name: "<missing>".to_string(),
-                local: self.alloc_local_id(span),
+                local: self.alloc_local(span, "<missing>".to_string()),
             }
         };
 

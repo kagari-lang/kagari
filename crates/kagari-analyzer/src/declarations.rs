@@ -4,11 +4,7 @@ use kagari_common::span::Span;
 use kagari_hir::{
     analysis::declarations::{DeclarationSnapshot, FileDeclarations},
     declarations::{Declaration, Declarations},
-    hir::{
-        expr::ExprKind,
-        item::{Item, behavior::GenericParam},
-        pattern::PatternKind,
-    },
+    hir::{expr::ExprKind, ids::GenericParamId, item::Item, pattern::PatternKind},
     lower::LoweredModule,
     resolver::resolved::ResolvedName,
 };
@@ -187,12 +183,12 @@ impl<'a> DeclarationSiteIndex<'a> {
         &mut self,
         lowered: &LoweredModule,
         declarations: &'a Declarations,
-        params: &[GenericParam],
+        params: &[GenericParamId],
     ) {
         for param in params {
             self.insert(
-                lowered.source_map.generic_param_span(param.id),
-                declarations.generic_parameter(param.id),
+                lowered.source_map.generic_param_span(*param),
+                declarations.generic_parameter(*param),
                 false,
             );
         }

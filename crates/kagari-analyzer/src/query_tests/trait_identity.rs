@@ -186,7 +186,14 @@ fn matching_local_slots_from_other_modules_never_match_trait_contracts() {
             .find(|f| f.name == "read")
             .unwrap();
         assert_eq!(
-            table.constraint(read.generic_params[0].bounds[0].ty),
+            table.constraint(
+                facts
+                    .lowered
+                    .module
+                    .generic_parameter(read.generic_params[0])
+                    .bounds[0]
+                    .ty
+            ),
             Some(interface(own_trait))
         );
         let method = facts
@@ -294,7 +301,14 @@ fn declaration_reordering_preserves_trait_and_method_identities() {
         .find(|f| f.name == "read")
         .unwrap();
     assert_eq!(
-        table.constraint(read.generic_params[0].bounds[0].ty),
+        table.constraint(
+            facts
+                .lowered
+                .module
+                .generic_parameter(read.generic_params[0])
+                .bounds[0]
+                .ty
+        ),
         Some(interface(&trait_id))
     );
     assert_eq!(

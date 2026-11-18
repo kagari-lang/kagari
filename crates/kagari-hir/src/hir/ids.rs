@@ -2,26 +2,26 @@
 //!
 //! These handles are not [`kagari_common::identity::table::DefinitionId`] values.
 //! Plain IDs contain a `u32`; body-local IDs contain `{ arena, owner, index }`;
-//! field/variant IDs contain `{ arena, owner, slot }`.
+//! field/variant/trait method IDs contain `{ arena, owner, slot }`.
 //!
 //! ```text
-//! SourceMap::push_function -> FunctionId -> Module.functions[id.index()]
+//! Lowerer::reserve_function -> FunctionId -> Module.functions[id.index()]
 //! SourceMap::push_expr     -> ExprId    -> HirNodes.expr(id) -> exprs[id.index()]
 //! Lowerer parameter slot   -> ParamId   -> Module.parameter(id) -> Function.params[id.index()]
-//! SourceMap::push_local    -> LocalId   -> binding record / semantic table by id
+//! Lowerer::alloc_local    -> LocalId   -> HirNodes.local(id) -> locals[id.index()]
 //! FieldId                 -> Module.field(id)
 //!                            -> struct/native owner.fields[id.slot()]
 //! ```
 //!
 //! Parameter indices address positions in the owning `Function.params` list;
-//! local indices still address lowering-wide source-map slots. A [`LoweringId`]
+//! local indices address lowering-wide record slots in `HirNodes.locals`. A [`LoweringId`]
 //! is assigned by a checked process-wide counter. Fresh lowering receives a fresh
 //! identity; cloning/reusing the same lowering retains it. [`HirOwner`] partitions body
 //! records logically; only parameter indices are relative to their function owner.
 //! It is distinct from an enclosing struct/enum owner in a member ID.
 //!
 //! The internal `Lowerer` allocates body nodes through the source map and appends
-//! matching body rows. Parameters instead register their chosen identity and span.
+//! matching body rows. Local records and parameters register spans under their own IDs.
 //! Body/parameter access checks lowering identity and owner before returning the record.
 //! Plain declaration IDs lack those checks and require the matching module.
 //! Cross-module references use [`crate::imports::SourceDeclRef`] with its complete
@@ -48,9 +48,8 @@
 //! (function-local for parameters, otherwise lowering-wide).
 //! A FieldId/VariantId instead uses an enclosing declaration and a member-relative `slot`.
 //!
-//! `id_newtype` exposes an unchecked `new(usize)` using a u32 cast; allocation
-//! callers must bound it. `local_id_newtype` constructors are crate-private and
-//! check the usize-to-u32 conversion; Body/SourceMap accessors check lowering identity and
+//! ID constructors check the usize-to-u32 conversion.
+//! HirNodes/SourceMap accessors for qualified IDs check lowering identity and
 //! stored owner on lookup. An ID does not itself borrow or own its target.
 //! Rebuilding after inserting a declaration can shift plain IDs; neither macro
 //! supplies stable declaration identity across edits. These source-analysis
@@ -68,9 +67,9 @@ macro_rules! id_newtype {
 
         impl $name {
             /// Constructs a local index without checking any declaration collection.
-            /// The `usize` is narrowed to `u32`; allocation callers supply bounded indices.
+            /// Panics if the index exceeds the HIR slot capacity.
             pub fn new(index: usize) -> Self {
-                Self(index as u32)
+                Self(u32::try_from(index).expect("HIR declaration capacity exhausted"))
             }
 
             /// Returns the zero-based slot, without checking a destination collection.
@@ -209,11 +208,6 @@ id_newtype!(
     TraitId
 );
 id_newtype!(
-    /// A lowering-local index identifying the source map's trait-method span vector; trait records retain their method IDs.
-    /// See the [identity families](crate::hir::ids) for allocation and validity rules.
-    TraitMethodId
-);
-id_newtype!(
     /// A lowering-local index identifying `Module.impls`.
     /// See the [identity families](crate::hir::ids) for allocation and validity rules.
     ImplId
@@ -229,7 +223,7 @@ local_id_newtype!(
     ParamId
 );
 local_id_newtype!(
-    /// A lowering/owner-qualified handle identifying a statement, pattern or closure binding and its source-map slot.
+    /// A lowering/owner-qualified handle identifying a provisional local in `HirNodes.locals`.
     /// See the [identity families](crate::hir::ids) for allocation and lookup rules.
     LocalId
 );
@@ -283,7 +277,7 @@ local_id_newtype!(
     TypeRefId
 );
 id_newtype!(
-    /// A lowering-local index identifying the source map's generic-parameter spans; declarations retain their parameter records.
+    /// A lowering-local index identifying a binder in `Module.generic_params`.
     /// See the [identity families](crate::hir::ids) for allocation and validity rules.
     GenericParamId
 );
@@ -357,6 +351,11 @@ pub enum FieldOwner {
     NativeType(NativeTypeId),
 }
 
+member_id!(
+    /// A lowering-qualified method slot in its enclosing trait.
+    TraitMethodId,
+    TraitId
+);
 member_id!(
     /// A lowering-qualified field slot within its struct or Native declaration.
     /// See the [identity families](crate::hir::ids) for member lookup.

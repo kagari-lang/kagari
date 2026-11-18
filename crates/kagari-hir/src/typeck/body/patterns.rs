@@ -146,10 +146,8 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
-            PatternKind::Name { name, .. }
-                if self.names.pattern_variants.contains_key(&pattern) =>
-            {
-                let name = name.clone();
+            PatternKind::Name { local } if self.names.pattern_variants.contains_key(&pattern) => {
+                let name = self.lowered.module.nodes.local(*local).name.clone();
                 self.check_enum_pattern(pattern, &name, &[], expected, env);
             }
             PatternKind::Name { local, .. } => {
@@ -358,10 +356,11 @@ impl<'a> BodyChecker<'a> {
         let mut work = vec![pattern];
         while let Some(pattern) = work.pop() {
             match &self.lowered.module.pattern(pattern).kind {
-                PatternKind::Name { name, local } => {
+                PatternKind::Name { local } => {
                     if self.names.pattern_variants.contains_key(&pattern) {
                         continue;
                     }
+                    let name = &self.lowered.module.nodes.local(*local).name;
                     duplicate |= names.insert(name.clone(), *local).is_some();
                 }
                 PatternKind::Or(alternatives) => work.extend(alternatives.first().copied()),

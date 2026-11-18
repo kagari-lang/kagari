@@ -783,6 +783,15 @@ fn implicit_self_types_belong_to_their_trait() {
         "{:?}",
         analysis.result().diagnostics()
     );
+    let admitted = analysis.to_unverified(&Default::default()).unwrap();
+    let module = &admitted.records().facts().lowered.module;
+    let a = &module.traits[0].methods[0];
+    let b = &module.traits[1].methods[0];
+    assert_eq!((a.id.slot(), b.id.slot()), (0, 0));
+    assert_ne!(a.id.owner(), b.id.owner());
+    assert_eq!(module.trait_method(a.id).function, a.function);
+    assert_eq!(module.trait_method(b.id).function, b.function);
+    assert_ne!(a.function, b.function);
     let first = analysis
         .queries()
         .type_at(text.find("-> Self").unwrap() + 3)
@@ -831,6 +840,13 @@ fn inherited_generic_parameters_keep_the_trait_or_impl_owner() {
         "{:?}",
         analysis.result().diagnostics()
     );
+    let admitted = analysis.to_unverified(&Default::default()).unwrap();
+    let module = &admitted.records().facts().lowered.module;
+    let contract = &module.traits[0];
+    let method = &module.functions[contract.methods[0].function.index()];
+    assert_eq!(method.generic_params[0], contract.generic_params[0]);
+    assert_eq!(module.generic_parameter(method.generic_params[0]).name, "T");
+    assert_eq!(module.generic_parameter(method.generic_params[1]).name, "U");
     let inherited = analysis
         .queries()
         .definition_at(text.find("value: T").unwrap() + 7)

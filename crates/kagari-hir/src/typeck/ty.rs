@@ -5,8 +5,8 @@
 use crate::{
     declarations::{DeclarationId, Declarations},
     hir::{
-        ids::{BodyOwner, HirOwner, ImplId, TraitId, TypeRefId},
-        item::{Module, behavior::GenericParam},
+        ids::{BodyOwner, GenericParamId, HirOwner, ImplId, TraitId, TypeRefId},
+        item::Module,
         ty::{DefinitionExposure, TypeKind},
     },
     imports::types::aliases::CanonicalAlias,
@@ -36,7 +36,7 @@ pub(super) struct TypeContext<'a> {
     /// Declaration and imported type names visible at the type occurrence.
     pub declarations: &'a Declarations,
     /// Generic parameter names mapped to their canonical semantic parameters.
-    pub generics: &'a [GenericParam],
+    pub generics: &'a [GenericParamId],
     /// Semantic replacement for Self, when the enclosing declaration defines one.
     pub self_type: Option<TraitId>,
     /// Enclosing implementation identity, when resolving implementation-specific types.
@@ -85,11 +85,16 @@ pub(super) fn native_type(
     }
 }
 
-pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> ResolvedTypeRef {
-    resolve_named_reference(name, context, true)
+pub(super) fn resolve_named_type(
+    module: &Module,
+    name: &str,
+    context: TypeContext<'_>,
+) -> ResolvedTypeRef {
+    resolve_named_reference(module, name, context, true)
 }
 
 fn resolve_named_reference(
+    module: &Module,
     name: &str,
     context: TypeContext<'_>,
     materialize_alias: bool,
@@ -100,12 +105,13 @@ fn resolve_named_reference(
             .generics
             .iter()
             .rev()
-            .find(|param| param.name == name)
+            .copied()
+            .find(|param| module.generic_parameter(*param).name == name)
         {
-            target = Some(ResolvedTypeTarget::Generic(param.id));
+            target = Some(ResolvedTypeTarget::Generic(param));
             context
                 .declarations
-                .generic_type(param.id)
+                .generic_type(param)
                 .map(TypeId::Generic)
         } else if name == "Self" && context.self_type.is_some() {
             target = context.self_type.map(ResolvedTypeTarget::Trait);
@@ -209,13 +215,14 @@ fn resolve_declaration_reference(
 }
 
 fn resolve_reference(
+    module: &Module,
     name: &str,
     exact: Option<(DefinitionId, Option<&DefinitionExposure>)>,
     context: TypeContext<'_>,
     cancel: &CancellationToken,
 ) -> ResolvedTypeRef {
     let Some((exact, exposure)) = exact else {
-        return resolve_named_reference(name, context, false);
+        return resolve_named_reference(module, name, context, false);
     };
     let selected = context
         .declarations
@@ -379,7 +386,7 @@ fn resolve_type_bounded(
                 .unwrap_or(TypeId::Error)
         }
         TypeKind::Named(name) => {
-            let reference = resolve_reference(name, exact, context, cancel);
+            let reference = resolve_reference(module, name, exact, context, cancel);
             target = reference.target;
             selected_exposure = reference.exposure;
             if exact.is_none()
@@ -428,7 +435,7 @@ fn resolve_type_bounded(
             positional_after_binding,
             callable_syntax,
         } => {
-            let reference = resolve_reference(name, exact, context, cancel);
+            let reference = resolve_reference(module, name, exact, context, cancel);
             target = reference.target;
             selected_exposure = reference.exposure;
             // Visit every argument even if an earlier one cannot resolve.
