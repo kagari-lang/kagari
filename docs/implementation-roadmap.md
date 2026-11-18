@@ -2285,6 +2285,11 @@ The LF01-LF06 plan is retired; Git history owns the phase ledger. SA11 remains
 deferred and unstarted. R8 owns finer invalidation for modules containing local
 functions; this delivery conservatively rechecks changed revisions.
 
+**Open syntax gap: block-local `struct` declarations.** A helper type used by
+only one function still needs a module-level declaration. Block-local structs
+remain a separate follow-up to [named local functions](spec/syntax.md#blocks-and-statements);
+name visibility and type identity for such declarations are not yet specified.
+
 Structured import paths (SA15) are implemented. The
 [HIR guide](architecture/hir.md#structured-import-paths-and-source-sites) and model
 rustdoc own written segments, normalized lookup boundaries and physical prefix-site

@@ -144,38 +144,40 @@ pub struct EnumSignature {
     pub variants: Vec<VariantSignature>,
 }
 
-/// Canonical nominal, member, trait and implementation contracts across prepared modules.
+/// Type, member and trait implementation signatures across prepared modules.
 ///
-/// Built from declaration/signature facts, then read by body checking and compiler
-/// lowering. Source aliases do not create duplicate nominal types. Records are
-/// shared with `Arc`; reverse member indexes retain an owner identity and a slot.
+/// Signature preparation collects declarations without walking function bodies. Body
+/// checking uses the subset reachable from the current module and checks visibility at use.
+/// Signatures may contain error types during recovery.
 ///
+/// To resolve `point.y` by name, look in `Point`'s field list. Given the field ID instead,
+/// [`Self::field`] uses a reverse index into that same list:
 /// ```text
-/// structures[struct_definition] -> Arc<StructSignature { fields, ... }>
-/// fields[field_definition]      -> (struct_definition, slot) -> fields[slot]
-/// traits[trait_definition]      -> Arc<TraitSignature { methods, ... }>
-/// methods[method_definition]    -> (trait_definition, slot) -> methods[slot]
-/// implementations[impl_definition] -> trait application + receiver pattern + bounds
+/// catalog.fields[y_id] = (point_id, 1)  →  catalog.structures[point_id].fields[1]
 /// ```
-///
-/// The slots are semantic member positions, not native memory layout offsets.
-/// The catalog can contain recovered error types until the enclosing checked gate
-/// rejects diagnostics. Generic matching/normalization does not execute methods.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AggregateCatalog {
+    /// Language role → registered definition ID.
     language_items: BTreeMap<LangRole, DefinitionId>,
+    /// Trait impl ID → (trait constant ID → overriding initializer ID).
     implementation_constants: BTreeMap<DefinitionId, BTreeMap<DefinitionId, DefinitionId>>,
+    /// Trait ID → trait signature, including its declared members and parent traits.
     traits: BTreeMap<DefinitionId, Arc<TraitSignature>>,
+    /// Trait impl ID → implemented trait, receiver type pattern, bounds and member mappings.
     implementations: BTreeMap<DefinitionId, Arc<ImplementationSignature>>,
+    /// Trait method ID → (trait ID, index in the trait's `methods` list).
     methods: BTreeMap<DefinitionId, (DefinitionId, usize)>,
-    /// Visits inherent method contracts in definition-key order.
+    /// Inherent method ID → receiver type and method signature.
     inherent_methods: BTreeMap<DefinitionId, Arc<InherentMethodSignature>>,
+    /// Native type ID → declared type signature and fields.
     native_types: BTreeMap<DefinitionId, Arc<NativeTypeSignature>>,
-    /// Visits struct contracts in definition-key order.
+    /// Struct ID → struct signature with fields in declaration order.
     structures: BTreeMap<DefinitionId, Arc<StructSignature>>,
+    /// Field ID → (struct or Native type ID, index in its `fields` list).
     fields: BTreeMap<DefinitionId, (DefinitionId, usize)>,
-    /// Visits enum contracts in definition-key order.
+    /// Enum ID → enum signature with variants in declaration order.
     enumerations: BTreeMap<DefinitionId, Arc<EnumSignature>>,
+    /// Variant ID → (enum ID, index in the enum's `variants` list).
     variants: BTreeMap<DefinitionId, (DefinitionId, usize)>,
 }
 

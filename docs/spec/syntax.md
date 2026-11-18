@@ -929,7 +929,9 @@ Calling `outer(41)` returns `42`. Reading `base` directly inside `add` is an err
   exports cannot name them. Visibility modifiers and declarations in constant
   initializers are rejected. Applicable metadata/tool attributes and lexical lint
   policy are supported; unsupported reflection, registration and role attributes
-  remain errors. Local types, traits, impls and imports are not introduced.
+  remain errors. Unlike a local `fn`, a `struct` cannot be declared inside a
+  function body or nested block; declare it at module scope instead. Other local
+  types, traits, impls and imports are also unsupported.
 
 For example, a returned local value requires no captured environment:
 

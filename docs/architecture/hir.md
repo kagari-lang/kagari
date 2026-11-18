@@ -14,6 +14,7 @@ the documentation conventions.
 | Reader's question | Start here |
 | --- | --- |
 | Where do node IDs find their data? | [Storage and IDs](#storage-and-ids), then the matching `Module` or `HirNodes` collection. |
+| Where is the field record for `point.y`? | [AggregateCatalog](../../crates/kagari-hir/src/aggregates.rs) traces lookup from a receiver type and field name, then from a resolved field ID. |
 | How does a source expression acquire a type and a selected call? | [One function through the tables](#one-function-through-the-tables), then `ModuleFacts` and `TypeTable`. |
 | Which work does an editor query trigger or reuse? | [Editor query views and indexes](#editor-query-views-and-indexes), then [semantic query reuse](#query-work-reuse-and-publication). |
 | What does the compiler receive? | [Checked handoff](#checked-handoff-and-registered-inputs), then the runnable `CheckedCompilation` rustdoc example. |

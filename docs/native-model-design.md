@@ -1027,6 +1027,19 @@ and methods, how declarations are generated or named, and how Runtime binds thos
 handle lifetime/access. No public generic wrapper, per-type view, implicit conversion, or change
 to `Player`'s fields is required now.
 
+#### Deferred: keep Rust receiver loans out of script method selection
+
+Today HIR records `receiver_access` on native methods and uses it to exclude ordinary GC
+structs during method matching. The proposed boundary is one script `self`: changing the Rust
+implementation of `player.heal(10)` from a direct `&mut Player` callback to a context and
+receiver handle that requests an edit must not change whether the script call type-checks.
+
+HIR would check the declared receiver type, method signature and any explicit Kagari access
+rules, not the Rust borrow mode. A binding that requests a direct loan must be rejected at
+binding time if the receiver storage cannot supply it. Runtime must still validate handle
+ownership and reject conflicting loans when the payload is accessed. This is a design
+follow-up, not a change to the current callback API or safety checks.
+
 ### Sequencing, acceptance and remaining limits
 
 Phases 1–3 close the binding-dependent frontend/default/classification replacement described by
