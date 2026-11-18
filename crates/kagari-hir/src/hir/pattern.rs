@@ -1,9 +1,9 @@
 //! Match and binding pattern storage, including provisional local identities.
 
-use crate::hir::origin::NodeOrigin;
 use crate::hir::{
     expr::literal::Literal,
     ids::{LocalId, PatternId},
+    origin::NodeOrigin,
 };
 
 /// A pattern row in HirNodes.patterns, addressed by PatternId, with `kind` as payload.

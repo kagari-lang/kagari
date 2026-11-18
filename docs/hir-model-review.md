@@ -4,8 +4,8 @@
 Required acceptance remains open in the
 [roadmap](implementation-roadmap.md#hir-storage-and-attribute-refactor).
 The arena/reference migration is withdrawn, not completed. Native frontend phases 1–3 are
-implemented; their acceptance limits, inline-identity review and cache-retention policy changes
-retain their existing roadmap owners.
+implemented. SO00–SO03 integrates origins and record-based IDs into the owned HIR model. The
+roadmap retains local acceptance limits and separate follow-ups.
 [Current HIR](architecture/hir.md) and [Runtime](architecture/runtime.md) own implemented contracts.
 
 ## Selected storage and attribute scope
@@ -39,14 +39,6 @@ A bounded strong-cache follow-up first needs a concrete warm-query/retained-resu
 retained unit, invalidation/eviction and clone contract, then measurements. It must preserve
 identity/remapping and fact/context separation. No policy change or speedup is part of HR04–HR08.
 
-### Finite inline-identity follow-up
-
-The audit confirms that `LocalId`, `GenericParamId` and `TraitMethodId` are allocated from
-source-map span slots while their records live elsewhere. Their finite replacement is part of
-the [queued origin ownership plan](#node-owned-origins-and-record-based-ids), not a separate queue.
-The parameter repair does not authorize a uniform ID representation, physical per-owner storage
-or universal graph.
-
 `LoweringId`, `ResolvedTypeTarget` and internal `PreparedSignatures` name current roles;
 `VisibleBinding`/`CompletionCandidate` name analyzer products. `FileAnalysis`/`AnalyzedModule`,
 `BodySignatures` and `update_source` stay unchanged. Broader naming, incremental parsing,
@@ -54,8 +46,7 @@ function-granularity reuse/reclamation and LSP scheduling require separate scope
 
 ## Analysis flow and naming review
 
-**Status: discussion recorded; revisit after the source walkthrough.** No final names, module
-moves or implementation phases are approved. This review is independent of SO00–SO03 below.
+**Status: discussion recorded; revisit after the source walkthrough.** Final names, module moves and implementation phases remain open.
 
 The main flow is hard to discover: declaration/signature/body orchestration is split between
 `lib.rs`, `analysis.rs` and `analysis/{declarations,signatures,body}.rs`. Names also mix stage
@@ -112,247 +103,24 @@ at linking, outside HIR. The [boundary contracts](native-model-design.md#9-front
 describe these owners and preserved validations, not pending migration. Broader provider/prebuild
 products stay deferred.
 
-## Node-owned origins and record-based IDs
+## Deferred reverse lookup and remapping scans
 
-**Status: active.** Keep owned category vectors
-and ID links. Move ranges/origins onto the records they describe; allocate IDs from actual record
-slots. This is an ownership cleanup, not a demonstrated correctness bug or performance win.
-The [roadmap](implementation-roadmap.md#hir-storage-and-attribute-refactor) owns scheduling.
+HIR IDs select records and their origins directly. A general span-to-node query would return
+candidates, since distinct records can cover the same range. Existing editor indexes are
+derived by the analyzer from the matching source and semantic facts.
 
-### Target structures
-
-Illustrative fields below omit unrelated existing fields. All six node payload types
-(`ExprData`, `StmtData`, `BlockData`, `PlaceData`, `PatternData`, `TypeData`) gain `origin`.
-Declarations, parameters and inline members likewise own their origins.
-
-```text
-// hir/origin.rs; relocate the existing attribution contract.
-NodeOrigin = Source(Span) | Structured { declaration: DefinitionId }
-NodeOrigin::source_span() -> Option<Span>
-
-LoweredModule {
-    source: Arc<SourceFile>,
-    module: Module,
-    input_kind: ModuleInputKind,  // Source | Structured; replaces the map's input flag
-}
-
-Module {
-    functions: Vec<Function>, consts: Vec<ConstItem>, ...,
-    generic_params: Vec<GenericParam>,
-    nodes: HirNodes,
-}
-
-HirNodes {
-    arena: LoweringId,
-    exprs: Vec<(HirOwner, ExprData)>, ...,
-    locals: Vec<(HirOwner, Local)>,
-}
-
-ExprData { origin: NodeOrigin, kind: ExprKind }
-ConstItem {
-    id: ConstId, origin: NodeOrigin, name: String, name_span: Option<Span>,
-    owner: Option<ConstOwner>, visibility: Visibility,
-    ty: Option<TypeRefId>, initializer: ExprId,
-}
-StaticItem { ..., origin: NodeOrigin, name_span: Option<Span>,
-             initializer_span: Option<Span> }
-Param { id: ParamId, origin: NodeOrigin, name: String, ty: TypeRefId }
-
-Local { name: String, origin: NodeOrigin }
-PatternKind::Name { local: LocalId }
-ClosureParam { local: LocalId, ty: Option<TypeRefId> }
-
-GenericParam { name: String, bounds: Vec<TraitRef>, origin: NodeOrigin }
-// Declaration/member generic lists become Vec<GenericParamId>.
-TraitMethod { id: TraitMethodId, origin: NodeOrigin, ..., function: FunctionId }
-```
-
-For `pub const LIMIT: i32 = 10;`, lookup becomes:
-
-```text
-item = lowered.module.constant(id)
-item.origin.source_span()  -> full declaration range
-item.name_span             -> LIMIT token range
-```
-
-There is no second map lookup. `ConstId` still identifies the same constant; semantic tables
-may continue using it as a key. `source` retains the matching text/identity/revision, not spans.
-`source_surface()` still rejects structured inputs; keep their logical registration key unchanged.
-
-### Allocation and identity
-
-| Category | Authoritative storage and allocation |
-| --- | --- |
-| Ordinary declarations | Matching `Module` vector length; choose the slot before children when an owner ID is needed. |
-| Functions, including nested functions | Existing `Lowerer.functions: Vec<Option<Function>>`; reserve from its length, fill once, reject unfinished slots. Never allocate from the unfinalized `Module.functions`. |
-| Blocks/statements/expressions/places/patterns/types | Matching `HirNodes` vector length; append owner and origin-bearing payload together. |
-| Parameters | Existing function-local slot and qualified ID; origin belongs to `Param`. |
-| Fields/variants | Existing enclosing-declaration/member-slot IDs; origin belongs to the inline record. |
-| Locals | New real `HirNodes.locals` records; keep the existing lowering/owner-qualified ID shape. |
-| Generic binders | New real `Module.generic_params` records; retain plain module-local `GenericParamId`. |
-| Trait methods | `TraitMethodId { lowering, owner: TraitId, slot }`; checked lookup through `Module::trait_method`. |
-
-The two new vectors store actual names/bounds/origins, not placeholders for counting. Names move
-out of pattern leaves/closure parameters into `Local`; generic records are not copied into
-multiple declaration lists. Semantic resolver bindings remain derived facts, not HIR allocators.
-No universal node table, redundant per-category counter or stable-across-edit ID is introduced.
-Keep `LoweringId`, existing owner/bounds checks and matching-module requirements for plain IDs.
-All slot allocations must check integer capacity before narrowing.
-
-`Lowerer` owns the active `HirOwner` and structured declaration attribution; nested lowering
-saves/restores both. `HirNodes` owns the lowering identity. Construct origins during allocation,
-not by a later span-based join. Parameters and child/member lists retain their present ordering.
-
-**Local rules:** preserve every current binder occurrence, including recovery, shorthand and
-provisional pattern names. A name resolved as a variant does not become a lexical binding.
-Shadowing creates distinct IDs; captures reuse the original ID; only the first `Or` alternative
-supplies canonical bindings. Closure parameters stay locals. A local table avoids reserving a
-closure expression solely to identify parameters lowered before that expression.
-
-**Generic rules:** allocate each authored binder once. Inherited method lists reuse IDs:
-
-```text
-trait Source<T> { fn map<U>(self, value: T, other: U) -> T; }
-Source.generic_params = [gT]
-map.generic_params    = [gT, gU]
-Module.generic_params = [T_record, U_record]
-```
-
-`gT` retains semantic owner `Source`, position 0; `gU` has owner `map`, own position 0,
-not effective-list position 1. `Declarations` retains original-owner deduplication and semantic
-binder ownership. Preserve reverse name lookup/shadowing. Method `where` constraints must not
-mutate an inherited shared binder's bounds. Associated-type binders follow the same rule.
-
-### Range and origin ownership
-
-- Full declaration/member ranges belong to their records, including associated constants/types
-  and authored `UseDecl`. Grouped imports retain one authored use target despite flattened leaves.
-- Exact name ranges belong to named declaration records. Optional ranges represent unavailable
-  source, not invented token locations; preserve malformed/recovery ranges as currently authored.
-- `StaticItem.initializer_span` retains the full AST initializer, including erased parentheses.
-  Do not reconstruct it from the lowered expression or widen it to the declaration.
-- Typed attribute attachment stays on `Module`. Attribute syntax keeps its own ranges; target
-  lookup follows the typed target to the actual record, not a duplicate target-span map.
-- `AssociatedConst.name_ref` / `AssociatedType.name_ref` stay until their association/diagnostic
-  consumers are migrated on evidence; moving spans alone does not make them redundant.
-- Structured origins retain scoped `DefinitionId` attribution and yield no source span. Preserve
-  existing synthetic/recovery anchor behavior; an empty anchor is not authored source evidence.
-- Move `lower/identity.rs` structured-definition validation to traversal of record-owned origins.
-  Relocation must not bypass foreign-definition validation or checked compilation admission.
-
-### Consumer changes and reuse
-
-| Owner | Required adaptation |
-| --- | --- |
-| `lower/context.rs`, `lower/item.rs`, structured lowering | Record-based allocation, inline origins, owner restoration and reserved-function finalization. |
-| `hir/nodes.rs`, `hir/item/*`, `hir/ids.rs` | Local/generic record lookup, trait-member lookup, complete-ID iteration and validity docs. |
-| `declarations`, resolver, type checking | Dereference local/generic records; preserve binding publication, bounds and semantic owners. |
-| `typeck/aliases.rs`, `typeck/signature_reuse.rs`, `TypeTable::restore_function` | Iterate real records/IDs instead of reconstructing IDs from source-map slots. |
-| Analyzer and lint | Read actual declaration/member/node origins; keep editor indexes and lint projections at their existing owners. |
-| `compile_input`, compiler source lowering, `source_inspection`, `update_source` | Preserve debug/diagnostic ranges, checked source provenance and exact static-initializer evidence. |
-
-Retain current reuse eligibility: matching body/signature and dependency/environment evidence is
-required before remapping. Build temporary old-to-new ID correspondences from actual records,
-matched owners and ordered relative ranges. Preserve repeated/empty ranges as separate occurrences;
-never use a single `Span -> ID` map. Unmatched correspondence falls back to checking, not partial
-fact publication. Do not broaden source-less reuse merely because inline origins are available.
-
-Audit ID-bearing values as well as keys: `ResolvedTypeTarget::Generic`, captures, selected-call
-receivers and Host path roots/dynamic arguments must refer to the destination lowering. Derive
-generic correspondence from matched binder lists and require consistency when inherited IDs recur.
-Definition-table remapping is not a substitute for lowering-local ID remapping.
-
-#### Deferred reverse lookup and remapping scans
-
-`SourceMap` supports direct ID-to-span lookup. A general reverse lookup would return candidate
-IDs because distinct records can share a range. Body reuse already knows the target function.
-For each function that reaches remapping, it scans five module-wide tables in each lowering
-(expressions, locals, places, patterns and type references), filters by the function's source
-range and pairs entries in slot order using relative spans. Signature reuse scans the old and
-new type-reference tables once per attempt and pairs ordered ID lists by projected span.
-See [body remapping](../crates/kagari-hir/src/typeck/table.rs) and
+Body reuse knows the target function. Each function that reaches remapping still scans five
+module-wide node collections in each lowering (expressions, locals, places, patterns and type
+references). It filters on the matching owner and function extent, then pairs entries in slot
+order using relative ranges. Signature reuse scans the old and new type-reference collections
+once per attempt and pairs ordered IDs by owner and projected range. Both preserve repeated
+occurrences. See [body remapping](../crates/kagari-hir/src/typeck/table.rs) and
 [signature remapping](../crates/kagari-hir/src/typeck/signature_reuse.rs).
 
-Moving origins into records still incurs a module-wide scan when remapping enumerates those
-tables. Defer both a general span-to-node index and scan reduction until after SO00–SO03. For
-body reuse, a later review can evaluate enumeration from the known function to its ordered
-node IDs while preserving relative-range checks and repeated occurrences.
-
-### Execution checkpoints
-
-Each checkpoint must build affected consumers and preserve working behavior. Move a category's
-origin reads with its storage change; do not introduce duplicate authoritative origins or lasting
-forwarding APIs. During the migration `SourceMap` may retain only categories not yet moved.
-
-| Phase | Change and completion boundary |
-| --- | --- |
-| SO00 — Record-backed identities | Add real local/generic records, migrate name/binder consumers and inherited generic lists; make trait methods owner-relative. SourceMap temporarily retains their range storage, keyed by these record-issued IDs, and no longer allocates these IDs. Verify nested function reservation and all three identity routes. |
-| SO01 — Node-owned origins | Relocate `NodeOrigin` to `hir/origin.rs`; add origins to node/local records; allocate ordinary node IDs from their payload vectors. Migrate diagnostics, iteration, body/signature remapping and compiler/analyzer reads for these categories; remove their source-map vectors/owner copies. |
-| SO02 — Declaration-owned origins | Move remaining declaration/member/name/initializer ranges and generic origins; migrate both input routes, attribute target lookup, structured identity validation and source provenance consumers. Move construction context into Lowerer, preserve input-kind/source-surface behavior, then delete SourceMap, its LoweredModule field and obsolete OriginTarget dispatch. |
-| SO03 — Integration and documentation | Complete selected downstream regressions and required quality gates; update architecture/rustdoc examples. Remove this execution detail after lasting contracts reach architecture owners; keep unresolved work in the roadmap. |
-
-SO00 moves local names and generic binders into record tables. Effective generic lists share
-authored binder IDs, and trait method IDs carry the enclosing trait and member slot. Function
-IDs come from the private reservation vector before nested lowering. SourceMap temporarily
-retains the associated spans under the record-issued IDs.
-
-SO00 local checks: structure, workspace formatting, workspace all-target Clippy and diff
-checks pass. The selected HIR, analyzer and compiler library run has 45 passing tests covering
-record lookup, owner isolation, nested slots, generic navigation and shadowing, Native parity,
-body reuse and capture elaboration. The compiler test `aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions`
-also ran through the lower-module filter and fails with `CompileLimitExceeded` at generic
-instance limit 4. The same failure reproduces from the clean pre-SO00 revision `4665f274c`.
-Compiler generic-instance accounting owns the follow-up. Reproduce with
-`cargo test -p kagari-compiler --lib tests::lower::aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions -- --exact`.
-Full workspace and backend/platform matrices remain CI scope.
-
-SO01 stores node/local origins with their payloads and allocates IDs from those rows. Body
-reuse checks the owner and relative ranges of ordered records. Signature reuse pairs ordered
-type references by owner and projected range and remaps generic targets through matched binder
-lists. Structured node origins participate in definition-reference validation.
-Thirteen focused HIR, analyzer and compiler tests pass across signature/body reuse, Native
-origins, initializer evidence, owner isolation, debug ranges, capture and navigation. Structure,
-workspace formatting, workspace all-target Clippy and diff checks pass.
-
-SO02 moves the remaining origins and exact name/initializer ranges into the declaration
-records and removes SourceMap. Lowerer owns construction context, and checked admission
-reads the matching records and retains source-less registration identity. Attribute targets
-follow record IDs to complete declaration ranges. Eighteen selected HIR, analyzer, compiler
-and lint tests pass across exact sites, Native origin and foreign scope, checked update
-evidence, source-free products and lint targeting. Structure, workspace formatting,
-workspace all-target Clippy and diff checks pass.
-
-No compatibility exports, old/new access paths, version bumps or artifact regeneration solely
-for unpublished API changes. If a checkpoint cannot build through the intended boundary, repair
-its affected consumers before marking it complete; do not disable validation or carry fake stubs.
-
-### Acceptance and validation
-
-Strengthen existing owner scenarios before adding fixtures. New complete Kagari programs belong
-in the owning crate's fixtures, not a duplicate migration test suite.
-
-| Contract | Focused evidence |
-| --- | --- |
-| Const/node lookup | Assert exact full/name/node ranges through actual records, including recovery; allocation no longer depends on span-table length. |
-| Local/member identities | Existing lowering-identity tests reject foreign/wrong-owner lookup; two traits' method slot zero resolves to different records/functions. |
-| Generic identity | Existing inherited-generic navigation tests assert original semantic owner/own slot, method shadowing and bounds; inherited lists dereference one shared record. |
-| Reuse | Existing body neighbor-edit and signature reuse scenarios compare refreshed local/generic targets, types and ranges with fresh analysis; mismatches recheck safely. |
-| Native source-free route | Structured and parsed inputs retain equivalent checked meaning but distinct source availability; invalid structured definition references still fail. |
-| Source provenance | Existing static update/source inspection tests preserve full parenthesized initializer evidence, binding identity and checked admission; analyzer navigation and lint targeting retain exact sites. |
-| Execution boundary | Sample existing compiler/source-free and actual Native tests for call selection, fields and captures; no changed runtime semantics are expected. |
-
-At each implementation checkpoint run the small changed contract set, structure check, formatting,
-workspace all-target Clippy and `git diff --check` required by repository rules. Do not run full
-workspace tests locally; exhaustive feature/backend/platform tests remain CI-only. Record exact
-selected commands/results, new blockers and unrun scope here while implementation is active.
-For this queued documentation change only, validate links/content/diff; no build/test success is claimed.
-
-Primary reference: rustc's [HIR nodes and owner indexes](https://github.com/rust-lang/rust/blob/5f4effd579500175af844241eb179e756190f1e7/compiler/rustc_hir/src/hir.rs)
-and [lowering ID allocation](https://github.com/rust-lang/rust/blob/5f4effd579500175af844241eb179e756190f1e7/compiler/rustc_ast_lowering/src/lib.rs),
-reviewed at commit `5f4effd579500175af844241eb179e756190f1e7`. Borrow separation of node identity
-from source location, not rustc's heterogeneous owner-local numbering or arena lifetimes.
-Kagari's owned typed vectors supply their own slots; arena/Arc migration, cache policy, incremental
-parsing, per-owner physical allocation, Native registration and Runtime installation are out of scope.
+General reverse lookup and scan reduction remain deferred after SO00–SO03. A later body-reuse
+review can evaluate enumeration from the known function to its ordered node IDs. Evaluate the
+cost on a representative edit workload and preserve owner, relative-range and repeated-occurrence
+checks.
 
 ## Native model
 

@@ -1,9 +1,9 @@
 //! Transparent script type declarations, separate from native opaque types.
 
-use crate::hir::origin::NodeOrigin;
 use crate::hir::{
     ids::{GenericParamId, TypeAliasId, TypeRefId},
     item::behavior::TraitBound,
+    origin::NodeOrigin,
 };
 use kagari_common::span::Span;
 use kagari_types::visibility::Visibility;

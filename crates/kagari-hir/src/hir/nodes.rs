@@ -1,9 +1,9 @@
 //! Owner-tagged node vectors and lowering-checked access to a module's lowered bodies.
 
-use crate::hir::origin::NodeOrigin;
 use crate::hir::{
     expr::ExprData,
     ids::{BlockId, ExprId, HirOwner, LocalId, LoweringId, PatternId, PlaceId, StmtId, TypeRefId},
+    origin::NodeOrigin,
     pattern::{PatternData, PatternKind},
     place::PlaceData,
     stmt::{BlockData, StmtData},

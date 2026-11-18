@@ -720,14 +720,31 @@ reuse while preserving transitive invalidation and a fresh-analysis oracle. Curr
 quality gates and directly affected regressions pass. Full workspace and exhaustive feature/backend/
 platform coverage remain CI-only and pending; local acceptance is not a full CI claim.
 
-**Active origin ownership follow-up:** the
-[SO00–SO03 plan](hir-model-review.md#node-owned-origins-and-record-based-ids) moves source/structured
-origins onto actual HIR records and allocates IDs from authoritative category slots. Keep owned
-vectors, typed links and current lowering/owner validity checks; no universal counter or arena
-migration. Real local/generic records and trait-relative method IDs replace the remaining
-source-map-issued identities. Migrate reuse, exact name/static-initializer ranges and checked
-source-free provenance with their consumers, then remove SourceMap. The review tracks
-phase progress and validation.
+SO00–SO03 is implemented and locally validated. Record slots now issue HIR IDs. Nodes and declaration
+records carry their origins, with optional exact name and static-initializer ranges. Local and
+generic records own names and binder bounds, and each trait method ID selects an owner-relative
+slot. Structured input retains scoped attribution and goes through definition-reference validation.
+Reuse still matches owners and ordered ranges. See [HIR storage and IDs](architecture/hir.md#storage-and-ids).
+[Reverse lookup and remapping scans](hir-model-review.md#deferred-reverse-lookup-and-remapping-scans)
+remain deferred.
+
+Structure, workspace formatting, workspace all-target Clippy and diff checks pass. Final
+focused validation has 12 passing test executions covering HIR admission and reuse, structured
+origin validation, analyzer name navigation, actual Native reload, closure captures and execution
+of the same artifact with and without SDK source support. All four HIR doctests and strict
+HIR/analyzer rustdoc pass. Full workspace and exhaustive matrices remain CI scope.
+
+The compiler's `aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions` hits
+`CompileLimitExceeded` at limit 4. It also fails on clean `4665f274c`. The
+[generic instance worklist](#program-owned-generic-instance-worklist) owns compiler-side review.
+Reproduce with
+`cargo test -p kagari-compiler --lib tests::lower::aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions -- --exact`.
+
+The SDK's `provider_callback_retains_captures_partial_output_and_heap_results` fails during
+parsing with `KG_PARSE_EXPECTED_USE_ALIAS`. The fixture uses the reserved `native` keyword as an
+import alias. The first diagnostic reproduces in a pre-SO00 SDK test binary. The SDK embedding
+fixture owns that follow-up. Reproduce with
+`cargo test -p kagari --lib provider_callback_retains_captures_partial_output_and_heap_results`.
 
 **Pending source-walkthrough review:** [analysis flow and naming](hir-model-review.md#analysis-flow-and-naming-review)
 records stage discoverability, orchestration placement and stage-result/fact/query naming concerns.
@@ -1259,7 +1276,7 @@ The [Native boundary contracts](native-model-design.md#9-frontend-and-linking-bo
 [embedding](spec/embedding-api.md) describe the resulting owners. Completed implementation steps
 are not a second pending queue.
 
-LoweredModule retains source/module/source_map; Module.nodes uses HirNodes. Explicit common import
+LoweredModule retains source, module and input kind. Module.nodes uses HirNodes, and records carry their origins. Explicit common import
 scopes and declaration-owned contracts replace attachment maps and input-origin privileges.
 Native signatures have one static kind without installed entries. Real Script expressions/default
 bodies replace dedicated default recipes; compiler ABI/templates derive from checked facts.
@@ -2268,7 +2285,7 @@ retired and Git history owns its phase ledger.
 Important ordering constraints and limits:
 
 - SA11 must preserve the implemented local-function reservation/finalization,
-  source-map alignment and separate body ownership when reviewing self IDs.
+  record origins and separate body ownership when reviewing self IDs.
 - Inline syntax views preserve written import segments and physical source
   identities. Module handles do not replace either of those inputs.
 - SA21 consumes ordinary trait declarations and checked interface operations.

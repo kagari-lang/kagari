@@ -23,8 +23,6 @@ use crate::hir::{
     stmt::{BlockData, StmtData},
     ty::TypeData,
 };
-use kagari_common::span::Span;
-
 pub mod adt;
 pub mod alias;
 pub mod behavior;
@@ -119,31 +117,28 @@ impl Module {
         method
     }
 
-    /// Returns the full origin and optional written name range of an item slot.
+    /// Returns the full origin of an item slot.
     ///
     /// IDs belong to the matching module. An absent slot returns `None`.
-    pub fn item_source(&self, item: Item) -> Option<(NodeOrigin, Option<Span>)> {
-        macro_rules! source {
+    pub(crate) fn item_origin(&self, item: Item) -> Option<NodeOrigin> {
+        macro_rules! origin {
             ($records:ident, $id:ident) => {{
                 let item = self.$records.get($id.index())?;
-                (item.id == $id).then_some((item.origin, item.name_span))
+                (item.id == $id).then_some(item.origin)
             }};
         }
 
         match item {
-            Item::Function(id) => source!(functions, id),
-            Item::Const(id) => source!(consts, id),
-            Item::Static(id) => source!(statics, id),
-            Item::Module(id) => source!(modules, id),
-            Item::Struct(id) => source!(structs, id),
-            Item::NativeType(id) => source!(native_types, id),
-            Item::TypeAlias(id) => source!(type_aliases, id),
-            Item::Enum(id) => source!(enums, id),
-            Item::Trait(id) => source!(traits, id),
-            Item::Impl(id) => {
-                let item = self.impls.get(id.index())?;
-                (item.id == id).then_some((item.origin, None))
-            }
+            Item::Function(id) => origin!(functions, id),
+            Item::Const(id) => origin!(consts, id),
+            Item::Static(id) => origin!(statics, id),
+            Item::Module(id) => origin!(modules, id),
+            Item::Struct(id) => origin!(structs, id),
+            Item::NativeType(id) => origin!(native_types, id),
+            Item::TypeAlias(id) => origin!(type_aliases, id),
+            Item::Enum(id) => origin!(enums, id),
+            Item::Trait(id) => origin!(traits, id),
+            Item::Impl(id) => origin!(impls, id),
         }
     }
 
@@ -152,7 +147,7 @@ impl Module {
     /// Panics for an invalid target slot or foreign qualified handle.
     pub fn attribute_target_origin(&self, target: AttributeTarget) -> NodeOrigin {
         match target {
-            AttributeTarget::Item(item) => self.item_source(item).expect("attribute item slot").0,
+            AttributeTarget::Item(item) => self.item_origin(item).expect("attribute item slot"),
             AttributeTarget::Use(id) => self.uses[id.index()].origin,
             AttributeTarget::Field(id) => self.field(id).origin,
             AttributeTarget::Variant(id) => self.variant(id).origin,
@@ -225,7 +220,9 @@ impl Module {
     /// Panics for a foreign arena or out-of-range owner/slot.
     pub fn variant(&self, id: VariantId) -> &Variant {
         assert_eq!(id.arena(), self.nodes.arena(), "foreign HIR variant");
-        &self.enums[id.owner().index()].variants[id.slot()]
+        let variant = &self.enums[id.owner().index()].variants[id.slot()];
+        assert_eq!(variant.id, id, "variant slot mismatch");
+        variant
     }
 
     /// Borrows a field from its owning struct or Native declaration.

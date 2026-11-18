@@ -5,10 +5,7 @@ use crate::{
     aggregates::{AggregateCatalog, implementations::ImplementationSearchError},
     collections::HashSet,
     declarations::{DeclarationId, Declarations},
-    hir::item::{
-        Item,
-        function::{FunctionImplementation, FunctionKind},
-    },
+    hir::item::function::{FunctionImplementation, FunctionKind},
     lower::LoweredModule,
     resolver::resolved::ResolvedName,
     typeck::{
@@ -287,14 +284,7 @@ pub(super) fn validate(
                     function: item.name.clone(),
                     binding: "invalid language constructor declaration shape".into(),
                 })
-                .with_span(
-                    lowered
-                        .module
-                        .item_source(Item::NativeType(item.id))
-                        .expect("HIR item slot")
-                        .0
-                        .diagnostic_span(),
-                ),
+                .with_span(item.origin.diagnostic_span()),
             );
         }
     }

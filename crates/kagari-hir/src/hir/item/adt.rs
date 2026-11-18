@@ -1,9 +1,9 @@
 //! Nominal struct, enum and native-backed type declarations; no runtime object storage.
 
-use crate::hir::origin::NodeOrigin;
 use crate::hir::{
     ids::{EnumId, FieldId, GenericParamId, ImplId, NativeTypeId, StructId, TypeRefId, VariantId},
     item::behavior::{TraitBound, TraitRef},
+    origin::NodeOrigin,
     writeability::Writeability,
 };
 use kagari_common::identity::table::DefinitionId;

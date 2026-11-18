@@ -1,9 +1,13 @@
 use super::*;
 use crate::{
+    hir::origin::NodeOrigin,
     native::{adoption::adopt, render::declaration_source},
     tests::native_fixture::module,
 };
-use kagari_common::identity::map::DefinitionContext;
+use kagari_common::identity::{
+    map::DefinitionContext, mapping::DefinitionMappingError, scoped::DefinitionReferences,
+    table::DefinitionTableError,
+};
 use kagari_source::source::SourceFile;
 use kagari_stdlib::{catalog as foundation_catalog, catalog};
 use kagari_syntax::parser::ParseLimits;
@@ -137,6 +141,31 @@ fn native_view_trivia_does_not_change_checked_binding_and_default_ownership() {
                 .iter()
                 .all(|method| method.has_default)
         );
+        if supplied.is_none() {
+            let foreign = DefinitionContext::new()
+                .unwrap()
+                .intern_root(lowered.source.module_identity())
+                .unwrap();
+            let mut forged = lowered.as_ref().clone();
+            forged.module.traits[0].methods[0].origin = NodeOrigin::Structured {
+                declaration: foreign,
+            };
+            let error = forged
+                .visit_definition_ids(
+                    &mut |id| {
+                        if *id == foreign {
+                            module.definitions().resolve(*id)?;
+                        }
+                        Ok(())
+                    },
+                    &Default::default(),
+                )
+                .unwrap_err();
+            assert_eq!(
+                error,
+                DefinitionMappingError::Identity(DefinitionTableError::ForeignTable)
+            );
+        }
         let natives = lowered
             .module
             .functions
@@ -208,10 +237,8 @@ fn native_view_trivia_does_not_change_checked_binding_and_default_ownership() {
                 let origin = lowered.module.expr(call).origin;
                 assert_eq!(origin.source_span().is_some(), supplied.is_some());
                 if supplied.is_none() {
-                    assert!(matches!(
-                        origin,
-                        crate::hir::origin::NodeOrigin::Structured { .. }
-                    ));
+                    assert_eq!(origin, function.origin);
+                    assert!(matches!(origin, NodeOrigin::Structured { .. }));
                 }
                 let registered = &module.records().traits[0]
                     .methods

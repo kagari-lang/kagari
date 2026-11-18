@@ -1,13 +1,13 @@
 //! Expressions and their stored child IDs, before name resolution and type checking.
 
 pub mod literal;
-use crate::hir::origin::NodeOrigin;
 use crate::hir::{
     expr::{
         literal::Literal,
         ops::{BinaryOp, PrefixOp},
     },
     ids::{BlockId, ExprId, LocalId, PatternId, TypeRefId},
+    origin::NodeOrigin,
     ty::TypeBuffer,
 };
 

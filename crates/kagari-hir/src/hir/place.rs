@@ -1,7 +1,9 @@
 //! Assignment-path syntax kept separate from ordinary value expressions.
 
-use crate::hir::ids::{ExprId, PlaceId};
-use crate::hir::origin::NodeOrigin;
+use crate::hir::{
+    ids::{ExprId, PlaceId},
+    origin::NodeOrigin,
+};
 
 /// A potential assignment destination in HirNodes.places, with only `kind` as payload.
 ///

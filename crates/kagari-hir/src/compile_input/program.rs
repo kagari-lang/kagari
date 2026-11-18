@@ -295,10 +295,7 @@ impl<'a> CheckedModule<'a> {
     /// Returns source or structured attribution for an admitted declaration slot.
     /// Structured definition IDs belong to the retained registration/environment scope.
     pub fn declaration_origin(&self, item: Item) -> Option<NodeOrigin> {
-        self.lowered
-            .module
-            .item_source(item)
-            .map(|(origin, _)| origin)
+        self.lowered.module.item_origin(item)
     }
 
     /// Returns a declaration's authored source extent, or `None` for a structured

@@ -106,6 +106,10 @@ reviewed inline capacities; ID checks and allocation behavior are unchanged.
 Parameter identity comes from its owning function's retained list. Two functions can each
 have parameter index zero, with distinct complete IDs. Closure binders remain LocalId.
 Other body-node indices remain module-wide category slots.
+For `pub const LIMIT: i32 = 10;`, `Module::constant(id)` returns the record carrying
+the full declaration in `origin` and the `LIMIT` token in `name_span`. Structured
+registration stores a scoped declaration ID and leaves written ranges absent.
+
 Each Param stores its ID, name, type syntax and origin. Resolver bindings and checked source
 signatures impose Val rather than reading configurable parameter writeability; object-field
 mutation remains distinct from rebinding the parameter.

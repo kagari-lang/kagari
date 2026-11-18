@@ -1,9 +1,9 @@
 //! Blocks and statements: separate statement sequences, value tails and mutation places.
 
-use crate::hir::origin::NodeOrigin;
 use crate::hir::{
     expr::{Condition, ops::BinaryOp},
     ids::{BlockId, ExprId, FunctionId, PatternId, PlaceId, StmtId, TypeRefId},
+    origin::NodeOrigin,
     writeability::Writeability,
 };
 use smallvec::SmallVec;

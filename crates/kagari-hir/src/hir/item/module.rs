@@ -1,7 +1,9 @@
 //! Child module headers and flattened import syntax, before graph construction.
 
-use crate::hir::ids::{ModuleId, UseId};
-use crate::hir::origin::NodeOrigin;
+use crate::hir::{
+    ids::{ModuleId, UseId},
+    origin::NodeOrigin,
+};
 use kagari_common::span::Span;
 use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
 use std::ops::Range;

@@ -1,9 +1,9 @@
 //! Trait/implementation surfaces, generic binders and links to method functions.
 
-use crate::hir::ids::{
-    ConstId, FunctionId, GenericParamId, ImplId, TraitId, TraitMethodId, TypeRefId,
+use crate::hir::{
+    ids::{ConstId, FunctionId, GenericParamId, ImplId, TraitId, TraitMethodId, TypeRefId},
+    origin::NodeOrigin,
 };
-use crate::hir::origin::NodeOrigin;
 use kagari_common::span::Span;
 use kagari_types::{declaration::conversion::ConversionAdapter, visibility::Visibility};
 

@@ -1,8 +1,8 @@
 //! Constant declarations and their semantic owners.
 
-use crate::hir::origin::NodeOrigin;
 use crate::hir::{
     ids::{ConstId, ExprId, ImplId, StaticId, TraitId, TypeRefId},
+    origin::NodeOrigin,
     writeability::Writeability,
 };
 use kagari_common::span::Span;

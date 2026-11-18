@@ -1,9 +1,9 @@
 //! Function declarations, inline parameters and method origin tags.
 
-use crate::hir::origin::NodeOrigin;
 use crate::hir::{
     ids::{BlockId, FunctionId, GenericParamId, ParamId, TypeRefId},
     item::behavior::TraitBound,
+    origin::NodeOrigin,
 };
 use kagari_common::span::Span;
 use kagari_common::{
