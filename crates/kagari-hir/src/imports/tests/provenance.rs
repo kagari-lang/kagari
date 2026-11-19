@@ -348,15 +348,12 @@ fn duplicate_logical_modules_keep_source_units_and_reject_absolute_lookup() {
         ),
         Err(ModuleOrderError::InvalidImports(_))
     ));
-    let ctx = LookupContext {
-        importer: &graph
-            .catalog
-            .definitions
-            .lookup_module(left.source.module_identity())
-            .unwrap(),
-        observations: None,
-        avoid: None,
-    };
+    let importer = graph
+        .catalog
+        .definitions
+        .lookup_module(left.source.module_identity())
+        .unwrap();
+    let ctx = LookupContext::new(&importer);
     let path = [
         left.source.module_identity().package.0.clone(),
         "left".into(),
@@ -384,11 +381,7 @@ fn relowered_same_revision_targets_are_stale_and_strong_collisions_do_not_filter
         .unwrap();
     let old = ModuleGraph::build([&first], &definitions, &Default::default()).unwrap();
     let new = ModuleGraph::build([&second], &definitions, &Default::default()).unwrap();
-    let ctx = LookupContext {
-        importer: &importer,
-        observations: None,
-        avoid: None,
-    };
+    let ctx = LookupContext::new(&importer);
     let ns = NamespaceId::Module(SourceUnit::of(&first, &old.catalog.definitions));
     let LookupResult::Found(hit) = old
         .catalog

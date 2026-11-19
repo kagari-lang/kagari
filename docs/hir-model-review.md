@@ -126,11 +126,10 @@ checks.
 
 Origin validation follows the IDs carried by each record, not the owning module's input
 kind. This is scoped identity validation; it does not define a new mixed-origin policy.
-The visibility changes below are review candidates, not part of the origin fix:
+`typeck::reuse` and `BodyReuse` are crate-visible; `environment_matches` and `restore`
+are restricted to `typeck`. The remaining visibility candidates are separate from the origin fix:
 
-- **Internal helpers:** restrict `typeck::reuse` and `BodyReuse` to HIR; narrow restore
-  helpers to their actual callers. `CheckedAnalysis::to_unverified` has only HIR admission
-  test callers; keep `FileAnalysis::to_unverified` separate because analyzer/compiler
+- **Internal helpers:** `CheckedAnalysis::to_unverified` has only HIR admission test callers; keep `FileAnalysis::to_unverified` separate because analyzer/compiler
   tests use it. `ModuleSignatures::type_bounds` and `statics` have only HIR callers.
 - **ID construction:** make plain local HIR ID constructors crate-visible after moving
   the analyzer test from `StructId::new(0)` to the ID of the actual lowered declaration.

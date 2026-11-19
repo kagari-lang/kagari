@@ -20,24 +20,24 @@ use kagari_syntax::{lexer, token::Token};
 /// then requires compatible surrounding declaration tokens, unchanged body text
 /// and an ordered correspondence between records. Local IDs are remapped into the new lowering;
 /// old IDs cannot simply be copied. Failed correspondence falls back to checking.
-pub struct BodyReuse<'a> {
+pub(crate) struct BodyReuse<'a> {
     /// Positive eligibility evidence retained before diagnostic truncation.
-    pub previous_valid_bodies: &'a HashSet<FunctionId>,
+    pub(crate) previous_valid_bodies: &'a HashSet<FunctionId>,
     /// Previous analysis diagnostics used to exclude unsafe reuse.
-    pub previous_diagnostics: &'a [Diagnostic],
+    pub(crate) previous_diagnostics: &'a [Diagnostic],
     /// Old source and its origin-bearing nodes for remapping.
-    pub previous_lowered: &'a LoweredModule,
+    pub(crate) previous_lowered: &'a LoweredModule,
     /// Previously published type/call/member facts.
-    pub previous_types: &'a TypeTable,
+    pub(crate) previous_types: &'a TypeTable,
     /// Text whose byte ranges the previous source map describes.
-    pub old_text: &'a str,
+    pub(crate) old_text: &'a str,
     /// Current text whose byte ranges the new lowering describes.
-    pub new_text: &'a str,
+    pub(crate) new_text: &'a str,
 }
 
 impl BodyReuse<'_> {
     /// Requires compatible surrounding source tokens and diagnostic locations before trying body reuse.
-    pub(crate) fn environment_matches(
+    pub(super) fn environment_matches(
         &self,
         current: &LoweredModule,
         cancel: &CancellationToken,
@@ -76,7 +76,7 @@ impl BodyReuse<'_> {
     }
 
     /// Matches unchanged body syntax and remaps its IDs/spans into the new lowering before restoring facts.
-    pub(crate) fn restore(
+    pub(super) fn restore(
         &self,
         current: &LoweredModule,
         function: &Function,

@@ -124,45 +124,6 @@ cache. Extend the existing bounded-search owner in
 with the source Iterator scenario already covered by
 [native selection tests](../crates/kagari-hir/src/aggregates/native/tests.rs).
 
-### P2: Declaration attribute errors are checked only after full body analysis
-
-[`analyze_parsed`](../crates/kagari-hir/src/lib.rs) performs generic attribute-name
-validation after `analyze_prepared` has checked bodies. It is the only producer of
-`UnknownAttribute` and `UnsupportedAttribute`. Declaration, signature and selected
-body queries never execute that block. In contrast, `#[lang]` validation already
-belongs to [declaration preparation](../crates/kagari-hir/src/language/items.rs).
-
-For each of these independent files, install the standard catalog and query the
-same source snapshot through declarations, signatures, selected body and full
-analysis:
-
-```text
-#[reflect] fn good() -> i32 { 42 }
-```
-
-```text
-#[unknown] fn good() -> i32 { 42 }
-```
-
-Both declaration/signature results and selected-body diagnostics are empty;
-selected-body eligibility is `Complete`. Full analysis reports respectively
-`UnsupportedAttribute` and `UnknownAttribute`, but its body eligibility also
-remains `Complete`. `check_program` correctly rejects both files. This was
-confirmed through the public APIs, not inferred only from imports.
-
-An editor using staged header queries therefore misses required declaration
-errors, despite the selected-body API directing header diagnostics to its retained
-signature snapshot. The shared-validity decision precedes this late validation.
-This stage ownership problem leaves the errors outside the shared-validity
-evidence used by both paths. It is not a selected-body-only error or a bypass of
-executable admission.
-
-Repair boundary: validate generic attribute names and registered native spans once
-at declaration preparation, publish the resulting staged diagnostics/validity, and
-let full analysis aggregate them. Preserve `tool::*` passthrough, native authority,
-local declaration coverage and recovery. Reuse the existing full-analysis attribute
-fixtures and native-authority tests; add staged-query assertions at the declaration/
-signature query owner rather than duplicating language fixtures.
 
 ### P3: Shared semantic utilities are owned by fact storage and checking files
 
@@ -190,25 +151,16 @@ consume these same functions. Preserve limits and recovery distinctions; do not
 merge inference matching, which has different partial-information semantics, or
 move unrelated helpers into `common`.
 
-### P3: The public handoff surface retains unused process and catalog access
+### P3: Two public bridges have only test consumers
 
-A workspace consumer audit found no calls to `CheckedEnvironment::imported_functions`,
-`imported_statics` or `imported_constants` in
-[the admitted environment](../crates/kagari-hir/src/compile_input/environment.rs).
-Its `functions` field serves only the unused getter. Static/constant storage also
-serves the used `static_declaration`/`constant_value` projections and must remain.
-[BodyReuse](../crates/kagari-hir/src/typeck/reuse.rs) is public although all of its
-consumers are within HIR and its operations are crate-internal.
-
-`TypeTable::implementation_method` is another public bridge whose consumers are
+`TypeTable::implementation_method` is a public bridge whose consumers are
 only HIR tests; production planning calls the catalog method. The current HIR guide
 explicitly documents that bridge, so it is not an undisclosed second solver.
 `CheckedAnalysis::to_unverified` likewise has admission-negative-test consumers,
 not current production compiler callers. These surfaces expose read-only or
 unverified records; no checked-input forgery was demonstrated.
 
-For this unpublished project, remove unused handoff getters/fields and narrow
-process-only visibility. Review the test-only bridges against concrete consumers:
+Review the test-only bridges against concrete consumers:
 move equivalent selection assertions to the production catalog API before removing
 an unused bridge, and retain private support needed for admission-negative tests.
 Preserve independent identity, cancellation, budget and old-snapshot coverage.
@@ -219,8 +171,9 @@ Do not introduce forwarding aliases or widen another module to compensate.
 The original design's concern about facade responsibilities remains partly open.
 `lib.rs` still owns internal `PreparedSignatures`/`DeclaredAnalysis`, cross-module
 signature validation, signature reuse decisions, declaration preparation and full-body
-orchestration. Signature queries call back into these root implementations. The attribute
-finding above is a concrete stage-policy consequence; file size alone is not another bug.
+orchestration. Signature queries call back into these root implementations. Moving
+attribute-name validation to declaration diagnostics does not settle this broader
+ownership question; file size alone is not another bug.
 
 HR04–HR08 moved position queries, calls, methods, namespaces and documentation to the
 analyzer library, and usage/attribute projections to lint. HIR `analysis.rs` owns database
@@ -276,13 +229,9 @@ Kagari retains its explicit cancellation errors, installed native authority,
 GC and reload semantics; no Salsa/unwinding or Rust ownership model is proposed.
 The finite repairs above reuse existing mechanisms and make no speed claim.
 
-Two temporary public-API characterization tests confirmed the P2 behaviors above
-(one attribute-query target covering two inputs and one bounded-search target).
-Their assertions recorded current defective behavior; passing those probes does
-not mean the findings are fixed. Temporary crate targets were removed. No Rust
-implementation changes remain, and no full-workspace tests were run. The existing
-structure/fmt/Clippy evidence at `75a8b7ee` remains valid; this review requires
-content/link/diff validation, not another build sweep. Physical body arenas, R8,
+The original review used temporary public-API probes for attribute queries and
+bounded search at `75a8b7ee`. Those observations describe the review baseline,
+not validation of later changes. Physical body arenas, R8,
 general solver changes, the existing cache-retention follow-up and SA11 remain
 separate. Duplicate initializer token preparation was observed across update
 provenance and anonymous-instance identity, but its separate lifetime/use cases
@@ -294,6 +243,7 @@ These follow-ups remain outside the completed local contract repairs from the
 2026-11-06 reviews. Current grammar and optional-fact contracts live in the
 [syntax](architecture/syntax.md) and [HIR](architecture/hir.md) architecture.
 The original review baseline was `76ef0798767920649152dbbe235a0ea70bf8e21c`.
+
 
 ### Cache retention policy follow-up
 

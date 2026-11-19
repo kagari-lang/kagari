@@ -463,7 +463,9 @@ after the final check still follow cooperative cancellation semantics.
 [compile_input](../../crates/kagari-hir/src/compile_input.rs) owns the
 HIR-to-compiler handoff. `CheckedCompilation` borrows an already checked complete dependency
 closure and admits each module's environment and body directory. `CheckedEnvironment`
-exposes declaration contracts, while `CheckedBodyInput` ties source nodes, selected
+exposes declaration contracts, not the imported function, static or constant tables.
+For a resolved binding, `static_declaration` returns the static's identity and
+`constant_value` returns the evaluated scalar. `CheckedBodyInput` ties source nodes, selected
 facts and spans to a `BodyKey { module, arena, owner, closure }`. A nested callable
 retains its allocation owner while its closure/async expression selects a distinct
 root. Foreign-owner/arena node
@@ -747,7 +749,12 @@ The [solver](../../crates/kagari-hir/src/imports/solver.rs) seeds declarations o
 and replaces one module's contributions at a time. Namespace observations include
 missing/pending lookups and glob membership; reverse watchers schedule affected
 modules independently of linking dependencies. Draft named slots reserve their
-category and pending glob membership blocks premature weak-tier selection.
+category. While a `use api::*` may still contribute a name, the solver keeps a
+temporary barrier in its draft state. If lookup has no strong candidate and the
+glob could supply that name, lookup stays pending rather than reporting it
+missing or selecting a glob or implicit candidate. Published `NameTable`s contain
+only settled bindings and outcomes, including errors; neither readers nor cache
+equality need to consult these barriers.
 
 At quiescence it closes the union of pending dependencies, releases justified
 reservations and resumes propagation. Finite acyclic derivations prevent aliases
@@ -1298,6 +1305,14 @@ collect a second AST walk or recover targets by matching spans. Associated requi
 without defaults keep their member target, and grouped uses keep one authored target.
 Typed target lookup follows the declaration, member or authored use record and reads its
 full origin. Separate name ranges support navigation and name diagnostics.
+
+Declaration preparation owns generic attribute-name diagnostics, including for local
+declarations. For example, report `UnsupportedAttribute` for `#[reflect]` and
+`UnknownAttribute` for `#[unknown]` at the authored attribute span. Carry the error
+in the signature snapshot, not the selected body's own diagnostics: an invalid
+header makes bodies in that file unavailable. Full analysis must aggregate the same
+error once rather than rechecking names in `analyze_parsed`. Preserve `tool::*`
+metadata and the existing authority of installed native attributes.
 
 Lint's private [attribute projection](../../crates/kagari-lint/src/attributes.rs) pairs
 the typed fact with its declaration range and an optional logical child-module identity

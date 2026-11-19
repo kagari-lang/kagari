@@ -57,8 +57,6 @@ pub struct NameTable {
     pub(crate) entries: BTreeMap<LocalName, PerNamespace<NameEntry>>,
     /// Local implementation handles retained for surface/cache comparison.
     impls: Vec<ImplId>,
-    /// Unsettled glob membership; draft-only barriers to weaker selection.
-    pub(crate) pending_globs: Vec<BindingCandidate>,
 }
 
 impl NameTable {

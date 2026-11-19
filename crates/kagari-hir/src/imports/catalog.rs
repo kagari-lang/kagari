@@ -8,7 +8,10 @@ use crate::{
     collections::{HashMap, HashSet},
     imports::{
         BindingCandidate, BindingOrigin, DirectiveId, NamespaceId, ResolvedTarget, SourceDeclRef,
-        SourceUnit, bindings::LookupOutcome, cache::same_name_tables, solver::Observation,
+        SourceUnit,
+        bindings::LookupOutcome,
+        cache::same_name_tables,
+        solver::{Observation, PendingGlobs},
     },
     native::paths::source_package_alias,
     resolver::table::NameTable,
@@ -122,20 +125,41 @@ pub enum NamespaceResult {
     StaleSource,
 }
 
+#[derive(Clone, Copy)]
+struct DraftLookup<'a> {
+    observations: &'a RefCell<HashSet<Observation>>,
+    pending_globs: &'a PendingGlobs,
+}
+
 /// Importer-relative access context supplied without mutating catalog tables.
+#[derive(Clone, Copy)]
 pub struct LookupContext<'a> {
     /// Logical module requesting access.
     pub importer: &'a ModuleHandle,
-    pub(crate) avoid: Option<(DirectiveId, NameNamespace)>,
-    pub(crate) observations: Option<&'a RefCell<HashSet<Observation>>>,
+    avoid: Option<(DirectiveId, NameNamespace)>,
+    draft: Option<DraftLookup<'a>>,
 }
 
 impl<'a> LookupContext<'a> {
     pub fn new(importer: &'a ModuleHandle) -> Self {
         Self {
             importer,
-            observations: None,
+            draft: None,
             avoid: None,
+        }
+    }
+
+    pub(super) fn draft(
+        importer: &'a ModuleHandle,
+        observations: &'a RefCell<HashSet<Observation>>,
+        pending_globs: &'a PendingGlobs,
+    ) -> Self {
+        Self {
+            draft: Some(DraftLookup {
+                observations,
+                pending_globs,
+            }),
+            ..Self::new(importer)
         }
     }
 
@@ -145,12 +169,16 @@ impl<'a> LookupContext<'a> {
         self
     }
 
-    pub(crate) fn observe(&self, namespace: &NamespaceId) {
-        if let Some(observations) = self.observations {
-            observations
-                .borrow_mut()
-                .insert(Observation::Namespace(*namespace));
+    pub(super) fn observe(&self, observation: Observation) {
+        if let Some(draft) = &self.draft {
+            draft.observations.borrow_mut().insert(observation);
         }
+    }
+
+    pub(super) fn pending_globs(&self, namespace: &NamespaceId) -> &[BindingCandidate] {
+        self.draft
+            .and_then(|draft| draft.pending_globs.get(namespace))
+            .map_or(&[], Arc::as_ref)
     }
 }
 
@@ -225,11 +253,7 @@ impl NamespaceCatalog {
         {
             return Ok(LookupResult::StaleSource);
         }
-        if let Some(observations) = ctx.observations {
-            observations
-                .borrow_mut()
-                .insert(Observation::Namespace(*ns));
-        }
+        ctx.observe(Observation::Namespace(*ns));
         if let NamespaceId::Module(unit) = ns
             && !self.valid(unit)
         {
@@ -245,9 +269,8 @@ impl NamespaceCatalog {
         };
         let selected = table.names.candidates(name, namespace);
         if selected.is_none_or(|(_, strong)| !strong)
-            && table
-                .names
-                .pending_globs
+            && ctx
+                .pending_globs(ns)
                 .iter()
                 .any(|candidate| self.allows(candidate.visibility, candidate.owner, *ctx.importer))
         {
@@ -389,9 +412,7 @@ impl NamespaceCatalog {
         cancel: &CancellationToken,
     ) -> Result<LookupResult, Cancelled> {
         cancel.check()?;
-        if let Some(observations) = ctx.observations {
-            observations.borrow_mut().insert(Observation::InputUniverse);
-        }
+        ctx.observe(Observation::InputUniverse);
         let Some((packages, components)) = self.package_path(ctx.importer, path) else {
             return Ok(LookupResult::Missing);
         };
@@ -501,11 +522,7 @@ impl NamespaceCatalog {
         let Some(unit) = names.unit.as_ref() else {
             return Ok(HashSet::default());
         };
-        let ctx = LookupContext {
-            importer: &unit.module,
-            observations: None,
-            avoid: None,
-        };
+        let ctx = LookupContext::new(&unit.module);
         let mut pending = names
             .entries
             .keys()
@@ -559,11 +576,7 @@ impl NamespaceCatalog {
         cancel: &CancellationToken,
     ) -> Option<LookupHit> {
         let unit = names.unit.as_ref()?;
-        let ctx = LookupContext {
-            importer: &unit.module,
-            observations: None,
-            avoid: None,
-        };
+        let ctx = LookupContext::new(&unit.module);
         let (root, suffix) = name.split_once("::").unwrap_or((name, ""));
         // Root lookup stays literal; its category uses raw suffix emptiness even
         // when parsing below discards every suffix component.
@@ -686,11 +699,7 @@ impl NamespaceCatalog {
         let Some(unit) = names.unit.as_ref() else {
             return Ok(false);
         };
-        let ctx = LookupContext {
-            importer: &unit.module,
-            observations: None,
-            avoid: None,
-        };
+        let ctx = LookupContext::new(&unit.module);
         let mut pending = names
             .entries
             .keys()

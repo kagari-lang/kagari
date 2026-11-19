@@ -3,8 +3,8 @@ use crate::{
     collections::{HashMap, HashSet},
     hir::item::module::ImportLeaf,
     imports::{
-        BindingOrigin, DirectiveId, DirectiveResolution, LocalName, ModuleImportFacts, NamespaceId,
-        SourceUnit,
+        BindingCandidate, BindingOrigin, DirectiveId, DirectiveResolution, LocalName,
+        ModuleImportFacts, NamespaceId, SourceUnit,
         bindings::LookupOutcome,
         builder::{candidate, source_location},
         catalog::NamespaceCatalog,
@@ -108,12 +108,16 @@ pub(super) struct SolvedImports {
     pub work: SolverWork,
 }
 
+/// Only namespaces whose glob membership is still unsettled have an entry.
+pub(super) type PendingGlobs = HashMap<NamespaceId, Arc<[BindingCandidate]>>;
+
 /// Exact, bounded semantic history; hash collisions cannot denote a repeated state.
 /// Scope candidates retain selected targets, support and provenance. Together with
 /// observations they determine lookup behavior; editor prefix hits are not state.
 #[derive(PartialEq, Eq)]
 struct Checkpoint {
     facts: Vec<Arc<ModuleImportFacts>>,
+    pending_globs: PendingGlobs,
     observations: Vec<HashSet<Observation>>,
     queue: BTreeSet<usize>,
     closed: HashSet<(DirectiveId, NameNamespace)>,
@@ -143,12 +147,16 @@ pub(super) fn solve(
         .map(|module| SourceUnit::of(module, &base.definitions))
         .collect::<Vec<_>>();
     let mut catalog = base.clone();
+    let mut pending_globs = PendingGlobs::default();
     let mut facts = Vec::with_capacity(sources.len());
     for (module, unit) in sources.iter().zip(&units) {
         cancel.check()?;
         let ns = NamespaceId::Module(*unit);
         let mut scope = (*catalog.namespaces[&ns].names).clone();
-        reserve(module, &mut scope, cancel)?;
+        let reserved = reserve(module, &mut scope, cancel)?;
+        if !reserved.is_empty() {
+            pending_globs.insert(ns, reserved.into());
+        }
         let scope = Arc::new(scope);
         catalog
             .namespaces
@@ -177,7 +185,7 @@ pub(super) fn solve(
                 });
             }
             let observations = RefCell::new(HashSet::default());
-            let next = resolve_imports(
+            let (next, pending) = resolve_imports(
                 sources[index],
                 &ResolutionInputs {
                     base: &base,
@@ -186,10 +194,20 @@ pub(super) fn solve(
                     cancel,
                     closed: &closed,
                     observations: &observations,
+                    pending_globs: &pending_globs,
                 },
             )?;
             let ns = NamespaceId::Module(units[index]);
-            let changed = catalog.namespaces[&ns].names != next.scope;
+            // Releasing a barrier can change lookup even when no named entry changed.
+            let barriers_changed = pending_globs.get(&ns).map_or(&[][..], Arc::as_ref) != pending;
+            if barriers_changed {
+                if pending.is_empty() {
+                    pending_globs.remove(&ns);
+                } else {
+                    pending_globs.insert(ns, pending.into());
+                }
+            }
+            let changed = barriers_changed || catalog.namespaces[&ns].names != next.scope;
             work.evaluated(&next.scope, changed);
             if work.candidate_work > limits.candidate_work {
                 return Err(ImportSolveError::Exhausted {
@@ -224,6 +242,7 @@ pub(super) fn solve(
             if work.module_visits.is_multiple_of(sources.len().max(1)) && !queue.is_empty() {
                 let state = Checkpoint {
                     facts: facts.clone(),
+                    pending_globs: pending_globs.clone(),
                     observations: observed.clone(),
                     queue: queue.clone(),
                     closed: closed.clone(),
@@ -261,8 +280,8 @@ pub(super) fn solve(
         }
         if pending_owners.is_empty() {
             // Directive settlement must agree with the actual published tiers.
-            if let Some((index, _)) = facts.iter().enumerate().find(|(_, module)| {
-                !module.scope.pending_globs.is_empty()
+            if let Some((index, _)) = facts.iter().enumerate().find(|(index, module)| {
+                pending_globs.contains_key(&NamespaceId::Module(units[*index]))
                     || module
                         .scope
                         .entries
@@ -306,7 +325,8 @@ fn reserve(
     module: &LoweredModule,
     names: &mut NameTable,
     cancel: &CancellationToken,
-) -> Result<(), Cancelled> {
+) -> Result<Vec<BindingCandidate>, Cancelled> {
+    let mut pending = Vec::new();
     let unit = names.unit.expect("source scope");
     for (slot, import) in module.module.imports.iter().enumerate() {
         cancel.check()?;
@@ -337,10 +357,10 @@ fn reserve(
                 }
             }
         } else {
-            names.pending_globs.push(binding);
+            pending.push(binding);
         }
     }
-    Ok(())
+    Ok(pending)
 }
 
 impl SolverWork {

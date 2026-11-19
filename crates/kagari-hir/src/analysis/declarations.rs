@@ -23,7 +23,7 @@ use kagari_common::{
     identity::{DefinitionKind, mapping::DefinitionMappingError, metadata::DefinitionMetadata},
 };
 use kagari_source::{
-    diagnostic::Diagnostic,
+    diagnostic::{Diagnostic, DiagnosticKind},
     identity::{FileId, Revision},
     source::SourceFile,
     source_database::SourceSnapshot,
@@ -37,6 +37,29 @@ use std::{collections::BTreeMap, sync::Arc};
 
 #[cfg(test)]
 mod tests;
+
+/// Check attribute names before publishing header diagnostics; `lang` has its own validator.
+pub(crate) fn validate_attribute_names(
+    lowered: &LoweredModule,
+    diagnostics: &mut DiagnosticBuffer,
+    cancel: &CancellationToken,
+) -> Result<(), AnalysisError> {
+    for attribute in &lowered.module.attributes {
+        cancel.check()?;
+        let kind = match attribute.name.as_str() {
+            "meta" | "lang" => continue,
+            "reflect" | "requires" | "profile" => DiagnosticKind::UnsupportedAttribute {
+                name: attribute.name.clone(),
+            },
+            name if name.starts_with("tool::") => continue,
+            _ => DiagnosticKind::UnknownAttribute {
+                name: attribute.name.clone(),
+            },
+        };
+        diagnostics.push(Diagnostic::error(kind).with_span(attribute.span));
+    }
+    Ok(())
+}
 
 /// Parsed/lowered source with module imports and declaration names, before type checking.
 ///

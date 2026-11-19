@@ -56,8 +56,6 @@ pub(crate) fn same_name_tables(
     signature: bool,
 ) -> bool {
     a.impl_count() == b.impl_count()
-        && a.pending_globs.is_empty()
-        && b.pending_globs.is_empty()
         && a.entries.len() == b.entries.len()
         && a.entries.iter().all(|(name, a)| {
             b.entries.get(name).is_some_and(|b| {

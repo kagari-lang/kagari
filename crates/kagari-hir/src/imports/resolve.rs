@@ -3,12 +3,12 @@ use crate::{
     collections::HashSet,
     hir::item::module::ImportLeaf,
     imports::{
-        BindingOrigin, DirectiveId, DirectiveResolution, ImportDirective, ImportKind, LocalName,
-        ModuleImportFacts, NamespaceId, ResolvedTarget, SourceUnit,
+        BindingCandidate, BindingOrigin, DirectiveId, DirectiveResolution, ImportDirective,
+        ImportKind, LocalName, ModuleImportFacts, NamespaceId, ResolvedTarget, SourceUnit,
         bindings::{LookupOutcome, PerNamespace},
         builder::{candidate, source_location},
         catalog::{LookupContext, LookupHit, LookupResult, NamespaceCatalog, NamespaceResult},
-        solver::Observation,
+        solver::{Observation, PendingGlobs},
     },
     lower::LoweredModule,
     resolver::table::NameTable,
@@ -39,12 +39,13 @@ pub(super) struct ResolutionInputs<'a> {
     pub cancel: &'a CancellationToken,
     pub closed: &'a HashSet<(DirectiveId, NameNamespace)>,
     pub observations: &'a RefCell<HashSet<Observation>>,
+    pub pending_globs: &'a PendingGlobs,
 }
 
 pub(super) fn resolve_imports(
     module: &LoweredModule,
     inputs: &ResolutionInputs<'_>,
-) -> Result<ModuleImportFacts, Cancelled> {
+) -> Result<(ModuleImportFacts, Vec<BindingCandidate>), Cancelled> {
     let ResolutionInputs {
         base,
         catalog,
@@ -52,21 +53,18 @@ pub(super) fn resolve_imports(
         cancel,
         closed,
         observations,
+        pending_globs,
     } = inputs;
     let unit = SourceUnit::of(module, &catalog.definitions);
-    let ctx = LookupContext {
-        importer: &unit.module,
-        observations: Some(observations),
-        avoid: None,
-    };
     let context = ImportContext {
-        lookup: ctx,
+        lookup: LookupContext::draft(&unit.module, observations, pending_globs),
         catalog,
         unit: &unit,
         cancel,
     };
     let mut names = (*base.namespaces[&NamespaceId::Module(unit)].names).clone();
     let mut result = ModuleImportFacts::default();
+    let mut next_pending_globs = Vec::new();
     let mut dependencies = catalog
         .module_dependencies
         .get(&unit.module)
@@ -110,16 +108,9 @@ pub(super) fn resolve_imports(
             &NameNamespace::ALL
         };
         for &namespace in categories {
-            let lookup_context = LookupContext {
-                importer: &unit.module,
-                observations: Some(observations),
-                avoid: Some((id, namespace)),
-            };
             let directive_context = ImportContext {
-                lookup: lookup_context,
-                catalog,
-                unit: &unit,
-                cancel,
+                lookup: context.lookup.excluding(id, namespace),
+                ..context
             };
             let ctx = &directive_context.lookup;
             let mut lookup = catalog.absolute(ctx, path, namespace, cancel)?;
@@ -196,7 +187,7 @@ pub(super) fn resolve_imports(
                     directive.span,
                 );
                 binding.resolution = LookupOutcome::Pending;
-                names.pending_globs.push(binding);
+                next_pending_globs.push(binding);
             }
             match &mut directive.resolution {
                 DirectiveResolution::Named(outcomes) => outcomes[namespace] = outcome,
@@ -257,18 +248,14 @@ pub(super) fn resolve_imports(
             } else {
                 &[NameNamespace::Type]
             } {
-                let ctx = LookupContext {
-                    importer: &unit.module,
-                    observations: Some(observations),
-                    avoid: Some((
-                        id,
-                        if matches!(directive.kind, ImportKind::Glob) {
-                            NameNamespace::Type
-                        } else {
-                            namespace
-                        },
-                    )),
-                };
+                let ctx = context.lookup.excluding(
+                    id,
+                    if matches!(directive.kind, ImportKind::Glob) {
+                        NameNamespace::Type
+                    } else {
+                        namespace
+                    },
+                );
                 catalog.absolute(&ctx, prefix, namespace, cancel)?;
             }
         }
@@ -286,7 +273,7 @@ pub(super) fn resolve_imports(
     )?;
     result.dependencies = dependencies.into_iter().collect();
     result.scope = Arc::new(names);
-    Ok(result)
+    Ok((result, next_pending_globs))
 }
 
 fn expand_glob(
@@ -305,7 +292,7 @@ fn expand_glob(
     } = context;
     let ns = catalog.namespace_of(ctx, &hit.target, cancel)?;
     if let NamespaceResult::Found(namespace) = &ns {
-        ctx.observe(namespace);
+        ctx.observe(Observation::Namespace(*namespace));
     }
     let members: BTreeSet<_> = match &ns {
         NamespaceResult::Found(ns)
@@ -334,11 +321,7 @@ fn expand_glob(
     let NamespaceResult::Found(ns) = ns else {
         unreachable!()
     };
-    let mut pending = !closed
-        && catalog
-            .namespaces
-            .get(&ns)
-            .is_some_and(|table| !table.names.pending_globs.is_empty());
+    let mut pending = !closed && !ctx.pending_globs(&ns).is_empty();
     for name in members {
         for namespace in NameNamespace::ALL {
             let lookup = catalog.lookup_member(ctx, &ns, &name, namespace, cancel)?;
@@ -513,7 +496,7 @@ fn add_implicit(
                 let prelude = SourceUnit::of(source, &catalog.definitions);
                 dependencies.insert(prelude.module);
                 let ns = NamespaceId::Module(prelude);
-                ctx.observe(&ns);
+                ctx.observe(Observation::Namespace(ns));
                 for name in catalog.namespaces[&ns].names.entries.keys() {
                     for namespace in NameNamespace::ALL {
                         if let Some(hit) = catalog

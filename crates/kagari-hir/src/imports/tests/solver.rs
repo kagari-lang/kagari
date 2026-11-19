@@ -3,18 +3,22 @@ use crate::{
     analysis::{AnalysisDatabase, error::AnalysisError},
     collections::HashSet,
     imports::{
-        ModuleGraph, NamespaceId, SourceUnit,
+        DirectiveResolution, LocalName, ModuleGraph, NamespaceId, SourceUnit,
+        bindings::LookupOutcome,
+        catalog::{LookupContext, LookupResult},
         resolve::{ResolutionInputs, resolve_imports},
-        solver::{ImportSolveError, Observation, SolverLimits},
+        solver::{ImportSolveError, Observation, PendingGlobs, SolverLimits},
         tests::insert,
     },
     lower::lower_module,
+    resolver::table::NameTable,
 };
 use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_types::declaration::names::NameNamespace;
 use std::{cell::RefCell, sync::Arc, time::Instant};
 
 #[test]
@@ -112,6 +116,100 @@ fn failed_solves_preserve_published_snapshots_and_allow_recovery() {
 }
 
 #[test]
+fn pending_glob_only_defers_weak_lookups_for_importers_that_can_see_it() {
+    let mut sources = SourceDatabase::default();
+    insert(
+        &mut sources,
+        "left",
+        "pub fn clash() {} pub fn fixed() {} pub fn solo() {}",
+    );
+    insert(&mut sources, "right", "pub fn clash() {}");
+    let late = insert(&mut sources, "late", "pub use pkg::left::fixed;");
+    let relay = insert(&mut sources, "relay", "pub use pkg::late::*;");
+    let facade = insert(
+        &mut sources,
+        "facade",
+        "pub use pkg::left::*; pub use pkg::right::*; pub use pkg::right::clash as fixed; use pkg::relay::*;",
+    );
+    let input = sources.snapshot();
+    let lowered: Vec<_> = input.files().map(|file| lower_module(file)).collect();
+    let module = |id| lowered.iter().find(|m| m.source.id() == id).unwrap();
+    let cancel = CancellationToken::default();
+    let graph = ModuleGraph::build(&lowered, &DefinitionContext::new().unwrap(), &cancel).unwrap();
+    let unit = |id| SourceUnit::of(module(id), graph.catalog.definitions());
+    let ns = NamespaceId::Module(unit(facade));
+    let mut draft = (*graph.catalog).clone();
+    // Replay the two glob imports while late's named export is still reserved. A fully
+    // solved snapshot cannot distinguish a deferred lookup from one retried later.
+    let late_scope = &mut draft
+        .namespaces
+        .get_mut(&NamespaceId::Module(unit(late)))
+        .unwrap()
+        .names;
+    Arc::make_mut(late_scope)
+        .entries
+        .get_mut(&LocalName::new("fixed").unwrap())
+        .unwrap()
+        .values
+        .strong[0]
+        .resolution = LookupOutcome::Pending;
+    let mut base = (*graph.catalog).clone();
+    let mut pending_globs = PendingGlobs::default();
+    // Both visited modules contain only imports. The relay has no known
+    // member to copy yet, but its public glob can still supply new names.
+    for id in [relay, facade] {
+        let owner = unit(id);
+        let ns = NamespaceId::Module(owner);
+        base.namespaces.get_mut(&ns).unwrap().names = Arc::new(NameTable::for_unit(owner));
+        let (facts, pending) = resolve_imports(
+            module(id),
+            &ResolutionInputs {
+                base: &base,
+                catalog: &draft,
+                pending_globs: &pending_globs,
+                sources: &lowered.iter().collect::<Vec<_>>(),
+                cancel: &cancel,
+                closed: &HashSet::default(),
+                observations: &RefCell::default(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            facts.directives.last().unwrap().resolution,
+            DirectiveResolution::Glob(LookupOutcome::Pending)
+        );
+        assert_eq!(pending.len(), 1);
+        pending_globs.insert(ns, pending.into());
+        draft.namespaces.get_mut(&ns).unwrap().names = facts.scope;
+    }
+    let observations = RefCell::default();
+    let lookup = |importer, name| {
+        draft
+            .lookup_member(
+                &LookupContext::draft(&unit(importer).module, &observations, &pending_globs),
+                &ns,
+                name,
+                NameNamespace::Value,
+                &cancel,
+            )
+            .unwrap()
+    };
+    assert_eq!(lookup(facade, "missing"), LookupResult::Unresolved);
+    assert_eq!(lookup(late, "missing"), LookupResult::Missing);
+    assert_eq!(lookup(facade, "solo"), LookupResult::Unresolved);
+    assert!(matches!(lookup(late, "solo"), LookupResult::Found(_)));
+    assert_eq!(lookup(facade, "clash"), LookupResult::Unresolved);
+    assert!(matches!(lookup(late, "clash"), LookupResult::Ambiguous(_)));
+    assert_eq!(
+        lookup(facade, "fixed").hit().unwrap().target,
+        *graph.imports_for(&unit(facade)).unwrap().directives[2]
+            .resolution
+            .target()
+            .unwrap()
+    );
+}
+
+#[test]
 fn failed_relative_imports_observe_access_to_successful_prefixes() {
     let mut sources = SourceDatabase::default();
     let tree = insert(&mut sources, "tree", "pub mod middle;");
@@ -142,11 +240,12 @@ fn failed_relative_imports_observe_access_to_successful_prefixes() {
         .unwrap();
     let observations = RefCell::new(HashSet::default());
     let cancel = CancellationToken::default();
-    let facts = resolve_imports(
+    let (facts, pending) = resolve_imports(
         module,
         &ResolutionInputs {
             base: &graph.catalog,
             catalog: &graph.catalog,
+            pending_globs: &PendingGlobs::default(),
             sources: &lowered.iter().collect::<Vec<_>>(),
             cancel: &cancel,
             closed: &HashSet::default(),
@@ -164,6 +263,7 @@ fn failed_relative_imports_observe_access_to_successful_prefixes() {
             name: "super::super::super::super::missing".into()
         }],
     );
+    assert!(pending.is_empty());
     assert!(facts.directives[0].resolution.targets().next().is_none());
     // The full underflowing lookup reads only InputUniverse. The shorter `super`
     // prefix must still watch the parent's access binding, even without editor hits.

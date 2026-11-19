@@ -1,0 +1,7 @@
+#[tool::note("editor")]
+fn healthy() -> i32 {
+    42
+}
+
+#[unknown(reason = "test")]
+fn annotated() {}

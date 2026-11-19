@@ -7,9 +7,7 @@ use crate::{
     compile_input::declarations::ConstantValue,
     declarations::Declarations,
     hir::ids::ConstId,
-    imports::{
-        constants::ImportedConstants, functions::ImportedFunctions, statics::ImportedStatics,
-    },
+    imports::{constants::ImportedConstants, statics::ImportedStatics},
     resolver::resolved::ResolvedName,
     semantic::signatures::BodySignatures,
     typeck::scalar::ScalarValue,
@@ -28,7 +26,6 @@ pub struct CheckedEnvironment<'a> {
     declarations: &'a Declarations,
     signatures: &'a BodySignatures,
     aggregates: &'a AggregateCatalog,
-    functions: &'a ImportedFunctions,
     statics: &'a ImportedStatics,
     constants: &'a ImportedConstants,
     local_constants: &'a HashMap<ConstId, ScalarValue>,
@@ -41,7 +38,6 @@ impl<'a> CheckedEnvironment<'a> {
             declarations: &module.declarations,
             signatures: module.typed.signatures(),
             aggregates: &module.aggregates,
-            functions: &module.imported_functions,
             statics: &module.imported_statics,
             constants: &module.imported_constants,
             local_constants: module.typed.const_values(),
@@ -112,20 +108,5 @@ impl<'a> CheckedEnvironment<'a> {
     /// Borrows the fixed nominal/trait environment used to select implementations.
     pub fn aggregates(self) -> &'a AggregateCatalog {
         self.aggregates
-    }
-
-    /// Borrows canonical foreign callable contracts, independent of import spelling.
-    pub fn imported_functions(self) -> &'a ImportedFunctions {
-        self.functions
-    }
-
-    /// Borrows checked foreign static types and rebinding permissions.
-    pub fn imported_statics(self) -> &'a ImportedStatics {
-        self.statics
-    }
-
-    /// Borrows foreign scalar constants and their original declaration identities.
-    pub fn imported_constants(self) -> &'a ImportedConstants {
-        self.constants
     }
 }

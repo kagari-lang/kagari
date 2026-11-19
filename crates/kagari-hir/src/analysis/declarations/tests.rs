@@ -1,11 +1,14 @@
 use super::*;
 use crate::{
-    analysis::AnalysisSnapshot, declarations::DeclarationId, native::render::declaration_source,
-    resolver::resolved::ResolvedName, tests::test_analysis,
+    analysis::{AnalysisSnapshot, eligibility::BodyEligibility},
+    declarations::DeclarationId,
+    native::render::declaration_source,
+    resolver::resolved::ResolvedName,
+    tests::test_analysis,
 };
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::{
-    diagnostic::DiagnosticKind,
+    diagnostic::{DiagnosticKind, Severity},
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::catalog as foundation_catalog;
@@ -285,6 +288,89 @@ fn declaration_query_stops_before_body_resolution_signatures_and_const_evaluatio
 
     let again = query(&mut db, &sources);
     assert!(Arc::ptr_eq(file, again.file(id).unwrap()));
+}
+
+#[test]
+fn declaration_attribute_errors_are_shared_header_diagnostics() {
+    for (text, selected, attribute, kind) in [
+        (
+            include_str!(
+                "../../../tests/fixtures/ui/local_functions/local_unsupported_reflect.kgr"
+            ),
+            "outer",
+            "#[reflect]",
+            DiagnosticKind::UnsupportedAttribute {
+                name: "reflect".into(),
+            },
+        ),
+        (
+            include_str!("../../../tests/fixtures/analysis/unknown_declaration_attribute.kgr"),
+            "healthy",
+            "#[unknown(reason = \"test\")]",
+            DiagnosticKind::UnknownAttribute {
+                name: "unknown".into(),
+            },
+        ),
+    ] {
+        let mut sources = SourceDatabase::default();
+        let id = sources
+            .set("attributes.kgr", text.into(), SourceLayer::Base)
+            .unwrap();
+        let mut db = test_analysis();
+        let declarations = query(&mut db, &sources);
+        let file = declarations.file(id).unwrap();
+        let header = file.diagnostics();
+        let [error] = header else {
+            panic!("expected one declaration error for {attribute}, got {header:?}");
+        };
+        assert_eq!(error.severity, Severity::Error);
+        assert_eq!(error.kind, kind);
+        let span = error.span.expect("authored attribute range");
+        assert_eq!(&text[span.start..span.end], attribute);
+
+        let signatures = db
+            .signatures(sources.snapshot(), &Default::default())
+            .unwrap();
+        assert_eq!(signatures.file(id).unwrap().diagnostics(), header);
+        let declaration = file
+            .declarations()
+            .iter()
+            .find(|d| d.name == selected)
+            .unwrap();
+        let DeclarationId::Definition(owner) = &declaration.id else {
+            panic!("function definition")
+        };
+        let body = db
+            .body(sources.snapshot(), owner, &Default::default())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            body.signature_snapshot().file(id).unwrap().diagnostics(),
+            header
+        );
+        assert!(body.diagnostics().is_empty(), "{:?}", body.diagnostics());
+        assert_eq!(body.eligibility(), BodyEligibility::Unavailable);
+
+        let full = db
+            .snapshot(sources.snapshot(), &Default::default())
+            .unwrap();
+        let analysis = full.file(id).unwrap();
+        assert_eq!(analysis.result().diagnostics(), header);
+        assert!(!analysis.declarations_eligible());
+        let function = analysis
+            .result()
+            .facts()
+            .lowered
+            .module
+            .functions
+            .iter()
+            .find(|f| f.name == selected)
+            .unwrap();
+        assert_eq!(
+            analysis.body_eligibility(function.id),
+            BodyEligibility::Unavailable
+        );
+    }
 }
 
 #[test]

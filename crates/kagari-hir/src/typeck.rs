@@ -64,7 +64,7 @@ pub mod scalar;
 mod solver;
 mod state;
 
-pub mod reuse;
+pub(crate) mod reuse;
 pub(crate) mod signature_reuse;
 pub mod table;
 mod ty;

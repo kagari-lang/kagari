@@ -32,6 +32,7 @@ use crate::analysis::error::AnalysisError;
 use crate::analysis::source_preparation::ParsedModule;
 use crate::{
     analysis::{
+        declarations::validate_attribute_names,
         external::evidence::validate_host_surfaces,
         ownership::recover_invalid_identity,
         records::{DeclarationRecord, SignatureRecord},
@@ -476,6 +477,7 @@ fn declare_analysis(
             (imports, catalog)
         };
     let mut names = collect_declarations(&lowered, imports, catalog, cancel);
+    validate_attribute_names(&lowered, &mut names.diagnostics, cancel)?;
     if !lowered.source.module_identity().within_path_limit() {
         names
             .diagnostics
@@ -635,21 +637,7 @@ pub(crate) fn analyze_parsed(
         .physical()
         .map(|parsed| parsed.shared_diagnostics())
         .unwrap_or_default();
-    for attribute in &analyzed.facts.lowered.module.attributes {
-        let kind = match attribute.name.as_str() {
-            "meta" | "lang" => continue,
-            "reflect" | "requires" | "profile" => DiagnosticKind::UnsupportedAttribute {
-                name: attribute.name.clone(),
-            },
-            name if name.starts_with("tool::") => continue,
-            _ => DiagnosticKind::UnknownAttribute {
-                name: attribute.name.clone(),
-            },
-        };
-        analyzed
-            .diagnostics
-            .push(Diagnostic::error(kind).with_span(attribute.span));
-    }
+
     if analyzed.diagnostics.len() > policy.max_semantic_diagnostics {
         analyzed
             .diagnostics
