@@ -44,7 +44,7 @@ impl ImportedFunctions {
             self.methods.insert(
                 method.declaration,
                 ImportedFunction {
-                    id: method.id.clone(),
+                    id: method.id,
                     declaration: method.declaration,
                     site: method.site.clone(),
                     signature: method.function.clone(),
@@ -79,7 +79,7 @@ impl<'a> FunctionCatalog<'a> {
         for source in names.catalog.reachable_sources(&names.items, cancel)? {
             cancel.check()?;
             if let Some(function) = self.resolve(&source, cancel)? {
-                result.functions.insert(source.clone(), function);
+                result.functions.insert(source, function);
             }
         }
         Ok(result)
@@ -121,7 +121,7 @@ impl<'a> FunctionCatalog<'a> {
             return Ok(None);
         };
         Ok(Some(ImportedFunction {
-            id: target.clone(),
+            id: *target,
             declaration: *declaration,
             site: module
                 .record

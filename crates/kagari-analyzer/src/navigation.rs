@@ -204,8 +204,8 @@ fn import_hits(
                 } else {
                     namespace
                 };
-                let ctx = LookupContext::new(&directive.id.unit.module)
-                    .excluding(directive.id.clone(), excluded);
+                let ctx =
+                    LookupContext::new(&directive.id.unit.module).excluding(directive.id, excluded);
                 let LookupResult::Found(mut hit) =
                     names.catalog.absolute(&ctx, prefix, namespace, cancel)?
                 else {
@@ -219,10 +219,8 @@ fn import_hits(
                 hit.via.insert(
                     0,
                     match directive.kind {
-                        ImportKind::Named { .. } => {
-                            BindingOrigin::NamedImport(directive.id.clone())
-                        }
-                        ImportKind::Glob => BindingOrigin::GlobImport(directive.id.clone()),
+                        ImportKind::Named { .. } => BindingOrigin::NamedImport(directive.id),
+                        ImportKind::Glob => BindingOrigin::GlobImport(directive.id),
                     },
                 );
                 hits.push((*span, hit));
@@ -247,7 +245,7 @@ impl From<&LookupHit> for NavigationTarget {
     fn from(hit: &LookupHit) -> Self {
         Self {
             namespace: hit.namespace,
-            target: hit.target.clone(),
+            target: hit.target,
             via: hit.via.clone(),
         }
     }

@@ -406,8 +406,8 @@ impl<'a> FileQueries<'a> {
             .visible_bindings(offset)
             .into_iter()
             .filter_map(|binding| {
-                let declaration = facts.declarations.target(binding.resolved.clone())?.clone();
-                let ty = match binding.resolved.clone() {
+                let declaration = facts.declarations.target(binding.resolved)?.clone();
+                let ty = match binding.resolved {
                     ResolvedName::Local(id) => facts.typed.type_table().local_type(id),
                     ResolvedName::Param(id) => facts
                         .typed

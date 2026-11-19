@@ -107,7 +107,7 @@ impl NamespaceCatalog {
         let root = LookupResult::Found(LookupHit {
             support: HashSet::default(),
             namespace: NameNamespace::Type,
-            target: ResolvedTarget::Namespace(NamespaceId::Module(unit.clone())),
+            target: ResolvedTarget::Namespace(NamespaceId::Module(*unit)),
             via: vec![],
         });
         Ok(self
@@ -176,7 +176,7 @@ impl NamespaceCatalog {
             cancel.check()?;
             // Multiple routes to the same binding/container do not make that
             // exposure ambiguous; retain the first deterministic shortest route.
-            if !seen.insert(ns.clone()) {
+            if !seen.insert(ns) {
                 continue;
             }
             let Some(table) = self.namespaces.get(&ns) else {

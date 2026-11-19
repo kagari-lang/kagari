@@ -31,7 +31,7 @@ pub struct Binding {
 }
 
 /// A bound local, qualified declaration, namespace or installed/builtin target.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ResolvedName {
     /// A local transparent type alias declaration.
     TypeAlias(TypeAliasId),
@@ -172,14 +172,14 @@ impl ResolvedNames {
         self.places.insert(id, resolved);
     }
 
-    /// Clones the recorded expression binding, or `None` when no binding was recorded.
+    /// Returns the recorded expression binding, or `None` when no binding was recorded.
     pub fn expr_resolution(&self, id: ExprId) -> Option<ResolvedName> {
-        self.exprs.get(&id).cloned()
+        self.exprs.get(&id).copied()
     }
 
-    /// Clones the recorded place-root binding, or `None` when no binding was recorded.
+    /// Returns the recorded place-root binding, or `None` when no binding was recorded.
     pub fn place_resolution(&self, id: PlaceId) -> Option<ResolvedName> {
-        self.places.get(&id).cloned()
+        self.places.get(&id).copied()
     }
 
     /// Borrows captured bindings in their recorded order; absent entries return an empty slice.
@@ -205,8 +205,6 @@ impl ResolvedNames {
     }
 
     pub(crate) fn insert_binding(&mut self, binding: Binding) {
-        self.bindings
-            .entry(binding.resolved.clone())
-            .or_insert(binding);
+        self.bindings.entry(binding.resolved).or_insert(binding);
     }
 }

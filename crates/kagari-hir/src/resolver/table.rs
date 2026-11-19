@@ -151,7 +151,7 @@ impl NameTable {
                 .support
                 .clone(),
             namespace: target.namespace(),
-            target: target.clone(),
+            target: *target,
             via: candidates.iter().map(|c| c.origin.clone()).collect(),
         })
     }

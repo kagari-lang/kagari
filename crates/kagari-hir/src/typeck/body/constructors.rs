@@ -52,10 +52,7 @@ impl<'a> BodyChecker<'a> {
                 .definition(ResolvedName::Enum(id))
                 .map(|owner| (*owner, member.name.clone()));
         }
-        let imported = self
-            .declarations
-            .imported_types()
-            .resolved(member.owner.clone())?;
+        let imported = self.declarations.imported_types().resolved(member.owner)?;
         if !matches!(imported.id.item, SourceItem::Enum(_)) {
             return None;
         }

@@ -29,11 +29,11 @@ impl BodyBuilder {
         name: ResolvedName,
         budget: &mut SourceBudget<'_>,
     ) -> Result<(), DefinitionMappingError> {
-        let target = module.declarations.target(name.clone()).or_else(|| {
+        let target = module.declarations.target(name).or_else(|| {
             if let ResolvedName::Source(source) = &name {
                 module
                     .imported_functions
-                    .get(name.clone())
+                    .get(name)
                     .map(|function| &function.site)
                     .or_else(|| module.imported_constants.get(source).map(|item| &item.site))
                     .or_else(|| module.imported_statics.get(source).map(|item| &item.site))
@@ -41,7 +41,7 @@ impl BodyBuilder {
                         module
                             .declarations
                             .imported_types()
-                            .target(source.clone())
+                            .target(*source)
                             .map(|item| &item.declaration)
                     })
             } else {
@@ -334,7 +334,7 @@ impl BodyBuilder {
                 };
                 self.fact(span, creation, vec![], vec![], budget)?;
                 for capture in module.names.closure_captures(id) {
-                    self.reference(module, span, capture.clone(), budget)?;
+                    self.reference(module, span, *capture, budget)?;
                     self.body
                         .facts
                         .last_mut()

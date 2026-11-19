@@ -87,7 +87,7 @@ impl<'a> CheckedEnvironment<'a> {
         match binding {
             ResolvedName::Static(id) => {
                 self.signatures.static_type(*id)?;
-                self.definition(binding.clone())
+                self.definition(*binding)
             }
             ResolvedName::Source(source) => self.statics.get(source).map(|item| item.declaration),
             _ => None,

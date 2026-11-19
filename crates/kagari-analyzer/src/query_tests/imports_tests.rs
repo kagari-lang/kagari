@@ -256,8 +256,8 @@ fn definition_queries_distinguish_modules_and_follow_source_facades() {
                 .names
                 .items
                 .source_unit()
+                .copied()
                 .unwrap()
-                .clone()
         ))
     );
 }

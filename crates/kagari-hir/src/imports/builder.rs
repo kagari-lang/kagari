@@ -112,10 +112,7 @@ impl ModuleGraph {
         for module in &sources {
             cancel.check()?;
             let unit = SourceUnit::of(module, &base.definitions);
-            base.modules
-                .entry(unit.module)
-                .or_default()
-                .push(unit.clone());
+            base.modules.entry(unit.module).or_default().push(unit);
             base.module_dependencies.insert(
                 unit.module,
                 environment
@@ -311,16 +308,13 @@ fn add_source(
     location: Option<FileSpan>,
 ) {
     if let Some(name) = LocalName::new(name) {
-        let source = SourceDeclRef {
-            unit: unit.clone(),
-            item,
-        };
+        let source = SourceDeclRef { unit: *unit, item };
         names.add(
             item.namespace(),
             name,
             candidate(
                 unit,
-                Some(ResolvedTarget::Source(source.clone())),
+                Some(ResolvedTarget::Source(source)),
                 BindingOrigin::Declaration(source),
                 visibility,
                 location,
@@ -335,7 +329,7 @@ fn add_declarations(
     cancel: &CancellationToken,
 ) -> Result<(), Cancelled> {
     let unit = SourceUnit::of(module, &catalog.definitions);
-    let mut names = NameTable::for_unit(unit.clone());
+    let mut names = NameTable::for_unit(unit);
     for item in &module.module.functions {
         cancel.check()?;
         if item.kind == FunctionKind::User {
@@ -438,11 +432,7 @@ fn add_declarations(
                 |units| {
                     units
                         .iter()
-                        .map(|child| {
-                            Some(ResolvedTarget::Namespace(NamespaceId::Module(
-                                child.clone(),
-                            )))
-                        })
+                        .map(|child| Some(ResolvedTarget::Namespace(NamespaceId::Module(*child))))
                         .collect()
                 },
             );
@@ -456,7 +446,7 @@ fn add_declarations(
                         &unit,
                         target,
                         BindingOrigin::ModuleDeclaration {
-                            unit: unit.clone(),
+                            unit,
                             module: item.id,
                         },
                         item.visibility,
@@ -553,10 +543,7 @@ fn add_declarations(
     }
     for (_, (item, _, table)) in associated {
         catalog.namespaces.insert(
-            NamespaceId::Associated(SourceDeclRef {
-                unit: unit.clone(),
-                item,
-            }),
+            NamespaceId::Associated(SourceDeclRef { unit, item }),
             NamespaceTable {
                 owner: unit.module,
                 names: Arc::new(table),
@@ -574,7 +561,7 @@ fn add_declarations(
             .sort_by_key(|candidate| candidate.location.map_or(0, |span| span.range.start));
     }
     catalog.namespaces.insert(
-        NamespaceId::Module(unit.clone()),
+        NamespaceId::Module(unit),
         NamespaceTable {
             owner: unit.module,
             names: Arc::new(names),
@@ -603,9 +590,7 @@ fn add_package_prefixes(
                 .lookup_module_path(&portable.package, &portable.path[..len])
                 .expect("registered prefix");
             let namespace = match catalog.modules.get(&identity).map(Vec::as_slice) {
-                Some([parent]) if package_units.contains(parent) => {
-                    NamespaceId::Module(parent.clone())
-                }
+                Some([parent]) if package_units.contains(parent) => NamespaceId::Module(*parent),
                 Some(_) => continue,
                 None => NamespaceId::InstalledPrefix(identity),
             };
@@ -619,7 +604,7 @@ fn add_package_prefixes(
                 .and_then(|units| units.first())
                 .map_or_else(
                     || NamespaceId::InstalledPrefix(child),
-                    |unit| NamespaceId::Module(unit.clone()),
+                    |unit| NamespaceId::Module(*unit),
                 );
             let table = catalog
                 .namespaces

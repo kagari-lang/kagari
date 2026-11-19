@@ -49,16 +49,13 @@ fn validate_type_access(
             .resolve_definition(id, NameNamespace::Type, cancel)
             .map_err(|_| DefinitionMappingError::Cancelled)?;
         let selected = resolved.and_then(|resolved| {
-            declarations
-                .definition(resolved.clone())
-                .copied()
-                .or_else(|| {
-                    let imported = declarations.imported_types().resolved(resolved)?;
-                    match imported.declaration.id {
-                        DeclarationId::Definition(id) => Some(id),
-                        _ => None,
-                    }
-                })
+            declarations.definition(resolved).copied().or_else(|| {
+                let imported = declarations.imported_types().resolved(resolved)?;
+                match imported.declaration.id {
+                    DeclarationId::Definition(id) => Some(id),
+                    _ => None,
+                }
+            })
         });
         if selected == Some(id) {
             Ok(())

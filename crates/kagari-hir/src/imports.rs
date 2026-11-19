@@ -42,7 +42,7 @@ pub mod types;
 /// `revision` distinguishes its text version, and the historic `arena` field stores
 /// the lowering identity. Inline modules may share a physical origin while having distinct
 /// logical/source-unit identities. One unit is not the entire source program.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SourceUnit {
     /// Logical module root, resolved through the retained catalog definition table.
     pub module: ModuleHandle,
@@ -145,7 +145,7 @@ impl SourceItem {
 /// Aliases and re-exports retain this same target. The local function ID must never
 /// index `app`'s function vector. [`crate::program::CheckedProgram::source_function`]
 /// is a checked-program consumer; signature projection also verifies the source unit.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SourceDeclRef {
     /// Complete identity of the lowering that owns the declaration.
     pub unit: SourceUnit,
@@ -164,7 +164,7 @@ impl SourceDeclRef {
 }
 
 /// Identity of a container whose members are looked up in the shared namespace catalog.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NamespaceId {
     /// A source module's scope, qualified by its complete source unit.
     Module(SourceUnit),
@@ -175,7 +175,7 @@ pub enum NamespaceId {
 }
 
 /// Canonical lookup destination, without aliases, provenance or embedded member tables.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ResolvedTarget {
     /// A namespace that lookup can enter for the next path component.
     Namespace(NamespaceId),
@@ -201,15 +201,15 @@ impl ResolvedTarget {
                 {
                     return local;
                 }
-                ResolvedName::Source(source.clone())
+                ResolvedName::Source(*source)
             }
-            Self::Namespace(ns) => ResolvedName::Namespace(ns.clone()),
+            Self::Namespace(ns) => ResolvedName::Namespace(*ns),
         }
     }
 }
 
 /// Identity of a real flattened use leaf in its owning source unit.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DirectiveId {
     /// Lowering that contains the original use syntax.
     pub unit: SourceUnit,
@@ -249,7 +249,7 @@ pub enum ImportKind {
 }
 
 /// One syntax leaf resolves both categories, or one namespace for a glob.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DirectiveResolution {
     Named(PerNamespace<LookupOutcome>),
     Glob(LookupOutcome),

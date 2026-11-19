@@ -365,10 +365,10 @@ pub(crate) fn resolved_alias<'a>(
     declarations: &'a Declarations,
     name: &ResolvedName,
 ) -> Option<(DefinitionId, &'a CanonicalAlias)> {
-    let id = declarations.definition(name.clone()).or_else(|| {
+    let id = declarations.definition(*name).or_else(|| {
         let DeclarationId::Definition(id) = &declarations
             .imported_types()
-            .resolved(name.clone())?
+            .resolved(*name)?
             .declaration
             .id
         else {

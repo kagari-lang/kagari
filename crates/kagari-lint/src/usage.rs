@@ -63,9 +63,9 @@ pub(crate) fn binding_usage(
             ResolvedName::Param(_) => BindingKind::Parameter,
             _ => continue,
         };
-        if let Some(declaration) = facts.declarations.target(binding.resolved.clone()) {
+        if let Some(declaration) = facts.declarations.target(binding.resolved) {
             usage
-                .entry(binding.resolved.clone())
+                .entry(binding.resolved)
                 .or_insert_with(|| BindingUsage {
                     declaration: declaration.clone(),
                     kind,

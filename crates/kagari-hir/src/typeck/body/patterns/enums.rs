@@ -22,7 +22,7 @@ impl BodyChecker<'_> {
             .names
             .pattern_variants
             .get(&pattern)
-            .and_then(|name| self.declarations.resolved_variant(name.clone()))
+            .and_then(|name| self.declarations.resolved_variant(*name))
             .and_then(|declaration| match &declaration.id {
                 DeclarationId::Definition(id) => self.aggregates.variant(id),
                 _ => None,

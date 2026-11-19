@@ -596,7 +596,7 @@ impl Declarations {
             else {
                 unreachable!("body owner is a definition")
             };
-            let (origin, range) = match binding.resolved.clone() {
+            let (origin, range) = match binding.resolved {
                 ResolvedName::Param(id) => {
                     let param = lowered.module.parameter(id);
                     (param.origin, param.binding_span())
@@ -609,11 +609,11 @@ impl Declarations {
                 _ => unreachable!("directory binds parameters, locals and local functions"),
             };
             builder.insert(
-                binding.resolved.clone(),
+                binding.resolved,
                 DeclarationId::Binding(BindingId {
                     analysis,
                     body,
-                    slot: binding.resolved.clone(),
+                    slot: binding.resolved,
                 }),
                 &binding.name,
                 origin,
@@ -813,7 +813,7 @@ impl Declarations {
             },
             |target| {
                 let resolved = target.resolved(self.names.unit.as_ref());
-                let id = self.definition(resolved.clone()).copied().or_else(|| {
+                let id = self.definition(resolved).copied().or_else(|| {
                     let imported = self.imported_types.resolved(resolved)?;
                     match imported.declaration.id {
                         DeclarationId::Definition(id) => Some(id),
@@ -894,7 +894,7 @@ impl Declarations {
     /// Finds a local name target for a definition identity; field/member-only keys return `None`.
     pub fn definition_target(&self, id: &DefinitionId) -> Option<ResolvedName> {
         match self.identities.get(&DeclarationId::Definition(*id))? {
-            DeclarationKey::Name(name) => Some(name.clone()),
+            DeclarationKey::Name(name) => Some(*name),
             _ => None,
         }
     }
@@ -943,7 +943,7 @@ impl Declarations {
     /// Finds declaration metadata for a resolved name, including eligible local/imported variants.
     pub fn target(&self, name: ResolvedName) -> Option<&Declaration> {
         self.targets
-            .get(&DeclarationKey::Name(name.clone()))
+            .get(&DeclarationKey::Name(name))
             .or_else(|| self.resolved_variant(name))
     }
 

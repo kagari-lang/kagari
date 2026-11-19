@@ -83,7 +83,7 @@ fn module_handles_require_the_owning_context_prefix_and_actual_namespace() {
                 .catalog
                 .lookup_member(
                     &LookupContext::new(&handle),
-                    &NamespaceId::Module(unit.clone()),
+                    &NamespaceId::Module(unit),
                     "value",
                     NameNamespace::Value,
                     &Default::default()

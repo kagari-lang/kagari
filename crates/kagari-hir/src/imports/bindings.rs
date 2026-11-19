@@ -3,7 +3,7 @@ use crate::imports::ResolvedTarget;
 use kagari_types::declaration::names::NameNamespace;
 use std::ops::{Index, IndexMut};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PerNamespace<T> {
     pub types: T,
     pub values: T,
@@ -44,7 +44,7 @@ impl<T> IndexMut<NameNamespace> for PerNamespace<T> {
 }
 
 /// Per-category result; absence releases only this category's reserved slot.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LookupOutcome {
     #[default]
     Pending,

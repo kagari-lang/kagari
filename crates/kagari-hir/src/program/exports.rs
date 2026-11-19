@@ -106,7 +106,7 @@ impl ProgramExports {
         let mut records = 0usize;
         while let Some(namespace) = pending.pop() {
             cancel.check().map_err(|_| ProgramCheckError::Cancelled)?;
-            if !seen.insert(namespace.clone()) {
+            if !seen.insert(namespace) {
                 continue;
             }
             let Some(identity) = module_handle(&namespace) else {

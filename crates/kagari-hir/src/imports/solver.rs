@@ -146,7 +146,7 @@ pub(super) fn solve(
     let mut facts = Vec::with_capacity(sources.len());
     for (module, unit) in sources.iter().zip(&units) {
         cancel.check()?;
-        let ns = NamespaceId::Module(unit.clone());
+        let ns = NamespaceId::Module(*unit);
         let mut scope = (*catalog.namespaces[&ns].names).clone();
         reserve(module, &mut scope, cancel)?;
         let scope = Arc::new(scope);
@@ -188,7 +188,7 @@ pub(super) fn solve(
                     observations: &observations,
                 },
             )?;
-            let ns = NamespaceId::Module(units[index].clone());
+            let ns = NamespaceId::Module(units[index]);
             let changed = catalog.namespaces[&ns].names != next.scope;
             work.evaluated(&next.scope, changed);
             if work.candidate_work > limits.candidate_work {
@@ -252,7 +252,7 @@ pub(super) fn solve(
                 for (namespace, outcome) in outcomes {
                     if *outcome == LookupOutcome::Pending {
                         pending_owners.insert(index);
-                        if closed.insert((directive.id.clone(), namespace)) {
+                        if closed.insert((directive.id, namespace)) {
                             queue.insert(index);
                         }
                     }
@@ -307,11 +307,11 @@ fn reserve(
     names: &mut NameTable,
     cancel: &CancellationToken,
 ) -> Result<(), Cancelled> {
-    let unit = names.unit.as_ref().expect("source scope").clone();
+    let unit = names.unit.expect("source scope");
     for (slot, import) in module.module.imports.iter().enumerate() {
         cancel.check()?;
         let id = DirectiveId {
-            unit: unit.clone(),
+            unit,
             slot: u32::try_from(slot).expect("import capacity"),
         };
         let origin = match import.kind {

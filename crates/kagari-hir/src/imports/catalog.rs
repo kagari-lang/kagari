@@ -149,7 +149,7 @@ impl<'a> LookupContext<'a> {
         if let Some(observations) = self.observations {
             observations
                 .borrow_mut()
-                .insert(Observation::Namespace(namespace.clone()));
+                .insert(Observation::Namespace(*namespace));
         }
     }
 }
@@ -228,7 +228,7 @@ impl NamespaceCatalog {
         if let Some(observations) = ctx.observations {
             observations
                 .borrow_mut()
-                .insert(Observation::Namespace(ns.clone()));
+                .insert(Observation::Namespace(*ns));
         }
         if let NamespaceId::Module(unit) = ns
             && !self.valid(unit)
@@ -319,13 +319,13 @@ impl NamespaceCatalog {
                 NamespaceId::Associated(source) if !self.valid(&source.unit) => {
                     NamespaceResult::StaleSource
                 }
-                _ => NamespaceResult::Found(ns.clone()),
+                _ => NamespaceResult::Found(*ns),
             },
             ResolvedTarget::Source(source) if !self.valid(&source.unit) => {
                 NamespaceResult::StaleSource
             }
             ResolvedTarget::Source(source) => {
-                let ns = NamespaceId::Associated(source.clone());
+                let ns = NamespaceId::Associated(*source);
                 if self.namespaces.contains_key(&ns) {
                     NamespaceResult::Found(ns)
                 } else {
@@ -421,13 +421,13 @@ impl NamespaceCatalog {
                 let root = LookupResult::Found(LookupHit {
                     support: HashSet::default(),
                     namespace: NameNamespace::Type,
-                    target: ResolvedTarget::Namespace(NamespaceId::Module(units[0].clone())),
+                    target: ResolvedTarget::Namespace(NamespaceId::Module(units[0])),
                     via: vec![],
                 });
                 let result = self.resolve_path(ctx, root, &components[end..], namespace, cancel)?;
                 let terminal = self.definitions.lookup_module_path(package, &components);
                 let physical_collision = namespace == NameNamespace::Type && terminal.and_then(|id| self.modules.get(&id)).is_some_and(|units| {
-                    matches!(&result, LookupResult::Found(hit) if !matches!(&hit.target, ResolvedTarget::Namespace(NamespaceId::Module(unit)) if units.as_slice() == [unit.clone()]))
+                    matches!(&result, LookupResult::Found(hit) if !matches!(&hit.target, ResolvedTarget::Namespace(NamespaceId::Module(unit)) if units.as_slice() == [*unit]))
                 });
                 return Ok(if physical_collision {
                     LookupResult::Ambiguous(vec![])
@@ -477,7 +477,7 @@ impl NamespaceCatalog {
                     if matches!(
                         self.lookup_member(
                             ctx,
-                            &NamespaceId::Module(unit.clone()),
+                            &NamespaceId::Module(*unit),
                             name,
                             NameNamespace::Type,
                             cancel
@@ -526,12 +526,12 @@ impl NamespaceCatalog {
             if let ResolvedTarget::Source(source) = &target
                 && source.unit != *unit
             {
-                sources.insert(source.clone());
+                sources.insert(*source);
             }
             let NamespaceResult::Found(ns) = self.namespace_of(&ctx, &target, cancel)? else {
                 continue;
             };
-            if !seen.insert(ns.clone()) {
+            if !seen.insert(ns) {
                 continue;
             }
             if let Some(table) = self.namespaces.get(&ns) {
@@ -619,9 +619,7 @@ impl NamespaceCatalog {
                 && units.len() == 1
                 && self.module_accessible(ctx, identity, cancel)?
             {
-                pending.push(ResolvedTarget::Namespace(NamespaceId::Module(
-                    units[0].clone(),
-                )));
+                pending.push(ResolvedTarget::Namespace(NamespaceId::Module(units[0])));
             }
         }
         Ok(())
@@ -731,7 +729,7 @@ impl NamespaceCatalog {
             let NamespaceResult::Found(ns) = self.namespace_of(&ctx, &target, cancel)? else {
                 continue;
             };
-            if !seen.insert(ns.clone()) {
+            if !seen.insert(ns) {
                 continue;
             }
             let foreign_unit = match &ns {
@@ -754,17 +752,17 @@ impl NamespaceCatalog {
             };
             let other_ns = match (&ns, mapped_unit) {
                 (NamespaceId::Module(source), Some(new)) if signature || source == unit => {
-                    NamespaceId::Module(new.clone())
+                    NamespaceId::Module(*new)
                 }
                 (NamespaceId::Associated(source), Some(new))
                     if signature || &source.unit == unit =>
                 {
                     NamespaceId::Associated(SourceDeclRef {
-                        unit: new.clone(),
+                        unit: *new,
                         item: source.item,
                     })
                 }
-                _ => ns.clone(),
+                _ => ns,
             };
             let table = self.namespaces.get(&ns);
             let other_table = other.namespaces.get(&other_ns);

@@ -206,7 +206,7 @@ impl<'a> BodyResolver<'a> {
             ExprKind::Missing => {}
             ExprKind::Name { name, .. } => {
                 if let Some(resolved) = self.resolve_name(name, NameNamespace::Value) {
-                    self.resolved.insert_expr(expr_id, resolved.clone());
+                    self.resolved.insert_expr(expr_id, resolved);
 
                     self.record_capture(resolved);
                 } else if let Some((owner, member)) = name.rsplit_once("::")
@@ -415,7 +415,7 @@ impl<'a> BodyResolver<'a> {
         match &place.kind {
             PlaceKind::Name(name) => {
                 if let Some(resolved) = self.resolve_name(name, NameNamespace::Value) {
-                    self.resolved.insert_place(place_id, resolved.clone());
+                    self.resolved.insert_place(place_id, resolved);
                     self.record_capture(resolved);
                 }
             }
@@ -434,7 +434,7 @@ impl<'a> BodyResolver<'a> {
         }
         for (_, outer, captures) in &mut self.closures {
             if outer.contains(&resolved) && !captures.contains(&resolved) {
-                captures.push(resolved.clone());
+                captures.push(resolved);
             }
         }
     }
@@ -454,7 +454,7 @@ impl<'a> BodyResolver<'a> {
                     _ => true,
                 };
                 return Some(if accessible {
-                    NameResolution::Unique(resolved.clone())
+                    NameResolution::Unique(*resolved)
                 } else {
                     NameResolution::Unresolved
                 });
@@ -494,7 +494,7 @@ impl<'a> BodyResolver<'a> {
         if let Some(scope) = self.scopes.last_mut() {
             self.resolved.insert_binding(Binding {
                 name: name.to_owned(),
-                resolved: resolved.clone(),
+                resolved,
                 owner: scope.owner,
                 writeability,
             });

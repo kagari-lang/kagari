@@ -72,10 +72,10 @@ impl SnapshotQueries<'_> {
             .targets()
             .map(|target| NavigationTarget {
                 namespace: target.namespace(),
-                target: target.clone(),
+                target: *target,
                 via: vec![match directive.kind {
-                    ImportKind::Named { .. } => BindingOrigin::NamedImport(directive.id.clone()),
-                    ImportKind::Glob => BindingOrigin::GlobImport(directive.id.clone()),
+                    ImportKind::Named { .. } => BindingOrigin::NamedImport(directive.id),
+                    ImportKind::Glob => BindingOrigin::GlobImport(directive.id),
                 }],
             })
             .collect()

@@ -65,7 +65,7 @@ pub(super) fn resolve_imports(
         unit: &unit,
         cancel,
     };
-    let mut names = (*base.namespaces[&NamespaceId::Module(unit.clone())].names).clone();
+    let mut names = (*base.namespaces[&NamespaceId::Module(unit)].names).clone();
     let mut result = ModuleImportFacts::default();
     let mut dependencies = catalog
         .module_dependencies
@@ -75,7 +75,7 @@ pub(super) fn resolve_imports(
     for (slot, import) in module.module.imports.iter().enumerate() {
         cancel.check()?;
         let id = DirectiveId {
-            unit: unit.clone(),
+            unit,
             slot: u32::try_from(slot).expect("import capacity"),
         };
         let kind = match &import.kind {
@@ -85,7 +85,7 @@ pub(super) fn resolve_imports(
             ImportLeaf::Glob => ImportKind::Glob,
         };
         let mut directive = ImportDirective {
-            id: id.clone(),
+            id,
             segments: import.segments.clone(),
             kind,
             span: source_location(module, Some(import.span)),
@@ -113,7 +113,7 @@ pub(super) fn resolve_imports(
             let lookup_context = LookupContext {
                 importer: &unit.module,
                 observations: Some(observations),
-                avoid: Some((id.clone(), namespace)),
+                avoid: Some((id, namespace)),
             };
             let directive_context = ImportContext {
                 lookup: lookup_context,
@@ -144,7 +144,7 @@ pub(super) fn resolve_imports(
                         ) =>
                 {
                     support = hit.support.clone();
-                    support.insert((id.clone(), namespace));
+                    support.insert((id, namespace));
                     add_dependencies(&hit, &mut directive.direct_dependencies);
                     if matches!(import.kind, ImportLeaf::Glob)
                         && expand_glob(
@@ -153,7 +153,7 @@ pub(super) fn resolve_imports(
                             &hit,
                             &mut names,
                             &mut result.diagnostics,
-                            closed.contains(&(id.clone(), namespace)),
+                            closed.contains(&(id, namespace)),
                         )?
                     {
                         LookupOutcome::Pending
@@ -162,7 +162,7 @@ pub(super) fn resolve_imports(
                     }
                 }
                 LookupResult::Missing => LookupOutcome::Absent,
-                LookupResult::Unresolved if closed.contains(&(id.clone(), namespace)) => {
+                LookupResult::Unresolved if closed.contains(&(id, namespace)) => {
                     LookupOutcome::Absent
                 }
                 LookupResult::Unresolved => LookupOutcome::Pending,
@@ -179,11 +179,11 @@ pub(super) fn resolve_imports(
                 let mut binding = candidate(
                     &unit,
                     None,
-                    BindingOrigin::NamedImport(id.clone()),
+                    BindingOrigin::NamedImport(id),
                     import.visibility,
                     directive.span,
                 );
-                binding.resolution = outcome.clone();
+                binding.resolution = outcome;
                 binding.support = support;
                 names.add(namespace, name, binding);
             }
@@ -191,7 +191,7 @@ pub(super) fn resolve_imports(
                 let mut binding = candidate(
                     &unit,
                     None,
-                    BindingOrigin::GlobImport(id.clone()),
+                    BindingOrigin::GlobImport(id),
                     import.visibility,
                     directive.span,
                 );
@@ -261,7 +261,7 @@ pub(super) fn resolve_imports(
                     importer: &unit.module,
                     observations: Some(observations),
                     avoid: Some((
-                        id.clone(),
+                        id,
                         if matches!(directive.kind, ImportKind::Glob) {
                             NameNamespace::Type
                         } else {
@@ -349,7 +349,7 @@ fn expand_glob(
                 let mut binding = candidate(
                     unit,
                     None,
-                    BindingOrigin::GlobImport(directive.id.clone()),
+                    BindingOrigin::GlobImport(directive.id),
                     directive.visibility,
                     directive.span,
                 );
@@ -366,15 +366,13 @@ fn expand_glob(
                 let mut binding = candidate(
                     unit,
                     Some(member.target),
-                    BindingOrigin::GlobImport(directive.id.clone()),
+                    BindingOrigin::GlobImport(directive.id),
                     directive.visibility,
                     directive.span,
                 );
                 binding.support = member.support;
-                binding.support.extend(hit.support.iter().cloned());
-                binding
-                    .support
-                    .insert((directive.id.clone(), NameNamespace::Type));
+                binding.support.extend(hit.support.iter().copied());
+                binding.support.insert((directive.id, NameNamespace::Type));
                 names.add(
                     namespace,
                     LocalName::new(&name).expect("member name"),
@@ -485,7 +483,7 @@ fn add_implicit(
                 continue;
             };
             let ns = match catalog.modules.get(&root).map(Vec::as_slice) {
-                Some([unit]) => NamespaceId::Module(unit.clone()),
+                Some([unit]) => NamespaceId::Module(*unit),
                 _ => NamespaceId::InstalledPrefix(root),
             };
             names.add(
@@ -525,7 +523,7 @@ fn add_implicit(
                             let mut binding = candidate(
                                 unit,
                                 Some(hit.target),
-                                BindingOrigin::Prelude(ns.clone()),
+                                BindingOrigin::Prelude(ns),
                                 Visibility::Private,
                                 None,
                             );

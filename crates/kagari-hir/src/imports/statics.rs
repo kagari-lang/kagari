@@ -69,7 +69,7 @@ impl ImportedStatics {
                 continue;
             };
             let target = ResolvedName::Static(id);
-            let Some(declaration) = module.record.declarations.definition(target.clone()) else {
+            let Some(declaration) = module.record.declarations.definition(target) else {
                 continue;
             };
             result.statics.insert(

@@ -146,11 +146,7 @@ fn resolve_declaration_reference(
     materialize_alias: bool,
     target: &mut Option<ResolvedTypeTarget>,
 ) -> Option<TypeId> {
-    if let Some(imported) = context
-        .declarations
-        .imported_types()
-        .resolved(resolved.clone())
-    {
+    if let Some(imported) = context.declarations.imported_types().resolved(resolved) {
         *target = Some(ResolvedTypeTarget::Source(match &imported.declaration.id {
             DeclarationId::Definition(id) => *id,
             _ => return None,
@@ -160,7 +156,7 @@ fn resolve_declaration_reference(
         }
         return Some(imported.ty.clone());
     }
-    let definition = *context.declarations.definition(resolved.clone())?;
+    let definition = *context.declarations.definition(resolved)?;
     if let ResolvedName::TypeAlias(_) = resolved {
         *target = Some(ResolvedTypeTarget::Source(definition));
         if !materialize_alias {

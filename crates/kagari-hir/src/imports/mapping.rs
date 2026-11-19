@@ -77,10 +77,9 @@ mod tests {
             item: SourceItem::Function(FunctionId::new(0)),
         };
         let cancel = CancellationToken::default();
-        let metadata =
-            DefinitionMetadata::checked(source.snapshot(), address.clone(), &cancel).unwrap();
+        let metadata = DefinitionMetadata::checked(source.snapshot(), address, &cancel).unwrap();
         let target = DefinitionContext::new().unwrap();
-        assert!(DefinitionMetadata::checked(target.snapshot(), address.clone(), &cancel).is_err());
+        assert!(DefinitionMetadata::checked(target.snapshot(), address, &cancel).is_err());
         let imported = metadata.import_into(&target, &cancel).unwrap();
         let mapped = imported.records();
         assert_ne!(mapped.unit.module, address.unit.module);

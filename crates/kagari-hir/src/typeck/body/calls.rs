@@ -141,7 +141,7 @@ impl<'a> BodyChecker<'a> {
     pub(super) fn associated_owner_shadowed(&self, callee: ExprId) -> bool {
         self.names.qualified_member(callee).is_some_and(|member| {
             !matches!(
-                member.owner.clone(),
+                member.owner,
                 ResolvedName::TypeAlias(_)
                     | ResolvedName::NativeType(_)
                     | ResolvedName::Struct(_)
@@ -150,7 +150,7 @@ impl<'a> BodyChecker<'a> {
             ) && self
                 .declarations
                 .imported_types()
-                .resolved(member.owner.clone())
+                .resolved(member.owner)
                 .is_none()
         })
     }

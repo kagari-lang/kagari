@@ -139,7 +139,7 @@ impl<'a> TypeCatalog<'a> {
         for source in names.catalog.reachable_sources(&names.items, cancel)? {
             cancel.check()?;
             if let Some(ty) = self.resolve(&source, cancel)? {
-                result.resolutions.insert(source.clone(), ty);
+                result.resolutions.insert(source, ty);
             }
             if let SourceItem::Variant(variant) = source.item
                 && let Some(module) = self.modules.get(&source.unit.file)
@@ -149,7 +149,7 @@ impl<'a> TypeCatalog<'a> {
                 )
                 && let Some(declaration) = module.record.declarations.variant(variant)
             {
-                result.variants.insert(source.clone(), declaration.clone());
+                result.variants.insert(source, declaration.clone());
             }
         }
         let cache = self.surfaces.borrow();
@@ -203,7 +203,7 @@ impl<'a> TypeCatalog<'a> {
             return Ok(None);
         }
         let item = target.item;
-        let source = target.clone();
+        let source = *target;
         if let SourceItem::TypeAlias(id) = item {
             let declaration = module
                 .record
@@ -261,7 +261,7 @@ impl<'a> TypeCatalog<'a> {
             SourceItem::Trait(id) => ResolvedName::Trait(id),
             _ => return None,
         };
-        let declaration = module.record.declarations.target(resolved.clone())?;
+        let declaration = module.record.declarations.target(resolved)?;
         let identity = module.record.declarations.definition(resolved)?;
         let native_type = match item {
             SourceItem::NativeType(id) => module.record.declarations.native_type(id),
