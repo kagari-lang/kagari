@@ -1,7 +1,12 @@
 # Kagari Examples
 
-These files show syntax that currently passes semantic checking and executes.
-From the repository root, run any standalone `.kgr` file with
+These files illustrate language and library contracts. Examples that use `Vec`,
+hash containers, String traversal or array/range iteration await collection
+provider restoration; their expected results below are not current run results.
+For an example independent of those providers, use [expressions.kgr](syntax/expressions.kgr).
+For provider-free generic iteration, see the [Script collection](../crates/kagari/tests/fixtures/embedding/installation/bag.kgr)
+and its [consumer](../crates/kagari/tests/fixtures/embedding/installation/bag-consumer.kgr).
+From the repository root, run a supported standalone `.kgr` file with
 `cargo run -p kagari-cli -- run <path>`. The CLI exits successfully when its
 assertions pass. Ordinary `syntax/*.kgr` programs returning `42` are discovered as
 independent SDK library tests, which check source and encoded-artifact execution.
@@ -43,7 +48,7 @@ The [error-stack example](error-stack.kgr) intentionally returns Err: running
 | Script Vec3/rays, analytic sphere hits/misses, normalization and local fixed-seed SplitMix64 sampling (64 samples) | [numeric-sampling.kgr](numeric-sampling.kgr) | `42`; public `sampling_checksum()` returns `0x396d503bb05c761a` |
 | Standard `PartialEq/Eq/Hash`, `Debug/Display`, generic bounds and structural/identity keys | [standard-traits.kgr](syntax/standard-traits.kgr) | `42` |
 | Custom/native iterators, associated Item and generic for loops | [iterators.kgr](syntax/iterators.kgr) | `42` |
-| Explicit and fallible conversion protocols, derived reverse calls | [conversions.kgr](syntax/conversions.kgr) | `42` |
+| Explicit and fallible conversion protocols, reverse calls through core blanket impls | [conversions.kgr](syntax/conversions.kgr) | `42` |
 | `Ordering`, `PartialOrd`/`Ord`, custom and generic comparisons | [ordering.kgr](syntax/ordering.kgr) | `42` |
 | `Add`/`Sub`/`Mul`/`Div`/`Rem`, `Neg`/`Not`, different operand and result types | [operators.kgr](syntax/operators.kgr) | `42` |
 | Read-only `Index`, generic access and shared returned objects | [index.kgr](syntax/index.kgr) | `42` |

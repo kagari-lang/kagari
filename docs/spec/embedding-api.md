@@ -4,7 +4,12 @@ Engine construction starts with no Native providers. `builder`, `new` and `defau
 do not install a standard library. Hosts explicitly install their chosen modules
 through `builder.install_all(...)` or `with_native_modules(config, modules)`;
 the latter installs exactly the supplied batch. Hosts that need the bundled
-library depend on `kagari-stdlib` and compose `kagari_stdlib::modules()` explicitly.
+library depend on `kagari-stdlib`. With the source feature, `builder.declarations()`
+already includes verified contracts from [packaged core](../../library/core/),
+not Rust bindings. Compose `StandardLibrary::new(builder.declarations())?` and
+install `library.modules()?`. A frontend-free host needing that bundle can use
+`StandardLibrary::from_verified_program` with verified bytecode carrying its core
+owners. A Script-only core program needs neither step.
 
 This document defines the Rust-facing embedding contracts and implemented SDK APIs.
 Lower-level driver capabilities belong to the same canonical Runtime; the SDK
@@ -453,7 +458,8 @@ calls, signatures, the enclosing return type and actual ControlFlow member IDs.
 Lowering consumes those facts and evaluates the operand once. Generic bounded
 projections are normalized after substitution; cached body queries preserve the
 nominal method/member identities while remapping expression keys. Standard
-Option/Result/ControlFlow policy is implemented by registered library bodies.
+Option/Result/ControlFlow propagation is implemented by authored core Script
+bodies and needs no stdlib registration.
 
 `AnalysisSnapshot::declaration(id)` finds a named declaration at that snapshot's
 revision, but rejects a local binding from a different analysis. An unchanged cached

@@ -2,6 +2,8 @@ mod diagnostics;
 mod traps;
 
 /* Temporarily paused: stdlib restoration (NC01-NC06).
+use crate::test_support::standard::standard_library;
+
 #[rstest]
 fn ordinary_execution(
     #[base_dir = "tests/fixtures/language/type_inference"]
@@ -16,7 +18,7 @@ fn ordinary_execution(
     });
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    let engine = KagariEngine::with_native_modules(config, stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(config, standard_library().modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("type-inference.kgr", &source),

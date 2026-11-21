@@ -1,8 +1,10 @@
 /* Temporarily paused: stdlib restoration (NC01-NC06).
+use crate::test_support::standard::standard_library;
+
 #[test]
 fn native_numeric_aggregation_checks_declared_width_and_releases_roots() {
     let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+        KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     for source in [
         "fn main()->i8 {[127i8,1i8].iter().sum()}",
         "fn main()->u8 {[128u8,2u8].iter().product()}",

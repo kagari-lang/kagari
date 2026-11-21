@@ -334,7 +334,7 @@ fn wildcard_import_follows_a_public_module_alias() {
 #[test]
 fn wildcard_import_follows_a_public_native_module_alias() {
     let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+        KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     insert(&engine, "facade", "pub use std::collections;");
     let root = insert(
         &engine,

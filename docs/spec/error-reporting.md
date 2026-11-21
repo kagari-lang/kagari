@@ -5,8 +5,8 @@ This is the authoritative error-reporting contract. Errors remain ordinary
 
 ## Origin ownership and propagation
 
-The ordinary core-library Result declaration marks its Err variant with the
-checked `reports_failure` fact. A newly constructed `Result::Err(e)` captures the current source location
+Packaged core supplies the checked `reports_failure` fact for the `Err` variant
+of the [authored Result type](../../library/core/result.kgr). A newly constructed `Result::Err(e)` captures the current source location
 and synchronous script stack, innermost frame first. The metadata belongs to the
 Result value, not to `e`. It records the original call stack, not a history of
 later propagation. A stored error can therefore report callers that have already
@@ -16,12 +16,11 @@ returned when another caller inspects it.
 | --- | --- |
 | New `Err(e)` | Capture a new origin and stack |
 | `?`, ordinary return, assignment, container storage | Preserve the original metadata |
-| `map`, `and_then` on Err | Preserve the original Err |
-| `map_err` on Err | Change the payload and preserve the original metadata |
+
 | `?` with a `From` error conversion | Convert the payload and preserve the original metadata |
 | `match r { Err(e) => Err(e), ... }` | Construct a new Err and capture a new origin |
 | `None`, propagation of None | No failure metadata |
-| `None.ok_or(e)` / `ok_or_else(...)` | Capture at the conversion site |
+
 | `Ok(Err(e))` | The inner Err has metadata; the outer Ok is successful |
 
 Patterns expose only the payload. Equality, hashing and container key lookup ignore
@@ -30,9 +29,10 @@ execution failures. `?` may change the payload through `From`; its preserved tra
 does not acquire conversion frames. If the conversion itself traps, that trap has
 its own execution stack, including the conversion call.
 
-The heap stores optional origin beside ordinary nominal enum values. A generic
-Checked native library methods copy this metadata after validating the target enum
-construction; it does not reinterpret a payload or resolve a standard type name.
+The heap stores optional origin beside ordinary nominal enum values. Core's
+Script implementations of `branch` and `from_residual` explicitly transfer this
+metadata between checked Result values; matching and constructing a new `Err`
+in user code does not perform that transfer.
 Unmarked source/native enum variants capture no origin and do not become CLI
 failures automatically. Reporting policy is checked against carried declarations.
 

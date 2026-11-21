@@ -13,24 +13,25 @@ see [native declarations](standard-declarations.md). Generated `.kgr` serves too
 and is not an executable standard library.
 
 Native installation is explicit: Runtime and SDK builders start without Native
-providers. The optional bundle supplies scalar/String methods, arrays and
+providers. The optional bundle supplies scalar, String and array methods and
 Native implementations of core protocols. Vec/HashMap/HashSet and CollectionCursor providers,
 List algorithms needing detached edits, String split/traversal and builtin
 array/range iteration are withdrawn pending [NC reconstruction](../native-collections-plan.md).
 The collection/traversal inventories below record their retained semantic design,
-not currently callable implementations. No compatibility aliases are installed. List/MutableList own common algorithm methods,
-String owns its inherent methods, `core::num` owns the finite scalar numeric
-methods below, and `core::iter::Iterator` owns the finite lazy transformation and
-terminal API. The [collection contract](collection-access.md) defines the collection
+not currently callable implementations. `std::string` supplies the optional String
+extensions, `core::num` supplies scalar numeric methods, and authored
+`core::iter::Iterator` supplies the generic lazy adapters and terminals. The [collection contract](collection-access.md) defines the collection
 surface. Predecessor APIs outside these inventories, including enum combinators,
 extended iterator algorithms, collection snapshots and additional container classes,
 remain withdrawn; no compatibility aliases are installed.
 
 ## Namespaces and prelude
 
-Declarations have one canonical owner. Public `std` re-exports preserve that
-identity, including trait implementations, generic bounds, associated members,
-constructors and tooling navigation.
+The [eleven packaged modules](../../library/core/src/lib.rs) are `core::{cmp,
+convert, default, fmt, hash, iter, ops, option, result, str}` and `alloc::string`.
+Their explicit paths work without stdlib or a prelude. The other modules below
+require the optional bundle. Its `std` re-exports preserve definition identities,
+including associated members, constructors, documentation and navigation.
 
 | Canonical module | Declarations |
 | --- | --- |
@@ -47,25 +48,25 @@ constructors and tooling navigation.
 | `core::option`, `core::result` | Option and Result |
 | `core::future` | Cold single-drive Future |
 | `core::task` | Task, TaskScope, SpawnError and cold two-input join/try_join |
-| `alloc::string`, `alloc::vec` | String and Vec |
-| `std::collections` | List/MutableList, Map/MutableMap, Set/MutableSet, HashMap and HashSet |
+| `alloc::string` | String scalar declaration; optional methods belong to `std::string` |
+| `std::collections` | List/MutableList, Map/MutableMap and Set/MutableSet interfaces |
 
 Corresponding `std::ops`, `std::cmp`, `std::hash`, `std::fmt`, `std::convert`,
-`std::iter`, `std::str`, `std::default`, `std::num`, `std::char`, `std::option`, `std::result`, `std::future`, `std::string`
-and `std::vec` expose the canonical declarations through checked re-exports.
+`std::iter`, `std::str`, `std::default`, `std::num`, `std::char`, `std::option`, `std::result`, `std::future`
+and `std::string` expose the canonical declarations through checked re-exports.
 `std::task` exposes the `core::task` declarations, including `join` and `try_join`.
 The package/module spelling does not change Kagari's GC or shared-object semantics.
 There is no installed `core::language` module or ArrayList declaration.
 
 `std::prelude` explicitly exports Iterator, Iterable, FromIterator, PartialEq,
 Eq, PartialOrd, Ord, From, Into, TryFrom, TryInto, Default, Fn, Option, Result, Some, None,
-Ok, Err, String, Vec, Future, Task, TaskScope and SpawnError. `join` and `try_join`
+Ok, Err, String, Future, Task, TaskScope and SpawnError. `join` and `try_join`
 require an explicit import or qualified call. Iterable is a retained Kagari extension. Local declarations
 and explicit imports take precedence over these implicit imports.
 Operators use their checked language roles independently of name imports; writing
 an explicit operator trait bound or implementation requires that name in scope.
 Hash, Debug, Display, operator traits other than Fn, collection interfaces,
-HashMap/HashSet, Ordering, ranges and error types require explicit imports.
+Ordering, ranges and error types require explicit imports.
 New public library declarations do not automatically enter the prelude.
 Generic operation requirements use [ordinary trait bounds](traits.md#operation-specific-bounds),
 not compiler-recognized numeric constraint names.
@@ -96,9 +97,9 @@ cycle checks, bounds, shared Task waits and cancellation ownership.
 
 ## Foundation trait inventory
 
-The installed foundation contains these 41 traits. All remain
-available without optional libraries. This is the implemented inventory, not a
-decision that every trait needs a compiler language role.
+Core source supplies 35 traits without any Native installation. Installing stdlib
+adds six collection interfaces, bringing the total to 41. Availability does not
+imply that a particular implementation or extension method is present.
 
 | Family | Traits |
 | --- | --- |
@@ -118,10 +119,9 @@ decision that every trait needs a compiler language role.
 | Construction and aggregation | Default, FromIterator, Sum, Product |
 
 The [ownership partition](../architecture.md#core-trait-inventory) has 26
-language items and 15 ordinary native-library traits, retaining mandatory
-availability of all 41. Parser/HIR analyzes their generated declarations; checked
-role identities select syntax semantics, and library policy follows installed
-declaration/implementation records. Algorithms and additional containers remain
+compiler-recognized core traits, nine ordinary core traits and the six stdlib
+interfaces. HIR checks role identity and shape on the authored declarations.
+Native providers can reference and implement them but cannot redefine them. Algorithms and additional containers remain
 separate from trait declarations. Try, FromResidual and ControlFlow require
 explicit imports; they are not prelude additions.
 
@@ -140,11 +140,9 @@ val contextual: Count = Default::default();
 fn make<T: Default>() -> T { T::default() }
 ```
 
-The trait is static-only, not an interface value type. Standard implementations
-return Unit, false, correctly typed integer/positive floating zero, empty String,
-a fresh empty Vec<T>, or None for Option<T>. The [character implementation](#character-scalar)
-adds the scalar default described below. Vec and Option do not require
-T: Default. Other types need an explicit implementation; no tuple/array/map/set,
+The trait is static-only, not an interface value type. Core implements it for
+`Option<T>`, returning `None` without requiring `T: Default`. The optional library
+supplies scalar defaults, including empty String and the [character default](#character-scalar). Other types need an explicit implementation; no tuple/array/map/set,
 Result, host/view or implicit user-struct implementations are supplied.
 Default does not zero-initialize arbitrary types or enable derive or enum default
 selection. [Struct update](syntax.md#struct-update-expressions) is a separate ordinary
@@ -152,7 +150,7 @@ construction form; its base may use Default or any eligible struct expression.
 
 ## Core Builtin Types
 
-The core type set includes:
+The language and explicitly installed library together expose:
 
 - `()`
 - `bool`
@@ -162,7 +160,7 @@ The core type set includes:
 - floating-point numbers: `f32`, `f64`
 - `String`
 - builtin fixed-length `[T]` arrays
-- registered `Vec<T>` storage and read-only `List<T>` interfaces
+- explicitly installed `List<T>` interfaces (concrete `Vec<T>` storage is deferred)
 - map interfaces as `Map<K, V>`
 - set interfaces as `Set<T>`
 - tuples
@@ -250,10 +248,9 @@ mutating an alias updates that array, but not another evaluation's result.
 Content equality (`==`) compares bytes; identity (`===`) distinguishes storage,
 including distinct empty arrays.
 
-These arrays have the normal array `len`, `is_empty`, indexed replacement and
-Iterable surface, with `u64` lengths and `u8` elements. They do not grow or become
-Vec/List values implicitly. `Vec::from(bytes)` explicitly copies the elements into
-independent growable storage. Byte arrays are not String values: NUL and FF are
+These arrays have normal indexed replacement and `u8` elements. The installed
+array methods include `len` and `is_empty`; builtin array iteration is deferred.
+Arrays do not grow or become Vec/List values implicitly. Byte arrays are not String values: NUL and FF are
 valid payload bytes, with no UTF-8 validation or implicit text conversion. Literal
 source content must be ASCII; cooked escapes can express any byte. Neither form
 interpolates.
@@ -265,11 +262,10 @@ This adds no String indexing, traversal or general UTF-8 conversion API.
 
 The complete [collection contracts](collection-access.md) define List/MutableList,
 Map/MutableMap and Set/MutableSet. They are generic bounds and interface types.
-Vec/HashMap/HashSet are the canonical defaults and remain available with
-optional modules disabled. Array literals create fixed-length `[T]`;
-`Vec::from(array)` and `HashSet::from(array)` construct independent collection
-storage explicitly. Default hash containers
-use Rust std::collections and promise no insertion or sorted traversal order.
+The optional stdlib supplies the interfaces, not concrete Vec/HashMap/HashSet
+providers. Array literals create fixed-length `[T]` without installing a
+collection library. The default hash container design below describes deferred
+providers and promises no insertion or sorted traversal order.
 Additional container types register storage and ordinary trait impls without
 adding concrete-type dispatch to the compiler or VM.
 
@@ -344,7 +340,7 @@ See [failure semantics](failure-semantics.md) for traps and termination, which
 
 ### Propagation protocols
 
-`core::ops` owns the following ordinary registered declarations, also re-exported
+[Core source](../../library/core/ops.kgr) owns the following declarations, also re-exported
 by `std::ops`:
 
 ```kagari
@@ -412,17 +408,15 @@ effects and failure behavior. Raw strings never interpolate; both cooked and raw
 strings support the [multiline literal rules](syntax.md#string-literals).
 The optional predecessor query and parse helpers are not implicitly restored.
 
-The inherent String surface is len/is_empty (UTF-8 bytes), literal
-contains/starts_with/ends_with/find, checked slice(start, end), Unicode whitespace
-trim/trim_start/trim_end, literal replace, eager split returning List<String>, and
-explicit lazy chars/char_indices/bytes traversal.
+Importing `alloc::string::String` names the type but installs no methods.
+The explicitly installed `std::string` extensions provide len/is_empty (UTF-8 bytes),
+literal contains/starts_with/ends_with/find, checked slice(start, end), Unicode
+whitespace trim/trim_start/trim_end and literal replace.
 len returns u64, find returns Option<u64>, and slice takes u64 byte offsets.
 Slice uses a half-open byte range and rejects reversed,
 out-of-range and non-boundary offsets. Empty patterns match at Unicode scalar
-boundaries, including both ends: find returns zero, replace inserts there, and
-split retains endpoint empty fields. A nonempty separator on empty input produces
-one empty string. Inputs remain immutable. Ordinary native bodies implement these
-language-owned signatures; no String trait, regex or locale API is added. The slice
+boundaries, including both ends: find returns zero and replace inserts there.
+Inputs remain immutable. Native providers implement these methods; no String trait, regex or locale API is added. The slice
 trap is IndexOutOfBounds for all invalid byte ranges, including UTF-8 boundaries.
 
 Unqualified compiler helpers such as print and reflection names are consulted only
@@ -433,7 +427,8 @@ and metadata; it is not how native libraries dispatch their methods.
 
 ### Explicit String traversal
 
-String supplies three lazy methods using the ordinary Iterator/Iterable protocols:
+The following traversal contract is retained for collection restoration. These
+three methods and `split` are not currently supplied by `std::string`:
 
 | Method | Item | Meaning |
 | --- | --- | --- |
@@ -613,12 +608,10 @@ for narrowing integer cases. Optional helper methods are not required. Numeric
 
 FromIterator<T>, Sum<T> and Product<T> are core contracts. Their static methods
 `from_iter`, `sum` and `product` each take `I: Iterable<Item = T>` and return Self.
-The foundation supplies Vec, HashSet and HashMap construction and same-scalar
-numeric aggregation. HashSet requires Item: Eq + Hash and deduplicates values.
-HashMap requires pair items `(K, V)` with K: Eq + Hash; later values replace
-earlier values for equal keys.
-Empty sums return zero and empty products return one; integer overflow traps at
-the declared scalar width. Custom destinations can implement these same contracts.
+A Script destination can implement any of these contracts without stdlib. The
+optional numeric implementations return zero for an empty sum and one for an
+empty product; integer overflow traps at the declared scalar width. Bundled
+Vec, HashSet and HashMap construction is deferred.
 
 `core::iter::{Iterator, Iterable}` are prelude traits:
 
@@ -679,12 +672,9 @@ count returns zero, for_each returns unit and fold returns its initial value.
 Count uses checked u64 addition. Collect, sum and product call the requested
 destination's existing constructor/reducer with the current iterator; they do not
 restart the collection. Destination context or explicit method type
-arguments must determine the result type, for example:
-
-```kagari
-val mapped: Vec<i32> = [1, 2, 3].iter().map(|item| item + 1).collect();
-val total: i32 = mapped.iter().filter(|item| item > 2).sum();
-```
+arguments must determine the result type. For example, the
+[script-only collection consumer](../../crates/kagari/tests/fixtures/embedding/installation/bag-consumer.kgr)
+selects `Bag` with `val collected: Bag = bag.iter().map(|x| x * 2).collect();`.
 
 `for pattern in expression` evaluates the expression once, calls `iter`
 once, and repeatedly calls `next`. Some supplies the next item; None ends the
@@ -696,9 +686,9 @@ An Iterator automatically implements identity Iterable, including under generic
 bounds. It cannot also declare a conflicting Iterable implementation.
 Custom iterables return an iterator whose Item agrees with their own Item.
 
-The default containers implement Iterable with checked associated iterator
-types, available without optional library adapters. The foundation's shared
-`CollectionCursor<Item>` implements Iterator and identity Iterable.
+Generic code does not require `CollectionCursor`. The following native cursor
+rules describe the deferred collection provider, not a required core iterator.
+In that design, `CollectionCursor<Item>` implements Iterator and identity Iterable.
 The concrete `CollectionCursor<T>` type is distinct from the `Iterable::Iter` associated type:
 an Iterable implementation may use `type Iter = CollectionCursor<T>` or select a custom iterator.
 Array/Set items are elements, Map items are `(key, value)` tuples in the
@@ -744,7 +734,7 @@ iteration validity. Native storage borrows, sorting/mutation commits and hash
 callback guards remain enforced. Custom iterators own their consistency policy;
 the Iterator/Iterable traits do not impose a universal collection lock.
 
-Host retention uses the normal rooted-value API. Cursor handles are runtime-owned,
+Host retention uses the normal rooted-value API. Native cursor handles are runtime-owned,
 generation checked, and trace their source, callbacks and adapter state. Ordinary
 callback calls follow current routes; created closures retain exact bodies. Cursors
 are not transferable across runtimes. They provide no
@@ -760,6 +750,7 @@ Rust state remains outside the script heap and uses declared typed access paths.
 Executable contracts carry checked identities, signatures, associated outputs,
 selected callables and concrete layouts. Metadata supports verification, interface
 dispatch, reload, tooling and reflection within declared policy. Source-free artifact
-loading validates these contracts against installed native modules. Backends
+loading verifies the executable contracts and checks Native demands against the
+actual installation. Backends
 consume checked executable facts and may fall back before entering unsupported
 functions; interpreter fallback is not a native-code performance claim.

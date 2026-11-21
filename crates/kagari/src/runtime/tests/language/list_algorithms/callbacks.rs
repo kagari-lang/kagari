@@ -1,4 +1,6 @@
 /* Temporarily paused: stdlib restoration (NC01-NC06).
+use crate::test_support::standard::standard_library;
+
 #[test]
 fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
     for (operation, retained_values, preserve_order) in [
@@ -21,9 +23,7 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
         let context = ExecutionContext::default();
         let mut module = ModuleBuilder::new(
             "test::cancellation",
-            &StandardDeclarations::default()
-                .catalog()
-                .expect("explicit standard providers"),
+            standard_library().declarations().catalog(),
         )
         .unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
@@ -59,7 +59,7 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
             )
             .unwrap();
         let mut builder = KagariEngine::builder().unwrap();
-        builder.install_all(stdlib::modules().unwrap()).unwrap();
+        builder.install_all(standard_library().modules().unwrap()).unwrap();
         builder.install(module.finish().unwrap()).unwrap();
         let engine = builder.build().unwrap();
         let fields = (0..retained_values.len())

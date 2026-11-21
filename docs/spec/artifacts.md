@@ -173,9 +173,10 @@ old-schema reader. Generated adapter identity arguments encode the applied
 protocol as declaration metadata, independently of any erased interface value view.
 For `Into` and `TryInto`, a forward conversion alone is not reverse evidence:
 linked verification requires the canonical blanket impl and its substituted bound.
-[Installation checks](standard-declarations.md#checked-executable-contracts) also
-authenticate the table and the Script body; portable records cannot authorize their
-own replacement.
+These authored core bodies travel as compiled Script code: verification and
+execution require no core source package, HIR or stdlib. [Installation checks](standard-declarations.md#checked-executable-contracts)
+still compare demanded Native operations with local bindings; portable evidence
+does not authorize a Rust entry.
 
 Invocation state owns Rust data and explicit roots. Native callbacks execute
 synchronously on shared frames; results remain rooted across allocation/reentry.

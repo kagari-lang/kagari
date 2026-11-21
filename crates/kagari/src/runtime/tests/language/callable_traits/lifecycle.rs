@@ -1,8 +1,10 @@
 /* Temporarily paused: stdlib restoration (NC01-NC06).
+use crate::test_support::standard::standard_library;
+
 #[test]
 fn callable_traps_release_roots_and_allow_subsequent_execution() {
     let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+        KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(

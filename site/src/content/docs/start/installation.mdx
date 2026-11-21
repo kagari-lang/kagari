@@ -58,16 +58,15 @@ that status after the usage text does not mean the build failed.
 From the same repository root:
 
 ```sh
-cargo run --locked -p kagari-cli --bin kg -- check examples/syntax/control-flow.kgr
-cargo run --locked -p kagari-cli --bin kg -- run examples/syntax/control-flow.kgr
+cargo run --locked -p kagari-cli --bin kg -- check examples/syntax/expressions.kgr
+cargo run --locked -p kagari-cli --bin kg -- run examples/syntax/expressions.kgr
 ```
 
 `check` enforces language rules without executing the program. `run` compiles it
 and calls its `main`. The example returns `42`; the default, non-JIT runner does
 **not** print that value and exits with status zero, not 42. Cargo's build/run
-messages are separate from script output. The
-<a href={page('start/quickstart')}>quickstart</a> shows the full source and explains
-how the loops produce that result.
+messages are separate from script output. See <a href={source('examples/syntax/expressions.kgr')}>the expression program</a>
+for its checked arithmetic and short-circuit condition.
 
 If a command fails, distinguish a Rust build/link error from a Kagari source
 diagnostic. Fix a missing Rust toolchain or linker before investigating script

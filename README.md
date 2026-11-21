@@ -11,7 +11,7 @@ Kagari is still an early language, but the repository now contains an end-to-end
 This currently means:
 
 - The specifications in `docs/spec/`, `docs/kagari.ebnf`, and `docs/architecture.md` are authoritative over legacy implementation behavior.
-- The core standard library surface is implemented as typed runtime-native builtins rather than as compatibility wrappers or Kagari source-level container implementations.
+- The source frontend compiles [Kagari's language core](library/core/). Native library methods and host services require explicit installation.
 - Script integers are fixed-width `i8`/`i16`/`i32`/`i64` and `u8`/`u16`/`u32`/`u64`, with no machine-width aliases. Standard lengths, counts and indices use `u64`; [memory and resource limits](docs/spec/runtime.md#machine-and-resource-boundaries) remain platform-dependent.
 - Interpreter execution is the semantic foundation.
 - The Cranelift JIT is optional and feature-gated; unsupported functions or debug-policy conflicts fall back to the interpreter.
@@ -142,20 +142,18 @@ in place of `kg disasm`.
 
 ## Standard Library
 
-Language-owned protocols and the default `Vec`, `HashMap` and `HashSet`
-are declared by the compiler. Hash storage uses Rust's standard collections and
-has no insertion-order guarantee; custom keys implement Kagari `Eq` and `Hash`.
-Container storage participates in GC tracing, checked calls and hot reload.
+Source compilation includes eleven authored modules. They define traits such as
+`PartialEq` and `Iterator`, the `Option` and `Result` enums, and Script defaults.
+A collection can supply its own cursor and call `bag.iter().map(f)` without a
+bundled collection or any Rust registration. Compiled Script code runs without
+core source files or stdlib at execution.
 
-Libraries and application native functions use the same explicit Rust
-registration API. List and MutableList provide sorting, reversal and filtering
-methods; `std::collections` provides lazy `map`. These are always available. Generated `.kgr`
-views support completion and navigation without becoming executable dependencies.
-Other container implementations and algorithm families remain deferred.
-
-See [native declarations](docs/spec/standard-declarations.md) for registration,
-[language contracts](docs/spec/builtins.md) for foundational behavior, and
-[the library example](examples/standard-library.kgr) for sorting and iteration.
+The optional `kagari-stdlib` supplies the `std` prelude and re-exports, six
+collection interfaces, and native operations such as String's `trim`. Importing
+`alloc::string::String` alone does not install that method. Bundled `Vec`,
+`HashMap` and `HashSet` implementations are currently withdrawn. See the
+[foundation inventory](docs/spec/builtins.md#foundation-trait-inventory) and
+[native registration guide](docs/native-registration.md).
 Host-sensitive capabilities such as I/O remain explicit embedding interfaces.
 
 ## Engineering Priorities
@@ -176,7 +174,7 @@ The current codebase includes:
 - Source, span, and structured diagnostic types with stable diagnostic codes
 - Lexer, parser, AST, HIR lowering, name resolution, builtin metadata, and semantic checks
 - Bounded lowering from checked source to concrete verified MIR, sealed analyses and bytecode
-- A complete typed core standard library surface for arrays, maps, sets, strings, options, results, iterables, math, and debug helpers
+- Source-defined core protocols, generic iteration and propagation, with optional native library implementations
 - `.kbc` artifact metadata, validation, and current Rust serialization helpers
 - Runtime values, host function/type registration, declared access checks, cancellation, module epochs, and reload validation
 - A bytecode VM with debugger hooks, breakpoint resolution, stepping state, watch evaluation, and adapter-boundary request/event types

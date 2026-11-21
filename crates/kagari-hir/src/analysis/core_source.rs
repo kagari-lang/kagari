@@ -63,16 +63,19 @@ static INPUTS: LazyLock<Arc<[ExternalModule]>> = LazyLock::new(|| {
 mod tests {
     use super::*;
     use crate::{
-        analysis::{AnalysisDatabase, error::AnalysisError},
+        analysis::{AnalysisDatabase, error::AnalysisError, external::foundation::change_export},
         analyze_source,
         declarations::DeclarationId,
         imports::{ResolvedTarget, SourceItem},
+        program::ProgramCheckError,
         resolver::resolved::ResolvedName,
         tests::{common::definition, native_fixture::function_module},
         types::TypeId,
     };
     use kagari_common::identity::DefinitionKind;
-    use kagari_source::{source::SourceFile, source_database::SourceSnapshot};
+    use kagari_source::{
+        diagnostic::DiagnosticKind, source::SourceFile, source_database::SourceSnapshot,
+    };
     use kagari_syntax::ast::{borrow::AstNode, views::ItemView};
     use kagari_types::{language::role::LangRole, scalar::BuiltinType, ty::Ty};
     use std::{collections::BTreeMap, sync::Arc};
@@ -283,6 +286,65 @@ mod tests {
         assert_eq!(
             interface.methods().next().unwrap().documentation(),
             "Returns true if `self` and `arg1` are equal according to this implementation."
+        );
+    }
+
+    #[test]
+    fn packaged_core_edit_invalidates_the_client_but_not_its_retained_snapshot() {
+        let client = Arc::new(SourceFile::new(
+            "/client/size.kgr",
+            "use core::iter::Iterator; fn size<I: Iterator>(it: I) -> u64 { it.count() }",
+        ));
+        let root = client.id();
+        let sources = SourceSnapshot::single_file(client);
+        let cancel = Default::default();
+        let mut db = AnalysisDatabase::default();
+        let key = db.environment_fingerprint(&cancel).unwrap();
+        let old = db.snapshot(sources.clone(), &cancel).unwrap();
+        let facts = old.file(root).unwrap().result().facts();
+        let size = definition(
+            old.definitions(),
+            &facts.lowered,
+            DefinitionKind::Function,
+            "size",
+        );
+        let warm = db.body(sources.clone(), &size, &cancel).unwrap().unwrap();
+        assert!(warm.diagnostics().is_empty());
+
+        let mut iter = packaged_modules()
+            .iter()
+            .find(|m| m.source.module_identity() == &identity("iter"))
+            .unwrap()
+            .clone();
+        change_export(&mut iter, |text| {
+            text.replace("fn count(self)", "fn remaining(self)")
+        });
+        db.replace_core_fixture(iter);
+        assert_ne!(db.environment_fingerprint(&cancel).unwrap(), key);
+        let body = db.body(sources.clone(), &size, &cancel).unwrap().unwrap();
+        assert_eq!(body.reused_bodies(), 0);
+        let missing_count = |kind: &DiagnosticKind| matches!(kind, DiagnosticKind::UnknownName { name } if name == "count");
+        assert!(body.diagnostics().iter().any(|d| missing_count(&d.kind)));
+        let current = db.snapshot(sources, &cancel).unwrap();
+        let Err(ProgramCheckError::Diagnostics(errors)) = current.check_program(root, &cancel)
+        else {
+            panic!("expected the unchanged client to fail checking against the edited core");
+        };
+        assert!(
+            errors
+                .iter()
+                .any(|d| d.file == root && missing_count(&d.diagnostic.kind)),
+            "{errors:?}"
+        );
+
+        old.check_program(root, &cancel).unwrap();
+        assert_eq!(
+            old.inputs()
+                .database()
+                .unwrap()
+                .environment_fingerprint(&cancel)
+                .unwrap(),
+            key
         );
     }
 

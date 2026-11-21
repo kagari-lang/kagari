@@ -1306,8 +1306,8 @@ See [String literals](#string-literals) for decoding and delimiter rules.
   type, including empty arrays. An empty array needs an element type from context
   or later constraints.
   Array elements are writable; length cannot change. `var` permits rebinding to a
-  different array without redirecting aliases of the old object. Use explicit
-  `Vec::from(array)` or `HashSet::from(array)` for growable library storage.
+  different array without redirecting aliases of the old object. Array syntax
+  does not construct growable library storage.
 
 - A `match` guard is evaluated after its pattern binds names. It must be `bool`;
   a false guard continues to the next arm, even for an otherwise irrefutable
@@ -1327,19 +1327,12 @@ See [String literals](#string-literals) for decoding and delimiter rules.
 - Present bounds evaluate once, left to right, and have the same builtin integer
   type. Context supplies an endpoint type, otherwise normal integer inference
   applies. `RangeFull` has no type parameter. Bounds are immutable value data.
-- Ranges with a start implement `Iterable`: each `iter()` or `for` creates a fresh
-  lazy ascending cursor. `..` excludes the end and `..=` includes it. Reversed
-  finite bounds iterate zero times. Inclusive iteration through the integer maximum
-  terminates normally. Open-ended iteration traps when the next value would exceed
-  its integer type. Iteration retains cooperative cancellation points.
-- Collect explicitly when storage is needed, for example
-  `(0..4).iter().collect::<Vec<i32>>()`. Ranges without a start are bounds
-  descriptions, not iterable sequences. All six forms implement `RangeBounds<T>`
-  for array interval operations; `RangeFull` implements it for any `T`.
+- All six forms implement the authored `RangeBounds<T>` contract; `RangeFull`
+  implements it for any `T`. A bounds description is not an iterator. The
+  current bundle supplies no range cursor; `for` still requires an `Iterable`
+  implementation, as it does for any other source.
 - Array length is fixed at construction; there are no type-level lengths or
-  borrowed slice views. Array indexing accepts a single integer, not a range. Range values expose
-  `Iterable` and `RangeBounds`; range equality, ordering and hashing are not yet
-  standard protocols.
+  borrowed slice views. Array indexing accepts a single integer, not a range.
 - closure syntax is included at the surface level; capture behavior is specified in the non-grammatical constraints section.
 - struct literals permit field shorthand such as `Point { x, y }`.
 - Enum constructors accept `Token<i32>::Empty` and
@@ -1357,9 +1350,7 @@ Unknown annotation members retain error types without suppressing independent
 constraints on known members. For example, `Map<f32, Missing>` reports the invalid
 Eq + Hash as well as the unknown type. An unknown key by itself does not establish
 an Eq + Hash violation; nested known key and element applications are still checked.
-User-type bounds follow the same rule when the outer type determines the result:
-`[Missing]` satisfies identity-based Eq + Hash and Iterable, but not numeric
-bounds. Recovery holes do not disprove a structural protocol; known siblings
+Recovery holes do not disprove a structural protocol; known siblings
 still enforce their requirements. General trait implementation lookup waits for
 the member types it needs to resolve.
 Standard bounds use the same rules in function calls and user-type applications.

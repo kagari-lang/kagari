@@ -11,6 +11,8 @@ fn controller(runtime: &mut Runtime, owner: &ExecutableModule, result: RootedVal
 } */
 
 /* Temporarily paused: stdlib restoration (NC01-NC06).
+use crate::test_support::standard::standard_library;
+
 #[test]
 fn key_callback_traps_and_reentry_release_guards_without_partial_insertion() {
     let source = r#"use std::collections::{HashSet};
@@ -53,7 +55,7 @@ pub fn make()->(Test,HashSet<Key>) {
 }
 "#;
     let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+        KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("callback-cleanup.kgr", source),
@@ -79,7 +81,7 @@ pub fn make()->(Test,HashSet<Key>) {
     config.gc.collection_threshold = Some(1);
     let mut runtime = {
         let mut registered = Runtime::new(config);
-        NativeModule::install_all(&stdlib::modules().unwrap(), &mut registered).unwrap();
+        NativeModule::install_all(&standard_library().modules().unwrap(), &mut registered).unwrap();
         registered
     };
     let (definitions, artifact) = artifact.into_parts();

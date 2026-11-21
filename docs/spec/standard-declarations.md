@@ -1,11 +1,9 @@
 # Native declarations and library modules
 
-Kagari declarations describe Kagari types, functions, traits and implementations.
-Rust entries implement those declarations. Registration is explicit: a Rust
-function's signature does not define a Kagari API, and no declaration attribute
-macro is involved. `kagari-stdlib` owns all 41 standard trait registrations,
-including the 26 reserved language traits. Source-free runtime installation uses
-these same declarations and local Rust bindings without a binary declaration product.
+A Script definition has a Kagari body. A Native declaration describes an external
+implementation; its signature does not grant permission to call Rust. A host
+must install the matching binding. Neither route infers a Kagari API from a Rust
+signature or requires a separate binary declaration product.
 
 This page describes current implemented behavior. Structured registrations and
 explicitly supplied external declaration sources feed common HIR and semantic
@@ -17,21 +15,23 @@ lifecycle, Local/Send preparation and a complete multi-owner fluent example.
 
 ## Ownership and installation
 
-When explicitly installed, the bundled `core`/`alloc`/`std` foundation supplies
-language contracts: operators, comparisons, hashing, Index, Fn, iteration,
-collection interfaces, formatting and error conversion. It also declares
-Option/Result/Ordering/Bound, range forms and cold Future values. The SDK starts
-with no Native providers; it does not install this bundle automatically. Array
+Normal source analysis includes the [eleven packaged modules](../../library/core/src/lib.rs)
+without installing anything. They own the 26 language traits, nine ordinary traits,
+`Option`/`Result` and their propagation, ranges and the `String` type. Their Script
+bodies compile through the same pipeline as the application's. The optional stdlib
+owns the six collection interfaces, Future/task APIs, `std` facades and extension
+methods. For example, `std::string` supplies `trim` on the existing `alloc::string::String`;
+the canonical type declaration alone supplies no such method. Array
 literals construct builtin fixed-length arrays independently of installed declarations.
 Concrete Vec/HashMap/HashSet providers are not currently supplied by the bundle;
 their restoration belongs to the separate NC collection work. References below
 to collection algorithms/storage describe retained interfaces and execution
 constraints, not an available default concrete collection provider.
-Explicit registrations declare the core traits; validated language roles select
-their semantic duties. Installation remains independent of syntax/HIR.
+HIR checks the canonical source declarations against the compiler's language-role requirements. Installation remains independent of syntax/HIR.
 Each declaration has one canonical core/alloc/std owner; checked `std` re-exports
-retain its definition identity. Native modules carry public alias targets, and
-installation verifies that the canonical declarations exist in their providers.
+retain its definition identity. Native modules carry public alias targets.
+Sealing checks those targets against the supplied catalog: an authored owner
+is verified declaration evidence, not an installed module.
 Authored export aliases use `(NameNamespace, spelling)` keys, allowing Type and
 Value aliases with the same spelling. Validation checks category agreement with
 the canonical target and rejects duplicates within one category. The supported
@@ -47,9 +47,13 @@ is deferred; LinkedHashMap/LinkedHashSet and other additional containers are not
 part of the current bundle either.
 
 `Runtime::new` constructs an empty native registry. Low-level consumers explicitly
-install `kagari_stdlib::modules()` with `NativeModule::install_all`, including for
-source-free execution. Engine constructors also start empty; hosts explicitly
-install standard and/or application modules. The builder's `install(module)` adds
+install the Native providers their programs require. A source-enabled engine builder
+exposes verified core contracts in `declarations()` before installation. To request
+stdlib, compose `StandardLibrary::new(builder.declarations())?`, then install
+`library.modules()?`. A frontend-free host can instead compose that library with
+`StandardLibrary::from_verified_program` from verified bytecode containing the
+required core owners. Neither construction path installs callbacks. A core-only
+Script program runs without stdlib, `.kgr` files or a frontend at execution. The builder's `install(module)` adds
 a module, and `with_native_modules` installs exactly the supplied modules, without
 an implicit foundation. The SDK has no production stdlib dependency.
 The fallible mutable builder uses `install`/`install_all` as atomic transactions;
@@ -58,8 +62,8 @@ providers to application ModuleBuilders. Duplicate module identities, conflictin
 bindings, missing dependencies and declaration mismatches are rejected. A finished module contains
 both portable declarations and runtime-local Rust entries/storage descriptors.
 Compiler-only consumers can read the same declarations without a runtime or native
-adapter preparation. Standard declarations and executable modules originate from
-one authored module set; there is no independent catalog producer.
+adapter preparation. Stdlib's declaration view and prepared Native modules come from the same sealed
+bundle; its core references retain their separate verified source owners.
 
 `ModuleBuilder::from_declaration` adopts separately authored `ModuleDecl` records
 into its own definition scope. `declared_function(name)` selects a free function;
@@ -89,7 +93,7 @@ to its Rust storage descriptor, validating exact declaration/layout agreement an
 rejecting duplicate or foreign bindings. Compiler declarations contain no Rust
 factory, payload or completion endpoint.
 
-List/MutableList declare common algorithms directly. The authored
+The authored
 `core::iter::Iterator` trait owns all seventeen defaults, including lazy
 transformations, paired traversal and terminal consumption.
 
@@ -103,14 +107,7 @@ fn main() -> i32 {
 }
 ```
 
-List provides sorted, sorted_by, sorted_by_key, reversed and distinct. MutableList
-provides sort, sort_by, sort_by_key, reverse, retain and dedup. Natural sorting
-requires T: Ord, while key methods accept a method-local K: Ord. Eq-only distinct
-preserves first occurrences without adding a Hash bound. These are declared trait
-methods with ordinary Script defaults calling declared Native helpers. Concrete
-collection overrides are not evidence of
-current Vec availability. Custom providers can reuse the defaults through their
-selected iterator and set/remove operations.
+The generic iterator defaults do not depend on the deferred List edit algorithms.
 `Iterator.map<U>` accepts `fn(Self::Item) -> U` and returns
 `core::iter::MapIterator<Self::Item, U>`. Filter, take, filter_map, skip,
 enumerate, zip and chain return element-only adapters in the same module; the full signatures and consumption rules are in
@@ -262,11 +259,8 @@ use kagari_runtime::native::{
     types::Type,
 };
 
-use kagari_stdlib::declarations::StandardDeclarations;
-
-fn module() -> NativeResult<NativeModule> {
-    let standard = StandardDeclarations::default();
-    let mut module = ModuleBuilder::new("demo::numbers", &standard.catalog()?)?;
+fn module(providers: &kagari_runtime::native::catalog::DeclarationCatalog) -> NativeResult<NativeModule> {
+    let mut module = ModuleBuilder::new("demo::numbers", providers)?;
     let maximum = module.define_function(FunctionDecl::new("maximum"))?;
     module.function(&maximum, |function| {
         function.parameter("left", Type::i32())?;
@@ -308,6 +302,10 @@ of executable signatures and contract matching.
 
 All routes use the same HIR function/type/member/impl records and semantic checks:
 
+- The frontend supplies packaged core once per analysis input set, not once per
+  user file. Its modules have stable `kagari-core:///` or `kagari-alloc:///` URIs,
+  package aliases and explicit dependencies, but no prelude. A competing owner
+  is an error. Snapshots retain the inputs for navigation and replay.
 - `AnalysisDatabase::set_native_modules` lowers owned, scoped `ModuleDecl` records
   directly. Construction establishes declaration-to-HIR correspondence; no rendered
   text or parser round trip is required. Exact identity references still undergo
@@ -448,11 +446,12 @@ sealing, retaining the parsed/validated route:
 
 ```rust
 use kagari::engine::KagariEngine;
-use kagari_stdlib as stdlib;
+use kagari_stdlib::StandardLibrary;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut builder = KagariEngine::builder()?;
-    builder.install_all(stdlib::modules()?)?;
+    let library = StandardLibrary::new(builder.declarations())?;
+    builder.install_all(library.modules()?)?;
     // Construct application modules against builder.declarations(), then install them.
     builder.declaration_cache("target/kagari-declarations");
     let engine = builder.build().map_err(|error| format!("{error:?}"))?;
@@ -521,8 +520,8 @@ independently retains the installed canonical ScriptExpr and function contract, 
 compares them with the actual bytecode call/value trace: selected callees, call order,
 argument flow, applied types/signatures and returned value. Trait/receiver/method
 binders and associated projections/families are applied through the checked impl's
-outputs before comparison. A final Script library method with no installed canonical
-expression fails closed. Portable origins, a matching Script signature or an
+outputs before comparison. For final Script methods supplied by a Native registration, absence of the
+installed canonical expression fails closed. Portable origins, a matching Script signature or an
 artifact-supplied digest cannot authorize a replacement; parsed source alone is not
 that independent canonical authority. This check covers the current expression grammar,
 rejects unsupported trace effects and requires neither HIR nor source parsing.
@@ -530,13 +529,11 @@ Native materializations instead preserve the applied declaration, ordered operat
 result and access contract for independent matching to the installed implementation.
 These are ordinary callable/body contracts, not a serialized default recipe.
 
-For the canonical `Into` and `TryInto` impls, admission also matches the portable
-header and method table to the installed Script impl: owner, binders, receiver,
-applied trait, forward bound and (for `TryInto`) projected `Error`. A header alone
-is not evidence. The calling module and its dependencies must prove the closed
-impl bounds. The emitted call must match the installed qualified member and its
-argument flow; a same-signature substitute fails before publication. A proven
-identity `From` may emit no call, but its argument and effects are still checked.
+In contrast, the canonical `Into` and `TryInto` blanket impls are compiled
+from [core source](../../library/core/convert.kgr), not authenticated against an
+installed Script template. The ordinary executable proof must establish the
+forward bound; `TryInto` takes its `Error` from the selected `TryFrom` impl.
+A Script forward call needs no provider. A native one still requires its checked binding.
 
 Runtime bindings and Rust storage factories are local installation data, not
 serialized function pointers. Missing, duplicate/conflicting, foreign-context or
@@ -612,25 +609,24 @@ member bindings they consume. Library authoring handles are cached; layouts and
 type arguments remain scoped to the executing generation.
 
 A variant's `reports_failure` fact is explicit checked declaration/layout metadata.
-The library sets it on Result::Err, which has exactly one payload field. Construction
-captures optional diagnostic origin; checked native library methods copy that
-sidecar after validated enum construction. Source enums and ordinary native enum
-builders leave the fact false. Equality, hashing and payload access ignore it.
+Packaged core supplies it for canonical `Result::Err`, which has one payload field.
+Construction captures optional diagnostic origin. Ordinary user source enums and
+native enum builders leave the fact false. Equality, hashing and payload access ignore it.
 
-Try and FromResidual are ordinary registered traits; their standard bodies live
+Try and FromResidual are authored core traits; their standard implementations live
 in the library alongside the carrier declarations. A native carrier uses
 `ModuleBuilder::implement`, `trait_impl`, `associated_type` and `bind`, just
 like other trait implementations. `NativeCall::type_parameter` retains the
 selected result's executable scope when constructing its nested residual.
-Result FromResidual declares a checked F: From<E> callable requirement. Static
+Result's Script FromResidual impl calls the checked `F: From<E>` method. Static
 bound methods can be selected or forwarded through the same validated witness
 path as receiver methods; no execution-time trait search is added.
 
 Result branch copies origin into its residual, and FromResidual copies it into
-the returned failure after conversion. `NativeCall::forward_enum_origin` uses
-checked live enum values and a validated installed owner; both values must stay
-rooted across allocation. The compiler's generic `?` path emits ordinary selected
-calls and ControlFlow variant operations, without a Result-specific origin opcode.
+the returned failure after conversion. The [authored bodies](../../library/core/result.kgr)
+request that transfer explicitly; constructing an unrelated new `Err` does not.
+The compiler's generic `?` path selects calls and ControlFlow variant operations
+for the operand's checked carrier, not a hardcoded Option/Result branch.
 
 ## Tooling
 
@@ -646,9 +642,10 @@ correspondence checks before static contracts attach. Both routes check complete
 ordinary Script default bodies and calls to declared Native helpers, including unused
 defaults; no dedicated forwarding-call record or installed selector is attached to HIR.
 Offline inputs must preserve complete Script definitions/defaults and required static sidecars.
-Standard registrations own trait and module documentation; structured declarations
-retain that prose without requiring a physical source range. Core and application
-views share the existing renderer and optional materialized declaration cache;
+Authored core declarations and members own their source ranges and documentation,
+including when reached through an installed `std` re-export. They need no generated
+view. Native registrations own their own prose; without materialization a physical
+range may be absent. Standard and application Native views use the same renderer;
 materialized navigation resolves parsed ranges in the exact supplied snapshot.
 Changing a view's URI changes its presentation location, while its registered
 module and callable identities remain unchanged. Native registration does not infer

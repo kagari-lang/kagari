@@ -12,12 +12,12 @@ when a condition controls repetition, `for` when a value supplies iteration, and
 <a href={page('language/variables')}>val and var</a> and the
 <a href={page('language/values')}>shared-value model</a>.
 
-## Run the three loops
+## Follow the three loops
 
 <SourceExample
   path="examples/syntax/control-flow.kgr"
-  command="cargo run -p kagari-cli -- run examples/syntax/control-flow.kgr"
-  result="main returns 42; the non-JIT CLI exits successfully without printing the value."
+  command="cargo run -p kagari-cli -- parse examples/syntax/control-flow.kgr"
+  result="Parses the example. Its Vec-dependent sections illustrate the deferred collection contract."
 />
 
 Start with `index = 0` and `total = 0`. The `while` body increments the index
@@ -66,13 +66,13 @@ also covers targets that disappear during those effects.
 
 ## Choose an iterable, not an implicit array
 
-`for` accepts the language's `Iterable` protocol. Vectors, supported collection
-views and ranges with a start can supply it. A range such as `0..5` visits zero
-through four lazily; `0..=5` includes five. Reversed finite bounds visit nothing.
-Each loop iteration introduces a fresh binding for closure capture.
+`for` evaluates its source once, calls `Iterable::iter` once and calls `next`
+until `None`. A Script collection can implement this protocol without stdlib.
+A cursor is also iterable; looping over a partly consumed cursor continues at
+its current position. Each loop iteration introduces a fresh binding for closure capture.
 
-Ranges describe bounds rather than allocating all their elements. A range
-without a start, such as `..5`, is not an iterable sequence. See
+Ranges describe bounds rather than allocating elements. Constructing `0..5`
+does not install an iterator: the range cursor provider is currently deferred. See
 <a href={page('library/strings-iteration')}>strings and iteration</a> for cursors,
 adapters and mutation limits.
 

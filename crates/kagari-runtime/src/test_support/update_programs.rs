@@ -2,7 +2,6 @@
 use crate::{
     Runtime,
     module::{ExecutableModule, InstalledProgram, VerifiedProgram},
-    native::assembly::{ModuleDefinition, ModuleSetBuilder},
     reload::{
         ReloadValidationError, validate_reload_artifact_candidate, validate_reload_candidate,
     },
@@ -13,17 +12,13 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_common::identity::{
-    ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
-};
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_compiler::{
     bytecode::lower_program_to_bytecode,
     source::program::{lower_program_to_mir, lower_program_to_mir_with_demands},
 };
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_types::declaration::native::NativeTypeConstructor;
-use std::sync::Arc;
 
 pub(crate) fn source_code(text: &str) -> VerifiedProgram {
     VerifiedProgram::new(bytecode(text, None), &DefinitionContext::new().unwrap()).unwrap()
@@ -37,33 +32,7 @@ pub(crate) fn bytecode(
     let root = source
         .set("exports.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut analysis = AnalysisDatabase::default();
-    // Use the canonical String constructor without installing the full library.
-    let mut providers = ModuleSetBuilder::new(&Default::default()).unwrap();
-    providers
-        .add(ModuleDefinition::new(
-            ModuleIdentity {
-                package: PackageId("kagari-alloc".into()),
-                path: vec!["string".into()],
-            },
-            |module| {
-                module.package_alias("alloc");
-                module.prelude(true);
-                module.define_constructor("String", NativeTypeConstructor::String)?;
-                Ok(())
-            },
-        ))
-        .unwrap();
-    let providers = providers.finish().unwrap();
-    analysis.set_native_modules(
-        providers
-            .declarations()
-            .modules()
-            .iter()
-            .map(|module| Arc::new(module.clone()))
-            .collect(),
-    );
-    let checked = analysis
+    let checked = AnalysisDatabase::default()
         .snapshot(source.snapshot(), &Default::default())
         .unwrap()
         .check_program(root, &Default::default())

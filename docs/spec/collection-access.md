@@ -4,12 +4,14 @@ Implementation status after Runtime detachment: concrete Vec/HashMap/HashSet and
 universal cursor providers are withdrawn. This document retains their library
 semantic contract for [NC reconstruction](../native-collections-plan.md), not a
 claim of current callable coverage. Runtime has no privileged storage/layout/type
-family or collection adapter. Custom traits remain ordinary installed declarations.
+family or collection adapter. A Script collection can implement the authored
+`Iterable`, `Iterator` and `FromIterator` traits without stdlib.
 
 This defines the collection access and construction contract. Value, identity
 and failure rules are defined in [value semantics](value-semantics.md).
-The standard library owns the collection traits and the three default
-implementations through [ordinary native registration](standard-declarations.md).
+The optional standard library declares the six collection interfaces through
+[ordinary native registration](standard-declarations.md). The default storage
+classes below are restoration targets, not part of the current installation.
 Generated .kgr files are tooling views, not the source of these declarations.
 
 ## Types
@@ -41,8 +43,7 @@ between Array and either Vec or List. A new collection has independent storage
 and shares referenced element objects. Vec preserves order and duplicates; HashSet applies
 its checked Eq/Hash implementations and has unspecified traversal order.
 
-Vec, HashMap and HashSet remain available when optional modules are off. Optional
-providers do not redeclare or replace their canonical declarations. Interfaces do
+Neither core nor the current stdlib provides these three concrete classes. Interfaces do
 not select storage or provide implicit constructors. There is no map/set literal
 syntax. Vec::from_fn and callback conveniences remain library algorithms.
 
@@ -213,7 +214,8 @@ from identity operators and internal hash-table storage.
 
 ## Foundation algorithms
 
-List declares sorted, sorted_by, sorted_by_key, reversed and distinct; sort, sort_by,
+The following algorithms are deferred, not current interface methods. The design
+places sorted, sorted_by, sorted_by_key, reversed and distinct on List; sort, sort_by,
 sort_by_key, reverse, retain and dedup belong to MutableList. Method-specific Ord
 and Eq bounds do not restrict construction of the interface itself. Key methods
 accept a method-local K: Ord and are callable through interfaces. The methods
@@ -243,7 +245,8 @@ Call `iter()` on a collection to use the `Iterator` transformation and terminal 
 [builtins](builtins.md#iteration-protocols). MapIterator retains its source cursor and mapper. Constructing it does not call
 the mapper. Aliases share progress, and next consumes its input before invoking
 the mapper. Source cursors remain ordinary GC edges, including through erased Iterator
-interfaces; structural changes are detected on their next read. See [native declarations](standard-declarations.md).
+interfaces. Reentry and structural invalidation are policies of the concrete
+cursor, not extra checks imposed by MapIterator. See [native declarations](standard-declarations.md).
 
 APIs outside the plan's accepted rows, including windows/chunks, capacity APIs,
 set algebra, joining, grouping and additional constructors, remain deferred.
@@ -276,11 +279,11 @@ source items' shared identity and checks source revisions before subsequent read
 
 ## Compiler, artifacts and host boundaries
 
-The compiler-owned language catalog owns foundational interface signatures,
-documentation and parent/associated contracts. Tooling projects those declarations
-and maps them to generated navigation spans. It also declares the three default
-container types. Runtime owns their basic implementations and storage bindings;
-optional native modules own additional types, impls and algorithm declarations.
+The six optional stdlib registrations own their interface signatures, documentation
+and parent contracts. Their `Iterable` and `Index` parents refer to authored core
+traits; navigation to those parents resolves to the actual `.kgr` definitions,
+not generated stdlib views. Runtime neither declares the three default container
+types nor installs their storage.
 HIR owns coercions and checked implementation selection. Completion exposes only
 the members of the visible type. Native entries are checked against concrete
 signatures; interface contracts and parent tables are verified/linked before

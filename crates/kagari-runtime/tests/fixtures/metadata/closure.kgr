@@ -1,3 +1,5 @@
+use alloc::string::String;
+
 pub fn make(text: String) -> fn() -> String {
     || text
 }

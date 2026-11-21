@@ -148,7 +148,7 @@ fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
 #[test]
 fn reused_signature_and_body_facts_emit_the_same_artifact_as_fresh_analysis() {
     let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+        KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     let token = CancellationToken::default();
     let unchanged = "fn echo<T>(value: T) -> T { value } struct P { var n: i32 } fn b() -> i32 { val p: P = P { n: echo(a()) }; p.n += 1; val xs: Vec<i32> = Vec::from([p.n]); xs.push(2); match 2147483647 { 2147483647 => -2147483648, _ => xs[0] } }";
     let id = engine
@@ -180,7 +180,7 @@ fn reused_signature_and_body_facts_emit_the_same_artifact_as_fresh_analysis() {
     );
     let reused = engine.compile_snapshot(snapshot, id, &token).unwrap();
     let fresh_engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+        KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     let fresh = fresh_engine
         .compile_source(SourceFile::new("memory://reuse.kgr", edited))
         .unwrap();

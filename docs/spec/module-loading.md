@@ -67,10 +67,10 @@ resolution; there is no separate loader fallback order.
 
 ## Builtin Modules
 
-Builtin modules are provided by the runtime or host.
-They are resolved by stable module identity, not by files on disk.
-
-Builtin modules include standard language facilities defined in [builtins.md](builtins.md).
+Source frontends supply the [packaged language core](builtins.md#namespaces-and-prelude)
+under stable module identities, without searching a checkout or installing a
+runtime. Optional Native modules and `std` re-exports are separate inputs from
+the host. A matching filename or package alias cannot replace a canonical owner.
 
 ## Bytecode Artifact Loading
 

@@ -287,7 +287,7 @@ fn generated_files_docs_and_navigation_share_the_checked_snapshot() {
         .iter()
         .find(|source| source.text.contains("pub trait List<"))
         .unwrap();
-    let declarations = standard_catalog::declarations().unwrap();
+    let declarations = standard_library().declarations().declarations();
     let owner = declarations
         .iter()
         .find(|module| module.records().identity == namespaces::module("std", "collections"))

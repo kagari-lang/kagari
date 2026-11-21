@@ -73,7 +73,7 @@ fn collection_interfaces_do_not_inherit_receiver_equality() {
 #[test]
 fn collection_content_requires_hash_and_nested_comparison_bounds() {
     let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+        KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     for source in [
         "use std::hash::Hash; fn main() { Vec::from([0.0f32]).hash(); }",
         "use std::collections::HashSet; fn main() { val xs: HashSet<Vec<f32>> = HashSet::new(); }",

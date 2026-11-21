@@ -191,10 +191,10 @@ integer widths without converting endpoints to signed offsets. Bound payloads
 use ordinary NativeValue conversions and roots, including arbitrary script objects.
 
 `module::native_api()` builds validated NativeModule records and typed factories.
-`KagariEngine::builder()` starts with no Native modules. Install the standard
-library explicitly through `builder.install_all(kagari_stdlib::modules()?)?` when
-needed, then install application modules and consume `builder.build()`. This installs application
-packages along with the optional default package. Generated `.kgr` provides
+`KagariEngine::builder()` starts with no Native modules. If the host needs stdlib,
+[compose and install it explicitly](embedding-api.md), then install application
+modules and consume `builder.build()`. Verified core declarations are authoring
+inputs; they do not install callbacks. Generated `.kgr` provides
 navigation and documentation, while compiler signatures are imported directly.
 Advanced NativeApi::new/NativeFactory registrations retain runtime result,
 application, ownership and callback validation. External root and path adapters

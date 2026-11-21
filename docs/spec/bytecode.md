@@ -1219,16 +1219,11 @@ tables carrying the former heap-object representation are rejected before execut
 
 ## Native iteration instructions
 
-Iter New accepts a concrete Array, Map, Set or String ABI and returns a GC iterator.
-Iter Next accepts a concrete Iter<Item> ABI and returns Option<Item>. The verifier checks each ABI,
-operand and result slot before linking/execution. Iter is a concrete ABI
-type whose children participate in generic substitution, validation and layout
-traversal. Runtime operations check handle ownership, generation, source revision
-and item ABI; creation retains the source, captures and code version without
-materializing a snapshot of the source items.
-For loops use ordinary rooted cursor values and calls, without iteration scope
-instructions. Structural writes invalidate the cursor; its next source read traps.
-Custom Iterator/Iterable methods are ordinary static calls. The existing JIT
+There is no dedicated `Iter` ABI type or adapter instruction. `for` uses a
+rooted cursor and the selected `Iterable::iter` and `Iterator::next` calls.
+A core adapter such as `MapIterator` compiles to an ordinary Script struct
+and methods. A Native cursor, if installed, uses its checked bindings; its
+invalidation policy is not a bytecode rule. The existing JIT
 uses its normal interpreter fallback for unsupported iterator/control-flow bodies.
 The semantic contract is in [builtins](builtins.md#iteration-protocols).
 

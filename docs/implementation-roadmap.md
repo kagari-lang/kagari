@@ -10,10 +10,11 @@ Completed phases and command logs belong in Git history, not this queue.
 The checked source-to-MIR/bytecode pipeline, source-free loading, explicit native
 registration, nominal enums/propagation, runtime-owned roots, pinned reload,
 typed host access and host-driven async execution are implemented. Builtin `[T]`
-arrays have construction-time fixed length; Vec is distinct. Iterable defaults
-provide lazy adapters, terminal operations and explicit FromIterator collection.
-Collection cursors check structural revisions on reads; retaining or parking a
-cursor does not block source edits.
+arrays have construction-time fixed length. The [authored language core](../library/core/)
+provides 26 language protocols, nine ordinary traits, `Option` and `Result` without
+stdlib. `Iterable` supplies `iter`; `Iterator` supplies lazy adapters and terminals.
+Third-party collections can support direct `for` and `collect` with their own storage.
+Native operations require a matching installed provider, not just a declaration.
 The interpreter uses compact values and prepared execution/call/layout contracts.
 Semantic processing uses scoped DefinitionId records from registration and HIR
 through specialization, portable codecs and runtime adoption. Exact paths and
@@ -22,20 +23,16 @@ snapshots and generation-pinned execution remain separate contracts. See
 [definition identity ownership](architecture.md#definition-identity-ownership).
 These capabilities are foundations to reuse, not migrations to replay.
 
-## Source-defined language core
+## Source-defined language core: pending CI
 
-The [core trait source plan](core-trait-source-plan.md) owns CS01–CS04. Authored `library/core/`
-modules will supply 26 language protocols, nine ordinary traits, and core types including
-`Option` and `Result` with propagation. A third party must be able to implement and use its
-own collection library without registering the bundled stdlib. Compiled programs remain
-source-free. CS01 reproduced core-only HIR checking. The planned iteration API keeps
-`iter()` on `Iterable`, moves adapters and terminals to `Iterator`, and preserves direct
-`for` on both containers and iterators. Core adapters use ordinary `.kgr` implementations;
-reentry policy belongs to the concrete iterator. CS02 delivered six authored modules,
-including comparisons, ordinary conversion, `Option`/`Result` propagation and ranges.
-CS03 delivered the remaining traits and script iterators: a two-module third-party
-collection can iterate, map and collect with no providers. CS04 owns final packaging,
-tooling and standalone execution acceptance.
+Local acceptance exercised a zero-provider script collection and an independent
+frontend-free `Point` consumer (`scripts/check_features.py --core-only`). Full
+workspace tests and feature/backend/platform matrices remain pending CI. The
+[collections plan](native-collections-plan.md) owns the withdrawn `Vec`, `HashMap`
+and `HashSet` providers: the bundled collection, map-alias and documentation-example
+tests that use them still fail at name lookup. They are not evidence about core
+adapter execution. For current ownership and installation see the
+[declaration input contract](spec/standard-declarations.md#ownership-and-installation).
 
 ## Strongly typed syntax CI acceptance
 

@@ -6,7 +6,7 @@ description: Declare, bind and install native APIs explicitly, with checked conv
 import { page, source } from '@site/links.mjs';
 
 The <a href={page('host/overview')}>first host</a> lets a script call
-`application::text::split`. Now consider adding a `Player.heal` method as well.
+`application::text::split_once`. Now consider adding a `Player.heal` method as well.
 In both cases the script needs a declaration, the runtime needs a checked Rust
 implementation, and the engine must install the completed module. A Rust function
 or trait implementation alone supplies none of those script-visible declarations.
@@ -16,21 +16,19 @@ or trait implementation alone supplies none of those script-visible declarations
 Open the complete
 <a href={source('crates/kagari/examples/typed_native.rs')}>`typed_native.rs` example</a>
 alongside this page. It creates `ModuleBuilder::new("application::text",
-builder.declarations())`, then obtains the installed semantic types with
+builder.declarations())`, then obtains the signature types with
 `String::kagari_type(text.declarations())` and
-`Vec::<String>::kagari_type(text.declarations())`.
+`Option::<(String, String)>::kagari_type(text.declarations())`.
 
-Its `FunctionDecl::new("split")` names two parameters, `text` and `separator`,
-with the string type and declares a `Vec<String>` result. `define_function`
+Its `FunctionDecl::new("split_once")` names two parameters, `text` and `separator`,
+with the string type and declares an `Option<(String, String)>` result. `define_function`
 returns the declaration handle later passed to `bind`. The documentation on that
 declaration describes literal splitting and preserved empty fields; it is part of
 the authored API rather than a signature inferred from Rust documentation.
 
-Why look up types through this catalog? The application depends on the installed
-String and Vec providers, including their nominal identities. Conversion does not
-silently install a provider or equate every collection of strings with that Vec.
-A script `Array<String>` is not interchangeable with the declared `Vec<String>`,
-even if it is empty.
+The catalog supplies verified core contracts, including the canonical `Option`
+variants. Having those declarations lets Rust describe its signature; it does
+not install `split_once`. The host must still bind and install that operation.
 
 ## Bind the implementation, then install
 
@@ -40,10 +38,12 @@ are established earlier in `typed_native.rs`.
 ```rust
     text.bind(
         split,
-        |cx: &mut NativeContext<'_>,
+        |_cx: &mut NativeContext<'_>,
          (text, separator): (String, String)|
-         -> NativeResult<Vec<String>> {
-            cx.collect(text.split(&separator).map(str::to_owned))
+         -> NativeResult<Option<(String, String)>> {
+            Ok(text
+                .split_once(&separator)
+                .map(|(head, tail)| (head.to_owned(), tail.to_owned())))
         },
     )
     .unwrap();
@@ -54,11 +54,11 @@ are established earlier in `typed_native.rs`.
 the argument pack, not a script tuple parameter. `finish` rejects incomplete
 module bindings; `install` validates and adds the completed module transactionally.
 Only after that does `builder.build()` seal the engine used to compile the script.
-The `use application::text::split;` in the script resolves the installed API;
+The `use application::text::split_once;` in the script resolves the installed API;
 it is not a request to discover an arbitrary Rust symbol.
 
 Run `cargo run -p kagari --example typed_native` from the repository root. The
-wrapper receives `hello,雪,` and the host prints `["hello", "雪", ""]`. This checks
+wrapper receives `hello,雪,` and the host prints `Some(("hello", "雪,"))`. This checks
 both directions of owned conversion as well as the registered callback. If its
 Rust argument/result types disagree with the declaration, binding must fail rather
 than waiting for a matching-looking call to reinterpret the values.

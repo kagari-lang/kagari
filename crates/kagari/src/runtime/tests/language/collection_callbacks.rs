@@ -1,11 +1,13 @@
 /* Temporarily paused: stdlib restoration (NC01-NC06).
+use crate::test_support::standard::standard_library;
+
 #[test]
 fn content_callbacks_preserve_effects_and_release_roots_on_all_exits() {
     let source = include_str!(
         "../../../../tests/fixtures/language/collection_callbacks/content_callbacks.kgr"
     );
     let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+        KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("collection-callbacks.kgr", source),
@@ -21,7 +23,7 @@ fn content_callbacks_preserve_effects_and_release_roots_on_all_exits() {
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = Runtime::new(config);
-    NativeModule::install_all(&stdlib::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&standard_library().modules().unwrap(), &mut runtime).unwrap();
     let loaded = load_bytecode(&mut runtime, "collection-callbacks", program).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();

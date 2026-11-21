@@ -21,15 +21,8 @@ use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionFrame,
     native::{
-        assembly::{ModuleDefinition, ModuleSetBuilder},
-        builder::ModuleBuilder,
-        declarations::MethodDecl,
-        function_handle::Function,
-        interfaces::Interface,
-        module::NativeModule,
-        objects::Object,
-        storage::NativeStorage,
-        types::Type,
+        builder::ModuleBuilder, function_handle::Function, interfaces::Interface,
+        module::NativeModule, objects::Object, storage::NativeStorage,
     },
     reload::ReloadValidationError,
     session::{ExecutionEvent, ExecutionObserver},
@@ -39,7 +32,7 @@ use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_types::language::{self, Protocol};
+
 use std::{
     future::Future,
     pin::Pin,
@@ -92,7 +85,7 @@ fn prepare_typed_program(source: &str, providers: &[NativeModule]) -> Program {
 }
 
 fn future_provider() -> NativeModule {
-    let mut builder = ModuleBuilder::new("fixture::typed", &Default::default()).unwrap();
+    let mut builder = ModuleBuilder::new("kagari-core::future", &Default::default()).unwrap();
     let mut future = builder.define_type("Future").unwrap();
     future.type_parameter("T").unwrap();
     future.native_storage(NativeStorage::future()).unwrap();
@@ -344,34 +337,14 @@ fn interface_source_targets_distinguish_unbound_members_from_observed_implementa
 
 #[test]
 fn interface_source_targets_intrinsic_bridges_survive_executable_reclamation() {
-    let mut providers = ModuleSetBuilder::new(&Default::default()).unwrap();
-    providers
-        .add(ModuleDefinition::new(Protocol::Hash.module(), |module| {
-            module.package_alias("core");
-            let hash = module.reference_trait(language::identity(Protocol::Hash), 0)?;
-            let method = module
-                .trait_method(hash.id(), MethodDecl::instance("hash").returns(Type::i64()))?;
-            module.define_trait("Hash", 0, |record, _| {
-                record.methods.push(method);
-                Ok(())
-            })?;
-            Ok(())
-        }))
-        .unwrap();
-    let providers = providers.finish().unwrap().into_modules().unwrap();
     let source = include_str!("../fixtures/embedding/typed/intrinsic-source-v1.kgr");
-    let first = prepare_typed_program(source, &providers);
+    let first = prepare_typed_program(source, &[]);
     let second = prepare_typed_program(
         include_str!("../fixtures/embedding/typed/intrinsic-source-v2.kgr"),
-        &providers,
+        &[],
     );
-    let mut core = Runtime::default();
-    NativeModule::install_all(&providers, &mut core).unwrap();
-    let mut runtime = {
-        let mut runtime = core;
-        runtime.set_default_context(Default::default());
-        runtime
-    };
+    let mut runtime = Runtime::default();
+    runtime.set_default_context(Default::default());
     let program = runtime.load_program(&first, Default::default()).unwrap();
     let old_module = runtime.select_program(&program).unwrap();
     let mut observations = Vec::new();

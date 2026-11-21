@@ -1,13 +1,14 @@
 //! RR00 internal calls: one warmed Host activation runs a complete script loop.
 use crate::{bytecode_fixture::load_bytecode, native_allocations_counter::measured};
 use kagari_bytecode::program::verified::VerifiedBytecodeProgram;
-use kagari_common::identity::{ModuleIdentity, PackageId};
-use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_compiler::{
+    bytecode::lower_program_to_bytecode,
+    source::{core_library, program::lower_program_to_mir},
+};
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::{
     Runtime,
     native::{
-        assembly::{ModuleDefinition, ModuleSetBuilder},
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
@@ -42,34 +43,17 @@ static SNAPSHOT: AtomicBool = AtomicBool::new(false);
 
 kagari_runtime::native_data! { struct Point { value: i32 } }
 
-pub(super) fn string_provider() -> NativeModule {
-    let mut modules = ModuleSetBuilder::new(&DeclarationCatalog::default()).unwrap();
-    modules
-        .add(ModuleDefinition::new(
-            ModuleIdentity {
-                package: PackageId("kagari-alloc".into()),
-                path: vec!["string".into()],
-            },
-            |module| {
-                module.package_alias("alloc");
-                module.define_constructor("String", NativeTypeConstructor::String)?;
-                Ok(())
-            },
-        ))
-        .unwrap();
-    modules
-        .finish()
-        .unwrap()
-        .into_modules()
-        .unwrap()
-        .pop()
+pub(super) fn string_catalog() -> DeclarationCatalog {
+    DeclarationCatalog::default()
+        .with_verified_modules(
+            core_library::verified().unwrap(),
+            [&NativeTypeConstructor::String.declaration().module],
+        )
         .unwrap()
 }
 
-fn provider(count: &Arc<AtomicUsize>) -> (NativeModule, NativeModule) {
-    let strings = string_provider();
-    let catalog = DeclarationCatalog::from_modules(&[&strings]).unwrap();
-    let mut builder = ModuleBuilder::new("example::internal", &catalog).unwrap();
+fn provider(count: &Arc<AtomicUsize>) -> NativeModule {
+    let mut builder = ModuleBuilder::new("example::internal", &string_catalog()).unwrap();
     for scalar in [false, true] {
         let declaration = if scalar {
             FunctionDecl::new("raw_scalar")
@@ -192,10 +176,10 @@ fn provider(count: &Arc<AtomicUsize>) -> (NativeModule, NativeModule) {
             })
         })
         .unwrap();
-    (strings, builder.finish().unwrap())
+    builder.finish().unwrap()
 }
 
-fn compile_fixture(strings: &NativeModule, provider: &NativeModule) -> VerifiedBytecodeProgram {
+fn compile_fixture(provider: &NativeModule) -> VerifiedBytecodeProgram {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set(
@@ -205,10 +189,7 @@ fn compile_fixture(strings: &NativeModule, provider: &NativeModule) -> VerifiedB
         )
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![
-        Arc::new(strings.to_declaration()),
-        Arc::new(provider.to_declaration()),
-    ]);
+    analysis.set_native_modules(vec![Arc::new(provider.to_declaration())]);
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -224,10 +205,9 @@ fn compile_fixture(strings: &NativeModule, provider: &NativeModule) -> VerifiedB
 #[test]
 fn scoped_entry_invokes_shared_opaque_receiver() {
     let count = Arc::new(AtomicUsize::new(0));
-    let (strings, provider) = provider(&count);
-    let code = compile_fixture(&strings, &provider);
+    let provider = provider(&count);
+    let code = compile_fixture(&provider);
     let mut runtime = Runtime::default();
-    strings.install(&mut runtime).unwrap();
     provider.install(&mut runtime).unwrap();
     let program = load_bytecode(&mut runtime, "opaque-receiver", code.into_unverified()).unwrap();
     runtime.collect_garbage().unwrap();
@@ -255,12 +235,11 @@ fn scoped_entry_invokes_shared_opaque_receiver() {
 fn internal_script_and_native_calls() {
     let preparation = Instant::now();
     let count = Arc::new(AtomicUsize::new(0));
-    let (strings, provider) = provider(&count);
-    let code = compile_fixture(&strings, &provider);
+    let provider = provider(&count);
+    let code = compile_fixture(&provider);
     let compilation = preparation.elapsed();
     let installation = Instant::now();
     let mut runtime = Runtime::default();
-    strings.install(&mut runtime).unwrap();
     provider.install(&mut runtime).unwrap();
     let program = load_bytecode(&mut runtime, "internal", code.into_unverified()).unwrap();
     println!(

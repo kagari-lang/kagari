@@ -79,7 +79,7 @@ pub fn after() -> i32 { 42 }
 #[test]
 fn propagation_does_not_catch_traps_or_termination_and_releases_frames() {
     let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+        KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(

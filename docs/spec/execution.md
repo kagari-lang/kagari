@@ -27,7 +27,7 @@ Module execution rules are defined in [modules.md](modules.md).
 
 The execution strategy is:
 
-1. parse source and prepare the installed standard declaration package
+1. parse user and packaged core source and prepare any supplied Native declarations
 2. resolve and check ordinary HIR declarations and callable applications
 3. lower checked facts to concrete, verified MIR
 4. lower verified MIR to bytecode and portable executable contracts
@@ -51,9 +51,9 @@ roots and continuations on the active execution frames, release dynamic borrows
 before callbacks, and preserve each original logical operation's charge. Native,
 script and nested native callbacks share cancellation, sticky termination and
 execution-space accounting. Native/Rust-stack admission is separately guarded;
-see [execution control](security.md#execution-control). Iterator captures retain
-the checked import and defining dependency versions.
-Core iterator/range operations use the same typed primitives as native entrypoints.
+see [execution control](security.md#execution-control). Core iterator adapters are ordinary Script objects and closures. They retain
+cursor progress and callback selections; ordinary calls inside those bodies
+still select current implementations.
 
 Storage mutations preserve their commit point: preparation failures publish no
 partial update; an already committed update remains visible if a later charge,

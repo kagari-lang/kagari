@@ -1,4 +1,4 @@
-//! Emit the SDK feature fixtures, or `<source.kgr> <output.kbc>` using stdlib only.
+//! Emit the SDK feature fixtures, or compile `[--no-providers] <source.kgr> <output.kbc>`.
 use kagari::engine::KagariEngine;
 use kagari_source::source::SourceFile;
 use kagari_stdlib::StandardLibrary;
@@ -15,6 +15,12 @@ mod provider;
 #[path = "../tests/support/try_carrier.rs"]
 mod try_carrier;
 
+enum Providers {
+    None,
+    Stdlib,
+    Fixture,
+}
+
 fn main() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -28,17 +34,22 @@ fn main() {
             emit(
                 inputs.join("feature_artifact.kgr"),
                 outputs.join("feature_artifact.kbc"),
-                true,
+                Providers::Fixture,
             );
-            emit(inputs.join("language/conversion_traits/reverse-conversions-call-the-destination-implementation.kgr"), outputs.join("reverse_conversions.kbc"), false);
+            emit(inputs.join("language/conversion_traits/reverse-conversions-call-the-destination-implementation.kgr"), outputs.join("reverse_conversions.kbc"), Providers::Stdlib);
         }
-        [source, output] => emit(source.into(), output.into(), false),
-        _ => panic!("usage: regenerate_feature_artifact [<source.kgr> <output.kbc>]"),
+        [source, output] => emit(source.into(), output.into(), Providers::Stdlib),
+        [flag, source, output] if flag == "--no-providers" => {
+            emit(source.into(), output.into(), Providers::None)
+        }
+        _ => panic!(
+            "usage: regenerate_feature_artifact [[--no-providers] <source.kgr> <output.kbc>]"
+        ),
     }
 }
 
-fn emit(source_path: PathBuf, output: PathBuf, install_fixture_providers: bool) {
-    let source_name = if install_fixture_providers {
+fn emit(source_path: PathBuf, output: PathBuf, providers: Providers) {
+    let source_name = if matches!(providers, Providers::Fixture) {
         "memory://feature-artifact.kgr".to_owned()
     } else {
         source_path.to_string_lossy().into_owned()
@@ -48,16 +59,18 @@ fn emit(source_path: PathBuf, output: PathBuf, install_fixture_providers: bool) 
         fs::read_to_string(&source_path).expect("read artifact source"),
     );
     let mut builder = KagariEngine::builder().unwrap();
-    let library = StandardLibrary::new(builder.declarations()).unwrap();
-    builder.install_all(library.modules().unwrap()).unwrap();
-    if install_fixture_providers {
-        builder
-            .install(provider::module(builder.declarations(), Default::default()))
-            .unwrap();
-        builder.install(native_enums::module().unwrap()).unwrap();
-        builder
-            .install(try_carrier::module(library.declarations()).unwrap())
-            .unwrap();
+    if !matches!(providers, Providers::None) {
+        let library = StandardLibrary::new(builder.declarations()).unwrap();
+        builder.install_all(library.modules().unwrap()).unwrap();
+        if matches!(providers, Providers::Fixture) {
+            builder
+                .install(provider::module(builder.declarations(), Default::default()))
+                .unwrap();
+            builder.install(native_enums::module().unwrap()).unwrap();
+            builder
+                .install(try_carrier::module(library.declarations()).unwrap())
+                .unwrap();
+        }
     }
     let artifact = builder
         .build()

@@ -120,9 +120,9 @@ mod trait_tests {
     #[test]
     fn standard_trait_members_keep_source_identity_without_user_shadowing() {
         let mut sources = SourceDatabase::default();
-        let text = "fn identity<T: Eq>(a:T,b:T)->bool { a.eq(b) } fn get(value: i32)->i32 { value } fn main() { get(7); }";
+        let text = "use std::cmp::Eq as Equal; fn identity<T: Equal>(a:T,b:T)->bool { a.eq(b) } fn get(value: i32)->i32 { value } fn main() { get(7); }";
         let file = sources
-            .set("traits.kgr", text.into(), SourceLayer::Base)
+            .set("untitled:traits.kgr", text.into(), SourceLayer::Overlay)
             .unwrap();
         let mut db = source_database();
         let snapshot = db
@@ -134,17 +134,21 @@ mod trait_tests {
             "{:?}",
             analysis.result().diagnostics()
         );
-        for (needle, name) in [("Eq>", "Eq"), ("eq(b)", "eq")] {
-            let item = snapshot
-                .queries()
-                .documentation_at(file, text.find(needle).unwrap())
-                .unwrap();
-            assert_eq!(item.declaration.name, name);
-            let source = snapshot
-                .source(item.declaration.source_location().unwrap().file)
-                .unwrap();
+        let queries = snapshot.queries();
+        for (reference, name, docs) in [
+            ("Equal>", "Eq", "Marks equality as reflexive"),
+            ("eq(b)", "eq", "Returns true if `self` and `arg1` are equal"),
+        ] {
+            let offset = text.find(reference).unwrap();
+            let target = queries.definition_at(file, offset).unwrap();
+            let item = queries.documentation_at(file, offset).unwrap();
+            assert_eq!(item.declaration.id, target.id);
+            assert!(item.documentation.starts_with(docs), "{item:?}");
+            let location = target.source_location().unwrap();
+            let source = snapshot.source(location.file).unwrap();
             assert_eq!(source.name(), "kagari-core:///cmp.kgr");
-            assert!(!item.documentation.is_empty());
+            let range = source.local_range(location).unwrap();
+            assert_eq!(&source.text()[range.start..range.end], name);
         }
         let user = snapshot
             .queries()

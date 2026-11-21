@@ -1,10 +1,12 @@
 mod prelude;
 
 /* Temporarily paused: stdlib restoration (NC01-NC06).
+use crate::test_support::standard::standard_library;
+
 #[test]
 fn reexports_preserve_trait_type_and_constructor_identity_in_artifacts() {
     let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+        KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     let source = include_str!(
         "../../../../tests/fixtures/language/library_namespaces/reexports_preserve_trait_type_and_constructor_identity_in_artifacts.kgr"
     );

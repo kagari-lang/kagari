@@ -16,8 +16,8 @@ Detachment status, 2026-11-11: concrete Vec/hash/cursor providers and their
 dependent String traversal/split and List edit algorithms are withdrawn. Entries
 for these surfaces retain proposed signatures for NC reconstruction; older
 `Implemented` labels there do not imply current executable availability. Primitive,
-String non-traversal, enum/async, builtin array index/equality and generic protocol
-providers remain. Runtime/SDK installation is explicit. See the
+String non-traversal extensions, async providers and builtin array index/equality
+remain distinct from the compiled core traits, enums and iterator implementations. Runtime/SDK installation is explicit. See the
 [current boundary](architecture/runtime.md#test-ownership).
 
 ## How to read the signatures
@@ -65,8 +65,8 @@ sketches, not existing declarations.
 
 ### Authority and installation
 
-Current signatures were checked against the
-[module contributors](../crates/kagari-stdlib/src/foundation.rs),
+The defining sources are the [packaged core modules](../library/core/) and, for
+optional Native APIs, the [module contributors](../crates/kagari-stdlib/src/foundation.rs),
 [composition/prelude](../crates/kagari-stdlib/src/assembly/composition.rs),
 [declaration catalog](../crates/kagari-stdlib/src/catalog.rs) and the owners
 linked below. [Standard declarations](spec/standard-declarations.md),
@@ -74,15 +74,18 @@ linked below. [Standard declarations](spec/standard-declarations.md),
 [value semantics](spec/value-semantics.md) own their detailed contracts. An internal
 Rust container or an old prospective name is not evidence of an installed API.
 
-Keep existing canonical core/alloc owners and identity-preserving std facades.
-The SDK installs the foundation; low-level Runtime consumers install native
-modules explicitly. Additional pure modules may be optional. Clocks, entropy,
+The frontend compiles eleven authored modules, defining 26 language traits and
+nine ordinary traits. SDK and Runtime constructors install no Native providers.
+Hosts that select stdlib add the six collection interfaces, identity-preserving
+`std` facades, prelude and native operations. Source-free execution uses verified
+programs and any demanded bindings, not the `.kgr` files or a global stdlib catalog. Additional pure modules may be optional. Clocks, entropy,
 logging, IO and application services require host providers. New products do not
 automatically enter the prelude. These names do not imply Rust no_std semantics.
 
 ## 1. Protocols and conversions
 
-**Implemented** — [protocol declarations](../crates/kagari-stdlib/src/foundation/protocols.rs).
+**Implemented in core** — see [comparison](../library/core/cmp.kgr),
+[conversion](../library/core/convert.kgr) and [operators](../library/core/ops.kgr).
 
 ```text
 trait PartialEq {
@@ -118,8 +121,8 @@ trait FromStr {
 }
 ```
 
-`Into` is derived from `From`, and `TryInto` from `TryFrom`; direct implementations
-of the reverse traits are rejected. `Infallible` represents impossible conversion
+Core supplies conditional Script impls of `Into` for `From` and `TryInto` for
+`TryFrom`. The reverse methods call the selected forward implementation. `Infallible` represents impossible conversion
 failure. Implementations are type-specific: the existence of Default or FromStr
 does not give every type that capability.
 
@@ -169,8 +172,8 @@ match Rust's trait count or simulate constants through compiler-recognized names
 
 ## 2. Option, Result and ControlFlow
 
-**Implemented** — [enums](../crates/kagari-stdlib/src/foundation/enumerations.rs)
-and [propagation](../crates/kagari-stdlib/src/foundation/propagation.rs):
+**Implemented in core** — [Option](../library/core/option.kgr),
+[Result](../library/core/result.kgr) and [propagation protocols](../library/core/ops.kgr):
 
 ```text
 Option<T> = Some(T) | None
@@ -388,7 +391,8 @@ rational types are optional candidates, not automatic arithmetic promotion.
 
 ## 4. Strings, characters and bytes
 
-**Implemented** — [String](../crates/kagari-stdlib/src/foundation/string.rs):
+**Implemented with `std::string` installed** — [extension methods and Default](../crates/kagari-stdlib/src/foundation/string.rs)
+on the [core String declaration](../library/core/string.kgr):
 
 ```text
 String {
@@ -404,16 +408,13 @@ String {
     trim_start(self) -> String
     trim_end(self) -> String
     replace(self, from: String, to: String) -> String
-    split(self, separator: String) -> List<String>
-    chars(self) -> CollectionCursor<char>
-    char_indices(self) -> CollectionCursor<(u64, char)>
-    bytes(self) -> CollectionCursor<u8>
+
 }
 ```
 
 String is immutable UTF-8. Length/search/slice indices are byte offsets; slice
-checks boundaries and copies today. `split` is eager. Explicit traversal methods
-are lazy; String itself has neither implicit Iterable nor indexing.
+checks boundaries and copies today. `split`, `chars`, `char_indices` and `bytes`
+are deferred. String itself has neither implicit Iterable nor indexing.
 
 **Implemented** — [char](../crates/kagari-stdlib/src/foundation/character.rs):
 Unicode scalar comparison/hash/default; `From<char>` for u32 and String;
@@ -616,13 +617,12 @@ Hash bound to generic Set.
     len(self) -> u64
     is_empty(self) -> bool
     index(self, index: u64) -> T
-    iter(self) -> CollectionCursor<T>
     eq(self, other: [T]) -> bool where T: PartialEq
 }
 ```
 
 Construction uses literal/repeat syntax; indexed assignment is language syntax.
-Array is Iterable, not List/MutableList. It has no installed new/from/default/
+Array traversal awaits a library cursor; Array is not List/MutableList. It has no installed new/from/default/
 from_iter/get/set method surface and no Eq/Hash implementation.
 
 ### Vec: growable sequence and stack
@@ -918,8 +918,9 @@ trait Product<T> {
 }
 ```
 
-Iterator receives identity Iterable. Generic iterables do not have to return
-CollectionCursor. In the blocks below, `T` abbreviates `Self::Item`.
+Core's identity `Iterable` implementation returns the same iterator at its current
+position. A collection supplies its own cursor type; no `CollectionCursor` or
+stdlib registration is required. In the blocks below, `T` abbreviates `Self::Item`.
 
 **Implemented** — shared Iterator adapters and consumers. Call `iter()` first on an Iterable container:
 
@@ -945,7 +946,8 @@ Iterator<Item = T> {
 }
 ```
 
-Adapters are lazy; consumers drive traversal. Copies of existing cursors share
+The eight adapters are ordinary Script objects. Consumers drive traversal;
+no universal reentry guard rejects a nested `next`. Copies of existing cursors share
 progress; arbitrary iterators are not universally fused. Zip pulls left before
 right and does not undo a left read when the right side ends. Structural mutations
 commit before invalidating subsequent affected reads; short-circuit consumers do
@@ -1070,7 +1072,7 @@ entire source to simulate a capability it does not have.
 
 ## 11. Ranges
 
-**Implemented** — [ranges](../crates/kagari-stdlib/src/foundation/ranges.rs):
+**Implemented in core** — [ranges and their bounds](../library/core/ops.kgr):
 
 ```text
 Bound<T> = Included(T) | Excluded(T) | Unbounded
@@ -1087,8 +1089,8 @@ a..     : RangeFrom<T>
 ..      : RangeFull
 ```
 
-Construction is syntax, not registered new/start/end field access. Supported
-integer ranges with a starting bound are iterable; RangeFull is not generic.
+Construction is syntax, not a registered constructor. RangeFull is not generic.
+Range traversal awaits a library cursor; range construction does not install one.
 
 **Draft — gap**:
 

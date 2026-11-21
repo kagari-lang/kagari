@@ -1,8 +1,10 @@
 /* Temporarily paused: stdlib restoration (NC01-NC06).
+use crate::test_support::standard::standard_library;
+
 #[test]
 fn malformed_native_iter_operations_are_rejected_before_execution() {
     let artifact =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+        KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap())
             .unwrap()
             .compile_to_artifact(
                 SourceFile::new(

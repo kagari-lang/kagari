@@ -144,6 +144,8 @@ arithmetic_contract!(div, "Div", "div", "/", 126, Some(3));
 arithmetic_contract!(rem, "Rem", "rem", "%", 127, Some(85));
 
 /* Temporarily paused: stdlib restoration (NC01-NC06).
+use crate::test_support::standard::standard_library;
+
 #[test]
 fn shared_numeric_traps_preserve_effects_and_release_roots() {
     for (protocol, operator, left, right, expected_error) in [
@@ -223,7 +225,7 @@ pub fn make() -> Test {{ State {{ trace: 0, target: 7 }} }}
         let mut config = RuntimeConfig::default();
         config.gc.collection_threshold = Some(1);
         let mut runtime = Runtime::new(config);
-        NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
+        NativeModule::install_all(&standard_library().modules().unwrap(), &mut runtime).unwrap();
         let loaded = load_bytecode(&mut runtime, "shared-arithmetic-trap", program).unwrap();
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();

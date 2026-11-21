@@ -33,7 +33,7 @@ fn generic_trait_method_bounds_reject_invalid_arguments() {
 #[test]
 fn unresolved_container_inference_is_a_diagnostic_before_codegen() {
     let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+        KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     let Err(EmbeddingError::Diagnostics { diagnostics }) = engine.compile_source(SourceFile::new(
         "inference.kgr",
         "use std::collections::{HashMap};\nfn main() { HashMap::new(); }",

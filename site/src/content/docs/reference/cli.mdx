@@ -13,14 +13,14 @@ assume a binary directory is on `PATH`.
 ## Check, then run
 
 ```sh
-cargo run --locked -p kagari-cli --bin kg -- check examples/syntax/control-flow.kgr
-cargo run --locked -p kagari-cli --bin kg -- run examples/syntax/control-flow.kgr
+cargo run --locked -p kagari-cli --bin kg -- check examples/syntax/expressions.kgr
+cargo run --locked -p kagari-cli --bin kg -- run examples/syntax/expressions.kgr
 ```
 
 `check` validates language rules without executing source. `run` compiles and
 calls the program's separate `main` entry. This example returns `42`; the default
 runner exits with zero and does not print that return value. See the
-<a href={page('start/quickstart')}>quickstart</a> for its source and result.
+<a href={source('examples/syntax/expressions.kgr')}>complete expression program</a>.
 
 A returned top-level `Result::Err` is different: the CLI reports it on stderr
 and exits with status 1. A handled inner `Err`, `Ok` or `None` does not by itself
@@ -46,8 +46,8 @@ For a concrete artifact round trip, keep disposable output under `target/` in
 this checkout:
 
 ```sh
-cargo run --locked -p kagari-cli --bin kg -- emit -o target/control-flow.kbc examples/syntax/control-flow.kgr
-cargo run --locked -p kagari-cli --bin kg -- run-artifact target/control-flow.kbc
+cargo run --locked -p kagari-cli --bin kg -- emit -o target/expressions.kbc examples/syntax/expressions.kgr
+cargo run --locked -p kagari-cli --bin kg -- run-artifact target/expressions.kbc
 ```
 
 `emit` reports the written path. The following execution has the same successful,
@@ -86,7 +86,7 @@ for selection, input roots and output locations.
 ## Read structured diagnostics
 
 ```sh
-cargo run --locked -p kagari-cli --bin kg -- check examples/syntax/control-flow.kgr --message-format json
+cargo run --locked -p kagari-cli --bin kg -- check examples/syntax/expressions.kgr --message-format json
 ```
 
 For this successful standalone check, stdout ends with:

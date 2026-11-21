@@ -10,7 +10,7 @@ use kagari_types::{scalar::BuiltinType, ty::Ty};
 #[test]
 fn forged_access_upgrades_are_rejected_before_loading() {
     let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+        KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(

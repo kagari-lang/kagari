@@ -1187,10 +1187,11 @@ registrations, optional checked source views and offline declarations. Follow
 [native registration attachment](../../crates/kagari-hir/src/native/api.rs),
 [validated language roles](../../crates/kagari-hir/src/language/items.rs) and
 [builtin bridges](../../crates/kagari-hir/src/builtin.rs) for the implementation.
-The runnable semantic examples install `kagari_stdlib::catalog::shared()` explicitly,
-as required by the current foundation contract. Shared Host schemas are static inputs;
-Runtime bindings are separate implementation inputs. Native syntax supplies neither
-Rust callbacks nor storage/access adapters.
+HIR checks the [packaged core modules](../../library/core/src/lib.rs) as ordinary
+source; resolving `core::cmp::PartialEq` needs no stdlib registration. To analyze
+calls to optional native methods, supply their declarations to HIR. Those static
+inputs do not install Rust callbacks or storage/access adapters; the host must
+install the matching bindings for execution.
 
 Ordinary Script defaults follow the same body/call path as other functions:
 

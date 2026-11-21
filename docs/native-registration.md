@@ -108,7 +108,7 @@ use kagari_runtime::native::{
     primitive::NativePrimitive,
     types::Type,
 };
-use kagari_stdlib::declarations::StandardDeclarations;
+
 use kagari_types::{declaration::{TypeDefKind, VariantDef}, scalar::BuiltinType};
 
 fn owner(module: &str) -> ModuleIdentity {
@@ -223,8 +223,7 @@ fn collect(providers: &DeclarationCatalog) -> NativeResult<ModuleAssembly> {
 }
 
 fn main() -> NativeResult<()> {
-    let providers = StandardDeclarations::default().catalog()?;
-    let assembly = collect(&providers)?;
+    let assembly = collect(&DeclarationCatalog::default())?;
     let snapshot = assembly.declarations(); // No factory has run.
     assert_eq!(snapshot.modules().len(), 2);
     let modules = assembly.try_into_send()?.into_modules()?;
@@ -235,7 +234,8 @@ fn main() -> NativeResult<()> {
 
 For an application, call `collect(builder.declarations())`, then
 `builder.install_all(assembly.into_modules()?)` and consume the engine builder with
-`build()`. The standard providers are dependencies, not reauthored local modules.
+`build()`. This example defines its own modules and uses the String scalar;
+it does not need stdlib's String extension methods.
 Once installed, the example supports the following Kagari operation:
 
 ```text
@@ -354,7 +354,10 @@ charge does not grant arbitrary editing. See the
 
 Runtime registration supplies actual Rust bindings independently of how a tool
 presents declarations. HIR consumes only binding-free static facts under the same
-rules for each input representation. The current analysis choices are:
+rules for each input representation. Packaged core is already source: its docs and
+member ranges belong to the authored `.kgr` declaration, even through a `std`
+re-export. Do not register it again or generate a replacement view. For additional
+inputs the choices are:
 
 - `AnalysisDatabase::set_native_modules`: owned `ModuleDecl` records lower directly
   into common HIR, then undergo ordinary resolution and checking. Declaration-to-HIR
@@ -415,21 +418,27 @@ Rust implementation, grant layout access or replace installation validation.
 
 ## The standard bundle and runtime boundaries
 
-Engine and Runtime constructors start with no Native providers. Install
-`kagari_stdlib::modules()` explicitly when the application needs the standard
-bundle; the SDK has no production stdlib dependency. `with_native_modules` likewise
-uses only its supplied modules. Concrete Vec/HashMap/HashSet providers are currently
-deferred to the separate NC collection restoration, not implicitly added by this
-registration/analysis work. The two-owner example above explicitly obtains standard
-authoring providers; its engine integration also requires their installation.
+Engine and Runtime constructors start with no Native providers. A source-enabled
+builder exposes the verified core declarations before installation. To add stdlib:
+
+```rust
+let library = kagari_stdlib::StandardLibrary::new(builder.declarations())?;
+builder.install_all(library.modules()?)?;
+```
+
+A frontend-free host can use `StandardLibrary::from_verified_program` with verified
+bytecode selected by the host that contains the eleven core owners; application modules in that image
+are not stdlib providers. Composing the bundle validates declarations but installs
+nothing. Only install it if needed. For example, `String` is a core type, but its
+`trim` method requires `std::string`. Script-only core calls need neither `.kgr`
+files nor stdlib at execution. Missing or mismatched native bindings fail admission.
 
 The standard library's private [Bundle](../crates/kagari-stdlib/src/assembly.rs)
 retains one collected semantic projection and one terminal preparation result.
-Public `catalog::declarations`, `catalog::shared` and `StandardDeclarations` read
-that same sealed product without preparing callbacks. The actual immutable
-projection lives in [catalog](../crates/kagari-stdlib/src/catalog/semantic.rs);
-`StandardDeclarations::catalog()` does not reconstruct a second provider cache.
-`kagari_stdlib::modules()` prepares once and shares completed native modules.
+`library.declarations()` borrows that sealed product without preparing callbacks.
+Its [catalog](../crates/kagari-stdlib/src/catalog/semantic.rs) includes the verified
+core contracts. `library.modules()` prepares once per bundle and shares completed
+native modules.
 
 Collection runs on the first caller's thread. The bundle requires transferable
 pending work before publishing semantics; a shared recipe needs `Send`, not `Sync`.

@@ -181,7 +181,7 @@ fn preparation_rejects_incompatible_runtime_and_helper_abis() {
 #[test]
 fn embedding_conformance_executes_foundation_native_artifacts() {
     let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+        KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     let context = ExecutionContext::default();
     let artifact = engine
         .compile_to_artifact(

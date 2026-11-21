@@ -1,5 +1,5 @@
 
-        use fixture::typed::Future;
+        use core::future::Future;
         pub trait Inspect {
             fn read(self) -> i32 { 999 }
             fn later(self) -> Future<i32>;

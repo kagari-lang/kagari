@@ -1,11 +1,13 @@
 //! Imported operations keep their defining module across portable artifact execution.
 
 /* Temporarily paused: stdlib restoration (NC01-NC06).
+use crate::test_support::standard::standard_library;
+
 #[test]
 fn imported_equality_and_hash_use_the_defining_modules_implementations() {
     for downstream_override in [false, true] {
         let engine =
-            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+            KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap())
                 .unwrap();
         let model = r#"use std::collections::{HashMap};
 use std::hash::{Hash};

@@ -110,8 +110,8 @@ NUL and FF. Each evaluation of a byte-string literal creates fresh storage, even
 for `b""` or `br""`. Copying or returning an existing array shares that array
 instead. Compare contents with `==` and storage identity with `===`: separately
 evaluated empty byte arrays have equal contents but different identities.
-Elements can be replaced, but the array cannot grow; use `Vec::from(first)` for
-an independent growable collection. Ordinary array iteration yields `u8` values.
+Elements can be replaced, but the array cannot grow. Builtin array iteration
+awaits a collection cursor provider.
 
 Direct byte-literal text must be ASCII. Cooked forms accept quote/backslash
 escapes, `\n`, `\r`, `\t`, `\0` and `\x00` through `\xFF`, but no `\u{...}`
@@ -134,14 +134,14 @@ backslash-line-break continuations remove the break and following ASCII whitespa
 raw forms retain the backslash and line break. Standalone CR is rejected outside
 continuation whitespace.
 
-These literals do not add String indexing or implicit text conversion. To traverse
-an existing String, choose one of the explicit methods below.
+These literals do not add String indexing or implicit text conversion.
 See the <a href={source('docs/spec/syntax.md#byte-literals')}>byte literal contract</a>
 for the exact lexical and typing rules.
 
 ## Work with UTF-8 bytes deliberately
 
-`len()` returns a `u64` count of **UTF-8 bytes**, not displayed characters or Unicode scalar values.
+The `String` type comes from core; the methods in this section require the
+explicitly installed `std::string` provider. `len()` returns a `u64` count of **UTF-8 bytes**, not displayed characters or Unicode scalar values.
 For example, `"é!"` has three bytes: two for `é`, then one for `!`.
 `slice(0, 2)` selects `é` using a half-open range; `slice(0, 1)` traps because its
 end splits a UTF-8 encoding. Reversed or out-of-range slices also trap with
@@ -151,74 +151,25 @@ whose lifetime must be tied to the original string.
 For searching, `find(pattern)` returns `Option<u64>` containing a **byte**
 offset. `contains`, `starts_with`, `ends_with` and `replace` use literal patterns,
 not regular expressions. `trim` and its one-sided variants remove Unicode
-whitespace. `split(separator)` eagerly returns a `List<String>`; iterating that
-list is different from iterating the original string.
+whitespace. The current provider has no `split`, `chars`, `char_indices` or
+`bytes` method, and String itself does not implement `Iterable`.
 
 Empty patterns have defined behavior: `find("")` returns `Some(0)`, while empty-pattern
-replacement and splitting use Unicode scalar boundaries, including both ends.
+replacement uses Unicode scalar boundaries, including both ends.
 String indexing, regex and locale APIs are not provided. The
 <a href={source('docs/spec/builtins.md#primitive-operations-and-formatting')}>string contract</a>
 and <a href={source('crates/kagari-stdlib/src/foundation/string.rs')}>String declarations</a>
 own the exact supported surface.
 
-## Choose scalars, byte offsets or bytes
-
-String traversal is explicit and lazy:
-
-| Method | Item | For `"aé🙂"` |
-| --- | --- | --- |
-| `.chars()` | `char` | `'a'`, `'é'`, `'🙂'` |
-| `.char_indices()` | `(u64, char)` | `(0, 'a')`, `(1, 'é')`, `(3, '🙂')` |
-| `.bytes()` | `u8` | Seven UTF-8 bytes: `61 C3 A9 F0 9F 99 82` in hexadecimal |
-
-```kgr
-val text = "aé🙂";
-val byte_count: u64 = text.len();                  // 7
-val scalar_count: u64 = text.chars().count();      // 3
-val prefix: String = text.slice(0, 3);             // "aé"
-val indexed: Vec<(u64, char)> = text.char_indices().take(2).collect();
-```
-
-`indexed` contains `(0, 'a')` and `(1, 'é')`. These offsets can locate UTF-8
-boundaries for slicing; they are not scalar ordinals. `len`, `find` and `slice`
-still count bytes. A scalar is not necessarily one displayed character:
-`"e\u{301}".chars().count()` is two because the combining accent is a separate
-scalar. These methods do not segment grapheme clusters.
-
-Use `for ch in text.chars()` rather than `for ch in text`; String itself is not
-Iterable, and `text[0]` is not supported. The returned cursors use the ordinary
-adapters below. Construction does not pull items or build an intermediate List;
-`collect` explicitly requests a collection.
-
-```kgr
-val cursor = text.chars();
-val alias = cursor;
-val first: Option<char> = cursor.next();          // Some('a')
-val second: Option<char> = alias.next();          // Some('é')
-val independent: Option<char> = text.chars().next(); // Some('a')
-```
-
-Copies of a cursor share progress. Each new `.chars()`, `.char_indices()` or
-`.bytes()` call starts independently. Empty or exhausted cursors return None.
-The cursor keeps its immutable source traced through garbage collection and async
-suspension, even if the original binding is no longer live; it does not hold a
-Rust string borrow. If native item/result publication fails, that cursor does not
-advance. This does not undo a successful source pull when a later adapter callback
-fails. See the <a href={source('docs/spec/builtins.md#explicit-string-traversal')}>String
-traversal contract</a> for the ownership and failure rules.
 
 ## Delay work until consumption
 
-<SourceExample
-  path="examples/syntax/collection-pipelines.kgr"
-  command="cargo run --locked -p kagari-cli --bin kg -- run examples/syntax/collection-pipelines.kgr"
-  result="The mapper runs zero times during construction and twice during the loop; main returns 42 without the default runner printing it."
-/>
-
-Sorting puts the two values in order. `values.iter()` obtains the cursor and `map` wraps it
-without pulling an item or invoking the closure, so `calls` is still zero. The `for`
-loop advances the saved iterator, invoking the mapper once for each item; it ends
-with `calls == 2` and `total == 42`.
+The <a href={source('crates/kagari/tests/fixtures/embedding/installation/bag.kgr')}>script collection</a>
+supplies a cursor for its items. In its
+<a href={source('crates/kagari/tests/fixtures/embedding/installation/bag-consumer.kgr')}>consumer</a>,
+`bag` holds `2` and `5`. `bag.iter().map(|x| x * 2)` builds an adapter without
+pulling an item. `mapped.next()` then returns `Some(4)`. A `for` loop over that
+same cursor sees only `10`: it does not start again at `4`. Neither module needs stdlib.
 
 Transformations such as `map`, `filter` and `take` are lazy. Terminal operations
 such as `collect`, `fold`, `sum` and `count` consume items. For `collect`, `sum`
@@ -237,17 +188,10 @@ Calling `iter()` on a cursor returns the same iterator at its current position.
 
 ## Implement ordinary iteration
 
-<SourceExample
-  path="examples/syntax/iterators.kgr"
-  command="cargo run --locked -p kagari-cli --bin kg -- run examples/syntax/iterators.kgr"
-  result="Counter yields 0 through 6, totaling 21; the second sequence totals 21, so main returns 42 without printed output from the default runner."
-/>
-
-`Iterator::next` returns `Some(item)` or `None`. `Iterable::iter` supplies a cursor
-whose associated `Item` agrees with the iterable's `Item`. Here `Range::iter`
-creates a fresh `Counter`; `next` reads and increments its shared `current` field.
-The generic `sum` function can consume both this custom range and the mapped
-sequence.
+Implement `Iterable::iter` on your collection to supply a cursor; its `Item`
+must agree with the collection's `Item`. Implement `Iterator::next` on the
+cursor to return `Some(item)` or `None`. Implement `FromIterator` on a
+destination to let callers collect into it, as the script collection does.
 
 A `for` loop evaluates its source once, calls `iter` once, then calls `next`
 until `None`. `continue` asks for the next item; `break` stops without another
@@ -257,10 +201,12 @@ move of each stored object.
 ## Understand saved progress and mutation
 
 Aliases of the **same cursor or adapter** share progress. Calling `iter()` on a
-collection again creates an independent cursor. Native cursors retain their
-source and read slots on demand rather than copying the whole collection.
+collection can create a fresh traversal. A callback failure does not rewind an
+item already pulled. Core adapters do not reject a nested `next` just because
+it is nested; ordinary traps, cancellation and call-depth limits still apply.
 
-Retaining a native cursor does not lock its collection against writes. Replacing
+In the deferred native collection design, retaining a cursor does not lock its
+collection against writes. Replacing
 a sequence element can be seen by the next read, but growth, removal or reordering
 changes the structure. Such an edit commits through any writable alias, and the
 existing cursor traps on its next source read. A read-only view does not prevent

@@ -8,7 +8,7 @@ import SourceExample from '@components/SourceExample.astro';
 
 Suppose your Rust application receives a comma-separated message and lets a script
 choose how to split it. Rust supplies the text operation; Kagari supplies a public
-wrapper; Rust receives an owned vector of strings. Start with the source checkout
+wrapper; Rust receives an optional pair of owned strings. Start with the source checkout
 from <a href={page('start/installation')}>installation</a>: Kagari is unpublished,
 so this guide uses the workspace SDK and its maintained examples, not a promised
 registry release or a separate generated host project.
@@ -21,49 +21,34 @@ Run the command from the repository root:
 <SourceExample
   path="crates/kagari/examples/typed_native.rs"
   command="cargo run -p kagari --example typed_native"
-  result={'Prints ["hello", "雪", ""] after checking the owned result.'}
+  result={'Prints Some(("hello", "雪,")) after checking the owned result.'}
 />
 
-Observe the final empty field. The Rust callback uses literal `str::split`, so the
-trailing comma in `hello,雪,` is not discarded. The script wrapper calls that
-installed function once, and `execute_typed` converts its `Vec<String>` result
+The Rust callback splits `hello,雪,` at the first comma, leaving the trailing
+comma in the second field. The script wrapper calls that installed function
+once, and `execute_typed` converts its `Option<(String, String)>` result
 into owned Rust data before returning. Nothing in this example benchmarks runtime
 startup or requires a native code generator.
 
 ## Follow preparation, loading and execution
 
-The example has five distinct boundaries:
-
-1. **Build an engine.** `KagariEngine::builder()` installs the standard modules and
-   returns a fallible registration builder. Add application modules before
-   `builder.build()`. Their declarations determine what the compiler can resolve.
-2. **Compile source.** `engine.compile_to_artifact(source, artifact_options)` checks
-   the script and emits an artifact with its definition metadata. A source name
-   such as `typed.kgr` supplies diagnostic origin; it need not be a disk file.
-3. **Prepare once.** `PreparedProgram::from_artifact` consumes that artifact and
-   checks compatibility and executable validity before any runtime linking. It
-   accepts a compatibility reference and a cancellation-token reference separately.
-4. **Load into an isolate.** `engine.runtime(context.clone())` creates independent
+1. **Build an engine.** The source-enabled builder has verified core declarations
+   and no installed Rust bindings. The example composes `StandardLibrary` against
+   `builder.declarations()`, installs its modules, then binds and installs the
+   application module before `builder.build()`.
+2. **Compile source.** `engine.compile_to_program` checks the script and prepares
+   the executable program directly. `typed.kgr` is a diagnostic name, not a
+   required disk file.
+3. **Load into an isolate.** `engine.runtime(context.clone())` creates independent
    mutable runtime state. `load_program(&program, options)` checks installed bindings
    and returns a `LoadedModule`; loading does not invoke the script wrapper.
-5. **Call explicitly.** `execute_typed(&loaded, "split_text", arguments, &context)`
+4. **Call explicitly.** `execute_typed(&loaded, "split_text", arguments, &context)`
    selects the checked public entry and converts its argument tuple and result.
 
-These are the current API shapes, not conceptual replacement names. The source
-owners below contain their complete declarations and imports:
-
-| Operation | Parameters after `self` | Return type |
-| --- | --- | --- |
-| <a href={source('crates/kagari/src/engine/source.rs')}>`compile_to_artifact`</a> | `source: SourceFile, artifact_options: ArtifactOptions` | `CompileResult<DefinitionMetadata<BytecodeArtifact>>` |
-| <a href={source('crates/kagari/src/program.rs')}>`PreparedProgram::from_artifact`</a> (associated function) | `artifact: DefinitionMetadata<KbcArtifact>, compatibility: &ArtifactCompatibility, cancel: &CancellationToken` | `Result<Self, ProgramPreparationError>` |
-| <a href={source('crates/kagari/src/runtime.rs')}>`load_program`</a> (`&mut self`) | `program: &PreparedProgram, options: LoadOptions` | `LoadResult<LoadedModule>` |
-| <a href={source('crates/kagari/src/runtime/typed.rs')}>`execute_typed`</a> (`&self`) | `module: &LoadedModule, entry: impl Into<ProgramEntry<'a>>, arguments: A, context: &ExecutionContext` | `RunResult<R>` |
-
-`BytecodeArtifact` is the SDK alias for `KbcArtifact`. The typed call's generics are
-`<'a, A: IntoKagariArguments, R: FromKagari>`; the annotation `let fields: Vec<String>`
-selects `R`. Source compilation requires the SDK's `source` feature, enabled by
-default. Prepared artifacts can instead be loaded without the source frontend;
-see <a href={source('docs/spec/artifacts.md')}>artifact feature boundaries</a>.
+Source compilation requires the SDK's `source` feature. A host loading a verified
+artifact instead needs neither the frontend nor packaged `.kgr` files. It still
+needs a matching provider for a native call such as `split_once`. See the
+<a href={source('docs/spec/artifacts.md')}>artifact feature boundaries</a>.
 
 ## Choose the entry and the argument list
 
@@ -81,7 +66,7 @@ ordinary argument passing rather than substituting raw values into that interfac
 
 The report's `return_value` is an owning `RootedValue`, not an unrooted register
 copy. Inspect it with `value(runtime.runtime().gc())`, retaining the root while
-using any heap value. Typed owned results such as this example's Rust vector need
+using any heap value. Typed owned results such as this example's optional pair need
 no manual rooting. Identity-preserving handles follow the different rules in
 <a href={page('host/ownership')}>ownership and scoped access</a>.
 

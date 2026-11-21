@@ -1,5 +1,5 @@
 //! Actual Native scopes keep one state value and retire per-step scratch.
-use crate::{bytecode_fixture::load_bytecode, internal_calls::string_provider};
+use crate::{bytecode_fixture::load_bytecode, internal_calls::string_catalog};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::{
@@ -10,7 +10,6 @@ use kagari_runtime::{
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
-        catalog::DeclarationCatalog,
         conversion::context::ConversionContext,
         declarations::FunctionDecl,
         scalar::NativeScalar,
@@ -31,9 +30,7 @@ use std::{
 fn native_scratch_replaces_managed_state_and_retires_on_all_exits() {
     let cancelled = ExecutionContext::default();
     let cancellation = cancelled.cancellation.clone();
-    let strings = string_provider();
-    let catalog = DeclarationCatalog::from_modules(&[&strings]).unwrap();
-    let mut builder = ModuleBuilder::new("example::scratch", &catalog).unwrap();
+    let mut builder = ModuleBuilder::new("example::scratch", &string_catalog()).unwrap();
     let string = Type::scalar(BuiltinType::String);
     let reduce = builder
         .define_function(
@@ -123,10 +120,7 @@ fn native_scratch_replaces_managed_state_and_retires_on_all_exits() {
         )
         .unwrap();
     let mut analysis = AnalysisDatabase::new(sources.root()).unwrap();
-    analysis.set_native_modules(vec![
-        Arc::new(strings.to_declaration()),
-        Arc::new(provider.to_declaration()),
-    ]);
+    analysis.set_native_modules(vec![Arc::new(provider.to_declaration())]);
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -140,7 +134,7 @@ fn native_scratch_replaces_managed_state_and_retires_on_all_exits() {
         .unwrap()
         .into_unverified();
     let mut runtime = Runtime::default();
-    strings.install(&mut runtime).unwrap();
+
     provider.install(&mut runtime).unwrap();
     let program = load_bytecode(&mut runtime, "native-scope", bytecode.clone()).unwrap();
     let function = runtime
@@ -151,7 +145,7 @@ fn native_scratch_replaces_managed_state_and_retires_on_all_exits() {
     // The public frame entry accepts source-bound views from Rust. A valid view
     // supplied by a different Runtime must reject without poisoning this one.
     let mut foreign = Runtime::default();
-    strings.install(&mut foreign).unwrap();
+
     provider.install(&mut foreign).unwrap();
     let foreign_program = load_bytecode(&mut foreign, "foreign-source", bytecode).unwrap();
     let foreign_owner = foreign.select_program(&foreign_program).unwrap();

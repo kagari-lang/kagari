@@ -3,11 +3,12 @@ title: Collections and access
 description: Choose arrays or growable storage, expose live read-only views, and use hash keys with explicit equality contracts.
 ---
 
-import SourceExample from '@components/SourceExample.astro';
+
 import { page, source } from '@site/links.mjs';
 
-Store scores in a growable sequence while giving a reader only the operations it
-needs. Before using this chapter, read about
+The optional stdlib provides six collection interfaces, not concrete `Vec`,
+`HashMap` or `HashSet` providers. The examples below describe their intended
+storage and access contracts; they are not runnable with the current bundle. Before using this chapter, read about
 <a href={page('language/values')}>shared values</a> and the
 <a href={page('library/overview')}>library prelude</a>.
 
@@ -21,8 +22,8 @@ needs. Before using this chapter, read about
 
 `Vec::from(array)` explicitly creates independent sequence storage. It does not
 deep-copy referenced elements. An array is not implicitly a `Vec` or `List`, and
-arrays do not implement `List`/`MutableList`. Their own indexing and iteration
-still work.
+arrays do not implement `List`/`MutableList`. Array indexing works; array traversal
+awaits a library cursor.
 
 For empty storage, use `Vec::new()`, `HashMap::new()` or `HashSet::new()`, with a
 type annotation or explicit type arguments when the element types are otherwise
@@ -31,11 +32,8 @@ is no map/set literal syntax.
 
 ## Give a reader a live view
 
-<SourceExample
-  path="examples/syntax/collection-access.kgr"
-  command="cargo run --locked -p kagari-cli --bin kg -- run examples/syntax/collection-access.kgr"
-  result="main returns 42 after checking live list access, map replacement and set deduplication; the default runner does not print the return value."
-/>
+The <a href={source('examples/syntax/collection-access.kgr')}>collection-access example</a>
+illustrates this contract for the deferred providers.
 
 `values` begins with one element, `20`. Assigning it to `readonly: List<i32>`
 keeps the same underlying object. `append` accepts `MutableList<i32>`, so it can
@@ -103,7 +101,7 @@ requirements.
 
 ## Algorithms, sharing and iteration
 
-`List` provides new-result operations such as `sorted` and `reversed`;
+The deferred List algorithms include new-result operations such as `sorted` and `reversed`;
 `MutableList` provides in-place operations such as `sort`, `reverse`, `retain`
 and `dedup`. Natural sorting requires `Ord`. A new result copies the container
 structure, not referenced element objects. In-place algorithms are not

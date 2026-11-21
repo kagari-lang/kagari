@@ -137,7 +137,7 @@ fn persistent_static_objects_and_recursive_nominal_collections_preserve_aliases(
     assert_eq!(source.matches("value: 1,").count(), 1);
     assert_eq!(source.matches("value: 90,").count(), 1);
     let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+        KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     let first = prepare_static_program(&engine, source, decoded);
     let changed_initializer =
         prepare_static_program(&engine, &source.replace("value: 1,", "value: 2,"), decoded);
@@ -205,7 +205,7 @@ fn persistent_static_callbacks_and_interfaces_call_current_helpers(#[case] decod
     let replacement =
         include_str!("../../../../tests/fixtures/embedding/reload/static-callbacks-v2.kgr");
     let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+        KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     let first = prepare_static_program(&engine, source, decoded);
     let second = prepare_static_program(&engine, replacement, decoded);
     let mut runtime = engine.runtime(Default::default());
@@ -281,7 +281,7 @@ fn persistent_static_hash_comparators_use_current_bodies_and_helpers(#[case] dec
     let helpers =
         include_str!("../../../../tests/fixtures/embedding/reload/static-hash-helpers-v3.kgr");
     let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+        KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     let first = prepare_static_program(&engine, source, decoded);
     let mut runtime = engine.runtime(Default::default());
     let old = runtime
@@ -425,7 +425,7 @@ fn assert_cold_reclamation(
 fn retained_local_function_values_call_current_bodies_and_clean_up_all_exits() {
     let source = include_str!("../../../../tests/fixtures/embedding/reload/local-functions-v1.kgr");
     let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+        KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     let program = prepare(&engine, source);
     let replacement = prepare(
         &engine,
@@ -434,7 +434,7 @@ fn retained_local_function_values_call_current_bodies_and_clean_up_all_exits() {
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = CoreRuntime::new(config);
-    NativeModule::install_all(&stdlib::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&standard_library().modules().unwrap(), &mut runtime).unwrap();
     let old = load_bytecode(&mut runtime, "local-reload", program).unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
@@ -727,7 +727,7 @@ fn content_helper_uses_current_interface_iteration_for_retained_values() {
     let source =
         include_str!("../../../../tests/fixtures/embedding/reload/interface-iteration-v1.kgr");
     let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+        KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     let original = prepare(&engine, source);
     let replacement = prepare(
         &engine,
@@ -736,7 +736,7 @@ fn content_helper_uses_current_interface_iteration_for_retained_values() {
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = CoreRuntime::new(config);
-    NativeModule::install_all(&stdlib::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&standard_library().modules().unwrap(), &mut runtime).unwrap();
     let old = load_bytecode(&mut runtime, "receiver-reload", original).unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();

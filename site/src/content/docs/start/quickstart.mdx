@@ -6,8 +6,9 @@ description: Build the source CLI and follow a complete Kagari control-flow exam
 import SourceExample from '@components/SourceExample.astro';
 import { page, source } from '@site/links.mjs';
 
-Run a complete program that combines a `while` loop, conditional skipping and
-`loop`/`for` iteration. You need Git and a Rust toolchain compatible with the
+Run a small expression program first. The loop walkthrough below also uses
+`Vec`, whose provider is currently withdrawn; it illustrates the intended behavior
+rather than a second runnable example. You need Git and a Rust toolchain compatible with the
 repository's <a href={source('Cargo.toml')}>Cargo workspace</a>. The CLI is a source
 build: do **not** use `cargo install kagari-cli`; the published reservation is not
 a functional toolchain distribution.
@@ -20,8 +21,8 @@ Clone the repository, then run these commands from its root directory:
 git clone https://github.com/kagari-lang/kagari.git
 cd kagari
 cargo build -p kagari-cli --bin kg
-cargo run -p kagari-cli -- check examples/syntax/control-flow.kgr
-cargo run -p kagari-cli -- run examples/syntax/control-flow.kgr
+cargo run -p kagari-cli -- check examples/syntax/expressions.kgr
+cargo run -p kagari-cli -- run examples/syntax/expressions.kgr
 ```
 
 Cargo builds the `kg` executable from the `kagari-cli` package. `check` analyzes the
@@ -35,14 +36,22 @@ code 42. Compilation errors and execution failures produce diagnostics instead.
 
 ## Read the complete program
 
-This block is read from the canonical repository example during the website build.
+<SourceExample
+  path="examples/syntax/expressions.kgr"
+  command="cargo run -p kagari-cli -- run examples/syntax/expressions.kgr"
+  result="The short-circuit condition skips division by zero and main returns 42."
+/>
+
+## Read the loop example
+
+This second block is read from the repository during the website build.
 Its assertions deliberately trigger checked division by zero if a tested condition
 fails; those compact assertion expressions are not required loop syntax.
 
 <SourceExample
   path="examples/syntax/control-flow.kgr"
-  command="cargo run -p kagari-cli -- run examples/syntax/control-flow.kgr"
-  result="main returns 42; the non-JIT CLI exits successfully without printing that value."
+  command="cargo run -p kagari-cli -- parse examples/syntax/control-flow.kgr"
+  result="Parses the complete example. Checking or running it requires the deferred Vec provider."
 />
 
 ## Follow the values
@@ -65,8 +74,9 @@ object behavior, not a Rust move or borrow-checker example.
 
 ## Make one change
 
-In a local copy, change the `for` input from `[20, 22]` to `[21, 21]` and run the
-same command. It still sums to `42`, so the existing assertion succeeds. Keep the
+In a local copy of the loop example, change the `for` input from `[20, 22]` to
+`[21, 21]` and parse it. Both inputs have the same intended sum of `42`; parsing
+does not check the missing provider or execute the assertion. Keep the
 canonical source unchanged when contributing documentation unless you intend to
 change the example and its owning tests too.
 

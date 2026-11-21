@@ -1,8 +1,10 @@
 /* Temporarily paused: stdlib restoration (NC01-NC06).
+use crate::test_support::standard::standard_library;
+
 #[test]
 fn formatter_traps_keep_the_origin_and_release_execution_roots() {
     let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+        KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     let source = include_str!(
         "../../../../../tests/fixtures/language/string_interpolation/traps/formatter_traps_keep_the_origin_and_release_execution_roots.kgr"
     );

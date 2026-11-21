@@ -5,10 +5,9 @@ This document defines Kagari traits and their use as interface value types.
 The main goal is to preserve useful abstraction mechanisms from Rust-like languages while keeping the script-facing model closer to Kotlin interfaces than Rust trait objects.
 
 Reflection rules are defined separately in [reflection.md](reflection.md).
-The 26 language traits are explicit standard-library registrations under core's
-ops, cmp, hash, fmt, iter and convert modules; see the
-[registration declarations](../../crates/kagari-stdlib/src/foundation.rs).
-Their generated KGR views are analyzed as ordinary traits. Reserved
+The 26 language traits are declared in [authored core source](../../library/core/),
+in the `ops`, `cmp`, `hash`, `fmt`, `iter` and `convert` modules. They are checked
+as ordinary source traits, whether or not the host installs stdlib. Reserved
 `#[lang = "role"]` attributes identify declarations for syntax and implicit value
 rules; an application trait with the same name does not acquire that role.
 Native libraries register their declarations and Rust implementations together.
@@ -1166,7 +1165,7 @@ See [default-methods.kgr](../../examples/syntax/default-methods.kgr), which retu
 ## Standard protocol identities
 
 The language protocols, including value/operator traits, Try/FromResidual for propagation and From for implicit identity/lossless conversion,
-Iterator/Iterable and the six collection interfaces, are listed in
+and Iterator/Iterable, are listed alongside the six optional collection interfaces in
 [builtins](builtins.md). They use ordinary declaration identities, bounds and
 static method resolution. Intrinsic implementations are compiler/runtime owned;
 user definitions named Eq or Debug do not gain intrinsic behavior. Script Structs

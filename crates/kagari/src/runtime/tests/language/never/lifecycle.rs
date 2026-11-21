@@ -1,8 +1,10 @@
 /* Temporarily paused: stdlib restoration (NC01-NC06).
+use crate::test_support::standard::standard_library;
+
 #[test]
 fn never_preserves_effects_and_releases_resources_on_traps_and_cancellation() {
     let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+        KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(
@@ -24,9 +26,7 @@ pub fn healthy() -> i32 { 42 }
     let captured = effects.clone();
     let mut builder = ModuleBuilder::from_declaration(
         logging::declaration().unwrap(),
-        &kagari_stdlib::declarations::StandardDeclarations::default()
-            .catalog()
-            .unwrap(),
+        standard_library().declarations().catalog(),
         Default::default(),
     )
     .unwrap();
@@ -48,7 +48,7 @@ pub fn healthy() -> i32 { 42 }
         .unwrap();
     let installed = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library().modules()
             .unwrap()
             .into_iter()
             .chain(vec![builder.finish().unwrap()])

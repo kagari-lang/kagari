@@ -2,8 +2,8 @@
 
 Run with `uv run python scripts/check_features.py`. Generated manifests and logs
 live under target/; Cargo uses the repository's normal target directory and O1.
-Use --numeric-only for one source-free numeric workload without the feature matrix.
-The full CI invocation also runs this bounded numeric acceptance once.
+Use --core-only for the provider-free Point comparison or --numeric-only for the
+source-free numeric workload. The full CI invocation also runs both once.
 """
 from __future__ import annotations
 
@@ -91,22 +91,26 @@ def check_crate_boundaries(output: Path = OUTPUT) -> None:
     print("ABI/contract build graphs are independent of source analysis and execution", flush=True)
 
 
-def write_consumer_manifest(output: Path, numeric_only: bool) -> Path:
+def write_consumer_manifest(output: Path, mode: str) -> Path:
     lines = [
         '[workspace]', '[package]', 'name = "kagari-feature-consumer"',
         'version = "0.0.0"', 'edition = "2024"', '[features]', 'default = []',
     ]
-    if not numeric_only:
+    minimal = mode in {"numeric", "core"}
+    if not minimal:
         lines += [
             'source = ["kagari/source", "dep:kagari-source"]',
             'native = ["kagari/native", "dep:kagari-codegen", "dep:kagari-mir", "dep:kagari-codegen-cranelift"]',
         ]
     lines.append('[dependencies]')
-    dependencies = ["kagari", "kagari-runtime", "kagari-common", "kagari-stdlib"] if numeric_only else [
-        "kagari", "kagari-source", "kagari-abi", "kagari-contract", "kagari-types",
-        "kagari-stdlib", "kagari-bytecode", "kagari-common", "kagari-runtime", "kagari-gc",
-        "kagari-codegen", "kagari-mir", "kagari-codegen-cranelift",
-    ]
+    dependencies = ["kagari", "kagari-runtime"]
+    if mode != "core":
+        dependencies += ["kagari-common", "kagari-stdlib"]
+    if not minimal:
+        dependencies += [
+            "kagari-source", "kagari-abi", "kagari-contract", "kagari-types",
+            "kagari-bytecode", "kagari-gc", "kagari-codegen", "kagari-mir", "kagari-codegen-cranelift",
+        ]
     for name in dependencies:
         options = [f'path = {json.dumps(str(ROOT / "crates" / name))}']
         if name == "kagari":
@@ -114,14 +118,17 @@ def write_consumer_manifest(output: Path, numeric_only: bool) -> Path:
         if name in {"kagari-source", "kagari-codegen", "kagari-mir", "kagari-codegen-cranelift"}:
             options.append('optional = true')
         lines.append(f'{name} = {{ {", ".join(options)} }}')
-    if not numeric_only:
+    if not minimal:
         lines += [
             '[dev-dependencies]', 'tokio = { version = "1", features = ["rt"] }',
             'rstest = { version = "0.28.0", default-features = false }',
         ]
-    targets = {"numeric_artifact": "artifact_features/numeric.rs"} if numeric_only else {
-        "artifact_features": "artifact_features.rs", "async_execution": "async_execution.rs",
-    }
+    if mode == "core":
+        targets = {"authored_point": "artifact_features/authored_point.rs"}
+    elif mode == "numeric":
+        targets = {"numeric_artifact": "artifact_features/numeric.rs"}
+    else:
+        targets = {"artifact_features": "artifact_features.rs", "async_execution": "async_execution.rs"}
     for target, path in targets.items():
         lines += ['[[test]]', f'name = "{target}"',
                   f'path = {json.dumps(str(ROOT / "crates/kagari/tests" / path))}']
@@ -131,18 +138,18 @@ def write_consumer_manifest(output: Path, numeric_only: bool) -> Path:
     return manifest
 
 
-def run(async_only: bool = False, numeric_only: bool = False, conversions_only: bool = False) -> None:
-    output = OUTPUT / "numeric" if numeric_only else OUTPUT
+def run(mode: str) -> None:
+    output = OUTPUT / mode if mode in {"core", "numeric"} else OUTPUT
     output.mkdir(parents=True, exist_ok=True)
-    if not numeric_only and not conversions_only:
+    if mode in {"matrix", "async"}:
         check_crate_boundaries(output)
-    manifest = write_consumer_manifest(output, numeric_only)
+    manifest = write_consumer_manifest(output, mode)
     # Keep the repository's external dependency resolutions. Cargo may prune unused
     # packages and add the local consumer, but must not upgrade external packages.
     (output / "Cargo.lock").write_bytes((ROOT / "Cargo.lock").read_bytes())
     locked = tomllib.loads((ROOT / "Cargo.lock").read_text())["package"]
     external = {(item["name"], item["version"]) for item in locked if "source" in item}
-    def emit_fixture(source: Path, name: str) -> Path:
+    def emit_fixture(source: Path, name: str, *producer_options: str) -> Path:
         # Never accept a stale product after a failed producer invocation.
         artifact = ROOT / "target/fixtures" / name
         artifact.unlink(missing_ok=True)
@@ -150,32 +157,36 @@ def run(async_only: bool = False, numeric_only: bool = False, conversions_only: 
             "cargo", "run", "--locked", "--offline", "-p", "kagari",
             "--no-default-features", "--features", "source",
             "--example", "regenerate_feature_artifact", "--",
-            str(source), str(artifact),
+            *producer_options, str(source), str(artifact),
         ], cwd=ROOT, check=True)
         return artifact
 
     test_env = os.environ.copy()
-    if numeric_only:
+    if mode == "core":
+        test_env["KAGARI_POINT_ARTIFACT"] = str(emit_fixture(
+            ROOT / "crates/kagari/tests/fixtures/embedding/installation/authored-point.kgr",
+            "authored_point.kbc", "--no-providers"))
+    elif mode == "numeric":
         test_env["KAGARI_NUMERIC_ARTIFACT"] = str(emit_fixture(
             ROOT / "examples/numeric-sampling.kgr", "numeric_sampling.kbc"))
-    elif conversions_only:
+    elif mode == "conversions":
         emit_fixture(ROOT / "crates/kagari/tests/fixtures/language/conversion_traits"
                      / "reverse-conversions-call-the-destination-implementation.kgr", "reverse_conversions.kbc")
-    elif not async_only:
+    elif mode == "matrix":
         subprocess.run([
             "cargo", "run", "--locked", "--offline", "-p", "kagari",
             "--no-default-features", "--features", "source",
             "--example", "regenerate_feature_artifact",
         ], cwd=ROOT, check=True)
         emit_fixture(ROOT / "crates/kagari/tests/fixtures/async_pairs.kgr", "async_pairs.kbc")
-    if not numeric_only and not conversions_only:
+    if mode in {"matrix", "async"}:
         subprocess.run([
             "cargo", "run", "--locked", "--offline", "-p", "kagari",
             "--no-default-features", "--features", "source", "--example", "async_tasks",
             "--", str(ROOT / "target/fixtures/async_tasks.kbc"),
         ], cwd=ROOT, check=True)
-    focused = async_only or numeric_only or conversions_only
-    edges = "normal,build,dev" if conversions_only else "normal,build" if numeric_only else "normal"
+    focused = mode != "matrix"
+    edges = "normal,build,dev" if mode in {"core", "conversions"} else "normal,build" if mode == "numeric" else "normal"
     for features in ([""] if focused else ["", "source", "native", "source,native"]):
         label = features.replace(",", "-") or "artifact-only"
         args = ["--manifest-path", str(manifest), "--no-default-features"]
@@ -191,6 +202,9 @@ def run(async_only: bool = False, numeric_only: bool = False, conversions_only: 
         (output / f"{label}-graph.log").write_text(graph)
         packages = {line.split()[0] for line in graph.splitlines() if line}
         forbidden = {"kagari-format", "kagari-lint"}
+        if mode == "core":
+            forbidden |= {"kagari-stdlib", "kagari-analyzer"}
+            assert {"kagari", "kagari-runtime", "kagari-bytecode"} <= packages, label
         if "source" not in features:
             forbidden |= {"kagari-core-source", "kagari-source", "kagari-hir", "kagari-syntax", "kagari-package"}
         if not features:
@@ -201,13 +215,16 @@ def run(async_only: bool = False, numeric_only: bool = False, conversions_only: 
         if "source" in features:
             assert {"kagari-core-source", "kagari-source", "kagari-hir", "kagari-syntax", "kagari-package"} <= packages, label
         log_label = label
-        if numeric_only:
+        if mode == "core":
+            log_label += "-core"
+            selected = ["--test", "authored_point"]
+        elif mode == "numeric":
             log_label += "-numeric"
             selected = ["--test", "numeric_artifact"]
-        elif conversions_only:
+        elif mode == "conversions":
             log_label += "-conversions"
             selected = ["--test", "artifact_features", "reverse_conversions::"]
-        elif async_only:
+        elif mode == "async":
             log_label += "-async"
             selected = ["--test", "artifact_features", "source_free_async_execution_contract"]
         else:
@@ -225,17 +242,20 @@ def run(async_only: bool = False, numeric_only: bool = False, conversions_only: 
             raise
         print(f"{log_label}: production graph and standalone artifact tests pass", flush=True)
     if not focused:
-        run(numeric_only=True)
+        run("numeric")
+        run("core")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--async-only", action="store_true",
+    mode.add_argument("--core-only", dest="mode", action="store_const", const="core",
+                      help="emit Point without providers and run its ordinary KBC without source or stdlib")
+    mode.add_argument("--async-only", dest="mode", action="store_const", const="async",
                       help="run only the source-free async consumer contract, not the CI feature matrix")
-    mode.add_argument("--numeric-only", action="store_true",
+    mode.add_argument("--numeric-only", dest="mode", action="store_const", const="numeric",
                       help="emit and execute only the numeric example in a source-free consumer")
-    mode.add_argument("--conversions-only", action="store_true",
+    mode.add_argument("--conversions-only", dest="mode", action="store_const", const="conversions",
                       help="emit and verify the reverse conversion fixture in the frontend-free consumer")
-    args = parser.parse_args()
-    run(async_only=args.async_only, numeric_only=args.numeric_only, conversions_only=args.conversions_only)
+    parser.set_defaults(mode="matrix")
+    run(parser.parse_args().mode)

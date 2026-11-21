@@ -3,15 +3,18 @@
 mod native_provider; */
 
 /* Temporarily paused: stdlib restoration (NC01-NC06).
+use crate::test_support::standard::standard_library;
+
 #[test]
 fn native_carriers_link_into_a_fresh_artifact_only_runtime() {
     fn engine() -> KagariEngine {
         let mut builder = KagariEngine::builder().unwrap();
-        builder.install_all(stdlib::modules().unwrap()).unwrap();
+        let library = standard_library();
+        builder.install_all(library.modules().unwrap()).unwrap();
         let mut config = EngineConfig::default();
         config.default_runtime.gc.collection_threshold = Some(1);
         builder.config(config);
-        builder.install(native_provider::module().unwrap()).unwrap();
+        builder.install(native_provider::module(library.declarations()).unwrap()).unwrap();
         builder.build().unwrap()
     }
     let compiler = engine();
