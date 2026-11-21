@@ -31,7 +31,7 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    declaration::conversion::ConversionAdapter,
+    declaration::conversion::is_library_forwarding_trait,
     language::{Protocol, binding},
 };
 use std::{collections::BTreeMap, iter, sync::Arc};
@@ -179,8 +179,9 @@ impl AggregateCatalog {
             .and_then(|contract| contract.conversion_adapter.as_ref());
         let protocol =
             Protocol::from_definition(&implementation.trait_type.declaration, definitions);
-        if matches!(adapter, Some(ConversionAdapter::Reverse { .. })) {
-            return Some("Into and TryInto are derived from From and TryFrom");
+        if is_library_forwarding_trait(definitions, implementation.trait_type.declaration) {
+            return (!forwarding::canonical_header(definitions, implementation))
+                .then_some("only the canonical core::convert blanket implementation is allowed");
         }
         if matches!(implementation.for_type, TypeId::Generic(_))
             && (protocol.is_some() || adapter.is_some())
@@ -209,9 +210,7 @@ impl AggregateCatalog {
         {
             return Some("identity From<T> for T is supplied by the language");
         }
-        if protocol == Some(Protocol::From)
-            || matches!(adapter, Some(ConversionAdapter::Forward { .. }))
-        {
+        if protocol == Some(Protocol::From) || adapter.is_some() {
             if matches!(implementation.for_type, TypeId::Host(_))
                 || implementation
                     .trait_type
@@ -735,6 +734,59 @@ impl AggregateCatalog {
             .map(|(implementation, arguments)| (implementation.id, arguments)))
     }
 
+    /// Select an ordinary impl and carry its associated outputs to the call site.
+    /// Projected outputs use the same caller assumptions and budget as selection.
+    pub(crate) fn selected_declared_interface(
+        &self,
+        definitions: &DefinitionTable,
+        requested: &NominalType,
+        receiver: &TypeId,
+        assumptions: &GenericBounds,
+        cancel: &CancellationToken,
+    ) -> Result<Option<NominalType>, ImplementationSearchError> {
+        let mut budget = SearchBudget::new(
+            definitions,
+            ImplementationSearchContext {
+                assumptions,
+                limits: ImplementationSearchLimits {
+                    max_checks: 4096,
+                    max_depth: 64,
+                },
+                cancel,
+            },
+        )?;
+        let Some((implementation, bindings)) =
+            self.unique_application(requested, receiver, &mut budget)?
+        else {
+            return Ok(None);
+        };
+        let mut applied = implementation.trait_type.instantiate(&bindings);
+        applied
+            .associated_types
+            .extend(requested.associated_types.clone());
+        let mut visiting = HashSet::default();
+        for output in applied.associated_types.values_mut() {
+            *output = self.normalize_for_search(output, &mut visiting, &mut budget)?;
+        }
+        Ok(Some(applied))
+    }
+
+    fn unique_application(
+        &self,
+        interface: &NominalType,
+        receiver: &TypeId,
+        budget: &mut SearchBudget<'_>,
+    ) -> Result<Option<(&ImplementationSignature, TypeSubstitution)>, ImplementationSearchError>
+    {
+        let mut matches =
+            self.explicit_applications(interface, receiver, &mut HashSet::default(), budget)?;
+        Ok(if matches.len() == 1 {
+            matches.pop()
+        } else {
+            None
+        })
+    }
+
     fn selected_application(
         &self,
         definitions: &DefinitionTable,
@@ -743,9 +795,9 @@ impl AggregateCatalog {
         context: ImplementationSearchContext<'_>,
     ) -> Result<Option<(&ImplementationSignature, Vec<TypeId>)>, ImplementationSearchError> {
         let mut budget = SearchBudget::new(definitions, context)?;
-        let applications =
-            self.explicit_applications(interface, receiver, &mut HashSet::default(), &mut budget)?;
-        let [(implementation, bindings)] = applications.as_slice() else {
+        let Some((implementation, bindings)) =
+            self.unique_application(interface, receiver, &mut budget)?
+        else {
             return Ok(None);
         };
         let arguments = implementation
@@ -815,14 +867,8 @@ impl AggregateCatalog {
         let mut count = self
             .explicit_applications(trait_type, receiver, &mut HashSet::default(), budget)?
             .len();
-        // Ordinary declarations have already been searched with this budget. Only
-        // standard protocols and registered adapters have additional intrinsic evidence.
-        if count == 0
-            && (Protocol::from_definition(&trait_type.declaration, definitions).is_some()
-                || self
-                    .trait_(&trait_type.declaration)
-                    .is_some_and(|contract| contract.conversion_adapter.is_some()))
-        {
+        // Ordinary declarations have already been searched with this budget.
+        if count == 0 && Protocol::from_definition(&trait_type.declaration, definitions).is_some() {
             let intrinsic = if trait_type.arguments.is_empty()
                 && trait_type.associated_types.is_empty()
                 && let Some(protocol) =
@@ -1061,6 +1107,7 @@ fn implementation_member(
         .expect("implementation member registered before aggregate publication")
 }
 
+mod forwarding;
 mod mapping;
 mod projections;
 

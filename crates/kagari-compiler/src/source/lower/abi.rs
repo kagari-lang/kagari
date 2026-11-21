@@ -368,24 +368,21 @@ fn function_abi(module: &CheckedModule<'_>, function: &Function) -> Option<FnDec
     let environment = module.environment();
     let typed = environment.signatures().function(function.id)?;
     let declaration = environment.definition(ResolvedName::Function(function.id))?;
+    if let Some(method) = environment.aggregates().trait_method(&declaration) {
+        return Some(traits::declared_method(module, method));
+    }
     Some(FnDecl {
         host_policy: match &typed.implementation {
             FunctionImplementation::Native(contract) => contract.host_policy.clone(),
             _ => None,
         },
-        method_policy: environment
-            .aggregates()
-            .trait_method(&declaration)
-            .map_or_else(
-                || MethodPolicy {
-                    receiver_access: match &typed.implementation {
-                        FunctionImplementation::Native(contract) => contract.receiver_access,
-                        _ => None,
-                    },
-                    ..Default::default()
-                },
-                |method| method.policy,
-            ),
+        method_policy: MethodPolicy {
+            receiver_access: match &typed.implementation {
+                FunctionImplementation::Native(contract) => contract.receiver_access,
+                _ => None,
+            },
+            ..Default::default()
+        },
         name: typed.name.clone(),
         implementation: match typed.implementation.clone() {
             FunctionImplementation::Required => CallableImplementation::Required,
@@ -456,28 +453,7 @@ pub(crate) fn native_declarations<'a>(
             };
             let source = NativeDeclaration {
                 declaration: method.id,
-                function: FnDecl {
-                    name: method.name.clone(),
-                    implementation: CallableImplementation::Native(method.id),
-                    host_policy: contract.host_policy.clone(),
-                    method_policy: method.policy,
-                    generic_params: abi_parameters(&method.generic_params),
-                    bounds: checked_bounds(
-                        environment.aggregates(),
-                        environment.definitions(),
-                        &method.bounds,
-                    ),
-                    params: method
-                        .params
-                        .iter()
-                        .map(|param| Param {
-                            name: param.name.clone(),
-                            mutable: param.writeability.is_var(),
-                            ty: abi_type(module, &param.ty),
-                        })
-                        .collect(),
-                    return_type: abi_type(module, &method.return_type),
-                },
+                function: traits::declared_method(module, method),
                 concrete_result: contract.concrete_result.clone(),
                 callable_requirements: contract.callable_requirements.clone(),
             };

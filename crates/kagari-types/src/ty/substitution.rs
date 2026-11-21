@@ -129,10 +129,41 @@ pub fn resolve_associated_outputs(
 ) -> Result<Ty, TypeTransformError> {
     Transform::new(
         &TypeSubstitution::default(),
-        Some((interface, receiver)),
+        Some(ProjectionSource::Applied(interface, receiver)),
         cancel,
     )
     .run(ty)
+}
+
+/// Substitute outputs of this exact implementation in an already instantiated signature.
+/// A projection's own equalities are requirements on the table, not output evidence.
+/// Leave other applications symbolic for the linked resolver.
+pub fn substitute_impl_outputs(
+    ty: &Ty,
+    implemented: &NominalTy,
+    target: &Ty,
+    cancel: &CancellationToken,
+) -> Result<Ty, TypeTransformError> {
+    Transform::new(
+        &TypeSubstitution::default(),
+        Some(ProjectionSource::Impl(implemented, target)),
+        cancel,
+    )
+    .run(ty)
+}
+
+fn embedded_output<'a>(
+    interface: &'a NominalTy,
+    receiver: &'a Ty,
+    member: &DefinitionId,
+) -> Option<&'a Ty> {
+    interface
+        .associated_types
+        .get(member)
+        .or_else(|| match receiver {
+            Ty::Trait(actual) => actual.associated_types.get(member),
+            _ => None,
+        })
 }
 
 /// Resolve projections using a caller's already validated dependency contracts.
@@ -145,10 +176,12 @@ pub fn normalize_projections(
     lookup: &ProjectionLookup<'_>,
     cancel: &CancellationToken,
 ) -> Result<Ty, TypeTransformError> {
-    let substitution = TypeSubstitution::default();
-    let mut transform = Transform::new(&substitution, None, cancel);
-    transform.lookup = Some(lookup);
-    transform.run(ty)
+    Transform::new(
+        &TypeSubstitution::default(),
+        Some(ProjectionSource::Linked(lookup)),
+        cancel,
+    )
+    .run(ty)
 }
 
 type ParameterLookup<'a> = dyn Fn(&DefinitionId, usize) -> Option<&'a Ty> + 'a;
@@ -167,10 +200,16 @@ pub fn substitute_parameters<'a>(
     transform.run(ty)
 }
 
+#[derive(Clone, Copy)]
+enum ProjectionSource<'a> {
+    Applied(&'a NominalTy, &'a Ty),
+    Impl(&'a NominalTy, &'a Ty),
+    Linked(&'a ProjectionLookup<'a>),
+}
+
 struct Transform<'a, 'b> {
     substitution: &'a TypeSubstitution<'b>,
-    outputs: Option<(&'a NominalTy, &'a Ty)>,
-    lookup: Option<&'a ProjectionLookup<'a>>,
+    projections: Option<ProjectionSource<'a>>,
     parameter_lookup: Option<&'a ParameterLookup<'b>>,
     cancel: &'a CancellationToken,
     remaining: usize,
@@ -179,13 +218,12 @@ struct Transform<'a, 'b> {
 impl<'a, 'b> Transform<'a, 'b> {
     fn new(
         substitution: &'a TypeSubstitution<'b>,
-        outputs: Option<(&'a NominalTy, &'a Ty)>,
+        projections: Option<ProjectionSource<'a>>,
         cancel: &'a CancellationToken,
     ) -> Self {
         Self {
             substitution,
-            outputs,
-            lookup: None,
+            projections,
             parameter_lookup: None,
             cancel,
             remaining: MAX_TYPE_NODES * 4,
@@ -292,33 +330,49 @@ impl<'a, 'b> Transform<'a, 'b> {
                 let receiver = self.visit(receiver, depth + 1, replace)?;
                 let mut interface = self.nominal(interface, depth, replace)?;
                 let arguments = self.many(arguments, depth + 1, replace)?;
-                if self.outputs.is_some() || self.lookup.is_some() {
-                    if arguments.is_empty() {
-                        let embedded = interface.associated_types.get(member).or_else(|| {
-                            if let Ty::Trait(actual) = &receiver {
-                                actual.associated_types.get(member)
-                            } else {
-                                None
-                            }
-                        });
-                        if let Some(output) = embedded {
+                if matches!(
+                    self.projections,
+                    Some(ProjectionSource::Applied(..) | ProjectionSource::Linked(_))
+                ) && arguments.is_empty()
+                    && let Some(output) = embedded_output(&interface, &receiver, member)
+                {
+                    return self.visit(output, depth + 1, replace);
+                }
+                match self.projections {
+                    Some(ProjectionSource::Impl(table, target))
+                        if &receiver == target
+                            && interface.declaration == table.declaration
+                            && interface.arguments == table.arguments =>
+                    {
+                        if !interface
+                            .associated_types
+                            .iter()
+                            .all(|(id, value)| table.associated_types.get(id) == Some(value))
+                        {
+                            return Err(TypeTransformError::InvalidContract);
+                        }
+                        if arguments.is_empty()
+                            && let Some(output) = table.associated_types.get(member)
+                        {
                             return self.visit(output, depth + 1, replace);
                         }
-                        if let Some((outputs, owner)) = self.outputs
+                    }
+                    Some(ProjectionSource::Applied(outputs, owner))
+                        if arguments.is_empty()
                             && interface.declaration == outputs.declaration
-                            && &receiver == owner
-                        {
-                            if let Some(output) = outputs.associated_types.get(member) {
-                                return self.visit(output, depth + 1, replace);
-                            }
-                            interface = self.nominal(outputs, depth, replace)?;
+                            && &receiver == owner =>
+                    {
+                        if let Some(output) = outputs.associated_types.get(member) {
+                            return self.visit(output, depth + 1, replace);
+                        }
+                        interface = self.nominal(outputs, depth, replace)?;
+                    }
+                    Some(ProjectionSource::Linked(lookup)) => {
+                        if let Some(output) = lookup(&interface, &receiver, member, &arguments)? {
+                            return self.visit(&output, depth + 1, replace);
                         }
                     }
-                    if let Some(lookup) = self.lookup
-                        && let Some(output) = lookup(&interface, &receiver, member, &arguments)?
-                    {
-                        return self.visit(&output, depth + 1, replace);
-                    }
+                    _ => {}
                 }
                 Ty::Projection {
                     receiver: Box::new(receiver),

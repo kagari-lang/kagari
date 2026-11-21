@@ -11,52 +11,6 @@ use crate::{
 use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionTable};
 
 impl AggregateCatalog {
-    /// Prove an exact requested application under the caller's bounds and return
-    /// the selected header, including its substituted associated outputs. Unlike
-    /// receiver-only discovery, trait arguments may bind independent impl parameters.
-    /// Direct assumptions and intrinsic protocols are handled by the caller.
-    /// Returns `None` without a unique applicable impl; cancellation and resource
-    /// exhaustion propagate as search errors, not as negative evidence.
-    pub(crate) fn selected_declared_interface(
-        &self,
-        definitions: &DefinitionTable,
-        requested: &NominalType,
-        receiver: &TypeId,
-        assumptions: &GenericBounds,
-        cancel: &CancellationToken,
-    ) -> Result<Option<NominalType>, ImplementationSearchError> {
-        let Some((id, arguments)) = self.concrete_interface_implementation(
-            definitions,
-            requested,
-            receiver,
-            assumptions,
-            ImplementationSearchLimits {
-                max_checks: 4096,
-                max_depth: 64,
-            },
-            cancel,
-        )?
-        else {
-            return Ok(None);
-        };
-        let implementation = self
-            .implementation_signature(&id)
-            .expect("selected catalog impl");
-        let substitution = implementation
-            .generic_params
-            .iter()
-            .cloned()
-            .zip(arguments)
-            .collect();
-        let mut applied = implementation.trait_type.instantiate(&substitution);
-        // Exact search has checked these equalities under the caller's bounds.
-        // Other outputs retain their substituted projections for the use site.
-        applied
-            .associated_types
-            .extend(requested.associated_types.clone());
-        Ok(Some(applied))
-    }
-
     /// Enumerate declared applications and their parents. Intrinsic operator
     /// availability is not an implicit conversion to an interface value.
     pub(crate) fn declared_interfaces(

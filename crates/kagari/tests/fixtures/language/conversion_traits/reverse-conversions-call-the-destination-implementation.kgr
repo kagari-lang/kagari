@@ -1,20 +1,37 @@
+use core::char::CharTryFromError;
+
+use core::num::TryFromIntError;
+
+struct Input {
+    var value: i32,
+    var reads: i32,
+    var calls: i32
+}
+
 struct Count {
     val value: i32
 }
 
-impl From<i32> for Count {
-    fn from(value: i32) -> Self {
-        Count { value }
+fn read(input: Input) -> Input {
+    input.reads += 1;
+    input
+}
+
+impl From<Input> for Count {
+    fn from(input: Input) -> Self {
+        input.calls += 1;
+        Count { value: input.value + 1 }
     }
 }
 
-impl TryFrom<i32> for Count {
-    type Error = String;
-    fn try_from(value: i32) -> Result<Self, String> {
-        if value < 0 {
-            Err("negative")
+impl TryFrom<Input> for Count {
+    type Error = Input;
+    fn try_from(input: Input) -> Result<Self, Input> {
+        input.calls += 1;
+        if input.value < 0 {
+            Err(input)
         } else {
-            Ok(Count { value })
+            Ok(Count { value: input.value + 2 })
         }
     }
 }
@@ -23,15 +40,46 @@ fn convert<S: Into<D>, D>(value: S) -> D {
     value.into()
 }
 
-fn attempt<S: TryInto<D, Error = String>, D>(value: S) -> Result<D, String> {
+fn attempt<S: TryInto<D, Error = Input>, D>(value: S) -> Result<D, Input> {
     value.try_into()
 }
 
+pub fn checked_scalars() -> i32 {
+    val scalar: Result<char, CharTryFromError> = 0x1f642u32.try_into();
+    val overflow: Result<i8, TryFromIntError> = 128.try_into();
+    match (scalar, overflow) {
+        (Ok('🙂'), Err(TryFromIntError::OutOfRange)) => 42,
+        _ => 0
+    }
+}
+
 fn main() -> i32 {
-    val a: Count = convert(20);
-    val b: Result<Count, String> = attempt(22);
+    val input = Input { value: 19, reads: 0, calls: 0 };
+    val a: Count = convert(read(input));
+    if a.value != 20 || input.reads != 1 || input.calls != 1 {
+        return 1;
+    }
+    input.value = 20;
+    val b: Result<Count, Input> = attempt(read(input));
     match b {
-        Ok(b) => a.value + b.value,
-        Err(_) => 0
+        Ok(count) => if count.value != 22 {
+            return 2;
+        },
+        Err(_) => {
+            return 3;
+        }
+    };
+    if input.reads != 2 || input.calls != 2 {
+        return 4;
+    }
+    input.value = -7;
+    val failed: Result<Count, Input> = attempt(read(input));
+    match failed {
+        Err(e) => if e === input && e.value == -7 && input.reads == 3 && input.calls == 3 {
+            42
+        } else {
+            5
+        },
+        Ok(_) => 6
     }
 }

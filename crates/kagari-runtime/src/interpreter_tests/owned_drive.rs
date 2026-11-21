@@ -118,7 +118,8 @@ fn submitted_arguments_and_resumed_frames_preserve_retained_and_current_calls() 
         vm.collect_garbage().unwrap();
     }
     // Both suspended bodies keep their state: 100 + (10 + 20 + 2).
-    // Their subsequent ordinary calls use the new local/module/shared bodies.
+    // The retained caller's ordinary qualified forward call returns 4, not the old 1;
+    // its module and shared calls likewise select current bodies.
     assert_eq!(result, Some(145));
     assert_eq!(
         effects.load(Ordering::Relaxed),

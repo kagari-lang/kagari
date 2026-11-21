@@ -77,6 +77,22 @@ cargo test -p kagari --no-default-features --features native --test artifact_fea
 cargo test -p kagari --no-default-features --features native --test artifact_features real_cranelift_compiles_portable_artifact_without_source
 ```
 
+The default producer also emits `target/fixtures/reverse_conversions.kbc` from the
+[reverse conversion fixture](language/conversion_traits/reverse-conversions-call-the-destination-implementation.kgr)
+using only the installed standard library. To isolate this contract, run:
+
+```text
+cargo test -p kagari --no-default-features --features source --test artifact_features reverse_conversions::
+uv run python scripts/check_features.py --conversions-only
+```
+
+The source-enabled filter compiles and decodes fresh bytes. The artifact-only
+`artifact_features` target in the standalone feature consumer instead reads the
+producer's file; `--conversions-only` deletes any stale product, regenerates it,
+checks the dependency graph, and runs the same filter there. It checks the
+selected Script call chain, rejects missing or forged blanket evidence, and
+executes the exact payload/effect checks and a native scalar conversion sample.
+
 The focused commands preserve both native scalar-entry contracts without running
 the complete feature matrix, which remains CI-owned.
 Regeneration replaces the current fixture; it does not add a compatibility reader

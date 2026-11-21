@@ -2105,10 +2105,13 @@ callback effects/cleanup, pinned reload and source-free loading. Full workspace
 and exhaustive feature/backend acceptance remain unrun locally and belong to CI.
 The completed plan and resolved findings are retained in Git history.
 
-**Next HIR/trait implementation:** the [blanket trait impl plan](blanket-trait-impl-plan.md)
-owns BI01–BI04: admit and select ordinary conditional impls first, then replace reverse conversion
-adapters with library Script impls. BI01 admits coherent ordinary blanket headers; see the plan for
-subsequent selection, structured registration and conversion cutover status.
+BI01–BI04 implement [conditional blanket trait impls](spec/traits.md#blanket-trait-implementations)
+and [library conversion forwarding](spec/builtins.md#conversion-protocols). Focused local checks cover
+unused header conflicts, generic caller evidence, installed Script authentication, reload, and
+once-only forwarding with the declared error in a frontend-free artifact consumer. Full workspace
+and exhaustive feature/backend checks remain CI-only. Separately, HIR bound-target diagnostics
+still need the expected `InvalidBoundTarget` for `where Sequence: Eq` in
+`trait_name_is_not_a_self_parameter_in_where_bounds`; that test already failed at `177dad7fb`.
 
 Source interface impl targets, derive additions and NC migration remain outside this work. Host
 registration/interop is implemented separately as described above.

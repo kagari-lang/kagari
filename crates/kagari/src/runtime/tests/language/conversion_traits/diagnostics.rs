@@ -1,4 +1,4 @@
-use crate::engine::KagariEngine;
+use crate::{engine::KagariEngine, error::EmbeddingError};
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
 
@@ -23,6 +23,32 @@ fn invalid_conversion_implementations_are_diagnostics() {
 }
 
 #[test]
+fn direct_reverse_implementations_are_reserved_for_core_convert() {
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    for source in [
+        "struct X{} impl Into<i32> for X {fn into(self)->i32 {1}} fn main(){}",
+        "struct X{} impl TryInto<i32> for X {type Error=String;fn try_into(self)->Result<i32,String>{Ok(1)}} fn main(){}",
+    ] {
+        let Err(EmbeddingError::Diagnostics { diagnostics }) = engine.compile_to_artifact(
+            SourceFile::new("direct-impl.kgr", source),
+            Default::default(),
+        ) else {
+            panic!("expected an invalid impl diagnostic: {source}")
+        };
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "KG_TYPE_INVALID_TRAIT_IMPL"
+                    && diagnostic
+                        .message
+                        .contains("canonical core::convert blanket implementation")),
+            "{diagnostics:?}"
+        );
+    }
+}
+
+#[test]
 fn construction_contracts_reject_invalid_signatures_and_bounds() {
     for source in [
         "struct NoDefault {} fn main() { val value: NoDefault = Default::default(); }",
@@ -31,8 +57,6 @@ fn construction_contracts_reject_invalid_signatures_and_bounds() {
         "fn main(){[1,2].collect();}",
         "use std::collections::HashSet; struct Key{} fn main(){val result:HashSet<Key>=[Key{}].collect();}",
         "use std::collections::HashMap; fn main(){val result:HashMap<i32,i32>=[1,2].collect();}",
-        "struct X{} impl Into<i32> for X {fn into(self)->i32 {1}} fn main(){}",
-        "struct X{} impl TryInto<i32> for X {type Error=String;fn try_into(self)->Result<i32,String>{Ok(1)}} fn main(){}",
         "use std::str::{FromStr};\nstruct X{} impl FromStr for X {type Err=String;fn from_str(text:i32)->Result<X,String>{Ok(X{})}} fn main(){}",
         "use std::str::{FromStr};\nstruct X{} impl FromStr for X {type Err=String;fn from_str(text:String)->Result<X,String>{Ok(X{})}} fn main(){<X as FromStr<Err=i32>>::from_str(\"42\");}",
         "struct X{} impl TryFrom<i32> for X {type Error=String;fn try_from(value:i32)->X{X{}}} fn main(){}",

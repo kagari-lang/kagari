@@ -1,0 +1,15 @@
+use core::char::CharTryFromError;
+
+struct Token {}
+
+fn main() -> bool {
+    val token = Token {};
+    val same: Token = token.into();
+    val wide: i64 = 255u8.into();
+    val text: String = 'é'.into();
+    val invalid: Result<char, CharTryFromError> = 0xd800u32.try_into();
+    match invalid {
+        Err(CharTryFromError::InvalidScalar) => same === token && wide == 255i64 && text == "é",
+        Ok(_) => false
+    }
+}

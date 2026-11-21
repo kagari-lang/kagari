@@ -1,3 +1,5 @@
+use core::char::CharTryFromError;
+
 fn arithmetic(a: i32, b: i32) -> i32 {
     a + b * 2
 }
@@ -13,4 +15,12 @@ fn iteration(values: Iterator<Item = i32>) -> i32 {
 
 fn conversion(value: i32) -> i64 {
     value.into()
+}
+
+fn checked<S, D: TryFrom<S, Error = E>, E>(value: S) -> Result<D, E> {
+    value.try_into()
+}
+
+fn character(value: u32) -> Result<char, CharTryFromError> {
+    checked(value)
 }

@@ -1,4 +1,4 @@
-//! Emit the default SDK feature fixture, or `<source.kgr> <output.kbc>` using stdlib only.
+//! Emit the SDK feature fixtures, or `<source.kgr> <output.kbc>` using stdlib only.
 use kagari::engine::KagariEngine;
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
@@ -21,15 +21,23 @@ fn main() {
         .and_then(Path::parent)
         .expect("workspace root");
     let args: Vec<_> = env::args_os().skip(1).collect();
-    let (source_path, output, install_fixture_providers) = match args.as_slice() {
-        [] => (
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/feature_artifact.kgr"),
-            workspace.join("target/fixtures/feature_artifact.kbc"),
-            true,
-        ),
-        [source, output] => (PathBuf::from(source), PathBuf::from(output), false),
+    match args.as_slice() {
+        [] => {
+            let inputs = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+            let outputs = workspace.join("target/fixtures");
+            emit(
+                inputs.join("feature_artifact.kgr"),
+                outputs.join("feature_artifact.kbc"),
+                true,
+            );
+            emit(inputs.join("language/conversion_traits/reverse-conversions-call-the-destination-implementation.kgr"), outputs.join("reverse_conversions.kbc"), false);
+        }
+        [source, output] => emit(source.into(), output.into(), false),
         _ => panic!("usage: regenerate_feature_artifact [<source.kgr> <output.kbc>]"),
-    };
+    }
+}
+
+fn emit(source_path: PathBuf, output: PathBuf, install_fixture_providers: bool) {
     let source_name = if install_fixture_providers {
         "memory://feature-artifact.kgr".to_owned()
     } else {

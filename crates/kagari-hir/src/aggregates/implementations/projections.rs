@@ -43,29 +43,6 @@ impl AggregateCatalog {
         receiver: &TypeId,
         member: DefinitionId,
     ) -> Option<TypeId> {
-        if !matches!(receiver, TypeId::SelfType(_))
-            && Some(member)
-                == definitions.lookup_child(
-                    interface.declaration,
-                    DefinitionKind::AssociatedType,
-                    "Error",
-                    0,
-                )
-            && let Some((required, target)) =
-                traits::conversion_requirement(interface, receiver, Some(self))
-        {
-            return Some(TypeId::Projection {
-                receiver: Box::new(target),
-                member: definitions.lookup_child(
-                    required.declaration,
-                    DefinitionKind::AssociatedType,
-                    "Error",
-                    0,
-                )?,
-                interface: Box::new(required),
-                arguments: vec![],
-            });
-        }
         if Some(member)
             == definitions.lookup_child(
                 interface.declaration,

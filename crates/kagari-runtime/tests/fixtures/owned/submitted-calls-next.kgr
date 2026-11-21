@@ -4,8 +4,14 @@ mod dependency {
     }
 }
 
-fn local() -> i32 {
-    4
+trait Forward<S> {
+    fn forward(value: S) -> Self;
+}
+
+impl Forward<i32> for i32 {
+    fn forward(value: i32) -> Self {
+        value + 4
+    }
 }
 
 fn shared<T>(value: T, delta: i32) -> i32 {
@@ -24,7 +30,7 @@ fn recursive(n: i32) -> i32 {
 pub fn run(seed: [i32]) -> i32 {
     val kept = seed[0] + 1000;
     val result = recursive(2);
-    kept + result + local() + dependency::value() + shared(0, 4)
+    kept + result + <i32 as Forward<i32>>::forward(0) + dependency::value() + shared(0, 4)
 }
 
 fn main() {}

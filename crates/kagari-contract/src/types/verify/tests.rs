@@ -1,11 +1,14 @@
-use crate::types::verify::*;
+use crate::types::{
+    proofs::{ProofCatalog, implementation::Implementation},
+    verify::*,
+};
 use kagari_common::identity::{map::DefinitionContext, table::DefinitionId};
 use kagari_stdlib::{catalog, namespaces};
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{
-        AssociatedConstDef, ConstDef, FieldDef, Param, TypeDeclaration, TypeDef,
-        conversion::ConversionAdapter, native::NativeStorageLayout, verify::type_definition_valid,
+        AssociatedConstDef, AssociatedTypeDef, ConstDef, FieldDef, Param, TypeDeclaration, TypeDef,
+        module::ImplDecl, native::NativeStorageLayout, verify::type_definition_valid,
     },
     scalar::BuiltinType,
     ty::{
@@ -162,60 +165,104 @@ fn installed_conversion_adapters_validate_shapes_and_member_ownership() {
         .import_into(&context, &CancellationToken::default())
         .unwrap();
     let cancel = CancellationToken::default();
-    for name in ["Into", "TryInto", "TryFrom"] {
-        let contract = module
-            .records()
-            .traits
-            .iter()
-            .find(|contract| contract.name == name)
-            .unwrap();
-        let valid = |contract: &TraitDef| {
-            validate(
-                &[PublicItem::Trait(contract.clone())],
-                &module.records().identity,
-                &cancel,
-                &context.snapshot(),
-            )
-            .is_ok()
-        };
-        assert!(valid(contract));
-        let mut changed = contract.clone();
-        changed.methods[0].return_type = Ty::Builtin(BuiltinType::Bool);
-        assert!(!valid(&changed));
-        changed = contract.clone();
-        match changed.conversion_adapter.as_mut().unwrap() {
-            ConversionAdapter::Reverse { origin, .. } => {
-                *origin = module
-                    .records()
-                    .definition(DefinitionKind::Trait, name, &context.snapshot())
-                    .unwrap();
-            }
-            ConversionAdapter::Forward { method, .. } => {
-                let parent = context.snapshot().parent(*method).unwrap().unwrap();
-                *method = context
-                    .intern_child(parent, DefinitionKind::Method, "undeclared", 0)
-                    .unwrap();
-            }
-        }
-        assert!(!valid(&changed));
-        changed = contract.clone();
-        let method = match changed.conversion_adapter.as_mut().unwrap() {
-            ConversionAdapter::Reverse { method, .. }
-            | ConversionAdapter::Forward { method, .. } => method,
-        };
-        let definitions = context.snapshot();
-        let parent = definitions.parent(*method).unwrap().unwrap();
-        let segment = definitions.resolve(*method).unwrap().last().unwrap();
-        *method = context
-            .intern_child(
-                parent,
-                DefinitionKind::Function,
-                segment.name,
-                segment.occurrence,
-            )
-            .unwrap();
-        assert!(!valid(&changed));
-    }
+    let contract = module
+        .records()
+        .traits
+        .iter()
+        .find(|contract| contract.name == "TryFrom")
+        .unwrap();
+    let valid = |contract: &TraitDef| {
+        validate(
+            &[PublicItem::Trait(contract.clone())],
+            &module.records().identity,
+            &cancel,
+            &context.snapshot(),
+        )
+        .is_ok()
+    };
+    assert!(valid(contract));
+    let mut changed = contract.clone();
+    changed.methods[0].return_type = Ty::Builtin(BuiltinType::Bool);
+    assert!(!valid(&changed));
+    changed = contract.clone();
+    let method = &mut changed.conversion_adapter.as_mut().unwrap().method;
+    let parent = context.snapshot().parent(*method).unwrap().unwrap();
+    *method = context
+        .intern_child(parent, DefinitionKind::Method, "undeclared", 0)
+        .unwrap();
+    assert!(!valid(&changed));
+    changed = contract.clone();
+    let method = &mut changed.conversion_adapter.as_mut().unwrap().method;
+    let definitions = context.snapshot();
+    let parent = definitions.parent(*method).unwrap().unwrap();
+    let segment = definitions.resolve(*method).unwrap().last().unwrap();
+    *method = context
+        .intern_child(
+            parent,
+            DefinitionKind::Function,
+            segment.name,
+            segment.occurrence,
+        )
+        .unwrap();
+    assert!(!valid(&changed));
+}
+
+#[test]
+fn forwarding_admission_requires_the_registered_bound_and_error_projection() {
+    let cancel = CancellationToken::default();
+    let modules = catalog::shared().unwrap();
+    let module = modules
+        .iter()
+        .find(|module| module.records().identity == Protocol::From.module())
+        .unwrap();
+    let definitions = module.definitions();
+    let records = module.records();
+    let reverse = records
+        .definition(DefinitionKind::Trait, "TryInto", definitions)
+        .unwrap();
+    let (index, blanket) = records
+        .implementations
+        .iter()
+        .enumerate()
+        .find(|(_, implementation)| {
+            implementation
+                .trait_type
+                .as_ref()
+                .is_some_and(|ty| ty.declaration == reverse)
+        })
+        .unwrap();
+    let owner = records.implementation_id(index, definitions).unwrap();
+    let admitted = |implementation: &ImplDecl| {
+        ProofCatalog::new(
+            vec![Implementation::Native {
+                declaration: &owner,
+                implementation,
+            }],
+            [],
+            [],
+            [],
+            definitions,
+            &cancel,
+        )
+        .unwrap()
+        .overrides_valid(&Default::default(), &cancel)
+        .unwrap()
+    };
+    assert!(admitted(blanket));
+    let mut forged = blanket.clone();
+    forged.bounds.clear();
+    assert!(!admitted(&forged));
+    let mut forged = blanket.clone();
+    let output = forged
+        .trait_type
+        .as_mut()
+        .unwrap()
+        .associated_types
+        .values_mut()
+        .next()
+        .unwrap();
+    *output = Ty::Builtin(BuiltinType::I32);
+    assert!(!admitted(&forged));
 }
 
 #[test]
@@ -508,6 +555,14 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
         arguments: vec![],
         associated_types: BTreeMap::new(),
     };
+    let output = context
+        .intern_child(interface_id, DefinitionKind::AssociatedType, "Output", 0)
+        .unwrap();
+    let view = NominalTy {
+        declaration: interface_id,
+        arguments: vec![],
+        associated_types: BTreeMap::new(),
+    };
     let declared = FnDecl {
         host_policy: None,
         method_policy: Default::default(),
@@ -517,23 +572,32 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
         bounds: vec![],
         params: vec![],
         return_type: Ty::Projection {
-            receiver: Box::new(receiver.clone()),
-            interface: Box::new(dependency_view.clone()),
-            member,
+            receiver: Box::new(Ty::SelfType(interface_id)),
+            interface: Box::new(view.clone()),
+            member: output,
             arguments: vec![],
         },
     };
-    let mut implemented = FnDecl {
+    let implemented = FnDecl {
         host_policy: None,
         method_policy: Default::default(),
         implementation: CallableImplementation::Script,
         return_type: Ty::Builtin(BuiltinType::Bool),
         ..declared.clone()
     };
+    // Read::Output is the dependency's Item, not a concrete type until linking.
     let view = NominalTy {
-        declaration: interface_id,
-        arguments: vec![],
-        associated_types: BTreeMap::new(),
+        associated_types: [(
+            output,
+            Ty::Projection {
+                receiver: Box::new(receiver.clone()),
+                interface: Box::new(dependency_view.clone()),
+                member,
+                arguments: vec![],
+            },
+        )]
+        .into(),
+        ..view
     };
     let table = InterfaceTable {
         method_origins: Vec::new(),
@@ -589,42 +653,39 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
             &cancel,
         )
     };
-    assert!(!method_contract_matches(
-        &declared,
-        &implemented,
-        &view,
-        &table,
-        &normalize,
-        MethodMatchContext {
-            defer_projection: false,
-            cancel: &cancel,
-            definitions: &context.snapshot()
-        }
-    ));
-    implemented.return_type = receiver;
-    assert!(method_contract_matches(
-        &declared,
-        &implemented,
-        &view,
-        &table,
-        &normalize,
-        MethodMatchContext {
-            defer_projection: false,
-            cancel: &cancel,
-            definitions: &context.snapshot()
-        }
-    ));
+    let contract = TraitDef {
+        name: "Read".into(),
+        methods: vec![declared],
+        generic_params: vec![],
+        bounds: vec![],
+        supertraits: vec![],
+        associated_types: vec![AssociatedTypeDef {
+            declaration: output,
+            generic_params: vec![],
+            bounds: vec![],
+            parameter_bounds: vec![],
+        }],
+        associated_consts: vec![],
+        conversion_adapter: None,
+    };
+    let mut table = table;
+    table.methods.push(implemented);
+    let linked = |table: &InterfaceTable, contract: &TraitDef| {
+        interface_methods_match(table, contract, &normalize, &cancel, &context.snapshot())
+    };
+    assert!(!linked(&table, &contract));
+    // The declaration cannot make a bool method agree with an i32 output by
+    // claiming `Read<Output = bool>` in its own return projection.
+    let mut forged = contract.clone();
+    let Ty::Projection { interface, .. } = &mut forged.methods[0].return_type else {
+        unreachable!()
+    };
+    interface
+        .associated_types
+        .insert(output, Ty::Builtin(BuiltinType::Bool));
+    assert!(!linked(&table, &forged));
+    table.methods[0].return_type = receiver;
+    assert!(linked(&table, &contract));
     cancel.cancel();
-    assert!(!method_contract_matches(
-        &declared,
-        &implemented,
-        &view,
-        &table,
-        &normalize,
-        MethodMatchContext {
-            defer_projection: false,
-            cancel: &cancel,
-            definitions: &context.snapshot()
-        }
-    ));
+    assert!(!linked(&table, &contract));
 }

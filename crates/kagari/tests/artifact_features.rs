@@ -57,6 +57,8 @@ mod contracts;
 
 #[path = "artifact_features/async_tasks.rs"]
 mod async_tasks;
+#[path = "artifact_features/reverse_conversions.rs"]
+mod reverse_conversions;
 
 fn engine(config: EngineConfig, drops: Arc<AtomicUsize>) -> KagariEngine {
     {

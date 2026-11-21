@@ -13,7 +13,6 @@ use kagari_common::identity::{
 };
 use kagari_types::{
     conversion as scalar_numeric,
-    declaration::conversion::ConversionAdapter,
     language::{Protocol, binding, role::LangRole},
     scalar::BuiltinType,
 };
@@ -203,27 +202,6 @@ pub fn intrinsic_applies(
             .is_some()
     }) {
         return true;
-    }
-    if let Some((required, target)) = conversion_requirement(interface, receiver, catalog) {
-        return intrinsic_applies(definitions, &required, &target, catalog, bounds)
-            || bounds
-                .get(&target)
-                .is_some_and(|available| available.iter().any(|bound| bound.satisfies(&required)))
-            || catalog.is_some_and(|catalog| {
-                catalog
-                    .concrete_interface_implementation(
-                        definitions,
-                        &required,
-                        &target,
-                        bounds,
-                        ImplementationSearchLimits {
-                            max_checks: 100_000,
-                            max_depth: 64,
-                        },
-                        &Default::default(),
-                    )
-                    .is_ok_and(|found| found.is_some())
-            });
     }
     let Some(kind) = Protocol::from_definition(&interface.declaration, definitions) else {
         return false;
@@ -624,35 +602,4 @@ pub fn iterator_requirement(
         }
     }
     Some(required)
-}
-
-/// Reverse conversions retain the registered forward member and error identities.
-pub fn conversion_requirement(
-    interface: &NominalType,
-    receiver: &TypeId,
-    catalog: Option<&AggregateCatalog>,
-) -> Option<(NominalType, TypeId)> {
-    let ConversionAdapter::Reverse { origin, error, .. } = catalog?
-        .trait_(&interface.declaration)?
-        .conversion_adapter
-        .as_ref()?
-    else {
-        return None;
-    };
-    let [target] = interface.arguments.as_slice() else {
-        return None;
-    };
-    let mut required = NominalType {
-        declaration: *origin,
-        arguments: vec![receiver.clone()],
-        associated_types: Default::default(),
-    };
-    for (member, ty) in &interface.associated_types {
-        let (source, target) = error.as_ref()?;
-        if member != source {
-            return None;
-        }
-        required.associated_types.insert(*target, ty.clone());
-    }
-    Some((required, target.clone()))
 }

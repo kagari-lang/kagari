@@ -303,7 +303,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 "Into",
                 1,
                 (
-                    "Converts the receiver into a target. A matching `From` implementation supplies the reverse adapter without another body.",
+                    "Converts the receiver into a target. The blanket implementation calls the target's `From` method.",
                     "fn widen(value: i32) -> i64 { value.into() }",
                 ),
             ),
@@ -319,7 +319,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 "TryInto",
                 1,
                 (
-                    "A checked conversion of the receiver into a target. The reverse adapter uses the corresponding `TryFrom` declaration and error type.",
+                    "A checked conversion of the receiver into a target. The blanket implementation returns the target's `TryFrom` result with its associated error type.",
                     "fn narrow(value: i64) -> Result<i32, core::num::TryFromIntError> { value.try_into() }",
                 ),
             ),
@@ -726,7 +726,7 @@ pub(super) const FMT_MODULE_DOCS: (&str, &str) = (
 );
 
 pub(super) const CONVERT_MODULE_DOCS: (&str, &str) = (
-    "Explicit infallible and checked conversions, including reverse adapters and error conversion.",
+    "Explicit infallible and checked conversions, including blanket forwarding methods and error conversion.",
     "fn widen(value: i32) -> i64 { i64::from(value) }",
 );
 

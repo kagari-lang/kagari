@@ -8,7 +8,7 @@ trait Forward<S> {
     fn accept(value: S) -> Self;
 }
 
-trait Reverse<D, Label> {
+trait Into<D, Label> {
     fn deliver(self, label: Label) -> Packet<D>;
 }
 
@@ -18,7 +18,7 @@ impl<T> Forward<Packet<T>> for Receipt {
     }
 }
 
-impl<S, D: Forward<S>, Label> Reverse<D, Label> for S {
+impl<S, D: Forward<S>, Label> Into<D, Label> for S {
     fn deliver(self, label: Label) -> Packet<D> {
         Packet { value: <D as Forward<S>>::accept(self) }
     }

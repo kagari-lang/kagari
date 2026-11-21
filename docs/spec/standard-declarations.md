@@ -379,6 +379,14 @@ algorithms to ordinary Script methods calling private Native helpers, not execut
 default recipes. Helper references are module-qualified so same-named parameters do
 not capture them. Genuine Native default declarations also remain supported.
 
+A structured trait impl can supply an ordinary Script member with
+`with_script_method`. At seal time its builder describes the expression; it is
+not a Rust callback at execution. For `<D as From<S>>::from(self)`, `trait_call`
+names the qualified static member, type receiver `D` and applied trait `From<S>`;
+`parameter(0)` supplies the value `self`. Impl binders `S` and `D` belong to the
+impl, not the method. Direct structured input and parsed declaration views use
+the same qualified-call checks.
+
 Native and Script fields share ownership, type, visibility and writeability
 checking. For `counter: Counter<i32>`, `counter.value = 1` type-checks, while
 `counter.value = false` does not. `val child` forbids rebinding that slot; reading
@@ -402,7 +410,7 @@ not a new sidecar file format, exporter, watcher or provider product:
 | Source, package alias, prelude and dependencies | Complete declarations/Script bodies, ownership, exposure and explicit library dependencies. |
 | `types` | Checked canonical constructor selection or Host category. Ordinary nominal Native types need no entry; physical storage layout is not an HIR sidecar. |
 | `hosts` | Scoped `ExternalHost` root, complete schema closure (including the exact root) and checked paths. A Host category without its schema/path metadata rejects, rather than becoming an ordinary Native object. Parsed fields must match the schema. |
-| `conversions` | Scoped static conversion relationships attached to actual traits. Actual exposed targets and supported shapes are checked; additional supertraits/bounds unsupported by intrinsic derivation reject. Ordinary traits and language roles require no duplicate trait catalog. |
+| `conversions` | Forward conversion contract on the actual trait: static method, associated error member and result enum identities. Exposure and signature are checked; there is no reverse relationship record or implicit implementation proof. |
 | `enum_failures`, `import_namespaces` | Failure-origin flags on actual enum variants and namespace categories on exact named import leaves. |
 | `methods` | Exceptional receiver-access/override restrictions, targeted at the actual function or trait/impl member. Impl selectors count blocks in source order. |
 | `contracts` | `NativeContract` ordered selected operations and optional concrete interface result, with explicitly imported definition scopes. |
@@ -523,6 +531,14 @@ Native materializations instead preserve the applied declaration, ordered operat
 result and access contract for independent matching to the installed implementation.
 These are ordinary callable/body contracts, not a serialized default recipe.
 
+For the canonical `Into` and `TryInto` impls, admission also matches the portable
+header and method table to the installed Script impl: owner, binders, receiver,
+applied trait, forward bound and (for `TryInto`) projected `Error`. A header alone
+is not evidence. The calling module and its dependencies must prove the closed
+impl bounds. The emitted call must match the installed qualified member and its
+argument flow; a same-signature substitute fails before publication. A proven
+identity `From` may emit no call, but its argument and effects are still checked.
+
 Runtime bindings and Rust storage factories are local installation data, not
 serialized function pointers. Missing, duplicate/conflicting, foreign-context or
 mismatched implementations reject at composition/linking; static declarations do not
@@ -595,12 +611,9 @@ source revisions on reads; early termination needs no resource-graph cleanup.
 Reentrant next on the same adapter is rejected. The generic execution loop does
 not identify an adapter by its library name.
 
-Installed conversion adapter records identify the forward trait/method, result
-constructor and associated error members used by checked selection and reverse
-conversion. Numeric TryFrom pairs are ordinary registered implementations with
-declared Error outputs. Scalar numeric code computes conversion outcomes; it does
-not choose a library enum or error declaration. Portable proofs validate the
-installed contracts without source analysis.
+Numeric `TryFrom` pairs are ordinary registered implementations with declared
+`Error` outputs. Scalar numeric code computes conversion outcomes; it does not
+choose a library enum or error declaration.
 
 Option, Result, Ordering, Bound, ParseError, TryFromIntError, Infallible and
 ControlFlow are

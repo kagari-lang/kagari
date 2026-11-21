@@ -4,7 +4,11 @@ use crate::{
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_types::{
-    declaration::{conversion::ConversionAdapter, ownership::ReceiverOwners},
+    callable::CallableImplementation,
+    declaration::{
+        conversion::{is_library_forwarding_trait, library_forwarding_header_valid},
+        ownership::ReceiverOwners,
+    },
     language::Protocol,
     ty::{Ty, substitution::TypeTransformError},
 };
@@ -60,13 +64,27 @@ impl ProofCatalog<'_> {
         let Some(interface) = table.interface() else {
             return Ok(false);
         };
-        let adapter = self
-            .trait_contract(&interface.declaration)
-            .and_then(|contract| contract.conversion_adapter.as_ref());
-        let kind = Protocol::from_definition(&interface.declaration, &self.definitions);
-        if matches!(adapter, Some(ConversionAdapter::Reverse { .. })) {
-            return Ok(false);
+        if is_library_forwarding_trait(&self.definitions, interface.declaration) {
+            let [method] = table.methods() else {
+                return Ok(false);
+            };
+            let name = if interface.associated_types.is_empty() {
+                "into"
+            } else {
+                "try_into"
+            };
+            return Ok(method.name == name
+                && method.implementation == CallableImplementation::Script
+                && library_forwarding_header_valid(
+                    &self.definitions,
+                    *table.declaration(),
+                    table.parameters(),
+                    table.receiver(),
+                    interface,
+                    table.bounds(),
+                ));
         }
+        let kind = Protocol::from_definition(&interface.declaration, &self.definitions);
         if kind == Some(Protocol::From)
             && interface.arguments.first().is_some_and(|input| {
                 input == table.receiver()
@@ -82,7 +100,9 @@ impl ProofCatalog<'_> {
             return Ok(false);
         }
         if kind == Some(Protocol::From)
-            || matches!(adapter, Some(ConversionAdapter::Forward { .. }))
+            || self
+                .trait_contract(&interface.declaration)
+                .is_some_and(|contract| contract.conversion_adapter.is_some())
         {
             if iter::once(table.receiver())
                 .chain(&interface.arguments)

@@ -8,6 +8,7 @@ use crate::{
     compile_input::program::CheckedCompilation,
     hir::item::function::NativeContract,
     native::{adoption, render::declaration_source},
+    resolver::resolved::ResolvedName,
     typeck::table::CallTarget,
     types::{TypeId, semantic::lower_type},
 };
@@ -15,6 +16,7 @@ use kagari_common::identity::{
     DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata, table::DefinitionId,
 };
 use kagari_source::{
+    diagnostic::DiagnosticKind,
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer, SourceSnapshot},
 };
@@ -217,10 +219,65 @@ fn member(
     }
 }
 
+/// Check the registered impl/method identities against both independent HIR inputs.
+fn check_forwarding_declarations(file: &FileAnalysis, convert: &DefinitionMetadata<ModuleDecl>) {
+    let facts = file.result().facts();
+    for (trait_name, method_name) in [("Into", "into"), ("TryInto", "try_into")] {
+        let provider = convert.records();
+        let definitions = convert.definitions();
+        let interface = provider
+            .definition(DefinitionKind::Trait, trait_name, definitions)
+            .unwrap();
+        let index = provider
+            .implementations
+            .iter()
+            .position(|item| {
+                item.trait_type
+                    .as_ref()
+                    .is_some_and(|ty| ty.declaration == interface)
+            })
+            .unwrap();
+        let owner = provider.implementation_id(index, definitions).unwrap();
+        let method = ModuleDecl::method_id(owner, method_name, definitions).unwrap();
+        let imported = |id| {
+            file.definitions()
+                .lookup(&definitions.resolve(id).unwrap().to_path())
+                .unwrap()
+        };
+        let signature = facts
+            .aggregates
+            .implementation_signature(&imported(owner))
+            .unwrap();
+        assert_eq!(signature.trait_type.declaration, imported(interface));
+        assert_eq!(
+            signature.methods
+                [&imported(ModuleDecl::method_id(interface, method_name, definitions).unwrap())],
+            imported(method)
+        );
+        let actual = facts
+            .typed
+            .signatures
+            .functions()
+            .iter()
+            .find(|f| {
+                facts.declarations.definition(ResolvedName::Function(f.id))
+                    == Some(&imported(method))
+            })
+            .unwrap();
+        assert_eq!(actual.bounds, signature.bounds);
+        assert_eq!(actual.bounds.values().map(Vec::len).sum::<usize>(), 1);
+    }
+}
+
 #[test]
 fn actual_foundation_exports_admit_roles_arithmetic_iteration_and_conversion_without_authority() {
     let providers = kagari_stdlib::catalog::shared().unwrap();
     let exports = exported(&providers);
+    let convert = providers
+        .iter()
+        .find(|provider| provider.records().identity == Protocol::From.module())
+        .unwrap()
+        .clone();
     let source = Arc::new(SourceFile::new(
         "/project/main.kgr",
         include_str!("../../../tests/fixtures/analysis/external/foundation_client.kgr"),
@@ -241,6 +298,15 @@ fn actual_foundation_exports_admit_roles_arithmetic_iteration_and_conversion_wit
         .snapshot(sources.clone(), &Default::default())
         .unwrap();
 
+    assert_clean(&direct);
+    assert_clean(&snapshot);
+    for analysis in [&direct, &snapshot] {
+        let file = analysis
+            .files()
+            .find(|file| file.source().module_identity() == &convert.records().identity)
+            .unwrap();
+        check_forwarding_declarations(file, &convert);
+    }
     let roles = snapshot
         .files()
         .map(|file| file.result().facts().declarations.language_items.len())
@@ -415,19 +481,59 @@ fn actual_foundation_exports_admit_roles_arithmetic_iteration_and_conversion_wit
         .snapshot(sources.clone(), &Default::default())
         .unwrap();
     assert!(rejected.files().flat_map(|file| file.result().diagnostics()).any(|diagnostic| matches!(&diagnostic.kind, kagari_source::diagnostic::DiagnosticKind::InvalidLanguageRole { role, reason } if role == "add" && reason.contains("member shapes"))));
-    // Deriving Into from From must not invent receiver or method obligations.
+    // Removing just the blanket leaves TryFrom and its concrete impls intact.
+    let mut missing = exports.clone();
+    let owner = missing
+        .iter_mut()
+        .find(|input| input.source.module_identity() == &convert.records().identity)
+        .unwrap();
+    let facts = snapshot.file(owner.source.id()).unwrap().result().facts();
+    let implementation = facts
+        .lowered
+        .module
+        .impls
+        .iter()
+        .find(|item| item.methods.iter().any(|method| method.name == "try_into"))
+        .unwrap();
+    let span = implementation.origin.diagnostic_span();
+    change_export(owner, |text| {
+        let mut text = text.to_owned();
+        text.replace_range(span.start..span.end, "");
+        text
+    });
+    offline.set_external_modules(missing);
+    let rejected = offline
+        .snapshot(sources.clone(), &Default::default())
+        .unwrap();
+    assert!(
+        rejected
+            .file(root)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .iter()
+            .any(|d| matches!(&d.kind, DiagnosticKind::UnknownName { name } if name == "try_into"))
+    );
+
+    // The forward sidecar must not authorize additional trait or method obligations.
+    let text = exports
+        .iter()
+        .find(|input| input.source.module_identity() == &convert.records().identity)
+        .unwrap()
+        .source
+        .text();
+    let start = text.find("fn try_from(value: T)").unwrap();
+    let method = &text[start..start + text[start..].find(';').unwrap()];
+    let bounded_method = format!("{method} where Self: Marker");
     for (from, to) in [
-        ("pub trait Into<T> {", "pub trait Into<T>: Marker {"),
-        ("pub trait Into<T> {", "pub trait Into<T: Marker> {"),
-        (
-            "fn into(self) -> T;",
-            "fn into(self) -> T where Self: Marker;",
-        ),
+        ("pub trait TryFrom<T> {", "pub trait TryFrom<T>: Marker {"),
+        ("pub trait TryFrom<T> {", "pub trait TryFrom<T: Marker> {"),
+        (method, bounded_method.as_str()),
     ] {
         let mut constrained = exports.clone();
         let owner = constrained
             .iter_mut()
-            .find(|input| input.conversions.contains_key("Into"))
+            .find(|input| input.conversions.contains_key("TryFrom"))
             .unwrap();
         change_export(owner, |text| {
             assert!(text.contains(from), "missing conversion witness {from}");
@@ -450,30 +556,21 @@ fn actual_foundation_exports_admit_roles_arithmetic_iteration_and_conversion_wit
         assert!(rejected.check_program(root, &Default::default()).is_err());
     }
 
-    // A valid identity-table entry is not a supplied forward trait declaration.
+    // Interning a result identity does not expose a result declaration.
     let mut unbacked = exports.clone();
     let owner = unbacked
         .iter_mut()
-        .find(|input| input.conversions.contains_key("Into"))
+        .find(|input| input.conversions.contains_key("TryFrom"))
         .unwrap();
-    let metadata = owner.conversions.get_mut("Into").unwrap();
+    let metadata = owner.conversions.get_mut("TryFrom").unwrap();
     let context = DefinitionContext::new().unwrap();
     let imported = metadata.import_into(&context, &Default::default()).unwrap();
     let mut relationship = imported.into_records();
-    let kagari_types::declaration::conversion::ConversionAdapter::Reverse {
-        origin, method, ..
-    } = &mut relationship
-    else {
-        panic!("reverse conversion")
-    };
-    let forward_root = context
+    let root_id = context
         .intern_root(&kagari_stdlib::namespaces::module("core", "convert"))
         .unwrap();
-    *origin = context
-        .intern_child(forward_root, DefinitionKind::Trait, "MissingFrom", 0)
-        .unwrap();
-    *method = context
-        .intern_child(*origin, DefinitionKind::Method, "from", 0)
+    relationship.result = context
+        .intern_child(root_id, DefinitionKind::Enum, "MissingResult", 0)
         .unwrap();
     *metadata = Arc::new(
         DefinitionMetadata::checked(context.snapshot(), relationship, &Default::default()).unwrap(),
@@ -495,8 +592,6 @@ fn actual_foundation_exports_admit_roles_arithmetic_iteration_and_conversion_wit
     offline.set_external_modules(incomplete);
     let rejected = offline.snapshot(sources, &Default::default()).unwrap();
     assert!(rejected.files().flat_map(|file| file.result().diagnostics()).any(|diagnostic| matches!(&diagnostic.kind, kagari_source::diagnostic::DiagnosticKind::InvalidLanguageRole { role, reason } if role == "add" && reason.contains("missing required"))));
-    assert_clean(&snapshot);
-    assert_clean(&direct);
     let program = snapshot.check_program(root, &Default::default()).unwrap();
     CheckedCompilation::from_program(&program, &Default::default()).unwrap();
 }

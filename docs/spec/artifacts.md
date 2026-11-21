@@ -166,11 +166,16 @@ contracts without runtime source resolution. See
 [the architecture owner](../architecture.md#library-identities-and-representation-boundaries).
 
 Trait declarations no longer encode collection storage markers. Exact installed
-contracts, conversion-adapter authority, host storage access and operation witnesses
+contracts, forward conversion metadata, host storage access and operation witnesses
 retain their independent validators. The unpublished schema replacement keeps
 existing format/ABI identifiers and regenerates disposable fixtures without an
 old-schema reader. Generated adapter identity arguments encode the applied
 protocol as declaration metadata, independently of any erased interface value view.
+For `Into` and `TryInto`, a forward conversion alone is not reverse evidence:
+linked verification requires the canonical blanket impl and its substituted bound.
+[Installation checks](standard-declarations.md#checked-executable-contracts) also
+authenticate the table and the Script body; portable records cannot authorize their
+own replacement.
 
 Invocation state owns Rust data and explicit roots. Native callbacks execute
 synchronously on shared frames; results remain rooted across allocation/reentry.

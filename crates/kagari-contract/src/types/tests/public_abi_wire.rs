@@ -37,6 +37,7 @@ fn items(context: &DefinitionContext, reverse: bool) -> Vec<PublicItem> {
         (DefinitionKind::Trait, "View"),
         (DefinitionKind::Trait, "Parent"),
         (DefinitionKind::Trait, "Key"),
+        (DefinitionKind::Enum, "Data"),
         (DefinitionKind::Function, "factory"),
         (DefinitionKind::Impl, "Impl"),
     ];
@@ -133,11 +134,10 @@ fn items(context: &DefinitionContext, reverse: bool) -> Vec<PublicItem> {
         bounds: vec![],
         methods: vec![function.clone()],
         associated_types: vec![associated],
-        conversion_adapter: Some(ConversionAdapter::Reverse {
-            origin: parent,
+        conversion_adapter: Some(ConversionAdapter {
             method,
-            error: Some((outputs["Input"], item)),
-            result: Some(view),
+            error: item,
+            result: ids["Data"],
         }),
     };
     let value = ConstDef {

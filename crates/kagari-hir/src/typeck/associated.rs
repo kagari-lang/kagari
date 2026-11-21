@@ -4,9 +4,12 @@ use crate::{
     aggregates::traits::trait_inheritance_closure,
     collections::HashSet,
     declarations::{DeclarationId, Declarations},
-    hir::item::{
-        Module,
-        behavior::{AssociatedType, TraitRef},
+    hir::{
+        ids::GenericParamId,
+        item::{
+            Module,
+            behavior::{AssociatedType, TraitRef},
+        },
     },
     lower::LoweredModule,
     resolver::resolved::ResolvedName,
@@ -478,7 +481,7 @@ pub(super) fn resolve_projection_name(
             .generic_parameter(param)
             .bounds
             .iter()
-            .chain(owner_predicates(module, context, base));
+            .chain(owner_predicates(module, context, param));
         for reference in references {
             let resolved = table.constraint(reference.ty).or_else(|| {
                 match resolve_type_in(module, reference.ty, context, table, cancel) {
@@ -554,8 +557,16 @@ pub(super) fn resolve_projection_name(
 fn owner_predicates<'a>(
     module: &'a Module,
     context: TypeContext<'_>,
-    target: &str,
+    parameter: GenericParamId,
 ) -> Vec<&'a TraitRef> {
+    let target = &module.generic_parameter(parameter).name;
+    // Impl predicates are inherited by both associated definitions and methods,
+    // but a method binder shadowing the impl parameter does not inherit its bounds.
+    let inherited = module
+        .impls
+        .iter()
+        .filter(|item| item.generic_params.contains(&parameter))
+        .flat_map(|item| &item.bounds);
     module
         .functions
         .iter()
@@ -568,7 +579,8 @@ fn owner_predicates<'a>(
         )
         .filter(|(parameters, _)| parameters.as_slice() == context.generics)
         .flat_map(|(_, bounds)| bounds)
-        .filter(|bound| bound.target == target)
+        .chain(inherited)
+        .filter(|bound| &bound.target == target)
         .flat_map(|bound| &bound.traits)
         .collect()
 }
@@ -610,14 +622,18 @@ pub(super) fn qualified_projection(
     };
     if let TypeId::Generic(parameter) = &receiver {
         // A qualified projection must be justified by a bound on its receiver.
-        let references = context
-            .generics
+        let Some(param) =
+            context.generics.iter().copied().find(|param| {
+                context.declarations.generic_type(*param).as_ref() == Some(parameter)
+            })
+        else {
+            return TypeId::Error;
+        };
+        let references = module
+            .generic_parameter(param)
+            .bounds
             .iter()
-            .copied()
-            .filter(|param| context.declarations.generic_type(*param).as_ref() == Some(parameter))
-            .flat_map(|id| &module.generic_parameter(id).bounds)
-            .chain(owner_predicates(module, context, &parameter.name))
-            .collect::<Vec<_>>();
+            .chain(owner_predicates(module, context, param));
         let mut justified = None;
         for reference in references {
             let bound = match table.constraint(reference.ty) {

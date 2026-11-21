@@ -85,6 +85,7 @@ fn named_inventory_allows_additions_and_matches_semantic_impl_owners() {
         ))]
 #[case::removed_impl(NAMED_RELOAD_SOURCE.replace("impl Tag for Old {}", ""))]
 #[case::old_builtin_impl(format!("{NAMED_RELOAD_SOURCE} impl Tag for i32 {{}}"))]
+#[case::conditional_blanket(format!("{NAMED_RELOAD_SOURCE} trait Other {{}} impl<T: Tag> Other for T {{}}"))]
 #[case::old_nominal_impl(format!("{NAMED_RELOAD_SOURCE} trait Other {{}} impl Other for Old {{}}"))]
 fn named_inventory_freezes_unused_declarations_and_restricts_new_impl_domains(
     #[case] candidate: String,

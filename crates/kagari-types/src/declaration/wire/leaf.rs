@@ -119,18 +119,10 @@ impl CallableImplementationRecord {
 }
 
 #[derive(Serialize, Deserialize)]
-pub(super) enum ConversionAdapterRecord {
-    Reverse {
-        origin: PortableDefinitionRef,
-        method: PortableDefinitionRef,
-        error: Option<(PortableDefinitionRef, PortableDefinitionRef)>,
-        result: Option<PortableDefinitionRef>,
-    },
-    Forward {
-        method: PortableDefinitionRef,
-        error: PortableDefinitionRef,
-        result: PortableDefinitionRef,
-    },
+pub(super) struct ConversionAdapterRecord {
+    method: PortableDefinitionRef,
+    error: PortableDefinitionRef,
+    result: PortableDefinitionRef,
 }
 
 impl ConversionAdapterRecord {
@@ -140,34 +132,10 @@ impl ConversionAdapterRecord {
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
         check_cancel(cancel)?;
-        Ok(match value {
-            ConversionAdapter::Reverse {
-                origin,
-                method,
-                error,
-                result,
-            } => Self::Reverse {
-                origin: encoding.reference(*origin)?,
-                method: encoding.reference(*method)?,
-                error: error
-                    .map(|(source, target)| {
-                        Ok::<_, DefinitionMappingError>((
-                            encoding.reference(source)?,
-                            encoding.reference(target)?,
-                        ))
-                    })
-                    .transpose()?,
-                result: result.map(|id| encoding.reference(id)).transpose()?,
-            },
-            ConversionAdapter::Forward {
-                method,
-                error,
-                result,
-            } => Self::Forward {
-                method: encoding.reference(*method)?,
-                error: encoding.reference(*error)?,
-                result: encoding.reference(*result)?,
-            },
+        Ok(Self {
+            method: encoding.reference(value.method)?,
+            error: encoding.reference(value.error)?,
+            result: encoding.reference(value.result)?,
         })
     }
 
@@ -177,34 +145,10 @@ impl ConversionAdapterRecord {
         cancel: &CancellationToken,
     ) -> Result<ConversionAdapter, DefinitionMappingError> {
         check_cancel(cancel)?;
-        Ok(match self {
-            Self::Reverse {
-                origin,
-                method,
-                error,
-                result,
-            } => ConversionAdapter::Reverse {
-                origin: decoding.resolve(origin)?,
-                method: decoding.resolve(method)?,
-                error: error
-                    .map(|(source, target)| {
-                        Ok::<_, DefinitionMappingError>((
-                            decoding.resolve(source)?,
-                            decoding.resolve(target)?,
-                        ))
-                    })
-                    .transpose()?,
-                result: result.map(|id| decoding.resolve(id)).transpose()?,
-            },
-            Self::Forward {
-                method,
-                error,
-                result,
-            } => ConversionAdapter::Forward {
-                method: decoding.resolve(method)?,
-                error: decoding.resolve(error)?,
-                result: decoding.resolve(result)?,
-            },
+        Ok(ConversionAdapter {
+            method: decoding.resolve(self.method)?,
+            error: decoding.resolve(self.error)?,
+            result: decoding.resolve(self.result)?,
         })
     }
 }

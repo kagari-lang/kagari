@@ -20,7 +20,7 @@ fn convert(value: Count) -> Result<i32, i32> {
 
 fn main() -> i32 {
     val a = Count { value: 42 };
-    match identity(a) {
+    match identity(Count::from(a)) {
         Err(b) => if a === b {
             match convert(b) {
                 Err(n) => n,

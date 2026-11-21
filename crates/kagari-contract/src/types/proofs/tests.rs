@@ -201,7 +201,7 @@ fn scalar_aggregation_is_not_a_source_free_intrinsic_proof() {
     let catalog = ProofCatalog::new(vec![], [], [], [], &context.snapshot(), &cancel).unwrap();
     for interface in interfaces {
         assert!(
-            intrinsic::requirements(&interface, &scalar(), &cancel, None, &context.snapshot())
+            intrinsic::requirements(&interface, &scalar(), &cancel, &context.snapshot())
                 .unwrap()
                 .is_none()
         );
@@ -289,15 +289,22 @@ fn linked_proofs_discharge_generic_bounds_and_reject_ambiguity_and_cycles() {
 fn linked_proofs_normalize_conditional_reverse_outputs_after_substitution() {
     let context = proof_context();
     let cancel = CancellationToken::default();
-    let forward = id(&context, DefinitionKind::Trait, "Forward");
-    let reverse = id(&context, DefinitionKind::Trait, "Reverse");
+    let root = context.intern_root(&Protocol::From.module()).unwrap();
+    let [forward, reverse] = ["TryFrom", "TryInto"].map(|name| {
+        context
+            .intern_child(root, DefinitionKind::Trait, name, 0)
+            .unwrap()
+    });
     let [item, output] = [forward, reverse].map(|owner| {
         context
-            .intern_child(owner, DefinitionKind::AssociatedType, "Output", 0)
+            .intern_child(owner, DefinitionKind::AssociatedType, "Error", 0)
             .unwrap()
     });
     let parameter = |owner, position| GenericParam { owner, position };
     let mut blanket = table(&context, "reverse", nominal(reverse, vec![]), scalar());
+    blanket.declaration = context
+        .intern_child(root, DefinitionKind::Impl, "", 0)
+        .unwrap();
     let [s, d] = [0, 1].map(|pos| parameter(blanket.declaration, pos));
     let required = nominal(forward, vec![s.as_type()]);
     let mut implemented = nominal(reverse, vec![d.as_type()]);
@@ -315,7 +322,7 @@ fn linked_proofs_normalize_conditional_reverse_outputs_after_substitution() {
     blanket.for_type = s.as_type();
     blanket.generic_params = vec![s, d];
 
-    // Only the trait argument binds T in `impl<T> Forward<T> for bool`.
+    // Only the trait argument binds T in `impl<T> TryFrom<T> for bool`.
     let dest = Ty::Builtin(BuiltinType::Bool);
     let mut leaf = table(&context, "forward", nominal(forward, vec![]), dest.clone());
     let t = parameter(leaf.declaration, 0);
@@ -326,7 +333,7 @@ fn linked_proofs_normalize_conditional_reverse_outputs_after_substitution() {
     let caller = id(&context, DefinitionKind::Function, "caller");
     let definitions = context.snapshot();
     let contracts =
-        [(forward, "Forward", item), (reverse, "Reverse", output)].map(|(owner, name, member)| {
+        [(forward, "TryFrom", item), (reverse, "TryInto", output)].map(|(owner, name, member)| {
             (
                 owner,
                 TraitDef {
@@ -363,18 +370,39 @@ fn linked_proofs_normalize_conditional_reverse_outputs_after_substitution() {
         applied
     };
     let concrete = requested(dest.clone(), scalar());
+    let forward_only = catalog(vec![(&leaf).into()]);
+    assert!(
+        forward_only
+            .holds(&nominal(forward, vec![scalar()]), &dest, &[], &cancel)
+            .unwrap()
+    );
+    assert!(
+        !forward_only
+            .holds(
+                &nominal(reverse, vec![dest.clone()]),
+                &scalar(),
+                &[],
+                &cancel
+            )
+            .unwrap()
+    );
+    let reverse_error = Ty::Projection {
+        receiver: Box::new(scalar()),
+        interface: Box::new(nominal(reverse, vec![dest.clone()])),
+        member: output,
+        arguments: vec![],
+    };
+    assert_eq!(
+        forward_only.normalize(&reverse_error, &cancel).unwrap(),
+        reverse_error
+    );
     let linked = catalog(vec![(&blanket).into(), (&leaf).into()]);
+    assert_eq!(linked.normalize(&reverse_error, &cancel).unwrap(), scalar());
     assert!(linked.holds(&concrete, &scalar(), &[], &cancel).unwrap());
     let mut projected_request = nominal(forward, vec![scalar()]);
-    projected_request.associated_types.insert(
-        item,
-        Ty::Projection {
-            receiver: Box::new(scalar()),
-            interface: Box::new(nominal(reverse, vec![dest.clone()])),
-            member: output,
-            arguments: vec![],
-        },
-    );
+    projected_request
+        .associated_types
+        .insert(item, reverse_error);
     assert!(
         linked
             .holds(&projected_request, &dest, &[], &cancel)
@@ -395,7 +423,7 @@ fn linked_proofs_normalize_conditional_reverse_outputs_after_substitution() {
     let [src, dst] = [0, 1].map(|pos| parameter(caller, pos).as_type());
     let mut available = nominal(forward, vec![src.clone()]);
     let requirement = requested(dst.clone(), scalar());
-    // An unqualified Forward assumption proves the bound, not its concrete output.
+    // An unqualified TryFrom assumption proves the bound, not its concrete output.
     let unqualified = [bound(dst.clone(), available.clone())];
     assert!(
         generic

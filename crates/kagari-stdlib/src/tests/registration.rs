@@ -216,8 +216,8 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
             .iter()
             .map(|module| module.records().implementations.len())
             .sum::<usize>(),
-        // Collection detachment removed collection and built-in traversal implementations before 9G.
-        180
+        // Includes the two core::convert Script blanket implementations.
+        182
     );
     assert_eq!(
         first
@@ -290,6 +290,7 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
         assert_eq!(left.types, right.types);
         assert_eq!(left.traits, right.traits);
         assert_eq!(left.implementations, right.implementations);
+        assert_eq!(left.script_bodies, right.script_bodies);
         assert_eq!(left.exports, right.exports);
         assert_eq!(
             left.native_declarations(&comparison.snapshot()).unwrap(),

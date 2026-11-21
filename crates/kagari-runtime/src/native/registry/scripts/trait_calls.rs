@@ -20,12 +20,13 @@ use kagari_contract::{
 use kagari_types::{
     callable::Signature,
     declaration::{FnDecl, requirement::NativeCallableRequirement, script::ScriptExpr},
+    language::Protocol,
     ty::{
         NominalTy, Ty,
         substitution::{TypeSubstitution, resolve_associated_outputs},
     },
 };
-use std::collections::HashSet;
+use std::{collections::HashSet, slice};
 
 #[cfg(test)]
 mod tests;
@@ -187,6 +188,93 @@ impl QualifiedMethod {
 }
 
 impl Expression<'_, '_> {
+    /// A closed specialization may call an impl supplied by its caller's module.
+    /// Its executable dependencies must actually prove the substituted installed bounds;
+    /// the specialization's identity arguments do not themselves constitute evidence.
+    pub(super) fn check_specialization(&self, actual: Signature) -> NativeResult<()> {
+        let catalog = self.proofs.ok_or_else(invalid)?;
+        let cancel = CancellationToken::default();
+        for bound in self
+            .application
+            .apply_bounds(&self.function.bounds, catalog.definitions(), &cancel)
+            .map_err(|_| invalid())?
+        {
+            if !catalog
+                .constraints_hold(&bound.ty, &bound.constraints, &[], &cancel)
+                .map_err(|_| invalid())?
+            {
+                return Err(invalid());
+            }
+        }
+        let applied = |ty: &Ty| {
+            catalog
+                .normalize(&self.apply_type(ty)?, &cancel)
+                .map_err(|_| invalid())
+        };
+        let params = self
+            .function
+            .params
+            .iter()
+            .map(|param| applied(&param.ty))
+            .collect::<NativeResult<Vec<_>>>()?;
+        if actual.params != params || actual.result != applied(&self.function.return_type)? {
+            return Err(invalid());
+        }
+        Ok(())
+    }
+
+    pub(super) fn qualified(
+        &self,
+        receiver: &Ty,
+        interface: &NominalTy,
+        member: DefinitionId,
+    ) -> NativeResult<QualifiedMethod> {
+        let Ty::Trait(interface) = self.apply_type(&Ty::Trait(interface.clone()))? else {
+            return Err(invalid());
+        };
+        Ok(QualifiedMethod {
+            receiver: self.apply_type(receiver)?,
+            interface,
+            member,
+        })
+    }
+
+    // The identity specialization emits no call. Remove just that operation from the
+    // installed expression; its input (including any nested effects) is still checked.
+    pub(super) fn fold_identity_calls(&self, expression: &mut ScriptExpr) -> NativeResult<()> {
+        let ScriptExpr::Call {
+            callee,
+            arguments,
+            type_arguments,
+        } = expression
+        else {
+            return Ok(());
+        };
+        self.fold_identity_calls(callee)?;
+        for argument in &mut *arguments {
+            self.fold_identity_calls(argument)?;
+        }
+        if let ScriptExpr::TraitMethod {
+            receiver,
+            interface,
+            member,
+        } = callee.as_ref()
+            && arguments.len() == 1
+            && type_arguments.is_empty()
+        {
+            let method = self.qualified(receiver, interface, *member)?;
+            if method.receiver.is_concrete()
+                && method.interface.arguments.as_slice() == slice::from_ref(&method.receiver)
+                && method
+                    .implicit_from(self.proofs.ok_or_else(invalid)?, vec![])?
+                    .is_some()
+            {
+                *expression = arguments.remove(0);
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn authenticate_method(
         &self,
         method: &QualifiedMethod,
@@ -218,6 +306,30 @@ impl Expression<'_, '_> {
 }
 
 impl QualifiedMethod {
+    fn requirement(&self, arguments: Vec<Ty>) -> NativeCallableRequirement {
+        NativeCallableRequirement {
+            receiver: self.receiver.clone(),
+            interface: self.interface.clone(),
+            member: self.member,
+            arguments,
+        }
+    }
+
+    fn implicit_from(
+        &self,
+        catalog: &ProofCatalog<'_>,
+        arguments: Vec<Ty>,
+    ) -> NativeResult<Option<Signature>> {
+        if Protocol::from_definition(&self.interface.declaration, catalog.definitions())
+            != Some(Protocol::From)
+        {
+            return Ok(None);
+        }
+        catalog
+            .implicit_callable_signature(&self.requirement(arguments), &[], &Default::default())
+            .map_err(|_| invalid())
+    }
+
     fn check_target(
         &self,
         catalog: &ProofCatalog<'_>,
@@ -233,13 +345,11 @@ impl QualifiedMethod {
                     && slot.interface.satisfies(&self.interface)
                     && call.types == arguments
             }
+            Value::Convert => {
+                self.implicit_from(catalog, arguments)?.as_ref() == Some(&call.signature)
+            }
             Value::Definition(target) => {
-                let required = NativeCallableRequirement {
-                    receiver: self.receiver.clone(),
-                    interface: self.interface.clone(),
-                    member: self.member,
-                    arguments,
-                };
+                let required = self.requirement(arguments);
                 catalog
                     .select_callable(&required, &Default::default())
                     .map_err(|_| invalid())?

@@ -26,18 +26,12 @@ use kagari_source::{
 };
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::{
-        AssociatedTypeDef, FnDecl, Param, TraitDef, conversion::ConversionAdapter,
-        names::NameNamespace,
-    },
+    declaration::{AssociatedTypeDef, FnDecl, Param, TraitDef, names::NameNamespace},
     language::{self, role::LangRole},
     ty::{GenericBound, GenericParam},
     visibility::Visibility,
 };
-use std::{
-    collections::{BTreeMap, btree_map::Entry},
-    iter,
-};
+use std::collections::{BTreeMap, btree_map::Entry};
 
 /// Collects canonical `#[lang]` identities from actual declarations.
 pub(crate) fn collect(
@@ -177,28 +171,15 @@ fn conversion_exposed(
     declarations: &Declarations,
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
-    let targets = match &actual.conversion_adapter {
-        Some(ConversionAdapter::Reverse { origin, result, .. }) => iter::once(origin)
-            .chain(result.iter())
-            .copied()
-            .collect::<Vec<_>>(),
-        Some(ConversionAdapter::Forward { result, .. }) => vec![*result],
-        None => return Ok(true),
+    let Some(adapter) = &actual.conversion_adapter else {
+        return Ok(true);
     };
-    for target in targets {
-        if declarations
-            .resolve_definition_exposure(target, NameNamespace::Type, None, cancel)?
-            .is_none()
-        {
-            return Ok(false);
-        }
-    }
-    Ok(true)
+    Ok(declarations
+        .resolve_definition_exposure(adapter.result, NameNamespace::Type, None, cancel)?
+        .is_some())
 }
 
 fn conversion_valid(actual: &TraitSignature, definitions: &DefinitionTable) -> bool {
-    // Intrinsic derivation currently proves only the forward conversion. It cannot
-    // discharge additional obligations on the reverse receiver or its method.
     if !actual.associated_consts.is_empty()
         || !actual.associated_type_parameters.is_empty()
         || !actual.supertraits.is_empty()

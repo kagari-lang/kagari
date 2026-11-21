@@ -732,8 +732,9 @@ or `<<` when the tokens would otherwise begin generic type arguments.
   object casts and user-defined `as` hooks are unsupported.
 
 The language's `From<S>` contract supports error conversion by `Result ?`,
-including identity and lossless primitive cases. Into and TryInto derive from
-From and TryFrom; fallible conversions preserve the destination's associated error.
+including identity and lossless primitive cases. The library's [`Into` and `TryInto`
+blanket impls](builtins.md#conversion-protocols) forward to `From` and `TryFrom`;
+they do not change cast semantics or the destination's associated error.
 FromStr and primitive parsing are also foundation contracts; see the
 [foundation inventory](builtins.md#foundation-trait-inventory). They do not imply restoring
 the whole parsing/helper catalog. Const numeric casts share runtime conversion

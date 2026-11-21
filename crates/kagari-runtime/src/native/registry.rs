@@ -1,6 +1,7 @@
 //! Validate registrations and prepare concrete entries/callables before execution.
 
 mod dependencies;
+mod forwarding;
 mod matching;
 mod scripts;
 #[cfg(test)]
@@ -159,6 +160,7 @@ impl NativeRegistry {
         }
         dependencies::validate_installed_traits(&self.catalog, module, admission)?;
         dependencies::validate_installed_values(&self.catalog, module, admission)?;
+        self.validate_forwarding(module, admission)?;
         self.validate_scripts(module, program, admission)?;
         for declaration in &module.native_declarations {
             let declaration = admission.runtime(declaration, &CancellationToken::default())?;

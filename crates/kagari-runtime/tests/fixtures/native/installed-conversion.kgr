@@ -1,0 +1,27 @@
+use core::convert::From;
+
+use core::convert::Into;
+
+struct Token {
+    val value: i32
+}
+
+impl From<i32> for Token {
+    fn from(value: i32) -> Self {
+        Token { value }
+    }
+}
+
+fn forward<S, D: From<S>>(value: S) -> D {
+    value.into()
+}
+
+fn main() -> i64 {
+    val token: Token = forward(42);
+    val same: Token = forward(token);
+    if same === token {
+        forward(same.value)
+    } else {
+        0i64
+    }
+}

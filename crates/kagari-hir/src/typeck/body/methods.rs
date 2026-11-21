@@ -20,7 +20,7 @@ use crate::{
 };
 use kagari_common::identity::DefinitionKind;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::{declaration::conversion::ConversionAdapter, language::Protocol};
+use kagari_types::language::Protocol;
 
 impl<'a> BodyChecker<'a> {
     pub(super) fn infer_expr_with_coercion(
@@ -478,10 +478,7 @@ impl<'a> BodyChecker<'a> {
                 .filter(|contract| {
                     (Protocol::from_definition(&contract.id, self.declarations.definitions())
                         == Some(Protocol::From)
-                        || matches!(
-                            contract.conversion_adapter,
-                            Some(ConversionAdapter::Forward { .. })
-                        ))
+                        || contract.conversion_adapter.is_some())
                         && contract.methods.iter().any(|method| method.name == *name)
                 })
                 .map(|contract| contract.id)
@@ -496,50 +493,6 @@ impl<'a> BodyChecker<'a> {
                 if let Some((applied, _)) = self.select_operator(&receiver_ty, requested, env) {
                     trait_types.retain(|available| available.declaration != applied.declaration);
                     trait_types.push(applied);
-                }
-            }
-        }
-        if receiver.is_some()
-            && let Some(expected) = expected
-        {
-            let candidates = self
-                .aggregates
-                .traits()
-                .filter_map(|contract| {
-                    let ConversionAdapter::Reverse { result, .. } =
-                        contract.conversion_adapter.as_ref()?
-                    else {
-                        return None;
-                    };
-                    contract
-                        .methods
-                        .iter()
-                        .any(|method| method.name == *name)
-                        .then_some((contract.id, *result))
-                })
-                .collect::<Vec<_>>();
-            for (declaration, result) in candidates {
-                let target = if let Some(result) = result {
-                    match expected {
-                        TypeId::Enum(nominal) if nominal.declaration == result => {
-                            nominal.arguments.first()
-                        }
-                        _ => None,
-                    }
-                } else {
-                    Some(expected)
-                };
-                if let Some(target) = target {
-                    let requested = NominalType {
-                        declaration,
-                        arguments: vec![target.clone()],
-                        associated_types: Default::default(),
-                    };
-                    if let Some((applied, _)) = self.select_operator(&receiver_ty, requested, env) {
-                        trait_types
-                            .retain(|available| available.declaration != applied.declaration);
-                        trait_types.push(applied);
-                    }
                 }
             }
         }
@@ -678,18 +631,7 @@ impl<'a> BodyChecker<'a> {
                 receiver,
             );
         }
-        if proven
-            && (receiver.is_none()
-                || self
-                    .aggregates
-                    .trait_(&interface.declaration)
-                    .is_some_and(|contract| {
-                        matches!(
-                            contract.conversion_adapter,
-                            Some(ConversionAdapter::Reverse { .. })
-                        )
-                    }))
-        {
+        if proven && receiver.is_none() {
             self.type_table
                 .insert_protocol_receiver(call_expr, self_ty.clone());
         }

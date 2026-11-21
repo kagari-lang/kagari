@@ -394,13 +394,9 @@ impl ProofCatalog<'_> {
         budget: &Budget<'_>,
         depth: usize,
     ) -> Result<bool, TypeTransformError> {
-        if let Some(requirements) = intrinsic::requirements(
-            interface,
-            receiver,
-            budget.cancel,
-            self.trait_contract(&interface.declaration),
-            &self.definitions,
-        )? {
+        if let Some(requirements) =
+            intrinsic::requirements(interface, receiver, budget.cancel, &self.definitions)?
+        {
             return self.obligations(&requirements, assumptions, search, budget, depth + 1);
         }
         let Some(kind) = Protocol::from_definition(&interface.declaration, &self.definitions)

@@ -8,9 +8,7 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    conversion as numeric,
-    declaration::TraitDef,
-    language,
+    conversion as numeric, language,
     language::Protocol,
     scalar::BuiltinType,
     ty::{
@@ -38,21 +36,12 @@ pub fn requirements(
     interface: &NominalTy,
     receiver: &Ty,
     cancel: &CancellationToken,
-    contract: Option<&TraitDef>,
     definitions: &DefinitionTable,
 ) -> Result<Option<Vec<GenericBound>>, TypeTransformError> {
     let copier = TypeSubstitution::default();
     copier.apply_nominal(interface, cancel)?;
     copier.apply(receiver, cancel)?;
-    if let Some((interface, target)) = contract
-        .and_then(|contract| contract.conversion_adapter.as_ref())
-        .and_then(|adapter| adapter.reverse_requirement(interface, receiver))
-    {
-        return Ok(Some(vec![GenericBound {
-            ty: target,
-            constraints: vec![interface],
-        }]));
-    }
+
     if Protocol::from_definition(&interface.declaration, definitions) == Some(Protocol::From)
         && interface.associated_types.is_empty()
         && (interface.arguments.as_slice() == [receiver.clone()]
@@ -91,18 +80,12 @@ pub fn associated_output(
     receiver: &Ty,
     member: &DefinitionId,
     cancel: &CancellationToken,
-    contract: Option<&TraitDef>,
     definitions: &DefinitionTable,
 ) -> Result<Option<Ty>, TypeTransformError> {
     let copier = TypeSubstitution::default();
     copier.apply_nominal(interface, cancel)?;
     copier.apply(receiver, cancel)?;
-    if let Some(output) = contract
-        .and_then(|contract| contract.conversion_adapter.as_ref())
-        .and_then(|adapter| adapter.associated_output(interface, receiver, member))
-    {
-        return Ok(Some(output));
-    }
+
     Ok(
         if Some(*member)
             == definitions.lookup_child(

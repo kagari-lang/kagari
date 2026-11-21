@@ -218,6 +218,27 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
             .unwrap();
         let input = compilation(&program);
         let module = collect_module_abi(input.module(input.root()).unwrap());
+        if declared.source().module_identity() == &Protocol::From.module() {
+            // The declaration of TryInto retains Self::Error even though its blanket
+            // implementation returns the destination's TryFrom::Error.
+            let installed = foundation_catalog::shared()
+                .unwrap()
+                .into_iter()
+                .find(|provider| provider.records().identity == Protocol::From.module())
+                .unwrap()
+                .import_into(&input.definition_context(), &Default::default())
+                .unwrap();
+
+            for expected in &installed.records().traits {
+                assert!(
+                    module.public_items.iter().any(
+                        |item| matches!(item, PublicItem::Trait(actual) if actual == expected)
+                    ),
+                    "{} must retain its installed declaration",
+                    expected.name
+                );
+            }
+        }
         for kind in Protocol::ALL {
             let id = kind.definition(analyzed.definitions()).unwrap();
             let definitions = analyzed.definitions();

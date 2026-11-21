@@ -226,7 +226,7 @@ has no payload. It is not a prelude name. `u32::from(character)` returns the sca
 value; `String::from(character)` encodes that scalar as UTF-8. `char::try_from(value)`
 returns `Err(core::char::CharTryFromError::InvalidScalar)` for surrogates or values
 above U+10FFFF, otherwise `Ok(character)`. This is domain validation, not numeric
-truncation. Existing Into/TryInto adapters use these forward implementations.
+truncation. The `Into` and `TryInto` blanket methods call these implementations.
 
 There is no implicit character/integer conversion or `as` cast in either direction,
 character arithmetic, bitwise operation, increment, FromStr parsing, Sum or Product.
@@ -575,17 +575,31 @@ static-only; this does not change ordinary user-defined dynamic interfaces.
 
 ## Conversion protocols
 
-The compiler owns `core::convert::From<S>` with
+`core::convert::From<S>` is the language-recognized infallible conversion trait, with
 `fn from(value: S) -> Self`. It supports explicit user-defined infallible conversions
 and Result error propagation. Identity conversion preserves the same value or object
 identity. Distinct error conversion runs once on Err, never on Ok, and cannot search
 a chain of intermediate conversions. Conversion traps retain completed effects.
 
-Into<T> is derived from T: From<Self>; TryInto<T> is derived from T: TryFrom<Self>,
-including the same associated Error. Direct implementations of the reverse
-contracts are rejected. TryFrom<S> declares `type Error` and
-`fn try_from(value: S) -> Result<Self, Self::Error>`. FromStr declares `type Err`
-and `fn from_str(text: String) -> Result<Self, Self::Err>`. Static and qualified
+`TryFrom<S>` declares `type Error` and `fn try_from(value: S) -> Result<Self, Self::Error>`.
+Define the forward conversion on the destination; either the source or destination
+type's owner may supply it. An explicit `From` impl cannot overlap the built-in
+identity conversion.
+`core::convert` supplies the reverse methods as ordinary conditional Script impls:
+
+| Method on `S` | Required bound | Body result |
+| --- | --- | --- |
+| `Into<D>::into(self)` | `D: From<S>` | `<D as From<S>>::from(self)` |
+| `TryInto<D>::try_into(self)` | `D: TryFrom<S>` | `<D as TryFrom<S>>::try_from(self)` with `Error = <D as TryFrom<S>>::Error` |
+
+For example, `val count: Count = read(input).into();` selects `Into<Count>`
+when `Count: From<Input>`. It evaluates `read(input)` once and passes that value
+to `Count::from` once. The fallible method returns the forward `Ok` or `Err`
+unchanged. Only the library may supply these two canonical impls; an unrelated
+trait named `Into` or `TryInto` has no such restriction.
+
+`FromStr` declares `type Err` and `fn from_str(text: String) -> Result<Self, Self::Err>`.
+Static and qualified
 calls use ordinary checked trait selection, including generic receivers.
 
 The runtime foundation implements FromStr for numeric scalars and bool, without

@@ -26,7 +26,9 @@ use kagari_types::{
     ty::{
         GenericParam, NominalTy, Ty,
         matching::{ImplementationPattern, projection_output},
-        substitution::{TypeSubstitution, TypeTransformError, normalize_projections},
+        substitution::{
+            TypeSubstitution, TypeTransformError, normalize_projections, substitute_impl_outputs,
+        },
     },
     visibility::Visibility,
 };
@@ -653,6 +655,20 @@ pub fn interface_methods_match(
     let Ty::Trait(instance) = &table.trait_type else {
         return false;
     };
+    // Inside the impl, Self::Item is the table's output even when its destination
+    // bound is still generic and the linked catalog cannot select a concrete impl.
+    let normalize_method = |ty: &Ty| {
+        if !instance.associated_types.is_empty() && ty.contains_projection() {
+            normalize(&substitute_impl_outputs(
+                ty,
+                instance,
+                &table.for_type,
+                cancel,
+            )?)
+        } else {
+            normalize(ty)
+        }
+    };
     required_methods_present(table, interface)
         && method_origins_valid(table, interface, definitions)
         && table.methods.iter().all(|implemented| {
@@ -666,7 +682,7 @@ pub fn interface_methods_match(
                         implemented,
                         instance,
                         table,
-                        normalize,
+                        &normalize_method,
                         MethodMatchContext {
                             defer_projection: false,
                             cancel,

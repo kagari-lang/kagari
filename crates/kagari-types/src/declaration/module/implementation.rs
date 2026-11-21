@@ -3,7 +3,9 @@ use crate::{
     callable::CallableImplementation,
     declaration::{
         FnDecl, TraitDef,
+        conversion::{is_library_forwarding_trait, library_forwarding_header_valid},
         module::{DeclarationError, ImplDecl, ModuleDecl},
+        script::ScriptExpr,
         verify::trait_valid,
     },
     ty::{
@@ -110,6 +112,21 @@ impl ModuleDecl {
             let Some(trait_type) = &implementation.trait_type else {
                 continue;
             };
+            let owner = self.implementation_id(index, definitions)?;
+            if is_library_forwarding_trait(definitions, trait_type.declaration)
+                && !(library_forwarding_header_valid(
+                    definitions,
+                    owner,
+                    &implementation.generic_params,
+                    &implementation.for_type,
+                    trait_type,
+                    &implementation.bounds,
+                ) && self.forwarding_body_valid(implementation, owner, definitions))
+            {
+                return Err(DeclarationError(
+                    "invalid library conversion forwarding implementation".into(),
+                ));
+            }
             let Some(contract) = contracts.get(&trait_type.declaration) else {
                 if !require_external
                     && definitions
@@ -122,7 +139,6 @@ impl ModuleDecl {
                 }
                 return Err(invalid());
             };
-            let owner = self.implementation_id(index, definitions)?;
             let bindings = implementation
                 .methods
                 .iter()
@@ -139,13 +155,8 @@ impl ModuleDecl {
                     Ok((method.name.as_str(), binding))
                 })
                 .collect::<Result<Vec<_>, DeclarationError>>()?;
-            let mut expected = implementation_methods(
-                contract,
-                implementation,
-                self.implementation_id(index, definitions)?,
-                &bindings,
-                definitions,
-            )?;
+            let mut expected =
+                implementation_methods(contract, implementation, owner, &bindings, definitions)?;
             // Required access is a local native impl fact when the Kagari trait
             // does not impose it. Preserve every other signature/policy check;
             // native declaration and installed binding validation check this fact
@@ -232,6 +243,46 @@ impl ModuleDecl {
             }
         }
         Ok(())
+    }
+
+    // The header check has established a single destination bound and exact output.
+    fn forwarding_body_valid(
+        &self,
+        implementation: &ImplDecl,
+        owner: DefinitionId,
+        definitions: &DefinitionTable,
+    ) -> bool {
+        let bound = &implementation.bounds[0];
+        let forward = &bound.constraints[0];
+        let (name, target) = if implementation
+            .trait_type
+            .as_ref()
+            .is_some_and(|ty| ty.associated_types.is_empty())
+        {
+            ("into", "from")
+        } else {
+            ("try_into", "try_from")
+        };
+        let [method] = implementation.methods.as_slice() else {
+            return false;
+        };
+        let Some(id) = definitions.lookup_child(owner, DefinitionKind::Method, name, 0) else {
+            return false;
+        };
+        let Some(ScriptExpr::Call {
+            callee,
+            type_arguments,
+            arguments,
+        }) = self.script_bodies.get(&id)
+        else {
+            return false;
+        };
+        method.name == name
+            && method.implementation == CallableImplementation::Script
+            && type_arguments.is_empty()
+            && matches!(arguments.as_slice(), [ScriptExpr::Name(arg)] if arg == "self")
+            && matches!(callee.as_ref(), ScriptExpr::TraitMethod { receiver, interface, member }
+                if receiver == &bound.ty && interface == forward && definitions.lookup_child(forward.declaration, DefinitionKind::Method, target, 0) == Some(*member))
     }
 
     fn normalized(

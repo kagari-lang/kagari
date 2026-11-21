@@ -23,10 +23,7 @@ use kagari_hir::{
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_mir::instruction::CallTarget;
-use kagari_types::{
-    conversion, declaration::conversion::ConversionAdapter, integer::IntegerOp, language::Protocol,
-    scalar::BuiltinType,
-};
+use kagari_types::{conversion, integer::IntegerOp, language::Protocol, scalar::BuiltinType};
 
 use std::slice;
 
@@ -98,22 +95,7 @@ impl InstancePlanner<'_> {
         span: Span,
     ) -> Result<MethodPlan, MirLoweringError> {
         self.check()?;
-        if let Some((required, target)) =
-            traits::conversion_requirement(&interface, &receiver, Some(self.catalog))
-        {
-            let method = self
-                .catalog
-                .trait_(&interface.declaration)
-                .and_then(|contract| contract.conversion_adapter.as_ref())
-                .and_then(|adapter| match adapter {
-                    ConversionAdapter::Reverse { method, .. } => Some(*method),
-                    _ => None,
-                })
-                .ok_or(MirLoweringError::MissingBinding(
-                    "registered forward conversion member",
-                ))?;
-            return self.applied_method_plan(required, target, &method, arguments, bounds, span);
-        }
+
         let protocol = Protocol::from_definition(&interface.declaration, &self.definitions());
         if protocol == Some(Protocol::Fn)
             && let TypeId::Function { params, result } = &receiver

@@ -18,7 +18,10 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    declaration::verify::{Parameters, bounds_valid, function_valid, parameters, type_valid},
+    declaration::{
+        conversion::{is_library_forwarding_trait, library_forwarding_header_valid},
+        verify::{Parameters, bounds_valid, function_valid, parameters, type_valid},
+    },
     ty::{GenericParam, Ty, matching::impl_headers_overlap, substitution::TypeSubstitution},
     visibility::Visibility,
 };
@@ -172,8 +175,21 @@ pub fn validate(
                         bounds_valid(&value.bounds, &params, cancel, definitions)
                             && type_valid(&value.receiver, &params, None, cancel, definitions)
                             && value.trait_type.as_ref().is_none_or(|ty| {
-                                matches!(ty, Ty::Trait(_))
-                                    && type_valid(ty, &params, None, cancel, definitions)
+                                let Ty::Trait(interface) = ty else {
+                                    return false;
+                                };
+                                type_valid(ty, &params, None, cancel, definitions)
+                                    && (!is_library_forwarding_trait(
+                                        definitions,
+                                        interface.declaration,
+                                    ) || library_forwarding_header_valid(
+                                        definitions,
+                                        record.declaration,
+                                        &value.generic_params,
+                                        &value.receiver,
+                                        interface,
+                                        &value.bounds,
+                                    ))
                             })
                     })
             }

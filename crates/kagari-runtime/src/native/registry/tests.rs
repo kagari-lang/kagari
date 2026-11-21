@@ -2,11 +2,15 @@
 
 use crate::{
     Runtime,
+    executor::Executor,
+    interpreter_tests::common::compile_with_provider,
     native::{
+        assembly::{ModuleDefinition, ModuleSetBuilder, draft::TraitImplementation},
         binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
-        declarations::FunctionDecl,
+        conversion::arguments::ArgumentValues,
+        declarations::{FunctionDecl, MethodDecl},
         module::NativeModule,
         types::Type,
     },
@@ -14,9 +18,111 @@ use crate::{
     value::view::ValueView,
 };
 use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
-use kagari_contract::{native_import::NativeImport, types::ConcreteFunctionIdentity};
-use kagari_types::callable::{CallableImplementation, Signature};
+use kagari_common::identity::{
+    DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata,
+};
+use kagari_contract::{
+    native_import::NativeImport,
+    types::{ConcreteFunctionIdentity, PublicItem},
+};
+use kagari_types::{
+    callable::{CallableImplementation, Signature},
+    language::Protocol,
+    ty::{GenericBound, Ty},
+};
+
+#[test]
+fn installed_blanket_admits_closed_forward_calls_and_rejects_missing_evidence() {
+    let mut set = ModuleSetBuilder::new(&Default::default()).unwrap();
+    set.add(ModuleDefinition::new(Protocol::From.module(), |module| {
+        module.package_alias("core");
+        let mut traits = Vec::new();
+        for (name, member, instance) in [("From", "from", false), ("Into", "into", true)] {
+            let id = module.definition(DefinitionKind::Trait, name)?;
+            let path = module.definitions().resolve(id).unwrap().to_path();
+            let owner = module.reference_trait(path, 1)?;
+            let signature = if instance {
+                MethodDecl::instance(member).returns(owner.parameter(0)?)
+            } else {
+                MethodDecl::static_method(member)
+                    .parameter("value", owner.parameter(0)?)
+                    .returns(owner.receiver()?)
+            };
+            let method = module.trait_method(id, signature)?;
+            module.define_trait(name, 1, |contract, _| {
+                contract.methods.push(method);
+                Ok(())
+            })?;
+            traits.push((module.reference_method(&owner, member, 0)?, owner));
+        }
+        let [(from, forward), (into, reverse)]: [_; 2] = traits.try_into().ok().unwrap();
+        module.trait_implementation_with(2, |parameters| {
+            let source = parameters[0].clone();
+            let dest = parameters[1].clone();
+            let applied = forward.apply([source.clone()])?;
+            let Ty::Trait(required) = applied.abi() else {
+                unreachable!()
+            };
+            Ok(TraitImplementation {
+                receiver: source,
+                interface: reverse.apply([dest.clone()])?,
+                bounds: vec![GenericBound {
+                    ty: dest.abi().clone(),
+                    constraints: vec![required.clone()],
+                }],
+                bindings: vec![],
+            }
+            .with_script_method(into, move |scope| {
+                scope.trait_call(&from, dest, applied, [], [scope.parameter(0)?])
+            }))
+        })
+    }))
+    .unwrap();
+    let modules = set.finish().unwrap().into_modules().unwrap();
+    let provider = &modules[0];
+    let mut runtime = Runtime::default();
+    provider.install(&mut runtime).unwrap();
+    // No calls, no imports and no inconsistent product-side references. Only the
+    // independent installation knows this module is missing an implementation.
+    let input = ProgramFixture {
+        root: ModuleRef::new(0),
+        modules: vec![BytecodeModule {
+            identity: Protocol::From.module(),
+            public_items: provider
+                .declaration()
+                .traits
+                .iter()
+                .cloned()
+                .map(PublicItem::Trait)
+                .collect(),
+            ..Default::default()
+        }],
+        exports: Default::default(),
+    }
+    .metadata(provider.definitions().clone(), &Default::default())
+    .unwrap();
+    let error = load_bytecode(&mut runtime, "incomplete", input).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("conversion blanket differs from its installed implementation"),
+        "{error}"
+    );
+    assert_eq!(runtime.modules().loaded_count(), 0);
+
+    let input = compile_with_provider(
+        include_str!("../../../tests/fixtures/native/installed-conversion.kgr"),
+        Some(provider),
+    );
+    let loaded = load_bytecode(&mut runtime, "complete", input).unwrap();
+    let selected = runtime.select_program(&loaded).unwrap();
+    let (owner, entry) = selected.entry_function().unwrap();
+    let result = Executor::new(&mut runtime, &owner, entry, ArgumentValues::scalars(&[]))
+        .unwrap()
+        .run(|runtime, stack, value| stack.retain_result(runtime, value))
+        .unwrap();
+    assert_eq!(result.as_i64(), Some(42));
+}
 
 fn provider(wide: bool) -> NativeModule {
     let mut builder =

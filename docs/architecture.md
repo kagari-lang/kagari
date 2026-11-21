@@ -847,7 +847,7 @@ these details and a same-call comparison of direct and offline analysis.
 Offline tooling supplies real `.kgr` inputs through `ExternalModule`, retaining
 complete Script definitions alongside Native interfaces. Scoped static sidecars
 supply facts absent from syntax: constructor/Host selections, Host schema/path
-closures, conversion relationships, exceptional method policies, enum failure flags,
+closures, forward conversion metadata, exceptional method policies, enum failure flags,
 namespace-qualified import selectors and ordered Native operations/results. Shared
 checking validates actual owners. Canonical constructor shape and language-role
 requirements are checked independently of sidecar presence. Ordinary project source
@@ -1125,9 +1125,9 @@ inputs use parsed attributes and owning declarations. Both require canonical own
 identities, visibility, uniqueness, completeness, binder, parent and member-shape
 checks against [independent language requirements](../crates/kagari-hir/src/language/items/shapes.rs).
 No foundation-admission flag or producer-supplied duplicate trait catalog grants
-eligibility. Static conversion relationships must name actual exposed declarations;
-unsupported extra supertraits/bounds reject rather than being ignored by intrinsic
-derivation. A copied `#[lang]` attribute or same-named application trait is insufficient.
+eligibility. Forward conversion metadata must match the exposed result type,
+method and associated error contract; unsupported extra supertraits/bounds reject.
+A copied `#[lang]` attribute or same-named application trait is insufficient.
 
 The renderer records declaration identities and output ranges; parsed views supply
 semantic declaration/member spans only when actually supplied as source inputs.
@@ -2702,13 +2702,14 @@ The other 15 traits use ordinary native-library declaration/implementation recor
 | Default, FromIterator, Sum, Product | 4 | Construction and aggregation APIs |
 
 All 41 traits remain mandatory and available without optional modules. Compiler
-recognition and library availability are separate decisions. Preserve current
-Into/From and TryInto/TryFrom derivation and checked numeric conversions through
-checked implementation/adaptation records. Relocating their declarations alone
-does not itself replace selection. Installed conversion adapter records carry the
-forward trait/method and associated error identities; source and portable proofs
-read those records without recognizing Into/TryFrom/TryInto in the language enum.
-No new source blanket-implementation or coherence feature is introduced.
+recognition and library availability are separate decisions. `core::convert` owns
+the [conditional `Into` and `TryInto` impls](spec/builtins.md#conversion-protocols).
+HIR selects the blanket method; lowering emits that Script body and its ordinary
+forward call, not a reverse-call rewrite or VM instruction. Portable proof needs
+the blanket impl as well as its forward bound. `TryFrom` metadata describes only
+the forward contract; numeric implementations declare their own error outputs.
+[Runtime admission](spec/standard-declarations.md#checked-executable-contracts)
+matches the canonical impl and emitted behavior to the independent installation.
 
 The audit evidence is the operator/format/propagation selection in HIR and the
 implicit implementation rules in `kagari-hir/src/language/semantics.rs`. In that

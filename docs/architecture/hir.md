@@ -1058,8 +1058,8 @@ associated-member ownership and concrete-result conformance; an exact ID is not
 prechecked semantic success. Rust callbacks, entry selectors, storage implementations
 and internal adapter loans remain outside HIR. [Checked signatures](../../crates/kagari-hir/src/semantic/signatures.rs)
 have one Native kind regardless of input representation or implementation availability.
-Trait override policy belongs to the trait member; conversion relationships belong
-to the actual trait, and failure-origin flags belong to enum variants.
+Trait override policy belongs to the trait member, forward conversion metadata
+to the declaring trait, and failure-origin flags to enum variants.
 
 Structured `TypeKind::Definition` inputs retain a requested
 [DefinitionExposure](../../crates/kagari-hir/src/hir/ty.rs), and resolution records
@@ -1104,11 +1104,12 @@ facts absent from syntax:
 - `ExternalType` selects a checked canonical constructor or Host category; ordinary
   nominal Native types need no storage-layout sidecar. A same-named user type gains
   no builtin interpretation.
-- Scoped conversion relationships attach to actual traits. Reserved language roles
-  require canonical owning identities, visibility, uniqueness, completeness and an
+- Forward conversion metadata identifies the static method, associated error and
+  result enum; reverse forwarding is an impl with a body, not a sidecar. Reserved
+  language roles require canonical owning identities, visibility, uniqueness, completeness and an
   [independent required-shape check](../../crates/kagari-hir/src/language/items/shapes.rs),
   not a producer-supplied copy of a trait or a foundation-admission flag. Conversion
-  validation rejects additional supertraits/bounds unsupported by intrinsic derivation.
+  validation checks exposure and the supported forward signature and bounds.
 - [ExternalHost](../../crates/kagari-hir/src/analysis/external/evidence.rs) carries an
   explicit Host root and complete schema/path closure. It preserves Host identity,
   field/path access and Host-specific escape and suspension restrictions instead of treating
@@ -1226,8 +1227,10 @@ the checked applied impl's outputs; unrelated projections remain symbolic and in
 cyclic transforms reject. Final Script library methods without an installed canonical
 expression fail closed. Origins, matching Script signatures and product-supplied
 digests are not substitutes. Authentication is limited to the current ScriptExpr
-grammar; unsupported trace instructions/effects reject, without source analysis or
-trait selection. Native materializations instead apply ordinary Native declaration
+grammar; unsupported trace instructions/effects reject. For qualified trait calls,
+Runtime checks the selected member and applied signature against the installed
+expression, proving closed impl bounds within the executable dependency closure
+without HIR. Native materializations instead apply ordinary Native declaration
 contracts and match installed implementations at linking. Neither path restores a
 dedicated default recipe or forwarding-call table.
 
@@ -1247,6 +1250,14 @@ Inference and member lookup enumerate applicable native/script implementations a
 parent applications under caller bounds. If/match inference intersects candidates
 across all normally completing arms before choosing a unique most-specific result;
 ambiguous intermediate pairs cannot discard a candidate needed by a later arm.
+
+For a [conditional blanket impl](../spec/traits.md#blanket-trait-implementations),
+method inference uses call arguments and the expected result to form the requested
+trait application. The matcher binds the receiver and ordered trait arguments
+together, proves the substituted bounds and normalizes associated outputs.
+For `value.try_into()`, HIR records the selected library impl method, not a call
+to `try_from`. Its structured body lowers to the ordinary qualified trait call;
+impl arguments precede method arguments at materialization.
 
 Method selection and implementation counts use the catalog's shared bounded search.
 The aggregate matcher charges each visited candidate, then rejects a different

@@ -95,7 +95,8 @@ can construct later using their pinned evidence, including after reload. This
 provides neither Any nor downcasts, broader host-reference escape, nested-container
 conversion or common-trait inference.
 
-Source-authored impl targets remain concrete receiver types; installed native
+A [blanket impl](#blanket-trait-implementations) can match a type parameter;
+this does not make a trait eligible for dynamic dispatch. Installed native
 implementations may also define protocols on nominal interface values. Their
 signatures, type-owned protocol ownership and executable targets are checked by
 the same declaration/proof owners. The standard library uses this registration
@@ -638,6 +639,30 @@ This keeps the language model clear:
 - `impl Type { ... }` means inherent methods
 - `impl Trait for Type { ... }` means trait implementation
 
+### Blanket trait implementations
+
+A trait impl may use its own type parameter as the entire receiver, not just
+inside a pattern such as `Holder<T>`. For example:
+
+```text
+trait Marker {}
+trait Ready<A> {}
+impl<T: Marker> Ready<T> for T {}
+```
+
+If `Job: Marker`, the impl proves `Job: Ready<Job>`, not `Job: Ready<bool>`:
+the two occurrences of `T` must denote the same type. The same proof works in
+generic code given `T: Marker`. This rule is for trait impls, not inherent impls;
+it neither relaxes standard-protocol ownership nor creates an interface value.
+
+Blanket methods use ordinary value passing. Passing a managed `self` preserves
+its identity and aliases; it neither clones the object nor lends a Rust reference.
+Frame rooting, cancellation and trap cleanup are unchanged. A bare-receiver
+blanket must be present at initial publication: [compatible reload](module-activation.md#compatible-declaration-changes)
+cannot add an impl for existing types. A retained caller keeps its selected body
+and type environment; an ordinary call inside it uses the current implementation
+of the already checked declaration.
+
 ## Generic Bounds
 
 Trait bounds support:
@@ -830,27 +855,29 @@ This avoids conflating:
 
 ## Type-Checking Guidance
 
-Trait resolution is intentionally simple.
-
-Trait resolution uses:
-
-- explicit impl lookup by concrete type
-- explicit bound lookup by generic parameter
-- no overlapping impls
-- clear ambiguity errors rather than aggressive inference
-
-If there are multiple plausible impl candidates, the compiler rejects the program instead of selecting one implicitly.
+Selection matches the receiver and the applied trait's ordered arguments with
+one substitution. Call arguments and the expected result can determine a binder
+that the receiver alone does not fix. A matching pattern is only a candidate:
+the checker must prove its substituted bounds from visible implementations or
+the caller's bounds, then normalize associated outputs to check any requested
+equalities. It does not guess an undetermined argument or use a goal to prove
+itself. Search is bounded and cancellable; ambiguity, a cycle or exhausted
+search is not evidence. Source-free executable verification checks the required
+proofs against the executable dependency closure.
 
 ## Coherence Guidance
 
-Kagari does not use Rust's full coherence model.
+Two headers for the same trait conflict if their receiver and ordered trait
+arguments can match the same application. Each header's binders are independent;
+renaming `T` does not create a disjoint impl. In the [blanket example](#blanket-trait-implementations), a separate
+`Ready<Job> for Job` conflicts even if `Job` does not implement `Marker` today.
+Bounds and associated outputs do not distinguish overlapping headers, but
+`Ready<i32> for Job` and `Ready<bool> for Job` have disjoint trait arguments.
 
-Coherence rule:
-
-- within one compilation world, there must be at most one visible impl of a given trait for a given concrete type
-
-This rule is simple enough to understand and enforce.
-Looser host integration behavior requires a separate language or host-ABI extension.
+Conflicts reject the whole [checked package closure](packages.md#checking-and-host-entries),
+including unused sibling dependencies. Portable named impl headers undergo the
+same conservative check. There is no declaration-order priority, specialization,
+negative impl or Rust-style package orphan rule.
 
 ## Host Interoperability
 
@@ -877,7 +904,7 @@ Durable host root handles can also be converted to concrete interface values.
 The current trait system includes:
 
 - trait declarations with methods
-- concrete and generic trait impls, specialized at compile time
+- concrete, patterned and conditional blanket trait impls, with compile-time selection
 - generic trait bounds through `where`
 - static method lookup through bounds
 - trait names usable directly as interface value types
@@ -981,7 +1008,7 @@ concrete implementations reject the whole reachable closure during signature
 checking, including when unused. Generic templates use the same conservative
 overlap rule across modules as within one module; distinct concrete trait
 applications stay independent. Reachable methods in generic dependency
-implementations are specialized for the receiver's concrete type arguments and
+implementations are specialized for the impl's ordered type arguments and
 linked to the defining module by instance identity. Further trait extensions are
 tracked in the [implementation roadmap](../implementation-roadmap.md).
 

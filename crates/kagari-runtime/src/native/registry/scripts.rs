@@ -25,15 +25,14 @@ use kagari_common::{
     },
 };
 use kagari_contract::types::{
-    ConcreteFunctionIdentity, InterfaceTable, PublicItem, named::NamedContract,
-    proofs::ProofCatalog, trait_contract,
+    InterfaceTable, PublicItem, named::NamedContract, proofs::ProofCatalog, trait_contract,
 };
 use kagari_types::{
     callable::{CallableImplementation, Signature},
     declaration::{FnDecl, module::ModuleDecl, script::ScriptExpr},
     scalar::BuiltinType,
     ty::{
-        GenericParam, NominalTy, Ty,
+        GenericBound, GenericParam, NominalTy, Ty,
         matching::{ImplementationPattern, match_receiver, projection_output},
         substitution::{TypeSubstitution, normalize_projections, resolve_associated_outputs},
     },
@@ -89,6 +88,7 @@ impl NativeRegistry {
                     .map_err(|_| invalid())?,
                 function,
                 &[][..],
+                &[][..],
             ));
         }
         for contract in &module.traits {
@@ -100,6 +100,7 @@ impl NativeRegistry {
                     ModuleDecl::method_id(owner, &function.name, &definitions)
                         .map_err(|_| invalid())?,
                     function,
+                    &[][..],
                     &[][..],
                 ));
             }
@@ -114,17 +115,18 @@ impl NativeRegistry {
                         .map_err(|_| invalid())?,
                     function,
                     implementation.generic_params.as_slice(),
+                    implementation.bounds.as_slice(),
                 ));
             }
         }
-        for (id, function, impl_parameters) in functions {
+        for (id, function, impl_parameters, impl_bounds) in functions {
             let Some(body) = module.script_bodies.get(&id) else {
                 // Parsed Script source can be supplied without a structured body. It
                 // grants no independent executable authority for a final default.
                 continue;
             };
             let expected = InstalledScript {
-                function: explicit_signature(function, impl_parameters)?,
+                function: explicit_signature(function, impl_parameters, impl_bounds)?,
                 body: body.clone(),
             };
             if self
@@ -236,7 +238,7 @@ impl NativeRegistry {
                 continue;
             };
             // Installed expressions are independent of compiler-produced instruction facts.
-            let body = script.product_body(admission, &cancel)?;
+            let mut body = script.product_body(admission, &cancel)?;
             let function_contract = admission.product(&script.function, &cancel)?;
             let arguments = identity
                 .arguments
@@ -306,8 +308,10 @@ impl NativeRegistry {
                 }),
                 None => None,
             };
+
             let trace = Trace::read(module, function, program)?;
-            if trait_calls::contains(&body) && proofs.is_none() {
+            let qualified = trait_calls::contains(&body);
+            if qualified && proofs.is_none() {
                 proofs = Some(proof_scope(module, program)?);
             }
             let mut expression = Expression {
@@ -320,6 +324,12 @@ impl NativeRegistry {
                 trace: &trace,
                 next: 0,
             };
+            if qualified {
+                if function.metadata.semantic.generic.is_none() && !identity.arguments.is_empty() {
+                    expression.check_specialization(function_signature(function)?)?;
+                }
+                expression.fold_identity_calls(&mut body)?;
+            }
             let expected_result = expression.apply_type(&function_contract.return_type)?;
             let result = expression.value(&body, Some(&expected_result))?;
             if result != trace.result || expression.next != trace.calls.len() {
@@ -332,13 +342,22 @@ impl NativeRegistry {
 
 // Executable instances order impl arguments before method-local arguments. A
 // projected structured FnDecl may already carry that prefix; never bind it twice.
-fn explicit_signature(function: &FnDecl, prefix: &[GenericParam]) -> NativeResult<FnDecl> {
+fn explicit_signature(
+    function: &FnDecl,
+    prefix: &[GenericParam],
+    impl_bounds: &[GenericBound],
+) -> NativeResult<FnDecl> {
     let mut function = function.clone();
     if !function.generic_params.starts_with(prefix) {
         if function.generic_params.iter().any(|p| prefix.contains(p)) {
             return Err(invalid());
         }
         function.generic_params.splice(0..0, prefix.iter().cloned());
+    }
+    for bound in impl_bounds {
+        if !function.bounds.contains(bound) {
+            function.bounds.push(bound.clone());
+        }
     }
     Ok(function)
 }
@@ -348,6 +367,7 @@ enum Value {
     Parameter(usize),
     Definition(DefinitionId),
     TraitMethod(Box<QualifiedMethod>),
+    Convert,
     Result(usize),
     Unit,
 }
@@ -361,18 +381,33 @@ struct AppliedCall {
     signature: Signature,
 }
 
+impl AppliedCall {
+    // Unqualified Script names refer to authored functions. A qualified call instead
+    // authenticates the actual executable placement against the selected impl member.
+    fn names(&self, expected: &Value, program: &VerifiedProgram) -> bool {
+        match (&self.callee, &self.entry, expected) {
+            (
+                Value::Definition(target),
+                Some(CallableImplementation::Script),
+                Value::Definition(id),
+            ) => canonical(*target, program) == *id,
+            _ => self.callee == *expected,
+        }
+    }
+}
+
 struct Trace {
     calls: Vec<AppliedCall>,
     result: Value,
 }
 
-fn canonical(identity: &ConcreteFunctionIdentity, program: &VerifiedProgram) -> DefinitionId {
+fn canonical(declaration: DefinitionId, program: &VerifiedProgram) -> DefinitionId {
     program
         .modules()
         .iter()
         .flat_map(|module| &module.function_origins)
-        .find(|origin| origin.placement == identity.declaration)
-        .map_or(identity.declaration, |origin| origin.authored)
+        .find(|origin| origin.placement == declaration)
+        .map_or(declaration, |origin| origin.authored)
 }
 
 impl Trace {
@@ -401,6 +436,26 @@ impl Trace {
                 I::Move { dst, src } => {
                     slots.insert(*dst, get(&slots, src)?);
                 }
+                I::Convert {
+                    dst,
+                    src,
+                    conversion,
+                } => {
+                    let (input, output) = conversion.contract().ok_or_else(invalid)?;
+                    let result = Value::Result(calls.len());
+                    calls.push(AppliedCall {
+                        callee: Value::Convert,
+                        entry: None,
+                        types: vec![],
+                        arguments: vec![get(&slots, src)?],
+                        result: result.clone(),
+                        signature: Signature {
+                            params: vec![input],
+                            result: output,
+                        },
+                    });
+                    slots.insert(*dst, result);
+                }
                 I::MakeClosure {
                     dst,
                     function,
@@ -414,7 +469,10 @@ impl Trace {
                     if !identity.arguments.is_empty() {
                         return Err(invalid());
                     }
-                    slots.insert(*dst, Value::Definition(canonical(identity, program)));
+                    slots.insert(
+                        *dst,
+                        Value::Definition(canonical(identity.declaration, program)),
+                    );
                 }
                 I::Call { dst, callee, args } => {
                     let (callee, entry, types, signature) = match callee {
@@ -478,7 +536,7 @@ impl Trace {
                                 }
                             };
                             (
-                                Value::Definition(canonical(identity, program)),
+                                Value::Definition(identity.declaration),
                                 Some(entry),
                                 types,
                                 contract.signature.clone(),
@@ -503,7 +561,7 @@ impl Trace {
                             let target = module.functions.get(id.index()).ok_or_else(invalid)?;
                             let identity = target.identity.as_ref().ok_or_else(invalid)?;
                             (
-                                Value::Definition(canonical(identity, program)),
+                                Value::Definition(identity.declaration),
                                 Some(CallableImplementation::Script),
                                 identity.arguments.clone(),
                                 function_signature(target)?,
@@ -517,7 +575,7 @@ impl Trace {
                                 .ok_or_else(invalid)?;
                             let identity = target.identity.as_ref().ok_or_else(invalid)?;
                             (
-                                Value::Definition(canonical(identity, program)),
+                                Value::Definition(identity.declaration),
                                 Some(CallableImplementation::Script),
                                 identity.arguments.clone(),
                                 function_signature(target)?,
@@ -716,7 +774,7 @@ impl Expression<'_, '_> {
                     .signature
                     .result,
             )?,
-            Value::TraitMethod(_) => return Err(invalid()),
+            Value::TraitMethod(_) | Value::Convert => return Err(invalid()),
             Value::Unit => Ty::Builtin(BuiltinType::Unit),
         })
     }
@@ -814,16 +872,7 @@ impl Expression<'_, '_> {
                         interface,
                         member,
                     } => {
-                        let Ty::Trait(interface) =
-                            self.apply_type(&Ty::Trait(interface.clone()))?
-                        else {
-                            return Err(invalid());
-                        };
-                        Value::TraitMethod(Box::new(QualifiedMethod {
-                            receiver: self.apply_type(receiver)?,
-                            interface,
-                            member: *member,
-                        }))
+                        Value::TraitMethod(Box::new(self.qualified(receiver, interface, *member)?))
                     }
                     other => self.value(other, None)?,
                 };
@@ -842,7 +891,7 @@ impl Expression<'_, '_> {
                 }
                 if let Value::TraitMethod(method) = callee {
                     self.authenticate_method(&method, &types, actual, &arguments, expected)?;
-                } else if actual.callee != callee {
+                } else if !actual.names(&callee, self.program) {
                     return Err(invalid());
                 } else if types.is_empty() && !actual.types.is_empty() {
                     let Value::Definition(id) = callee else {

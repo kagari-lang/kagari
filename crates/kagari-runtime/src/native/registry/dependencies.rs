@@ -11,7 +11,9 @@ use kagari_common::identity::{
 };
 use kagari_contract::types::{InterfaceTable, PublicItem, inherent::InherentTable, trait_contract};
 use kagari_types::{
-    declaration::{TraitDef, TypeDefKind, module::ImplDecl},
+    declaration::{
+        TraitDef, TypeDefKind, conversion::is_library_forwarding_trait, module::ImplDecl,
+    },
     language,
     language::Protocol,
     ty::Ty,
@@ -70,9 +72,14 @@ pub(super) fn validate_installed_traits(
         let PublicItem::Trait(contract) = item else {
             continue;
         };
-        let reserved = Protocol::ALL.into_iter().any(|protocol| {
-            protocol.module() == module.identity && protocol.name() == contract.name
-        });
+        let source = admission.source();
+        let lexical = source
+            .lookup_root(&module.identity)
+            .and_then(|root| source.lookup_child(root, DefinitionKind::Trait, &contract.name, 0));
+        let reserved = lexical.is_some_and(|id| is_library_forwarding_trait(source, id))
+            || Protocol::ALL.into_iter().any(|protocol| {
+                protocol.module() == module.identity && protocol.name() == contract.name
+            });
         let id = definitions.lookup_root(&module.identity).and_then(|root| {
             definitions.lookup_child(root, DefinitionKind::Trait, &contract.name, 0)
         });
@@ -82,9 +89,10 @@ pub(super) fn validate_installed_traits(
                 id.is_some_and(|id| matching::trait_contract(id, expected, contract, &definitions))
             })
         {
-            return Err(RuntimeError::module_validation(
-                "reserved or native trait differs from its installed contract",
-            ));
+            return Err(RuntimeError::module_validation(format!(
+                "reserved or native trait differs from its installed contract: {}",
+                contract.name
+            )));
         }
     }
     for contract in &module.trait_contracts {
@@ -95,6 +103,7 @@ pub(super) fn validate_installed_traits(
         let registered = installed.traits.get_id(contract.declaration);
         if (registered.is_some()
             || Protocol::from_definition(&contract.declaration, &definitions).is_some()
+            || is_library_forwarding_trait(&definitions, contract.declaration)
             || contract.abi.conversion_adapter.is_some())
             && !registered.is_some_and(|expected| {
                 matching::trait_contract(
@@ -283,7 +292,7 @@ pub(super) fn validate(
     Ok(())
 }
 
-fn implementation_matches(
+pub(super) fn implementation_matches(
     id: &DefinitionId,
     expected: &ImplDecl,
     actual: &InterfaceTable,

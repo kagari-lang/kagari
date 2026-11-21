@@ -53,13 +53,7 @@ pub(in crate::analysis) fn conversion_bytes(
         },
         cancel,
     )?;
-    let shape = match metadata.records() {
-        ConversionAdapter::Reverse { error, result, .. } => {
-            (0u8, error.is_some(), result.is_some())
-        }
-        ConversionAdapter::Forward { .. } => (1u8, false, false),
-    };
-    bytes(&(encoding.table, shape, references))
+    bytes(&(encoding.table, references))
 }
 
 pub(in crate::analysis) fn host_bytes(

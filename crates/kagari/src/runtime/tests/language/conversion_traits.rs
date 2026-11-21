@@ -1,6 +1,21 @@
+use crate::test_support::execution::{self, Route};
+use kagari_source::source::SourceFile;
+
 mod diagnostics;
 mod linking;
 mod native_aggregation;
+
+#[test]
+fn identity_and_converted_residuals_preserve_the_original_object_or_value() {
+    let engine = execution::engine(Default::default());
+    let source = include_str!(
+        "../../../../tests/fixtures/language/conversion_traits/conversions-can-be-owned-by-the-source-and-preserve-identity.kgr"
+    );
+    let checked = engine
+        .compile_source(SourceFile::new("identity.kgr", source))
+        .unwrap();
+    execution::assert_returns_i32(&engine, checked, &[Route::Source], 42);
+}
 
 /* Temporarily paused: stdlib restoration (NC01-NC06).
 #[rstest]

@@ -41,7 +41,6 @@ impl ProofCatalog<'_> {
                         receiver,
                         member,
                         budget.cancel,
-                        self.trait_contract(&interface.declaration),
                         &self.definitions,
                     )? {
                         return Ok(Some(output));

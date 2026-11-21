@@ -9,7 +9,6 @@ use kagari_common::identity::{
     table::{DefinitionId, DefinitionTable},
 };
 use kagari_types::{
-    declaration::conversion::ConversionAdapter,
     language::{Protocol, binding},
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
@@ -82,68 +81,9 @@ pub(super) fn conversion_targets_valid(
     let Some(relationship) = &actual.conversion_adapter else {
         return true;
     };
-    let result_valid = |result: &DefinitionId| {
-        aggregates
-            .enumerations()
-            .any(|item| item.id == *result && item.generic_params.len() == 2)
-    };
-    match relationship {
-        ConversionAdapter::Forward { result, .. } => result_valid(result),
-        ConversionAdapter::Reverse {
-            origin,
-            method,
-            error,
-            result,
-        } => {
-            let Some(forward) = aggregates.trait_(origin) else {
-                return false;
-            };
-            let [parameter] = forward.generic_params.as_slice() else {
-                return false;
-            };
-            let [selected] = forward.methods.as_slice() else {
-                return false;
-            };
-            let input = Ty::Parameter {
-                owner: parameter.owner,
-                position: parameter.position,
-            };
-            let this = Ty::SelfType(*origin);
-            let output = match (error, result) {
-                (None, None) => this,
-                (Some((_, member)), Some(result))
-                    if result_valid(result) && forward.associated_types.contains_key(member) =>
-                {
-                    Ty::Enum(NominalTy {
-                        declaration: *result,
-                        arguments: vec![
-                            this.clone(),
-                            Ty::Projection {
-                                receiver: Box::new(this),
-                                interface: Box::new(NominalTy {
-                                    declaration: *origin,
-                                    arguments: vec![input.clone()],
-                                    associated_types: BTreeMap::new(),
-                                }),
-                                member: *member,
-                                arguments: vec![],
-                            },
-                        ],
-                        associated_types: BTreeMap::new(),
-                    })
-                }
-                _ => return false,
-            };
-            selected.id == *method
-                && selected.generic_params == forward.generic_params
-                && selected.bounds.values().all(Vec::is_empty)
-                && forward.bounds.values().all(Vec::is_empty)
-                && selected.params.len() == 1
-                && selected.params[0].name != "self"
-                && lower_type(&selected.params[0].ty) == input
-                && lower_type(&selected.return_type) == output
-        }
-    }
+    aggregates
+        .enumerations()
+        .any(|item| item.id == relationship.result && item.generic_params.len() == 2)
 }
 
 /// Extension defaults are ordinary checked declarations. Only required language

@@ -4,13 +4,52 @@ use super::{abi_parameters, checked_bounds, const_abi_value, constraint_abi, met
 use kagari_common::identity::DefinitionKind;
 use kagari_contract::types::TraitContract;
 use kagari_hir::{
-    compile_input::program::CheckedModule, hir::item::behavior::TraitDef as HirTraitDef,
-    resolver::resolved::ResolvedName, types::semantic::lower_type,
+    aggregates::traits::{MethodDefault, MethodSignature},
+    compile_input::program::CheckedModule,
+    hir::item::behavior::TraitDef as HirTraitDef,
+    resolver::resolved::ResolvedName,
+    types::semantic::lower_type,
 };
 use kagari_types::{
-    declaration::{AssociatedConstDef, AssociatedTypeDef, TraitDef},
+    callable::CallableImplementation,
+    declaration::{AssociatedConstDef, AssociatedTypeDef, FnDecl, Param, TraitDef},
     ty::NominalTy,
 };
+
+/// A trait header retains its own associated projections. Body normalization may
+/// select a blanket output; that describes an application, not the declared ABI.
+pub(super) fn declared_method(module: &CheckedModule<'_>, method: &MethodSignature) -> FnDecl {
+    let environment = module.environment();
+    let catalog = environment.aggregates();
+    let definitions = environment.definitions();
+    let value_type = |ty| lower_type(&catalog.canonical_value_type(definitions, ty));
+    let (implementation, host_policy) = match &method.default {
+        None => (CallableImplementation::Required, None),
+        Some(MethodDefault::Script) => (CallableImplementation::Script, None),
+        Some(MethodDefault::Native(contract)) => (
+            CallableImplementation::Native(method.id),
+            contract.host_policy.clone(),
+        ),
+    };
+    FnDecl {
+        name: method.name.clone(),
+        implementation,
+        host_policy,
+        method_policy: method.policy,
+        generic_params: abi_parameters(&method.generic_params),
+        bounds: checked_bounds(catalog, definitions, &method.bounds),
+        params: method
+            .params
+            .iter()
+            .map(|param| Param {
+                name: param.name.clone(),
+                mutable: param.writeability.is_var(),
+                ty: value_type(&param.ty),
+            })
+            .collect(),
+        return_type: value_type(&method.return_type),
+    }
+}
 
 pub(super) fn lower(module: &CheckedModule<'_>, header: &HirTraitDef) -> TraitContract {
     let environment = module.environment();

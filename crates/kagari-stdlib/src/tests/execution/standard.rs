@@ -78,6 +78,19 @@ fn executes_bytecode_foundation_collection_bindings() {
 }
 
 #[test]
+fn concrete_conversions_forward_to_intrinsic_and_native_methods() {
+    let program = compile_test_bytecode(include_str!(
+        "../../../tests/fixtures/execution/conversion-forwarding.kgr"
+    ));
+    let (mut runtime, loaded) =
+        load_bytecode_program("conversions.kbc", round_trip_bytecode(program));
+    let result: bool = runtime
+        .execute_typed(&loaded, ProgramEntry::Main, (), &Default::default())
+        .unwrap();
+    assert!(result);
+}
+
+#[test]
 fn standard_vec_mutation_updates_shared_sequence_handles() {
     let (runtime, loaded) = load_test_module(include_str!(
         "../../../tests/fixtures/execution/vec-alias.kgr"
