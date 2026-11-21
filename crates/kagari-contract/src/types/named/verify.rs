@@ -19,7 +19,7 @@ use kagari_common::{
 };
 use kagari_types::{
     declaration::verify::{Parameters, bounds_valid, function_valid, parameters, type_valid},
-    ty::{GenericParam, Ty, substitution::TypeSubstitution},
+    ty::{GenericParam, Ty, matching::impl_headers_overlap, substitution::TypeSubstitution},
     visibility::Visibility,
 };
 use std::collections::{BTreeMap, HashMap};
@@ -284,6 +284,45 @@ pub fn validate(
         if record.visibility != Visibility::Public || record.contract != expected {
             return Err(invalid);
         }
+    }
+    validate_impl_coherence(records, cancel)
+}
+
+/// Compare authored headers in one admitted identity space, not dispatch instances,
+/// inherited views or intrinsic bridges. Bounds and associated outputs cannot make
+/// overlapping impl inputs disjoint. Call after validating individual records.
+pub(super) fn validate_impl_coherence(
+    records: &[NamedDeclaration],
+    cancel: &CancellationToken,
+) -> Result<(), LayoutValidationError> {
+    let mut by_trait = HashMap::<_, Vec<(&Ty, &[Ty])>>::new();
+    let mut comparisons = MAX_TABLE_RECORDS;
+    for record in records {
+        cancel
+            .check()
+            .map_err(|_| LayoutValidationError::Cancelled)?;
+        let NamedContract::Implementation(header) = &record.contract else {
+            continue;
+        };
+        let Some(Ty::Trait(interface)) = &header.trait_type else {
+            continue;
+        };
+        let prior = by_trait.entry(interface.declaration).or_default();
+        for &(receiver, arguments) in prior.iter() {
+            cancel
+                .check()
+                .map_err(|_| LayoutValidationError::Cancelled)?;
+            comparisons = comparisons
+                .checked_sub(1)
+                .ok_or(LayoutValidationError::Limit {
+                    resource: "impl header comparisons",
+                    limit: MAX_TABLE_RECORDS,
+                })?;
+            if impl_headers_overlap(receiver, arguments, &header.receiver, &interface.arguments) {
+                return Err(LayoutValidationError::Invalid);
+            }
+        }
+        prior.push((&header.receiver, &interface.arguments));
     }
     Ok(())
 }

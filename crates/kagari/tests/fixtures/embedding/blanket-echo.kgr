@@ -1,0 +1,7 @@
+use pkg::api::Echo;
+
+impl<T> Echo<T> for T {
+    fn get(self) -> T {
+        self
+    }
+}

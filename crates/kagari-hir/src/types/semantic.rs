@@ -1,6 +1,31 @@
 //! Convert checked HIR types to source-independent semantic facts in the same scope.
 use crate::types::{GenericParameterType, NominalType, TypeId};
-use kagari_types::ty::{NominalTy, Ty};
+use kagari_types::ty::{NominalTy, Ty, matching::impl_headers_overlap};
+
+/// The input patterns of one resolved implementation, lowered once per coherence pass.
+/// Bounds and associated outputs do not distinguish implementations.
+pub(crate) struct ImplHeader {
+    receiver: Ty,
+    arguments: Vec<Ty>,
+}
+
+impl ImplHeader {
+    pub(crate) fn lower(receiver: &TypeId, arguments: &[TypeId]) -> Self {
+        Self {
+            receiver: lower_type(receiver),
+            arguments: arguments.iter().map(lower_type).collect(),
+        }
+    }
+
+    pub(crate) fn overlaps(&self, other: &Self) -> bool {
+        impl_headers_overlap(
+            &self.receiver,
+            &self.arguments,
+            &other.receiver,
+            &other.arguments,
+        )
+    }
+}
 
 /// Converts a nominal application to source-independent semantic metadata; child recovery types panic as in `lower_type`.
 pub fn lower_nominal_type(ty: &NominalType) -> NominalTy {

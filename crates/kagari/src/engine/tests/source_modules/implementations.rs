@@ -405,18 +405,13 @@ fn sibling_dependency_implementations_reject_even_when_unused_and_recover_after_
     );
     insert(
         &engine,
-        "model",
-        "pub struct Holder { pub val number: i32 } pub fn make() -> Holder { Holder { number: 9 } }",
-    );
-    insert(
-        &engine,
         "a",
-        "use pkg::api::Echo; use pkg::model::Holder; impl Echo<i32> for Holder { fn get(self) -> i32 { self.number } }",
+        include_str!("../../../../tests/fixtures/embedding/blanket-echo.kgr"),
     );
     insert(
         &engine,
         "b",
-        "use pkg::api::Echo; use pkg::model::Holder; impl Echo<i32> for Holder { fn get(self) -> i32 { self.number + 1 } }",
+        "use pkg::api::Echo; impl Echo<i32> for i32 { fn get(self) -> i32 { 1 } }",
     );
     let root = insert(
         &engine,
@@ -430,17 +425,21 @@ fn sibling_dependency_implementations_reject_even_when_unused_and_recover_after_
     let EmbeddingError::Diagnostics { diagnostics } = error else {
         panic!("expected source diagnostics");
     };
-    assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic.code == "KG_TYPE_INVALID_TRAIT_IMPL"
-            && diagnostic
-                .span
-                .is_some_and(|location| location.file == root)
-    }));
+    assert!(
+        diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "KG_TYPE_INVALID_TRAIT_IMPL"
+                && diagnostic.message.contains("overlapping implementations")
+                && diagnostic
+                    .span
+                    .is_some_and(|location| location.file == root)
+        }),
+        "{diagnostics:?}"
+    );
 
     engine
         .set_source(
             "mem://b",
-            "pub fn helper() -> i32 { 2 }".into(),
+            "use pkg::api::Echo; impl Echo<bool> for i32 { fn get(self) -> bool { true } }".into(),
             SourceLayer::Overlay,
         )
         .unwrap();

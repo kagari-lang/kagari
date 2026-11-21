@@ -1,17 +1,21 @@
 use crate::{
     callable::generic::GenericBody,
+    layout::LayoutValidationError,
     slots::SemanticSlots,
     types::{
         ConcreteFunctionIdentity,
         named::{
-            NamedContract, NamedDeclaration,
-            verify::{SignatureScope, signature_matches},
+            ImplementationContract, NamedContract, NamedDeclaration,
+            correspondence::validate_inventory,
+            verify::{SignatureScope, signature_matches, validate},
         },
     },
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, ModuleIdentity, map::DefinitionContext},
+    identity::{
+        DefinitionKind, ModuleIdentity, map::DefinitionContext, mapping::DefinitionMappingError,
+    },
 };
 use kagari_types::{
     callable::CallableImplementation,
@@ -21,6 +25,91 @@ use kagari_types::{
     visibility::Visibility,
 };
 use std::slice;
+
+#[test]
+fn unused_trait_headers_must_be_coherent_across_the_linked_inventory() {
+    let context = DefinitionContext::new().unwrap();
+    let left = ModuleIdentity::single_file("left.kgr");
+    let right = ModuleIdentity::single_file("right.kgr");
+    let left_root = context.intern_root(&left).unwrap();
+    let right_root = context.intern_root(&right).unwrap();
+    let owner = context
+        .intern_child(left_root, DefinitionKind::Impl, "", 0)
+        .unwrap();
+    let other = context
+        .intern_child(right_root, DefinitionKind::Impl, "", 0)
+        .unwrap();
+    let local = context
+        .intern_child(left_root, DefinitionKind::Impl, "", 1)
+        .unwrap();
+    let interface = |name, arguments| NominalTy {
+        declaration: context
+            .intern_child(left_root, DefinitionKind::Trait, name, 0)
+            .unwrap(),
+        arguments,
+        associated_types: Default::default(),
+    };
+    let header = |declaration, generic_params, bounds, receiver, argument| NamedDeclaration {
+        declaration,
+        visibility: Visibility::Private,
+        ambiguous_local_body: None,
+        contract: NamedContract::Implementation(ImplementationContract {
+            bridge: None,
+            generic_params,
+            bounds,
+            receiver,
+            trait_type: Some(Ty::Trait(interface("Convert", vec![argument]))),
+        }),
+    };
+    let t = GenericParam { owner, position: 0 };
+    let blanket = header(
+        owner,
+        vec![t.clone()],
+        vec![GenericBound {
+            ty: t.as_type(),
+            constraints: vec![interface("Marker", vec![])],
+        }],
+        t.as_type(),
+        t.as_type(),
+    );
+    let int = Ty::Builtin(BuiltinType::I32);
+    let concrete = |argument| header(other, vec![], vec![], int.clone(), argument);
+    let disjoint = concrete(Ty::Builtin(BuiltinType::U32));
+    let conflicting = concrete(int.clone());
+    let definitions = context.snapshot();
+    let cancel = CancellationToken::default();
+    // No dispatch slots or proof queries. Each provider is valid in isolation.
+    validate(slice::from_ref(&blanket), &[], &left, &definitions, &cancel).unwrap();
+    validate(
+        slice::from_ref(&conflicting),
+        &[],
+        &right,
+        &definitions,
+        &cancel,
+    )
+    .unwrap();
+    validate_inventory([&blanket, &disjoint], &definitions, &cancel).unwrap();
+    assert_eq!(
+        validate_inventory([&blanket, &conflicting], &definitions, &cancel),
+        Err(DefinitionMappingError::InvalidContract)
+    );
+    assert_eq!(
+        validate(
+            &[
+                blanket,
+                NamedDeclaration {
+                    declaration: local,
+                    ..conflicting
+                }
+            ],
+            &[],
+            &left,
+            &definitions,
+            &cancel
+        ),
+        Err(LayoutValidationError::Invalid)
+    );
+}
 
 #[test]
 fn executable_bounds_cannot_add_an_unauthored_witness_requirement() {

@@ -7,12 +7,11 @@ use crate::{
     lower::LoweredModule,
     resolver::resolved::ResolvedName,
     typeck::{
-        check::possibly_overlapping_impls,
         constraints,
         table::TypeTable,
         ty::{display_type, display_type_id},
     },
-    types::{NominalType, TypeId},
+    types::{TypeId, semantic::ImplHeader},
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::language::Protocol;
@@ -24,7 +23,7 @@ pub(super) fn validate_trait_surface(
     table: &mut TypeTable,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
 ) {
-    let mut seen_impls: Vec<(NominalType, TypeId)> = Vec::new();
+    let mut seen_impls: Vec<(_, ImplHeader)> = Vec::new();
     for impl_block in &lowered.module.impls {
         let Some(reference) = &impl_block.trait_ref else {
             continue;
@@ -71,13 +70,12 @@ pub(super) fn validate_trait_surface(
             continue;
         };
         let type_name = display_type_id(declarations.definitions(), &for_ty);
-        // Interface values are concrete receiver categories; a bare binder is not.
-        if matches!(for_ty, TypeId::Generic(_)) {
+        if id.arguments.iter().any(TypeId::is_unresolved) {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
                     trait_name: trait_name.to_string(),
                     type_name,
-                    reason: "impl target must be a concrete type".to_string(),
+                    reason: "impl trait argument is unknown".to_string(),
                 })
                 .with_span(
                     lowered.module.impls[impl_block.id.index()]
@@ -88,12 +86,9 @@ pub(super) fn validate_trait_surface(
             continue;
         }
 
-        if seen_impls.iter().any(|(previous_trait, previous_type)| {
-            previous_trait.declaration == id.declaration
-                && (previous_trait.arguments == id.arguments
-                    || !previous_trait.arguments.iter().all(TypeId::is_concrete)
-                    || !id.arguments.iter().all(TypeId::is_concrete))
-                && possibly_overlapping_impls(previous_type, &for_ty)
+        let header = ImplHeader::lower(&for_ty, &id.arguments);
+        if seen_impls.iter().any(|(declaration, previous)| {
+            *declaration == id.declaration && previous.overlaps(&header)
         }) {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
@@ -109,7 +104,7 @@ pub(super) fn validate_trait_surface(
             );
             continue;
         }
-        seen_impls.push((id.clone(), for_ty.clone()));
+        seen_impls.push((id.declaration, header));
 
         let standard = Protocol::from_definition(&id.declaration, declarations.definitions());
         if standard

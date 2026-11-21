@@ -17,7 +17,10 @@ use crate::{
         GenericBounds, ModuleSignatures, associated, check::possibly_overlapping_impls,
         table::match_implementation,
     },
-    types::{AssociatedTypeFamily, GenericParameterType, NominalType, TypeId, TypeSubstitution},
+    types::{
+        AssociatedTypeFamily, GenericParameterType, NominalType, TypeId, TypeSubstitution,
+        semantic::ImplHeader,
+    },
 };
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
@@ -140,6 +143,13 @@ impl AggregateCatalog {
             Protocol::from_definition(&implementation.trait_type.declaration, definitions);
         if matches!(adapter, Some(ConversionAdapter::Reverse { .. })) {
             return Some("Into and TryInto are derived from From and TryFrom");
+        }
+        if matches!(implementation.for_type, TypeId::Generic(_))
+            && (protocol.is_some() || adapter.is_some())
+        {
+            return Some(
+                "a standard protocol implementation cannot have a bare receiver parameter",
+            );
         }
         if protocol == Some(Protocol::From)
             && implementation
@@ -521,7 +531,8 @@ impl AggregateCatalog {
         &self,
         definitions: &DefinitionTable,
     ) -> Vec<(&ImplementationSignature, &ImplementationSignature)> {
-        let mut by_trait: BTreeMap<&DefinitionId, Vec<&ImplementationSignature>> = BTreeMap::new();
+        let mut by_trait: BTreeMap<_, Vec<(&ImplementationSignature, ImplHeader)>> =
+            BTreeMap::new();
         let mut overlaps = Vec::new();
         let mut implementations = self.implementations.values().collect::<Vec<_>>();
         implementations.sort_by(|left, right| {
@@ -533,23 +544,17 @@ impl AggregateCatalog {
             let previous = by_trait
                 .entry(&implementation.trait_type.declaration)
                 .or_default();
-            if let Some(conflict) = previous.iter().copied().find(|candidate| {
-                (candidate.trait_type.arguments == implementation.trait_type.arguments
-                    || !candidate
-                        .trait_type
-                        .arguments
-                        .iter()
-                        .all(TypeId::is_concrete)
-                    || !implementation
-                        .trait_type
-                        .arguments
-                        .iter()
-                        .all(TypeId::is_concrete))
-                    && possibly_overlapping_impls(&candidate.for_type, &implementation.for_type)
-            }) {
-                overlaps.push((conflict, implementation.as_ref()));
+            let header = ImplHeader::lower(
+                &implementation.for_type,
+                &implementation.trait_type.arguments,
+            );
+            if let Some((conflict, _)) = previous
+                .iter()
+                .find(|(_, candidate)| candidate.overlaps(&header))
+            {
+                overlaps.push((*conflict, implementation.as_ref()));
             }
-            previous.push(implementation);
+            previous.push((implementation, header));
         }
         overlaps
     }

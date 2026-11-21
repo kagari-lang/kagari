@@ -53,7 +53,7 @@ impl ShapeBudget {
         Ok(())
     }
 
-    fn visit(
+    pub(super) fn visit(
         &mut self,
         ty: &Ty,
         depth: usize,

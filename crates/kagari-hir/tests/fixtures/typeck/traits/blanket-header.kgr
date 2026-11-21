@@ -1,0 +1,5 @@
+trait Marker {}
+
+trait Ready<A> {}
+
+impl<T: Marker> Ready<T> for T {}

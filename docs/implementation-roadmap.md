@@ -2105,8 +2105,12 @@ callback effects/cleanup, pinned reload and source-free loading. Full workspace
 and exhaustive feature/backend acceptance remain unrun locally and belong to CI.
 The completed plan and resolved findings are retained in Git history.
 
-Source interface impl targets, blanket impls, derive additions and NC
-migration remain outside this work; their completion is not implied. Host
+**Next HIR/trait implementation:** the [blanket trait impl plan](blanket-trait-impl-plan.md)
+owns BI01–BI04: admit and select ordinary conditional impls first, then replace reverse conversion
+adapters with library Script impls. BI01 admits coherent ordinary blanket headers; see the plan for
+subsequent selection, structured registration and conversion cutover status.
+
+Source interface impl targets, derive additions and NC migration remain outside this work. Host
 registration/interop is implemented separately as described above.
 
 ## Interface type tests and downcast

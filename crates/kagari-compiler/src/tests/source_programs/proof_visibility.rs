@@ -86,8 +86,8 @@ fn linked_proofs_use_each_modules_dependency_visibility() {
     );
 
     // Add an independently named, otherwise equivalent implementation in a root
-    // sibling. It is well formed but invisible to the consumer and must not make
-    // the consumer's single available implementation ambiguous.
+    // sibling. Although the consumer cannot see it, the root must reject two
+    // competing authored headers even before any method requires their proof.
     let mut competing = program.modules[provider].clone();
     competing.identity = ModuleIdentity {
         package: PackageId("pkg".into()),
@@ -132,13 +132,8 @@ fn linked_proofs_use_each_modules_dependency_visibility() {
     // This source-free sibling has no authored document anchor.
     program.update_evidence.source_manifest = None;
     crate::tests::common::project_bytecode(&context, &mut program);
-    verify_program(&program, &context.snapshot(), &Default::default()).unwrap();
-
-    // Making that same competing implementation visible introduces an actual
-    // ambiguous proof and must be rejected.
-    program.modules[consumer].dependencies.push(competing_slot);
     assert!(matches!(
         verify_program(&program, &context.snapshot(), &Default::default()),
-        Err(BytecodeVerificationError::InvalidHostInterface(_))
+        Err(BytecodeVerificationError::InvalidPublicAbi)
     ));
 }

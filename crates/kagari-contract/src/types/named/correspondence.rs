@@ -2,7 +2,11 @@
 
 use crate::{
     decode_limits::MAX_TABLE_RECORDS,
-    types::named::{NamedContract, NamedDeclaration, wire::NamedDeclarationRecord},
+    layout::LayoutValidationError,
+    types::named::{
+        NamedContract, NamedDeclaration, verify::validate_impl_coherence,
+        wire::NamedDeclarationRecord,
+    },
 };
 use bincode::{DefaultOptions, Options};
 use kagari_common::{
@@ -18,7 +22,8 @@ use kagari_common::{
 };
 use std::collections::HashMap;
 
-/// Reject duplicate members after grouping equivalent semantic impl headers.
+/// Reject overlapping trait impls across the linked inventory, including unused
+/// headers from sibling dependencies, then check members under equivalent headers.
 /// Different inherent blocks may share a header, but not a member identity. Trait
 /// relationships may not be duplicated even when their headers are byte-identical.
 pub fn validate_inventory<'a>(
@@ -41,6 +46,11 @@ pub fn validate_inventory<'a>(
         }
         inventory.push(record.clone());
     }
+    validate_impl_coherence(&inventory, cancel).map_err(|error| match error {
+        LayoutValidationError::Cancelled => DefinitionMappingError::Cancelled,
+        LayoutValidationError::Limit { .. } => DefinitionMappingError::LimitExceeded,
+        LayoutValidationError::Invalid => DefinitionMappingError::InvalidContract,
+    })?;
     let mapped = DeclarationCorrespondence::new()?.import(
         &inventory,
         inventory.iter().cloned(),

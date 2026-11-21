@@ -300,6 +300,55 @@ fn forward<T: Carrier, U: Carrier>(value: T) {{ take::<T, {projection}>(value); 
 }
 
 #[test]
+fn blanket_impl_headers_compare_receiver_and_trait_arguments_together() {
+    let blanket = include_str!("../../../tests/fixtures/typeck/traits/blanket-header.kgr");
+    for (other, overlaps) in [
+        ("impl Ready<bool> for i32 {}", false),
+        ("impl Ready<i32> for i32 {}", true),
+        ("impl<U: Marker> Ready<U> for U {}", true),
+    ] {
+        let source = SourceFile::new("headers.kgr", format!("{blanket}{other}"));
+        let analysis =
+            crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        if overlaps {
+            assert!(
+                analysis.diagnostics().iter().any(|diagnostic| matches!(
+                    &diagnostic.kind,
+                    DiagnosticKind::InvalidTraitImpl { reason, .. } if reason == "overlapping impl"
+                )),
+                "{other}: {:?}",
+                analysis.diagnostics()
+            );
+        } else {
+            let checked = analysis.into_checked().expect("disjoint impl headers");
+            let mut entries = checked.typed.type_table.implementation_entries();
+            let (_, interface, receiver, parameters, bounds, _) = entries
+                .find(|(_, _, receiver, _, _, _)| matches!(receiver, TypeId::Generic(_)))
+                .expect("admitted blanket implementation");
+            assert_eq!(receiver, &TypeId::Generic(parameters[0].clone()));
+            assert_eq!(
+                interface.arguments.as_slice(),
+                std::slice::from_ref(receiver)
+            );
+            assert_eq!(bounds[receiver].len(), 1);
+        }
+    }
+}
+
+#[test]
+fn bare_receiver_cannot_override_standard_formatting() {
+    let source = SourceFile::new(
+        "format-impl.kgr",
+        "impl<T> std::fmt::Display for T { fn display(self) -> String { \"\" } }",
+    );
+    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+    assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
+        &diagnostic.kind,
+        DiagnosticKind::InvalidTraitImpl { reason, .. } if reason.contains("standard protocol implementation cannot have a bare receiver")
+    )), "{:?}", analysis.diagnostics());
+}
+
+#[test]
 fn applied_impl_bounds_reuse_the_callers_generic_assumptions() {
     for (bound, valid) in [(": Marker", true), ("", false)] {
         let source = SourceFile::new(

@@ -1,13 +1,59 @@
-//! Match checked implementation templates against a requested executable contract.
+//! Compare implementation headers and match checked templates against executable contracts.
+mod overlap;
+#[cfg(test)]
+mod tests;
+
+use self::overlap::Comparison;
 use crate::{
     declaration::AssociatedTypeFamily,
     ty::{
-        GenericParam, NominalTy, Ty, shape,
+        GenericParam, NominalTy, Ty,
+        shape::{self, ShapeBudget},
         substitution::{MAX_TYPE_NODES, TypeSubstitution, TypeTransformError},
     },
 };
-
 use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
+use std::iter::once;
+
+/// Can two headers for the same trait have a common receiver and applied arguments?
+///
+/// Definition IDs must already be in one identity space. Parameters are local to
+/// each header; bounds and projection normalization are not consulted. `false`
+/// proves disjointness; `true` also covers inconclusive or over-budget comparisons.
+/// This predicate does not select an implementation or establish trait evidence.
+pub fn impl_headers_overlap(
+    left_receiver: &Ty,
+    left_arguments: &[Ty],
+    right_receiver: &Ty,
+    right_arguments: &[Ty],
+) -> bool {
+    if left_arguments.len() != right_arguments.len() {
+        return false;
+    }
+    for (receiver, arguments) in [
+        (left_receiver, left_arguments),
+        (right_receiver, right_arguments),
+    ] {
+        let mut budget = ShapeBudget::new();
+        if once(receiver)
+            .chain(arguments)
+            .any(|ty| budget.visit(ty, 1, None).is_err())
+        {
+            return true;
+        }
+    }
+    let mut comparison = Comparison::new();
+    for (left, right) in
+        once((left_receiver, right_receiver)).chain(left_arguments.iter().zip(right_arguments))
+    {
+        match comparison.pair(left, right) {
+            Some(true) => {}
+            Some(false) => return false,
+            None => return true,
+        }
+    }
+    true
+}
 
 /// The actual checked header, independently of its declaration/executable source.
 pub struct ImplementationPattern<'a> {
