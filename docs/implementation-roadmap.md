@@ -22,6 +22,15 @@ snapshots and generation-pinned execution remain separate contracts. See
 [definition identity ownership](architecture.md#definition-identity-ownership).
 These capabilities are foundations to reuse, not migrations to replay.
 
+## Source-defined language core
+
+The [core trait source plan](core-trait-source-plan.md) owns CS01–CS04. Authored `library/core/`
+modules will supply 26 language protocols, nine ordinary traits, and core types including
+`Option` and `Result` with propagation. A third party must be able to implement and use its
+own collection library without registering the bundled stdlib. Compiled programs remain
+source-free. CS01 reproduced core-only HIR checking; the public `Iterable` adapter
+ownership decision is open before production cutover. CS02–CS04 are not implemented.
+
 ## Strongly typed syntax CI acceptance
 
 Fuzz oracle strengthening adds exact lexical kind/range sequences
