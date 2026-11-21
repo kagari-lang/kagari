@@ -431,68 +431,42 @@ impl<'a> BodyChecker<'a> {
         callee: ExprId,
     ) {
         for (target, constraints) in bounds {
-            let actual_owned = self.aggregates.normalize_type(
-                self.declarations.definitions(),
-                &target.instantiate(substitution),
-            );
+            let receiver = target.instantiate(substitution);
+            let actual_owned = self
+                .aggregates
+                .normalize_type(self.declarations.definitions(), &receiver);
             let actual = &actual_owned;
             // A diverging argument produces no value that must satisfy a bound.
             if actual.is_never() {
                 continue;
             }
             for constraint in constraints {
-                let mut trait_type = constraint.instantiate(substitution);
-                for ty in trait_type
-                    .arguments
-                    .iter_mut()
-                    .chain(trait_type.associated_types.values_mut())
-                {
-                    *ty = self
-                        .aggregates
-                        .normalize_type(self.declarations.definitions(), ty);
-                }
+                let trait_type = constraint.instantiate(substitution);
                 self.constrain_declared_bound(actual, &trait_type, env);
-                let satisfied = match actual {
-                    TypeId::Generic(_) | TypeId::SelfType(_) | TypeId::Projection { .. } => {
-                        self.aggregates.intrinsic_implementation(
-                            self.declarations.definitions(),
-                            &trait_type,
-                            actual,
-                            &env.generic_bounds,
-                        ) || self
-                            .trait_bounds_for(actual, env)
-                            .iter()
-                            .any(|bound| bound.satisfies_for(&trait_type, actual))
-                    }
-                    _ => {
-                        match self.aggregates.implementation_count_bounded(
-                            self.declarations.definitions(),
-                            &trait_type,
-                            actual,
-                            ImplementationSearchContext {
-                                assumptions: &env.generic_bounds,
-                                limits: ImplementationSearchLimits {
-                                    max_checks: 4096,
-                                    max_depth: 64,
-                                },
-                                cancel: self.cancel,
-                            },
-                        ) {
-                            Ok(count) => count == 1,
-                            Err(ImplementationSearchError::Cancelled) => return,
-                            Err(ImplementationSearchError::LimitExceeded) => {
-                                self.diagnostics.push(
-                                    Diagnostic::error(DiagnosticKind::CompileLimitExceeded {
-                                        resource: "trait implementation search",
-                                        limit: 4096,
-                                    })
-                                    .with_span(
-                                        self.lowered.module.expr(callee).origin.diagnostic_span(),
-                                    ),
-                                );
-                                return;
-                            }
-                        }
+                let satisfied = match self.aggregates.proves_requirement(
+                    self.declarations.definitions(),
+                    &trait_type,
+                    &receiver,
+                    ImplementationSearchContext {
+                        assumptions: &env.generic_bounds,
+                        limits: ImplementationSearchLimits {
+                            max_checks: 4096,
+                            max_depth: 64,
+                        },
+                        cancel: self.cancel,
+                    },
+                ) {
+                    Ok(satisfied) => satisfied,
+                    Err(ImplementationSearchError::Cancelled) => return,
+                    Err(ImplementationSearchError::LimitExceeded) => {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::CompileLimitExceeded {
+                                resource: "trait implementation search",
+                                limit: 4096,
+                            })
+                            .with_span(self.lowered.module.expr(callee).origin.diagnostic_span()),
+                        );
+                        return;
                     }
                 };
                 if !satisfied

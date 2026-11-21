@@ -1,6 +1,7 @@
 use crate::aggregates::implementations::*;
-use crate::types::TypeId;
+use crate::{tests::common, types::TypeId};
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext};
+use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::scalar::BuiltinType;
 
 fn definition(context: &DefinitionContext, kind: DefinitionKind, name: &str) -> DefinitionId {
@@ -15,11 +16,19 @@ fn definition(context: &DefinitionContext, kind: DefinitionKind, name: &str) -> 
 
 #[test]
 fn bounded_trait_search_reuses_generic_matching_and_stops_growth() {
-    let context = DefinitionContext::new().unwrap();
-    let marker = definition(&context, DefinitionKind::Trait, "Marker");
-    let method = context
-        .intern_child(marker, DefinitionKind::Function, "get", 0)
+    let source = common::lower_ok("trait Marker<A> { type Output; fn get(self); }");
+    let checked = crate::analyze_source(&source.source, foundation_catalog::shared().unwrap())
+        .unwrap()
+        .into_checked()
         .unwrap();
+    let context = checked.declarations.context().clone();
+    let base = &checked.aggregates;
+    let contract = base
+        .traits()
+        .find(|t| t.declaration.name == "Marker")
+        .unwrap();
+    let marker = contract.id;
+    let method = contract.methods[0].id;
     let owner = definition(&context, DefinitionKind::Impl, "");
     let target = context
         .intern_child(owner, DefinitionKind::Function, "get", 0)
@@ -45,7 +54,7 @@ fn bounded_trait_search_reuses_generic_matching_and_stops_growth() {
     };
     let catalog = AggregateCatalog {
         implementations: [(signature.id, Arc::new(signature.clone()))].into(),
-        ..Default::default()
+        ..base.clone()
     };
     let actual = TypeId::Builtin(BuiltinType::I32);
     let required = applied(actual.clone());
@@ -198,7 +207,7 @@ fn bounded_trait_search_reuses_generic_matching_and_stops_growth() {
         .into_iter()
         .map(|signature| (signature.id, Arc::new(signature)))
         .collect(),
-        ..Default::default()
+        ..base.clone()
     };
     for (checks, count) in [
         (1, Err(ImplementationSearchError::LimitExceeded)),
@@ -224,6 +233,35 @@ fn bounded_trait_search_reuses_generic_matching_and_stops_growth() {
             count.map(|_| None)
         );
     }
+
+    // A parameter that occurs only in an output is not determined by this request.
+    let mut incomplete = signature.clone();
+    let unbound = GenericParameterType {
+        position: 1,
+        name: "U".into(),
+        ..parameter.clone()
+    };
+    let member = context
+        .intern_child(marker, DefinitionKind::AssociatedType, "Output", 0)
+        .unwrap();
+    incomplete
+        .trait_type
+        .associated_types
+        .insert(member, TypeId::Generic(unbound.clone()));
+    incomplete.generic_params.push(unbound);
+    let incomplete_catalog = AggregateCatalog {
+        implementations: [(owner, Arc::new(incomplete))].into(),
+        ..base.clone()
+    };
+    assert_eq!(
+        incomplete_catalog.implementation_count_bounded(
+            &context.snapshot(),
+            &required,
+            &actual,
+            search(1, 0, &fresh_cancel)
+        ),
+        Ok(0)
+    );
 
     let mut chained = signature;
     let next = definition(&context, DefinitionKind::Trait, "Next");
@@ -258,7 +296,7 @@ fn bounded_trait_search_reuses_generic_matching_and_stops_growth() {
             .into_iter()
             .map(|signature| (signature.id, Arc::new(signature)))
             .collect(),
-        ..Default::default()
+        ..base.clone()
     };
     assert_eq!(
         catalog.implementation_count_bounded(
@@ -305,7 +343,7 @@ fn bounded_trait_search_reuses_generic_matching_and_stops_growth() {
             Arc::clone(catalog.implementations.get(&owner).unwrap()),
         )]
         .into(),
-        ..Default::default()
+        ..base.clone()
     };
     let open = TypeId::Generic(GenericParameterType {
         owner: definition(&context, DefinitionKind::Function, "caller"),

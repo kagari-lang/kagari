@@ -836,6 +836,34 @@ pub(crate) fn match_implementation(
     actual: &TypeId,
     parameters: &[GenericParameterType],
 ) -> Option<TypeSubstitution> {
+    let bindings = match_implementation_header(
+        implemented_trait,
+        requested_trait,
+        pattern,
+        actual,
+        parameters,
+    )?;
+    requested_trait
+        .associated_types
+        .iter()
+        .all(|(member, expected)| {
+            implemented_trait
+                .associated_types
+                .get(member)
+                .is_some_and(|output| output.instantiate(&bindings) == *expected)
+        })
+        .then_some(bindings)
+}
+
+/// Only the receiver and applied trait inputs determine impl binders. Associated
+/// outputs are obligations to compare after substitution, never inference inputs.
+pub(crate) fn match_implementation_header(
+    implemented_trait: &NominalType,
+    requested_trait: &NominalType,
+    pattern: &TypeId,
+    actual: &TypeId,
+    parameters: &[GenericParameterType],
+) -> Option<TypeSubstitution> {
     if implemented_trait.declaration != requested_trait.declaration
         || implemented_trait.arguments.len() != requested_trait.arguments.len()
     {
@@ -905,19 +933,16 @@ pub(crate) fn match_implementation(
             _ => return None,
         }
     }
-    if pattern.instantiate(&bindings) != *actual {
-        return None;
-    }
-    for (member, expected) in &requested_trait.associated_types {
-        let actual = implemented_trait
-            .associated_types
-            .get(member)?
-            .instantiate(&bindings);
-        if actual != *expected {
-            return None;
-        }
-    }
-    Some(bindings)
+    (parameters
+        .iter()
+        .all(|parameter| bindings.contains_key(parameter))
+        && pattern.instantiate(&bindings) == *actual
+        && implemented_trait
+            .arguments
+            .iter()
+            .zip(&requested_trait.arguments)
+            .all(|(pattern, actual)| pattern.instantiate(&bindings) == *actual))
+    .then_some(bindings)
 }
 
 mod mapping;

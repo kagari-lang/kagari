@@ -1,6 +1,6 @@
 # Blanket trait implementations and library conversion forwarding
 
-**Status: BI01 implemented; BI02 next.** This plan owns the migration;
+**Status: BI01–02 implemented; BI03 next.** This plan owns the migration;
 [other HIR review questions](hir-model-review.md#analysis-flow-and-naming-review) remain separate.
 
 ## What should work
@@ -127,6 +127,29 @@ requires `InvalidPublicAbi` while retaining the separate module-local proof visi
 Structure, fmt, workspace Clippy and diff checks passed. Full workspace tests remain CI-only. Keep
 intermediate checkpoints buildable; changes that must switch together belong in BI04. Record
 actual results, carried failures and the next owner here. Use `Phase: BI0n` on requested commits.
+
+**BI02 HIR method selection.** For `source.deliver(label)` in a `Packet<D>` context,
+[method discovery](../crates/kagari-hir/src/typeck/body/trait_calls.rs) matches the declared
+result and argument types to request `Reverse<D, Label>`. It reads established expression
+facts rather than typing arguments under competing signatures. Receiver-only discovery cannot
+publish an impl-local binder. [`selected_declared_interface`](../crates/kagari-hir/src/aggregates/relationships.rs)
+uses bounded exact implementation search with the caller's assumptions and returns the substituted
+header; a request alone does not create a checked call. Qualified static calls use the same proof
+boundary. Reverse conversion metadata remains in place for BI04.
+
+`cargo test -p kagari-hir --lib blanket_method_applications` exercises the
+[ordinary trait fixture](../crates/kagari-hir/tests/fixtures/typeck/traits/blanket-method.kgr):
+selected method and ordered trait arguments for concrete and open callers, argument-only static
+selection, a qualified forward body, and rejection without a destination or forward evidence.
+The existing reverse-conversions fixture also passed `kg check` (source checking only).
+A broader `tests::typeck::traits::` run found a separate failure in
+`trait_name_is_not_a_self_parameter_in_where_bounds`: it expected an `InvalidBoundTarget`
+diagnostic on `Sequence`. This declaration has no call or method body; bound-target validation
+is outside the method-selection slice. The same test failed on an isolated BI01 checkout at
+`f38155423` (missing `InvalidBoundTarget`); it is not a BI02 failure. Portable bound/projection
+proofs and the decoded-artifact `conditional_blanket_methods_execute_for_concrete_and_open_callers`
+passed: both concrete and generic calls selected the expected method IDs and ordered arguments,
+and execution returned 42. Structure, fmt, workspace Clippy and diff checks passed.
 
 Start with the closest existing cases below and strengthen them where they lack a distinct
 oracle. These are local filters, **not results**; verify a nonzero test count and that the new

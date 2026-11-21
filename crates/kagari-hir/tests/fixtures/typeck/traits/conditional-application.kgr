@@ -1,0 +1,35 @@
+trait Forward<S> {
+    type Output;
+}
+
+trait Reverse<D> {
+    type Output;
+}
+
+impl<S, D: Forward<S>> Reverse<D> for S {
+    type Output = <D as Forward<S>>::Output;
+}
+
+struct Source<T> {
+    val value: T,
+}
+
+struct Destination {}
+
+impl<T> Forward<Source<T>> for Destination {
+    type Output = T;
+}
+
+struct Needs<S: Reverse<D, Output = O>, D, O> {
+    val source: S,
+}
+
+fn take<S: Reverse<D, Output = O>, D, O>(source: S) {}
+
+fn generic<S, D: Forward<S, Output = O>, O>(source: S, proof: Needs<S, D, O>) {
+    take::<S, D, O>(source);
+}
+
+fn concrete(source: Source<i32>, proof: Needs<Source<i32>, Destination, i32>) {
+    take::<Source<i32>, Destination, i32>(source);
+}

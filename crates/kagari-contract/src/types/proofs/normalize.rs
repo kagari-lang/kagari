@@ -2,29 +2,35 @@ use crate::{
     language::primitive as intrinsic,
     types::proofs::{Budget, ProofCatalog, satisfies, search::Search, validate_references},
 };
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
 use kagari_types::{
     language::Protocol,
     ty::{
-        Ty, inheritance,
-        matching::projection_output,
+        GenericBound, NominalTy, Ty, inheritance,
+        matching::applied_output,
         substitution::{TypeTransformError, normalize_projections},
     },
 };
+use std::cell::RefCell;
 
 impl ProofCatalog<'_> {
     pub fn normalize(&self, ty: &Ty, cancel: &CancellationToken) -> Result<Ty, TypeTransformError> {
         validate_references(ty, &self.definitions, cancel)?;
-        self.normalize_with(ty, &Budget::new(cancel), 0)
+        self.normalize_with(ty, &[], &mut Search::default(), &Budget::new(cancel), 0)
     }
 
     pub(super) fn normalize_with(
         &self,
         ty: &Ty,
+        assumptions: &[GenericBound],
+        search: &mut Search,
         budget: &Budget<'_>,
         depth: usize,
     ) -> Result<Ty, TypeTransformError> {
         budget.step(depth)?;
+        // Nested lookups must see the active proof stack, even through the
+        // transform's shared callback. Each lookup reborrows it synchronously.
+        let search = RefCell::new(search);
         normalize_projections(
             ty,
             &|interface, receiver, member, arguments| {
@@ -47,8 +53,8 @@ impl ProofCatalog<'_> {
                         && self.prove(
                             &required,
                             receiver,
-                            &[],
-                            &mut Search::default(),
+                            assumptions,
+                            *search.borrow_mut(),
                             budget,
                             depth + 1,
                         )?
@@ -65,6 +71,16 @@ impl ProofCatalog<'_> {
                             }));
                         }
                     }
+                    if let Some(output) = self.assumed_output(
+                        interface,
+                        receiver,
+                        member,
+                        assumptions,
+                        budget,
+                        depth,
+                    )? {
+                        return Ok(Some(output));
+                    }
                     if let Ty::Trait(view) = receiver {
                         return Ok(inheritance::interface_views(
                             view,
@@ -78,30 +94,72 @@ impl ProofCatalog<'_> {
                         .and_then(|parent| parent.associated_types.get(member).cloned()));
                     }
                 }
-                let mut selected = None;
-                for implementation in self.implementations.iter() {
-                    budget.step(depth)?;
-                    if let Some(output) = projection_output(
-                        implementation
-                            .pattern()
-                            .ok_or(TypeTransformError::InvalidContract)?,
-                        implementation.families(),
-                        interface,
-                        receiver,
-                        member,
-                        arguments,
-                        budget.cancel,
-                    )? {
-                        if selected.is_some() {
-                            return Ok(None);
-                        }
-                        selected = Some(output);
-                    }
-                }
-
-                Ok(selected)
+                let applications = self.explicit_applications(
+                    interface,
+                    receiver,
+                    assumptions,
+                    *search.borrow_mut(),
+                    budget,
+                    depth + 1,
+                )?;
+                let Ok([selected]) = <[_; 1]>::try_from(applications) else {
+                    return Ok(None);
+                };
+                applied_output(
+                    selected
+                        .table
+                        .interface()
+                        .ok_or(TypeTransformError::InvalidContract)?,
+                    selected.table.families(),
+                    selected.bindings,
+                    member,
+                    arguments,
+                    budget.cancel,
+                )
             },
             budget.cancel,
         )
+    }
+
+    pub(super) fn assumed_output(
+        &self,
+        interface: &NominalTy,
+        receiver: &Ty,
+        member: &DefinitionId,
+        assumptions: &[GenericBound],
+        budget: &Budget<'_>,
+        depth: usize,
+    ) -> Result<Option<Ty>, TypeTransformError> {
+        let mut selected = None;
+        for bound in assumptions.iter().filter(|bound| bound.ty == *receiver) {
+            for available in &bound.constraints {
+                budget.step(depth)?;
+                for parent in self.ancestry(available, receiver, budget.cancel)? {
+                    if satisfies(&parent, interface)
+                        && let Some(value) = parent.associated_types.get(member)
+                    {
+                        if selected.as_ref().is_some_and(|old| old != value) {
+                            return Err(TypeTransformError::InvalidContract);
+                        }
+                        selected = Some(value.clone());
+                    }
+                }
+            }
+        }
+        Ok(selected.filter(|value| {
+            let Ty::Projection {
+                receiver: owner,
+                interface: view,
+                member: output,
+                arguments,
+            } = value
+            else {
+                return true;
+            };
+            owner.as_ref() != receiver
+                || view.as_ref() != interface
+                || output != member
+                || !arguments.is_empty()
+        }))
     }
 }

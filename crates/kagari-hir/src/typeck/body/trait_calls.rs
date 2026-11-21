@@ -1,14 +1,17 @@
 //! Resolve static and receiver syntax to the same checked trait call path.
 use crate::{
+    aggregates::implementations::ImplementationSearchError,
     hir::{expr::ExprKind, ids::ExprId, ty::TypeKind},
     typeck::{
         BodyTypeEnv,
         body::BodyChecker,
+        inference,
         ty::{self, TypeContext, resolve_type_in},
     },
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_types::language::Protocol;
 
 pub(super) struct TraitCallSite {
     pub receiver: Option<ExprId>,
@@ -18,6 +21,124 @@ pub(super) struct TraitCallSite {
 }
 
 impl BodyChecker<'_> {
+    /// Refine receiver-only discovery using the named trait method's signature.
+    /// For example, `fn deliver(self) -> Packet<D>` requests `Reverse<Receipt>`
+    /// in a `Packet<Receipt>` context. A caller's `D` is a valid argument, but an
+    /// unbound trait parameter, recovery type or missing impl is never evidence.
+    pub(super) fn infer_method_interfaces(
+        &mut self,
+        site: &TraitCallSite,
+        args: &[ExprId],
+        expected: Option<&TypeId>,
+        env: &BodyTypeEnv,
+        available: &mut Vec<NominalType>,
+        callee: ExprId,
+    ) {
+        if site.receiver_type.is_unresolved() || site.receiver_type.is_never() {
+            return;
+        }
+        for contract in self.aggregates.traits() {
+            if self.cancelled() {
+                return;
+            }
+            if contract.generic_params.is_empty() {
+                continue;
+            }
+            let Some(method) = contract.methods.iter().find(|m| {
+                m.name == site.name
+                    && m.params.first().is_some_and(|p| p.name == "self") == site.receiver.is_some()
+            }) else {
+                continue;
+            };
+            // Candidate discovery reads expression facts from prior solving rounds.
+            // Never type an argument with a speculative signature: an unrelated
+            // candidate could otherwise commit the wrong literal/closure context.
+            let cancel = self.cancel;
+            let inputs = method
+                .params
+                .iter()
+                .skip(usize::from(site.receiver.is_some()))
+                .zip(args)
+                .map(|(param, &arg)| (&param.ty, self.inference_variable(arg, 0)));
+            let mut substitution = TypeSubstitution::default();
+            for (pattern, actual) in expected
+                .cloned()
+                .map(|ty| (&method.return_type, ty))
+                .into_iter()
+                .chain(inputs)
+            {
+                if !actual.is_never()
+                    && inference::infer(
+                        pattern,
+                        &actual,
+                        &contract.generic_params,
+                        &mut substitution,
+                        cancel,
+                        None,
+                    )
+                    .is_err()
+                {
+                    self.stopped = true;
+                    return;
+                }
+            }
+            let Some(arguments) = contract
+                .generic_params
+                .iter()
+                .map(|p| substitution.get(p).filter(|t| !t.is_unresolved()).cloned())
+                .collect::<Option<Vec<_>>>()
+            else {
+                continue;
+            };
+            let requested = NominalType {
+                declaration: contract.id,
+                arguments,
+                associated_types: Default::default(),
+            };
+            if available.iter().any(|n| n.satisfies(&requested)) {
+                available.retain(|n| n.declaration != contract.id || n.satisfies(&requested));
+            } else if let Some(applied) =
+                self.prove_declared_call_interface(callee, &site.receiver_type, &requested, env)
+            {
+                available.retain(|n| n.declaration != contract.id);
+                available.push(applied);
+            }
+        }
+    }
+
+    /// Return the fully substituted selected impl header, not the requested pattern.
+    fn prove_declared_call_interface(
+        &mut self,
+        callee: ExprId,
+        receiver: &TypeId,
+        requested: &NominalType,
+        env: &BodyTypeEnv,
+    ) -> Option<NominalType> {
+        match self.aggregates.selected_declared_interface(
+            self.declarations.definitions(),
+            requested,
+            receiver,
+            &env.generic_bounds,
+            self.cancel,
+        ) {
+            Ok(applied) => applied,
+            Err(ImplementationSearchError::Cancelled) => {
+                self.stopped = true;
+                None
+            }
+            Err(ImplementationSearchError::LimitExceeded) => {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::CompileLimitExceeded {
+                        resource: "trait implementation search",
+                        limit: 4096,
+                    })
+                    .with_span(self.lowered.module.expr(callee).origin.diagnostic_span()),
+                );
+                None
+            }
+        }
+    }
+
     /// Constrain trait-owned Self from the declared result, without consulting impls.
     pub(super) fn infer_trait_owned_self(
         &mut self,
@@ -68,8 +189,9 @@ impl BodyChecker<'_> {
         Some(self.solver.resolve(&self_ty))
     }
 
-    /// Expected types identify a receiver; only ordinary selection proves its bound.
-    pub(super) fn select_contextual_trait_interface(
+    /// Select a qualified application after resolving (or contextually inferring)
+    /// its receiver. The qualification is a request, never proof of membership.
+    pub(super) fn select_static_trait_interface(
         &mut self,
         callee: ExprId,
         receiver: &TypeId,
@@ -90,8 +212,23 @@ impl BodyChecker<'_> {
             return None;
         }
         if !matches!(receiver, TypeId::Trait(_))
-            && let Some((applied, _)) = self.select_operator(receiver, interface.clone(), env)
-            && applied.satisfies(interface)
+            && let Some(applied) = self
+                .trait_bounds_for(receiver, env)
+                .into_iter()
+                .find(|bound| bound.satisfies(interface))
+                .or_else(|| self.prove_declared_call_interface(callee, receiver, interface, env))
+                .or_else(|| {
+                    let contract = self.aggregates.trait_(&interface.declaration)?;
+                    if contract.conversion_adapter.is_none()
+                        && Protocol::from_definition(&contract.id, self.declarations.definitions())
+                            .is_none()
+                    {
+                        return None;
+                    }
+                    self.select_operator(receiver, interface.clone(), env)
+                        .map(|(applied, _)| applied)
+                        .filter(|applied| applied.satisfies(interface))
+                })
         {
             return Some(applied);
         }

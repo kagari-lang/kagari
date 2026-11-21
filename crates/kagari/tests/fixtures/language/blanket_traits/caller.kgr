@@ -1,0 +1,19 @@
+use pkg::provider::Forward;
+
+use pkg::provider::Reverse;
+
+fn open<S, D: Forward<S>>(source: S) -> D {
+    val result: D = source.reverse(false, 17);
+    result
+}
+
+fn main() -> i32 {
+    val source = 7i64;
+    val concrete: i32 = source.reverse(false, 19);
+    val generic: i32 = open(8u64);
+    if concrete == 22 {
+        concrete + generic
+    } else {
+        0
+    }
+}

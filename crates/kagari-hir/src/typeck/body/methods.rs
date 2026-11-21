@@ -88,12 +88,9 @@ impl<'a> BodyChecker<'a> {
             source,
             TypeId::Generic(_) | TypeId::Projection { .. } | TypeId::SelfType(_)
         ) {
-            let proof = self.aggregates.declared_interfaces(
-                self.declarations.definitions(),
-                &source,
-                &env.generic_bounds,
-                self.cancel,
-            );
+            let proof =
+                self.aggregates
+                    .assumed_interfaces(&source, &env.generic_bounds, self.cancel);
             match proof {
                 Ok(available) => {
                     for mut bound in available {
@@ -465,25 +462,16 @@ impl<'a> BodyChecker<'a> {
             site.interface = Some(interface);
         }
         let receiver = site.receiver;
-        let receiver_ty = site.receiver_type;
         let name = &site.name;
-        let mut trait_types = if contextual {
-            vec![site.interface.clone().expect("trait-qualified owner")]
+        let mut trait_types = if let Some(requested) = &site.interface {
+            vec![requested.clone()]
         } else {
-            self.trait_bounds_for(&receiver_ty, env)
+            let mut available = self.trait_bounds_for(&site.receiver_type, env);
+            self.infer_method_interfaces(&site, args, expected, env, &mut available, callee);
+            available
         };
-        if let Some(requested) = &site.interface
-            && !contextual
-        {
-            if let Some((applied, _)) = self.select_operator(&receiver_ty, requested.clone(), env)
-                && applied.satisfies(requested)
-            {
-                trait_types = vec![applied];
-            } else {
-                trait_types.clear();
-            }
-        } else if !contextual && receiver.is_none() && args.len() == 1 {
-            let input = self.infer_expr_type(args[0], env);
+        let receiver_ty = site.receiver_type;
+        if site.interface.is_none() && receiver.is_none() && args.len() == 1 {
             let candidates = self
                 .aggregates
                 .traits()
@@ -499,9 +487,10 @@ impl<'a> BodyChecker<'a> {
                 .map(|contract| contract.id)
                 .collect::<Vec<_>>();
             for declaration in candidates {
+                let input = self.infer_expr_type(args[0], env);
                 let requested = NominalType {
                     declaration,
-                    arguments: vec![input.clone()],
+                    arguments: vec![input],
                     associated_types: Default::default(),
                 };
                 if let Some((applied, _)) = self.select_operator(&receiver_ty, requested, env) {
@@ -628,9 +617,9 @@ impl<'a> BodyChecker<'a> {
             .expect("catalog method")
             .clone();
         let mut interface = candidates[0].1.clone();
-        let proven = if contextual {
+        let proven = if site.interface.is_some() {
             if let Some(applied) =
-                self.select_contextual_trait_interface(callee, &receiver_ty, &interface, env, name)
+                self.select_static_trait_interface(callee, &receiver_ty, &interface, env, name)
             {
                 interface = applied;
                 true

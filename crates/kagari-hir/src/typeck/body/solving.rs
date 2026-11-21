@@ -268,7 +268,11 @@ impl BodyChecker<'_> {
                 }
                 let receiver = implementation.for_type.instantiate(&substitution);
                 let declared = implementation.trait_type.instantiate(&substitution);
-                if !receiver.conflicts_with(&actual)
+                if implementation
+                    .generic_params
+                    .iter()
+                    .all(|p| substitution.contains_key(p))
+                    && !receiver.conflicts_with(&actual)
                     && !TypeId::Trait(declared.clone())
                         .conflicts_with(&TypeId::Trait(interface.clone()))
                 {

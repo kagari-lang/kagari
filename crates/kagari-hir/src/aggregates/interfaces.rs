@@ -1,7 +1,10 @@
 //! Dynamic views retain explicit outputs and erase a bounded iterator output.
 
 use crate::{
-    aggregates::{AggregateCatalog, implementations::ImplementationSearchError},
+    aggregates::{
+        AggregateCatalog,
+        implementations::{ImplementationSearchContext, ImplementationSearchError},
+    },
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_common::{
@@ -14,6 +17,39 @@ use kagari_types::{
 };
 
 impl AggregateCatalog {
+    /// `Self` carries its owner's formal application, not arbitrary arguments or
+    /// outputs of that trait. Projection receivers inherit the member's declared bounds.
+    pub(super) fn receiver_bound_holds(
+        &self,
+        definitions: &DefinitionTable,
+        actual: &TypeId,
+        required: &NominalType,
+        search: ImplementationSearchContext<'_>,
+    ) -> Result<bool, ImplementationSearchError> {
+        let available = match actual {
+            TypeId::SelfType(owner) if let Some(contract) = self.trait_(owner) => {
+                let own = NominalType {
+                    declaration: *owner,
+                    arguments: contract
+                        .generic_params
+                        .iter()
+                        .cloned()
+                        .map(TypeId::Generic)
+                        .collect(),
+                    associated_types: Default::default(),
+                };
+                self.trait_closure(&own, actual, search.cancel)?
+            }
+            TypeId::Projection { .. } => {
+                self.declared_interfaces(definitions, actual, search.assumptions, search.cancel)?
+            }
+            _ => return Ok(false),
+        };
+        Ok(available
+            .iter()
+            .any(|bound| bound.satisfies_for(required, actual)))
+    }
+
     /// Canonicalizes value arguments within a requirement or implementation header.
     /// The application's own associated constraints are preserved exactly.
     pub fn canonical_interface_application(

@@ -1,8 +1,7 @@
 use crate::{
     language::primitive as intrinsic,
-    types::{
-        ConcreteFunctionIdentity,
-        proofs::{Budget, ProofCatalog, satisfies, validate_references},
+    types::proofs::{
+        Budget, ProofCatalog, implementation::Implementation, satisfies, validate_references,
     },
 };
 use kagari_common::cancellation::CancellationToken;
@@ -10,7 +9,7 @@ use kagari_types::{
     language::Protocol,
     ty::{
         GenericBound, NominalTy, Ty, inheritance,
-        matching::match_pattern,
+        matching::match_header,
         substitution::{
             MAX_TYPE_NODES, TypeSubstitution, TypeTransformError, normalize_projections,
         },
@@ -19,6 +18,11 @@ use kagari_types::{
 use std::collections::HashSet;
 
 type ProofKey = (NominalTy, Ty);
+
+pub(super) struct Application<'a> {
+    pub(super) table: &'a Implementation<'a>,
+    pub(super) bindings: TypeSubstitution<'a>,
+}
 
 #[derive(Default)]
 pub(super) struct Search {
@@ -251,30 +255,7 @@ impl ProofCatalog<'_> {
                         {
                             return Ok(Some(value.clone()));
                         }
-                        let mut selected = None;
-                        for bound in assumptions.iter().filter(|bound| bound.ty == *receiver) {
-                            for available in &bound.constraints {
-                                for parent in self.ancestry(available, receiver, budget.cancel)? {
-                                    if satisfies(&parent, interface)
-                                        && let Some(value) = parent.associated_types.get(member)
-                                    {
-                                        if selected.as_ref().is_some_and(|old| old != value) {
-                                            return Ok(None);
-                                        }
-                                        selected = Some(value.clone());
-                                    }
-                                }
-                            }
-                        }
-                        Ok(selected.filter(|value| {
-                            value
-                                != &Ty::Projection {
-                                    receiver: Box::new(receiver.clone()),
-                                    interface: Box::new(interface.clone()),
-                                    member: *member,
-                                    arguments: arguments.to_vec(),
-                                }
-                        }))
+                        self.assumed_output(interface, receiver, member, assumptions, budget, depth)
                     },
                     budget.cancel,
                 )?
@@ -338,15 +319,15 @@ impl ProofCatalog<'_> {
 
     // This is the same applicable-table traversal used by conformance, stopped
     // after two matches. Bridges never participate in explicit impl selection.
-    pub(super) fn explicit_applications(
-        &self,
-        interface: &NominalTy,
-        receiver: &Ty,
+    pub(super) fn explicit_applications<'a>(
+        &'a self,
+        interface: &'a NominalTy,
+        receiver: &'a Ty,
         assumptions: &[GenericBound],
         search: &mut Search,
         budget: &Budget<'_>,
         depth: usize,
-    ) -> Result<Vec<ConcreteFunctionIdentity>, TypeTransformError> {
+    ) -> Result<Vec<Application<'a>>, TypeTransformError> {
         budget.step(depth)?;
         let key = (interface.clone(), receiver.clone());
         if !search.visiting.insert(key.clone()) {
@@ -354,16 +335,12 @@ impl ProofCatalog<'_> {
         }
         let result = (|| {
             let mut applications = vec![];
-            for implementation in self.implementations.iter() {
+            'candidate: for implementation in self.implementations.iter() {
                 budget.step(depth)?;
-                let Some(substitution) = match_pattern(
-                    implementation
-                        .pattern()
-                        .ok_or(TypeTransformError::InvalidContract)?,
-                    interface,
-                    receiver,
-                    budget.cancel,
-                )?
+                let pattern = implementation
+                    .pattern()
+                    .ok_or(TypeTransformError::InvalidContract)?;
+                let Some(substitution) = match_header(pattern, interface, receiver, budget.cancel)?
                 else {
                     continue;
                 };
@@ -379,21 +356,24 @@ impl ProofCatalog<'_> {
                     &self.definitions,
                     budget.cancel,
                 )?;
-                if self.obligations(&obligations, assumptions, search, budget, depth + 1)? {
-                    applications.push(ConcreteFunctionIdentity {
-                        declaration: *implementation.declaration(),
-                        arguments: implementation
-                            .parameters()
-                            .iter()
-                            .map(|parameter| {
-                                substitution
-                                    .parameter(&parameter.owner, parameter.position)
-                                    .expect("complete application checked above")
-                                    .clone()
-                            })
-                            .collect(),
-                    });
+                if !self.obligations(&obligations, assumptions, search, budget, depth + 1)? {
+                    continue;
                 }
+                for (member, expected) in &interface.associated_types {
+                    let Some(template) = pattern.interface.associated_types.get(member) else {
+                        continue 'candidate;
+                    };
+                    let actual = substitution.apply(template, budget.cancel)?;
+                    if self.normalize_with(&actual, assumptions, search, budget, depth + 1)?
+                        != self.normalize_with(expected, assumptions, search, budget, depth + 1)?
+                    {
+                        continue 'candidate;
+                    }
+                }
+                applications.push(Application {
+                    table: implementation,
+                    bindings: substitution,
+                });
                 if applications.len() >= 2 {
                     break;
                 }
@@ -443,7 +423,7 @@ impl ProofCatalog<'_> {
     ) -> Result<bool, TypeTransformError> {
         for bound in obligations {
             budget.step(depth)?;
-            let actual = self.normalize_with(&bound.ty, budget, depth)?;
+            let actual = self.normalize_with(&bound.ty, assumptions, search, budget, depth)?;
             for required in &bound.constraints {
                 if !self.prove(required, &actual, assumptions, search, budget, depth)? {
                     return Ok(false);

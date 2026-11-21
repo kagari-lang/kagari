@@ -1,0 +1,19 @@
+pub trait Forward<S> {
+    fn forward(source: S, seed: i32) -> Self;
+}
+
+pub trait Reverse<D> {
+    fn reverse<M>(self, tag: M, seed: i32) -> D;
+}
+
+impl<T> Forward<T> for i32 {
+    fn forward(source: T, seed: i32) -> i32 {
+        seed + 1
+    }
+}
+
+impl<S, D: Forward<S>> Reverse<D> for S {
+    fn reverse<M>(self, tag: M, seed: i32) -> D {
+        D::forward(self, seed + 2)
+    }
+}

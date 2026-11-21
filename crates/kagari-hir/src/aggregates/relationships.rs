@@ -11,6 +11,52 @@ use crate::{
 use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionTable};
 
 impl AggregateCatalog {
+    /// Prove an exact requested application under the caller's bounds and return
+    /// the selected header, including its substituted associated outputs. Unlike
+    /// receiver-only discovery, trait arguments may bind independent impl parameters.
+    /// Direct assumptions and intrinsic protocols are handled by the caller.
+    /// Returns `None` without a unique applicable impl; cancellation and resource
+    /// exhaustion propagate as search errors, not as negative evidence.
+    pub(crate) fn selected_declared_interface(
+        &self,
+        definitions: &DefinitionTable,
+        requested: &NominalType,
+        receiver: &TypeId,
+        assumptions: &GenericBounds,
+        cancel: &CancellationToken,
+    ) -> Result<Option<NominalType>, ImplementationSearchError> {
+        let Some((id, arguments)) = self.concrete_interface_implementation(
+            definitions,
+            requested,
+            receiver,
+            assumptions,
+            ImplementationSearchLimits {
+                max_checks: 4096,
+                max_depth: 64,
+            },
+            cancel,
+        )?
+        else {
+            return Ok(None);
+        };
+        let implementation = self
+            .implementation_signature(&id)
+            .expect("selected catalog impl");
+        let substitution = implementation
+            .generic_params
+            .iter()
+            .cloned()
+            .zip(arguments)
+            .collect();
+        let mut applied = implementation.trait_type.instantiate(&substitution);
+        // Exact search has checked these equalities under the caller's bounds.
+        // Other outputs retain their substituted projections for the use site.
+        applied
+            .associated_types
+            .extend(requested.associated_types.clone());
+        Ok(Some(applied))
+    }
+
     /// Enumerate declared applications and their parents. Intrinsic operator
     /// availability is not an implicit conversion to an interface value.
     pub(crate) fn declared_interfaces(
@@ -28,51 +74,78 @@ impl AggregateCatalog {
         } else {
             Vec::new()
         };
-        if !matches!(
+        let open_receiver = matches!(
             ty,
             TypeId::Generic(_) | TypeId::SelfType(_) | TypeId::Projection { .. }
-        ) {
-            for implementation in self.implementations() {
-                cancel
-                    .check()
-                    .map_err(|_| ImplementationSearchError::Cancelled)?;
-                let mut substitution = TypeSubstitution::default();
-                inference::infer(
-                    &implementation.for_type,
-                    ty,
-                    &implementation.generic_params,
-                    &mut substitution,
-                    cancel,
-                    None,
-                )
+        );
+        for implementation in self.implementations() {
+            cancel
+                .check()
                 .map_err(|_| ImplementationSearchError::Cancelled)?;
-                if implementation.for_type.instantiate(&substitution) != *ty {
-                    continue;
-                }
-                let applied = implementation.trait_type.instantiate(&substitution);
-                if self
-                    .concrete_interface_implementation(
-                        definitions,
-                        &applied,
-                        ty,
-                        assumptions,
-                        ImplementationSearchLimits {
-                            max_checks: 100_000,
-                            max_depth: 64,
-                        },
-                        cancel,
-                    )?
-                    .is_some()
-                    && !roots.contains(&applied)
-                {
-                    roots.push(applied);
+            if open_receiver && !matches!(implementation.for_type, TypeId::Generic(_)) {
+                continue;
+            }
+            let mut substitution = TypeSubstitution::default();
+            inference::infer(
+                &implementation.for_type,
+                ty,
+                &implementation.generic_params,
+                &mut substitution,
+                cancel,
+                None,
+            )
+            .map_err(|_| ImplementationSearchError::Cancelled)?;
+            // An impl-local binder left in the header is not a destination.
+            // Calls with more context submit a complete requested application instead.
+            if !implementation
+                .generic_params
+                .iter()
+                .all(|p| substitution.contains_key(p))
+                || implementation.for_type.instantiate(&substitution) != *ty
+            {
+                continue;
+            }
+            let applied = implementation.trait_type.instantiate(&substitution);
+            if self
+                .concrete_interface_implementation(
+                    definitions,
+                    &applied,
+                    ty,
+                    assumptions,
+                    ImplementationSearchLimits {
+                        max_checks: 100_000,
+                        max_depth: 64,
+                    },
+                    cancel,
+                )?
+                .is_some()
+                && !roots.contains(&applied)
+            {
+                roots.push(applied);
+            }
+        }
+        if open_receiver {
+            for bound in self.assumed_interfaces(ty, assumptions, cancel)? {
+                if !roots.contains(&bound) {
+                    roots.push(bound);
                 }
             }
-            // Concrete receivers prove each parent through its own implementation.
-            // Keep those implementations' associated outputs: a dynamic parent's
-            // erased output is not another concrete method candidate.
-            return Ok(roots);
         }
+        Ok(roots)
+    }
+
+    /// Return direct, projected-member and inherited assumptions for an open
+    /// receiver. Unlike member discovery, this cannot label a selected blanket
+    /// implementation as a caller-provided interface witness.
+    pub(crate) fn assumed_interfaces(
+        &self,
+        ty: &TypeId,
+        assumptions: &GenericBounds,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<NominalType>, ImplementationSearchError> {
+        cancel
+            .check()
+            .map_err(|_| ImplementationSearchError::Cancelled)?;
         let mut bounds = assumptions
             .get(ty)
             .into_iter()
@@ -130,15 +203,14 @@ impl AggregateCatalog {
                     }),
             );
         }
-        roots.extend(bounds);
-        let mut expanded = Vec::new();
-        for root in roots {
+        let mut roots = Vec::new();
+        for root in bounds {
             for parent in self.trait_closure(&root, ty, cancel)? {
-                if !expanded.contains(&parent) {
-                    expanded.push(parent);
+                if !roots.contains(&parent) {
+                    roots.push(parent);
                 }
             }
         }
-        Ok(expanded)
+        Ok(roots)
     }
 }

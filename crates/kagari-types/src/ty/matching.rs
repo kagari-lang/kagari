@@ -76,6 +76,29 @@ pub fn match_pattern<'a>(
     receiver: &'a Ty,
     cancel: &CancellationToken,
 ) -> Result<Option<TypeSubstitution<'a>>, TypeTransformError> {
+    let Some(bindings) = match_header(pattern, interface, receiver, cancel)? else {
+        return Ok(None);
+    };
+    for (member, expected) in &interface.associated_types {
+        cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+        let Some(actual) = pattern.interface.associated_types.get(member) else {
+            return Ok(None);
+        };
+        if bindings.apply(actual, cancel)? != *expected {
+            return Ok(None);
+        }
+    }
+    Ok(Some(bindings))
+}
+
+/// Bind only the receiver and trait arguments. A header match does not establish
+/// applicability: the proof owner must check bounds and requested outputs.
+pub fn match_header<'a>(
+    pattern: ImplementationPattern<'a>,
+    interface: &'a NominalTy,
+    receiver: &'a Ty,
+    cancel: &CancellationToken,
+) -> Result<Option<TypeSubstitution<'a>>, TypeTransformError> {
     let implemented = pattern.interface;
     if pattern.parameters.len() > MAX_TYPE_NODES {
         return Err(TypeTransformError::LimitExceeded);
@@ -107,15 +130,7 @@ pub fn match_pattern<'a>(
             return Ok(None);
         }
     }
-    for (member, expected) in &interface.associated_types {
-        cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-        let Some(actual) = implemented.associated_types.get(member) else {
-            return Ok(None);
-        };
-        if bindings.apply(actual, cancel)? != *expected {
-            return Ok(None);
-        }
-    }
+
     Ok(Some(bindings))
 }
 
@@ -236,9 +251,28 @@ pub fn projection_output(
     arguments: &[Ty],
     cancel: &CancellationToken,
 ) -> Result<Option<Ty>, TypeTransformError> {
-    let Some(mut substitution) = match_pattern(pattern, interface, receiver, cancel)? else {
+    let Some(substitution) = match_pattern(pattern, interface, receiver, cancel)? else {
         return Ok(None);
     };
+    applied_output(
+        pattern.interface,
+        families,
+        substitution,
+        member,
+        arguments,
+        cancel,
+    )
+}
+
+/// Instantiate a selected header's output, including any family-local arguments.
+pub fn applied_output<'a>(
+    interface: &NominalTy,
+    families: &'a [AssociatedTypeFamily],
+    mut substitution: TypeSubstitution<'a>,
+    member: &DefinitionId,
+    arguments: &'a [Ty],
+    cancel: &CancellationToken,
+) -> Result<Option<Ty>, TypeTransformError> {
     if !arguments.is_empty() {
         let Some(family) = families.iter().find(|family| family.declaration == *member) else {
             return Ok(None);
@@ -251,8 +285,7 @@ pub fn projection_output(
         }
         return substitution.apply(&family.value, cancel).map(Some);
     }
-    pattern
-        .interface
+    interface
         .associated_types
         .get(member)
         .map(|value| substitution.apply(value, cancel))

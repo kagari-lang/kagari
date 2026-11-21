@@ -14,7 +14,7 @@ use crate::{
     },
     types::{
         ConcreteFunctionIdentity,
-        proofs::{ProofCatalog, satisfies},
+        proofs::{Budget, ProofCatalog, satisfies, search::Search},
     },
 };
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
@@ -23,7 +23,6 @@ use kagari_types::{
     declaration::requirement::NativeCallableRequirement,
     ty::{
         GenericBound, GenericParam, Ty,
-        matching::match_pattern,
         substitution::{TypeSubstitution, TypeTransformError},
     },
 };
@@ -214,99 +213,88 @@ impl ProofCatalog<'_> {
             || member.kind != DefinitionKind::Method
             || member.occurrence != 0
             || !self.callable_requirement_valid(requirement)
-            || !self.holds(&requirement.interface, &requirement.receiver, &[], cancel)?
         {
             return Ok(None);
         }
-        let mut selected = None;
-        for table in self.implementations.iter() {
-            cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-            let Some(bindings) = match_pattern(
-                table.pattern().ok_or(TypeTransformError::InvalidContract)?,
-                &requirement.interface,
-                &requirement.receiver,
-                cancel,
-            )?
-            else {
-                continue;
-            };
-            let arguments = table
-                .parameters()
-                .iter()
-                .map(|param| bindings.parameter(&param.owner, param.position).cloned())
-                .collect::<Option<Vec<_>>>()
-                .ok_or(TypeTransformError::InvalidContract)?;
-            let obligations = bindings.apply_bounds(table.bounds(), &self.definitions, cancel)?;
-            let mut applicable = true;
-            for bound in obligations {
-                applicable &= self.constraints_hold(&bound.ty, &bound.constraints, &[], cancel)?;
-            }
-            if !applicable {
-                continue;
-            }
-            if selected.is_some() {
-                return Ok(None);
-            }
-            let Some(method) = table.method(
-                member.name,
-                &arguments,
-                self.contracts
-                    .get(&requirement.interface.declaration)
-                    .copied(),
-                &self.definitions,
-                cancel,
-            )?
-            else {
-                return Ok(None);
-            };
-            if method.generic_params.len() != requirement.arguments.len()
-                || matches!(method.implementation, CallableImplementation::Required)
-            {
-                return Ok(None);
-            }
-            let mut substitution = TypeSubstitution::default();
-            for (param, argument) in method.generic_params.iter().zip(&requirement.arguments) {
-                substitution.bind(&param.owner, param.position, argument);
-            }
-            for bound in substitution.apply_bounds(&method.bounds, &self.definitions, cancel)? {
-                if !self.constraints_hold(&bound.ty, &bound.constraints, &[], cancel)? {
-                    return Ok(None);
-                }
-            }
-            let normalize = |ty| self.normalize(&substitution.apply(ty, cancel)?, cancel);
-            let signature = Signature {
-                params: method
-                    .params
-                    .iter()
-                    .map(|param| normalize(&param.ty))
-                    .collect::<Result<_, _>>()?,
-                result: normalize(&method.return_type)?,
-            };
-            let (instance, implementation) = {
-                let declaration = self
-                    .definitions
-                    .lookup_child(*table.declaration(), DefinitionKind::Method, member.name, 0)
-                    .ok_or(TypeTransformError::InvalidContract)?;
-                (
-                    ConcreteFunctionIdentity {
-                        declaration,
-                        arguments: arguments
-                            .into_iter()
-                            .chain(requirement.arguments.iter().cloned())
-                            .collect(),
-                    },
-                    method.implementation.clone(),
-                )
-            };
-            selected = Some(NativeCallableApplication {
-                origin: NativeCallableOrigin::Implementation,
-                requirement: requirement.clone(),
-                instance,
-                implementation,
-                signature,
-                effects: EffectSet::native_call(),
-            });
+        self.preflight(&requirement.interface, &requirement.receiver, &[], cancel)?;
+        let applications = self.explicit_applications(
+            &requirement.interface,
+            &requirement.receiver,
+            &[],
+            &mut Search::default(),
+            &Budget::new(cancel),
+            0,
+        )?;
+        let Ok([application]) = <[_; 1]>::try_from(applications) else {
+            return Ok(None);
+        };
+        let table = application.table;
+        let bindings = application.bindings;
+        let arguments = table
+            .parameters()
+            .iter()
+            .map(|param| bindings.parameter(&param.owner, param.position).cloned())
+            .collect::<Option<Vec<_>>>()
+            .ok_or(TypeTransformError::InvalidContract)?;
+
+        let Some(method) = table.method(
+            member.name,
+            &arguments,
+            self.contracts
+                .get(&requirement.interface.declaration)
+                .copied(),
+            &self.definitions,
+            cancel,
+        )?
+        else {
+            return Ok(None);
+        };
+        if method.generic_params.len() != requirement.arguments.len()
+            || matches!(method.implementation, CallableImplementation::Required)
+        {
+            return Ok(None);
         }
-        Ok(selected)
+        let mut substitution = TypeSubstitution::default();
+        for (param, argument) in method.generic_params.iter().zip(&requirement.arguments) {
+            substitution.bind(&param.owner, param.position, argument);
+        }
+        for bound in substitution.apply_bounds(&method.bounds, &self.definitions, cancel)? {
+            if !self.constraints_hold(&bound.ty, &bound.constraints, &[], cancel)? {
+                return Ok(None);
+            }
+        }
+        let normalize = |ty| self.normalize(&substitution.apply(ty, cancel)?, cancel);
+        let signature = Signature {
+            params: method
+                .params
+                .iter()
+                .map(|param| normalize(&param.ty))
+                .collect::<Result<_, _>>()?,
+            result: normalize(&method.return_type)?,
+        };
+        let (instance, implementation) = {
+            let declaration = self
+                .definitions
+                .lookup_child(*table.declaration(), DefinitionKind::Method, member.name, 0)
+                .ok_or(TypeTransformError::InvalidContract)?;
+            (
+                ConcreteFunctionIdentity {
+                    declaration,
+                    arguments: arguments
+                        .into_iter()
+                        .chain(requirement.arguments.iter().cloned())
+                        .collect(),
+                },
+                method.implementation.clone(),
+            )
+        };
+        Ok(Some(NativeCallableApplication {
+            origin: NativeCallableOrigin::Implementation,
+            requirement: requirement.clone(),
+            instance,
+            implementation,
+            signature,
+            effects: EffectSet::native_call(),
+        }))
     }
 }

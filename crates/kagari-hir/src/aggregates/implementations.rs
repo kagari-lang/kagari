@@ -14,8 +14,9 @@ use crate::{
     lower::LoweredModule,
     resolver::resolved::ResolvedName,
     typeck::{
-        GenericBounds, ModuleSignatures, associated, check::possibly_overlapping_impls,
-        table::match_implementation,
+        GenericBounds, ModuleSignatures, aliases, associated,
+        check::possibly_overlapping_impls,
+        table::{match_implementation, match_implementation_header},
     },
     types::{
         AssociatedTypeFamily, GenericParameterType, NominalType, TypeId, TypeSubstitution,
@@ -92,6 +93,43 @@ impl<'a> SearchBudget<'a> {
             cancel: context.cancel,
             assumptions: context.assumptions,
             defaults: HashSet::default(),
+        })
+    }
+
+    fn nested<T>(
+        &mut self,
+        search: impl FnOnce(&mut Self) -> Result<T, ImplementationSearchError>,
+    ) -> Result<T, ImplementationSearchError> {
+        if self.depth >= self.max_depth {
+            return Err(ImplementationSearchError::LimitExceeded);
+        }
+        self.depth += 1;
+        let result = search(self);
+        self.depth -= 1;
+        result
+    }
+
+    // A growing obligation (e.g. T -> (T, T)) can exhaust the type-size limit
+    // long before it exhausts the number or depth of candidate checks.
+    fn check_expansion(
+        &self,
+        ty: &TypeId,
+        bindings: &TypeSubstitution,
+    ) -> Result<(), ImplementationSearchError> {
+        if !aliases::within_expansion_limit(ty, bindings, self.cancel) {
+            self.cancel
+                .check()
+                .map_err(|_| ImplementationSearchError::Cancelled)?;
+            return Err(ImplementationSearchError::LimitExceeded);
+        }
+        Ok(())
+    }
+
+    fn assumes(&self, required: &NominalType, actual: &TypeId) -> bool {
+        self.assumptions.get(actual).is_some_and(|bounds| {
+            bounds
+                .iter()
+                .any(|bound| bound.satisfies_for(required, actual))
         })
     }
 
@@ -435,28 +473,10 @@ impl AggregateCatalog {
     pub fn normalize_type(&self, definitions: &DefinitionTable, ty: &TypeId) -> TypeId {
         associated::normalize(ty, &|interface, receiver, member, arguments| {
             if arguments.is_empty()
-                && !matches!(receiver, TypeId::SelfType(_))
-                && Some(*member)
-                    == definitions.lookup_child(
-                        interface.declaration,
-                        DefinitionKind::AssociatedType,
-                        "Error",
-                        0,
-                    )
-                && let Some((required, target)) =
-                    traits::conversion_requirement(interface, receiver, Some(self))
+                && let Some(output) =
+                    self.primitive_projection(definitions, interface, receiver, *member)
             {
-                return Some(TypeId::Projection {
-                    receiver: Box::new(target),
-                    member: definitions.lookup_child(
-                        required.declaration,
-                        DefinitionKind::AssociatedType,
-                        "Error",
-                        0,
-                    )?,
-                    interface: Box::new(required),
-                    arguments: vec![],
-                });
+                return Some(output);
             }
 
             if arguments.is_empty()
@@ -473,18 +493,7 @@ impl AggregateCatalog {
             {
                 return Some(output.clone());
             }
-            if arguments.is_empty()
-                && Some(*member)
-                    == definitions.lookup_child(
-                        interface.declaration,
-                        DefinitionKind::AssociatedType,
-                        "Output",
-                        0,
-                    )
-                && let Some(output) = traits::intrinsic_output(definitions, interface, receiver)
-            {
-                return Some(output);
-            }
+
             if let TypeId::Trait(actual) = receiver {
                 return self
                     .interface_closure(definitions, actual, receiver, &Default::default())
@@ -503,19 +512,7 @@ impl AggregateCatalog {
                     receiver,
                     &implementation.generic_params,
                 )?;
-                if !arguments.is_empty() {
-                    return implementation
-                        .associated_type_families
-                        .get(member)?
-                        .apply(&substitution, arguments);
-                }
-                Some(
-                    implementation
-                        .trait_type
-                        .associated_types
-                        .get(member)?
-                        .instantiate(&substitution),
-                )
+                implementation.project(member, arguments, &substitution)
             });
             let result = matches.next()?;
             matches.next().is_none().then_some(result)
@@ -631,38 +628,14 @@ impl AggregateCatalog {
         receiver: &TypeId,
         context: ImplementationSearchContext<'_>,
     ) -> Result<Option<(DefinitionId, Vec<TypeId>)>, ImplementationSearchError> {
-        let mut budget = SearchBudget::new(definitions, context)?;
-        let mut selected = None;
-        for implementation in self.implementations.values() {
-            let Some(matched) = self.implementation_matches(
-                implementation,
-                trait_type,
-                receiver,
-                &mut HashSet::default(),
-                &mut budget,
-            )?
-            else {
-                continue;
-            };
-            let Some(arguments) = implementation
-                .generic_params
-                .iter()
-                .map(|parameter| matched.get(parameter).cloned())
-                .collect::<Option<Vec<_>>>()
-            else {
-                continue;
-            };
-            let Some(target) =
-                self.implementation_method_target(definitions, implementation, method)
-            else {
-                continue;
-            };
-            if selected.is_some() {
-                return Ok(None);
-            }
-            selected = Some((target, arguments));
-        }
-        Ok(selected)
+        let Some((implementation, arguments)) =
+            self.selected_application(definitions, trait_type, receiver, context)?
+        else {
+            return Ok(None);
+        };
+        Ok(self
+            .implementation_method_target(definitions, implementation, method)
+            .map(|target| (target, arguments)))
     }
 
     /// Select an explicit method or the ordinary impl-owned placement of its default.
@@ -748,38 +721,69 @@ impl AggregateCatalog {
         limits: ImplementationSearchLimits,
         cancel: &CancellationToken,
     ) -> Result<Option<(DefinitionId, Vec<TypeId>)>, ImplementationSearchError> {
-        let mut budget = SearchBudget::new(
-            definitions,
-            ImplementationSearchContext {
-                assumptions,
-                limits,
-                cancel,
-            },
-        )?;
-        let mut selected = None;
-        for implementation in self.implementations.values() {
-            if let Some(matched) = self.implementation_matches(
-                implementation,
+        Ok(self
+            .selected_application(
+                definitions,
                 trait_type,
                 receiver,
-                &mut HashSet::default(),
-                &mut budget,
-            )? {
-                if selected.is_some() {
-                    return Ok(None);
-                }
-                let Some(arguments) = implementation
-                    .generic_params
-                    .iter()
-                    .map(|parameter| matched.get(parameter).cloned())
-                    .collect::<Option<Vec<_>>>()
-                else {
-                    return Ok(None);
-                };
-                selected = Some((implementation.id, arguments));
-            }
+                ImplementationSearchContext {
+                    assumptions,
+                    limits,
+                    cancel,
+                },
+            )?
+            .map(|(implementation, arguments)| (implementation.id, arguments)))
+    }
+
+    fn selected_application(
+        &self,
+        definitions: &DefinitionTable,
+        interface: &NominalType,
+        receiver: &TypeId,
+        context: ImplementationSearchContext<'_>,
+    ) -> Result<Option<(&ImplementationSignature, Vec<TypeId>)>, ImplementationSearchError> {
+        let mut budget = SearchBudget::new(definitions, context)?;
+        let applications =
+            self.explicit_applications(interface, receiver, &mut HashSet::default(), &mut budget)?;
+        let [(implementation, bindings)] = applications.as_slice() else {
+            return Ok(None);
+        };
+        let arguments = implementation
+            .generic_params
+            .iter()
+            .map(|parameter| {
+                bindings
+                    .get(parameter)
+                    .expect("complete impl substitution")
+                    .clone()
+            })
+            .collect();
+        Ok(Some((implementation, arguments)))
+    }
+
+    /// Discharges an applied bound from caller assumptions, declared projection
+    /// bounds, or one applicable implementation. Open receivers use the same
+    /// exact implementation search as concrete receivers.
+    pub(crate) fn proves_requirement(
+        &self,
+        definitions: &DefinitionTable,
+        required: &NominalType,
+        actual: &TypeId,
+        context: ImplementationSearchContext<'_>,
+    ) -> Result<bool, ImplementationSearchError> {
+        let mut budget = SearchBudget::new(definitions, context)?;
+        let mut visiting = HashSet::default();
+        if budget.assumes(required, actual) {
+            return Ok(true);
         }
-        Ok(selected)
+        let actual = self.normalize_for_search(actual, &mut visiting, &mut budget)?;
+        let required = self.normalize_requirement(required.clone(), &mut visiting, &mut budget)?;
+        if budget.assumes(&required, &actual)
+            || self.receiver_bound_holds(definitions, &actual, &required, context)?
+        {
+            return Ok(true);
+        }
+        Ok(self.count_with(&required, &actual, &mut budget)? == 1)
     }
 
     /// Counts matching implementations under caller-provided candidate/depth limits.
@@ -794,49 +798,150 @@ impl AggregateCatalog {
         receiver: &TypeId,
         context: ImplementationSearchContext<'_>,
     ) -> Result<usize, ImplementationSearchError> {
-        let mut budget = SearchBudget::new(definitions, context)?;
-        let mut count = 0;
-        for implementation in self.implementations.values() {
-            if self
-                .implementation_matches(
-                    implementation,
-                    trait_type,
-                    receiver,
-                    &mut HashSet::default(),
-                    &mut budget,
-                )?
-                .is_some()
-            {
-                count += 1;
-                if count == 2 {
-                    break;
-                }
-            }
-        }
-        if count == 0 {
+        self.count_with(
+            trait_type,
+            receiver,
+            &mut SearchBudget::new(definitions, context)?,
+        )
+    }
+
+    fn count_with(
+        &self,
+        trait_type: &NominalType,
+        receiver: &TypeId,
+        budget: &mut SearchBudget<'_>,
+    ) -> Result<usize, ImplementationSearchError> {
+        let definitions = budget.definitions;
+        let mut count = self
+            .explicit_applications(trait_type, receiver, &mut HashSet::default(), budget)?
+            .len();
+        // Ordinary declarations have already been searched with this budget. Only
+        // standard protocols and registered adapters have additional intrinsic evidence.
+        if count == 0
+            && (Protocol::from_definition(&trait_type.declaration, definitions).is_some()
+                || self
+                    .trait_(&trait_type.declaration)
+                    .is_some_and(|contract| contract.conversion_adapter.is_some()))
+        {
             let intrinsic = if trait_type.arguments.is_empty()
                 && trait_type.associated_types.is_empty()
                 && let Some(protocol) =
                     Protocol::from_definition(&trait_type.declaration, definitions)
                 && protocol.equality_protocol()
             {
-                self.standard_holds(protocol, receiver, &mut HashSet::default(), &mut budget)?
+                self.standard_holds(protocol, receiver, &mut HashSet::default(), budget)?
             } else {
                 traits::intrinsic_applies(
                     definitions,
                     trait_type,
                     receiver,
                     Some(self),
-                    context.assumptions,
+                    budget.assumptions,
                 )
             };
             count = usize::from(intrinsic);
         }
-        context
+        budget
             .cancel
             .check()
             .map_err(|_| ImplementationSearchError::Cancelled)?;
         Ok(count)
+    }
+
+    fn explicit_applications(
+        &self,
+        interface: &NominalType,
+        receiver: &TypeId,
+        visiting: &mut HashSet<(NominalType, TypeId)>,
+        budget: &mut SearchBudget<'_>,
+    ) -> Result<Vec<(&ImplementationSignature, TypeSubstitution)>, ImplementationSearchError> {
+        let mut matches = Vec::new();
+        for implementation in self.implementations.values() {
+            if let Some(substitution) =
+                self.implementation_matches(implementation, interface, receiver, visiting, budget)?
+            {
+                matches.push((implementation.as_ref(), substitution));
+                if matches.len() == 2 {
+                    break;
+                }
+            }
+        }
+        Ok(matches)
+    }
+
+    fn normalize_requirement(
+        &self,
+        mut required: NominalType,
+        visiting: &mut HashSet<(NominalType, TypeId)>,
+        budget: &mut SearchBudget<'_>,
+    ) -> Result<NominalType, ImplementationSearchError> {
+        for ty in required
+            .arguments
+            .iter_mut()
+            .chain(required.associated_types.values_mut())
+        {
+            if ty.contains_projection() {
+                *ty = self.normalize_for_search(ty, visiting, budget)?;
+            }
+        }
+        Ok(required)
+    }
+
+    fn impl_bound_holds(
+        &self,
+        required: NominalType,
+        actual: &TypeId,
+        visiting: &mut HashSet<(NominalType, TypeId)>,
+        budget: &mut SearchBudget<'_>,
+    ) -> Result<bool, ImplementationSearchError> {
+        let required = self.normalize_requirement(required, visiting, budget)?;
+        if budget.assumes(&required, actual) {
+            return Ok(true);
+        }
+        if let Some(protocol) = Protocol::from_definition(&required.declaration, budget.definitions)
+        {
+            if required.arguments.is_empty() && required.associated_types.is_empty() {
+                // Structural equality needs checked overrides and core enum payloads.
+                if self.standard_holds(protocol, actual, visiting, budget)? {
+                    return Ok(true);
+                }
+                if protocol.equality_protocol() {
+                    return Ok(false);
+                }
+            }
+            if traits::intrinsic_applies(
+                budget.definitions,
+                &required,
+                actual,
+                None,
+                budget.assumptions,
+            ) {
+                return Ok(true);
+            }
+        }
+        let matches = self.explicit_applications(&required, actual, visiting, budget)?;
+        if !matches.is_empty() {
+            return Ok(matches.len() == 1);
+        }
+        if let Some(iterator) = traits::iterator_requirement(budget.definitions, &required, actual)
+        {
+            return self.assumed_or_declared(&iterator, actual, visiting, budget);
+        }
+        Ok(false)
+    }
+
+    fn assumed_or_declared(
+        &self,
+        required: &NominalType,
+        actual: &TypeId,
+        visiting: &mut HashSet<(NominalType, TypeId)>,
+        budget: &mut SearchBudget<'_>,
+    ) -> Result<bool, ImplementationSearchError> {
+        Ok(budget.assumes(required, actual)
+            || self
+                .explicit_applications(required, actual, visiting, budget)?
+                .len()
+                == 1)
     }
 
     fn implementation_matches(
@@ -859,119 +964,48 @@ impl AggregateCatalog {
         // Operation requirements may be raised from executable value types.
         // Compare canonical nested values while retaining exact root constraints.
         let receiver = self.canonical_value_type(budget.definitions, receiver);
-        let Some(matched) = match_implementation(
-            &self.canonical_interface_application(budget.definitions, &implementation.trait_type),
-            &self.canonical_interface_application(budget.definitions, trait_type),
+        let implemented =
+            self.canonical_interface_application(budget.definitions, &implementation.trait_type);
+        let requested = self.canonical_interface_application(budget.definitions, trait_type);
+        let Some(matched) = match_implementation_header(
+            &implemented,
+            &requested,
             &self.canonical_value_type(budget.definitions, &implementation.for_type),
             &receiver,
             &implementation.generic_params,
         ) else {
             return Ok(None);
         };
-        if self.canonical_value_type(
-            budget.definitions,
-            &implementation.for_type.instantiate(&matched),
-        ) != receiver
-        {
-            return Ok(None);
-        }
+
         let key = (trait_type.clone(), receiver.clone());
         if !visiting.insert(key.clone()) {
             return Ok(None);
         }
         let holds = (|| {
             for (parameter, constraints) in &implementation.bounds {
+                budget.check_expansion(parameter, &matched)?;
                 let actual =
-                    self.normalize_type(budget.definitions, &parameter.instantiate(&matched));
+                    self.normalize_for_search(&parameter.instantiate(&matched), visiting, budget)?;
                 for constraint in constraints {
-                    budget
-                        .cancel
-                        .check()
-                        .map_err(|_| ImplementationSearchError::Cancelled)?;
-                    let satisfied = {
-                        let required = constraint;
-
-                        if budget.depth >= budget.max_depth {
-                            return Err(ImplementationSearchError::LimitExceeded);
-                        }
-                        let required = required.instantiate(&matched);
-                        if budget.assumptions.get(&actual).is_some_and(|bounds| {
-                            bounds
-                                .iter()
-                                .any(|available| available.satisfies(&required))
-                        }) {
-                            continue;
-                        }
-                        if required.arguments.is_empty()
-                            && required.associated_types.is_empty()
-                            && let Some(protocol) =
-                                Protocol::from_definition(&required.declaration, budget.definitions)
-                            && protocol.equality_protocol()
-                        {
-                            // Equality depends on explicit implementations
-                            // and core enum payloads. A catalog-free
-                            // intrinsic answer cannot establish this bound.
-                            if self.standard_holds(protocol, &actual, visiting, budget)? {
-                                continue;
-                            }
-                            return Ok(false);
-                        }
-                        if traits::intrinsic_applies(
-                            budget.definitions,
-                            &required,
-                            &actual,
-                            None,
-                            budget.assumptions,
-                        ) {
-                            continue;
-                        }
-                        if required.arguments.is_empty()
-                            && required.associated_types.is_empty()
-                            && let Some(protocol) =
-                                Protocol::from_definition(&required.declaration, budget.definitions)
-                            && self.standard_holds(protocol, &actual, visiting, budget)?
-                        {
-                            continue;
-                        }
-                        budget.depth += 1;
-                        let found = (|| {
-                            for candidate in self.implementations.values() {
-                                if self
-                                    .implementation_matches(
-                                        candidate, &required, &actual, visiting, budget,
-                                    )?
-                                    .is_some()
-                                {
-                                    return Ok(true);
-                                }
-                            }
-                            if let Some(iterator) =
-                                traits::iterator_requirement(budget.definitions, &required, &actual)
-                            {
-                                if budget.assumptions.get(&actual).is_some_and(|bounds| {
-                                    bounds.iter().any(|n| n.satisfies(&iterator))
-                                }) {
-                                    return Ok(true);
-                                }
-                                for candidate in self.implementations.values() {
-                                    if self
-                                        .implementation_matches(
-                                            candidate, &iterator, &actual, visiting, budget,
-                                        )?
-                                        .is_some()
-                                    {
-                                        return Ok(true);
-                                    }
-                                }
-                            }
-                            Ok(false)
-                        })();
-                        budget.depth -= 1;
-                        found?
-                    };
-                    if !satisfied {
+                    budget.check_expansion(&TypeId::Trait(constraint.clone()), &matched)?;
+                    let required = constraint.instantiate(&matched);
+                    if !budget.nested(|budget| {
+                        self.impl_bound_holds(required, &actual, visiting, budget)
+                    })? {
                         return Ok(false);
                     }
+                }
+            }
+            for (member, expected) in &requested.associated_types {
+                let Some(output) = implemented.associated_types.get(member) else {
+                    return Ok(false);
+                };
+                budget.check_expansion(output, &matched)?;
+                let actual =
+                    self.normalize_for_search(&output.instantiate(&matched), visiting, budget)?;
+                let expected = self.normalize_for_search(expected, visiting, budget)?;
+                if actual != expected || actual.is_unresolved() {
+                    return Ok(false);
                 }
             }
             Ok(true)
@@ -1028,6 +1062,7 @@ fn implementation_member(
 }
 
 mod mapping;
+mod projections;
 
 impl AggregateCatalog {
     /// Borrows one recorded implementation by canonical identity.

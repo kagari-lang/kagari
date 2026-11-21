@@ -183,61 +183,6 @@ fn validate_shape(
     Ok(())
 }
 
-/// Resolve declared projection bounds through the same applied-interface query as
-/// member lookup, retaining trait/family arguments and associated-output equalities.
-fn requirement_satisfied(
-    definitions: &DefinitionTable,
-    catalog: &AggregateCatalog,
-    required: &NominalType,
-    actual: &TypeId,
-    search: ImplementationSearchContext<'_>,
-) -> Result<bool, ImplementationSearchError> {
-    if search.assumptions.get(actual).is_some_and(|available| {
-        available
-            .iter()
-            .any(|available| available.satisfies(required))
-    }) {
-        return Ok(true);
-    }
-    // Owner-qualified Self carries its declaring trait's formal application,
-    // not an arbitrary application of that trait with different arguments/outputs.
-    if let TypeId::SelfType(owner) = actual
-        && let Some(contract) = catalog.trait_(owner)
-    {
-        let own = NominalType {
-            declaration: *owner,
-            arguments: contract
-                .generic_params
-                .iter()
-                .cloned()
-                .map(TypeId::Generic)
-                .collect(),
-            associated_types: Default::default(),
-        };
-        if catalog
-            .trait_closure(&own, actual, search.cancel)?
-            .iter()
-            .any(|available| available.satisfies(required))
-        {
-            return Ok(true);
-        }
-    }
-    if matches!(actual, TypeId::Projection { .. })
-        && catalog
-            .declared_interfaces(definitions, actual, search.assumptions, search.cancel)?
-            .iter()
-            .any(|available| available.satisfies(required))
-    {
-        return Ok(true);
-    }
-    match actual {
-        TypeId::Generic(_) => {
-            Ok(catalog.intrinsic_implementation(definitions, required, actual, search.assumptions))
-        }
-        _ => Ok(catalog.implementation_count_bounded(definitions, required, actual, search)? == 1),
-    }
-}
-
 /// Proves declared generic requirements after a simultaneous substitution.
 /// Shared by nominal applications and transparent aliases, including erased inputs.
 pub(super) fn validate_requirements(
@@ -277,7 +222,7 @@ pub(super) fn validate_requirements(
                 .map_err(|_| ImplementationSearchError::Cancelled)?;
             return Err(ImplementationSearchError::LimitExceeded);
         }
-        let actual = catalog.normalize_type(definitions, &parameter.instantiate(substitution));
+        let actual = parameter.instantiate(substitution);
         for constraint in constraints {
             cancel
                 .check()
@@ -301,7 +246,7 @@ pub(super) fn validate_requirements(
                 return Err(ImplementationSearchError::LimitExceeded);
             }
             let applied = constraint.instantiate(substitution);
-            let satisfied = requirement_satisfied(definitions, catalog, &applied, &actual, search)?;
+            let satisfied = catalog.proves_requirement(definitions, &applied, &actual, search)?;
             if !satisfied {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::GenericBoundNotSatisfied {
@@ -365,7 +310,7 @@ fn validate_outputs(
             else {
                 unreachable!()
             };
-            let satisfied = requirement_satisfied(definitions, catalog, &required, actual, search)?;
+            let satisfied = catalog.proves_requirement(definitions, &required, actual, search)?;
             if !satisfied && !actual.is_unresolved() {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
@@ -487,9 +432,8 @@ fn validate_inner(
                         let actual = parameter.instantiate(&substitution);
                         for constraint in constraints {
                             let required = constraint.instantiate(&substitution);
-                            let satisfied = requirement_satisfied(
+                            let satisfied = catalog.proves_requirement(
                                 definitions,
-                                catalog,
                                 &required,
                                 &actual,
                                 search,
@@ -501,7 +445,7 @@ fn validate_inner(
                     }
                 }
                 if !receiver.is_unresolved()
-                    && !requirement_satisfied(definitions, catalog, interface, receiver, search)?
+                    && !catalog.proves_requirement(definitions, interface, receiver, search)?
                 {
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::InvalidAssociatedType {

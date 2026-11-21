@@ -101,6 +101,7 @@ fn host_fixture() -> (KagariEngine, FileId, ExecutionContext, Arc<Mutex<Vec<i32>
     (engine, root, context, calls)
 }
 
+mod blanket_traits;
 mod execution;
 mod implementations;
 mod imports;

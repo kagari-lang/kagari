@@ -1,0 +1,37 @@
+struct Packet<T> {
+    val value: T
+}
+
+struct Receipt {}
+
+trait Forward<S> {
+    fn accept(value: S) -> Self;
+}
+
+trait Reverse<D, Label> {
+    fn deliver(self, label: Label) -> Packet<D>;
+}
+
+impl<T> Forward<Packet<T>> for Receipt {
+    fn accept(value: Packet<T>) -> Self {
+        Receipt {}
+    }
+}
+
+impl<S, D: Forward<S>, Label> Reverse<D, Label> for S {
+    fn deliver(self, label: Label) -> Packet<D> {
+        Packet { value: <D as Forward<S>>::accept(self) }
+    }
+}
+
+fn concrete(value: Packet<i32>, label: bool) -> Packet<Receipt> {
+    value.deliver(label)
+}
+
+fn generic<S, D: Forward<S>, L>(value: S, label: L) -> Packet<D> {
+    value.deliver(label)
+}
+
+fn from_argument(value: Packet<bool>) -> Receipt {
+    Receipt::accept(value)
+}

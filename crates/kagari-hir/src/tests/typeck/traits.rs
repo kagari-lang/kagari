@@ -336,6 +336,87 @@ fn blanket_impl_headers_compare_receiver_and_trait_arguments_together() {
 }
 
 #[test]
+fn blanket_method_applications_infer_trait_arguments_from_call_signatures() {
+    let source = SourceFile::new(
+        "blanket-method.kgr",
+        include_str!("../../../tests/fixtures/typeck/traits/blanket-method.kgr"),
+    );
+    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+    assert!(
+        analysis.diagnostics().is_empty(),
+        "{:?}",
+        analysis.diagnostics()
+    );
+    let checked = analysis
+        .into_codegen()
+        .expect("ordinary trait method calls");
+    for name in ["concrete", "generic", "from_argument"] {
+        let function = checked
+            .lowered
+            .module
+            .functions
+            .iter()
+            .find(|f| f.name == name)
+            .unwrap();
+        let call = checked
+            .lowered
+            .module
+            .block(function.implementation.script_body().unwrap())
+            .tail_expr
+            .unwrap();
+        let resolved = checked.typed.type_table.call_resolution(call).unwrap();
+        let CallTarget::TraitMethod { method, interface } = &resolved.target else {
+            panic!("{name}: not a trait call")
+        };
+        let signature = checked
+            .typed
+            .signatures
+            .functions()
+            .iter()
+            .find(|f| f.name == name)
+            .unwrap();
+        let (arguments, method_name) = if name == "from_argument" {
+            (vec![signature.params[0].ty.clone()], "accept")
+        } else {
+            let TypeId::Struct(packet) = &signature.return_type else {
+                panic!("expected Packet<D>")
+            };
+            (
+                vec![packet.arguments[0].clone(), signature.params[1].ty.clone()],
+                "deliver",
+            )
+        };
+        assert_eq!(interface.arguments, arguments, "{name}");
+        assert_eq!(resolved.receiver.is_some(), name != "from_argument");
+        assert_eq!(
+            checked.aggregates.trait_method(method).unwrap().name,
+            method_name
+        );
+    }
+}
+
+#[test]
+fn blanket_method_applications_require_a_destination_and_forward_evidence() {
+    let declarations = include_str!("../../../tests/fixtures/typeck/traits/blanket-method.kgr");
+    for caller in [
+        "fn rejected(value: Packet<i32>) { val destination = value.deliver(true); }",
+        "fn rejected<S, D>(value: S) -> Packet<D> { value.deliver(true) }",
+    ] {
+        let source = SourceFile::new("missing-method.kgr", format!("{declarations}{caller}"));
+        let analysis =
+            crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        assert!(
+            analysis.diagnostics().iter().any(
+                |d| matches!(&d.kind, DiagnosticKind::UnknownName { name } if name == "deliver")
+            ),
+            "{caller}: {:?}",
+            analysis.diagnostics()
+        );
+        assert!(analysis.into_codegen().is_err());
+    }
+}
+
+#[test]
 fn bare_receiver_cannot_override_standard_formatting() {
     let source = SourceFile::new(
         "format-impl.kgr",
@@ -383,6 +464,37 @@ fn forward<T{bound}>(value: Wrap<T>) {{
                 result.diagnostics()
             );
         }
+    }
+}
+
+#[test]
+fn conditional_application_proves_forwarded_outputs_after_substitution() {
+    let fixture = include_str!("../../../tests/fixtures/typeck/traits/conditional-application.kgr");
+    let check = |text: String| {
+        let source = SourceFile::new("conditional-application.kgr", text);
+        crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap()
+    };
+    let valid = check(fixture.into());
+    assert!(valid.diagnostics().is_empty(), "{:?}", valid.diagnostics());
+    for caller in [
+        "fn missing<S, D, O>(x: S, p: Needs<S, D, O>) { take::<S, D, O>(x); }",
+        "fn wrong(x: Source<i32>, p: Needs<Source<i32>, Destination, bool>) { take::<Source<i32>, Destination, bool>(x); }",
+        "struct Loop {} impl<S: Reverse<Loop>> Forward<S> for Loop { type Output = i32; }\nfn cycle<S>(x: S, p: Needs<S, Loop, i32>) { take::<S, Loop, i32>(x); }",
+    ] {
+        let text = format!("{fixture}{caller}");
+        let invalid = check(text.clone());
+        let spans: Vec<_> = invalid.diagnostics().iter().filter_map(|diagnostic| {
+            if !matches!(&diagnostic.kind, DiagnosticKind::GenericBoundNotSatisfied { trait_name, .. } if trait_name == "Reverse") {
+                return None;
+            }
+            let span = diagnostic.span?;
+            Some(&text[span.start..span.end])
+        }).collect();
+        // Signature application diagnostics point at the parameter, call diagnostics at the callee.
+        assert!(
+            spans.contains(&"p") && spans.contains(&"take"),
+            "{caller}: {spans:?}"
+        );
     }
 }
 

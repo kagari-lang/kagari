@@ -4,7 +4,9 @@ use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, map::DefinitionContext, table::DefinitionId,
 };
 use kagari_types::{
-    declaration::{AssociatedTypeFamily, module::ImplDecl, ownership::ReceiverOwners},
+    declaration::{
+        AssociatedTypeDef, AssociatedTypeFamily, module::ImplDecl, ownership::ReceiverOwners,
+    },
     language::{self, Protocol, binding},
     scalar::BuiltinType,
     ty::GenericParam,
@@ -281,6 +283,156 @@ fn linked_proofs_discharge_generic_bounds_and_reject_ambiguity_and_cycles() {
         catalog.holds(&marker, &scalar(), &[], &cancel),
         Err(TypeTransformError::Cancelled)
     );
+}
+
+#[test]
+fn linked_proofs_normalize_conditional_reverse_outputs_after_substitution() {
+    let context = proof_context();
+    let cancel = CancellationToken::default();
+    let forward = id(&context, DefinitionKind::Trait, "Forward");
+    let reverse = id(&context, DefinitionKind::Trait, "Reverse");
+    let [item, output] = [forward, reverse].map(|owner| {
+        context
+            .intern_child(owner, DefinitionKind::AssociatedType, "Output", 0)
+            .unwrap()
+    });
+    let parameter = |owner, position| GenericParam { owner, position };
+    let mut blanket = table(&context, "reverse", nominal(reverse, vec![]), scalar());
+    let [s, d] = [0, 1].map(|pos| parameter(blanket.declaration, pos));
+    let required = nominal(forward, vec![s.as_type()]);
+    let mut implemented = nominal(reverse, vec![d.as_type()]);
+    implemented.associated_types.insert(
+        output,
+        Ty::Projection {
+            receiver: Box::new(d.as_type()),
+            interface: Box::new(required.clone()),
+            member: item,
+            arguments: vec![],
+        },
+    );
+    blanket.bounds.push(bound(d.as_type(), required));
+    blanket.trait_type = Ty::Trait(implemented);
+    blanket.for_type = s.as_type();
+    blanket.generic_params = vec![s, d];
+
+    // Only the trait argument binds T in `impl<T> Forward<T> for bool`.
+    let dest = Ty::Builtin(BuiltinType::Bool);
+    let mut leaf = table(&context, "forward", nominal(forward, vec![]), dest.clone());
+    let t = parameter(leaf.declaration, 0);
+    let mut provided = nominal(forward, vec![t.as_type()]);
+    provided.associated_types.insert(item, t.as_type());
+    leaf.trait_type = Ty::Trait(provided);
+    leaf.generic_params = vec![t.clone()];
+    let caller = id(&context, DefinitionKind::Function, "caller");
+    let definitions = context.snapshot();
+    let contracts =
+        [(forward, "Forward", item), (reverse, "Reverse", output)].map(|(owner, name, member)| {
+            (
+                owner,
+                TraitDef {
+                    name: name.into(),
+                    generic_params: vec![parameter(owner, 0)],
+                    bounds: vec![],
+                    supertraits: vec![],
+                    methods: vec![],
+                    associated_consts: vec![],
+                    conversion_adapter: None,
+                    associated_types: vec![AssociatedTypeDef {
+                        declaration: member,
+                        generic_params: vec![],
+                        bounds: vec![],
+                        parameter_bounds: vec![],
+                    }],
+                },
+            )
+        });
+    let catalog = |tables| {
+        ProofCatalog::new(
+            tables,
+            [],
+            contracts.iter().map(|(id, def)| (*id, def)),
+            [],
+            &definitions,
+            &cancel,
+        )
+        .unwrap()
+    };
+    let requested = |destination, expected| {
+        let mut applied = nominal(reverse, vec![destination]);
+        applied.associated_types.insert(output, expected);
+        applied
+    };
+    let concrete = requested(dest.clone(), scalar());
+    let linked = catalog(vec![(&blanket).into(), (&leaf).into()]);
+    assert!(linked.holds(&concrete, &scalar(), &[], &cancel).unwrap());
+    let mut projected_request = nominal(forward, vec![scalar()]);
+    projected_request.associated_types.insert(
+        item,
+        Ty::Projection {
+            receiver: Box::new(scalar()),
+            interface: Box::new(nominal(reverse, vec![dest.clone()])),
+            member: output,
+            arguments: vec![],
+        },
+    );
+    assert!(
+        linked
+            .holds(&projected_request, &dest, &[], &cancel)
+            .unwrap()
+    );
+    assert!(
+        !linked
+            .holds(
+                &requested(dest.clone(), dest.clone()),
+                &scalar(),
+                &[],
+                &cancel
+            )
+            .unwrap()
+    );
+
+    let generic = catalog(vec![(&blanket).into()]);
+    let [src, dst] = [0, 1].map(|pos| parameter(caller, pos).as_type());
+    let mut available = nominal(forward, vec![src.clone()]);
+    let requirement = requested(dst.clone(), scalar());
+    // An unqualified Forward assumption proves the bound, not its concrete output.
+    let unqualified = [bound(dst.clone(), available.clone())];
+    assert!(
+        generic
+            .holds(
+                &nominal(reverse, vec![dst.clone()]),
+                &src,
+                &unqualified,
+                &cancel
+            )
+            .unwrap()
+    );
+    assert!(
+        !generic
+            .holds(&requirement, &src, &unqualified, &cancel)
+            .unwrap()
+    );
+    available.associated_types.insert(item, scalar());
+    assert!(
+        generic
+            .holds(&requirement, &src, &[bound(dst, available)], &cancel)
+            .unwrap()
+    );
+    assert!(!generic.holds(&concrete, &scalar(), &[], &cancel).unwrap());
+
+    let mut cyclic = leaf.clone();
+    cyclic
+        .bounds
+        .push(bound(t.as_type(), nominal(reverse, vec![dest.clone()])));
+    let cycle = catalog(vec![(&blanket).into(), (&cyclic).into()]);
+    assert!(!cycle.holds(&concrete, &scalar(), &[], &cancel).unwrap());
+    let projection = Ty::Projection {
+        receiver: Box::new(dest),
+        interface: Box::new(nominal(forward, vec![scalar()])),
+        member: item,
+        arguments: vec![],
+    };
+    assert_eq!(cycle.normalize(&projection, &cancel).unwrap(), projection);
 }
 
 #[test]
